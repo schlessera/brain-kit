@@ -60,6 +60,7 @@ import {
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { createCronScheduler } from "./cron/scheduler.js";
+import { startScratchPrune } from "./cron/scratch-prune.js";
 import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
@@ -201,6 +202,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   prunePrincipals(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
   const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
+  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Model pricing for rollup-time effective cost: constructed here because
   // the config owns enabled/TTL/brainPath, shared through the activity
@@ -536,6 +538,7 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     close: () => {
       host.close();
       subscription.close();
+      scratchPrune.close();
       activity.close();
       db.close();
     },

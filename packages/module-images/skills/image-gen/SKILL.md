@@ -101,7 +101,8 @@ default) unless `--out` says otherwise, and must stay inside the brain repo —
 an image written elsewhere is invisible to anyone reading the brain, and to
 the file viewer. A draft that should not become part of the brain goes to the
 scratch area with `--scratch` (`.brain/scratch/`): the reader can open it, it
-is never committed, and it is pruned after 7 days. Move it out to keep it.
+is never committed, and it is pruned after 7 days. Its name is unique to that
+draft, so link to the path the command prints. Move it out to keep it.
 
 Name it for what it is, not for the prompt: `heat-pump-cutaway.png` beats
 `a-cutaway-diagram-of-a-heat.png`. Pass `--out` rather than renaming afterwards.

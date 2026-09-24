@@ -3,12 +3,15 @@
  * the brain, where the UI can open it, and only once git ignores it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
+
+// Several CLI launches per test; each takes seconds when the whole suite runs.
+const CLI_TIMEOUT_MS = 120_000;
 
 function git(...args: string[]) {
   return Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
@@ -47,14 +50,14 @@ describe("render into the scratch area", () => {
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch", "--json"]);
     expect(res.code).toBe(0);
     const out = JSON.parse(res.stdout) as { output: string };
-    expect(out.output).toBe(".brain/scratch/trip.html");
+    expect(out.output).toMatch(/^\.brain\/scratch\/trip-\d{8}T\d{9}Z-[0-9a-f]{6}\.html$/);
     expect(readFileSync(join(root, out.output), "utf8")).toContain("<h1>Trip</h1>");
     // Nothing in scratch is something git would commit.
     git("add", "-A");
     const staged = new TextDecoder().decode(git("diff", "--cached", "--name-only").stdout);
     expect(staged).not.toContain(".brain/scratch");
     expect(staged).toContain("notes/trip.md");
-  });
+  }, CLI_TIMEOUT_MS);
 
   test("a write into scratch prunes it, so it never waits for the daily pass", async () => {
     await runCli(root, ["doctor", "--fix"]);
@@ -66,8 +69,39 @@ describe("render into the scratch area", () => {
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch"]);
     expect(res.code).toBe(0);
     expect(existsSync(stale)).toBe(false);
-    expect(existsSync(join(root, ".brain/scratch/trip.html"))).toBe(true);
-  });
+    expect(scratchFiles().filter((f) => f.startsWith("trip-"))).toHaveLength(1);
+  }, CLI_TIMEOUT_MS);
+
+  test("two inputs with one basename, and two renders of one input, all keep their own output", async () => {
+    await runCli(root, ["doctor", "--fix"]);
+    mkdirSync(join(root, "notes/a"), { recursive: true });
+    mkdirSync(join(root, "notes/b"), { recursive: true });
+    writeFileSync(join(root, "notes/a/report.md"), "# Report A\n");
+    writeFileSync(join(root, "notes/b/report.md"), "# Report B\n");
+    const outputs: string[] = [];
+    for (const input of ["notes/a/report.md", "notes/b/report.md", "notes/a/report.md"]) {
+      const res = await runCli(root, ["render", input, "--format", "html", "--scratch", "--json"]);
+      expect(res.code).toBe(0);
+      outputs.push((JSON.parse(res.stdout) as { output: string }).output);
+    }
+    expect(new Set(outputs).size).toBe(3);
+    expect(readFileSync(join(root, outputs[0]), "utf8")).toContain("<h1>Report A</h1>");
+    expect(readFileSync(join(root, outputs[1]), "utf8")).toContain("<h1>Report B</h1>");
+    expect(readFileSync(join(root, outputs[2]), "utf8")).toContain("<h1>Report A</h1>");
+  }, CLI_TIMEOUT_MS);
+
+  test("a scratch linked to a content directory is refused, and nothing lands in the content", async () => {
+    // A link out of the brain is already refused as an escape; a link to a
+    // directory inside it is contained, and is the case the guard exists for:
+    // a "scratch" write would otherwise become content.
+    await runCli(root, ["doctor", "--fix"]);
+    mkdirSync(join(root, ".brain"), { recursive: true });
+    symlinkSync(join("..", "notes"), join(root, ".brain/scratch"));
+    const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch"]);
+    expect(res.code).toBe(1);
+    expect(res.stderr + res.stdout).toContain("redirected by a symlink");
+    expect(readdirSync(join(root, "notes")).filter((f) => f.endsWith(".html"))).toEqual([]);
+  }, CLI_TIMEOUT_MS);
 
   test("stdin without --out goes to scratch", async () => {
     await runCli(root, ["doctor", "--fix"]);
@@ -83,12 +117,26 @@ describe("render into the scratch area", () => {
     const out = JSON.parse(await new Response(proc.stdout).text()) as { output: string };
     expect(out.output).toMatch(/^\.brain\/scratch\/render-.*\.html$/);
     expect(readFileSync(join(root, out.output), "utf8")).toContain("<h1>From stdin</h1>");
-  });
+  }, CLI_TIMEOUT_MS);
 
-  test("an explicit --out into scratch is held to the same rule", async () => {
+  test("an explicit --out into scratch is held to the same rule, and once ignored is the caller's to overwrite", async () => {
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/x.html"]);
     expect(res.code).toBe(1);
     expect(res.stderr + res.stdout).toContain("brain doctor --fix");
+    await runCli(root, ["doctor", "--fix"]);
+    for (let i = 0; i < 2; i++) {
+      const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/x.html"]);
+      expect(again.code).toBe(0);
+    }
+    expect(scratchFiles()).toEqual(["x.html"]);
+  }, CLI_TIMEOUT_MS);
+
+  test("a --out that git would not ignore, under a rule with a negation, is refused by name", async () => {
+    writeFileSync(join(root, ".gitignore"), ".brain/scratch/*\n!.brain/scratch/exposed.html\n");
+    const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/exposed.html"]);
+    expect(res.code).toBe(1);
+    expect(res.stderr + res.stdout).toContain(".brain/scratch/exposed.html is not gitignored");
+    expect(scratchFiles()).toEqual([]);
   });
 });
 
@@ -100,5 +148,5 @@ describe("brain doctor", () => {
     await runCli(root, ["doctor", "--fix"]);
     const ignore = readFileSync(join(root, ".gitignore"), "utf8");
     expect(ignore.split("\n").filter((l) => l === ".brain/scratch/")).toHaveLength(1);
-  });
+  }, CLI_TIMEOUT_MS);
 });

@@ -222,7 +222,7 @@ Stated before the requirements because five of them derive from it.
   history, but `activity/runtime.ts:86-100` already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop poke needs a real auth answer.** Every non-public `/api/*` route is
-  guarded (`packages/ui-server/src/app.ts:282-304`) and password mode accepts only a signed
+  guarded (`packages/ui-server/src/app.ts:284-306`) and password mode accepts only a signed
   cookie (`packages/ui-server/src/middleware/auth.ts:163-173`), so a cookie-less loopback
   request passes only in tailscale/none modes. Either mount the internal route **before** the
   general guard and check the real socket address with proxy headers ignored, or give it a

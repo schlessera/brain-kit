@@ -10,7 +10,11 @@ const HELP = `brain maintain — routine maintenance (cron-friendly)
 Runs, in order: incremental index (+embeddings when a key is configured), an
 audit snapshot, then a prune of the scratch area (files older than 7 days, then
 the oldest until under 1 GB). Exits 2 if any step failed. Module cron jobs are separate
-(advisory manifest entries consumed by the container entrypoint).`;
+(advisory manifest entries consumed by the container entrypoint).
+
+The hosting container runs this daily. A brain with no chat server has no
+other periodic pass over the scratch area, so schedule this command (cron) or
+scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
   summary: "Run routine maintenance: incremental index, audit snapshot, scratch prune",

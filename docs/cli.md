@@ -20,7 +20,7 @@ Usage: brain <command> [args] [flags]
 | `list` | List/browse documents | `--type/--tag/--status`, `--json` = bare array |
 | `process` | Assimilate an inbox note into proper brain content | uses the configured completions provider; degrades keyless |
 | `archive <path>` | Set `status: archived`, move per convention, reindex | Refuses an occupied archive destination before modifying the source |
-| `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--as markdown\|html`, `--title`, `--width`, repeatable `--allow-host`; frontmatter is stripped |
+| `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--scratch` (into `.brain/scratch/`, the default for stdin), `--as markdown\|html`, `--title`, `--width`, repeatable `--allow-host`; frontmatter is stripped |
 
 ### Rendering
 
@@ -56,7 +56,8 @@ hosts; `data:` URIs always render.
 | `validate` ⚖ | Config, frontmatter, wiki-link, and index-drift validation | `{ok, issues, errors, warnings}`; exit 1 on error-level issues |
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker audit | `{issues, errors, warnings, infos}`; module hygiene checks appended |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |
-| `maintain` | Routine maintenance sequence | exit 2 if any step failed |
+| `maintain` | Routine maintenance sequence: incremental index, audit snapshot, scratch prune | exit 2 if any step failed; the hosting container runs it daily. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
+| `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], bytes, files}`; every write into scratch already prunes, and the chat server prunes hourly |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top |
 
 ## Graph

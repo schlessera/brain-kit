@@ -1,10 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
 import matter from "gray-matter";
 import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
 
 import { resolveWritable } from "../../lib/safe-path.js";
-import { ensureScratch, isInScratch, pruneScratch, SCRATCH_DIR, ScratchNotIgnoredError } from "../../lib/scratch.js";
+import {
+  assertScratchWritable,
+  isInScratch,
+  pruneScratch,
+  SCRATCH_DIR,
+  ScratchNotIgnoredError,
+  ScratchRedirectedError,
+  scratchName,
+  writeScratchFile,
+} from "../../lib/scratch.js";
 import {
   noSandboxFromEnv,
   RendererUnavailableError,
@@ -122,30 +131,32 @@ export const renderCommand: CoreCommand = {
       throw new UsageError("--out and --scratch are exclusive");
     }
     // Transient output goes to the scratch area: on request, and for stdin,
-    // which has no file of its own to sit next to.
+    // which has no file of its own to sit next to. A generated name is unique
+    // per render (scratchName): the input's directory is not part of it, and
+    // two renders must never replace each other under a link already shared.
     const toScratch = flags.scratch === true || (!outFlag && fromStdin);
     const outRel = toScratch
-      ? join(
-          SCRATCH_DIR,
-          (fromStdin ? `render-${new Date().toISOString().replace(/[:.]/g, "-")}` : basename(input).replace(/\.[^.]+$/, "")) +
-            "." +
-            format,
-        )
+      ? join(SCRATCH_DIR, scratchName(fromStdin ? "render" : basename(input).replace(/\.[^.]+$/, ""), format))
       : (outFlag ?? input.replace(/\.[^./\\]+$/, "") + "." + format);
     const outAbs = resolveWritable(root, outRel);
     if (!outAbs) {
       throw new UsageError(`Output path is not inside the brain: ${outRel}`);
     }
-    const scratchOutput = isInScratch(root, outAbs);
-    if (scratchOutput) {
+    // Asked for scratch (lexically), or resolved into it: either way the
+    // write is held to the scratch rules, checked here and again just before
+    // the bytes go down.
+    const scratchOutput = isInScratch(root, outRel) || isInScratch(root, outAbs);
+    const guardScratch = () => {
       try {
-        ensureScratch(root);
+        assertScratchWritable(root, outAbs);
       } catch (error) {
-        if (error instanceof ScratchNotIgnoredError) throw new UsageError(error.message);
+        if (error instanceof ScratchNotIgnoredError || error instanceof ScratchRedirectedError) {
+          throw new UsageError(error.message);
+        }
         throw error;
       }
-      mkdirSync(dirname(outAbs), { recursive: true });
-    }
+    };
+    if (scratchOutput) guardScratch();
     if (!existsSync(dirname(outAbs))) {
       throw new UsageError(`Output directory does not exist: ${relative(root, dirname(outAbs))}`);
     }
@@ -158,9 +169,15 @@ export const renderCommand: CoreCommand = {
 
     const html = buildHtmlDocument({ content, contentType, title, allowHosts });
 
-    // --- write
+    // --- write. A generated scratch name is created exclusively; a name the
+    // caller chose (--out) is theirs to overwrite.
+    const write = (data: string | Uint8Array) => {
+      if (scratchOutput) guardScratch();
+      if (toScratch) writeScratchFile(outAbs, data);
+      else writeFileSync(outAbs, data);
+    };
     if (format === "html") {
-      writeFileSync(outAbs, html, "utf8");
+      write(html);
     } else {
       let renderer;
       try {
@@ -177,7 +194,7 @@ export const renderCommand: CoreCommand = {
           format === "png"
             ? await renderer.renderPng({ html, width })
             : await renderer.renderPdf({ html, width });
-        writeFileSync(outAbs, buf);
+        write(buf);
       } finally {
         await renderer.shutdown();
       }

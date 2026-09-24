@@ -21,6 +21,7 @@ import {
 } from "./indexer.js";
 import { normalizeFrontmatterDates, stringifyDocument } from "./frontmatter.js";
 import { safeResolve } from "./safe-path.js";
+import { assertScratchWritable, isInScratch, pruneScratch } from "./scratch.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { createWikiLinkResolver } from "./indexer/links.js";
 
@@ -432,6 +433,16 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
 
   // Exclusion from indexing is not permission to delete unrelated data.
   assertDisposableOutput(output.absolute);
+  // The scratch area is excluded too, so it passes the check above; a bundle
+  // written there is held to the scratch rules like any other write (#310).
+  const scratchOutput = isInScratch(root, output.absolute);
+  if (scratchOutput) {
+    try {
+      assertScratchWritable(root, output.absolute);
+    } catch (error) {
+      throw new OkfExportError(error instanceof Error ? error.message : String(error));
+    }
+  }
   // All validation and parsing happens before this derived-artifact wipe.
   if (existsSync(output.absolute)) rmSync(output.absolute, { recursive: true, force: true });
   mkdirSync(output.absolute, { recursive: true });
@@ -469,6 +480,8 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
     report.indexFilesGenerated++;
   }
 
+  // Every write into scratch prunes it.
+  if (scratchOutput) pruneScratch(root);
   return report;
 }
 

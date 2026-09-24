@@ -116,8 +116,9 @@ it, and a file written outside is invisible to anyone browsing the brain.
 - **For now only** (a preview, a file to share and forget): pass `--scratch`.
   It lands in the brain's scratch area, `.brain/scratch/`, which the reader can
   open from a link but which is never committed and is pruned after 7 days or
-  past 1 GB. Reading from stdin without `--out` goes there too. To keep a
-  scratch file after all, move it out into the content.
+  past 1 GB. Reading from stdin without `--out` goes there too. The name is
+  unique to that render, so link to the path the command prints rather than
+  guessing it. To keep a scratch file after all, move it out into the content.
 
 Never write to `/tmp`: the reader cannot open it, and `brain render` refuses it.
 

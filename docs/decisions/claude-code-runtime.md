@@ -48,8 +48,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:115-180`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:198`).
+  `packages/ui-server/src/brain/client.ts:117-182`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:199`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:275-277`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -194,7 +194,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:178-183`).
+  `packages/ui-server/src/app.ts:179-184`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -225,7 +225,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:115`). The SDK's
+  `packages/ui-server/src/brain/client.ts:117`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands

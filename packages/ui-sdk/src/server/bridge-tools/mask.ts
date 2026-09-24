@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "fs";
-import { dirname, extname, relative, resolve, sep } from "path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname, extname, join, relative, resolve, sep } from "path";
 
 import type {
   ImageMaskPayload,
@@ -59,6 +59,7 @@ export async function handleRequestImageMask(
   if (!maskAbs) {
     throw new Error(`Cannot write a mask for ${input.imagePath}`);
   }
+  assertScratchMask(rootReal, maskRel, maskAbs);
   mkdirSync(dirname(maskAbs), { recursive: true });
   writeFileSync(maskAbs, png);
 
@@ -78,6 +79,75 @@ export async function handleRequestImageMask(
     bytes: png.byteLength,
     note: "Transparent pixels mark the editable region. Pass this to `brain image --mask`, with the image as `--ref`.",
   };
+}
+
+/**
+ * The brain's scratch area, `.brain/scratch/` (#310). A mask sits beside its
+ * image, so an image in scratch puts the mask there too, and the write is
+ * held to the scratch rules: not redirected by a symlink, and ignored by git
+ * for that very path. Pruning is the server's hourly pass.
+ *
+ * Kept in lockstep with `packages/core/src/lib/scratch.ts` (`SCRATCH_DIR`,
+ * `scratchIgnored`, `scratchDir`): the SDK ports the rule, as it does for
+ * `resolveInRepo`, instead of depending on `@schlessera/brain`.
+ */
+const SCRATCH_DIR = ".brain/scratch";
+const SCRATCH_IGNORE_LINE = /^\/?\.brain(\/scratch)?\/?$/;
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function scratchIgnored(rootReal: string, rel: string): boolean {
+  const inRepo =
+    existsSync(join(rootReal, ".git")) ||
+    Bun.spawnSync(["git", "-C", rootReal, "rev-parse", "--git-dir"]).exitCode === 0;
+  if (!inRepo) {
+    // Outside a repository the line is required all the same: a later
+    // `git init` would commit an unignored scratch.
+    const ignore = join(rootReal, ".gitignore");
+    if (!existsSync(ignore)) return false;
+    return readFileSync(ignore, "utf8")
+      .split("\n")
+      .some((line) => SCRATCH_IGNORE_LINE.test(line.trim()));
+  }
+  return (
+    Bun.spawnSync(["git", "-C", rootReal, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0
+  );
+}
+
+/**
+ * Refuse a mask write into the scratch area that the rules would not allow.
+ * A mask asked for outside scratch, and landing outside it, is not its
+ * business.
+ */
+export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: string): void {
+  const dir = join(rootReal, SCRATCH_DIR);
+  const under = (path: string) => path === dir || path.startsWith(dir + sep);
+  const asked = under(resolve(rootReal, maskRel));
+  const lands = under(maskAbs);
+  if (!asked && !lands) return;
+  for (const path of [dirname(dir), dir]) {
+    if (isSymlink(path)) {
+      throw new Error(
+        `${SCRATCH_DIR}/ is redirected by a symlink (${relative(rootReal, path)}), so no mask is written there.`
+      );
+    }
+  }
+  if (!lands) {
+    throw new Error(`${maskRel} resolves outside ${SCRATCH_DIR}/, so no mask is written there.`);
+  }
+  const rel = relative(rootReal, maskAbs).split(sep).join("/");
+  if (!scratchIgnored(rootReal, rel)) {
+    throw new Error(
+      `${rel} is not gitignored, so a mask written there could be committed to the brain. ` +
+        "Run `brain doctor --fix` to add it to .gitignore, then try again."
+    );
+  }
 }
 
 export function claudeMaskFilename(

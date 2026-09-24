@@ -136,7 +136,7 @@ Unit numbers are stable identifiers, not build order. Build order:
   owns only manual triggers and history; it does not tick.
 - **Two-process SQLite posture**: WAL + `busy_timeout = 5000` already set for exactly this
   (`packages/ui-server/src/db/client.ts:25-35`); activity writes use immediate transactions.
-- **Auth guard reality**: `packages/ui-server/src/app.ts:282-304` guards every non-public
+- **Auth guard reality**: `packages/ui-server/src/app.ts:284-306` guards every non-public
   `/api/*`; password mode requires a signed cookie
   (`packages/ui-server/src/middleware/auth.ts:163-173`).
 - **Permission parking and the unwind order**: `ws/bridge.ts:63-112` (parked promise, no

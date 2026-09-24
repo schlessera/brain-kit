@@ -11,9 +11,26 @@
  *
  * Share staging (`.brain-ui/inbox`) is deliberately separate: it may become a
  * mount point for a shared folder, so it keeps its own location and policy.
+ *
+ * Nothing here follows a symlink. A `.brain` or `.brain/scratch` that is one
+ * would let a prune delete, or a write land, wherever the link points, so
+ * both are refused outright (`ScratchRedirectedError`), and the walk reads
+ * every entry with `lstat`.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { join, relative } from "path";
+import { randomBytes } from "crypto";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import type { Dirent, Stats } from "fs";
+import { dirname, join, relative, resolve, sep } from "path";
 
 /** Repo-relative scratch directory. Every mechanism that needs it reads this. */
 export const SCRATCH_DIR = ".brain/scratch";
@@ -28,12 +45,20 @@ export const SCRATCH_MAX_BYTES = 1024 * 1024 * 1024;
 export const SCRATCH_IGNORE_LINE = `${SCRATCH_DIR}/`;
 
 export class ScratchNotIgnoredError extends Error {
-  constructor() {
+  constructor(path: string = `${SCRATCH_DIR}/`) {
     super(
-      `${SCRATCH_DIR}/ is not gitignored, so a file written there could be committed to the brain. ` +
+      `${path} is not gitignored, so a file written there could be committed to the brain. ` +
         "Run `brain doctor --fix` to add it to .gitignore, then try again."
     );
     this.name = "ScratchNotIgnoredError";
+  }
+}
+
+/** `.brain` or `.brain/scratch` is a symlink, or a path in scratch resolves out of it. */
+export class ScratchRedirectedError extends Error {
+  constructor(detail: string) {
+    super(`${SCRATCH_DIR}/ is redirected by a symlink, so nothing is written to or pruned from it: ${detail}`);
+    this.name = "ScratchRedirectedError";
   }
 }
 
@@ -41,14 +66,31 @@ function isGitRepo(root: string): boolean {
   return existsSync(join(root, ".git")) || Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0;
 }
 
+/** A `.gitignore` line that excludes the scratch directory (or all of `.brain`) as a directory. */
+const IGNORE_LINE = /^\/?\.brain(\/scratch)?\/?$/;
+
+function hasIgnoreLine(root: string): boolean {
+  const path = join(root, ".gitignore");
+  if (!existsSync(path)) return false;
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .some((line) => IGNORE_LINE.test(line.trim()));
+}
+
 /**
- * Whether git ignores the scratch area. A brain that is not a git repository
- * commits nothing, so there is nothing to protect and the answer is yes.
+ * Whether git ignores `rel`, a repo-relative path in the scratch area (by
+ * default a probe file straight under it).
+ *
+ * In a repository the answer is git's own, for that path: a negation can
+ * re-include one file below a `.brain/scratch/*` rule, so a probe stands in
+ * for nothing but itself. Outside one, the `.gitignore` line is required all
+ * the same: the brain may be `git init`ed later, and a scratch left unignored
+ * would go into its first commit.
  */
-export function scratchIgnored(root: string): boolean {
-  if (!isGitRepo(root)) return true;
+export function scratchIgnored(root: string, rel: string = `${SCRATCH_DIR}/probe`): boolean {
+  if (!isGitRepo(root)) return hasIgnoreLine(root);
   // `check-ignore` answers for a path whether or not it exists.
-  return Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", `${SCRATCH_DIR}/probe`]).exitCode === 0;
+  return Bun.spawnSync(["git", "-C", root, "check-ignore", "-q", "--no-index", "--", rel]).exitCode === 0;
 }
 
 /** Appends the ignore line to the brain's `.gitignore`. Returns whether it changed anything. */
@@ -64,22 +106,99 @@ export function ignoreScratch(root: string): boolean {
   return true;
 }
 
-/** The absolute path of a repo-relative path, and whether it lies in scratch. */
-export function isInScratch(root: string, abs: string): boolean {
-  const rel = relative(root, abs).split("\\").join("/");
+function canonicalRoot(root: string): string {
+  try {
+    return realpathSync(root);
+  } catch {
+    return resolve(root);
+  }
+}
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The scratch directory's absolute path, verified: neither `.brain` nor
+ * `.brain/scratch` is a symlink, and the directory (when it exists) lies
+ * inside the canonical brain root. Throws `ScratchRedirectedError` otherwise.
+ * Because nothing on the way is a link, the path returned is canonical.
+ */
+export function scratchDir(root: string): string {
+  const rootReal = canonicalRoot(root);
+  const dir = join(rootReal, SCRATCH_DIR);
+  for (const path of [dirname(dir), dir]) {
+    if (isSymlink(path)) throw new ScratchRedirectedError(`${relative(rootReal, path)} is a symlink`);
+  }
+  if (existsSync(dir)) {
+    const real = realpathSync(dir);
+    if (real !== dir) throw new ScratchRedirectedError(`${SCRATCH_DIR} resolves to ${real}`);
+  }
+  return dir;
+}
+
+/**
+ * Whether `path` (repo-relative or absolute) is asked to go into the scratch
+ * area: a lexical question against the canonical root, before any symlink
+ * inside scratch gets a say. A caller that then writes there goes through
+ * `assertScratchWritable`, which checks where the write really lands.
+ */
+export function isInScratch(root: string, path: string): boolean {
+  const rootReal = canonicalRoot(root);
+  const rel = relative(rootReal, resolve(rootReal, path)).split("\\").join("/");
   return rel === SCRATCH_DIR || rel.startsWith(`${SCRATCH_DIR}/`);
 }
 
 /**
- * Make sure the scratch area may be written: ignored by git, and present.
- * Throws `ScratchNotIgnoredError` rather than writing where a commit would
- * pick the file up.
+ * Make sure the scratch area may be written: not redirected by a symlink,
+ * ignored by git, and present. Throws rather than writing where a commit
+ * would pick the file up or a link would send it.
  */
 export function ensureScratch(root: string): string {
+  const dir = scratchDir(root);
   if (!scratchIgnored(root)) throw new ScratchNotIgnoredError();
-  const dir = join(root, SCRATCH_DIR);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Everything one write into scratch needs, checked right before it happens:
+ * the directory is genuine (`scratchDir`), the canonical target `abs` lies in
+ * it, and git ignores that very path. Creates the target's directory.
+ *
+ * Called twice by a writer that renders or fetches in between: once up front,
+ * so a refusal costs nothing, and once more just before the bytes go down,
+ * because the ignore rule can change while the renderer runs.
+ */
+export function assertScratchWritable(root: string, abs: string): void {
+  const dir = scratchDir(root);
+  if (abs !== dir && !abs.startsWith(dir + sep)) {
+    throw new ScratchRedirectedError(`${abs} resolves outside ${SCRATCH_DIR}/`);
+  }
+  const rel = relative(canonicalRoot(root), abs).split("\\").join("/");
+  if (!scratchIgnored(root, rel)) throw new ScratchNotIgnoredError(rel);
+  mkdirSync(dirname(abs), { recursive: true });
+}
+
+/**
+ * A file name for a generated scratch file that no earlier or concurrent
+ * write shares: the stem, the moment, and a random tail. Two renders of
+ * different `report.md` files, or two stdin renders in one millisecond, must
+ * not land on one name, because a chat link to the first would then show the
+ * second.
+ */
+export function scratchName(stem: string, ext: string, now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:.]/g, "");
+  return `${stem}-${stamp}-${randomBytes(3).toString("hex")}.${ext}`;
+}
+
+/** Write a generated scratch file, refusing (EEXIST) to replace one already there. */
+export function writeScratchFile(abs: string, data: string | Uint8Array): void {
+  writeFileSync(abs, data, { flag: "wx" });
 }
 
 export interface ScratchRemoval {
@@ -102,43 +221,96 @@ interface Entry {
   mtimeMs: number;
 }
 
+/** An entry that another process removed or replaced between two of our calls. */
+function gone(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Every file below `dir`, read with `lstat`: a symlink counts as a file of
+ * its own (removing it removes the link, never its target) and is never
+ * descended into. A prune running beside a writer, or beside another prune,
+ * sees entries vanish between readdir and stat; those are skipped.
+ */
 function listFiles(dir: string): Entry[] {
-  if (!existsSync(dir)) return [];
+  if (isSymlink(dir)) return [];
+  let names: Dirent[];
+  try {
+    names = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (gone(error)) return [];
+    throw error;
+  }
   const out: Entry[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of names) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listFiles(abs));
-    else if (entry.isFile()) {
-      const s = statSync(abs);
-      out.push({ abs, bytes: s.size, mtimeMs: s.mtimeMs });
+    let s: Stats;
+    try {
+      s = lstatSync(abs);
+    } catch (error) {
+      if (gone(error)) continue;
+      throw error;
     }
+    if (s.isDirectory()) out.push(...listFiles(abs));
+    else out.push({ abs, bytes: s.size, mtimeMs: s.mtimeMs });
   }
   return out;
 }
 
+/** Remove one file or link. Returns false when it was already gone, or is no longer a file. */
+function removeFile(abs: string): boolean {
+  try {
+    unlinkSync(abs);
+    return true;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    // EISDIR/EPERM: a directory now sits where the file was. Not ours to remove.
+    if (gone(error) || code === "EISDIR" || code === "EPERM") return false;
+    throw error;
+  }
+}
+
 function removeEmptyDirs(dir: string, keep: string): void {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  if (isSymlink(dir)) return;
+  let names: Dirent[];
+  try {
+    names = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (gone(error)) return;
+    throw error;
+  }
+  for (const entry of names) {
     if (entry.isDirectory()) removeEmptyDirs(join(dir, entry.name), keep);
   }
-  if (dir !== keep && readdirSync(dir).length === 0) rmdirSync(dir);
+  if (dir === keep) return;
+  try {
+    rmdirSync(dir);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    // Refilled, replaced or removed meanwhile: leave it be.
+    if (gone(error) || code === "ENOTEMPTY" || code === "EBUSY" || code === "EEXIST") return;
+    throw error;
+  }
 }
 
 /**
  * Prune the scratch area: every file older than `ttlMs`, then the oldest
  * files until the rest fit in `maxBytes`. Safe to call when scratch does not
- * exist, and from any process: removal of a file already gone is not an error.
+ * exist, and from any process: an entry that another process removed in the
+ * meantime is neither an error nor reported. Refuses a redirected scratch.
  */
 export function pruneScratch(
   root: string,
   now: number = Date.now(),
   { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES }: { ttlMs?: number; maxBytes?: number } = {},
 ): ScratchReport {
-  const dir = join(root, SCRATCH_DIR);
+  const dir = scratchDir(root);
+  const rootReal = canonicalRoot(root);
   const removed: ScratchRemoval[] = [];
   const remove = (entry: Entry, reason: ScratchRemoval["reason"]) => {
-    rmSync(entry.abs, { force: true });
-    removed.push({ path: relative(root, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason });
+    if (!removeFile(entry.abs)) return;
+    removed.push({ path: relative(rootReal, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason });
   };
   let entries = listFiles(dir);
   for (const entry of entries) if (now - entry.mtimeMs > ttlMs) remove(entry, "age");
@@ -153,13 +325,14 @@ export function pruneScratch(
   return { removed, bytes: total, files: entries.length };
 }
 
-/** Empty the scratch area entirely. */
+/** Empty the scratch area entirely. Refuses a redirected scratch. */
 export function cleanScratch(root: string): ScratchReport {
-  const dir = join(root, SCRATCH_DIR);
+  const dir = scratchDir(root);
+  const rootReal = canonicalRoot(root);
   const removed: ScratchRemoval[] = [];
   for (const entry of listFiles(dir)) {
-    rmSync(entry.abs, { force: true });
-    removed.push({ path: relative(root, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason: "clean" });
+    if (!removeFile(entry.abs)) continue;
+    removed.push({ path: relative(rootReal, entry.abs).split("\\").join("/"), bytes: entry.bytes, reason: "clean" });
   }
   removeEmptyDirs(dir, dir);
   return { removed, bytes: 0, files: 0 };

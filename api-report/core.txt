@@ -66,6 +66,7 @@ export "." (./src/index.ts)
   SCRATCH_TTL_MS
   type SchemaOptions
   ScratchNotIgnoredError
+  ScratchRedirectedError
   type ScratchRemoval
   type ScratchReport
   type SearchDeps
@@ -86,6 +87,7 @@ export "." (./src/index.ts)
   type VecSupport
   type VecUnavailableReason
   archiveDocument
+  assertScratchWritable
   audit
   brainConfigSchema
   buildTaxonomy
@@ -141,12 +143,15 @@ export "." (./src/index.ts)
   resolveWikiLink
   resolveWritable
   safeResolve
+  scratchDir
   scratchIgnored
+  scratchName
   setContext
   setMeta
   storedVectorWidth
   stringifyDocument
   syncSkills
   validate
+  writeScratchFile
 
 export "./package.json" (./package.json) [asset]

@@ -10,7 +10,13 @@ it cannot grow without bound. Move a file out of it to keep it.
 
   clean    Remove everything in the scratch area.
   prune    Remove files older than 7 days, then the oldest until it is under
-           1 GB. Every write into scratch already does this.
+           1 GB. Every write into scratch already does this, \`brain maintain\`
+           does it as its last step, and the chat server runs it hourly. A
+           brain with no chat server has no other periodic pass: schedule
+           \`brain maintain\` (cron), or nothing prunes between writes.
+
+Both refuse a \`.brain\` or \`.brain/scratch\` that is a symlink: nothing is
+removed anywhere a link points.
 
 --json envelope: { action, removed: [{ path, bytes, reason }], bytes, files }`;
 

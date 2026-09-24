@@ -1,7 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, extname, relative } from "path";
 
-import { SCRATCH_DIR, ensureScratch, isInScratch, pruneScratch, resolveWritable, safeResolve } from "@schlessera/brain";
+import {
+  SCRATCH_DIR,
+  assertScratchWritable,
+  isInScratch,
+  pruneScratch,
+  resolveWritable,
+  safeResolve,
+  scratchName,
+  writeScratchFile,
+} from "@schlessera/brain";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { readEnvVar } from "./config/env.js";
@@ -223,25 +232,34 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       console.error("--out and --scratch are exclusive");
       return 1;
     }
-    const fileName = `${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+    // A draft's name is unique per run (scratchName): a chat link to an
+    // earlier draft must keep showing that draft.
+    const toScratch = parsed.flags.scratch === true;
     const outRel =
       (parsed.flags.out as string | undefined) ??
-      (parsed.flags.scratch === true ? `${SCRATCH_DIR}/${fileName}` : `${cfg.imagesDir}/${fileName}`);
+      (toScratch
+        ? `${SCRATCH_DIR}/${scratchName(slugify(prompt), ext)}`
+        : `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`);
     const outAbs = resolveWritable(ctx.root, outRel);
     if (!outAbs) {
       console.error(`Output path is not inside the brain: ${outRel}`);
       return 1;
     }
-    // Output into the scratch area needs it gitignored first (#310).
-    const scratchOutput = isInScratch(ctx.root, outAbs);
-    if (scratchOutput) {
+    // Output into the scratch area (asked for, or resolved into it) is held
+    // to the scratch rules (#310): gitignored, not redirected by a symlink.
+    // Checked now, before the provider is paid, and again before each write,
+    // because the rule can change while the request is in flight.
+    const scratchOutput = isInScratch(ctx.root, outRel) || isInScratch(ctx.root, outAbs);
+    const guardScratch = (abs: string): boolean => {
       try {
-        ensureScratch(ctx.root);
+        assertScratchWritable(ctx.root, abs);
+        return true;
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
-        return 1;
+        return false;
       }
-    }
+    };
+    if (scratchOutput && !guardScratch(outAbs)) return 1;
     const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
@@ -290,12 +308,20 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       renamed = `${report(outAbs)} → ${report(finalAbs)} (model returned ${actualExt})`;
     }
 
-    mkdirSync(dirname(finalAbs), { recursive: true });
-    writeFileSync(finalAbs, first.data);
+    // A generated scratch name is created exclusively; a name the caller
+    // chose (--out) is theirs to overwrite.
+    const write = (abs: string, data: Uint8Array): boolean => {
+      if (scratchOutput && !guardScratch(abs)) return false;
+      mkdirSync(dirname(abs), { recursive: true });
+      if (toScratch) writeScratchFile(abs, data);
+      else writeFileSync(abs, data);
+      return true;
+    };
+    if (!write(finalAbs, first.data)) return 1;
     const written = [report(finalAbs)];
     for (const [i, extra] of rest.entries()) {
       const alt = finalAbs.replace(/(\.[^.]+)$/, `-${i + 2}$1`);
-      writeFileSync(alt, extra.data);
+      if (!write(alt, extra.data)) return 1;
       written.push(report(alt));
     }
     // Keep scratch within its bounds on every write into it.
