@@ -54,7 +54,7 @@ const LOOSE_CITATION =
  * `[Schlessera/Brain-UI]`, a path with a space, a URL) is judged rather than
  * slipping through as some other kind of span.
  */
-const EXTERNAL_CITATION = /^\[+([^\]]*)\]+\s+(\S.*(?::\s*\d|#L\d).*)$/;
+const EXTERNAL_CITATION = /^\[+([^\]]*)\]+\s*\(?\s*(\S.*?(?::\s*\d|#L\d).*?)\)?$/;
 
 /** A path inside the named repository, and its lines: `scripts/a b.sh:4-9`. */
 const EXTERNAL_PATH = /^([^:]+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
@@ -62,9 +62,19 @@ const EXTERNAL_PATH = /^([^:]+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
 /** The repositories a `[repo] path:line` citation may name. */
 export const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
 
-/** `[Schlessera/Brain-UI]` and `[ brain-ui ]` name the same repository. */
-export function repoIdentity(prefix: string): string {
-  return prefix.trim().toLowerCase().replace(/^(?:https?:\/\/)?(?:github\.com\/)?schlessera\//, "");
+/**
+ * The repository a bracket names, or undefined when it names none of the
+ * project's: `[Schlessera/Brain-UI]`, `[ brain-ui ]` and
+ * `[https://github.com/schlessera/brain-ui.git/]` are one repository, while
+ * `[data-x]` and `[server]` are CSS and log text, not a repository.
+ */
+export function repoIdentity(prefix: string): string | undefined {
+  const id = prefix
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:https?:\/\/|git@)?(?:www\.)?(?:github\.com[/:])?(?:schlessera\/)?/, "")
+    .replace(/(?:\.git)?\/*$/, "");
+  return /^brain(?:-[a-z0-9-]+)?$/.test(id) ? id : undefined;
 }
 
 /** A citation anywhere in prose, outside a code span. */
@@ -170,7 +180,8 @@ export function parseCitations(doc: string, body: string): Citation[] {
     citationish[i] =
       Boolean(match) || continuesCitation || lineWithColumn || LOOSE_CITATION.test(content);
     const external = content.match(EXTERNAL_CITATION);
-    if (external) {
+    const repo = external ? repoIdentity(external[1]) : undefined;
+    if (external && repo !== undefined) {
       citationish[i] = true;
       const target = external[2].trim().match(EXTERNAL_PATH);
       citations.push({
@@ -180,7 +191,7 @@ export function parseCitations(doc: string, body: string): Citation[] {
         path: target?.[1],
         ranges: [],
         anchor: undefined,
-        repo: repoIdentity(external[1]),
+        repo,
       });
       continue;
     }

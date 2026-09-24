@@ -182,15 +182,46 @@ describe("what the check cannot verify is reported, not skipped", () => {
       "`[schlessera/brain-ui] Dockerfile:12`",
       "`[ brain ] docs/a file.md:1`",
       "`[brain-ui] https://example.com/x#L3`",
+      "`[brain-ui]Dockerfile:12`",
+      "`[brain-ui](Dockerfile:12)`",
+      "`[https://github.com/schlessera/brain.git/] notes/x.md:1`",
     ]) {
       const kinds = check(`(\`entrypoint\`, ${span})`).map((r) => r.verdict.kind);
       expect({ span, kinds }).toEqual({ span, kinds: ["private"] });
     }
   });
 
-  test("a public prefix is read in any case, and only a path inside it is external (#303)", () => {
-    const [upper] = check("(`init`, `[Brain-Template] brain.config.ts:3`)");
-    expect(upper.verdict).toEqual({ kind: "external", repo: "brain-template" });
+  test("a private citation in any spelling fails even with an exception (#303)", () => {
+    for (const text of ["[brain-ui]Dockerfile:12", "[brain-ui](Dockerfile:12)", "[Brain] notes/x.md:1"]) {
+      const reports = checkRecords([{ doc: "docs/decisions/x.md", body: `(\`a\`, \`${text}\`)` }], tree({}), {
+        [`docs/decisions/x.md|${text}`]: "tried to excuse it",
+      });
+      expect({ text, fails: reports.map(failsCheck) }).toEqual({ text, fails: [true] });
+    }
+  });
+
+  test("a bracket that names no repository of the project is not a citation into one (#303)", () => {
+    for (const span of ["`[data-x] { flex:1 }`", "`[server] http://localhost:3000`", "`[x] foo:1`"]) {
+      const kinds = check(`See ${span}.`).map((r) => r.verdict.kind);
+      expect({ span, private: kinds.includes("private") || kinds.includes("external") }).toEqual({
+        span,
+        private: false,
+      });
+    }
+  });
+
+  test("a public prefix is read in any spelling, and only a path inside it is external (#303)", () => {
+    for (const prefix of [
+      "Brain-Template",
+      "schlessera/brain-template",
+      "https://github.com/schlessera/brain-template",
+      "https://github.com/schlessera/brain-template/",
+      "https://github.com/Schlessera/brain-template.git",
+      "git@github.com:schlessera/brain-template.git",
+    ]) {
+      const kinds = check(`(\`init\`, \`[${prefix}] brain.config.ts:3\`)`).map((r) => r.verdict);
+      expect({ prefix, kinds }).toEqual({ prefix, kinds: [{ kind: "external", repo: "brain-template" }] });
+    }
     const [spaced] = check("(`init`, `[brain-template] docs/a file.md:3`)");
     expect(spaced.verdict.kind).toBe("external");
     for (const span of [
@@ -230,6 +261,13 @@ describe("what the check cannot verify is reported, not skipped", () => {
     expect(describeReport(reports[1])).toBe(
       "docs/decisions/x.md:1 `[brain-template] b.ts:2` cites brain-template, not verifiable from this tree",
     );
+  });
+
+  test("the command prints the summary of the real records (#303)", () => {
+    const run = Bun.spawnSync(["bun", join(ROOT, "scripts/check-citations.ts")], { cwd: ROOT });
+    const expected = summarize(checkRecords()).join("\n");
+    expect(expected).toContain("citation(s):");
+    expect(run.stdout.toString().trim()).toBe(expected.trim());
   });
 
   test("a citation of an extensionless file", () => {
