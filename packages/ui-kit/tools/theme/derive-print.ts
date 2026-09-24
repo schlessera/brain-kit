@@ -17,10 +17,11 @@
  *      hairline survives a printer and reads in grayscale.
  *   4. Ink is the light theme's ink. Those values already clear 4.5:1 on
  *      paper, so on white they clear it with room. Tone is not luminance:
- *      printed in grayscale, the tone inks come out as near-equal greys. So
- *      print relies on what the kit already guarantees, that no block carries
- *      meaning in colour alone (a recommended column says why beside its tint,
- *      a status has its label), and not on the greys staying apart.
+ *      printed in grayscale, the tone inks come out as near-equal greys, and
+ *      a block that carries meaning in colour alone (a trend delta's good or
+ *      bad tone, a table cell's judgment, a timeline dot's state) loses that
+ *      meaning on a grayscale printer. That is the kit's to fix, with a
+ *      non-colour cue in the component, not the palette's: tracked in #309.
  *
  * Data marks — bars, pins, hatches, lane gradients — keep their light colour,
  * flattened onto white so they print opaque and identical. The recommended

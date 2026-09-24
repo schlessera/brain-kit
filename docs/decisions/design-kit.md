@@ -3433,9 +3433,13 @@ one block-specific rule (`break-inside: avoid` in print) travels in the print
 `<style>`. `render-template` is therefore unchanged, and a message without
 blocks produces the same document byte for byte.
 
-**Known limit.** The kit's web fonts cannot load in a network-denied renderer,
-so shared blocks fall back to the system fonts the rest of the document uses.
-Embedding the fonts would inline them into every share request.
+**Known limits.** The kit's web fonts cannot load in a network-denied
+renderer, so shared blocks fall back to the system fonts the rest of the
+document uses; embedding the fonts would inline them into every share request.
+And several blocks carry a meaning in ink colour alone (a trend delta's good
+or bad tone, a table cell's judgment), which a grayscale printer loses: the
+tone inks come out as near-equal greys. That is fixed in the components, with
+a non-colour cue, not in the palette (#309).
 
 **Proof.** `tests/share-render.test.ts` renders an answer with every block kind
 in real Chrome. It asserts that nothing but inline data was requested, that
