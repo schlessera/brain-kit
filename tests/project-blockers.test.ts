@@ -352,6 +352,31 @@ describe("reconcileBlocked", () => {
     expect(tracker.comments.has(5)).toBe(false);
   });
 
+  test("a private blocker listed after a public one still stops the lookup", async () => {
+    const mixed = () => [issue(6, ["blocked"], "Blocked by #110 and schlessera/brain-ui#29")];
+    const tracker = fakeTracker(mixed(), {
+      [`${REPO}#110`]: "closed",
+      "schlessera/brain-ui#29": "closed",
+    });
+    const looked: string[] = [];
+    const io = { ...tracker.io, state: async (ref: string) => (looked.push(ref), tracker.io.state(ref)) };
+    const report = await reconcileBlocked(tracker.list(), io, true, [REPO]);
+    expect(looked).toEqual([]);
+    expect(report.cleared).toEqual([]);
+    expect(report.unverifiable).toHaveLength(1);
+    expect(tracker.comments.has(6)).toBe(false);
+  });
+
+  test("a board repository written in another case is still on the board", async () => {
+    // GitHub names are case-insensitive; `Schlessera/Brain-Kit#110` worked
+    // before the repository guard and must keep working.
+    const cased = () => [issue(8, ["blocked"], "Blocked by Schlessera/Brain-Kit#110")];
+    const tracker = fakeTracker(cased(), { "Schlessera/Brain-Kit#110": "closed" });
+    const report = await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);
+    expect(report.unverifiable).toEqual([]);
+    expect(report.cleared.map((r) => r.issue.number)).toEqual([8]);
+  });
+
   test("a second --apply run does nothing", async () => {
     const tracker = fakeTracker(fixtures(), known);
     await reconcileBlocked(tracker.list(), tracker.io, true, [REPO]);

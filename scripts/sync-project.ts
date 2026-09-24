@@ -1,7 +1,11 @@
 // Seed and maintain the "brain-kit roadmap" GitHub Project.
 //
 //   bun scripts/sync-project.ts            # dry run: say what would change
-//   bun scripts/sync-project.ts --apply
+//   gh workflow run project-sync --repo schlessera/brain-kit   # apply now
+//
+// `--apply` is what `.github/workflows/project-sync.yml` runs, one run at a
+// time. Run it from a terminal only when that workflow is not running: two
+// overlapping applies can post the same unblock notice twice.
 //
 // The project spans the three public repositories that make up the
 // open-source project: `brain-kit`, `brain-template` and
@@ -14,8 +18,9 @@
 //
 // What this script does not do, and why:
 //
-// - **Views.** The GitHub API exposes no mutation for creating a project view,
-//   so the board, roadmap and filtered tables are made once in the web UI.
+// - **Views.** The board, roadmap and filtered tables are made once in the web
+//   UI. GraphQL has `createProjectV2View` (checked 2026-09-24); this script
+//   does not use it because the views are set up once and then left alone.
 //   `docs/process/github.md` lists the ones this project is meant to have.
 // - **The Status field's options.** Status is created by GitHub with
 //   Todo / In Progress / Done. `gh project` cannot edit an existing field's
@@ -470,7 +475,10 @@ export async function reconcileBlocked<T extends BlockableIssue>(
     // The token can read more than the board covers. A blocker outside the
     // board's repositories is never looked up, so an edited body cannot make
     // this public run read a private issue's state and report it in a comment.
-    const outside = refs.filter((ref) => !repos.includes(ref.slice(0, ref.lastIndexOf("#"))));
+    // GitHub owner and repository names are case-insensitive, so compare
+    // them that way: `Schlessera/Brain-Kit#1` is on the board.
+    const board = new Set(repos.map((repo) => repo.toLowerCase()));
+    const outside = refs.filter((ref) => !board.has(ref.slice(0, ref.lastIndexOf("#")).toLowerCase()));
     if (outside.length > 0) {
       unverifiable.push({
         issue,
@@ -523,8 +531,24 @@ async function issuesUnderReview(): Promise<Set<string>> {
   return under;
 }
 
-/** The scopes the sync needs beyond repository access. */
-export const REQUIRED_SCOPES = ["project", "read:org"] as const;
+/**
+ * The scopes the sync needs beyond repository access, each with the broader
+ * scopes that include it. GitHub normalises a token's scopes and drops one
+ * that a broader scope already covers, so a token granted `admin:org` reports
+ * no `read:org` at all. `read:project` does not cover `project`: it is
+ * read-only.
+ */
+export const REQUIRED_SCOPES = {
+  project: ["project"],
+  "read:org": ["read:org", "write:org", "admin:org"],
+} as const;
+
+/** The required scopes a token's scope set does not cover. */
+export function missingScopes(scopes: Set<string>): string[] {
+  return Object.entries(REQUIRED_SCOPES)
+    .filter(([, coveredBy]) => !coveredBy.some((scope) => scopes.has(scope)))
+    .map(([scope]) => scope);
+}
 
 /**
  * The OAuth scopes of the token that answered, from `gh api --include`
@@ -621,12 +645,12 @@ if (import.meta.main) {
   // `gh auth status`: that prints every account, and its warning
   // "Missing required token scopes: 'read:org'" names the very scope it lacks.
   const scopes = scopesFromHeaders(await gh(["api", "--include", "user"]));
-  const missingScopes = REQUIRED_SCOPES.filter((scope) => !scopes.has(scope));
-  if (missingScopes.length > 0) {
+  const lacking = missingScopes(scopes);
+  if (lacking.length > 0) {
     console.error(
-      `The token is missing ${missingScopes.map((m) => `\`${m}\``).join(" and ")}. ` +
+      `The token is missing ${lacking.map((m) => `\`${m}\``).join(" and ")}. ` +
         "GitHub Projects needs `project`, and `gh project` needs `read:org` to resolve the owner.\n" +
-        `Grant them, then re-run:\n\n  gh auth refresh -s ${missingScopes.join(",")}\n`,
+        `Grant them, then re-run:\n\n  gh auth refresh -s ${lacking.join(",")}\n`,
     );
     process.exit(1);
   }
@@ -747,7 +771,10 @@ if (import.meta.main) {
     `\n${apply ? "Applied" : "Dry run"}: ${added} item(s) added, ${edited} field value(s) set.`,
   );
   if (!apply) {
-    console.log("Re-run with --apply to make these changes.");
+    console.log(
+      "To make these changes, trigger the workflow, which applies one run at a time:\n\n" +
+        "  gh workflow run project-sync --repo schlessera/brain-kit",
+    );
     process.exit(0);
   }
 
@@ -769,9 +796,9 @@ if (import.meta.main) {
   }
 
   console.log(`
-One thing this script cannot do — finish it once, in the web UI:
+One thing this script does not do — finish it once, in the web UI:
 
-  Views. The API exposes no mutation for creating one. Make these four:
+  Views. Make these four:
        Board      — board layout, grouped by Status
        Roadmap    — roadmap layout on Target, grouped by Track
        Ready      — table, filter: status:Ready label:agent-ready, sorted by Priority

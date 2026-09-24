@@ -166,9 +166,10 @@ Ready if nothing else holds it back. An issue labelled `blocked` keeps its label
 reported as unverifiable in five cases. It has no such line. Some other line
 in the body says "blocked by" in any form: prose, a quote, a heading, an
 example in a code block, an HTML comment. A declaration names another
-reference after its list. A blocker's state cannot be read, or it lives outside
-the board's repositories, which the script never looks up: a public run must
-not report on a private issue. The script clears a label
+reference after its list. A blocker's state cannot be read, or it is a pull
+request that closed without merging, which never counts as closed. Or it lives
+outside the board's repositories, which the script never looks up: a public
+run must not report on a private issue. The script clears a label
 only on declarations it read in full. Closing a blocker unblocks nothing by itself — the line has to be there,
 and the script has to run.
 
