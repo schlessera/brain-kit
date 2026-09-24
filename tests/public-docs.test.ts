@@ -38,57 +38,64 @@ const MAY_NAME_THE_PRIVATE_REPO = [
 ];
 
 /**
- * Files that still carry references, and exactly how many lines of them. A
- * count, not a file exemption: a new reference in one of these files fails
- * the scan like anywhere else, and a removed one fails it until the count is
- * lowered, so these only shrink.
+ * Files that still carry references, pinned to exactly the references they
+ * carry: a digest of their referencing paragraphs. Not a file exemption and
+ * not a count: a new reference, an edited one, or one swapped for another
+ * fails the scan like anywhere else, and so does one that was cleaned away,
+ * until the digest is updated. The failure prints the new digest and the
+ * paragraphs behind it, so an update is a reviewed diff of both.
  *
  * - Three decision records cite the private repository's files, pending #303,
  *   which decides where the container design they describe belongs.
  * - `packages/core/README.md` is generated from an env descriptor in
  *   `packages/core/src/config/env.ts`, which is source, pending #305.
  * - Changelogs are release history: an entry records what was true when it
- *   shipped. The count keeps a NEW entry, copied in from a changeset at
+ *   shipped. The digest keeps a NEW entry, copied in from a changeset at
  *   version time, from carrying a reference past this test.
  */
-const RECORDED: Record<string, number> = {
-  "docs/decisions/container-privilege.md": 18,
-  "docs/decisions/agent-observability.md": 2,
-  "docs/decisions/README.md": 1,
-  "packages/core/README.md": 1,
-  "packages/core/CHANGELOG.md": 1,
-  "packages/ui-react/CHANGELOG.md": 1,
-  "packages/ui-sdk/CHANGELOG.md": 1,
-  "packages/ui-server/CHANGELOG.md": 1,
+const RECORDED: Record<string, string> = {
+  "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
+  "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
+  "docs/decisions/README.md": "4ba97a8e9273de8d",
+  "packages/core/README.md": "cf7e213e057034b4",
+  "packages/core/CHANGELOG.md": "74c0ce78fcafc50e",
+  "packages/ui-react/CHANGELOG.md": "2d30014b1c9170fd",
+  "packages/ui-sdk/CHANGELOG.md": "2d30014b1c9170fd",
+  "packages/ui-server/CHANGELOG.md": "2d30014b1c9170fd",
 };
 
 /** Name-like `brain-ui`: not followed by a character that makes it a package, path or file. */
 const NAME = String.raw`brain-ui(?![-\w./])`;
+/** Either apostrophe, as prose and editors write it. */
+const APOS = "['\u2019]";
 
 /**
  * The ways a document points at the private repositories or describes their
  * deployment. `brain-ui` alone is not one of them: it is also the product, in
  * the `@schlessera/brain-ui-*` packages, the `.brain-ui/` directory,
- * `brain-ui.db`, `BRAIN_UI_*` and the `mcp__brain-ui__*` tool prefix, which
- * all stay.
+ * `brain-ui.db`, `BRAIN_UI_*` and the `mcp__brain-ui__*` tool prefix, and in
+ * prose about the chat UI ("Open Settings in brain-ui"), which all stay.
  */
 const PRIVATE_REFERENCES: [string, RegExp][] = [
   // `schlessera/brain` or `schlessera/brain-ui` as a repository or URL, in any
   // case, never the `@schlessera/brain` package or `schlessera/brain-kit`.
   ["repository name", /(?<![@\w])schlessera\/brain(?:-ui)?(?![-\w])/i],
-  ['"separate repo"', new RegExp(`${NAME}[^.\\n]{0,24}\\bseparate repo(?:sitory)?\\b`, "i")],
-  ["the repo in words", new RegExp(`${NAME}\`?(?:'s own\\b|\\s+(?:repo|repository|repositories|decisions?)\\b)`, "i")],
-  ["a file in it", new RegExp(`${NAME}(?:'s)?\\s+\`[\\w./-]+\\.(?:sh|md|ts|ya?ml|conf|json)\`|${NAME}'s\\s+[\\w./-]+\\.(?:sh|md|ts|ya?ml|conf|json)\\b`, "i")],
-  // A parenthesis that names who owns something: "(brain-ui)",
-  // "(ui-server + brain-ui)", "(brain-ui `docs/decisions.md` #3)". Not the
-  // product in passing: "(with brain-ui)", "(primarily **brain-ui**)".
-  ["a parenthetical owner", /\((?:brain-ui|[^()]*\+\s*brain-ui)(?:\s+`[^`]*`[^()]*)?\)/i],
-  ["a release of it", new RegExp(`${NAME}\\*{0,2}\\s+(?:gets\\s+)?(?:release|bump|client|tags?)\\b|${NAME}[^.\\n]{0,60}\\bredeploy\\b`, "i")],
-  ["a repo action", new RegExp(`\\b(?:grep|clone|check out|in) ${NAME}`, "i")],
-  // One real deployment of the product, rather than the product.
-  ["the deployment", new RegExp(`deployed ${NAME}|${NAME}\`? (?:deploy|deployment|container|docker image|image|shell)\\b`, "i")],
-  // The two repositories named side by side, as peers.
-  ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME}`, "i")],
+  ["a link into it", /\]\([^)]*(?:^|\/|\.\.\/)brain-ui\/[^)]*\)/i],
+  ['"separate repo"', new RegExp(`${NAME}[^.]{0,24}\\bseparate repo(?:sitory)?\\b`, "i")],
+  ["the repo in words", new RegExp(`${NAME}\`?\\s+(?:repo|repository|repositories|decisions?)\\b|\\bprivate (?:deployment|instance)\\b`, "i")],
+  ["a file in it", new RegExp(`${NAME}(?:${APOS}s)?\\s+\`[\\w./-]+\\.(?:sh|md|ts|ya?ml|conf|json)\`|${NAME}${APOS}s(?:\\s+own)?\\s+[\\w./-]+\\.(?:sh|md|ts|ya?ml|conf|json)\\b`, "i")],
+  // A parenthesis that names who owns something: "`docs/decisions.md`
+  // (brain-ui)", "(ui-server + brain-ui)", "(brain-ui `docs/decisions.md` #3)",
+  // "(brain-ui, private)", "(… in brain-ui)". Not a product label: "(brain-ui)"
+  // on its own, "(with brain-ui)", "(primarily **brain-ui**)".
+  ["a parenthetical owner", /`[^`]+`\s*\(brain-ui\)|\([^()]*\+\s*brain-ui\)|\(brain-ui(?:,[^)]*|\s+`[^`]*`[^()]*)\)|\bin brain-ui\)/i],
+  ["a release of it", new RegExp(`${NAME}\\*{0,2}\\s+(?:gets\\s+)?(?:release|bump|client|tags?)\\b|${NAME}[^.]{0,60}\\bredeploy\\b`, "i")],
+  ["a repo action", new RegExp(`\\b(?:grep|clone|check out) ${NAME}`, "i")],
+  // One real deployment of the product, rather than the product: "the
+  // brain-ui container", not "a brain-ui container can be built".
+  ["the deployment", new RegExp(`deployed ${NAME}|\\bthe ${NAME}\`? (?:container|docker image|image|deployment)\\b|${NAME}\`? (?:deploy|deployment shell|shell|docker image)\\b`, "i")],
+  // The two repositories named side by side, as peers that each keep something.
+  ["brain-kit and brain-ui", new RegExp(`brain-kit and (?:the )?(?:private )?${NAME} (?:each|both|repos|repositories)\\b`, "i")],
   // A citation into it, never a Markdown link whose text is the product name.
   ["a citation into it", /\[brain-ui\](?!\()/i],
 ];
@@ -96,19 +103,33 @@ const PRIVATE_REFERENCES: [string, RegExp][] = [
 const referencesIn = (text: string) =>
   PRIVATE_REFERENCES.filter(([, pattern]) => pattern.test(text)).map(([what]) => what);
 
-/** The lines of a text that point at the private repositories. */
-const referencingLines = (text: string) => text.split("\n").filter((line) => referencesIn(line).length > 0);
+/**
+ * The paragraphs of a text that point at the private repositories, each with
+ * its whitespace collapsed, so a reference wrapped across two lines is still
+ * one reference.
+ */
+const referencingParagraphs = (text: string) =>
+  text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
+    .filter((paragraph) => referencesIn(paragraph).length > 0);
+
+const digest = (paragraphs: string[]) =>
+  new Bun.CryptoHasher("sha256").update(JSON.stringify(paragraphs)).digest("hex").slice(0, 16);
 
 describe("public documents do not send readers to the private repositories", () => {
   test("no tracked doc or YAML file points at them, beyond the recorded history", () => {
     const offenders = trackedDocs()
       .filter((f) => !MAY_NAME_THE_PRIVATE_REPO.includes(f))
       .flatMap((f) => {
-        const lines = referencingLines(readFileSync(join(ROOT, f), "utf8"));
-        const allowed = RECORDED[f] ?? 0;
-        return lines.length === allowed
+        const paragraphs = referencingParagraphs(readFileSync(join(ROOT, f), "utf8"));
+        const recorded = RECORDED[f];
+        if (recorded === undefined) {
+          return paragraphs.length === 0 ? [] : [`${f}: ${paragraphs.map((p) => p.slice(0, 100)).join(" | ")}`];
+        }
+        return digest(paragraphs) === recorded
           ? []
-          : [`${f}: ${lines.length} referencing line(s), ${allowed} recorded: ${lines.slice(0, 3).map((l) => l.trim().slice(0, 80)).join(" | ")}`];
+          : [`${f}: recorded ${recorded}, now ${digest(paragraphs)} over ${paragraphs.length} paragraph(s): ${paragraphs.map((p) => p.slice(0, 80)).join(" | ")}`];
       });
     expect(offenders).toEqual([]);
   });
@@ -132,7 +153,7 @@ describe("public documents do not send readers to the private repositories", () 
     "- optionally, a self-hosted chat UI (brain-ui, separate repo)",
     "- **The chat UI is a thin deployment shell.** `brain-ui` (separate repo) owns",
     "4. **brain-ui (separate repo) is a remote surface to an agent that can run",
-    "`BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. See brain-ui's own",
+    "`BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. See brain-ui's own SECURITY.md — it is the more critical of the two.",
     // One sentence over two lines: caught as the sentence it is.
     "brain-kit and brain-ui each keep their own copies of the invisible-character and leakage gates. brain-ui's invisible-character gate stays dependency-free",
     "- Modify: `[brain-ui] scripts/entrypoint.sh` (five-minute poke line)",
@@ -159,6 +180,13 @@ describe("public documents do not send readers to the private repositories", () 
     "https://github.com/schlessera/brain",
     "See https://github.com/Schlessera/brain-ui/issues.",
     "url: https://github.com/schlessera/brain-ui",
+    "| The private deployment repo | Applying the release there, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked there; not restated here. |",
+    "least privilege in the container, is open and tracked in the private deployment shell's issue tracker.",
+    // The bypasses the second review found.
+    "See the repository for brain-ui\u2019s SECURITY.md.",
+    "Deployment notes (brain-ui, private) document the maintainer's host.",
+    "Read [brain-ui's decisions](../brain-ui/docs/decisions.md).",
+    "[the security notes](../brain-ui/SECURITY.md)",
   ];
   // The product names that stay, which no pattern may flag.
   const KEPT = [
@@ -177,6 +205,13 @@ describe("public documents do not send readers to the private repositories", () 
     "| 3 | + `DEEPGRAM_API_KEY` (with brain-ui) | Voice capture |",
     "The machine-readable surface other systems (primarily **brain-ui**) may depend",
     "[the maintainer's host] (using the brain-ui implementation) does not break",
+    // Product prose the second review found flagged.
+    "brain-ui's own in-process tools use mcp__brain-ui__ names.",
+    "The chat product (brain-ui) stores sessions in brain-ui.db.",
+    "A brain-ui container can be built by any self-hoster.",
+    "brain-kit and brain-ui expose CLI and chat interfaces respectively.",
+    "Open Settings in brain-ui to configure voice.",
+    "Create a private repo from the template",
   ];
 
   for (const text of REMOVED) {

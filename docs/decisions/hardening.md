@@ -4,8 +4,8 @@ The 2026-09-06 layer review found a set of boundary, session, environment and
 packaging weaknesses. Closing them was sequenced across four releases, and this
 is the reasoning behind that sequencing and each fix. Three of the four shipped
 — 0.32.0 Boundary, 0.33.0 Kit owns the app, 0.34.0 One backend seam. The fourth,
-least privilege in the container, is open and tracked in the private deployment
-shell's issue tracker.
+least privilege in the container, is open, and belongs to the hosting
+template rather than to this repo (`container-privilege.md`).
 
 The original plan's unit tables and its forty-row progress log are gone: the
 code is the answer to what landed, and the git history is the answer to when.
@@ -37,8 +37,8 @@ question it was answering.
    logger, before every `/api` route including the public login and passkey
    POSTs, and replaces `isAllowedWsOrigin` on the upgrade. `requireJson()`
    parses the media type (so `; charset=utf-8` passes) and applies only to
-   routes that call `c.req.json()`. decisions.md records that dev relies on
-   the OR (the vite proxy rewrites `Host`), so nobody tightens it to AND.
+   routes that call `c.req.json()`. Dev relies on the OR (the vite proxy
+   rewrites `Host`), so nobody tightens it to AND.
 3. **Sessions epoch, not a session table.** One integer in `settings`
    (`auth.sessionsEpoch`), embedded in the signed cookie as
    `<issuedAt>.<epoch>` (safe because hono splits on the last dot; asserted

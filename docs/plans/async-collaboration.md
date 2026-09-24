@@ -165,7 +165,7 @@ Unit numbers are stable identifiers, not build order. Build order:
   shape found in review was silent substitution instead of loud failure. R36's
   quarantine-not-notify and R41's reservation-not-retrospective-sum both exist because
   revision 1 of the origin reproduced that shape.
-- **Predicate-only tests do not establish containment** (same doc, renderer entry): the
+- **Predicate-only tests do not establish containment** (AGENTS.md, "Testing expectations"): the
   renderer's real isolation holes were found by launching Chrome, not by unit-testing an
   allowlist. U15 inherits this rule verbatim.
 - **A confirmed share is never acted on automatically** (#6): origin R31 amends this narrowly
@@ -1321,9 +1321,8 @@ Not a CI job — a gate you run deliberately when considering a new model.
   spec for the triage prompt: change the routing rules and the labels move with them. A separate
   package would version and publish independently of the thing it constrains.
 - **Never in CI.** It needs three provider keys, spends real money, and is non-deterministic.
-  Follow the established convention for exactly this situation — the opt-in flag that already
-  guards the live tests (`BRAIN_UI_LIVE_TESTS=1`) — so it can never join a default
-  run by accident. `evals/` sits outside the test glob as a second line of defence.
+  Guard it behind an explicit opt-in flag (for example `BRAIN_UI_LIVE_TESTS=1`), so it can
+  never join a default run by accident. `evals/` sits outside the test glob as a second line of defence.
 - **One command per candidate:** `bun run eval:triage --model <id> --provider <p> --effort <e>`.
   Providers are adapters (Anthropic / OpenAI-compatible / Gemini) so a new endpoint is a config
   entry, not a code change.

@@ -283,7 +283,7 @@ Stated before the requirements because five of them derive from it.
   `strictMcpConfig`, fail-closed filesystem and network permission rules, and containment
   testing of the real subprocess against symlinks, shell indirection, `/proc`, Unix sockets,
   and DNS. Predicate-only tests do not establish containment — the same lesson
-  `docs/decisions.md` records for the renderer.
+  AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings and instructions and takes brain tools from the project `.mcp.json`
   (`backend.ts:48-55,639-669`). If containment fails once, `.claude/settings*`, `.mcp.json`,
