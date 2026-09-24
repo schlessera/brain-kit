@@ -65,10 +65,10 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *   version time, from carrying a reference past this test.
  */
 const RECORDED: Record<string, string> = {
-  "docs/decisions/container-privilege.md": "a787d2c3dc0b49f2",
-  "docs/decisions/agent-observability.md": "12daf66b1658bd40",
+  "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
+  "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
   "docs/decisions/README.md": "4ba97a8e9273de8d",
-  "scripts/check-citations.ts": "819f30d08a731a31",
+  "scripts/check-citations.ts": "208a75668bf914f4",
   "scripts/labels.ts": "667ad2a8bcecbf0f",
   "scripts/sync-labels.ts": "4cf488160f63c036",
   "scripts/sync-project.ts": "c491185e4368cdc2",
@@ -139,11 +139,15 @@ const referencingParagraphs = (text: string) =>
     // A comment's line prefixes (`*`, `//`) sit between the words of one
     // sentence; drop them so a phrase wrapped in a doc comment is one phrase.
     .map((paragraph) => paragraph.replace(/^[ \t]*(?:\/\*\*?|\*\/|\*(?!\*)|\/\/)[ \t]?/gm, ""))
-    // A reference inside a string literal or inline markup is still one:
-    // unescape quotes (`brain-ui\'s`) and drop tags (`<code>brain-ui</code>'s`).
-    .map((paragraph) => paragraph.replace(/\\(['"`])/g, "$1").replace(/<\/?[a-z][^>]*>/gi, ""))
     .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
-    .filter((paragraph) => referencesIn(paragraph).length > 0);
+    // Matched twice: as written, and with quotes unescaped (`brain-ui\'s`)
+    // and tags dropped (`<code>brain-ui</code>'s`). Either form counts, so
+    // dropping tags cannot hide a reference that sits inside one, such as an
+    // `href` or a type argument.
+    .filter((paragraph) => {
+      const unwrapped = paragraph.replace(/\\(['"`])/g, "$1").replace(/<\/?[a-z][^>]*>/gi, "");
+      return referencesIn(paragraph).length > 0 || referencesIn(unwrapped).length > 0;
+    });
 
 const digest = (paragraphs: string[]) =>
   new Bun.CryptoHasher("sha256").update(JSON.stringify(paragraphs)).digest("hex").slice(0, 16);
@@ -235,6 +239,9 @@ describe("public documents do not send readers to the private repositories", () 
     // Syntax the second review hid references in.
     "const help = 'See brain-ui\\'s cron-run.ts';",
     "<p>See <code>brain-ui</code>'s SECURITY.md</p>",
+    // And references that sit inside a tag, which dropping tags must not hide.
+    'const help = <a href="https://github.com/schlessera/brain-ui">Docs</a>;',
+    'type RepositoryMap = Record<string, "schlessera/brain-ui">;',
   ];
   // The product names that stay, which no pattern may flag.
   const KEPT = [
