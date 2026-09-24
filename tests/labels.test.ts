@@ -9,13 +9,13 @@ import {
   NAMESPACE_COLORS,
   OBSOLETE_LABELS,
   PRIORITY_LABELS,
-  UI_AREA_LABELS,
+  HOSTING_AREA_LABELS,
   labelsFor,
   type LabelSpec,
 } from "../scripts/labels.ts";
 import { planActions } from "../scripts/sync-labels.ts";
 
-const ALL_REPOS = ["brain-kit", "brain-ui", "brain-template", "brain-hosting-template"] as const;
+const ALL_REPOS = ["brain-kit", "brain-template", "brain-hosting-template"] as const;
 
 describe("label taxonomy", () => {
   for (const repo of ALL_REPOS) {
@@ -56,6 +56,33 @@ describe("label taxonomy", () => {
       expect(collisions).toEqual([]);
     });
   }
+
+  test("no public label names a private repository, and each repo links only its public counterparts (#299)", () => {
+    // A public issue never names, labels or links the maintainer's private
+    // instance (AGENTS.md, "The five repositories"). Names and descriptions
+    // both render on every issue that carries the label.
+    const PRIVATE = /brain-ui(?![-\w])|schlessera\/brain(?![-\w])|(?<![-\w])[`'"]?brain[`'"]?\s+repo/i;
+    for (const repo of ALL_REPOS) {
+      const labels = labelsFor(repo);
+      expect(labels.length).toBeGreaterThan(0);
+      const leaks = labels.filter((l) => PRIVATE.test(l.name) || PRIVATE.test(l.description)).map((l) => l.name);
+      expect({ repo, leaks }).toEqual({ repo, leaks: [] });
+    }
+    const upstream = (repo: (typeof ALL_REPOS)[number]) =>
+      labelsFor(repo)
+        .map((label) => label.name)
+        .filter((n) => n.startsWith("upstream: "))
+        .sort();
+    expect({
+      "brain-kit": upstream("brain-kit"),
+      "brain-template": upstream("brain-template"),
+      "brain-hosting-template": upstream("brain-hosting-template"),
+    }).toEqual({
+      "brain-kit": ["upstream: brain-hosting-template", "upstream: brain-template"],
+      "brain-template": ["upstream: brain-kit"],
+      "brain-hosting-template": ["upstream: brain-kit"],
+    });
+  });
 
   test("a namespace is one colour, so the prefix is legible before it is read", () => {
     const namespaced = (prefix: keyof typeof NAMESPACE_COLORS, labels: LabelSpec[]) =>
@@ -117,7 +144,7 @@ describe("label taxonomy", () => {
     // brain-kit's areas are packages; the shell's are deployment surfaces. The
     // overlap is deliberate and small — ci and docs exist in both.
     const kit = new Set(KIT_AREA_LABELS.map((label) => label.name));
-    const shell = new Set(UI_AREA_LABELS.map((label) => label.name));
+    const shell = new Set(HOSTING_AREA_LABELS.map((label) => label.name));
     const shared = [...kit].filter((name) => shell.has(name));
     expect(shared.sort()).toEqual(["area: ci", "area: docs"]);
   });
@@ -126,7 +153,7 @@ describe("label taxonomy", () => {
     // It IS the extraction of the shell. A parallel vocabulary for the same
     // shape would mean translating every issue that moves between them.
     expect(labelsFor("brain-hosting-template").filter((l) => l.name.startsWith("area: "))).toEqual(
-      UI_AREA_LABELS,
+      HOSTING_AREA_LABELS,
     );
   });
 

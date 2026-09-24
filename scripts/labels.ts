@@ -1,5 +1,6 @@
-// The label taxonomy for the brain-kit issue tracker, and for the private
-// `brain-ui` deployment-shell repo that shares its workflow.
+// The label taxonomy for the three public repositories: brain-kit,
+// brain-template and brain-hosting-template. No other repository is managed
+// from here (#299).
 //
 // GitHub labels are flat: there is no hierarchy, so the CATEGORY is the prefix
 // and the colour reinforces it. One colour per namespace — scanning an issue
@@ -98,10 +99,10 @@ export const TEMPLATE_AREA_LABELS: LabelSpec[] = [
 ];
 
 /**
- * The deployment shell's areas. Shared by the private instance and by the
- * hosting template extracted from it, because they are the same shape.
+ * The hosting template's areas: the container, the host and the glue over the
+ * kit packages.
  */
-export const UI_AREA_LABELS: LabelSpec[] = [
+export const HOSTING_AREA_LABELS: LabelSpec[] = [
   area("container", "Dockerfile, supervisord, users and ownership, the image's toolchain."),
   area("deploy", "Compose files, the host, reverse proxying, TLS, backups."),
   area("shell", "The bin entry, entrypoint, branding, and the glue over the kit packages."),
@@ -215,18 +216,21 @@ const crossRepo = (other: string, description: string): LabelSpec => ({
 });
 
 /**
- * The two repos ship as one system, so a fair number of issues have a
- * counterpart in the other. The label is a pointer, never a place to restate
- * what the other issue says.
+ * The three public repositories ship as one project, so an issue can have a
+ * counterpart in another of them. The label is a pointer, never a place to
+ * restate what the other issue says. There is no label for a private
+ * repository: a public issue never names one (AGENTS.md, "The five
+ * repositories").
  */
 export const KIT_CROSS_REPO_LABELS: LabelSpec[] = [
+  crossRepo("brain-template", "Has a counterpart in brain-template, which owns what a generated brain contains."),
   crossRepo(
-    "brain-ui",
-    "Has a counterpart in the private deployment-shell repo. Deployment specifics live there, not here.",
+    "brain-hosting-template",
+    "Has a counterpart in brain-hosting-template, which owns what a generated host contains.",
   ),
 ];
 
-export const UI_CROSS_REPO_LABELS: LabelSpec[] = [
+export const TEMPLATE_CROSS_REPO_LABELS: LabelSpec[] = [
   crossRepo("brain-kit", "Has a counterpart in the public brain-kit repo, which owns the behaviour."),
 ];
 
@@ -237,30 +241,22 @@ export const UI_CROSS_REPO_LABELS: LabelSpec[] = [
  */
 export const OBSOLETE_LABELS = ["bug", "enhancement", "documentation", "invalid"];
 
-export type RepoKind =
-  | "brain-kit"
-  | "brain-ui"
-  | "brain-template"
-  | "brain-hosting-template";
+export type RepoKind = "brain-kit" | "brain-template" | "brain-hosting-template";
 
 const AREAS: Record<RepoKind, LabelSpec[]> = {
   "brain-kit": KIT_AREA_LABELS,
-  "brain-ui": UI_AREA_LABELS,
   "brain-template": TEMPLATE_AREA_LABELS,
-  // The hosting template is the extraction of the private shell, so it
-  // inherits the shell's vocabulary rather than inventing a parallel one.
-  "brain-hosting-template": UI_AREA_LABELS,
+  "brain-hosting-template": HOSTING_AREA_LABELS,
 };
 
 /**
- * Every repository but brain-kit points back at it, because brain-kit owns the
- * behaviour and the other three are places it is deployed or generated from.
+ * The templates point back at brain-kit, which owns the behaviour; brain-kit
+ * points at either template.
  */
 const CROSS_REPO: Record<RepoKind, LabelSpec[]> = {
   "brain-kit": KIT_CROSS_REPO_LABELS,
-  "brain-ui": UI_CROSS_REPO_LABELS,
-  "brain-template": UI_CROSS_REPO_LABELS,
-  "brain-hosting-template": UI_CROSS_REPO_LABELS,
+  "brain-template": TEMPLATE_CROSS_REPO_LABELS,
+  "brain-hosting-template": TEMPLATE_CROSS_REPO_LABELS,
 };
 
 export function labelsFor(repo: RepoKind): LabelSpec[] {
