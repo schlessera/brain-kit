@@ -23,12 +23,13 @@ within a week, not hours.
    `brain init` preflights remote visibility, and `brain doctor` warns loudly
    when the remote is public. Your brain contains your life — treat the git
    remote as part of the attack surface.
-4. **brain-ui (separate repo) is a remote surface to an agent that can run
+4. **The self-hosted chat UI is a remote surface to an agent that can run
    commands in a container holding your data and tokens.** Auth is mandatory
    there; `AUTH_MODE=none` refuses to start on any non-loopback host,
    regardless of `NODE_ENV`, unless an explicit
-   `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. See brain-ui's own
-   SECURITY.md — it is the more critical of the two. From 0.33.1, every agent,
+   `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH=1` says otherwise. The deployment
+   around it (container, proxy, secrets) matters at least as much as the
+   app's own auth; `docs/hosting/` covers what a self-hoster sets up. From 0.33.1, every agent,
    cron, and brain CLI subprocess that brain-kit itself spawns receives only
    its audience allowlist; required agent credentials and git tokens remain,
    while server-only values such as `COOKIE_SECRET`, the password hash,

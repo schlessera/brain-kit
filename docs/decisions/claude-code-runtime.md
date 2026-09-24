@@ -372,10 +372,8 @@ Historical anchors, **not** re-checked because they describe what was true when
 a record was written, not what the code relies on now: `Investigated against:`,
 `docs/decisions/container-privilege.md:12-14` (investigated against SDK
 0.3.265), `Claude CLI 2.1.236`, `container-privilege.md:990` (a question about
-CLI 2.1.236), `Claude Agent SDK 0.3.241 typings`,
-`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings), and
-`2.1.233`, `.agents/notes/skills-catalog-audit.md:86` (an inventory listing CLI
-2.1.233).
+CLI 2.1.236), and `Claude Agent SDK 0.3.241 typings`,
+`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings).
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
 the absence of a *fourth* mechanism — `AT LEAST three`,
@@ -388,7 +386,7 @@ closed set — and no probe can close that.
 | --- | --- |
 | brain-kit | #209: the measured-runtime constant, the guard test and the probe. #211: the per-turn version record and the boot probe. #213: `CLAUDE_CODE_PATH` unset runs the built-in binary, after both. #210: whether to pin the SDK exactly — a question, not yet a task. |
 | brain-hosting-template | [brain-hosting-template#1](https://github.com/schlessera/brain-hosting-template/issues/1): the image installs no separate Claude Code, commits its lockfile, installs optional dependencies for the image's libc, and rebuilds when the lockfile moves. That rebuild is the update mechanism. |
-| The private deployment repo | Applying the release there, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked there; not restated here. |
+| Each deployment | Applying the release, and removing any deployment-specific Claude Code install or `CLAUDE_CODE_PATH` setting. Tracked by the deployment; not restated here. |
 
 ## 2026-09-23 — Subscription billing and authentication
 

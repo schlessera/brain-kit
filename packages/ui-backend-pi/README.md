@@ -190,7 +190,7 @@ ecosystem, loaded by default (`loadExtensions: true`):
   through this backend's gate — delegation itself is the reviewed act.
 
 Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter npm:pi-subagents`); the brain-ui container does this on
+npm:pi-mcp-adapter npm:pi-subagents`); a container deployment can do this on
 boot.
 
 ## Event mapping (pi → wire protocol)

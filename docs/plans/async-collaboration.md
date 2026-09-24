@@ -161,11 +161,11 @@ Unit numbers are stable identifiers, not build order. Build order:
 
 ### Institutional Learnings
 
-- **Fail loud, secure by default** (brain-ui `docs/decisions.md` #3): the dominant defect
+- **Fail loud, secure by default** (an earlier fail-loud decision): the dominant defect
   shape found in review was silent substitution instead of loud failure. R36's
   quarantine-not-notify and R41's reservation-not-retrospective-sum both exist because
   revision 1 of the origin reproduced that shape.
-- **Predicate-only tests do not establish containment** (same doc, renderer entry): the
+- **Predicate-only tests do not establish containment** (AGENTS.md, "Testing expectations"): the
   renderer's real isolation holes were found by launching Chrome, not by unit-testing an
   allowlist. U15 inherits this rule verbatim.
 - **A confirmed share is never acted on automatically** (#6): origin R31 amends this narrowly
@@ -604,7 +604,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 
 ---
 
-### U3. Drain loop, leases, and the backstop poke (ui-server + brain-ui)
+### U3. Drain loop, leases, and the backstop poke (ui-server + the deployment)
 
 **Goal:** Work moves without a human, and the loop's own death is detectable.
 
@@ -616,7 +616,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 - Create: `packages/ui-server/src/inbox/runtime.ts`
 - Create: `packages/ui-server/src/routes/internal.ts`
 - Modify: `packages/ui-server/src/app.ts` (mount internal route **before** the guard)
-- Modify: `[brain-ui] scripts/entrypoint.sh` (five-minute poke line)
+- Deployment: the hosting template's entrypoint gains the five-minute poke line (brain-hosting-template, not this repo)
 - Test: `packages/ui-server/tests/inbox-runtime.test.ts`
 
 **Approach:**
@@ -994,7 +994,7 @@ text and deep-links into Actions
 - Enforce in the `PreToolUse` hook, because auto-allowed tools never reach `canUseTool`
   (`backend.ts:703-709`)
 - Paths are canonicalized, not string-matched — a symlink into the policy directory is the
-  case the brain-ui decisions doc calls out by name
+  case an earlier decision calls out by name
 - This unit ships in v1 even though policy *formation* is v2: the write path is open **today**, and an
   unread file is inert only for as long as nothing reads it (R33)
 
@@ -1183,7 +1183,7 @@ Two implementations, and they are not equally hard — see the pi note at the en
 - Fail-closed filesystem rules confining writes to the attempt's staging directory, and
   fail-closed network rules
 - **Containment is proven against the running subprocess**, per the renderer lesson in
-  brain-ui `docs/decisions.md`: predicate tests on an allowlist function do not count
+  AGENTS.md ("Testing expectations"): predicate tests on an allowlist function do not count
 
 **pi is the easy case, and it is worth doing second to check the Claude design.** pi's roster is
 hand-built with the permission gate inside each tool's `execute()` (`ui-backend-pi/src/tools.ts:30,60`),
@@ -1321,9 +1321,8 @@ Not a CI job — a gate you run deliberately when considering a new model.
   spec for the triage prompt: change the routing rules and the labels move with them. A separate
   package would version and publish independently of the thing it constrains.
 - **Never in CI.** It needs three provider keys, spends real money, and is non-deterministic.
-  Follow the established convention for exactly this situation — the opt-in flag that already
-  guards the live tests (`BRAIN_UI_LIVE_TESTS=1` in brain-ui) — so it can never join a default
-  run by accident. `evals/` sits outside the test glob as a second line of defence.
+  Guard it behind an explicit opt-in flag (for example `BRAIN_UI_LIVE_TESTS=1`), so it can
+  never join a default run by accident. `evals/` sits outside the test glob as a second line of defence.
 - **One command per candidate:** `bun run eval:triage --model <id> --provider <p> --effort <e>`.
   Providers are adapters (Anthropic / OpenAI-compatible / Gemini) so a new endpoint is a config
   entry, not a code change.
@@ -1396,19 +1395,19 @@ miss escalations fails it
 | Two ticking runtimes contend on SQLite | Immediate transactions cover claims only; a cron-heartbeat-vs-claim race test guards the 5s busy timeout |
 | The yield-at-denial-risk trigger misfires and thrashes | The threshold is explicit (~20s) and tested at both edges: a short autonomous tool call must NOT trigger a yield, and a long one must |
 | Budget reservations leak on crash | Released by the lease sweep; covered by an explicit test |
-| Protocol widening breaks the pinned brain-ui client | Additive-optional throughout; brain-ui bump is a follow-up release as with every protocol rev |
+| Protocol widening breaks a deployment's pinned client | Additive-optional throughout; a deployment's bump is a follow-up release as with every protocol rev |
 
 ---
 
 ## Documentation / Operational Notes
 
-- `docs/decisions.md` (brain-ui) needs two entries: the narrowed amendment to the
+- The decision records need two entries: the narrowed amendment to the
   never-act-on-a-share decision (origin R31), and quarantine-not-notify as an instance of
   fail-loud (origin R36).
 - New env values (`MAX_AUTONOMOUS_RUNS`, budget caps and reserve, coalescing window, staleness
   threshold) join the descriptor array; env docs regenerate.
-- The crontab poke line lands in brain-ui's `entrypoint.sh` — a brain-ui release, not a
-  package one.
+- The crontab poke line lands in the hosting template's entrypoint — a template release,
+  not a package one.
 - Release is a lockstep minor with a changeset and a regenerated api-surface report.
 - The release note records the measured cache-read ratio (U17) and the containment pass date
   (U15).

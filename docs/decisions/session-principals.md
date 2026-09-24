@@ -221,8 +221,8 @@ endpoint, so the shipped button (`Sign out everywhere`,
   (DELETE), a caller-only revoke; `/api/auth/logout` unchanged in meaning.
 - **Exported API:** `bumpSessionsEpoch` disappears and `isWsAuthorized` changes
   shape; both are exported from the package root (`src/index.ts:44-45`). No
-  consumers in this repo — grep brain-ui before landing, and name the change in
-  the changeset.
+  consumers in this repo — check known consumers before landing, and name the
+  change in the changeset.
 - **DB:** two additive migrations (011, 012), nullable for old writers including
   cron.
 - **Per-request cost:** one primary-key read on local WAL SQLite, plus a

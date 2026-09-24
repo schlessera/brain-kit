@@ -39,7 +39,7 @@ and attribute to "the maintainer".
 - **There is no bundler in this repo today.** `ui-react` builds with plain `tsc`
   plus one `@tailwindcss/cli` pass; `ui-server` serves a pre-built SPA it does
   not build. The client shell (index.html, mount point, Vite/PWA build, service
-  worker) lives in the separate `brain-ui` repo. Storybook/Vite would be the
+  worker) lives in the deployment, not in this repo. Storybook/Vite would be the
   first bundler in this tree — nothing to reuse, but also nothing to fight.
 - **The tool-renderer seam already exists** in `ui-sdk/src/client/renderers.ts`
   (`ToolRenderer`, `RendererPack`, `registerToolRenderers`, `resolveToolRenderer`,

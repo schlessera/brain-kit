@@ -256,7 +256,7 @@ Skill outline:
 Because the turn is an ordinary chat turn, tool approvals, cancel and follow-up
 questions all work with no extra plumbing.
 
-### 3.6 The deployment shell (phase 5, `brain-ui` repo)
+### 3.6 The deployment shell (phase 5, the hosting template)
 
 The only part outside this repo, and about ten lines. In the VitePWA manifest:
 
