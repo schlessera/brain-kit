@@ -293,13 +293,32 @@ jobs:
         # without reinstalling or rechecking the complete package matrix.
         run: |
           set -euo pipefail
-          REPO_DIR="$PWD"
-          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          export REPO_DIR="$PWD"
+          export TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           CONSUMER_DIR="$RUNNER_TEMP/brainkit-react18-consumer"
           mkdir -p "$CONSUMER_DIR"
           cd "$CONSUMER_DIR"
+          # The packed brain-ui-react pins its internal dependencies to the
+          # workspace version, which npm does not have between versioning and
+          # publishing. The same file: overrides as the consumer above make
+          # every internal package resolve to its packed tarball, so this step
+          # tests what was packed rather than the last published release.
+          bun -e '
+            const tarballs = "../brainkit-tarballs";
+            await Bun.write("package.json", JSON.stringify({
+              name: "brainkit-react18-smoke",
+              private: true,
+              type: "module",
+              overrides: {
+                "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
+                "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
+              },
+            }, null, 2) + "\n");
+          '
           bun add \
             "$TARBALL_DIR/ui-sdk.tgz" \
+            "$TARBALL_DIR/ui-kit.tgz" \
             "$TARBALL_DIR/ui-react.tgz" \
             'react@^18' \
             'react-dom@^18'
@@ -307,6 +326,35 @@ jobs:
             '@types/react@^18' \
             '@types/react-dom@^18'
           bun -e '
+            // Each internal package must be the packed one. Neither a version
+            // nor a manifest can tell a tarball from the same release on npm,
+            // which is byte-identical when nothing changed since publishing.
+            // The lockfile can: it records where each package resolved from.
+            const version = (await Bun.file(`${process.env.REPO_DIR}/packages/ui-react/package.json`).json()).version;
+            const lock = await Bun.file("bun.lock").text();
+            // Every resolution of an internal package, nested copies included,
+            // must be a tarball: a nested npm copy would be the one a
+            // dependant actually loads.
+            const resolutions = [...lock.matchAll(/\["(@schlessera\/[^@"]+)@([^"]*)"/g)];
+            for (const [, name, from] of resolutions) {
+              if (!from.startsWith("../brainkit-tarballs/")) {
+                throw new Error(`${name} resolved from ${from || "the registry"}, not a packed tarball`);
+              }
+            }
+            for (const [name, tarball] of [
+              ["@schlessera/brain-ui-sdk", "ui-sdk"],
+              ["@schlessera/brain-ui-kit", "ui-kit"],
+              ["@schlessera/brain-ui-react", "ui-react"],
+            ]) {
+              const entry = `"${name}": ["${name}@../brainkit-tarballs/${tarball}.tgz"`;
+              if (!lock.includes(entry)) {
+                throw new Error(`${name} did not resolve to ${tarball}.tgz`);
+              }
+              const installed = (await Bun.file(`node_modules/${name}/package.json`).json()).version;
+              if (installed !== version) {
+                throw new Error(`${name} is ${installed}, expected the workspace version ${version}`);
+              }
+            }
             for (const name of [
               "react",
               "react-dom",
