@@ -27,8 +27,9 @@ const fields = new Map(
 /** Every kind of change a sweep makes, and the cases it must leave alone. */
 const fixture = () => ({
   issues: [
-    // On the board in Backlog, now agent-ready: a Status change.
-    { number: 1, title: "ready now", url: url(1), repo: REPO, body: "", labels: [{ name: "agent-ready" }] },
+    // On the board in Backlog, now agent-ready: a Status change. Its Priority
+    // is already right on the board, so that field must not be written again.
+    { number: 1, title: "ready now", url: url(1), repo: REPO, body: "", labels: [{ name: "agent-ready" }, { name: "priority: p2" }] },
     // Not on the board: an add, then its Priority, Track and Status.
     { number: 2, title: "new", url: url(2), repo: REPO, body: "", labels: [{ name: "agent-ready" }, { name: "priority: p1" }] },
     // Blocked by a closed issue: an unblock, and the Status that follows from it.
@@ -39,13 +40,15 @@ const fixture = () => ({
     // change. A dry run that projected more than the `blocked` removal would
     // plan Ready here while --apply keeps Backlog.
     { number: 5, title: "still needs design", url: url(5), repo: REPO, body: "Blocked by #9", labels: [{ name: "agent-ready" }, { name: "blocked" }, { name: "needs: design" }] },
-    // Labelled `blocked` with no declaration: reported, never cleared.
-    { number: 6, title: "unverifiable", url: url(6), repo: REPO, body: "", labels: [{ name: "blocked" }] },
+    // Labelled `blocked` with no declaration: reported, never cleared, and it
+    // stays Backlog. It is agent-ready, so a dry run that wrongly projected
+    // the unblock would plan Ready.
+    { number: 6, title: "unverifiable", url: url(6), repo: REPO, body: "", labels: [{ name: "agent-ready" }, { name: "blocked" }] },
     // An open PR says it closes this one: In review, from the review set.
     { number: 7, title: "in review", url: url(7), repo: REPO, body: "", labels: [{ name: "agent-ready" }] },
   ],
   items: new Map<string, { itemId?: string; current?: Record<string, string | undefined> }>([
-    [url(1), { itemId: "item-1", current: { Status: "Backlog" } }],
+    [url(1), { itemId: "item-1", current: { Status: "Backlog", Priority: "P2" } }],
     [url(3), { itemId: "item-3", current: { Status: "Backlog" } }],
     [url(4), { itemId: "item-4", current: { Status: "In progress" } }],
     [url(5), { itemId: "item-5", current: { Status: "Backlog" } }],
@@ -126,7 +129,8 @@ describe("sweep", () => {
       `set ${REPO}#3 Status: Backlog -> Ready`,
       `set ${REPO}#7 Status: Ready -> In review`,
     ]);
-    // And every line `--apply` printed is a write it made.
+    // And every change `--apply` reported is a write it made (the "cannot
+    // verify" line is a report, not a change).
     expect(applied.writes).toEqual([
       "comment #3",
       "unlabel #3",
@@ -145,6 +149,7 @@ describe("sweep", () => {
   test("a new item's fields are in the dry run", async () => {
     const dry = run(false);
     await dry.done;
+    expect(dry.log).toContain(`would add ${REPO}#2  new`);
     expect(dry.log).toContain(`would set ${REPO}#2 Status: (unset) -> Ready`);
     expect(dry.log).toContain(`would set ${REPO}#2 Priority: (unset) -> P1`);
     expect(dry.log).toContain(`would set ${REPO}#2 Track: (unset) -> Design system`);
