@@ -9,7 +9,8 @@
 # changes in brain-template and brain-hosting-template, and catches any run
 # that failed.
 #
-# PROJECT_SYNC_TOKEN is a classic PAT with `project` plus repository access.
+# PROJECT_SYNC_TOKEN is a classic PAT with `project`, `read:org` and repository
+# access. Without `read:org`, `gh project` fails with "unknown owner type".
 # A fine-grained PAT cannot reach a user-owned project. Issue and PR events
 # always run this file from the default branch or the PR's own branch, and the
 # script reads issue text as data and never runs it through a shell.

@@ -584,6 +584,16 @@ if (import.meta.main) {
     );
     process.exit(1);
   }
+  // `gh project` resolves `--owner` through a query that needs `read:org`,
+  // and without it fails with "unknown owner type", which names neither the
+  // token nor the scope. Observed in CI with a `repo` + `project` PAT.
+  if (!/\bread:org\b/.test(scopes)) {
+    console.error(
+      "The `read:org` scope is missing. `gh project` needs it to resolve the owner.\n" +
+        "Grant it, then re-run:\n\n  gh auth refresh -s read:org\n",
+    );
+    process.exit(1);
+  }
 
   const project = await ensureProject(apply);
   if (project.number === -1) {
