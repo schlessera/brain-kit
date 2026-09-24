@@ -38,6 +38,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { TOKENS } from "../../src/tokens.ts";
+import { splitPrintBlock } from "./derive-print.ts";
 
 type Rgb = [number, number, number];
 
@@ -364,15 +365,18 @@ export function declaration(name: string, light: string, dark: string): string {
  * so it is idempotent.
  */
 export function rewriteTheme(css: string, tokens = lightTokens()): string {
+  // The print block re-declares every name with plain values; it has its own
+  // generator (`derive-print.ts`) and is not the light/dark pair.
+  const { outside, restore } = splitPrintBlock(css);
   const seen = new Set<string>();
-  const out = css.replace(/^(\s*)--bk-([\w-]+):\s*([^;]+);/gm, (whole, indent: string, name: string) => {
+  const out = outside.replace(/^(\s*)--bk-([\w-]+):\s*([^;]+);/gm, (whole, indent: string, name: string) => {
     if (!(name in TOKENS)) throw new Error(`tokens.css declares --bk-${name}, which tokens.ts does not know`);
     seen.add(name);
     return `${indent}${declaration(name, tokens[name]!, TOKENS[name as keyof typeof TOKENS])}`;
   });
   const missing = Object.keys(TOKENS).filter((n) => !seen.has(n));
   if (missing.length) throw new Error(`tokens.ts knows tokens tokens.css does not declare: ${missing.join(", ")}`);
-  return out;
+  return restore(out);
 }
 
 function splice(file: string, start: string, end: string, body: string): void {

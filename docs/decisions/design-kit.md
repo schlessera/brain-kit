@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D45, dated, with the alternatives that were rejected
+way they are. D1 through D46, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -3385,3 +3385,62 @@ its next bug.
 **An empty field stays one row.** With no text there is nothing to follow, and
 a placeholder longer than the field would otherwise take a second row that the
 first character typed took away again. The uncontrolled composer is untouched.
+
+## 2026-09-24 — D46: a shared answer draws its blocks, in a print theme (#46)
+
+**Question.** Sharing an answer as PNG or PDF sent the message's markdown
+source to the renderer, so every kit block was missing from the file: a
+classified table shared as its raw text, and an explicit `show_block` payload,
+which is not in the markdown at all, shared as nothing. What should draw the
+shared file?
+
+**Ruling (maintainer, recorded on #46).** Neither the markdown alone, nor a
+capture of the live DOM, nor a server that renders React. The browser renders
+each block to static HTML with the transcript's own `BlockCard` and embeds it
+in the markdown it already sends. `marked` passes raw HTML through, and the
+renderer stays scriptless and network-denied. PNG and PDF share that one
+document.
+
+- **Order** is `message.parts`: a block sits where the model called
+  `show_block`, whenever its payload arrived. Thinking, the tool trace,
+  `ask_user` exchanges, and a `show_block` payload that fails the schema are
+  left out, as the transcript's answer leaves them out.
+- **Print is its own theme**, not the light or the dark one.
+  `PRINT_TOKENS` is derived from `LIGHT_TOKENS` by
+  `tools/theme/derive-print.ts` under four rules: a white ground, no
+  translucent washes, borders that carry the structure (flattened to opaque
+  colours a printer keeps), and the light theme's ink. The recommended column
+  of a comparison keeps a fill, because it is data. `tests/print-theme.test.ts`
+  pins the table, the stylesheet block and each rule.
+- **Dependencies run one way**: `ui-kit` → `ui-react` → HTTP → `ui-server` →
+  `render-template` → renderer. `ui-kit` owns the palette and `printThemeCss()`.
+  `ui-react` composes the document and adds the print `<style>` only when an
+  answer has a block. `ui-server` and `render-template` gain nothing and
+  know nothing of the kit, which keeps React out of `core`'s `brain render`.
+- **A message with no block sends exactly what it sent before**, so the
+  common case cannot regress.
+
+**Rejected.** *Capturing the rendered DOM:* the ref covered only the last text
+group, the app's Tailwind classes do not exist in the render template, and a
+phone-width dark screen is not a page. *Server-side rendering:* it would put
+React and the kit into `ui-server`, or into `render-template` and so into
+`core`. *Reusing the light theme for print:* its washes and translucent
+borders assume a screen, and fade or turn muddy on a grayscale printer.
+
+**One layout change the ruling did not name.** It placed per-format layout in
+`render-template`. The PNG width and A4 already live in the renderer, and the
+one block-specific rule (`break-inside: avoid` in print) travels in the print
+`<style>`. `render-template` is therefore unchanged, and a message without
+blocks produces the same document byte for byte.
+
+**Known limit.** The kit's web fonts cannot load in a network-denied renderer,
+so shared blocks fall back to the system fonts the rest of the document uses.
+Embedding the fonts would inline them into every share request.
+
+**Proof.** `tests/share-render.test.ts` renders an answer with every block kind
+in real Chrome. It asserts that nothing but inline data was requested, that
+each block is drawn with a white ground, the print ink, and only print-palette
+backgrounds, that the PDF is A4, and that a no-block answer renders to a PNG
+byte-identical to the old path. `Blocks/In print` renders every block under
+the accessibility gate in both story projects, and four print baselines cover
+it in the pinned image.

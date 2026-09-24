@@ -233,7 +233,7 @@ function AssistantContent({
     !message.isStreaming && !!message.content && message.content.trim().length > 0;
   const shareOptions = showShare
     ? buildMessageShareOptions(root, {
-        content: message.content,
+        message,
         renderedRef: contentRef,
       })
     : [];

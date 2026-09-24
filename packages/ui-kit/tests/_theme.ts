@@ -1,6 +1,7 @@
 /**
  * `src/tokens.css`, parsed: every `--bk-*` declaration in the `:root` block as
- * its two halves. Shared by the token tests so that all of them read the
+ * its two halves. The `[data-theme="print"]` block is left out: it re-declares
+ * the same names with plain values and has its own test. Shared by the token tests so that all of them read the
  * stylesheet the same way — `light-dark(<light>, <dark>)` or a bare value
  * that is the same in both themes.
  *
@@ -9,6 +10,8 @@
  */
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
+
+import { splitPrintBlock } from "../tools/theme/derive-print.js";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const theme = readFileSync(join(PACKAGE_ROOT, "src", "tokens.css"), "utf8");
@@ -42,5 +45,5 @@ export function parseDeclaration(raw: string): Declared {
 
 /** Declarations, not uses: `--bk-x: …` at the start of a declaration. */
 export const DECLARED = new Map<string, Declared>(
-  [...theme.matchAll(/^\s*(--bk-[\w-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1]!, parseDeclaration(m[2]!.trim())]),
+  [...splitPrintBlock(theme).outside.matchAll(/^\s*(--bk-[\w-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1]!, parseDeclaration(m[2]!.trim())]),
 );
