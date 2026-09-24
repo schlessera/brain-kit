@@ -26,6 +26,7 @@ interface Manifest {
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   bin?: Record<string, string>;
 }
 
@@ -73,12 +74,14 @@ function ciPackLoop(): string[] {
 }
 
 /** A `const <name> = [ ... ]` string list inside one of the smoke-test heredocs. */
-/** The `run:` text of one pack-job step, from its `- name:` line to the next step. */
+/** The `run:` text of one pack-job step, read from the parsed workflow. */
 function ciStep(name: string): string {
-  const start = CI_YML.indexOf(`- name: ${name}\n`);
-  if (start === -1) throw new Error(`could not find the "${name}" step in ci.yml`);
-  const next = CI_YML.indexOf("\n      - ", start + 1);
-  return next === -1 ? CI_YML.slice(start) : CI_YML.slice(start, next);
+  const workflow = Bun.YAML.parse(CI_YML) as {
+    jobs: { pack: { steps: { name?: string; run?: string }[] } };
+  };
+  const step = workflow.jobs.pack.steps.find((s) => s.name === name);
+  if (!step?.run) throw new Error(`could not find the "${name}" step's run block in ci.yml`);
+  return step.run;
 }
 
 /** The packages a step's `file:` overrides pin to a tarball. */
@@ -301,9 +304,16 @@ describe("workspace enumerations", () => {
     // manifests rather than listed here, so a new internal dependency that the
     // step forgets resolves from npm and fails this test instead.
     const react = packages.find((p) => p.manifest.name === "@schlessera/brain-ui-react")!;
-    const internal = (name: string) =>
-      Object.keys({ ...packages.find((p) => p.manifest.name === name)?.manifest.dependencies })
-        .filter((dep) => dep.startsWith("@schlessera/"));
+    // Bun installs peers and optional dependencies by default, so an internal
+    // one resolves from npm unless it is pinned too.
+    const internal = (name: string) => {
+      const manifest = packages.find((p) => p.manifest.name === name)?.manifest;
+      return Object.keys({
+        ...manifest?.dependencies,
+        ...manifest?.peerDependencies,
+        ...manifest?.optionalDependencies,
+      }).filter((dep) => dep.startsWith("@schlessera/"));
+    };
     const needed = new Set([react.manifest.name]);
     for (const name of needed) for (const dep of internal(name)) needed.add(dep);
     expect(needed.size).toBeGreaterThan(1);
