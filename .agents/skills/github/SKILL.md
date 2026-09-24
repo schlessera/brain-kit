@@ -41,9 +41,10 @@ public project, and the public project never depends on them. The hosting
 template will be extracted *from* `brain-ui`. **Nothing public links to either
 one or depends on it existing.**
 
-When a change needs two repos, file two issues and cross-link them with the
-`upstream:` labels. A public issue never restates a private deployment detail
-to save the reader a click.
+When a change needs two public repos, file two issues and cross-link them with
+the `upstream:` labels. When one side is the private instance, only the private
+issue links: a public issue never names, labels or links a private one, and
+never restates a private deployment detail to save the reader a click.
 
 Before creating or editing an issue in any public repository, run its body
 through the same gate the tree is held to:
@@ -123,9 +124,10 @@ gh api "repos/$REPO/issues/7/sub_issues" --jq '.[] | "\(.number) \(.title)"'
 
 ## Labels and milestones
 
-The taxonomy lives in `scripts/labels.ts` and is pushed with
-`bun scripts/sync-labels.ts --repo <owner/name> --apply` (dry run without
-`--apply`). Never create a label by hand — it will be silently different from
+The taxonomy for the three public repositories lives in `scripts/labels.ts`
+and is pushed with `bun scripts/sync-labels.ts --repo <owner/name> --apply`
+(dry run without `--apply`). The private instance repositories keep their own
+taxonomy and sync script in their own trees. Never create a label by hand — it will be silently different from
 the one in the manifest, and the next sync will not fix it because the manifest
 does not know it exists.
 

@@ -54,8 +54,7 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  * - Three decision records cite the private repository's files, pending #303,
  *   which decides where the container design they describe belongs.
  * - Tooling pending its own issue: the citation checker's form for another
- *   repository (#303), and the label taxonomy and sync that still cover the
- *   private instance (#299).
+ *   repository (#303).
  * - Tests and the board sync that name the private repositories on purpose:
  *   as negative fixtures a guard must refuse, or as the rule that keeps
  *   them off the board. This is the explicit list of such fixtures (#305);
@@ -69,11 +68,10 @@ const RECORDED: Record<string, string> = {
   "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
   "docs/decisions/README.md": "4ba97a8e9273de8d",
   "scripts/check-citations.ts": "208a75668bf914f4",
-  "scripts/labels.ts": "667ad2a8bcecbf0f",
-  "scripts/sync-labels.ts": "4cf488160f63c036",
   "scripts/sync-project.ts": "c491185e4368cdc2",
   "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
+  "tests/labels.test.ts": "e95c6a1e98b880f0",
   "tests/project-sync-main.test.ts": "67116a2297046d31",
   "tests/project-sync-item.test.ts": "c8805cd52b00d4a9",
   "packages/core/CHANGELOG.md": "74c0ce78fcafc50e",

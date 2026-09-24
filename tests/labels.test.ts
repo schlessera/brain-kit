@@ -9,13 +9,13 @@ import {
   NAMESPACE_COLORS,
   OBSOLETE_LABELS,
   PRIORITY_LABELS,
-  UI_AREA_LABELS,
+  HOSTING_AREA_LABELS,
   labelsFor,
   type LabelSpec,
 } from "../scripts/labels.ts";
 import { planActions } from "../scripts/sync-labels.ts";
 
-const ALL_REPOS = ["brain-kit", "brain-ui", "brain-template", "brain-hosting-template"] as const;
+const ALL_REPOS = ["brain-kit", "brain-template", "brain-hosting-template"] as const;
 
 describe("label taxonomy", () => {
   for (const repo of ALL_REPOS) {
@@ -56,6 +56,23 @@ describe("label taxonomy", () => {
       expect(collisions).toEqual([]);
     });
   }
+
+  test("no public label names a private repository, and brain-kit links both templates (#299)", () => {
+    // A public issue never names, labels or links the maintainer's private
+    // instance (AGENTS.md, "The five repositories").
+    for (const repo of ALL_REPOS) {
+      const names = labelsFor(repo).map((label) => label.name);
+      expect({ repo, private: names.filter((n) => /brain-ui(?![-\w])|schlessera\/brain(?![-\w])/.test(n)) }).toEqual({
+        repo,
+        private: [],
+      });
+    }
+    const kit = labelsFor("brain-kit").map((label) => label.name);
+    expect(kit.filter((n) => n.startsWith("upstream: ")).sort()).toEqual([
+      "upstream: brain-hosting-template",
+      "upstream: brain-template",
+    ]);
+  });
 
   test("a namespace is one colour, so the prefix is legible before it is read", () => {
     const namespaced = (prefix: keyof typeof NAMESPACE_COLORS, labels: LabelSpec[]) =>
@@ -117,7 +134,7 @@ describe("label taxonomy", () => {
     // brain-kit's areas are packages; the shell's are deployment surfaces. The
     // overlap is deliberate and small — ci and docs exist in both.
     const kit = new Set(KIT_AREA_LABELS.map((label) => label.name));
-    const shell = new Set(UI_AREA_LABELS.map((label) => label.name));
+    const shell = new Set(HOSTING_AREA_LABELS.map((label) => label.name));
     const shared = [...kit].filter((name) => shell.has(name));
     expect(shared.sort()).toEqual(["area: ci", "area: docs"]);
   });
@@ -126,7 +143,7 @@ describe("label taxonomy", () => {
     // It IS the extraction of the shell. A parallel vocabulary for the same
     // shape would mean translating every issue that moves between them.
     expect(labelsFor("brain-hosting-template").filter((l) => l.name.startsWith("area: "))).toEqual(
-      UI_AREA_LABELS,
+      HOSTING_AREA_LABELS,
     );
   });
 

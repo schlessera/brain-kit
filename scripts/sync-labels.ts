@@ -2,7 +2,7 @@
 //
 //   bun scripts/sync-labels.ts                      # brain-kit, dry run report
 //   bun scripts/sync-labels.ts --apply
-//   bun scripts/sync-labels.ts --repo schlessera/brain-ui --apply
+//   bun scripts/sync-labels.ts --repo schlessera/brain-template --apply
 //   bun scripts/sync-labels.ts --apply --prune      # also delete unknown labels
 //
 // Dry run is the default on purpose: deleting a label removes it from every
@@ -22,7 +22,9 @@ interface ExistingLabel {
   description: string;
 }
 
-const KNOWN: RepoKind[] = ["brain-kit", "brain-ui", "brain-template", "brain-hosting-template"];
+// The three public repositories. No other repository is synced from here
+// (#299).
+const KNOWN: RepoKind[] = ["brain-kit", "brain-template", "brain-hosting-template"];
 
 function repoKind(repo: string): RepoKind {
   const name = (repo.split("/").pop() ?? repo) as RepoKind;

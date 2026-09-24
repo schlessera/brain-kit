@@ -63,9 +63,12 @@ Ask what the issue is actually about:
   its volumes. → brain-ui. Its content and data → brain. Neither goes on the
   project board.
 
-When a change needs two of them, each gets its own issue and both carry the
-`upstream:` label pointing at the other. **A public issue never restates a
-private deployment detail to save a click.**
+When a change needs two of the public repositories, each gets its own issue and
+both carry the `upstream:` label pointing at the other. When one side is the
+maintainer's private instance, only the private issue links: a public issue
+never names, labels or links a private one. **A public issue never restates a
+private deployment detail to save a click.** The private repositories keep
+their own label taxonomy in their own trees.
 
 Before creating or editing an issue in a public repository, run its body
 through the same gate the tree is held to — the `github` skill
