@@ -332,6 +332,15 @@ jobs:
             // The lockfile can: it records where each package resolved from.
             const version = (await Bun.file(`${process.env.REPO_DIR}/packages/ui-react/package.json`).json()).version;
             const lock = await Bun.file("bun.lock").text();
+            // Every resolution of an internal package, nested copies included,
+            // must be a tarball: a nested npm copy would be the one a
+            // dependant actually loads.
+            const resolutions = [...lock.matchAll(/\["(@schlessera\/[^@"]+)@([^"]*)"/g)];
+            for (const [, name, from] of resolutions) {
+              if (!from.startsWith("../brainkit-tarballs/")) {
+                throw new Error(`${name} resolved from ${from || "the registry"}, not a packed tarball`);
+              }
+            }
             for (const [name, tarball] of [
               ["@schlessera/brain-ui-sdk", "ui-sdk"],
               ["@schlessera/brain-ui-kit", "ui-kit"],

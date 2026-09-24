@@ -73,6 +73,19 @@ function ciPackLoop(): string[] {
 }
 
 /** A `const <name> = [ ... ]` string list inside one of the smoke-test heredocs. */
+/** The `run:` text of one pack-job step, from its `- name:` line to the next step. */
+function ciStep(name: string): string {
+  const start = CI_YML.indexOf(`- name: ${name}\n`);
+  if (start === -1) throw new Error(`could not find the "${name}" step in ci.yml`);
+  const next = CI_YML.indexOf("\n      - ", start + 1);
+  return next === -1 ? CI_YML.slice(start) : CI_YML.slice(start, next);
+}
+
+/** The packages a step's `file:` overrides pin to a tarball. */
+function overriddenIn(step: string): string[] {
+  return [...step.matchAll(/"(@schlessera\/[^"]+)":\s*`file:/g)].map((m) => m[1]).sort();
+}
+
 function ciImportList(variable: string): string[] {
   const block = new RegExp(`const ${variable} = \\[([\\s\\S]*?)\\];`).exec(CI_YML);
   if (!block) throw new Error(`could not find \`const ${variable} = [...]\` in ci.yml`);
@@ -280,10 +293,21 @@ describe("workspace enumerations", () => {
     // The overrides map is how the consumer install resolves workspace deps to
     // the packed tarballs. A package absent here resolves from the public
     // registry instead, and the smoke test silently tests the PREVIOUS release.
-    const overridden = [...CI_YML.matchAll(/"(@schlessera\/[^"]+)":\s*`file:/g)]
-      .map((m) => m[1])
-      .sort();
-    expect(overridden).toEqual(sortedNames);
+    expect(overriddenIn(ciStep("Install and smoke-test packed packages"))).toEqual(sortedNames);
+  });
+
+  test("the React 18 smoke test pins every internal package brain-ui-react needs to its tarball", () => {
+    // brain-ui-react and the internal packages it depends on, found from the
+    // manifests rather than listed here, so a new internal dependency that the
+    // step forgets resolves from npm and fails this test instead.
+    const react = packages.find((p) => p.manifest.name === "@schlessera/brain-ui-react")!;
+    const internal = (name: string) =>
+      Object.keys({ ...packages.find((p) => p.manifest.name === name)?.manifest.dependencies })
+        .filter((dep) => dep.startsWith("@schlessera/"));
+    const needed = new Set([react.manifest.name]);
+    for (const name of needed) for (const dep of internal(name)) needed.add(dep);
+    expect(needed.size).toBeGreaterThan(1);
+    expect(overriddenIn(ciStep("Smoke-test brain-ui-react against React 18"))).toEqual([...needed].sort());
   });
 
   test("the CI bun smoke-test import list covers every publishable package", () => {
