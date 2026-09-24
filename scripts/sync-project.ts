@@ -78,7 +78,22 @@ interface ProjectField {
   options?: { id: string; name: string }[];
 }
 
-async function gh(args: string[]): Promise<string> {
+/**
+ * How the script reaches GitHub and the terminal. One object, so a test can
+ * replace `gh` with a fake board and tracker and read what the run printed,
+ * and run the real orchestration end to end without a network.
+ */
+export const runtime = {
+  gh: spawnGh,
+  log: (line: string) => console.log(line),
+  error: (line: string) => console.error(line),
+};
+
+function gh(args: string[]): Promise<string> {
+  return runtime.gh(args);
+}
+
+async function spawnGh(args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
@@ -102,13 +117,13 @@ async function ensureProject(apply: boolean): Promise<Project> {
   ).find((project) => project.title === TITLE);
   if (existing) return existing;
   if (!apply) {
-    console.log(`would create project "${TITLE}"`);
+    runtime.log(`would create project "${TITLE}"`);
     return { number: -1, id: "" };
   }
   const created = JSON.parse(
     await gh(["project", "create", "--owner", OWNER, "--title", TITLE, "--format", "json"]),
   ) as Project;
-  console.log(`created project #${created.number}`);
+  runtime.log(`created project #${created.number}`);
   return created;
 }
 
@@ -198,7 +213,7 @@ async function ensureFields(projectNumber: number, apply: boolean): Promise<Proj
   for (const wanted of wantedFields()) {
     if (fields.some((field) => field.name === wanted.name)) continue;
     if (!apply) {
-      console.log(`would create field ${wanted.name} (${wanted.dataType})`);
+      runtime.log(`would create field ${wanted.name} (${wanted.dataType})`);
       continue;
     }
     const args = [
@@ -214,7 +229,7 @@ async function ensureFields(projectNumber: number, apply: boolean): Promise<Proj
     ];
     if (wanted.options) args.push("--single-select-options", wanted.options.join(","));
     await gh(args);
-    console.log(`created field ${wanted.name}`);
+    runtime.log(`created field ${wanted.name}`);
   }
   if (apply) fields = await listFields(projectNumber);
   return fields;
@@ -682,7 +697,7 @@ export async function syncItem(
     log?: (line: string) => void;
   },
 ): Promise<void> {
-  const log = ctx.log ?? console.log;
+  const log = ctx.log ?? runtime.log;
   let itemId = ctx.itemId;
   if (!itemId) {
     if (ctx.apply) {
@@ -759,7 +774,7 @@ export async function sweep(
     log?: (line: string) => void;
   },
 ): Promise<void> {
-  const log = ctx.log ?? console.log;
+  const log = ctx.log ?? runtime.log;
   // Before Status is derived: an issue unblocked here is Ready in this run.
   const blockers = await reconcileBlocked(issues, ctx.tracker, ctx.apply, REPOS);
   for (const { issue, closed } of blockers.cleared) {
@@ -943,12 +958,12 @@ async function syncTargets(refs: string[], apply: boolean): Promise<void> {
     const target = parseTarget(ref);
     const repo = target && boardRepo(target.repo);
     if (!target || !repo) {
-      console.log(`skip ${ref}: not an issue in the board's repositories`);
+      runtime.log(`skip ${ref}: not an issue in the board's repositories`);
       continue;
     }
     const issue = await readIssue(repo, target.number);
     if (!issue || issue.isPullRequest) {
-      console.log(`skip ${ref}: not an issue`);
+      runtime.log(`skip ${ref}: not an issue`);
       continue;
     }
     if (issue.state !== "open") {
@@ -956,7 +971,7 @@ async function syncTargets(refs: string[], apply: boolean): Promise<void> {
       // this run owes a closed issue is the issues it was blocking: sync those,
       // so a dependant is unblocked now rather than at the daily sweep.
       const dependants = (await dependantsOf(`${repo}#${issue.number}`)).filter((d) => !queue.includes(d));
-      console.log(`skip ${ref}: closed${dependants.length ? `; syncing what it blocked: ${dependants.join(", ")}` : ""}`);
+      runtime.log(`skip ${ref}: closed${dependants.length ? `; syncing what it blocked: ${dependants.join(", ")}` : ""}`);
       queue.push(...dependants);
       continue;
     }
@@ -973,11 +988,15 @@ async function syncTargets(refs: string[], apply: boolean): Promise<void> {
       counts,
     });
   }
-  console.log(`\n${summaryLine(apply, counts)}`);
+  runtime.log(`\n${summaryLine(apply, counts)}`);
 }
 
-if (import.meta.main) {
-  const apply = process.argv.includes("--apply");
+/**
+ * The whole run, as a function of its arguments: returns the exit code.
+ * `import.meta.main` below is the only caller that exits the process.
+ */
+export async function main(argv: string[]): Promise<number> {
+  const apply = argv.includes("--apply");
 
   // `repo` does not imply `project`, and the failure without it is a raw
   // GraphQL scope error several frames down. `gh project` also resolves
@@ -991,19 +1010,19 @@ if (import.meta.main) {
   const scopes = scopesFromHeaders(await gh(["api", "--include", "user"]));
   const lacking = missingScopes(scopes);
   if (lacking.length > 0) {
-    console.error(
+    runtime.error(
       `The token is missing ${lacking.map((m) => `\`${m}\``).join(" and ")}. ` +
         "GitHub Projects needs `project`, and `gh project` needs `read:org` to resolve the owner.\n" +
         `Grant them, then re-run:\n\n  gh auth refresh -s ${lacking.join(",")}\n`,
     );
-    process.exit(1);
+    return 1;
   }
 
   // `--issue owner/repo#N` syncs one issue; `--pr owner/repo#N` syncs the
   // issues that PR says it closes. Without either, the full sweep runs.
   const flag = (name: string) => {
-    const index = process.argv.indexOf(name);
-    return index === -1 ? undefined : process.argv[index + 1];
+    const index = argv.indexOf(name);
+    return index === -1 ? undefined : argv[index + 1];
   };
   const issueRef = flag("--issue");
   const prRef = flag("--pr");
@@ -1013,20 +1032,20 @@ if (import.meta.main) {
       const pr = parseTarget(prRef);
       const repo = pr && boardRepo(pr.repo);
       if (!pr || !repo) {
-        console.log(`skip ${prRef}: not a pull request in the board's repositories`);
-        process.exit(0);
+        runtime.log(`skip ${prRef}: not a pull request in the board's repositories`);
+        return 0;
       }
       const body = await gh(["api", `repos/${repo}/pulls/${pr.number}`, "--jq", ".body // \"\""]);
       refs = [...refs, ...closingRefs(body, repo)];
     }
     await syncTargets(refs, apply);
-    process.exit(0);
+    return 0;
   }
 
   const project = await ensureProject(apply);
   if (project.number === -1) {
-    console.log("\nRe-run with --apply to create the project, then run again to seed it.");
-    process.exit(0);
+    runtime.log("\nRe-run with --apply to create the project, then run again to seed it.");
+    return 0;
   }
 
   for (const repo of REPOS) {
@@ -1064,13 +1083,13 @@ if (import.meta.main) {
     counts,
   });
 
-  console.log(`\n${summaryLine(apply, counts)}`);
+  runtime.log(`\n${summaryLine(apply, counts)}`);
   if (!apply) {
-    console.log(
+    runtime.log(
       "To make these changes, trigger the sweep (about 520 GraphQL points):\n\n" +
         "  gh workflow run project-sync --repo schlessera/brain-kit",
     );
-    process.exit(0);
+    return 0;
   }
 
   // Count what is on the BOARD, not what was asked for. The first real run of
@@ -1081,16 +1100,16 @@ if (import.meta.main) {
   const onBoard = await boardItems(project.number);
   const missing = issues.filter((issue) => !onBoard.has(issue.url));
   if (missing.length > 0) {
-    console.log(
+    runtime.log(
       `\n${missing.length} issue(s) did not land. This is expected on a first run; ` +
         `run the script again and they will be picked up:\n` +
         missing.map((issue) => `  ${issue.repo}#${issue.number}`).join("\n"),
     );
   } else {
-    console.log(`All ${issues.length} open issue(s) are on the board.`);
+    runtime.log(`All ${issues.length} open issue(s) are on the board.`);
   }
 
-  console.log(`
+  runtime.log(`
 One thing this script does not do — finish it once, in the web UI:
 
   Views. Make these four:
@@ -1100,4 +1119,7 @@ One thing this script does not do — finish it once, in the web UI:
        Epics      — table, filter: label:epic
 
 ${project.url ?? `https://github.com/users/${OWNER}/projects/${project.number}`}`);
+  return 0;
 }
+
+if (import.meta.main) process.exit(await main(process.argv));
