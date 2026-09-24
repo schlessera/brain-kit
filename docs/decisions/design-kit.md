@@ -3327,7 +3327,7 @@ checkout of this repo. The agent's cwd is the brain, and a brain nested in
 the worktree lets the model walk up into it: on the first attempt two pi
 answers compared Bun and Node by quoting this repo's own `AGENTS.md`. The
 shell is not confined to the brain either — the deployment container is that
-boundary (`container-privilege.md`) and a developer host does not have one —
+boundary (the container privilege record, in brain-hosting-template) and a developer host does not have one —
 so the harness records when a tool argument names a path outside the brain
 and drops that turn from the rate. Four turns across the two runs were
 dropped that way, and **all four were the `trend` prompt** — the one that

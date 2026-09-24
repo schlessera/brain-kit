@@ -51,10 +51,8 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  * until the digest is updated. The failure prints the new digest and the
  * paragraphs behind it, so an update is a reviewed diff of both.
  *
- * - Three decision records cite the private repository's files, pending #303,
- *   which decides where the container design they describe belongs.
- * - Tooling pending its own issue: the citation checker's form for another
- *   repository (#303).
+ * - The citation checker and its test, which name a private repository as
+ *   the case they must reject (#303).
  * - Tests and the board sync that name the private repositories on purpose:
  *   as negative fixtures a guard must refuse, or as the rule that keeps
  *   them off the board. This is the explicit list of such fixtures (#305);
@@ -64,12 +62,9 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  *   version time, from carrying a reference past this test.
  */
 const RECORDED: Record<string, string> = {
-  "docs/decisions/container-privilege.md": "9cc9a4551c3be276",
-  "docs/decisions/agent-observability.md": "555a92a8caaaccbc",
-  "docs/decisions/README.md": "4ba97a8e9273de8d",
-  "scripts/check-citations.ts": "208a75668bf914f4",
+  "scripts/check-citations.ts": "fa5fe83fed354cef",
   "scripts/sync-project.ts": "c491185e4368cdc2",
-  "tests/decision-citations.test.ts": "b952ad1cdf51a17b",
+  "tests/decision-citations.test.ts": "e4984fe589671abb",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
   "tests/labels.test.ts": "396f8dde5e38d075",
   "tests/project-sync-main.test.ts": "67116a2297046d31",

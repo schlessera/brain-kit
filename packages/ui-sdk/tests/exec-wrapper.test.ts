@@ -183,7 +183,7 @@ describe("the cancellation helper", () => {
     );
     chmodSync(wrapper, 0o755);
 
-    // The shape docs/decisions/container-privilege.md specifies:
+    // The shape brain-hosting-template docs/decisions/container-privilege.md specifies:
     // `<killer> <pgid> <TERM|KILL|INT>`. A real one is setuid and drops to the
     // agent uid first; this one only has to prove the call and the effect.
     const killer = join(dir, "kill-group.sh");

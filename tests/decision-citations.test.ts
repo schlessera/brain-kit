@@ -19,6 +19,7 @@ import {
   parseCitations,
   ROOT,
   type Tree,
+  failing as failsCheck,
 } from "../scripts/check-citations.ts";
 
 /** An in-memory tree, so the rules are exercised without touching real files. */
@@ -44,7 +45,7 @@ describe("the decision records", () => {
 
   test("every citation names its anchor, or is a listed exception", () => {
     const failing = reports
-      .filter((report) => report.verdict.kind !== "anchored" && !report.exception)
+      .filter(failsCheck)
       .map(describeReport);
     expect(failing).toEqual([]);
   });
@@ -157,16 +158,27 @@ describe("what the check cannot verify is reported, not skipped", () => {
     expect(report.verdict.kind).toBe("unanchored");
   });
 
-  test("a citation into another repository", () => {
+  test("a citation into a public repository of the project is accepted, not verified (#303)", () => {
+    const [report] = check("(`entrypoint`, `[brain-hosting-template] scripts/entrypoint.sh:59-85`)");
+    expect(report.verdict).toEqual({ kind: "external", repo: "brain-hosting-template" });
+    expect(failsCheck(report)).toBe(false);
+    const [template] = check("(`init`, `[brain-template] brain.config.ts:3`)");
+    expect(template.verdict.kind).toBe("external");
+  });
+
+  test("a citation into a private repository fails, and no exception excuses it (#303)", () => {
     const [report] = check("(`entrypoint`, `[brain-ui] scripts/entrypoint.sh:59-85`)");
-    expect(report.verdict.kind).toBe("unresolved");
+    expect(report.verdict.kind).toBe("private");
+    expect(failsCheck({ ...report, exception: "any reason" })).toBe(true);
+    const [other] = check("(`note`, `[brain] notes/x.md:1`)");
+    expect(other.verdict.kind).toBe("private");
   });
 
   test("a citation of an extensionless file", () => {
     const [report] = check("(`FROM oven/bun`, `Dockerfile:1`)", { Dockerfile: "FROM oven/bun\n" });
     expect(report.verdict.kind).toBe("anchored");
-    const [external] = check("(`FROM`, `[brain-ui] Dockerfile:217-231`)");
-    expect(external.verdict.kind).toBe("unresolved");
+    const [external] = check("(`FROM`, `[brain-hosting-template] Dockerfile:217-231`)");
+    expect(external.verdict.kind).toBe("external");
   });
 
   test("a markdown or HTML link to a line", () => {

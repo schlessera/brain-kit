@@ -128,7 +128,7 @@ export function createWrappedSpawn(
 
         // An authorised helper is the only thing that works once the wrapper
         // has dropped uid: kill(2) matches uids, and group membership grants
-        // no exception (docs/decisions/container-privilege.md, "Cancellation").
+        // no exception (brain-hosting-template docs/decisions/container-privilege.md, "Cancellation").
         if (killer) {
           const helper = spawn(killer, [String(pid), sig.replace(/^SIG/, "")], {
             stdio: "ignore",

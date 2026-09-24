@@ -13,7 +13,7 @@ somebody already learn the hard way?*
 | --- | --- |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D46, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |
-| [container-privilege.md](container-privilege.md) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. |
+| [container-privilege.md](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (in brain-hosting-template) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. Moved to the hosting template, which builds the container (#303). |
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
@@ -43,8 +43,8 @@ What makes these useful is the part most records leave out:
   the record — including when a later one corrects an earlier one.
 - **The corrections.** When a decision turns out to be wrong, the entry is
   superseded in place with the correction underneath it. The pair is more useful
-  than either half — `container-privilege.md` exists because `hardening.md`'s
-  decision 8 was written before the spike ran.
+  than either half: the container privilege record (now in brain-hosting-template)
+  exists because `hardening.md`'s decision 8 was written before the spike ran.
 
 Keep them append-only. Supersede an entry; do not rewrite one.
 
@@ -99,12 +99,16 @@ where each drifted anchor now is. What it does **not** check:
   output, not pointers.
 - **A line named in words** ("line 12 of `auth.ts`"), or a second line number
   in plain text after a citation. Write each line as its own citation.
-- **Citations it cannot resolve.** Another repository (`[brain-ui] path:line`),
-  a dependency's installed source, a quotation, and code the record describes
-  as it was before the change it decided. Each of these is listed in
-  `CITATION_EXCEPTIONS` in `scripts/check-citations.ts` with its reason. An
-  unlisted one fails the test, and so does an entry that no longer matches a
-  citation.
+- **Citations into another repository.** `[brain-hosting-template] path:line`
+  or `[brain-template] path:line`: the public repositories of the project,
+  which this tree cannot read, so the citation is accepted and not verified.
+  A citation of any other repository fails, and no exception can excuse it:
+  a public record never cites a repository outside the open-source project.
+- **Citations it cannot resolve.** A dependency's installed source, a
+  quotation, and code the record describes as it was before the change it
+  decided. Each of these is listed in `CITATION_EXCEPTIONS` in
+  `scripts/check-citations.ts` with its reason. An unlisted one fails the
+  test, and so does an entry that no longer matches a citation.
 
 When a later change removes or reverses the code a record describes, do not
 re-point the citation at code the record never described. List it as an

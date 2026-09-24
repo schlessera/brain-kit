@@ -68,7 +68,7 @@ flowchart LR
     CB[Claude backend<br/>stream-adapter + hooks]
     PB[pi backend<br/>event listener]
     WH[WS host<br/>baseline turn/tool spans]
-    CW["[brain-ui] cron-run.ts<br/>root spans, direct DB write"]
+    CW["the deployment's cron runner<br/>root spans, direct DB write"]
   end
   subgraph server [ui-server]
     AS[(activity store<br/>spans + rollups + intents<br/>seq at persist)]
@@ -114,5 +114,5 @@ Span lifecycle (write-once terminal): `running → success | error | timeout | c
 ## Sources & References
 
 - **Origin:** a requirements pass on 2026-08-24, not kept — this record is what survived it.
-- Key code: `packages/ui-server/src/observability/`, `packages/ui-backend-claude/src/stream-adapter.ts`, `packages/ui-sdk/src/protocol.ts`, `packages/ui-react/src/components/chat/tool-call-timeline.tsx`, `[brain-ui]` `server/scripts/cron-run.ts`
+- Key code: `packages/ui-server/src/observability/`, `packages/ui-backend-claude/src/stream-adapter.ts`, `packages/ui-sdk/src/protocol.ts`, `packages/ui-react/src/components/chat/tool-call-timeline.tsx`, and the deployment's cron runner
 - External: OTel GenAI semantic conventions; Claude Agent SDK 0.3.241 typings (`sdk.d.ts`); Web Push/VAPID
