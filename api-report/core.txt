@@ -59,6 +59,7 @@ export "." (./src/index.ts)
   type OkfExportOptions
   type OkfExportReport
   type PropagationRule
+  type ReadPartOptions
   type RerankerConfig
   type ResolvedTypeSpec
   SCHEMA_VERSION
@@ -76,6 +77,7 @@ export "." (./src/index.ts)
   type SearchOptions
   type SearchResponse
   type SearchResult
+  SectionNotFoundError
   type Severity
   type SkillEmitter
   type SkillManifest
@@ -140,6 +142,7 @@ export "." (./src/index.ts)
   normalizeFrontmatterDates
   openDatabase
   pruneScratch
+  readDocumentPart
   readEnvVar
   repoRelativePathSchema
   rerank

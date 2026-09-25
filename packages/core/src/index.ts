@@ -78,6 +78,8 @@ export {
 } from "./lib/db.js";
 export type { SchemaOptions, VecSupport, VecUnavailableReason } from "./lib/db.js";
 export { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
+export { readDocumentPart, SectionNotFoundError } from "./lib/document-parts.js";
+export type { ReadPartOptions } from "./lib/document-parts.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 export { assembleContext, estimateTokens } from "./lib/context-assembler.js";
 export type { AssembleOptions } from "./lib/context-assembler.js";

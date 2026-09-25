@@ -42,7 +42,7 @@ import {
   rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { isIsoDate, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain";
+import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
 import {
@@ -486,14 +486,39 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     label: "Read brain document",
     description:
       "Read a specific document from the brain knowledge base by its relative path. " +
-      "Returns the full file contents including frontmatter.",
+      "By default returns the whole file, frontmatter included, clipped only at the tool's output limit. " +
+      "Pass `section` to get one section by its heading (matched on its visible text, ignoring case; " +
+      "the first of two equal headings wins), or `max_tokens` to get the frontmatter and an outline of " +
+      "headings with their token counts instead of a file larger than that. `max_tokens` is the threshold " +
+      "for switching to the outline, not a cap on the output.",
     parameters: Type.Object({
       path: Type.String({ description: 'Repo-relative document path, e.g. "me/identity.md".' }),
+      section: Type.Optional(
+        Type.String({
+          description:
+            "Heading text of one section to return, from its heading to the next heading of the same or higher level.",
+        })
+      ),
+      max_tokens: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "Threshold, not a cap: when the result would be larger than this, return the frontmatter and an outline instead.",
+        })
+      ),
     }),
-    async execute(_id: string, params: { path: string }) {
+    async execute(_id: string, params: { path: string; section?: string; max_tokens?: number }) {
       const abs = resolveOrThrow(params.path);
-      const raw = readFileSync(abs, "utf-8");
-      return textResult(clip(raw, MAX_READ_BYTES), { path: params.path });
+      // The same reader as the MCP tool and `brain read`; with neither option
+      // it returns the file untouched, so the default read is unchanged. The
+      // byte clip applies to what it selected, so a section past the clip
+      // point of the whole file is still reachable.
+      const text = readDocumentPart(readFileSync(abs, "utf-8"), {
+        section: params.section,
+        maxTokens: params.max_tokens,
+        sectionHint: 'section: "<heading>"',
+      });
+      return textResult(clip(text, MAX_READ_BYTES), { path: params.path });
     },
   } satisfies ToolDefinition;
 
