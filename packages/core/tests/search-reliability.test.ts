@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
@@ -131,10 +131,17 @@ test("recency reranking measures from the pinned now, not the wall clock", async
   const search = (now: string) =>
     hybridSearch(db, { query: "harbour", mode: "fts", rerank: "heuristic", now: new Date(now) });
 
-  const fresh = await search("2026-07-12");
-  expect(fresh.results.map(r => r.path)).toEqual(["notes/1.md", "notes/2.md"]);
-  const later = await search("2028-07-12");
-  expect(later.results.map(r => r.path)).toEqual(["notes/2.md", "notes/1.md"]);
+  // Freeze the ambient clock on the first date, so a search that ignored
+  // `now` would pass the first assertion and fail on the second.
+  setSystemTime(new Date("2026-07-12"));
+  try {
+    const fresh = await search("2026-07-12");
+    expect(fresh.results.map(r => r.path)).toEqual(["notes/1.md", "notes/2.md"]);
+    const later = await search("2028-07-12");
+    expect(later.results.map(r => r.path)).toEqual(["notes/2.md", "notes/1.md"]);
+  } finally {
+    setSystemTime();
+  }
 });
 
 test("an invalid now is refused rather than scoring every result NaN", async () => {
