@@ -136,7 +136,10 @@ to the answer), non-English (the Messier page's German title) and recency
 (a fast-decaying `context` note whose rank moves with the date).
 
 `evals/expected-ranks.json` records, per query, the rank of its expected path
-(and `current_first` for stale-vs-current) from `brain eval --mode fts`.
+from `brain eval --mode fts --rerank heuristic`, plus `current_first` for
+stale-vs-current, and for a no-answer query (rank null by definition) the top
+paths it gets instead. The reranker is named on the command line so an
+ambient `BRAIN_RERANK_MODE` cannot change what a run or a regeneration sees.
 `packages/core/tests/eval-corpus.test.ts` asserts every rank. A change to
 ranking therefore fails the suite until the file is rewritten, which puts the
 moved ranks in the PR's diff for review:
@@ -147,7 +150,9 @@ BRAIN_UPDATE_GOLDENS=1 bun run test packages/core/tests/eval-corpus.test.ts
 
 The test prints a one-line score table (hit@1, MRR@10, hit@1 per class) that a
 ranking PR can paste before and after. A separate test in the same file drives
-the hybrid lane with hand-staged vectors; it guards fusion mechanics only.
+the hybrid lane with hand-staged vectors, both directly and through
+`brain eval --mode hybrid` with a deterministic provider in the temp brain's
+config; it guards fusion mechanics only.
 
 **These goldens make regressions visible; they do not measure quality.** A
 25-document fixture says nothing about how well search serves a real brain.

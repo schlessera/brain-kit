@@ -44,7 +44,10 @@
     "current_first": true
   },
   "no-answer-tax": {
-    "rank": null
+    "rank": null,
+    "top": [
+      "projects/active/bookshelf/status.md"
+    ]
   },
   "multi-hop-collimate": {
     "rank": 2
