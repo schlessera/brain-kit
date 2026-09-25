@@ -134,8 +134,9 @@ function quoteFtsTerm(token: string): string {
  * something.
  */
 function sanitizeFtsQuery(query: string): string {
-  const phrase = /^\s*"([^"]+)"\s*$/.exec(query);
-  if (phrase) return quoteFtsTerm(phrase[1]!.trim());
+  // FTS5 escapes a quote inside a phrase by doubling it: `"a ""b"""`.
+  const phrase = /^\s*"((?:[^"]|"")+)"\s*$/.exec(query);
+  if (phrase) return quoteFtsTerm(phrase[1]!.replace(/""/g, '"').trim());
 
   const tokens = query.split(/\s+/).filter(Boolean);
   // A token with no letter or digit (`?`, `-`) is an empty phrase: FTS5's AND

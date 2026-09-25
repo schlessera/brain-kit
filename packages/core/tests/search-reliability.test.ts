@@ -180,8 +180,7 @@ describe("full-text lane over fixtures/corpus", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  // rerank "none" keeps these about the lane: the heuristic reranker reads the
-  // wall clock.
+  // rerank "none" keeps these about the lane, not the reranker's factors.
   const fts = (query: string) => hybridSearch(corpus, { query, mode: "fts", rerank: "none" }, {});
 
   // Documents a raw MATCH expression hits, bypassing the query builder.
@@ -229,6 +228,28 @@ describe("full-text lane over fixtures/corpus", () => {
     expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
 
     const { results } = await fts('"face frame"');
+    expect(results.map(r => r.path).sort()).toEqual(expected);
+  });
+
+  test("a quoted phrase holding FTS5 doubled-quote escapes stays one phrase", async () => {
+    const query = '"face ""frame"""';
+    const expected = rawMatch(query);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+
+    const { results, warnings } = await fts(query);
+    expect(results.map(r => r.path).sort()).toEqual(expected);
+    expect(warnings).toEqual([]);
+  });
+
+  test("a mixed query matches only what its content words match", async () => {
+    const all = (query: string) => hybridSearch(corpus, { query, mode: "fts", rerank: "none", limit: 100 }, {});
+    const expected = (await all("bookshelf deadline")).results.map(r => r.path).sort();
+    // The stopwords alone reach documents the content words do not, or this
+    // proves nothing.
+    expect(rawMatch('"when" OR "is" OR "the"').filter(p => !expected.includes(p)).length).toBeGreaterThan(0);
+
+    const { results } = await all("when is the bookshelf deadline");
     expect(results.map(r => r.path).sort()).toEqual(expected);
   });
 
