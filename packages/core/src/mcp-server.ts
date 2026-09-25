@@ -610,7 +610,7 @@ export async function startMcpServer(
     "brain_archive",
     {
       description:
-        "Archive a brain document: sets status to archived, moves projects/active/ files to projects/archive/, and reindexes. Use dry_run to preview.",
+        "Archive a brain document: sets status to archived, sets a primary or unset relevance to historical, moves projects/active/ files to projects/archive/, and reindexes. Use dry_run to preview.",
       inputSchema: {
         path: z.string().describe("Relative path to the document"),
         dry_run: z.boolean().default(false).describe("Preview without changing anything"),

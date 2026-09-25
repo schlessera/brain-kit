@@ -149,6 +149,13 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         message: `Invalid relevance: "${data.relevance}". Valid: ${VALID_RELEVANCES.join(", ")}`,
       });
     }
+    if (data.status === "archived" && data.relevance === "primary") {
+      issues.push({
+        file: filePath,
+        level: "warning",
+        message: "status: archived contradicts relevance: primary; set relevance: historical",
+      });
+    }
 
     // Tag format validation
     if (Array.isArray(data.tags)) {

@@ -5,7 +5,7 @@ import { indexAll } from "../../lib/indexer.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain archive <path> — set status: archived, move projects/active → projects/archive, reindex
+const HELP = `brain archive <path> — set status: archived and a primary or unset relevance to historical, move projects/active → projects/archive, reindex
 
   --dry-run               Show what would happen without changing anything`;
 

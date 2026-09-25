@@ -36,6 +36,9 @@ Rules:
   skip it, then run `brain accept-mtime` to baseline silent-edit detection.
 - Dates stay bare `YYYY-MM-DD` scalars; arrays stay inline (`[a, b]`).
 - `status: archived` removes a doc from default search; never delete history.
+  An archived doc is not `relevance: primary`: `brain archive` sets a primary
+  or missing relevance to `historical` (an explicit `secondary` stays), and
+  `brain validate` warns on an archived doc that still claims `primary`.
 
 ## Wiki-links
 
