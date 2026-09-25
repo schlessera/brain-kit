@@ -365,10 +365,10 @@ describe("the catalogue", () => {
   });
 
   test("a name that strips to nothing is no name, so the markdown stays", () => {
-    // A value that was only a code span survives detection as an empty
-    // string; `label` is a plain string in the schema, so a blank card would
-    // otherwise validate.
-    const [run] = detectCandidates("**Name:** `` \n**Role:** King of Ithaca");
+    // A value that is only a code span of a space survives detection as an
+    // empty string; `label` is a plain string in the schema, so a blank card
+    // would otherwise validate.
+    const [run] = detectCandidates("**Name:** ` `\n**Role:** King of Ithaca");
     expect((run as { rows: Array<{ k: string; v: string }> }).rows[0]).toEqual({ k: "Name", v: "" });
     expect(
       transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Name", 0.95) })

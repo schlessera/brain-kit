@@ -14,6 +14,7 @@
  */
 
 import { toString as mdastToString } from "mdast-util-to-string";
+import { decodeString } from "micromark-util-decode-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -175,8 +176,9 @@ function bareAddress(link: Link): string | null {
   if (link.title || !link.children.every(isPlainInline)) return null;
   const text = mdastToString(link);
   if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
-  // A backtick is legal in an address, but a key-value run's value has its
-  // backticks stripped as code-span markup, which would change the address.
+  // A backtick is legal in an address. It was refused because a key-value
+  // run stripped backticks from its values, which no longer happens (#236);
+  // whether to admit it again is #330.
   if (text.includes("`")) return null;
   return MAILTO.test(link.url) ? text.replace(MAILTO, "") : text;
 }
@@ -239,6 +241,9 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
         const ahead = lastCodePoint(prose.slice(0, -scheme)) || (seenBefore.get(before) ?? "");
         if (!/[\p{L}\p{N}]/u.test(ahead)) {
           (before as Text).value = prose.slice(0, -scheme);
+          // Its source now ends where the scheme starts, so no two text
+          // nodes claim the same characters.
+          before.position = { start: { offset: before.position.start.offset }, end: { offset: start - scheme } };
           from = start - scheme;
         }
       }
@@ -251,12 +256,46 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
   walk(root);
 }
 
+/**
+ * Exposed for tests: while `counting`, every read of a flattened stretch or
+ * a leaf by position is counted, whatever code makes it, so a key-value
+ * run's reading can be shown to grow with the run and not with its square.
+ */
+export const kvReadSteps = { counting: false, count: 0 };
+
+function counted<T>(items: T[]): T[] {
+  if (!kvReadSteps.counting) return items;
+  return new Proxy(items, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) kvReadSteps.count++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+/**
+ * The flattened stretches inside `span`. `flattened` is in document order, so
+ * they are one run of it, found by bisection: a list reads each item's
+ * stretches without passing every address in the answer.
+ */
+function flattenedWithin(flattened: readonly Flattened[], span: CandidateSpan): readonly Flattened[] {
+  let first = 0;
+  let last = flattened.length;
+  while (first < last) {
+    const mid = (first + last) >> 1;
+    if (flattened[mid]!.start < span.start) first = mid + 1;
+    else last = mid;
+  }
+  let end = first;
+  while (end < flattened.length && flattened[end]!.start < span.end) end++;
+  return counted(flattened.slice(first, end).filter((flat) => flat.end <= span.end));
+}
+
 /** The source between `start` and `end`, with every flattened stretch read as its text. */
 function flatSource(source: string, span: CandidateSpan, flattened: readonly Flattened[]): string {
   let out = "";
   let at = span.start;
-  for (const flat of flattened) {
-    if (flat.start < span.start || flat.end > span.end) continue;
+  for (const flat of flattenedWithin(flattened, span)) {
     out += source.slice(at, flat.start) + flat.text;
     at = flat.end;
   }
@@ -381,16 +420,105 @@ function timedListCandidate(node: List, id: string, span: CandidateSpan): TimedL
 }
 
 /** `**Key:** value`, `**Key**: value`, `Key: value` — one row of a receipt-shaped run. */
-const KV_LINE = /^(?:\*\*([^*:]{1,40})(?::\*\*|\*\*:)|([A-Z][^:]{0,39}):)\s+(.+)$/;
+const KV_LINE = /^(?:\*\*([^*:]{1,40})(?::\*\*|\*\*:)|([A-Z][^:]{0,39}):)\s+(.+)$/d;
 
-function kvRows(lines: string[]): Array<{ k: string; v: string }> | null {
+/**
+ * A piece of text the inline tree ends in — a text node, a code span, a hard
+ * break — with where it sits in the source and in `flatSource`. A flattened
+ * address is one too, and carries its text: its source is not what it reads.
+ */
+interface Leaf {
+  node: Node;
+  start: number;
+  end: number;
+  at: number;
+  length: number;
+  flat?: string;
+}
+
+/** The leaves under `node`, placed in `flatSource(source, span, flattened)`. */
+function leavesOf(node: Node, span: CandidateSpan, flattened: readonly Flattened[]): Leaf[] {
+  // Leaves and stretches are both in document order and never overlap, so
+  // one pass over each places every leaf.
+  const within = flattenedWithin(flattened, span);
+  const out: Leaf[] = [];
+  let next = 0;
+  let shift = 0;
+  const walk = (parent: Node): void => {
+    for (const child of parent.children ?? []) {
+      if (Array.isArray(child.children)) {
+        walk(child);
+        continue;
+      }
+      const start = child.position?.start.offset;
+      const end = child.position?.end.offset;
+      if (typeof start !== "number" || typeof end !== "number") continue;
+      while (next < within.length && within[next]!.end <= start) {
+        shift += within[next]!.end - within[next]!.start - within[next]!.text.length;
+        next++;
+      }
+      const at = start - span.start - shift;
+      const here = within[next];
+      const flat = here && here.start === start && here.end === end ? here.text : undefined;
+      out.push({ node: child, start, end, at, length: flat?.length ?? end - start, flat });
+    }
+  };
+  walk(node);
+  return counted(out);
+}
+
+/**
+ * The text of the leaves between `from` and `to` in `flatSource`, read as a
+ * reader sees it, the way `cellText` reads a node (#236). A leaf cut by the
+ * range gives the part on its side: the markup around it — emphasis opened
+ * on the key's side, a code span running on to the next line — is the
+ * tree's, so no delimiter reaches the value. A hard break only ever ends a
+ * line, so the value never holds all of one, and part of one reads as nothing.
+ */
+function textBetween(line: KvLine, source: string, from: number, to: number): string {
+  // Rows are read in order, so the leaves before this row are passed once;
+  // a leaf running on into the next row stays for it.
+  const { leaves, cursor } = line;
+  while (cursor.next < leaves.length && leaves[cursor.next]!.at + leaves[cursor.next]!.length <= from) cursor.next++;
+  let out = "";
+  for (let i = cursor.next; i < leaves.length && leaves[i]!.at < to; i++) {
+    const leaf = leaves[i]!;
+    const lo = Math.max(from, leaf.at) - leaf.at;
+    const hi = Math.min(to, leaf.at + leaf.length) - leaf.at;
+    if (lo >= hi) continue;
+    const whole = lo === 0 && hi === leaf.length;
+    if (leaf.flat !== undefined) out += leaf.flat.slice(lo, hi);
+    else if (whole) out += plainText(leaf.node);
+    else if (leaf.node.type === "text") out += decodeString(source.slice(leaf.start + lo, leaf.start + hi));
+    else if (leaf.node.type === "inlineCode") {
+      // A code span's content is literal; only its fences are not text.
+      const fence = /^`+/.exec(source.slice(leaf.start, leaf.end))?.[0].length ?? 0;
+      out += source.slice(leaf.start + Math.max(lo, fence), leaf.start + Math.min(hi, leaf.length - fence));
+    }
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/** One line of a run: `text` is `flatSource` over the line's block, from `at` characters in. */
+interface KvLine {
+  text: string;
+  at: number;
+  leaves: readonly Leaf[];
+  /** The first leaf a later line of the same block can still reach; shared by its lines. */
+  cursor: { next: number };
+}
+
+function kvRows(lines: readonly KvLine[], source: string): Array<{ k: string; v: string }> | null {
   const rows: Array<{ k: string; v: string }> = [];
   for (const line of lines) {
-    const match = KV_LINE.exec(line.trim());
+    const text = line.text.trim();
+    const match = KV_LINE.exec(text);
     if (!match) return null;
-    // Read from the raw source (the `**` around the key is the signal), so
-    // a code span's backticks are still here; the kit's cells are plain text.
-    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: match[3]!.replace(/`/g, "").trim() });
+    // The key is read from the source, where the `**` around it is the
+    // signal; the value from the tree, as every other candidate kind is.
+    const lead = line.at + line.text.indexOf(text);
+    const [from, to] = match.indices![3]!;
+    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: textBetween(line, source, lead + from, lead + to) });
   }
   return rows.length >= 2 ? rows : null;
 }
@@ -405,23 +533,30 @@ function kvRunCandidate(
 ): KeyValueRunCandidate | null {
   if (node.type === "paragraph") {
     if (hasRichInline(node)) return null;
-    // Raw source lines, not `toString`: the `**` around the key is the
-    // signal, and toString would strip it. A bare address still reads as its
-    // text, so `<…>` does not reach a cell.
-    const lines = flatSource(source, span, flattened).split(/\r?\n/).map((line) => line.replace(/\s+$/, ""));
-    const rows = kvRows(lines);
+    // Source lines, not `toString`: the `**` around the key is the signal,
+    // and toString would strip it. A bare address still reads as its text,
+    // so `<…>` does not reach a cell.
+    const leaves = leavesOf(node, span, flattened);
+    const cursor = { next: 0 };
+    const lines: KvLine[] = [];
+    let at = 0;
+    for (const line of flatSource(source, span, flattened).split("\n")) {
+      lines.push({ text: line.replace(/\s+$/, ""), at, leaves, cursor });
+      at += line.length + 1;
+    }
+    const rows = kvRows(lines, source);
     return rows ? { kind: "kv_run", id, rows, ...span } : null;
   }
   if (node.ordered || node.children.length < 2) return null;
-  const lines: string[] = [];
+  const lines: KvLine[] = [];
   for (const item of node.children) {
     const paragraphs = item.children.filter((child): child is Paragraph => child.type === "paragraph");
     if (paragraphs.length !== 1 || item.children.length !== 1 || hasRichInline(paragraphs[0]!)) return null;
     const itemSpan = spanOf(paragraphs[0]!);
     if (!itemSpan) return null;
-    lines.push(flatSource(source, itemSpan, flattened));
+    lines.push({ text: flatSource(source, itemSpan, flattened), at: 0, leaves: leavesOf(paragraphs[0]!, itemSpan, flattened), cursor: { next: 0 } });
   }
-  const rows = kvRows(lines);
+  const rows = kvRows(lines, source);
   return rows ? { kind: "kv_run", id, rows, ...span } : null;
 }
 
@@ -458,7 +593,7 @@ function blockquoteCandidate(
 export function detectCandidates(text: string): Candidate[] {
   if (!text.trim()) return [];
   const root = parseMarkdown(text);
-  const flattened: Flattened[] = [];
+  const flattened = counted<Flattened>([]);
   // Document order, which `flatSource` relies on: the walk is depth-first.
   flattenBareAddresses(root, text, flattened);
   const out: Candidate[] = [];

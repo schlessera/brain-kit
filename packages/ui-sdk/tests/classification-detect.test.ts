@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { detectCandidates } from "../src/classification/index";
+import { kvReadSteps } from "../src/classification/detect";
 
 // The deterministic half of D42: what the text plainly contains, with the
 // span it occupies. Samples are in the Odysseus world.
@@ -173,6 +174,99 @@ describe("detectCandidates", () => {
     ]);
   });
 
+  test("a value reads as its markup decodes, as the same text does in a quote", () => {
+    const value = "**600** oars &amp; \\*sails\\* &#58; `spare`";
+    const [quote] = detectCandidates(`> ${value}`);
+    if (quote?.kind !== "blockquote") throw new Error("expected blockquote");
+    expect(quote.text).toBe("600 oars & *sails* : spare");
+
+    for (const text of [
+      `**Ships:** 12\n**Crew:** ${value}`,
+      `**Ships:** 12\n**Crew**: ${value}`,
+      `**Ships:** 12\nCrew: ${value}`,
+      `- **Ships:** 12\n- **Crew:** ${value}`,
+    ]) {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      expect(run.rows).toEqual([
+        { k: "Ships", v: "12" },
+        { k: "Crew", v: quote.text },
+      ]);
+    }
+  });
+
+  test("a value that opens like a block still reads as the text after its key", () => {
+    const [run] = detectCandidates("**Rank:** #1\n**Step:** 1. Row\n**Rule:** ---\n**Ref:** [a]: b\n**Aside:** > far");
+    if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+    expect(run.rows.map((row) => row.v)).toEqual(["#1", "1. Row", "---", "[a]: b", "> far"]);
+  });
+
+  test("a hard break ending a key line is not part of its value", () => {
+    const [run] = detectCandidates("**Ships:** 12\\\n**Crew:** 600\\\\\n**Days at sea:** 9");
+    if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+    // The first line ends in a break; the second in an escaped backslash.
+    expect(run.rows.map((row) => row.v)).toEqual(["12", "600\\", "9"]);
+  });
+
+  test("a value that starts or ends inside a flattened address keeps the part of it that is on the value's side", () => {
+    const rows = (text: string) => {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      return run.rows;
+    };
+    // The trailing space is inside the address, so trimming the line ends the
+    // value inside it.
+    const site = "[https://ithaca.example/ ](<https://ithaca.example/ >)";
+    expect(rows(`**Name:** Odysseus\n**Site:** ${site}`)[1]).toEqual({ k: "Site", v: "https://ithaca.example/" });
+    expect(rows(`- **Name:** Odysseus\n- **Site:** ${site}`)[1]).toEqual({ k: "Site", v: "https://ithaca.example/" });
+    expect(rows(`**Name:** Odysseus\n**Site:** go ${site}`)[1]).toEqual({ k: "Site", v: "go https://ithaca.example/" });
+    // The key is inside the address, so the value starts inside it.
+    expect(rows("[Key: value](<Key: value>)\nShips: 12")).toEqual([
+      { k: "Key", v: "value" },
+      { k: "Ships", v: "12" },
+    ]);
+  });
+
+  test("markup that spans a line or the key keeps no delimiters in a value", () => {
+    const values = (text: string) => {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      return run.rows.map((row) => row.v);
+    };
+    expect(values("Crew: `600\nShips: 12`")).toEqual(["600", "12"]);
+    expect(values("Crew: **600\nShips: 12**")).toEqual(["600", "12"]);
+    expect(values("Crew *count: 600*\nShips: 12")).toEqual(["600", "12"]);
+    expect(values("- Crew *count: 600*\n- Ships: 12")).toEqual(["600", "12"]);
+  });
+
+  test("reading a run's values takes work in step with the run, not its square", () => {
+    const steps = (rows: number, bullet: string) => {
+      const text = Array.from(
+        { length: rows },
+        (_, i) => `${bullet}**Key:** https://ithaca.example/${i} **600** &amp; more`
+      ).join("\n");
+      kvReadSteps.count = 0;
+      kvReadSteps.counting = true;
+      let run: ReturnType<typeof detectCandidates>[number] | undefined;
+      try {
+        [run] = detectCandidates(text);
+      } finally {
+        kvReadSteps.counting = false;
+      }
+      if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+      expect(run.rows).toHaveLength(rows);
+      expect(run.rows[rows - 1]!.v).toBe(`https://ithaca.example/${rows - 1} 600 & more`);
+      return kvReadSteps.count;
+    };
+    for (const bullet of ["", "- "]) {
+      const small = steps(100, bullet);
+      expect(small).toBeGreaterThan(0);
+      // Four times the rows: linear work is four times the steps, a pass over
+      // every leaf or address per row is sixteen.
+      expect(steps(400, bullet) / small).toBeLessThan(5);
+    }
+  });
+
   test("one key line is prose, not a run", () => {
     expect(detectCandidates("**Ships:** 12")).toEqual([]);
   });
@@ -208,9 +302,10 @@ describe("detectCandidates", () => {
       "eurybates@ithaca.example"
     );
     // The scheme is matched in the source: an escaped or entity-encoded one is
-    // left as the author wrote it rather than cut at the decoded length.
-    expect(valueOf("**Herald:** mailto&#58;eurybates@ithaca.example")).toBe("mailto&#58;eurybates@ithaca.example");
-    expect(valueOf("**Herald:** mailto\\:eurybates@ithaca.example")).toBe("mailto\\:eurybates@ithaca.example");
+    // the author's text, not a scheme, so it stays, and reads decoded as any
+    // other text in a value does (#236).
+    expect(valueOf("**Herald:** mailto&#58;eurybates@ithaca.example")).toBe("mailto:eurybates@ithaca.example");
+    expect(valueOf("**Herald:** mailto\\:eurybates@ithaca.example")).toBe("mailto:eurybates@ithaca.example");
     expect(valueOf("**Site:** https://ithaca.example/palace")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** <https://ithaca.example/palace>")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** see https://ithaca.example/palace first")).toBe("see https://ithaca.example/palace first");
@@ -270,8 +365,8 @@ describe("detectCandidates", () => {
     expect(
       run("**Site:** [![https://ithaca.example][pic]](https://ithaca.example)\n\n[pic]: https://ithaca.example/a.png")
     ).toEqual([]);
-    // A backtick is legal in an address, but the run strips backticks as
-    // code-span markup, so flattening would change the address.
+    // A backtick in an address is still refused, though its reason, a run
+    // stripping backticks, is gone (#236); whether to admit it is #330.
     expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);
     // A reference-style link, image or footnote loses its target just as an
     // inline one does, and an address beside it must not let it through
