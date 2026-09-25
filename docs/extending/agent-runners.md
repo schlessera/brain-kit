@@ -106,6 +106,8 @@ process started with, so point the runner at the stand-in directly, or start
 the test process with a `PATH` that holds only stand-ins, as the built-ins'
 test does.
 
+Some cases wait on a deadline for up to a few seconds, so run the suite with a per-test timeout above bun's default 5s (`bun test --timeout 30000`, as this repository does).
+
 ## Capability and degradation notes
 
 - **`capabilities.streaming: false`** → callers that want progress fall back to a

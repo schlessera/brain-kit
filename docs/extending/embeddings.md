@@ -105,6 +105,8 @@ If your provider forwards `opts.signal`, also pass `hanging()`: a provider
 whose runtime never answers until the request is cancelled. The suite then
 asserts that an abort rejects the pending query.
 
+Some cases wait on a deadline for up to a few seconds, so run the suite with a per-test timeout above bun's default 5s (`bun test --timeout 30000`, as this repository does).
+
 ## Capability and degradation notes
 
 - **No embedder / no key** → search runs full-text-only. `brain search --json`
