@@ -314,27 +314,15 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     },
 
     async sync() {
-      // Note: brain sync spawns Claude Code internally via the /sync skill.
-      // For cron jobs, we use a simpler git-based sync instead.
+      // Bare `brain sync` runs the /sync skill through the coding agent and
+      // prints the agent's text, never JSON, so the text is the whole result.
       const result = await execBrain(["sync"]);
       if (result.exitCode !== 0) {
-        return {
-          success: false,
-          commits: 0,
-          conflicts: 0,
-          message: result.stderr || result.stdout,
-        };
+        throw new Error(
+          `brain sync failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`
+        );
       }
-      try {
-        return parseJsonOutput(result);
-      } catch {
-        return {
-          success: true,
-          commits: 0,
-          conflicts: 0,
-          message: result.stdout,
-        };
-      }
+      return { message: result.stdout.trim() };
     },
 
     async add(content, opts) {
