@@ -428,9 +428,13 @@ export const syncCommand: CoreCommand = {
           status = git(root, ["merge", "--ff-only", "origin/main"]).code === 0 ? "fast-forwarded" : "merge-failed";
         } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
           status = "merged";
-        } else {
+        } else if (git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0) {
           status = "conflicted";
           conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
+        } else {
+          // git refused before starting (an uncommitted edit to a file the
+          // merge changes): there is nothing to resolve, only to report.
+          status = "merge-failed";
         }
 
         // No merge started (git refused before touching the tree): put the

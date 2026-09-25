@@ -5,6 +5,7 @@
  * before post-sync ran belongs to whoever staged it: it stays staged and
  * uncommitted whether the cache commit succeeds, fails, or cannot be pushed.
  * And a cache this clone rewrote must not stop the pull that precedes it.
+ * A pull that cannot merge says whether git refused or stopped on conflicts.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -123,39 +124,39 @@ describe("commitDerivedCaches", () => {
   });
 });
 
+/** The fixture corpus, committed with an empty cache and pushed to a bare remote. */
+function brainWithRemote(): { root: string; remote: string } {
+  const root = makeTempBrain();
+  const base = mkdtempSync(join(tmpdir(), "brain-sync-remote-"));
+  dirs.push(root, base);
+  const remote = join(base, "remote.git");
+  Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Alex Example");
+  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "commit.gpgsign", "false");
+  writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\n");
+  writeFileSync(join(root, CACHE), "");
+  git(root, "add", "-A");
+  git(root, "commit", "-qm", "fixture");
+  git(root, "remote", "add", "origin", remote);
+  git(root, "push", "-q", "origin", "main");
+  return { root, remote };
+}
+
+/** A second clone of `remote` that commits `files` and pushes. */
+function pushFromOtherClone(remote: string, files: Record<string, string>): void {
+  const other = join(remote, "..", "other");
+  Bun.spawnSync(["git", "clone", "-q", remote, other]);
+  for (const [file, text] of Object.entries(files)) writeFileSync(join(other, file), text);
+  git(other, "add", "-A");
+  git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
+    "-c", "commit.gpgsign=false", "commit", "-qm", "from the other clone");
+  git(other, "push", "-q", "origin", "main");
+}
+
 describe("sync pull with a locally rewritten cache", () => {
   const OURS = '{"k":"ours","v":"rebuilt from this brain.db"}\n';
-
-  /** The fixture corpus, committed with an empty cache and pushed to a bare remote. */
-  function brainWithRemote(): { root: string; remote: string } {
-    const root = makeTempBrain();
-    const base = mkdtempSync(join(tmpdir(), "brain-sync-remote-"));
-    dirs.push(root, base);
-    const remote = join(base, "remote.git");
-    Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Alex Example");
-    git(root, "config", "user.email", "alex@example.test");
-    git(root, "config", "commit.gpgsign", "false");
-    writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\n");
-    writeFileSync(join(root, CACHE), "");
-    git(root, "add", "-A");
-    git(root, "commit", "-qm", "fixture");
-    git(root, "remote", "add", "origin", remote);
-    git(root, "push", "-q", "origin", "main");
-    return { root, remote };
-  }
-
-  /** A second clone of `remote` that commits `files` and pushes. */
-  function pushFromOtherClone(remote: string, files: Record<string, string>): void {
-    const other = join(remote, "..", "other");
-    Bun.spawnSync(["git", "clone", "-q", remote, other]);
-    for (const [file, text] of Object.entries(files)) writeFileSync(join(other, file), text);
-    git(other, "add", "-A");
-    git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
-      "-c", "commit.gpgsign=false", "commit", "-qm", "from the other clone");
-    git(other, "push", "-q", "origin", "main");
-  }
 
   for (const [ahead, hooked] of [[false, false], [true, false], [false, true]] as const) {
     const name = `${ahead ? "merge" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
@@ -293,5 +294,42 @@ describe("sync pull with a locally rewritten cache", () => {
     expect(body.status).toBe("synced");
     expect(body.mergedCaches).toEqual([]);
     expect(await Bun.file(join(root, CACHE)).text()).toBe(OURS);
+  });
+});
+
+describe("sync pull when the merge does not finish", () => {
+  const NOTE = "notes/loose-idea.md";
+
+  /** The remote has a commit editing `NOTE`; this clone holds `ours` there, uncommitted. */
+  function diverged(ours: string): string {
+    const { root, remote } = brainWithRemote();
+    pushFromOtherClone(remote, { [NOTE]: "# Loose idea\n\nEdited on the other clone.\n" });
+    writeFileSync(join(root, NOTE), ours);
+    return root;
+  }
+
+  test("git refusing to start the merge is merge-failed, exit 1, not a conflict with nothing to resolve", async () => {
+    const root = diverged("# Loose idea\n\nEdited here and not committed.\n");
+    writeFileSync(join(root, "local-note.md"), "# Local\n");
+    git(root, "add", "local-note.md");
+    git(root, "commit", "-qm", "local content");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("merge-failed");
+    expect(body.conflicts).toEqual([]);
+    expect(result.code).toBe(1);
+    expect(Bun.spawnSync(["git", "-C", root, "rev-parse", "-q", "--verify", "MERGE_HEAD"]).exitCode).not.toBe(0);
+  });
+
+  test("a merge that stops on a conflict is conflicted and lists the path", async () => {
+    const root = diverged("# Loose idea\n\nEdited here and committed.\n");
+    git(root, "commit", "-qam", "local edit");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("conflicted");
+    expect(body.conflicts).toEqual([NOTE]);
+    expect(result.code).toBe(0);
   });
 });
