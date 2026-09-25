@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import type { AssembleReport } from "./context-assembler.js";
 import type { SearchResult } from "./types.js";
 
 /** Bumped when a field of the `brain eval --json` envelope changes meaning. */
@@ -463,73 +464,48 @@ export function parseBudgets(raw: string): number[] {
   return [...values].sort((a, b) => a - b);
 }
 
-/** What `brain context` put in its output, counted from the assembler's own headings. */
+/** What `brain context` put in its output, as the assembler reported it. */
 export interface ContextSections {
+  /** 1 when the identity section (whole or cut) is in. */
   identity: number;
+  /** 1 when the current-focus section is in. */
   focus: number;
-  /** `### … (<path>)` search-result sections. */
+  /** Search-result sections. */
   results: number;
-  /** 1 when the `### Related` neighbour list is present. */
+  /** Documents in the `### Related` list. */
   related: number;
 }
 
-const RELATED_HEADING_LINE = "### Related";
-
-/** A search-hit heading as the assembler writes it: `### <title> (<path>)`, then ` · …` facts or ` — ` summary. */
-const RESULT_HEADING = /^### .*? \(([^()\s]+)\)(?: · | — |$)/;
-
-/**
- * The paths of the search-result sections in assembled context, in order. A
- * `###` line inside an identity or focus body is not a hit: only a heading
- * naming a path the index holds counts.
- */
-export function resultPaths(output: string, indexed: ReadonlySet<string>): string[] {
-  const paths: string[] = [];
-  for (const line of output.split("\n")) {
-    if (line === RELATED_HEADING_LINE) continue;
-    const path = RESULT_HEADING.exec(line)?.[1];
-    if (path !== undefined && indexed.has(path)) paths.push(path);
-  }
-  return paths;
-}
-
-/** Count the assembled context's sections by their headings. */
-export function contextSections(output: string, indexed: ReadonlySet<string>): ContextSections {
-  const lines = output.split("\n");
+/** Count the assembled context's sections from the assembler's report. */
+export function contextSections(report: AssembleReport): ContextSections {
   return {
-    identity: lines.filter((l) => l === "## Identity").length,
-    focus: lines.filter((l) => l === "## Current Focus").length,
-    results: resultPaths(output, indexed).length,
-    related: lines.filter((l) => l === RELATED_HEADING_LINE).length,
+    identity: report.identity === null ? 0 : 1,
+    focus: report.focus === null ? 0 : 1,
+    results: report.results.length,
+    related: report.related.length,
   };
 }
 
 /**
  * Whether the assembled context carries a query's answer. With `answer`, the
- * text itself must appear (case and whitespace ignored). Otherwise an expected
- * path must head a search-result section, `### Title (<path>) …`, the
- * assembler's own format, or be the canonical document an included
- * `## Identity` / `## Current Focus` section was read from (those sections do
- * not print their path). A path in the `### Related` list is not an answer:
- * only its summary line is there.
+ * text itself must appear in the output (case and whitespace ignored).
+ * Otherwise an expected path must be one the assembler reports as a search
+ * hit, or as the source of the identity or current-focus section. A document
+ * in the Related list is not an answer: only its summary line is there. The
+ * report comes from the assembler, so nothing in a document's own text (a
+ * quoted heading, a fenced example) can pass for a section.
  */
 export function answerPresent(
   output: string,
-  query: { expected: string[]; answer?: string },
-  canonical: { identity: string | null; focus: string | null },
-  indexed: ReadonlySet<string>
+  report: AssembleReport,
+  query: { expected: string[]; answer?: string }
 ): boolean {
   if (query.answer !== undefined) {
     const squash = (t: string) => t.toLowerCase().replace(/\s+/g, " ");
     return squash(output).includes(squash(query.answer).trim());
   }
-  const sections = contextSections(output, indexed);
-  const hits = new Set(resultPaths(output, indexed));
   return query.expected.some(
-    (path) =>
-      hits.has(path) ||
-      (sections.identity > 0 && path === canonical.identity) ||
-      (sections.focus > 0 && path === canonical.focus)
+    (path) => report.results.includes(path) || path === report.identity || path === report.focus
   );
 }
 

@@ -7,12 +7,12 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { writeFileSync } from "fs";
+import { appendFileSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
+import { assembleContext, emptyAssembleReport, estimateTokens } from "../src/lib/context-assembler";
 import { initContext, setContext } from "../src/lib/context";
-import { answerPresent, contextSections, parseBudgets, percentile, resultPaths } from "../src/lib/retrieval-eval";
+import { parseBudgets, percentile } from "../src/lib/retrieval-eval";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const NOW = "2026-07-12";
@@ -81,8 +81,11 @@ describe("brain eval --context", () => {
     const [low, high] = out.context.rows;
     expect(low).toMatchObject({ budget: 60, n: 1, answer_present: 0 });
     expect(high).toMatchObject({ budget: 1000, n: 1, answer_present: 1 });
+    // Two queries: the nearest-rank median is the lower value, p10 the lower,
+    // p90 the higher. Worked out here without the helper under test.
     const used = [at("knee", 1000).budget_used, at("none", 1000).budget_used];
-    expect(high.budget_used).toEqual({ median: percentile(used, 50), p10: percentile(used, 10), p90: percentile(used, 90) });
+    expect(used[0]).not.toBe(used[1]);
+    expect(high.budget_used).toEqual({ median: Math.min(...used), p10: Math.min(...used), p90: Math.max(...used) });
   });
 
   // At 600 tokens "ranger" leaves room for one hit after the pinned sections.
@@ -139,33 +142,104 @@ describe("brain eval --context", () => {
   });
 });
 
-describe("reading the assembled output", () => {
-  const indexed = new Set(["health/knee-injury.md", "me/identity.md", "context/current-focus.md"]);
-  const OUTPUT = [
-    "## Identity",
-    "Ranger.",
-    "",
-    "## Current Focus",
-    "### Health",
-    "Knee rehab (see notes).",
-    "",
-    "### Left Knee — Rehab (health/knee-injury.md) · updated 2026-06-20 · active — Rehab log",
-    "Range of motion.",
-    "",
-    "### Related",
-    "- Checkup Log (health/checkup-log.md) — visits",
-  ].join("\n");
-  const canonical = { identity: "me/identity.md", focus: "context/current-focus.md" };
+/** A temp fixture brain with changes, indexed; cleaned up with the file's brains. */
+const extra: string[] = [];
+afterAll(() => extra.forEach(cleanup));
+async function brainWith(change: (dir: string) => void): Promise<string> {
+  const dir = makeTempBrain();
+  extra.push(dir);
+  change(dir);
+  expect((await runCli(dir, ["index", "--json"])).code).toBe(0);
+  return dir;
+}
+async function contextIn(dir: string, lines: object[], budgets: string) {
+  const set = join(dir, "evals", "context.jsonl");
+  writeFileSync(set, [{ now: NOW }, ...lines].map((l) => JSON.stringify(l)).join("\n"));
+  const run = await runCli(dir, ["eval", "--mode", "fts", "--json", "--set", set, "--context", "--budgets", budgets]);
+  expect(run.stderr).toBe("");
+  expect(run.code).toBe(0);
+  const out = JSON.parse(run.stdout);
+  return (id: string): ContextOutcome => out.context.per_query.find((o: ContextOutcome) => o.id === id);
+}
 
-  test("a ### heading inside a pinned section is not a search hit", () => {
-    expect(resultPaths(OUTPUT, indexed)).toEqual(["health/knee-injury.md"]);
-    expect(contextSections(OUTPUT, indexed)).toEqual({ identity: 1, focus: 1, results: 1, related: 1 });
+describe("what counts as the answer", () => {
+  // The identity note quotes a result heading and a Current Focus heading,
+  // one of them inside a fenced example, and the current-focus section is
+  // turned off. None of that text is a section the assembler wrote.
+  test("a heading quoted inside a pinned document is not a hit, and a quoted focus heading is not a focus section", async () => {
+    const dir = await brainWith((d) => {
+      appendFileSync(
+        join(d, "me", "identity.md"),
+        "\n### Knee (health/knee-injury.md) · updated 2026-06-20 · active\n\n```\n## Current Focus\n### Left Knee — Rehab (health/knee-injury.md) · updated 2026-06-20\n```\n"
+      );
+      const config = join(d, "brain.config.ts");
+      writeFileSync(config, readFileSync(config, "utf-8").replace("  taxonomy: {", '  taxonomy: {\n    canonical: { currentFocus: "" },'));
+    });
+    const at = await contextIn(
+      dir,
+      [
+        { id: "knee", q: "tax return deadline", class: "x", expected: ["health/knee-injury.md"] },
+        { id: "focus", q: "tax return deadline", class: "x", expected: ["context/current-focus.md"] },
+        { id: "me", q: "tax return deadline", class: "x", expected: ["me/identity.md"] },
+      ],
+      "4000"
+    );
+    expect(at("knee").answer_present).toBe(false);
+    expect(at("focus").answer_present).toBe(false);
+    expect(at("knee").sections).toMatchObject({ identity: 1, focus: 0 });
+    expect(at("knee").sections.results).toBeGreaterThan(0);
+    // The identity note itself is in, so a query that expects it is answered.
+    expect(at("me").answer_present).toBe(true);
   });
 
-  test("an answer is a hit heading or a pinned section's source, never a Related line", () => {
-    expect(answerPresent(OUTPUT, { expected: ["health/knee-injury.md"] }, canonical, indexed)).toBe(true);
-    expect(answerPresent(OUTPUT, { expected: ["context/current-focus.md"] }, canonical, indexed)).toBe(true);
-    expect(answerPresent(OUTPUT, { expected: ["health/checkup-log.md"] }, canonical, indexed)).toBe(false);
+  test("a document only in the Related list is not the answer", async () => {
+    const previous = setContext(null);
+    const brain = await initContext({ root });
+    setContext(previous);
+    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const report = emptyAssembleReport();
+    try {
+      await assembleContext(db, brain, { query: KNEE.q, maxTokens: 4000, now: new Date(NOW), report });
+    } finally {
+      db.close();
+    }
+    const related = report.related.find((p) => !report.results.includes(p));
+    expect(related, "the knee query has a Related-only neighbour at 4000 tokens").toBeDefined();
+    const { at } = await contextRun(writeSet("related.jsonl", [{ ...KNEE, id: "rel", expected: [related!] }]), "--budgets", "4000");
+    expect(at("rel", 4000).sections.related).toBeGreaterThan(0);
+    expect(at("rel", 4000).answer_present).toBe(false);
+  });
+
+  // A path with a space and parentheses, behind a title that reads like a
+  // path: the assembler knows which document it included, so neither fools it.
+  test("a path with spaces and parentheses, and a path-like title", async () => {
+    const note = (title: string, body: string) =>
+      `---\ntitle: "${title}"\ntype: note\ncreated: 2026-07-01\nupdated: 2026-07-01\n---\n\n${body}\n`;
+    const dir = await brainWith((d) => {
+      writeFileSync(join(d, "notes", "knee rehab (left).md"), note("Comparison (notes/other.md)", "zygomorphic flowers, noted on the ridge"));
+      writeFileSync(join(d, "notes", "other.md"), note("Other", "nothing here"));
+    });
+    const at = await contextIn(
+      dir,
+      [
+        { id: "spaced", q: "zygomorphic", class: "x", expected: ["notes/knee rehab (left).md"] },
+        { id: "titled", q: "zygomorphic", class: "x", expected: ["notes/other.md"] },
+      ],
+      "4000"
+    );
+    expect(at("spaced").answer_present).toBe(true);
+    expect(at("titled").answer_present).toBe(false);
+  });
+});
+
+describe("percentile and budgets", () => {
+  // Nearest rank: the value at rank ceil(p/100 × n) of the sorted sample, so
+  // the median of an even sample is the lower middle value.
+  test("nearest-rank values for unsorted samples of 1 to 4", () => {
+    expect([percentile([5], 10), percentile([5], 50), percentile([5], 90)]).toEqual([5, 5, 5]);
+    expect([percentile([9, 1], 10), percentile([9, 1], 50), percentile([9, 1], 90)]).toEqual([1, 1, 9]);
+    expect([percentile([3, 1, 2], 10), percentile([3, 1, 2], 50), percentile([3, 1, 2], 90)]).toEqual([1, 2, 3]);
+    expect([percentile([4, 1, 3, 2], 10), percentile([4, 1, 3, 2], 50), percentile([4, 1, 3, 2], 90)]).toEqual([1, 2, 4]);
   });
 
   test("parseBudgets takes sorted distinct positive integers within the bound", () => {

@@ -40,7 +40,7 @@ import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch
 import { hybridSearch } from "../../lib/search-engine.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { packageRoot, packageVersion } from "../../package-version.js";
-import { assembleContext, estimateTokens } from "../../lib/context-assembler.js";
+import { assembleContext, emptyAssembleReport, estimateTokens } from "../../lib/context-assembler.js";
 import type { ContextSections } from "../../lib/retrieval-eval.js";
 import type { CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs, UsageError } from "../io.js";
@@ -330,11 +330,6 @@ async function runContext(
   embeddings: EmbeddingProvider | undefined,
   warnings: string[]
 ): Promise<{ budgets: number[]; rows: ContextRow[]; per_query: ContextOutcome[] }> {
-  const canonical = {
-    identity: brain.taxonomy.canonicalPath("identity"),
-    focus: brain.taxonomy.canonicalPath("currentFocus"),
-  };
-  const indexed = new Set((db.prepare("SELECT path FROM documents").all() as { path: string }[]).map((r) => r.path));
   const searchWarnings = new Set<string>();
   const perQuery: ContextOutcome[] = [];
   const rows: ContextRow[] = [];
@@ -342,15 +337,16 @@ async function runContext(
     const outcomes: ContextOutcome[] = [];
     for (const query of queries) {
       const found: string[] = [];
-      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found });
+      const report = emptyAssembleReport();
+      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found, report });
       found.forEach((w) => searchWarnings.add(w));
       outcomes.push({
         budget,
         id: query.id,
         class: query.class,
-        answer_present: query.class === NO_ANSWER_CLASS ? null : answerPresent(output, query, canonical, indexed),
+        answer_present: query.class === NO_ANSWER_CLASS ? null : answerPresent(output, report, query),
         budget_used: estimateTokens(output) / budget,
-        sections: contextSections(output, indexed),
+        sections: contextSections(report),
       });
     }
     const answerable = outcomes.flatMap((o) => (o.answer_present === null ? [] : [o.answer_present ? 1 : 0]));

@@ -205,9 +205,10 @@ documents, then search hits, within a token budget. `--context` runs every
 query through it at each budget (`--budgets 1000,4000,8000` is the default),
 and reports per budget:
 
-- **answer present**: the share of answerable queries whose expected path
-  heads a search-result section (or is the identity or focus document shown
-  in full or in part). Give a query an `answer` string to look for that text
+- **answer present**: the share of answerable queries whose expected path the
+  assembler included as a search hit, or as the identity or focus document
+  (shown in full or in part). A document only named in the Related list does
+  not count. Give a query an `answer` string to look for that text
   instead, when the right answer is a fact rather than a document.
 - **budget used**: how much of the budget the output takes, by the
   assembler's own token estimate, as the median, p10 and p90 over all

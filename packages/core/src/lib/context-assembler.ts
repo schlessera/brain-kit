@@ -22,6 +22,26 @@ export interface AssembleOptions {
   /** The moment search measures recency from; defaults to the wall clock.
    * `brain eval --context` pins it so a run is reproducible. */
   now?: Date;
+  /** When given, filled with the paths the output includes, per section, so
+   * a caller (`brain eval --context`) need not parse the markdown back. */
+  report?: AssembleReport;
+}
+
+/** Which documents an assembled context includes, and where. */
+export interface AssembleReport {
+  /** The canonical identity document, when its section (whole or cut) is in. */
+  identity: string | null;
+  /** The canonical current-focus document, when its section is in. */
+  focus: string | null;
+  /** Search hits, in output order. */
+  results: string[];
+  /** `### Related` neighbours, summary lines only, in output order. */
+  related: string[];
+}
+
+/** An empty report, for callers that pass `report`. */
+export function emptyAssembleReport(): AssembleReport {
+  return { identity: null, focus: null, results: [], related: [] };
 }
 
 /**
@@ -169,15 +189,15 @@ export async function assembleContext(
   // pointer to the file. Only a lead that does not fit on its own is cut, after
   // its last whole block that fits. A small budget is never exceeded before
   // search results are considered.
-  const pushCanonical = (heading: string, path: string | null): void => {
+  const pushCanonical = (heading: string, path: string | null): boolean => {
     const doc = path ? readMarkdownContent(ctx.root, path) : null;
-    if (!path || !doc) return;
+    if (!path || !doc) return false;
     // The summary leads whether or not the rest fits.
     const whole = [doc.summary, doc.body].filter((part) => !!part).join("\n\n");
-    if (!whole) return;
+    if (!whole) return false;
     if (push(`${heading}\n${whole}`)) {
       included.add(path);
-      return;
+      return true;
     }
     const marker = `(truncated — brain read ${path})`;
     const room = budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0);
@@ -187,23 +207,31 @@ export async function assembleContext(
     // Only a lead that overflows on its own is cut at a block boundary.
     if (hot && !fits([hot])) {
       const cut = truncateAtBoundary(heading, hot, marker, room);
-      if (cut && push(cut)) included.add(path);
-      return;
+      if (cut && push(cut)) {
+        included.add(path);
+        return true;
+      }
+      return false;
     }
     const kept = hot ? [hot] : [];
     for (const section of sections) {
       if (!fits([...kept, section])) break;
       kept.push(section);
     }
-    if (push(`${heading}\n${[...kept, marker].join("\n\n")}`)) included.add(path);
+    if (push(`${heading}\n${[...kept, marker].join("\n\n")}`)) {
+      included.add(path);
+      return true;
+    }
+    return false;
   };
 
-
   if (opts.includeIdentity !== false) {
-    pushCanonical("## Identity", ctx.taxonomy.canonicalPath("identity"));
+    const path = ctx.taxonomy.canonicalPath("identity");
+    if (pushCanonical("## Identity", path) && opts.report) opts.report.identity = path;
   }
   if (opts.includeCurrentFocus !== false) {
-    pushCanonical("## Current Focus", ctx.taxonomy.canonicalPath("currentFocus"));
+    const path = ctx.taxonomy.canonicalPath("currentFocus");
+    if (pushCanonical("## Current Focus", path) && opts.report) opts.report.focus = path;
   }
 
   // Search results: a pool sized to the budget, filled greedily — a hit that
@@ -225,6 +253,7 @@ export async function assembleContext(
       if (push(section)) {
         included.add(result.path);
         hits.push(result.path);
+        opts.report?.results.push(result.path);
       }
     }
 
@@ -233,13 +262,17 @@ export async function assembleContext(
     // Lines are added while the section still fits, so it stops on its own.
     if (hits.length > 0) {
       const lines: string[] = [];
+      const relatedPaths: string[] = [];
       for (const doc of neighbours(db, hits.slice(0, TOP_HITS_FOR_NEIGHBOURS), included)) {
         const next = `${RELATED_HEADING}\n${[...lines, neighbourLine(doc)].join("\n")}`;
         if (costOf(next) > budget) break;
         lines.push(neighbourLine(doc));
+        relatedPaths.push(doc.path);
         included.add(doc.path);
       }
-      if (lines.length > 0) push(`${RELATED_HEADING}\n${lines.join("\n")}`);
+      if (lines.length > 0 && push(`${RELATED_HEADING}\n${lines.join("\n")}`)) {
+        opts.report?.related.push(...relatedPaths);
+      }
     }
   }
 

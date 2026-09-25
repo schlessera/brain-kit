@@ -216,21 +216,23 @@ through the assembler `brain context` uses, at each budget, with the run's
     { "budget": 1000,
       "n": 26,                    // answerable queries, the denominator below
       "answer_present": 0.81,     // null when n is 0
-      "budget_used": { "median": 0.97, "p10": 0.9, "p90": 0.99 } }  // nearest-rank, all queries
+      "budget_used": { "median": 0.97, "p10": 0.9, "p90": 0.99 } }  // nearest rank over all
+                                  // queries; an even sample's median is the lower middle value
   ],
   "per_query": [                  // one per query and budget
     { "budget": 1000, "id": "dob", "class": "alias",
       "answer_present": true,     // null for a no-answer query
       "budget_used": 0.97,        // the assembler's estimateTokens(output) / budget
-      "sections": { "identity": 1, "focus": 1, "results": 5, "related": 1 } }
+      "sections": { "identity": 1, "focus": 1, "results": 5, "related": 3 } }  // related: documents listed
   ]
 }
 ```
 
-`answer_present` is true when an expected path heads a search-result section
-(`### Title (<path>) …`), or is the canonical document an included
-`## Identity` or `## Current Focus` section was read from. A `### Related` line
-does not count. A query's optional `answer` string makes it look for that text
+`answer_present` is true when an expected path is one the assembler reports it
+included as a search hit, or as the source of the identity or current-focus
+section. The assembler reports its own sections, so text inside a document (a
+quoted heading, a fenced example) never counts. A document in the `### Related`
+list does not count either: only its summary line is there. A query's optional `answer` string makes it look for that text
 instead, ignoring case and whitespace; a `no-answer` query may not carry one.
 `--budgets` without `--context` is a usage error. Search warnings from the
 assembler (a keyless brain has no vector lane) are reported once each in
