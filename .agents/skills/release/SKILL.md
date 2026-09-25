@@ -20,7 +20,7 @@ mistake therefore lands on all fourteen at once.
 1. **Changesets exist for everything user-visible.** `.changeset/*.md`, one per
    change, each naming the packages it affects and a bump type. No changeset
    means no version bump and no changelog entry.
-2. **`bun test packages tests` and `bunx tsc --noEmit` are green.** The `tests/`
+2. **`bun run test` and `bunx tsc --noEmit` are green.** The `tests/`
    directory holds the release guards — a failure there is about the release
    itself, not the code.
 3. **New package added this cycle?** It must appear in `scripts/publish.ts`,
@@ -47,7 +47,7 @@ Bump `template/package.json`'s `@schlessera/brain` pin to that version. A
 forgotten bump is caught by `tests/release-manifest.test.ts`.
 
 ```sh
-bunx tsc --noEmit && bun test packages tests && bun run build
+bunx tsc --noEmit && bun run test && bun run build
 ```
 
 ## `bun run build` exits 133 with a V8 stack trace
