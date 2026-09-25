@@ -26,6 +26,7 @@ import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
+import { walkLinks } from "./lib/link-walk.js";
 import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
 import { archiveDocument } from "./lib/archiver.js";
@@ -422,8 +423,8 @@ export async function startMcpServer(
     path: z.string(),
     title: z.string(),
     type: z.string(),
-    summary: z.string().nullish(),
-    updated: z.string().nullish(),
+    summary: z.string().nullable(),
+    updated: z.string().nullable(),
   });
 
   server.registerTool(
@@ -445,91 +446,12 @@ export async function startMcpServer(
     },
     async (params) => {
       try {
-        const edges: Array<{ source: string; target: string; resolved: boolean }> = [];
-        const visited = new Set<string>();
-        let frontier = new Set<string>([params.path]);
         const depth = Math.min(Math.max(1, params.depth), MAX_GRAPH_DEPTH);
-
-        for (let hop = 0; hop < depth; hop++) {
-          const nextFrontier = new Set<string>();
-
-          for (const currentPath of frontier) {
-            if (visited.has(currentPath)) continue;
-            visited.add(currentPath);
-
-            if (params.direction === "outgoing" || params.direction === "both") {
-              // A target_id whose document is gone reads as unresolved, with
-              // the raw link text as its target.
-              const outgoing = db
-                .prepare(
-                  `SELECT d.path AS source, COALESCE(t.path, l.target) AS target,
-                          t.id IS NOT NULL AS resolved
-                   FROM links l
-                   JOIN documents d ON d.id = l.source_id
-                   LEFT JOIN documents t ON t.id = l.target_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{ source: string; target: string; resolved: number }>;
-
-              for (const row of outgoing) {
-                const resolved = row.resolved === 1;
-                edges.push({ source: row.source, target: row.target, resolved });
-                if (resolved) nextFrontier.add(row.target);
-              }
-            }
-
-            if (params.direction === "incoming" || params.direction === "both") {
-              const incoming = db
-                .prepare(
-                  `SELECT d2.path AS source, d.path AS target
-                   FROM links l
-                   JOIN documents d ON d.id = l.target_id
-                   JOIN documents d2 ON d2.id = l.source_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{ source: string; target: string }>;
-
-              for (const row of incoming) {
-                edges.push({ source: row.source, target: row.target, resolved: true });
-                nextFrontier.add(row.source);
-              }
-            }
-          }
-
-          frontier = nextFrontier;
-        }
-
-        const seen = new Set<string>();
-        const uniqueEdges = edges.filter((e) => {
-          const key = `${e.source}->${e.target}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-
-        // Every source is a document; a target is one only when resolved.
-        const touched = new Set<string>();
-        for (const e of uniqueEdges) {
-          touched.add(e.source);
-          if (e.resolved) touched.add(e.target);
-        }
-        const nodes = db
-          .prepare(
-            `SELECT path, title, type, summary, updated FROM documents
-             WHERE path IN (SELECT value FROM json_each(?))
-             ORDER BY path`
-          )
-          .all(JSON.stringify([...touched])) as Array<{
-            path: string;
-            title: string;
-            type: string;
-            summary: string | null;
-            updated: string | null;
-          }>;
+        const { edges, nodes } = walkLinks(db, { path: params.path, depth, direction: params.direction });
 
         const stale = indexStalenessWarning();
         const warnings = toolWarnings(stale);
-        const structured = { edges: uniqueEdges, nodes, warnings };
+        const structured = { edges, nodes, warnings };
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(structured) }],

@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import matter from "gray-matter";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -309,15 +310,29 @@ describe("brain_graph", () => {
         if (e.resolved) endpoints.add(e.target);
       }
       expect(endpoints.size).toBeGreaterThan(1);
-      expect(sc.nodes.map((n) => n.path).sort()).toEqual([...endpoints].sort());
-      for (const n of sc.nodes) {
-        expect(n.title).toMatch(/\S/);
-        expect(n.type).toMatch(/\S/);
-        expect(n.updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      }
+      // In path order as returned, with each document's own frontmatter.
+      const expected = [...endpoints].sort().map((path) => {
+        const data = matter(readFileSync(join(root, path), "utf-8"), {}).data;
+        const date = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+        return { path, title: data.title, type: data.type, summary: data.summary ?? null, updated: date(data.updated) };
+      });
+      expect(expected.every((n) => n.title && n.type && /^\d{4}-\d{2}-\d{2}$/.test(n.updated))).toBe(true);
+      expect(sc.nodes).toEqual(expected);
       expect(typeof sc.nodes.find((n) => n.path === start)?.summary).toBe("string");
     });
   }
+
+  test("every node carries summary and updated, null when unset", async () => {
+    const { tools } = await client.listTools();
+    const schema = tools.find((t) => t.name === "brain_graph")!.outputSchema as unknown as {
+      properties: { nodes: { items: { required: string[]; properties: Record<string, { type: unknown }> } } };
+    };
+    const node = schema.properties.nodes.items;
+    expect([...node.required].sort()).toEqual(["path", "summary", "title", "type", "updated"]);
+    for (const field of ["summary", "updated"]) {
+      expect(node.properties[field].type).toEqual(["string", "null"]);
+    }
+  });
 
   test("an unresolved target is an edge and not a node", async () => {
     const sc = await graph("context/current-focus.md");
