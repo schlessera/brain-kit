@@ -46,10 +46,10 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos" }` — markdown documents only (assets excluded). The three counts are the number of issues at each severity. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
-| `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers. `total` is the documents indexed; the next four split them by what this run did. `chunks`, `embeddings` and `assets` count what this run wrote. `graphMs` is the graph rebuild's wall time and `graphNodes` its node count, both `0` when the rebuild was skipped. Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
+| `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
-| `brain sync` | no JSON. With no verb, `sync` runs the `/sync` skill through the configured coding agent and prints the agent's final text on stdout, whatever the output mode; exit `1` when no agent runner is available. The mechanical verbs (`assess`, `pull`, …) print JSON for that skill to drive and are not part of this contract |
+| `brain sync` | no JSON. With no verb, `sync` runs the `/sync` skill through the configured coding agent and prints the agent's final text on stdout, whatever the output mode; exit `1` when no agent runner is available. `--json` or `--human` in first position is currently read as the verb and exits `1` with `Unknown sync verb` (tracked by [#353](https://github.com/schlessera/brain-kit/issues/353)). The mechanical verbs (`assess`, `group`, `pull`, `conflicts`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json` after the verb, `KEY=VALUE` lines otherwise — and their shapes, which exist for that skill to drive, are not part of this contract |
 | `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "cron": [{ "name", "schedule", "command" }] }], "available": [{ "key", "description", "enabled": false }] }` — `key` is the module's `brain.config` key (a package name or `./path`). `types` and `commands` are the type names and CLI words it contributes. `description` comes from the module's `package.json` and is `null` when it has none. `available` lists `@schlessera/brain-module-*` packages the brain's `package.json` declares but its config does not enable; `description` is `null` there when the package is not installed. `cron` is shape-constrained (see [Guarantees](#guarantees-consumers-may-rely-on)) |
 | `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit) |
@@ -73,13 +73,43 @@ joined with `", "`, or `null` when it has none — a string, not an array);
 `score` (always `0`, since a filter has nothing to rank) and `snippet` (always
 `""`).
 
-`AuditIssue` fields: `path` (repo-relative); `severity`, one of `"error"`,
+`AuditIssue` fields: `path`, a repo-relative document path or a
+parenthesised sentinel for an issue that belongs to no one file — `"(corpus)"`
+for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
+— so a consumer must not open a `path` that starts with `(`; `severity`, one of `"error"`,
 `"warning"`, `"info"`; `category`, a string naming the check; `message`; and
 `suggestion`, a string present only when the check has one. Core categories are
 `staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
 `verify`, `type-mismatch` and `orphan`. Modules add their own, and a failing
 module check reports as `module-hygiene` with `path: "(module)"`, so treat the
 set as open.
+
+#### `brain index` counters
+
+Each counter describes this run, not the index as a whole, and they do not
+partition one another:
+
+- `total` — markdown files the scan found. It includes files the run then
+  skipped as unreadable or missing `title`/`type` (each skip is a `SKIP:`
+  warning on stderr), so `added + updated + unchanged` can be less than it.
+- `added` / `updated` — markdown documents written this run that were not /
+  were already in the index. Under `--force` every parsed file is one or the
+  other.
+- `unchanged` — markdown documents left alone because their content hash
+  matched. Always `0` under `--force`.
+- `deleted` — index rows removed because their file is gone, markdown and
+  assets alike. It is not part of `total`: deleting the last document reads
+  `total: 0, deleted: 1`.
+- `chunks` — chunks written this run: those of the added and updated
+  documents, plus one per asset indexed.
+- `embeddings` — vectors written this run, text chunks and assets together.
+- `assets` — images and PDFs (re)indexed this run. Assets are only indexed
+  on an `--embeddings` run, so it is `0` otherwise.
+- `graphMs` / `graphNodes` — the graph rebuild's wall time and node count.
+  Both are `0` when this run did not rebuild the graph: either nothing it
+  depends on changed and the previous tables were reused, or the rebuild
+  failed, which also prints `Graph precompute failed: …` on stderr and keeps
+  the previous tables. The JSON alone does not tell those two apart.
 
 `brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
 renamed, so a consumer reading only the flat counts other than `embeddings` (as

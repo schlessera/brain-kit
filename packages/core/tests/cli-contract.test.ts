@@ -5,7 +5,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -60,6 +61,12 @@ describe("audit", () => {
     expect(out.issues.length).toBeGreaterThan(0);
     for (const issue of out.issues) {
       expect(typeof issue.path).toBe("string");
+      // A path is a real document or a parenthesised sentinel, never both.
+      if (issue.path.startsWith("(")) {
+        expect(["(corpus)", "(module)"]).toContain(issue.path);
+      } else {
+        expect(existsSync(join(root, issue.path))).toBe(true);
+      }
       expect(["error", "warning", "info"]).toContain(issue.severity);
       expect(typeof issue.category).toBe("string");
       expect(typeof issue.message).toBe("string");
@@ -68,6 +75,8 @@ describe("audit", () => {
       expect(issue.path).not.toMatch(/\.(png|pdf|jpe?g)$/i);
     }
     expect(out.issues.some((i: { suggestion?: string }) => typeof i.suggestion === "string")).toBe(true);
+    // The fixture's tags are mostly singletons, so the corpus-wide check fires.
+    expect(out.issues.find((i: { category: string }) => i.category === "tag-noise")?.path).toBe("(corpus)");
 
     const count = (severity: string) =>
       out.issues.filter((i: { severity: string }) => i.severity === severity).length;
@@ -137,6 +146,33 @@ describe("add", () => {
       cleanup(brain);
     }
   });
+
+  test("reports a capture whose reindex failed, with the reason", async () => {
+    const brain = makeTempBrain();
+    try {
+      expect((await runCli(brain, ["index", "--json"])).code).toBe(0);
+      // Refuse every new document row, so the file is written and the
+      // reindex after it throws.
+      const db = new Database(join(brain, "brain.db"));
+      db.run(
+        "CREATE TRIGGER refuse_index BEFORE INSERT ON documents BEGIN SELECT RAISE(ABORT, 'contract test: index refused'); END"
+      );
+      db.close();
+
+      const { stdout, code } = await runCli(brain, [
+        "add", "--type", "note", "--title", "Refused capture", "--json", "--", "Clouds all night.",
+      ]);
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(out.action).toBe("created");
+      expect(out.path).toBe("notes/refused-capture.md");
+      expect(readFileSync(join(brain, out.path), "utf-8")).toContain("Clouds all night.");
+      expect(out.indexed).toBe(false);
+      expect(out.indexError).toBe("contract test: index refused");
+    } finally {
+      cleanup(brain);
+    }
+  });
 });
 
 describe("sync", () => {
@@ -161,6 +197,15 @@ export default defineConfig({
       expect(code).toBe(0);
       expect(stdout).toBe("stub agent ran /sync\n");
       expect(() => JSON.parse(stdout)).toThrow();
+
+      // Pins today's behaviour, which the contract row records: an output
+      // flag in first position is read as the verb. #353 fixes it, and
+      // changes this assertion and the row together.
+      for (const flag of ["--json", "--human"]) {
+        const flagged = await runCli(brain, ["sync", flag]);
+        expect(flagged.code).toBe(1);
+        expect(flagged.stderr).toContain(`Unknown sync verb: ${flag}`);
+      }
     } finally {
       cleanup(brain);
     }

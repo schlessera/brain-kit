@@ -84,16 +84,22 @@ test("write tools are marked non-destructive / idempotent", async () => {
   }
 });
 
-// A schema change must be made on purpose: rerun with UPDATE_MCP_SCHEMAS=1 to
-// rewrite the snapshot, and update docs/integration-contract.md with it.
+// A schema change must be made on purpose: rerun locally with
+// UPDATE_MCP_SCHEMAS=1 to rewrite the snapshot, and update
+// docs/integration-contract.md with it. Update mode is refused under CI, where
+// it would rewrite the expectation it is about to compare against.
 test("input schemas match the checked-in snapshot", async () => {
+  const update = process.env.UPDATE_MCP_SCHEMAS === "1";
+  if (update && process.env.CI) {
+    throw new Error("UPDATE_MCP_SCHEMAS is refused under CI: regenerate the snapshot locally and commit it");
+  }
   const { tools } = await client.listTools();
   const schemas = Object.fromEntries(
     [...tools]
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       .map((t) => [t.name, withoutDescriptions(t.inputSchema)])
   );
-  if (process.env.UPDATE_MCP_SCHEMAS === "1") {
+  if (update) {
     writeFileSync(SCHEMA_SNAPSHOT, `${JSON.stringify(schemas, null, 2)}\n`);
   }
   expect(Object.keys(schemas)).toHaveLength(ALL_TOOLS.length);
