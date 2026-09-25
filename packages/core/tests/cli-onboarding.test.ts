@@ -227,6 +227,55 @@ test("doctor requires a real hook file under core.hooksPath", async () => {
   expect(wipedCheck.detail).toContain("contains no hook files");
 });
 
+/** A git brain with the packaged hooks installed and the MCP check satisfied from project config. */
+function hookedBrain(): string {
+  const root = tempBrain();
+  expect(Bun.spawnSync(["git", "init", "--quiet"], { cwd: root }).exitCode).toBe(0);
+  writeFileSync(
+    join(root, ".mcp.json"),
+    JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } })
+  );
+  expect(installGitHooks(root).hooks.length).toBeGreaterThan(0);
+  return root;
+}
+
+async function gitHooksCheck(root: string, args: string[] = []) {
+  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args]);
+  expect(code).toBe(0);
+  const out = JSON.parse(stdout);
+  return { check: out.checks.find((c: { id: string }) => c.id === "git-hooks"), fixesApplied: out.fixesApplied };
+}
+
+test("doctor warns when an installed hook is an older copy, and --fix replaces it", async () => {
+  const root = hookedBrain();
+  const hook = join(root, ".githooks", "post-commit");
+  const current = readFileSync(hook, "utf8");
+  writeFileSync(hook, current.replace(/\n$/, "") + "\n# an older release's post-commit\n");
+
+  const stale = await gitHooksCheck(root);
+  expect(stale.check.status).toBe("warn");
+  expect(stale.check.detail).toBe("hooks in .githooks differ from the packaged ones: post-commit");
+  expect(stale.check.fix).toContain("brain doctor --fix");
+
+  const fixed = await gitHooksCheck(root, ["--fix"]);
+  expect(fixed.fixesApplied).toContain("git-hooks");
+  expect(fixed.check.status).toBe("pass");
+  expect(readFileSync(hook, "utf8")).toBe(current);
+});
+
+test("doctor names a packaged hook the install lacks", async () => {
+  const root = hookedBrain();
+  rmSync(join(root, ".githooks", "post-merge"));
+  const { check } = await gitHooksCheck(root);
+  expect(check).toMatchObject({ status: "warn", detail: "hooks in .githooks missing: post-merge" });
+});
+
+test("an up-to-date hook install passes", async () => {
+  const { check } = await gitHooksCheck(hookedBrain());
+  expect(check.status).toBe("pass");
+  expect(check.detail).toContain("matching the packaged ones");
+});
+
 test("doctor reports a dead MCP source-file registration", async () => {
   const root = tempBrain();
   const deadPath = "defunct-node-modules/old-scope/core/src/mcp-server.ts";
@@ -263,7 +312,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:352-391`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:391-430`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).

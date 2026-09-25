@@ -21,7 +21,7 @@ import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
-import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
+import { HOOK_NAMES, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
@@ -110,11 +110,50 @@ function checkGitHooks(root: string): Check {
       fix: "run `brain setup`",
     };
   }
+  // Installed hooks are copies, and nothing updates a copy when the package
+  // does, so compare each with the one this package ships.
+  const { missing, differing } = compareHooks(resolvedHooksPath, packagedHooksDir());
+  if (missing.length > 0 || differing.length > 0) {
+    const parts = [
+      ...(differing.length > 0 ? [`differ from the packaged ones: ${differing.join(", ")}`] : []),
+      ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
+    ];
+    return {
+      id: "git-hooks",
+      status: "warn",
+      detail: `hooks in ${hooksPath} ${parts.join("; ")}`,
+      fix: "run `brain doctor --fix` or `brain setup` to reinstall the packaged hooks",
+    };
+  }
   return {
     id: "git-hooks",
     status: "pass",
-    detail: `core.hooksPath = ${hooksPath} (${hooks.length} hook file(s))`,
+    detail: `core.hooksPath = ${hooksPath} (${hooks.length} hook file(s), matching the packaged ones)`,
   };
+}
+
+/**
+ * The packaged hooks that `installed` lacks or holds a different copy of.
+ * A hook this package does not ship (a missing packaged file) is not judged.
+ */
+function compareHooks(installed: string, packaged: string): { missing: string[]; differing: string[] } {
+  const missing: string[] = [];
+  const differing: string[] = [];
+  const read = (path: string): Buffer | null => {
+    try {
+      return readFileSync(path);
+    } catch {
+      return null;
+    }
+  };
+  for (const name of HOOK_NAMES) {
+    const shipped = read(join(packaged, name));
+    if (!shipped) continue;
+    const copy = read(join(installed, name));
+    if (!copy) missing.push(name);
+    else if (!copy.equals(shipped)) differing.push(name);
+  }
+  return { missing, differing };
 }
 
 function checkSymlinks(root: string): Check {
