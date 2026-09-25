@@ -197,7 +197,7 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
  * words matches nearly every document through "the" or "is". English only, to
  * match the `porter unicode61` tokenizer, which stems English only.
  */
-const FTS_STOPWORDS = new Set([
+export const FTS_STOPWORDS = new Set([
   "a", "about", "after", "all", "also", "am", "an", "and", "any", "are", "as",
   "at", "be", "been", "before", "being", "but", "by", "can", "could", "did",
   "do", "does", "doing", "for", "from", "had", "has", "have", "having", "he",

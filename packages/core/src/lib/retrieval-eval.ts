@@ -10,6 +10,8 @@
 import { z } from "zod";
 
 import type { AssembleReport } from "./context-assembler.js";
+import { caseFold } from "./case-fold.js";
+import { FTS_STOPWORDS } from "./search-engine.js";
 import type { SearchResult } from "./types.js";
 
 /** Bumped when a field of the `brain eval --json` envelope changes meaning. */
@@ -514,4 +516,39 @@ export function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
   return sorted[rank - 1];
+}
+
+/** The class of a query phrased the way someone actually asked it. */
+export const PARAPHRASE_CLASS = "paraphrase";
+
+/** A query's or title's content words: case-folded, stopwords dropped. */
+function contentWords(text: string): Set<string> {
+  return new Set(
+    (caseFold(text).match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => !FTS_STOPWORDS.has(word))
+  );
+}
+
+/**
+ * Title leakage (#380): a `paraphrase` query should be worded the way it was
+ * asked, before the answer was known, so a content word it shares with an
+ * expected document's title flatters keyword search. One finding per query
+ * and expected path, naming the shared words. Only the query's own
+ * `expected` paths are checked; a selector resolves only at run time.
+ * `titleOf` returns null for a path it cannot read, which is not a finding.
+ */
+export function titleLeaks(queries: EvalQuery[], titleOf: (path: string) => string | null): string[] {
+  const findings: string[] = [];
+  for (const query of queries) {
+    if (query.class !== PARAPHRASE_CLASS || !query.expected) continue;
+    const words = contentWords(query.q);
+    for (const path of query.expected) {
+      const title = titleOf(path);
+      if (title === null) continue;
+      const shared = [...contentWords(title)].filter((word) => words.has(word));
+      if (shared.length > 0) {
+        findings.push(`${query.id}: shares ${shared.map((w) => `"${w}"`).join(", ")} with the title of ${path}`);
+      }
+    }
+  }
+  return findings;
 }
