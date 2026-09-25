@@ -38,7 +38,7 @@
       "full_response_sha256": null,
       "provenance": "constructed",
       "source": "remoteok",
-      "why": "The RemoteOK feed's own envelope \u2014 its legal notice, with no postings behind it. You cannot capture a day on which a board had no jobs, so the recognised empty state has to be constructed."
+      "why": "The RemoteOK feed's own envelope — its legal notice, with no postings behind it. You cannot capture a day on which a board had no jobs, so the recognised empty state has to be constructed."
     },
     {
       "excerpt_bytes": 105,
@@ -48,7 +48,7 @@
       "full_response_sha256": null,
       "provenance": "constructed",
       "source": "remoteok",
-      "why": "The endpoint answering with valid JSON that is not its feed. It produces no entries, exactly as an empty feed does, and must not be reported as one \u2014 the envelope check in the adapter is what separates them."
+      "why": "The endpoint answering with valid JSON that is not its feed. It produces no entries, exactly as an empty feed does, and must not be reported as one — the envelope check in the adapter is what separates them."
     },
     {
       "excerpt_bytes": 124,
@@ -58,7 +58,7 @@
       "full_response_sha256": null,
       "provenance": "constructed",
       "source": "remoteok",
-      "why": "The legal notice followed by unusable records. The feed HAS records \u2014 it is corrupt, not empty \u2014 and a filter that dropped everything it could not use would report it as a board with no jobs."
+      "why": "The legal notice followed by unusable records. The feed HAS records — it is corrupt, not empty — and a filter that dropped everything it could not use would report it as a board with no jobs."
     },
     {
       "excerpt_bytes": 877,
@@ -78,7 +78,7 @@
       "full_response_sha256": null,
       "provenance": "constructed",
       "source": "remotive",
-      "why": "A Remotive category answering with `\"jobs\": []` \u2014 the API saying it has none, rather than a body the adapter could not read."
+      "why": "A Remotive category answering with `\"jobs\": []` — the API saying it has none, rather than a body the adapter could not read."
     },
     {
       "excerpt_bytes": 503,

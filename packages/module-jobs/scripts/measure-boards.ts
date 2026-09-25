@@ -57,6 +57,7 @@ import { getAdapter } from "../src/scrape.js";
 import { openDatabase } from "../src/db.js";
 import { ingestJobs } from "../src/scrape.js";
 import { ALL_SOURCES, type RawJob, type Source } from "../src/types.js";
+import { serializeCaptureRecord } from "./capture-record.js";
 
 /**
  * Where Chrome is looked for when nothing configures it. Duplicated from
@@ -214,16 +215,9 @@ function seal(boardsDir: string): void {
       capture.excerpt_bytes = bytes.byteLength;
       capture.excerpt_sha256 = createHash("sha256").update(bytes).digest("hex");
     }
-    record.captures.sort((a, b) => a.fixture.localeCompare(b.fixture));
-    writeFileSync(recordPath, `${JSON.stringify(record, sortedKeys, 2)}\n`);
+    writeFileSync(recordPath, serializeCaptureRecord(record));
     console.log(`sealed ${board.name}/capture.json (${record.captures.length})`);
   }
-}
-
-/** Stable key order, so a reseal is a no-op diff. */
-function sortedKeys(_key: string, value: unknown): unknown {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /**
