@@ -3472,12 +3472,44 @@ of the `block` union into three parts that always sum to it: **prose** (every
 `description`, measured as the variant's length minus its length with every
 description removed), **repeated structure** (the outermost subtrees, with
 descriptions removed, that also occur elsewhere in the union and are longer
-than a reference to them would be), and **irreducible** shape. Tokens are
-estimated at 0.429 per prose character and 0.404 per other character, rates
-fitted by least squares to D44's five counted rows against the schemas the
-server registered at D44's commit; the fit reproduces each counted row to
-within 22 tokens. `tests/attribute-show-block-schema.test.ts` pins the
-counting rules.
+than a reference to them would be; only schema positions count, so an `enum`
+array or a `properties` map never does), and **irreducible** shape, which is
+what the other two leave. `tests/attribute-show-block-schema.test.ts` pins the
+counting rules against columns worked out by hand.
+
+**How the token figures are estimated, and how far to trust them.** They are
+characters times a rate, given as a range. The rate comes from D44's five
+counted rows, each set against the characters that tool carried at D44's
+commit (`2efd725e`): its description plus its input schema, both as
+`JSON.stringify` writes them. D44's count also included the prefixed tool
+name (23–35 characters), which the intercept absorbs.
+
+| tool | chars (description + schema) | counted tokens | fitted | residual |
+| --- | --- | --- | --- | --- |
+| `show_block` | 2117 + 10,653 = 12,770 | 5270 | 5269 | 1 |
+| `ask_user` | 684 + 1313 = 1997 | 756 | 778 | −22 |
+| `query_activity` | 905 + 525 = 1430 | 552 | 542 | 10 |
+| `request_image_mask` | 665 + 371 = 1036 | 383 | 378 | 5 |
+| `get_current_location` | 768 + 246 = 1014 | 374 | 369 | 5 |
+
+Least squares gives **tokens = 0.4168 × chars − 54.1**. The slope is the
+marginal cost of one more character of tool definition, and that is what a
+change to the schema moves, so it is the rate to apply to a *difference* in
+characters. It is not a rate to apply to a whole tool on its own: the
+intercept is not zero, and schema characters alone at 0.4168 would put
+D44's `show_block` at about 4,440, not 5270, because the description is part
+of what was counted. Refitting with each row left out in turn moves the slope
+between **0.390 and 0.417**. The low end is the fit without `show_block`, the
+only large row and the one with most of the leverage. That range is the width
+of every token figure in this entry. The fit has limits beyond its five rows:
+the API renders a tool in its own format rather than as this JSON, so a
+character is only a proxy, and applying an average rate to a specific cut
+assumes the characters removed tokenise like the average character of these
+five tools. Enum values and English descriptions are the bulk of both, which
+is why it is a usable estimate and not a count. The script prints this table
+and these limits with every run. A two-rate fit, with prose and structure
+priced separately, was tried and dropped: five rows cannot tell the two rates
+apart.
 
 **The attribution on `main` today.** The schema is 10,734 characters, 10,610 of
 them the union; the tool description the model also reads is another 2,309.
@@ -3490,18 +3522,21 @@ coming, grouped by day", and "pre-formatted" on four value fields.
 
 | variant | chars | prose | repeated structure | irreducible | ≈ tokens | prose that restates the description |
 | --- | --- | --- | --- | --- | --- | --- |
-| `comparison` | 1704 | 866 | 184 | 654 | 710 | 296 |
-| `receipt` | 1173 | 625 | 277 | 271 | 490 | 100 |
-| `contact` | 1108 | 523 | 197 | 388 | 461 | 0 |
-| `trend` | 991 | 555 | 80 | 356 | 414 | 269 |
-| `stats` | 983 | 559 | 92 | 332 | 411 | 148 |
-| `table` | 887 | 242 | 80 | 565 | 364 | 37 |
-| `schedule` | 838 | 280 | 80 | 478 | 346 | 48 |
-| `quote` | 761 | 454 | 0 | 307 | 319 | 48 |
-| `steps` | 753 | 319 | 0 | 434 | 312 | 186 |
-| `bars` | 747 | 331 | 80 | 336 | 310 | 331 |
-| `timeline` | 653 | 224 | 80 | 349 | 269 | 101 |
-| **all 11** | **10,598** | **4978** | **1150** | **4470** | **≈ 4406** | **1564** |
+| `comparison` | 1704 | 866 | 184 | 654 | 664–711 | 296 |
+| `receipt` | 1173 | 625 | 277 | 271 | 457–489 | 100 |
+| `contact` | 1108 | 523 | 197 | 388 | 432–462 | 0 |
+| `trend` | 991 | 555 | 80 | 356 | 386–413 | 269 |
+| `stats` | 983 | 559 | 92 | 332 | 383–410 | 148 |
+| `table` | 887 | 242 | 80 | 565 | 346–370 | 37 |
+| `schedule` | 838 | 280 | 80 | 478 | 327–350 | 48 |
+| `quote` | 761 | 454 | 0 | 307 | 297–317 | 48 |
+| `steps` | 753 | 319 | 0 | 434 | 294–314 | 186 |
+| `bars` | 747 | 331 | 80 | 336 | 291–312 | 331 |
+| `timeline` | 653 | 224 | 80 | 349 | 255–272 | 101 |
+| **all 11** | **10,598** | **4978** | **1150** | **4470** | **≈ 4133–4420** | **1564** |
+
+The token column is each variant's characters times the 0.390–0.417 range.
+It is the marginal cost of that many characters, not a share of 5270.
 
 Three shapes make up all the repeated structure: the `tone` enum (six sites,
 80 characters each), the `valueTone` enum (five sites, 92 each) and the
@@ -3514,7 +3549,7 @@ thing again.
 The filing's figures — 11,452 characters, of which the `oneOf` was 11,319 —
 do not reproduce. Listing the tools at D44's own commit (`2efd725e`, Agent SDK
 0.3.278) gives 10,653, and so does `z.toJSONSchema` with `io: "input"` at every
-earlier revision of `blocks.ts`; `io: "output"` gives 11,407. The token fit
+earlier revision of `blocks.ts`; `io: "output"` gives 11,407. The calibration
 above uses the figure that commit's code produces.
 
 **Is `$defs` / `$ref` reachable? Yes, by one route.** The Agent SDK bundles its
@@ -3522,7 +3557,8 @@ own MCP server, whose `tools/list` handler converts a tool's Zod shape with
 `toJSONSchema(schema, { target: "draft-7", io: "input" })` and nothing else.
 So Zod's `reused: "ref"` — the option that would share every repeated schema
 automatically — cannot be passed; it was measured anyway by calling Zod
-directly, and it makes the schema **larger**, 12,848 characters, because it
+directly, and it makes the schema **larger**, 12,929 characters against
+10,734 on the same tree (12,848 against 10,653 at `2efd725e`), because it
 references every reused instance down to the bare strings and wraps each
 reference in `allOf`. The route that works is Zod's registry: a schema that
 carries `.meta({ id })` in `globalThis.__zod_globalRegistry` is always
@@ -3542,10 +3578,14 @@ const toneField = tone.describe(toneDoc).meta({ id: "tone" });
 with a three-entry `definitions` table and thirteen
 `{"allOf":[{"$ref":"#/definitions/<id>"}]}` sites. An id is metadata, not a
 check, so nothing a variant accepts should move; #336 asks for the round-trip
-test that proves it. The script's own estimate of
-what sharing could take out is 1,235; the patch realises 1,241. Giving the
-enums ids without folding their descriptions in saves only 255, because the
-description then stays at every site.
+test that proves it. The script checks this independently of Zod. It
+applies the same sharing as a transform of the listed JSON, checks that
+dereferencing the result gives back the original, and gets the same three
+shapes at the same thirteen sites, 1,267 characters shorter. The 26
+characters between the two are serialisation detail (the ids and key order),
+not a different reduction. Giving the enums ids without folding their
+descriptions in saves only 255, because the description then stays at every
+site.
 
 **Would the API accept it? Documented, not demonstrated.** The platform docs'
 JSON Schema limits for strict tool use list `$ref` and `definitions` as
@@ -3563,18 +3603,22 @@ draft-2020-12 target, so the same ids would put `$defs` into every schema pi
 sends to its providers. And registry ids are process-global, so an id any
 other schema in the process also uses collides.
 
-**What it would do to D44.** ≈ 500 tokens (1,241 characters at the structure
-rate) is about a tenth of `show_block`'s 5270 and 7% of the 7335, not the half
-at which #155 thought D44's arithmetic might change sign. Against D44's
-always-loaded brief arm, which billed 26,694 input tokens per round-trip, it is
-1.9% of the input. That bounds its effect on the 6% from above: even if a
-turn's whole bill scaled with its input, the loaded arm would fall by at most
-1.9%, taking the gap to no less than about 4% — and the real move is smaller,
-because the tools block is the front of the cache prefix and is mostly billed
-as a cache read, and because the deferred arm's search turns carry the same
-schema and would shed the same tokens. Dropping the 1,564 characters of
-restated prose as well would add ≈ 670 tokens under the same bound. **D44 is
-not moved by either. What the reduction buys is context, not bill.**
+**What it would do to D44: an illustration, not a bound.** The 1,241
+characters come to ≈ 480–520 tokens, about a tenth of `show_block`'s 5270
+and 7% of the 7335. That is far from the half at which #155 thought D44's
+arithmetic might change sign. For scale, D44's always-loaded brief arm
+averaged 26,694 input tokens per round-trip, so the cut is about 2% of that
+average. That comparison holds only if everything else about a turn stays
+the same: the same round-trips, the same output, and the same mix of cached
+and uncached input. None of that is established. A turn's bill weights cache
+reads, cache writes, uncached input and output differently. D44 kept its
+token and dollar populations apart for exactly that reason. And a schema that
+changes what the model sends can change how many round-trips a turn takes,
+which could move the bill by more than 2% in either direction. So this entry
+draws no conclusion about D44's 6% beyond this: a cut of this size is not
+the kind D44's reasoning turned on. Dropping the 1,564 characters of
+restated prose would add ≈ 610–650 tokens on the same footing. **Whether
+either one moves the bill is #336's to measure.**
 
 **Decision. Nothing ships from #155.** The reduction is real and reachable,
 but a keyless spike cannot show that the API accepts the `definitions` form
