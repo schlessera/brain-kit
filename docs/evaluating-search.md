@@ -42,12 +42,60 @@ query must have an empty `expected`. It marks a question the brain should have
 nothing for (see [No-answer queries](#no-answer-queries)).
 
 Blank lines are skipped. The first line may instead be a header object, one with
-neither `id` nor `q`. It is reserved for settings that apply to the whole set.
-This version understands no header keys yet, so a header that names one is
-refused rather than silently ignored.
+neither `id` nor `q`. Its only key is `now` (see [Answers that depend on the
+date](#answers-that-depend-on-the-date)). Any other key is refused rather than
+silently ignored.
 
 A line that is not valid JSON, misses a field, carries an unknown field, or
 repeats an `id` is a usage error (exit `1`) that names the line number.
+
+### Answers that depend on the date
+
+"What is due next" has a right answer that changes over time. A fixed path in
+`expected` freezes it on the day you wrote the query. Give a selector instead,
+and the answer is worked out from frontmatter at every run:
+
+```jsonl
+{"now": "2026-07-12"}
+{"id": "due-next", "q": "what is due next", "class": "time", "expect": {"select": {"field": "deadline", "after": "now", "order": "asc", "take": 1}}}
+{"id": "reviews", "q": "what should I review", "class": "time", "expect": {"select": {"type": "context", "field": "next_review", "after": "now", "order": "asc", "take": 2}}}
+```
+
+| Selector key | Meaning |
+| --- | --- |
+| `field` | A frontmatter date field (`deadline`, `next_review`, `updated`, …). A document without a readable date there, or with a day that does not exist (`2026-02-30`), is never selected. |
+| `type` | Only documents of this frontmatter `type`. Optional. |
+| `after` / `before` | `"now"` or an ISO date; the field must lie strictly after or before it. At most one, or neither. |
+| `order`, `take` | Sort by the field, `"asc"` (soonest first) or `"desc"`, and keep the first `take`. Ties sort by path. |
+
+The selector reads the markdown files the index covers, not `brain.db`, and
+skips any the indexer skips (no `title` or `type`): such a document can never
+be a search result, so it must not take one of the `take` slots. The
+paths it picks become that query's `expected` for the run, and `per_query`
+prints them. **A selector that selects nothing refuses the run** (exit `2`):
+the query would have no right answer to score.
+
+`now` comes from the header, then from `--now <ISO date>`, then from the wall
+clock. The header wins over the flag, because a date-dependent set is only
+reproducible at the date it was written for; the run then says in `warnings`
+that `--now` was ignored. The same `now` is what search measures recency from,
+so a pinned set ranks the same way on any day. `meta.now` records it.
+
+### Stale versus current
+
+When a newer document supersedes an older one (a bio regenerated from its
+facts file, an archived build), you want search to prefer the current one. Add
+the superseded paths as `stale`:
+
+```jsonl
+{"id": "bio", "q": "short bio", "class": "stale-vs-current", "expected": ["me/basics/FACTS.md"], "stale": ["me/basics/short-bio.md"]}
+```
+
+Such a query counts toward its class's **current first** rate. It is current
+first when its first expected path ranks above every stale path, or when no
+stale path is in the top max(k) at all. The rate is `null` for a class with no
+`stale` queries. Stale paths are checked like expected ones: they must exist,
+be files and be indexed.
 
 ### Writing a useful set
 
@@ -78,7 +126,8 @@ number from a broken run would be read as a real result.
 | Refused when | Why |
 | --- | --- |
 | the set is missing or has no queries | there is nothing to measure |
-| an expected path does not exist in the brain, leads out of it, or is not a regular file | a typo, or a moved or deleted document, would score as a permanent miss, and a directory is never a search result |
+| a selector selects no document | the query has no right answer at this `now` |
+| an expected or stale path does not exist in the brain, leads out of it, or is not a regular file | a typo, or a moved or deleted document, would score as a permanent miss, and a directory is never a search result |
 | an expected path exists but is not in the index | an excluded directory, or a file without `title`/`type`, can never be found |
 | the index is older than the markdown | a document changed, appeared or went away since the last `brain index`, so the run would score yesterday's brain. Run `brain index` and try again. An indexed file that cannot be read refuses too, since its freshness cannot be checked |
 | a requested lane degraded | `--mode vector` or `--mode hybrid` with no embedding provider, a model mismatch, a timeout. The run never scores the full-text fallback under the vector lane's name |

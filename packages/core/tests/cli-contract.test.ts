@@ -501,13 +501,13 @@ describe("eval", () => {
       expect(out.rows.length).toBeGreaterThan(0);
       for (const row of out.rows) {
         expect(Object.keys(row).sort()).toEqual([
-          "class", "hit_at", "mode", "mrr_at_10", "n", "oracle", "top1_score_median",
+          "class", "current_first", "hit_at", "mode", "mrr_at_10", "n", "oracle", "top1_score_median",
         ]);
       }
       expect(out.per_query).toHaveLength(2);
       for (const query of out.per_query) {
         expect(Object.keys(query).sort()).toEqual([
-          "class", "expected", "hit_at", "id", "mode", "q", "rank", "rr", "top", "top1_score",
+          "class", "current_first", "expected", "hit_at", "id", "mode", "q", "rank", "rr", "top", "top1_score",
         ]);
       }
       expect(out.warnings).toEqual([]);

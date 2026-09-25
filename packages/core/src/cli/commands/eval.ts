@@ -17,8 +17,18 @@ import {
   parseKs,
   poolSize,
   scoreQuery,
+  parseEvalDate,
+  selectPaths,
 } from "../../lib/retrieval-eval.js";
-import type { EvalMode, EvalQuery, QueryOutcome, ScoreRow } from "../../lib/retrieval-eval.js";
+import type {
+  EvalMode,
+  EvalQuery,
+  FrontmatterDocument,
+  QueryOutcome,
+  ResolvedQuery,
+  ScoreRow,
+  SetHeader,
+} from "../../lib/retrieval-eval.js";
 import { resolveWritable, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch.js";
 import { hybridSearch } from "../../lib/search-engine.js";
@@ -38,13 +48,16 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
   --k <list>              hit@k cutoffs, comma-separated (default: 1,3,10)
   --out <file>            Also write the JSON result to <file>, inside the brain
   --strict                Refuse (exit 2) when an indexed document quotes the set's queries
+  --now <ISO date>        The moment the run measures from, when the set's header
+                          does not pin one (default: the wall clock)
 
 Relative paths are relative to the brain root.
 
 Exit codes: 0 scored · 1 usage error or malformed set · 2 refused (a validity
-gate failed: missing or empty set, an expected path not on disk or not indexed,
-the index older than the markdown, a requested search lane degraded; with
---strict, an indexed document that contains the set's queries).
+gate failed: missing or empty set, an expected or stale path not on disk or
+not indexed, a selector that selects nothing, the index older than the
+markdown, a requested search lane degraded; with --strict, an indexed
+document that contains the set's queries).
 
 --json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" }
 Set format and how to read the numbers: docs/evaluating-search.md`;
@@ -79,7 +92,7 @@ function checkoutSource(): string | null {
   }
 }
 
-function loadSet(path: string, root: string): { queries: EvalQuery[]; sha256: string } {
+function loadSet(path: string, root: string): { header: SetHeader | null; queries: EvalQuery[]; sha256: string } {
   const shown = displayPath(root, path);
   if (!existsSync(path)) {
     throw new EvalRefused(`no query set at ${shown}. ${DOCS_POINTER}`);
@@ -95,7 +108,54 @@ function loadSet(path: string, root: string): { queries: EvalQuery[]; sha256: st
   if (parsed.queries.length === 0) {
     throw new EvalRefused(`the query set at ${shown} has no queries. ${DOCS_POINTER}`);
   }
-  return { queries: parsed.queries, sha256: createHash("sha256").update(bytes).digest("hex") };
+  return { header: parsed.header, queries: parsed.queries, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
+/**
+ * The run's now: the set's header pins it, then `--now`, then the wall
+ * clock. A header wins over the flag because a set whose answers depend on
+ * the date is only reproducible at the date it was written for; the flag is
+ * reported as ignored rather than silently dropped.
+ */
+function resolveNow(header: SetHeader | null, flag: string | undefined): { now: Date; warnings: string[] } {
+  if (header?.now !== undefined) {
+    const warnings =
+      flag !== undefined && Date.parse(flag) !== Date.parse(header.now)
+        ? [`--now ${flag} ignored: the set's header pins now to ${header.now}`]
+        : [];
+    return { now: new Date(header.now), warnings };
+  }
+  return { now: flag !== undefined ? new Date(flag) : new Date(), warnings: [] };
+}
+
+/**
+ * Turn each selector into this run's `expected`, reading frontmatter from the
+ * markdown the taxonomy indexes (not brain.db, so a selector sees exactly
+ * what is on disk). A selector that selects nothing refuses the run: the
+ * query would have no right answer to score.
+ */
+function resolveQueries(brain: BrainContext, queries: EvalQuery[], now: Date): ResolvedQuery[] {
+  let documents: FrontmatterDocument[] | undefined;
+  const load = (): FrontmatterDocument[] =>
+    (documents ??= getMarkdownFiles(brain.root, brain.taxonomy).flatMap((path) => {
+      try {
+        const parsed = matter(readFileSync(join(brain.root, path), "utf-8"));
+        return [{ path, data: parsed.data, raw: parsed.matter }];
+      } catch {
+        return []; // unreadable or invalid frontmatter: the indexer skips it too
+      }
+    }));
+  const empty: string[] = [];
+  const resolved = queries.map((query): ResolvedQuery => {
+    if (!query.expect) return { ...query, expected: query.expected! };
+    const expected = selectPaths(query.expect.select, load(), now);
+    if (expected.length === 0) empty.push(`${query.id}: ${JSON.stringify(query.expect.select)} at ${now.toISOString()}`);
+    return { ...query, expected };
+  });
+  if (empty.length > 0) {
+    throw new EvalRefused(`${empty.length} selector(s) select no document`, empty);
+  }
+  return resolved;
 }
 
 /**
@@ -103,14 +163,14 @@ function loadSet(path: string, root: string): { queries: EvalQuery[]; sha256: st
  * Containment is symlink-aware (`safeResolve`): a link inside the brain that
  * points out of it is outside.
  */
-function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): void {
+function checkExpectedPaths(root: string, db: Database, queries: ResolvedQuery[]): void {
   const indexed = db.prepare("SELECT 1 FROM documents WHERE path = ?");
   const outside: string[] = [];
   const missing: string[] = [];
   const notFiles: string[] = [];
   const unindexed: string[] = [];
   for (const query of queries) {
-    for (const path of query.expected) {
+    for (const path of [...query.expected, ...(query.stale ?? [])]) {
       const full = safeResolve(root, path);
       if (!full) outside.push(`${query.id}: ${path}`);
       else if (!existsSync(full)) missing.push(`${query.id}: ${path}`);
@@ -196,7 +256,7 @@ function checkIndexFresh(brain: BrainContext, db: Database, scanner: Contaminati
 async function runMode(
   db: Database,
   mode: EvalMode,
-  queries: EvalQuery[],
+  queries: ResolvedQuery[],
   opts: { rerank: "none" | "heuristic"; ks: number[]; pool: number; now: Date },
   embeddings: EmbeddingProvider | undefined
 ): Promise<QueryOutcome[]> {
@@ -234,7 +294,7 @@ function printHuman(
   console.log(`brain eval — ${meta.queries} queries, ${meta.documents} documents, now ${meta.now}\n`);
   for (const warning of warnings) console.log(`Warning: ${warning}`);
   if (warnings.length > 0) console.log();
-  const header = ["mode", "class", "n", ...ks.map((k) => `hit@${k}`), "MRR@10", "oracle", "top1 median"];
+  const header = ["mode", "class", "n", ...ks.map((k) => `hit@${k}`), "MRR@10", "oracle", "top1 median", "current first"];
   const table = rows.map((r) => [
     r.mode,
     r.class ?? "(all answerable)",
@@ -243,6 +303,7 @@ function printHuman(
     r.mrr_at_10 === null ? "-" : r.mrr_at_10.toFixed(3),
     pct(r.oracle),
     r.top1_score_median === null ? "-" : r.top1_score_median.toPrecision(3),
+    pct(r.current_first),
   ]);
   const widths = header.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
@@ -284,7 +345,7 @@ export const evalCommand: CoreCommand = {
     const { args: pos, flags } = parseArgs(args);
     if (pos.length > 0) throw new UsageError(`brain eval takes no positional arguments (got "${pos[0]}")`);
 
-    for (const name of ["set", "out", "mode", "rerank", "k"]) {
+    for (const name of ["set", "out", "mode", "rerank", "k", "now"]) {
       if (flags[name] === true) throw new UsageError(`--${name} requires a value`);
     }
 
@@ -303,6 +364,10 @@ export const evalCommand: CoreCommand = {
     } catch (e) {
       throw new UsageError((e as Error).message);
     }
+    const nowFlag = typeof flags.now === "string" ? flags.now : undefined;
+    if (nowFlag !== undefined && !parseEvalDate(nowFlag)) {
+      throw new UsageError(`--now takes an ISO date (YYYY-MM-DD) or timestamp, got "${nowFlag}"`);
+    }
 
     const root = cli.brain.root;
     const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
@@ -315,18 +380,20 @@ export const evalCommand: CoreCommand = {
 
     let db: Database | undefined;
     try {
-      const { queries, sha256 } = loadSet(setPath, root);
+      const { header, queries: written, sha256 } = loadSet(setPath, root);
+      const { now, warnings: nowWarnings } = resolveNow(header, nowFlag);
+      const queries = resolveQueries(cli.brain, written, now);
       db = openReadonlyDb(cli.brain);
       checkExpectedPaths(root, db, queries);
       const scanner = new ContaminationScanner(queries);
       checkIndexFresh(cli.brain, db, scanner);
-      const warnings = scanner.warnings();
-      if (warnings.length > 0 && flags.strict === true) {
-        throw new EvalRefused(`${warnings.length} indexed document(s) contain the set's queries (--strict)`, warnings);
+      const contamination = scanner.warnings();
+      if (contamination.length > 0 && flags.strict === true) {
+        throw new EvalRefused(`${contamination.length} indexed document(s) contain the set's queries (--strict)`, contamination);
       }
+      const warnings = [...nowWarnings, ...contamination];
       if (modes.some((m) => m !== "fts")) await loadVecSupport(db);
 
-      const now = new Date();
       const pool = poolSize(ks);
       const perQuery: QueryOutcome[] = [];
       const rows: ScoreRow[] = [];
