@@ -23,9 +23,12 @@ let brain: TempBrain;
 beforeAll(async () => {
   const docs: Record<string, string> = {
     // Ranked first for "lantern" and too large for a small budget on its own.
-    "notes/huge.md": doc("Lantern Huge", "lantern lantern lantern lantern", "a very long summary ".repeat(80).trim()),
+    // The size is in the title, which both the old loop and core's header
+    // print, so the old loop stops on it too.
+    "notes/huge.md": doc(`Lantern ${"lantern very long title ".repeat(80).trim()}`, "lantern lantern lantern lantern"),
     "notes/small.md": doc("Small", `a lantern ${"among other unrelated words ".repeat(6)}`),
     "me/identity.md": `---\ntype: identity\ntitle: "Identity"\ncreated: 2020-01-01\nupdated: 2020-01-02\ntags: [me]\n---\n\nThe keeper of the trail light.\n`,
+    "context/current-focus.md": `---\ntype: context\ntitle: "Current Focus"\ncreated: 2020-01-01\nupdated: 2020-01-02\ntags: [focus]\n---\n\nFinishing the trail map this week.\n`,
   };
   // Enough matching material that 2000 tokens cannot hold it all.
   for (let i = 0; i < 40; i++) {
@@ -47,9 +50,10 @@ test("carries no FTS5 highlight markers", async () => {
 });
 
 test("a hit too large for the budget is skipped and the next one that fits is included", async () => {
-  // The premise: the huge hit ranks first.
+  // The premise: the huge hit ranks first, and its title alone is over budget.
   const { results } = await createBrainAccess(brain.root).search({ query: "lantern", limit: 2 });
   expect(results.map((r) => r.path)).toEqual(["notes/huge.md", "notes/small.md"]);
+  expect(estimateTokens(results[0]!.title)).toBeGreaterThan(300);
   const out = await context("lantern", 300);
   expect(out).not.toContain("notes/huge.md");
   expect(out).toContain("(notes/small.md)");
@@ -81,15 +85,19 @@ test("the search's warnings lead the block when they fit", async () => {
   expect(estimateTokens(out)).toBeLessThanOrEqual(4000);
 });
 
-test("warnings never push the block over its budget", async () => {
-  // The block alone fills most budgets; the warning line must then give way.
-  const over: number[] = [];
+// The block alone fills most of these budgets: the warning line must give way.
+const SWEEP = Array.from({ length: 53 }, (_, i) => 50 + i * 37);
+
+test("the warning line is left out when the block leaves no room for it", async () => {
   let dropped = 0;
-  for (let budget = 50; budget <= 2000; budget += 37) {
-    const out = await context("beacon", budget);
-    if (!out.startsWith("> ")) dropped++;
-    if (estimateTokens(out) > budget) over.push(budget);
-  }
+  for (const budget of SWEEP) if (!(await context("beacon", budget)).startsWith("> ")) dropped++;
   expect(dropped).toBeGreaterThan(0);
+});
+
+test("with the warning line, no budget is exceeded", async () => {
+  const over: number[] = [];
+  for (const budget of SWEEP) {
+    if (estimateTokens(await context("beacon", budget)) > budget) over.push(budget);
+  }
   expect(over).toEqual([]);
 });
