@@ -34,7 +34,7 @@ import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
 import { getAssetFiles, getMarkdownFiles, loadExistingDocs } from "./scan.js";
 import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats } from "./types.js";
-import { dropMarkdownVectors, dropOrphanedVectors } from "./vectors.js";
+import { carryMarkdownVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
 
 function emptyStats(): IndexStats {
   return {
@@ -188,11 +188,15 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   const parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
 
   // Drop vectors while their old markdown chunk IDs still exist, before the
-  // persist phase replaces those chunks.
-  if (run.force) dropMarkdownVectors(run.db);
+  // persist phase replaces those chunks. Whatever the embedding phase can
+  // reuse is held in memory first.
+  if (run.force) {
+    if (run.wantEmbeddings && run.provider) run.carriedVectors = carryMarkdownVectors(run.db, run.provider);
+    dropMarkdownVectors(run.db);
+  }
 
   // --- persist ------------------------------------------------------------
-  const { docIdsNeedingEmbedding } = persistMarkdown(
+  persistMarkdown(
     run,
     parsed,
     existingDocs,
@@ -201,6 +205,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   );
 
   dropOrphanedVectors(run.db);
+  syncVectorFilters(run.db);
 
   run.report(
     `Indexed: ${run.stats.added} added, ${run.stats.updated} updated, ` +
@@ -215,12 +220,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     assetQueue = await indexAssets(run, assetFiles, existingDocs, assetsOnDisk);
   }
 
-  const embeddingPhaseRan = await runEmbeddingPhase(
-    run,
-    docIdsNeedingEmbedding,
-    assetQueue,
-    assetsOnDisk
-  );
+  const embeddingPhaseRan = await runEmbeddingPhase(run, assetQueue, assetsOnDisk);
   if (embeddingPhaseRan) saveSidecarCaches(run);
 
   // --- caches -------------------------------------------------------------

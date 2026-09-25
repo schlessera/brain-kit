@@ -15,8 +15,9 @@
 import type { Database } from "bun:sqlite";
 
 import { chunkDocument } from "../chunker.js";
+import { chunkContextKey } from "./caches.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
-import type { ExistingDoc, IndexRun, ParseResult, PersistResult } from "./types.js";
+import type { ExistingDoc, IndexRun, ParseResult } from "./types.js";
 
 /** Frontmatter values arrive as strings, Dates, or nothing at all. */
 function toDateString(value: any, fallback: string): string {
@@ -34,17 +35,29 @@ function toDateString(value: any, fallback: string): string {
  */
 function prepareStatements(db: Database) {
   return {
-    // accepted_mtime is carried over from the existing row explicitly:
-    // INSERT OR REPLACE would otherwise silently reset the silent-edit baseline.
-    insertDoc: db.prepare(`INSERT OR REPLACE INTO documents
+    // An upsert, not INSERT OR REPLACE: REPLACE deletes the old row, which
+    // gives the document a new id and cascades its chunks away, and a chunk
+    // that did not change must keep its row and its vector. accepted_mtime
+    // is still passed explicitly from the existing row, the silent-edit
+    // baseline this write must not reset.
+    insertDoc: db.prepare(`INSERT INTO documents
       (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, file_mtime, deadline, next_review, accepted_mtime, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(path) DO UPDATE SET
+        title = excluded.title, type = excluded.type, status = excluded.status,
+        relevance = excluded.relevance, summary = excluded.summary,
+        created = excluded.created, updated = excluded.updated,
+        content = excluded.content, content_hash = excluded.content_hash,
+        asset_type = excluded.asset_type, file_mtime = excluded.file_mtime,
+        deadline = excluded.deadline, next_review = excluded.next_review,
+        accepted_mtime = excluded.accepted_mtime, indexed_at = excluded.indexed_at`),
     insertTag: db.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?)"),
     getTagId: db.prepare("SELECT id FROM tags WHERE name = ?"),
     insertDocTag: db.prepare(
       "INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)"
     ),
     getDocId: db.prepare("SELECT id FROM documents WHERE path = ?"),
+    getTitle: db.prepare("SELECT title FROM documents WHERE id = ?"),
     deleteFts: db.prepare("DELETE FROM documents_fts WHERE rowid = ?"),
     deleteChunks: db.prepare("DELETE FROM chunks WHERE document_id = ?"),
     deleteTags: db.prepare("DELETE FROM document_tags WHERE document_id = ?"),
@@ -57,6 +70,9 @@ function prepareStatements(db: Database) {
       `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate)
        VALUES (?, ?, ?, ?, ?)`
     ),
+    oldChunks: db.prepare("SELECT id, heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index"),
+    moveChunk: db.prepare("UPDATE chunks SET chunk_index = ?, token_estimate = ? WHERE id = ?"),
+    deleteChunk: db.prepare("DELETE FROM chunks WHERE id = ?"),
     insertLink: db.prepare(
       "INSERT OR IGNORE INTO links (source_id, target, target_id) VALUES (?, ?, ?)"
     ),
@@ -93,12 +109,17 @@ function writeDocument(
   existing: ExistingDoc | undefined
 ): number | null {
   const { path, data, content, hash, mtime, isChanged } = file;
+  // The title the old chunks were embedded under, read before the upsert
+  // overwrites it.
+  const previousTitle = existing
+    ? (st.getTitle.get(existing.id) as { title: string } | null)?.title
+    : undefined;
 
-  // An updated file's old rows go first. On a force rebuild everything was
-  // already dropped, so this would be redundant work.
+  // An updated file's old rows go first, except its chunks, which are
+  // matched below. On a force rebuild everything was already dropped, so this
+  // would be redundant work.
   if (isChanged && !run.force && existing) {
     st.deleteFts.run(existing.id);
-    st.deleteChunks.run(existing.id);
     st.deleteTags.run(existing.id);
     st.deleteLinks.run(existing.id);
   }
@@ -141,21 +162,36 @@ function writeDocument(
     [...tagNames, ...aliases].join(" ")
   );
 
-  const chunks = chunkDocument({
-    title: String(data.title),
-    content,
-    documentId: docRow.id,
-  });
+  const title = String(data.title);
+  const chunks = chunkDocument({ title, content, documentId: docRow.id });
+
+  // Match the new chunks to the document's old ones by the text they are
+  // embedded from. A match keeps its row, so its id, its context and its
+  // vector stay; only its position moves. Editing one section then pays for
+  // that section's vector alone. The title is part of the match because it is
+  // part of the embedding text (`chunkTextForEmbedding`): an old chunk is
+  // keyed by the title it was embedded under, so a renamed document matches
+  // nothing and is embedded afresh. The key is the one the context cache uses.
+  const reusable = new Map<string, number[]>();
+  for (const old of st.oldChunks.all(docRow.id) as { id: number; heading: string; content: string }[]) {
+    const key = chunkContextKey(previousTitle ?? title, old.heading, old.content);
+    const ids = reusable.get(key);
+    if (ids) ids.push(old.id);
+    else reusable.set(key, [old.id]);
+  }
   for (const chunk of chunks) {
-    st.insertChunk.run(
-      chunk.document_id,
-      chunk.chunk_index,
-      chunk.heading,
-      chunk.content,
-      chunk.token_estimate
-    );
+    const id = reusable.get(chunkContextKey(title, chunk.heading, chunk.content))?.shift();
+    if (id !== undefined) {
+      st.moveChunk.run(chunk.chunk_index, chunk.token_estimate, id);
+    } else {
+      st.insertChunk.run(chunk.document_id, chunk.chunk_index, chunk.heading, chunk.content, chunk.token_estimate);
+    }
     run.stats.chunks++;
   }
+  // What is left matched nothing. Its vectors go with the orphan sweep. A
+  // kept vector's filter columns are brought up to date by
+  // `syncVectorFilters` after this phase.
+  for (const ids of reusable.values()) for (const id of ids) st.deleteChunk.run(id);
 
   return docRow.id;
 }
@@ -249,9 +285,7 @@ export function persistMarkdown(
   existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
   assetsOnDisk: Set<string>
-): PersistResult {
-  const docIdsNeedingEmbedding: number[] = [];
-
+): void {
   const st = prepareStatements(run.db);
   const write = run.db.transaction(() => {
     if (run.force) wipeMarkdownState(run.db);
@@ -259,7 +293,6 @@ export function persistMarkdown(
     for (const file of parsed.files) {
       const docId = writeDocument(run, st, file, existingDocs.get(file.path));
       if (docId === null) continue;
-      docIdsNeedingEmbedding.push(docId);
       if (file.isNew) run.stats.added++;
       else run.stats.updated++;
     }
@@ -268,6 +301,4 @@ export function persistMarkdown(
     rebuildLinks(run, st, parsed);
   });
   write.immediate();
-
-  return { docIdsNeedingEmbedding };
 }

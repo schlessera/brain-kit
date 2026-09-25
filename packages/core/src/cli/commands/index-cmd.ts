@@ -75,7 +75,9 @@ export const indexCommand: CoreCommand = {
         console.log(force ? "Rebuilding full index..." : "Running incremental index...");
         if (force && embeddings) {
           console.warn(
-            "Warning: --force with --embeddings re-embeds every chunk — this re-runs paid embedding calls."
+            "Warning: --force with --embeddings re-chunks every document. A chunk whose embedding text is " +
+              "unchanged keeps its vector when the provider is the one that produced it; every other chunk, " +
+              "and every chunk after a provider change, is a paid embedding call."
           );
         } else if (force) {
           console.warn(

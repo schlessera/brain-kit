@@ -6,6 +6,7 @@
  * write together in a short immediate transaction.
  */
 import type { Database } from "bun:sqlite";
+import { createHash } from "crypto";
 
 import {
   embeddingIdentityMatches,
@@ -13,7 +14,9 @@ import {
   hasVecSupport,
   migrateVecSchema,
   setMeta,
+  vecTableExists,
 } from "../db.js";
+import { chunkTextForEmbedding } from "../chunker.js";
 import type { EmbeddingProvider } from "../seams.js";
 import type { IndexRun } from "./types.js";
 
@@ -48,6 +51,50 @@ export function dropMarkdownVectors(db: Database): void {
   }
 }
 
+/** The key a carried vector is found by: a hash of the exact text it was embedded from. */
+export function embeddingTextKey(title: string, heading: string, content: string, context: string | null): string {
+  return createHash("sha256").update(chunkTextForEmbedding(title, heading, content, context)).digest("hex");
+}
+
+/**
+ * Hold on to the markdown vectors a `--force` rebuild is about to drop.
+ *
+ * The rebuild re-chunks every document with new ids, but most chunks come out
+ * with the same text and, through the context cache, the same context. Their
+ * vectors are reused by the embedding phase instead of paid for again. Kept in
+ * memory for the run only: no second copy of any vector is stored.
+ *
+ * Only when the configured provider produced the stored vectors, at its
+ * dimensions. A different provider means a different vector space, and
+ * `--force` is then exactly the full re-embed it asks for.
+ */
+export function carryMarkdownVectors(db: Database, provider: EmbeddingProvider): Map<string, Float32Array> {
+  const carried = new Map<string, Float32Array>();
+  if (!hasVecSupport(db)) return carried;
+  if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), provider.id)) return carried;
+  if (getMeta(db, "embedding_dimensions") !== String(provider.dimensions)) return carried;
+  let rows: Array<{ title: string; heading: string; content: string; context: string | null; embedding: Uint8Array }>;
+  try {
+    rows = db
+      .prepare(
+        `SELECT d.title, c.heading, c.content, c.context, v.embedding
+         FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
+         JOIN documents d ON d.id = c.document_id
+         WHERE d.asset_type = 'markdown'`
+      )
+      .all() as typeof rows;
+  } catch {
+    return carried; // vec_chunks may not exist yet
+  }
+  for (const row of rows) {
+    // Copied out: the blob's offset need not be 4-byte aligned.
+    const vector = new Float32Array(new Uint8Array(row.embedding).buffer);
+    if (vector.length !== provider.dimensions) continue;
+    carried.set(embeddingTextKey(row.title, row.heading, row.content, row.context), vector);
+  }
+  return carried;
+}
+
 /**
  * Delete vectors whose chunk is gone.
  *
@@ -62,6 +109,40 @@ export function dropOrphanedVectors(db: Database): void {
     db.run("DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)");
   } catch {
     // vec_chunks may not exist
+  }
+}
+
+/**
+ * Bring every stored vector's filter columns in line with its document.
+ *
+ * `is_archived` and `doc_type` are copied into `vec_chunks` so KNN can filter
+ * before ranking. A vector now outlives edits to its document (persist keeps
+ * the rows of unchanged chunks), so an edit that archives a document or
+ * changes its type leaves them stale. Doing it here, idempotently and on
+ * every run, also repairs vectors kept while sqlite-vec was unavailable and
+ * this could not run. Returns how many vectors were updated.
+ */
+export function syncVectorFilters(db: Database): number {
+  if (!hasVecSupport(db) || !vecTableExists(db)) return 0;
+  try {
+    const stale = db
+      .prepare(
+        `SELECT v.chunk_id, CASE WHEN d.status = 'archived' THEN 1 ELSE 0 END AS archived, d.type
+         FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
+         JOIN documents d ON d.id = c.document_id
+         WHERE v.is_archived IS NOT (CASE WHEN d.status = 'archived' THEN 1 ELSE 0 END)
+            OR v.doc_type IS NOT d.type`
+      )
+      .all() as { chunk_id: number; archived: number; type: string }[];
+    if (stale.length === 0) return 0;
+    const update = db.prepare("UPDATE vec_chunks SET is_archived = ?, doc_type = ? WHERE chunk_id = ?");
+    db.transaction(() => {
+      for (const row of stale) update.run(row.archived, row.type, row.chunk_id);
+    }).immediate();
+    return stale.length;
+  } catch {
+    // a vector table without the filter columns (pre-v2): nothing to sync
+    return 0;
   }
 }
 

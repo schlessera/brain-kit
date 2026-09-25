@@ -1238,3 +1238,183 @@ describe("the WAL after an index run (#423)", () => {
     }
   });
 });
+
+describe("an unchanged chunk keeps its vector (#417)", () => {
+  /** The working fake provider, recording every text it is asked to embed. */
+  function countingProvider(id = "fake:v1"): { provider: EmbeddingProvider; embedded: string[] } {
+    const embedded: string[] = [];
+    const base = makeProvider("ok", id);
+    return {
+      embedded,
+      provider: {
+        ...base,
+        async embed(texts) {
+          embedded.push(...texts);
+          return base.embed(texts);
+        },
+      },
+    };
+  }
+
+  const THREE = ["zeppelin", "blimp", "dirigible"];
+  const doc = mdSections("Airships", THREE);
+  /** The same document with the blimp section's text changed. */
+  const edited = doc.replace("blimp ".repeat(120).trim(), `${"blimp ".repeat(119)}airship`);
+
+  async function chunkIds(root: string): Promise<Record<string, number>> {
+    const db = await openRead(root);
+    const rows = db.prepare("SELECT id, heading FROM chunks ORDER BY chunk_index").all() as { id: number; heading: string }[];
+    db.close();
+    return Object.fromEntries(rows.map((r) => [r.heading, r.id]));
+  }
+
+  async function vectorCount(root: string): Promise<number> {
+    const db = await openRead(root);
+    const { n } = db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number };
+    db.close();
+    return n;
+  }
+
+  test.if(vecAvailable)("editing one of three sections embeds that section alone", async () => {
+    expect(edited).not.toBe(doc);
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    const before = await chunkIds(root);
+    expect(Object.keys(before)).toEqual(["About zeppelin", "About blimp", "About dirigible"]);
+    expect(await vectorCount(root)).toBe(3);
+
+    writeFileSync(join(root, "notes/airships.md"), edited);
+    const counting = countingProvider();
+    const stats = await runIndex(root, { embeddings: true, provider: counting.provider, enrichment: makeEnrichment() });
+
+    expect(counting.embedded.length).toBe(1);
+    expect(counting.embedded[0]).toContain("airship");
+    expect(stats.updated).toBe(1);
+    expect(stats.embeddings).toBe(1);
+    const after = await chunkIds(root);
+    expect(after["About zeppelin"]).toBe(before["About zeppelin"]);
+    expect(after["About dirigible"]).toBe(before["About dirigible"]);
+    expect(after["About blimp"]).not.toBe(before["About blimp"]);
+    expect(await vectorCount(root)).toBe(3);
+  });
+
+  test.if(vecAvailable)("an edit that archives a document updates its kept vectors' filter columns", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    writeFileSync(join(root, "notes/airships.md"), doc.replace("type: note", "type: note\nstatus: archived"));
+    const counting = countingProvider();
+    await runIndex(root, { embeddings: true, provider: counting.provider, enrichment: makeEnrichment() });
+
+    expect(counting.embedded).toEqual([]);
+    const db = await openRead(root);
+    const flags = db.prepare("SELECT is_archived FROM vec_chunks ORDER BY chunk_id").all();
+    db.close();
+    expect(flags).toEqual([{ is_archived: 1 }, { is_archived: 1 }, { is_archived: 1 }]);
+  });
+
+  test.if(vecAvailable)("a title-only edit re-embeds every chunk, incrementally and under --force", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    const before = await chunkIds(root);
+
+    // The title is part of every chunk's embedding text.
+    writeFileSync(join(root, "notes/airships.md"), doc.replace("title: Airships", "title: Lighter than air"));
+    const incremental = countingProvider();
+    await runIndex(root, { embeddings: true, provider: incremental.provider, enrichment: makeEnrichment() });
+    expect(incremental.embedded.length).toBe(3);
+    expect(incremental.embedded.every((text) => text.startsWith("[Lighter than air]"))).toBe(true);
+    const after = await chunkIds(root);
+    for (const heading of Object.keys(before)) expect(after[heading]).not.toBe(before[heading]);
+
+    // A later --force carries only vectors embedded under the current title.
+    const forced = countingProvider();
+    await runIndex(root, { embeddings: true, force: true, provider: forced.provider, enrichment: makeEnrichment() });
+    expect(forced.embedded).toEqual([]);
+  });
+
+  test.if(vecAvailable)("an edit indexed while sqlite-vec was unavailable has its vectors' filters repaired later", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    // Archived and retyped, text unchanged, indexed on a connection that
+    // never loaded the extension: the kept vectors cannot be touched then.
+    writeFileSync(
+      join(root, "notes/airships.md"),
+      doc.replace("type: note", "type: context\nstatus: archived")
+    );
+    const bare = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const stats = await indexAll(bare, { root, taxonomy, quiet: true });
+    bare.close();
+    expect(stats.updated).toBe(1);
+
+    const filters = async () => {
+      const db = await openRead(root);
+      const rows = db.prepare("SELECT is_archived, doc_type FROM vec_chunks ORDER BY chunk_id").all();
+      db.close();
+      return rows;
+    };
+    const stale = { is_archived: 0, doc_type: "note" };
+    expect(await filters()).toEqual([stale, stale, stale]);
+
+    // The next run that can load it, embeddings or not, repairs them.
+    await runIndex(root);
+    const fresh = { is_archived: 1, doc_type: "context" };
+    expect(await filters()).toEqual([fresh, fresh, fresh]);
+  });
+
+  test.if(vecAvailable)("a brain with the extension loaded and no vector table indexes an edit", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    const index = async () => {
+      const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+      try {
+        const { load } = await import("sqlite-vec");
+        load(db);
+        return await indexAll(db, { root, taxonomy, quiet: true });
+      } finally {
+        db.close();
+      }
+    };
+    expect((await index()).added).toBe(1);
+    writeFileSync(join(root, "notes/airships.md"), edited.replace("type: note", "type: note\nstatus: archived"));
+    expect((await index()).updated).toBe(1);
+    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE name = 'vec_chunks'").get();
+    db.close();
+    expect(table).toBeNull();
+  });
+
+  test.if(vecAvailable)("--force with the same provider reuses every unchanged vector", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    const counting = countingProvider();
+    const stats = await runIndex(root, {
+      embeddings: true,
+      force: true,
+      provider: counting.provider,
+      enrichment: makeEnrichment(),
+    });
+
+    expect(counting.embedded).toEqual([]);
+    expect(stats.embeddings).toBe(3); // written back from the carried vectors
+    expect(await vectorCount(root)).toBe(3);
+  });
+
+  test.if(vecAvailable)("--force with a different provider re-embeds everything", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    const counting = countingProvider("fake:other");
+    const stats = await runIndex(root, {
+      embeddings: true,
+      force: true,
+      provider: counting.provider,
+      enrichment: makeEnrichment(),
+    });
+
+    expect(counting.embedded.length).toBe(3);
+    expect(stats.embeddings).toBe(3);
+  });
+
+  test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
+});
