@@ -102,13 +102,8 @@ const note = (title: string, body: string, summary = "") =>
   `tags: [t]\nstatus: active\nrelevance: primary\n---\n\n${body}\n`;
 
 describe("brain_graph wrapper, review round 1", () => {
-  test("a graph larger than the tool's text clip comes back whole and parses", async () => {
-    // A hub linking 100 documents with long summaries: well past the 30,000
-    // characters other tools clip their text at.
-    const docs: Record<string, string> = {
-      "notes/hub.md": note("Hub", Array.from({ length: 100 }, (_, i) => `[[leaf-${i}]]`).join("\n")),
-    };
-    for (let i = 0; i < 100; i++) docs[`notes/leaf-${i}.md`] = note(`Leaf ${i}`, "Leaf.", "s".repeat(200));
+  type Truncated = Graph & { truncated?: true; omitted_edges?: number };
+  async function graphOf(docs: Record<string, string>, path: string): Promise<{ text: string; parsed: Truncated }> {
     const brain = await makeIndexedBrain(docs);
     try {
       const list = createBrainTools({
@@ -117,17 +112,63 @@ describe("brain_graph wrapper, review round 1", () => {
         lock: toolLockFromKeyed(createKeyedLock()),
       });
       const tool = list.find((t) => t.name === "brain_graph") as ToolDefinition;
-      const text = resultText(
-        await tool.execute("g", { path: "notes/hub.md", direction: "outgoing" } as never, undefined, undefined, CTX)
-      );
-      expect(text.length).toBeGreaterThan(30_000);
-      const parsed = JSON.parse(text) as Graph;
-      expect(parsed.edges).toHaveLength(100);
-      expect(parsed.nodes).toHaveLength(101);
-      expect(parsed.nodes.every((n) => n.summary === "s".repeat(200) || n.path === "notes/hub.md")).toBe(true);
+      const text = resultText(await tool.execute("g", { path, direction: "outgoing" } as never, undefined, undefined, CTX));
+      return { text, parsed: JSON.parse(text) };
     } finally {
       brain.cleanup();
     }
+  }
+
+  /** Every returned edge has its endpoints among the nodes, and there are no other nodes. */
+  function expectCovered(g: Truncated): void {
+    const endpoints = new Set<string>();
+    for (const e of g.edges) {
+      endpoints.add(e.source);
+      if (e.resolved) endpoints.add(e.target);
+    }
+    expect(g.nodes.map((n) => n.path)).toEqual([...endpoints].sort());
+  }
+
+  test("a wide hub is cut by whole edges to the budget, in order, with every endpoint's node", async () => {
+    // 100 leaves with long summaries: the whole graph is well over 30,000 characters.
+    const docs: Record<string, string> = {
+      "notes/hub.md": note("Hub", Array.from({ length: 100 }, (_, i) => `[[leaf-${String(i).padStart(3, "0")}]]`).join("\n")),
+    };
+    for (let i = 0; i < 100; i++) docs[`notes/leaf-${String(i).padStart(3, "0")}.md`] = note(`Leaf ${i}`, "Leaf.", "s".repeat(200));
+    const { text, parsed } = await graphOf(docs, "notes/hub.md");
+    expect(text.length).toBeLessThanOrEqual(30_000);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.edges.length).toBeGreaterThan(0);
+    expect(parsed.edges.length + parsed.omitted_edges!).toBe(100);
+    // The walk's order: the first edges, not a sample.
+    expect(parsed.edges.map((e) => e.target)).toEqual(
+      Array.from({ length: parsed.edges.length }, (_, i) => `notes/leaf-${String(i).padStart(3, "0")}.md`)
+    );
+    expectCovered(parsed);
+  });
+
+  test("an oversized node stops the graph at the edge before it, never mid-string", async () => {
+    const { text, parsed } = await graphOf(
+      {
+        "notes/hub.md": note("Hub", "[[aaa]]\n[[bbb]]\n[[ccc]]"),
+        "notes/aaa.md": note("Aaa", "A."),
+        "notes/bbb.md": note("B".repeat(40_000), "B."),
+        "notes/ccc.md": note("Ccc", "C."),
+      },
+      "notes/hub.md"
+    );
+    expect(text.length).toBeLessThanOrEqual(30_000);
+    expect(parsed.edges.map((e) => e.target)).toEqual(["notes/aaa.md"]);
+    expect(parsed).toMatchObject({ truncated: true, omitted_edges: 2 });
+    expectCovered(parsed);
+  });
+
+  test("a graph within the budget is whole, with no truncation fields", async () => {
+    const { parsed } = await graphOf(
+      { "notes/hub.md": note("Hub", "[[aaa]]"), "notes/aaa.md": note("Aaa", "A.") },
+      "notes/hub.md"
+    );
+    expect(Object.keys(parsed).sort()).toEqual(["edges", "nodes"]);
   });
 
   test("an unresolved link whose text is an indexed path is still not a node", async () => {
@@ -146,9 +187,7 @@ describe("brain_graph wrapper, review round 1", () => {
 });
 
 describe("brain_list wrapper", () => {
-  test("a listing larger than the tool's text clip comes back whole and parses", async () => {
-    const docs: Record<string, string> = {};
-    for (let i = 0; i < 100; i++) docs[`notes/n-${i}.md`] = note(`Note ${i} ${"t".repeat(300)}`, "Body.");
+  async function listOf(docs: Record<string, string>) {
     const brain = await makeIndexedBrain(docs);
     try {
       const list = createBrainTools({
@@ -158,10 +197,28 @@ describe("brain_list wrapper", () => {
       });
       const tool = list.find((t) => t.name === "brain_list") as ToolDefinition;
       const text = resultText(await tool.execute("l", { limit: 100 } as never, undefined, undefined, CTX));
-      expect(text.length).toBeGreaterThan(30_000);
-      expect((JSON.parse(text) as { documents: unknown[] }).documents).toHaveLength(100);
+      return {
+        text,
+        parsed: JSON.parse(text) as { documents: Array<{ path: string }>; truncated?: true; omitted?: number },
+      };
     } finally {
       brain.cleanup();
     }
+  }
+
+  test("a listing over the budget drops whole rows and says how many", async () => {
+    const docs: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) docs[`notes/n-${i}.md`] = note(`Note ${i} ${"t".repeat(300)}`, "Body.");
+    const { text, parsed } = await listOf(docs);
+    expect(text.length).toBeLessThanOrEqual(30_000);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.documents.length).toBeGreaterThan(0);
+    expect(parsed.documents.length + parsed.omitted!).toBe(100);
+  });
+
+  test("a single oversized row is dropped whole, not cut", async () => {
+    const { text, parsed } = await listOf({ "notes/huge.md": note("T".repeat(40_000), "Body.") });
+    expect(text.length).toBeLessThanOrEqual(30_000);
+    expect(parsed).toEqual({ documents: [], truncated: true, omitted: 1 });
   });
 });
