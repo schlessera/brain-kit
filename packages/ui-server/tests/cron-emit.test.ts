@@ -4,11 +4,13 @@ import { join } from "path";
 
 import { SUBPROCESS_ENV } from "@schlessera/brain-ui-sdk/server";
 
+import { resolveCronConfig } from "../src/config/env";
 import {
   CRON_ENV_EXCLUSIONS,
   CRON_ENV_NAMES,
   emitCrontab,
   emitEnvironment,
+  TRUSTED_JOB_NAMES,
   type BrainModuleListPayload,
   type EmitCrontabOptions,
 } from "../src/cron/emit";
@@ -62,8 +64,10 @@ function render(
 }
 
 describe("emitCrontab", () => {
+  // With the weekly hygiene job opted out, the crontab is exactly what the
+  // deployment shell emitted before the job existed.
   test("is byte-equal to the historical bash output", () => {
-    expect(render(jsonFixture("valid-multi-module.json"))).toBe(
+    expect(render(jsonFixture("valid-multi-module.json"), { hygiene: false })).toBe(
       readFileSync(join(FIXTURES, "historical.crontab"), "utf8")
     );
   });
@@ -174,6 +178,43 @@ describe("emitCrontab", () => {
     expect(legacyOutput).toContain(
       "brain-ui/server/scripts/cron-run.ts --subprocess-env-extra CUSTOM_CRON_TOKEN jobs --"
     );
+  });
+});
+
+describe("the weekly hygiene job", () => {
+  const HYGIENE_LINE =
+    "0 6 * * 1 root cd /data/brain && bun /opt/brain-ui/server/scripts/cron-run.ts hygiene -- " +
+    "brain hygiene reconcile 2>&1 | logger -t brain-hygiene";
+
+  test("is scheduled by default, through the wrapper, beside the other base jobs", () => {
+    const lines = render(jsonFixture("valid-multi-module.json")).split("\n");
+    expect(lines).toContain(HYGIENE_LINE);
+    // A base job: after the digest, before the module jobs.
+    expect(lines.indexOf(HYGIENE_LINE)).toBe(lines.findIndex((l) => l.includes(" digest -- ")) + 1);
+    expect(lines.indexOf(HYGIENE_LINE)).toBeLessThan(lines.indexOf("# Module jobs (from enabled modules' cron manifests, when exposed)"));
+  });
+
+  test("is left out when opted out", () => {
+    const output = render(jsonFixture("valid-multi-module.json"), { hygiene: false });
+    expect(output).not.toContain("hygiene");
+    expect(output).toContain(" maintain -- brain maintain");
+  });
+
+  test("carries the escape-hatch names like every other wrapped job", () => {
+    const output = render(jsonFixture("empty.json"), { subprocessEnvExtraNames: ["CUSTOM_CRON_TOKEN"] });
+    expect(output).toContain("cron-run.ts --subprocess-env-extra CUSTOM_CRON_TOKEN hygiene -- brain hygiene reconcile");
+  });
+
+  test("is never a trusted job, so it cannot run unwrapped (#81)", () => {
+    expect(TRUSTED_JOB_NAMES.has("hygiene")).toBe(false);
+  });
+
+  test("BRAIN_UI_CRON_HYGIENE turns it off with a false token, and it is on otherwise", () => {
+    expect(resolveCronConfig({}).hygiene).toBe(true);
+    for (const value of ["0", "false", "off", "no", " OFF "]) {
+      expect({ value, hygiene: resolveCronConfig({ BRAIN_UI_CRON_HYGIENE: value }).hygiene }).toEqual({ value, hygiene: false });
+    }
+    expect(resolveCronConfig({ BRAIN_UI_CRON_HYGIENE: "on" }).hygiene).toBe(true);
   });
 });
 

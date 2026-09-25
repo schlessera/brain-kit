@@ -6,6 +6,7 @@ PATH=/root/.local/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/u
 0 3 * * * root cd /data/brain && /opt/brain-ui/server/node_modules/.bin/brain-ui-cron run --subprocess-env-extra CUSTOM_CRON_TOKEN validate -- brain validate 2>&1 | logger -t brain-validate
 0 7 * * * root cd /data/brain && /opt/brain-ui/server/node_modules/.bin/brain-ui-cron run --subprocess-env-extra CUSTOM_CRON_TOKEN maintain -- brain maintain 2>&1 | logger -t brain-maintain
 30 7 * * * root cd /data/brain && /opt/brain-ui/server/node_modules/.bin/brain-ui-cron run --subprocess-env-extra CUSTOM_CRON_TOKEN digest -- /opt/brain-ui/server/node_modules/.bin/brain-ui-cron digest 2>&1 | logger -t brain-digest
+0 6 * * 1 root cd /data/brain && /opt/brain-ui/server/node_modules/.bin/brain-ui-cron run --subprocess-env-extra CUSTOM_CRON_TOKEN hygiene -- brain hygiene reconcile 2>&1 | logger -t brain-hygiene
 
 # Module jobs (from enabled modules' cron manifests, when exposed)
 0 6 * * * root cd /data/brain && /opt/brain-ui/server/node_modules/.bin/brain-ui-cron run --subprocess-env-extra CUSTOM_CRON_TOKEN jobs-scrape -- brain jobs scrape --all --browser 2>&1 | logger -t brain-jobs-scrape
