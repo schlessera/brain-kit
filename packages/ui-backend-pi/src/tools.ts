@@ -77,6 +77,69 @@ function textResult(text: string, details: unknown = null) {
   return { content: [{ type: "text" as const, text }], details };
 }
 
+/**
+ * The longest JSON a listing or a graph returns: the budget text output is
+ * clipped at. JSON is never clipped as text, which would not parse; it is
+ * cut by structure instead, whole rows or whole edges at a time.
+ */
+const MAX_JSON_CHARS = MAX_OUTPUT_BYTES;
+
+/** Width of the largest omission count, so the reserved size is never short. */
+const COUNT_PLACEHOLDER = Number.MAX_SAFE_INTEGER;
+
+/**
+ * A listing within MAX_JSON_CHARS: the rows in order while they fit, then
+ * `truncated: true` and how many rows were left out.
+ */
+function fitListing<T>(documents: T[]): { documents: T[]; truncated?: true; omitted?: number } {
+  const whole = { documents };
+  if (JSON.stringify(whole).length <= MAX_JSON_CHARS) return whole;
+  let size = JSON.stringify({ documents: [], truncated: true, omitted: COUNT_PLACEHOLDER }).length;
+  const kept: T[] = [];
+  for (const doc of documents) {
+    const cost = JSON.stringify(doc).length + (kept.length > 0 ? 1 : 0);
+    if (size + cost > MAX_JSON_CHARS) break;
+    kept.push(doc);
+    size += cost;
+  }
+  return { documents: kept, truncated: true, omitted: documents.length - kept.length };
+}
+
+/**
+ * A graph within MAX_JSON_CHARS: edges in walk order while they and the
+ * nodes of their endpoints fit, then `truncated: true` and how many edges
+ * were left out. Every returned edge keeps its endpoint nodes; nodes stay in
+ * path order.
+ */
+function fitGraph<E extends { source: string; target: string; resolved: boolean }, N extends { path: string }>(
+  edges: E[],
+  nodes: N[]
+): { edges: E[]; nodes: N[]; truncated?: true; omitted_edges?: number } {
+  const whole = { edges, nodes };
+  if (JSON.stringify(whole).length <= MAX_JSON_CHARS) return whole;
+  const byPath = new Map(nodes.map((n) => [n.path, n]));
+  let size = JSON.stringify({ edges: [], nodes: [], truncated: true, omitted_edges: COUNT_PLACEHOLDER }).length;
+  const kept: E[] = [];
+  const keptNodes = new Set<string>();
+  for (const edge of edges) {
+    const fresh = [edge.source, ...(edge.resolved ? [edge.target] : [])].filter(
+      (p, i, all) => !keptNodes.has(p) && byPath.has(p) && all.indexOf(p) === i
+    );
+    let cost = JSON.stringify(edge).length + (kept.length > 0 ? 1 : 0);
+    for (const path of fresh) cost += JSON.stringify(byPath.get(path)).length + (keptNodes.size > 0 || path !== fresh[0] ? 1 : 0);
+    if (size + cost > MAX_JSON_CHARS) break;
+    kept.push(edge);
+    for (const path of fresh) keptNodes.add(path);
+    size += cost;
+  }
+  return {
+    edges: kept,
+    nodes: nodes.filter((n) => keptNodes.has(n.path)),
+    truncated: true,
+    omitted_edges: edges.length - kept.length,
+  };
+}
+
 function clip(text: string, max = MAX_OUTPUT_BYTES): string {
   if (text.length <= max) return text;
   return text.slice(0, max) + `\n… [truncated ${text.length - max} bytes]`;
@@ -544,7 +607,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       params: { type?: string; tag?: string; status?: string; relevance?: string; limit?: number }
     ) {
       const documents = await brain.list(params);
-      return textResult(clip(JSON.stringify({ documents }, null, 2)), {
+      // Compact, and cut by whole rows to MAX_JSON_CHARS: a byte-clipped JSON
+      // document would not parse.
+      return textResult(JSON.stringify(fitListing(documents)), {
         count: documents.length,
       });
     },
@@ -555,7 +620,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     label: "Brain link graph",
     description:
       "Traverse the wiki-link graph from a starting document. Returns edges " +
-      "(source, target, resolved) showing how documents are connected via [[wiki-links]].",
+      "(source, target, resolved) showing how documents are connected via [[wiki-links]], " +
+      "and nodes (path, title, type, summary, updated) for every document an edge touches. " +
+      "A graph too large to return whole keeps its first edges with their nodes and says " +
+      "`truncated: true` with `omitted_edges`.",
     parameters: Type.Object({
       path: Type.String({ description: "Starting document path." }),
       depth: Type.Optional(Type.Number({ description: "How many hops to traverse (default 1)." })),
@@ -573,8 +641,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         params.direction === "outgoing" || params.direction === "incoming"
           ? params.direction
           : "both";
-      const edges = await brain.graph({ path: params.path, depth: params.depth, direction });
-      return textResult(clip(JSON.stringify({ edges }, null, 2)), { count: edges.length });
+      const { edges, nodes } = await brain.graph({ path: params.path, depth: params.depth, direction });
+      // Compact, and cut by whole edges to MAX_JSON_CHARS: a byte-clipped
+      // JSON document would not parse, and every returned edge keeps its
+      // endpoint nodes.
+      return textResult(JSON.stringify(fitGraph(edges, nodes)), { count: edges.length });
     },
   } satisfies ToolDefinition;
 

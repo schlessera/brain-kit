@@ -53,8 +53,8 @@ export interface BrainAccess {
   add(input: IngestInput): Promise<IngestOutcome>;
   /** Metadata-filtered listing (no query) — mirrors the brain_list MCP tool. */
   list(opts: ListOptions): Promise<ListedDocument[]>;
-  /** Wiki-link graph traversal from a document — mirrors brain_graph. */
-  graph(opts: GraphOptions): Promise<GraphEdge[]>;
+  /** Wiki-link graph traversal from a document, with the documents it touches — mirrors brain_graph. */
+  graph(opts: GraphOptions): Promise<GraphResult>;
   /** Frontmatter/body update on an existing document — mirrors brain_update. */
   update(input: UpdateInput): Promise<UpdateOutcome>;
   /** Archive a document (status + move + reindex) — mirrors brain_archive. */
@@ -88,6 +88,21 @@ export interface GraphEdge {
   source: string;
   target: string;
   resolved: boolean;
+}
+
+/** A document an edge touches: every source, and every resolved target. */
+export interface GraphNode {
+  path: string;
+  title: string;
+  type: string;
+  summary: string | null;
+  updated: string | null;
+}
+
+export interface GraphResult {
+  edges: GraphEdge[];
+  /** Sorted by path. An unresolved target is link text, never a node. */
+  nodes: GraphNode[];
 }
 
 export interface UpdateInput {
@@ -254,78 +269,96 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       }
     },
 
-    async graph(opts: GraphOptions): Promise<GraphEdge[]> {
+    async graph(opts: GraphOptions): Promise<GraphResult> {
       const c = await ensureContext();
       const db = openRead(c.dbPath);
       try {
-        const edges: GraphEdge[] = [];
-        const visited = new Set<string>();
-        let frontier = new Set<string>([opts.path]);
-        const depth = Math.min(Math.max(1, opts.depth ?? 1), MAX_GRAPH_DEPTH);
-        const direction = opts.direction ?? "both";
+        // One read transaction: the edges and their nodes come from one
+        // snapshot even while another process reindexes.
+        return db.transaction((): GraphResult => {
+          const edges: GraphEdge[] = [];
+          const visited = new Set<string>();
+          let frontier = new Set<string>([opts.path]);
+          const depth = Math.min(Math.max(1, opts.depth ?? 1), MAX_GRAPH_DEPTH);
+          const direction = opts.direction ?? "both";
 
-        for (let hop = 0; hop < depth; hop++) {
-          const nextFrontier = new Set<string>();
-          for (const currentPath of frontier) {
-            if (visited.has(currentPath)) continue;
-            visited.add(currentPath);
+          for (let hop = 0; hop < depth; hop++) {
+            const nextFrontier = new Set<string>();
+            for (const currentPath of frontier) {
+              if (visited.has(currentPath)) continue;
+              visited.add(currentPath);
 
-            if (direction === "outgoing" || direction === "both") {
-              const outgoing = db
-                .prepare(
-                  `SELECT d.path AS source, l.target, l.target_id
-                   FROM links l
-                   JOIN documents d ON d.id = l.source_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{
-                source: string;
-                target: string;
-                target_id: number | null;
-              }>;
-              for (const row of outgoing) {
-                let targetPath = row.target;
-                let resolved = false;
-                if (row.target_id) {
-                  const targetDoc = db
-                    .prepare("SELECT path FROM documents WHERE id = ?")
-                    .get(row.target_id) as { path: string } | null;
-                  if (targetDoc) {
-                    targetPath = targetDoc.path;
-                    resolved = true;
+              if (direction === "outgoing" || direction === "both") {
+                const outgoing = db
+                  .prepare(
+                    `SELECT d.path AS source, l.target, l.target_id
+                     FROM links l
+                     JOIN documents d ON d.id = l.source_id
+                     WHERE d.path = ?`
+                  )
+                  .all(currentPath) as Array<{
+                  source: string;
+                  target: string;
+                  target_id: number | null;
+                }>;
+                for (const row of outgoing) {
+                  let targetPath = row.target;
+                  let resolved = false;
+                  if (row.target_id) {
+                    const targetDoc = db
+                      .prepare("SELECT path FROM documents WHERE id = ?")
+                      .get(row.target_id) as { path: string } | null;
+                    if (targetDoc) {
+                      targetPath = targetDoc.path;
+                      resolved = true;
+                    }
                   }
+                  edges.push({ source: row.source, target: targetPath, resolved });
+                  if (resolved) nextFrontier.add(targetPath);
                 }
-                edges.push({ source: row.source, target: targetPath, resolved });
-                if (resolved) nextFrontier.add(targetPath);
               }
-            }
 
-            if (direction === "incoming" || direction === "both") {
-              const incoming = db
-                .prepare(
-                  `SELECT d2.path AS source, d.path AS target
-                   FROM links l
-                   JOIN documents d ON d.id = l.target_id
-                   JOIN documents d2 ON d2.id = l.source_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{ source: string; target: string }>;
-              for (const row of incoming) {
-                edges.push({ source: row.source, target: row.target, resolved: true });
-                nextFrontier.add(row.source);
+              if (direction === "incoming" || direction === "both") {
+                const incoming = db
+                  .prepare(
+                    `SELECT d2.path AS source, d.path AS target
+                     FROM links l
+                     JOIN documents d ON d.id = l.target_id
+                     JOIN documents d2 ON d2.id = l.source_id
+                     WHERE d.path = ?`
+                  )
+                  .all(currentPath) as Array<{ source: string; target: string }>;
+                for (const row of incoming) {
+                  edges.push({ source: row.source, target: row.target, resolved: true });
+                  nextFrontier.add(row.source);
+                }
               }
             }
+            frontier = nextFrontier;
           }
-          frontier = nextFrontier;
-        }
 
-        const seen = new Set<string>();
-        return edges.filter((e) => {
-          const key = `${e.source}->${e.target}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
+          const seen = new Set<string>();
+          const unique = edges.filter((e) => {
+            const key = `${e.source}->${e.target}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          const touched = new Set<string>();
+          for (const e of unique) {
+            touched.add(e.source);
+            if (e.resolved) touched.add(e.target);
+          }
+          const nodes = db
+            .prepare(
+              `SELECT path, title, type, summary, updated FROM documents
+               WHERE path IN (SELECT value FROM json_each(?))
+               ORDER BY path`
+            )
+            .all(JSON.stringify([...touched])) as GraphNode[];
+          return { edges: unique, nodes };
+        })();
       } finally {
         db.close();
       }
