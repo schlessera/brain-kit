@@ -160,6 +160,17 @@ export "." (./src/index.ts)
 
 export "./package.json" (./package.json) [asset]
 
+export "./testing" (./src/testing/index.ts)
+  type AgentRunnerContractHarness
+  type CompletionProviderContractHarness
+  type ContractTestPrimitives
+  type EmbeddingProviderContractHarness
+  type SkillEmitterContractHarness
+  runAgentRunnerContract
+  runCompletionProviderContract
+  runEmbeddingProviderContract
+  runSkillEmitterContract
+
 signatures (the seams in docs/extending/README.md and the types they are made of)
   AgentRunner (packages/core/src/lib/seams.ts)
     export interface AgentRunner {
