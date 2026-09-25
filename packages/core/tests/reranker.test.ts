@@ -60,13 +60,22 @@ describe("rerank", () => {
     expect(ranked[0].path).toBe("new.md");
   });
 
-  test("title match outranks non-match at equal base score", () => {
+  test("a title match no longer changes the order", () => {
     const candidates = [
       result({ path: "a.md", title: "Unrelated", updated: "2026-06-01" }),
       result({ path: "b.md", title: "Agentic Engineering", updated: "2026-06-01" }),
     ];
-    const ranked = rerank("agentic engineering", candidates, { mode: "heuristic" });
-    expect(ranked[0].path).toBe("b.md");
+    const ranked = rerank("agentic engineering", candidates, { mode: "heuristic", now: new Date("2026-06-11") });
+    expect(ranked.map((r) => r.path)).toEqual(["a.md", "b.md"]);
+  });
+
+  test("an image asset is no longer boosted for a visual query", () => {
+    const candidates = [
+      result({ path: "notes/talk.md", title: "Talk", updated: "2026-06-01" }),
+      result({ path: "media/headshot.jpg", title: "Headshot", updated: "2026-06-01" }),
+    ];
+    const ranked = rerank("headshot photo", candidates, { mode: "heuristic", now: new Date("2026-06-11") });
+    expect(ranked.map((r) => r.path)).toEqual(["notes/talk.md", "media/headshot.jpg"]);
   });
 
   test("mode none preserves order", () => {

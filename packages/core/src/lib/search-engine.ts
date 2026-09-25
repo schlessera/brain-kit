@@ -618,13 +618,17 @@ export async function hybridSearch(
     candidates = (ftsResults ?? vecResults)!;
   }
 
-  // Rerank pass — but never on pure-vector results: raw cosine scores are
-  // tightly packed, so the heuristic's multiplicative recency/relevance
-  // factors overwhelm them (eval 2026-07-04: vector MRR@10 0.805 → 0.659
-  // with reranking). On hybrid's RRF scores the same heuristic is net
-  // positive (hit@1 0.370 → 0.481), so it stays for fts/hybrid.
+  // Rerank pass, in every mode. Raw cosine scores are tightly packed, so
+  // multiplying them by lifecycle factors would re-sort the list (an earlier
+  // eval measured vector MRR@10 falling from 0.805 to 0.659 that way). In
+  // vector mode the factors multiply a rank-derived score, 1/(RRF_K + rank),
+  // instead: the scale hybrid's fused scores already have, where a factor
+  // nudges a document a few places rather than across the list.
   const rerankMode = opts.rerank ?? getDefaultRerankerMode();
-  if (rerankMode !== "none" && mode !== "vector" && candidates.length > 1) {
+  if (rerankMode !== "none" && candidates.length > 1) {
+    if (mode === "vector") {
+      candidates = candidates.map((result, i) => ({ ...result, score: 1 / (RRF_K + i + 1) }));
+    }
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
   if (opts.sort === "updated" || opts.sort === "deadline") {

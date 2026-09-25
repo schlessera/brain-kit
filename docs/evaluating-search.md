@@ -109,8 +109,8 @@ class. `n` is the number of queries behind the row.
 Read the two together. They separate the two ways search fails.
 
 - **A low hit@1 with a high oracle is a ranking miss.** The right document was
-  retrieved and then ranked below something else. Ranking changes (the reranker,
-  fusion, the title boost) can fix it.
+  retrieved and then ranked below something else. Ranking changes (the reranker's
+  lifecycle factors, fusion) can fix it.
 - **A low oracle is a recall miss.** The right document never came back, so no
   ranking change can promote it. Look at the words: the query may not share a
   term with the document (full-text), or the document is not embedded

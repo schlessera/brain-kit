@@ -430,3 +430,56 @@ describe("hybrid fusion", () => {
     expect(paths.indexOf("notes/v2.md")).toBeLessThan(paths.indexOf("notes/fo.md"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Lifecycle reranking in every mode (#422)
+// ---------------------------------------------------------------------------
+
+describe("lifecycle reranking", () => {
+  const NOW = new Date("2026-07-01T00:00:00Z");
+  // Same type and date for every doc, so relevance is the only factor that
+  // differs. `distance` sets the vector rank, `text` the full-text rank.
+  function addRankedDoc(id: number, name: string, distance: number, relevance: string, text = "filler words") {
+    db.run("INSERT INTO documents(id,path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?,?,?,'note','active',?,'2026-06-01','2026-06-01',?,'2026-06-01')", [id, `notes/${name}.md`, `Doc ${name}`, relevance, text]);
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','',?,'')", [id, text]);
+    const row = db.prepare("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,0,'',?,1) RETURNING id").get(id, text) as { id: number };
+    db.run("INSERT INTO vec_chunks(chunk_id,embedding,is_archived,doc_type) VALUES (?,?,0,'note')", [row.id, new Uint8Array(new Float32Array([1, distance]).buffer)]);
+  }
+  const search = (mode: "fts" | "vector" | "hybrid", rerank: "none" | "heuristic", limit = 10) =>
+    hybridSearch(db, { query: "lantern", mode, rerank, limit, now: NOW }, { embeddings: provider });
+  const paths = async (p: ReturnType<typeof search>) => (await p).results.map(r => r.path);
+
+  test("in vector mode, a historical first place and a primary second place swap", async () => {
+    addRankedDoc(1, "old", 0.0, "historical");
+    addRankedDoc(2, "new", 0.01, "primary");
+    expect(await paths(search("vector", "none"))).toEqual(["notes/old.md", "notes/new.md"]);
+    expect(await paths(search("vector", "heuristic"))).toEqual(["notes/new.md", "notes/old.md"]);
+  });
+
+  test("in vector mode, a primary doc at rank 30 does not overtake a historical doc at rank 1", async () => {
+    addRankedDoc(1, "old", 0.0, "historical");
+    for (let i = 2; i <= 29; i++) addRankedDoc(i, `mid${i}`, i * 0.01, "secondary");
+    addRankedDoc(30, "late", 0.3, "primary");
+    const ranked = await paths(search("vector", "heuristic", 50));
+    // The premise: the retrieval order puts them at 1 and 30.
+    const raw = await paths(search("vector", "none", 50));
+    expect([raw.indexOf("notes/old.md"), raw.indexOf("notes/late.md")]).toEqual([0, 29]);
+    expect(ranked.indexOf("notes/old.md")).toBeLessThan(ranked.indexOf("notes/late.md"));
+  });
+
+  test("with rerank none, every mode keeps the retrieval order", async () => {
+    // By both lanes the historical doc is narrowly first and the primary one
+    // second, so in every mode the heuristic swaps them (the premise) and
+    // rerank none must not.
+    addRankedDoc(1, "old", 0.0, "historical", "lantern lantern lantern");
+    addRankedDoc(2, "new", 0.01, "primary", "lantern lantern lantern extra");
+    addRankedDoc(3, "other", 0.5, "historical", "a lantern among many other words here");
+    for (const mode of ["fts", "vector", "hybrid"] as const) {
+      expect({ mode, top: (await paths(search(mode, "heuristic"))).slice(0, 2) }).toEqual({ mode, top: ["notes/new.md", "notes/old.md"] });
+      expect({ mode, top: (await paths(search(mode, "none"))).slice(0, 2) }).toEqual({ mode, top: ["notes/old.md", "notes/new.md"] });
+    }
+    // Vector mode with rerank none keeps the raw similarity score too.
+    const vec = (await search("vector", "none")).results;
+    expect(vec[0]!.score).toBeCloseTo(1, 5);
+  });
+});
