@@ -36,6 +36,16 @@ describe("search", () => {
     }
   });
 
+  test("a result carries the document's deadline and freshness fields", async () => {
+    const { stdout, code } = await runCli(root, ["search", "bookshelf", "--mode", "fts", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    const status = out.results.find((r: { path: string }) => r.path === "projects/active/bookshelf/status.md");
+    expect(status).toBeDefined();
+    expect(status.deadline).toBe("2026-08-15");
+    expect(status.updated).toBe("2026-06-30");
+  });
+
   test("hybrid mode without a key degrades to FTS with a warning", async () => {
     const { stdout, code } = await runCli(root, ["search", "telescope", "--mode", "hybrid", "--json"]);
     expect(code).toBe(0);

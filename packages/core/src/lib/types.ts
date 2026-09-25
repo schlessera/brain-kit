@@ -51,6 +51,7 @@ export interface SearchResult {
   summary: string | null;
   tags: string;
   updated?: string;
+  deadline?: string | null;
   score: number;
   snippet: string;
   chunks?: ChunkMatch[];
