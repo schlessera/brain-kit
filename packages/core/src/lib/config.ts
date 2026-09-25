@@ -262,9 +262,11 @@ export const brainConfigSchema = z
     hooks: z
       .object({
         /**
-         * The post-commit hook also embeds what the commit changed: a paid
-         * embeddings pass (and chunk contexts, when completions are set up),
-         * in the background, when an embedding provider is configured. Off by
+         * The post-commit hook also runs the embeddings pass, in the
+         * background, when an embedding provider is configured: paid calls
+         * for every chunk without a vector (on the first commit after opting
+         * in, the whole backlog, not only the changed chunks), plus chunk
+         * contexts and asset descriptions when completions are set up. Off by
          * default, so a commit never bills unless the brain opts in.
          */
         embedOnCommit: z.boolean().optional(),

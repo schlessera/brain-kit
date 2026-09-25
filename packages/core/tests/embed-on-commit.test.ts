@@ -5,6 +5,7 @@
  * free keyword pass it always was.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -121,6 +122,68 @@ describe("brain index --on-commit", () => {
       expect(counting.calls).toEqual([]);
     });
   }
+
+  test.if(vecAvailable)("a commit while an earlier commit's run is still embedding is still indexed by keyword", async () => {
+    const root = brain({ hooks: { embedOnCommit: true } });
+    await index(root, ["--embeddings"], countingProvider().provider);
+
+    // Commit A: its run is held inside the provider call, lock taken.
+    writeFileSync(join(root, "notes/airships.md"), doc(`${"blimp ".repeat(119)}airship`));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const slow = countingProvider();
+    const paused: EmbeddingProvider = {
+      ...slow.provider,
+      async embed(texts) {
+        entered();
+        await gate;
+        return slow.provider.embed(texts);
+      },
+    };
+    const runA = index(root, HOOK_ARGS, paused);
+    await inside;
+
+    // Commit B lands while A is still embedding.
+    writeFileSync(
+      join(root, "notes/gondola.md"),
+      ["---", "type: note", "title: Gondola", 'created: "2026-01-01"', 'updated: "2026-01-02"', "---", "", "The quixotic gondola log."].join("\n")
+    );
+    const b = countingProvider();
+    const resultB = await index(root, HOOK_ARGS, b.provider).catch((e: Error) => ({ errors: e.message, stdout: "" }));
+    expect(resultB.errors).toBe("");
+    expect(b.calls).toEqual([]);
+    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const found = db
+      .prepare("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'quixotic'")
+      .all();
+    db.close();
+    expect(found).toEqual([{ path: "notes/gondola.md" }]);
+
+    release();
+    await runA;
+  });
+
+  test.if(vecAvailable)("opting in on a brain indexed without vectors embeds the whole backlog on the first commit", async () => {
+    const root = brain(null);
+    // A second document the commit does not touch, two chunks long.
+    writeFileSync(
+      join(root, "notes/hangar.md"),
+      ["---", "type: note", "title: Hangar", 'created: "2026-01-01"', 'updated: "2026-01-02"', "---", "", ...section("mast"), ...section("winch")].join("\n")
+    );
+    await index(root, HOOK_ARGS, countingProvider().provider); // keyword only: the option is off
+    writeFileSync(join(root, "brain.config.json"), JSON.stringify({ hooks: { embedOnCommit: true } }));
+
+    writeFileSync(join(root, "notes/airships.md"), doc(`${"blimp ".repeat(119)}airship`));
+    const counting = countingProvider();
+    await index(root, HOOK_ARGS, counting.provider);
+    // Not just the one changed chunk: every chunk without a vector, the
+    // untouched document's included.
+    const embedded = counting.calls.flat();
+    expect(embedded.length).toBe(5);
+    expect(embedded.filter((text) => text.startsWith("[Hangar]")).length).toBe(2);
+  });
 
   test("with the option on and no provider configured, it is the plain pass, silently", async () => {
     const root = brain({ hooks: { embedOnCommit: true } });
