@@ -50,13 +50,31 @@ const isoDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date written YYYY-MM-DD")
   .refine(isIsoDate, "is not a calendar date");
 
+/** Longest owner name, in characters, that goes into the instructions. */
+const MAX_OWNER_NAME = 80;
+
+/**
+ * `profile.name` as data for the instructions: control, format and separator
+ * characters and every whitespace run become one space, the result is capped
+ * at MAX_OWNER_NAME characters, and it is quoted, so a config value cannot
+ * add lines or instructions of its own. Null when nothing is left.
+ */
+function ownerName(profileName?: string): string | null {
+  const flat = (profileName ?? "").replace(/[\s\p{Cc}\p{Cf}\p{Z}]+/gu, " ").trim();
+  if (!flat) return null;
+  const chars = Array.from(flat);
+  const capped = chars.length > MAX_OWNER_NAME ? `${chars.slice(0, MAX_OWNER_NAME).join("").trimEnd()}…` : flat;
+  return JSON.stringify(capped);
+}
+
 /**
  * The server's `instructions`, which clients put into the agent's context:
- * what the brain is for and which tool answers which need. Named after
- * `profile.name` when the config sets it.
+ * what the brain is for and which tool answers which need. Names the owner
+ * from `profile.name` when the config sets it, as quoted data.
  */
 export function serverInstructions(profileName?: string): string {
-  const owner = profileName?.trim() || "the person it belongs to";
+  const name = ownerName(profileName);
+  const owner = name ? `its owner, whom the config names ${name}` : "the person it belongs to";
   return (
     `This brain is the source of truth for facts about ${owner}: identity, current focus, ` +
     `projects, notes and their history. Check it before answering from memory, and prefer ` +
@@ -286,7 +304,7 @@ export async function startMcpServer(
     "brain_context",
     {
       description:
-        "Assemble a token-limited context block about a topic from the brain, including identity and current focus sections. Useful for getting a comprehensive summary for a given topic. `max_tokens` defaults to 4000, estimated at about four characters per token. Identity and current focus come first and are cut short to fit; search-result snippets follow, each included whole or left out, until the budget is spent.",
+        "Assemble a token-limited context block about a topic from the brain, including identity and current focus sections. Useful for getting a comprehensive summary for a given topic. `max_tokens` defaults to 4000, estimated at about four characters per token, and the block never exceeds it. The identity and current-focus documents come first: whole when they fit, otherwise cut at a paragraph or heading boundary with a pointer to read the full file, and left out when not even that fits. Search results follow, each a header (path, updated date, status, summary) and a one-line snippet, included whole or skipped for the next one until fewer than 20 tokens remain; a document already shown is not repeated.",
       inputSchema: {
         query: z.string().describe("Topic to assemble context for"),
         max_tokens: z.number().default(4000).describe("Token budget for the assembled context"),
