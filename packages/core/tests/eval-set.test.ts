@@ -258,3 +258,35 @@ describe("selectors see only indexable documents", () => {
     expect(selectPaths({ field: "deadline", after: "now", order: "asc", take: 1 }, docs, now)).toEqual(["status.md"]);
   });
 });
+
+describe("ContaminationScanner and a document's own answers", () => {
+  const q = (id: string, text: string, expected: string[]) => ({ id, q: text, expected });
+  const scan = (queries: ReturnType<typeof q>[], path: string, text: string) => {
+    const scanner = new ContaminationScanner(queries);
+    scanner.scan(path, text);
+    return scanner.warnings();
+  };
+  const TEXT = "notes: cat, dog, owl and bat";
+
+  test("queries a document answers are left out of its count", () => {
+    const own = [q("a", "cat", ["pets.md"]), q("b", "dog", ["pets.md"]), q("c", "owl", ["pets.md"])];
+    expect(scan(own, "pets.md", TEXT)).toEqual([]);
+    // The same three queries quoted by a document they do not expect.
+    expect(scan(own, "other.md", TEXT)).toHaveLength(1);
+  });
+
+  test("one own query plus two others is two: no warning; a third other query warns", () => {
+    const mixed = [q("mine", "cat", ["pets.md"]), q("x", "dog", ["x.md"]), q("y", "owl", ["y.md"])];
+    expect(scan(mixed, "pets.md", TEXT)).toEqual([]);
+    expect(scan([...mixed, q("z", "bat", ["z.md"])], "pets.md", TEXT)).toEqual([
+      "contamination: pets.md contains the text of 3 of the set's queries (x, y, z)",
+    ]);
+  });
+
+  test("a long query quoting its own answer is not contamination; quoted elsewhere it is", () => {
+    const long = [q("scope", "how is the telescope set up", ["studies/telescope-setup.md"])];
+    const text = "How is the telescope set up? Like this.";
+    expect(scan(long, "studies/telescope-setup.md", text)).toEqual([]);
+    expect(scan(long, "notes/eval.md", text)).toHaveLength(1);
+  });
+});

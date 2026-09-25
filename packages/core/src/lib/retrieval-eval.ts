@@ -348,21 +348,26 @@ function escapeRegExp(text: string): string {
  * A query matches as whole words after lowercasing and collapsing whitespace,
  * so "cat" does not match "concatenate". A document is reported when it
  * contains one query of CONTAMINATION_MIN_WORDS words or more, or
- * CONTAMINATION_MIN_QUERIES queries of any length.
+ * CONTAMINATION_MIN_QUERIES queries of any length. A query that lists the
+ * document among its expected answers is left out of both counts for it.
  *
  * The queries are compiled once. `scan` takes one document at a time and
  * keeps only its finding, so a caller can feed documents as it reads them
  * without holding the corpus.
  */
 export class ContaminationScanner {
-  private readonly needles: { id: string; pattern: RegExp; long: boolean }[];
+  private readonly needles: { id: string; pattern: RegExp; long: boolean; answers: ReadonlySet<string> }[];
   private readonly found: string[] = [];
 
-  constructor(queries: EvalQuery[]) {
+  /** Queries with their resolved `expected` paths (selectors already applied). */
+  constructor(queries: { id: string; q: string; expected: string[] }[]) {
     this.needles = queries.map((q) => {
       const text = normalizeText(q.q);
       return {
         id: q.id,
+        // A document quoting a query it is the answer to is not contamination:
+        // an exact-title or alias query quotes its target by construction.
+        answers: new Set(q.expected),
         // Word boundaries that hold for any script: no letter, digit or
         // underscore may touch the match on either side.
         pattern: new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(text)}(?![\\p{L}\\p{N}_])`, "u"),
@@ -373,7 +378,7 @@ export class ContaminationScanner {
 
   scan(path: string, text: string): void {
     const haystack = normalizeText(text);
-    const hits = this.needles.filter((n) => n.pattern.test(haystack));
+    const hits = this.needles.filter((n) => !n.answers.has(path) && n.pattern.test(haystack));
     if (hits.length >= CONTAMINATION_MIN_QUERIES || hits.some((n) => n.long)) {
       const ids = hits.map((n) => n.id).join(", ");
       this.found.push(`contamination: ${path} contains the text of ${hits.length} of the set's queries (${ids})`);

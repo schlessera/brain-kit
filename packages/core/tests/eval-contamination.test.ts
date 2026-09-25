@@ -113,3 +113,19 @@ test.skipIf(process.getuid?.() === 0)("an indexed note that cannot be read refus
     chmodSync(path, 0o644);
   }
 });
+
+// Exact-title and alias queries quote their own target by construction; the
+// check is about notes that teach search the eval, not about answers.
+test("title and alias queries do not flag the document they expect", async () => {
+  const root = await brainWith({
+    [SET]: [
+      { id: "title", q: "Telescope Setup & Collimation", class: "exact", expected: ["studies/telescope-setup.md"] },
+      { id: "dob", q: "the Dobsonian", class: "alias", expected: ["studies/telescope-setup.md"] },
+      { id: "scope", q: "my scope", class: "alias", expected: ["studies/telescope-setup.md"] },
+    ].map((q) => JSON.stringify(q)).join("\n"),
+  });
+  const { code, out } = await evalRun(root);
+  expect(code).toBe(0);
+  expect(out.per_query).toHaveLength(3);
+  expect(out.warnings).toEqual([]);
+});

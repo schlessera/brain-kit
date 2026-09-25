@@ -199,7 +199,8 @@ wins and `warnings` says the flag was ignored.
 `warnings` names each indexed document that contains the set's queries, as
 `contamination: <path> contains the text of <n> of the set's queries (<ids>)`,
 when it contains one query of four or more words or three queries of any
-length; a query matches as whole words, ignoring case and collapsing
+length, not counting queries that list that document among their expected
+answers; a query matches as whole words, ignoring case and collapsing
 whitespace, in the same bytes the freshness check read. With `--strict`, such
 a document refuses the run (exit `2`) instead (additive in 0.38.0).
 

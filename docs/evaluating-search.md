@@ -110,7 +110,8 @@ be files and be indexed.
   `--out`, and any notes about them are safe there. Elsewhere, `brain eval`
   checks every indexed document before scoring. A document that contains one
   of the set's queries of four or more words, or three of its queries of any
-  length, is named in `warnings`. A query matches as whole words, ignoring case
+  length, is named in `warnings`. A query does not count against the
+  documents it expects: an exact-title or alias query quotes its own answer. A query matches as whole words, ignoring case
 and spacing, so "cat" never matches "concatenate". `--strict` turns
   that into a refusal (exit `2`).
 - **Twenty to fifty queries is enough to start.** Each query moves hit@1 by
