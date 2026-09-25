@@ -138,6 +138,24 @@ const taxonomyConfigSchema = z
     dirAnchors: z.array(repoRelativePathSchema).optional(),
     /** Well-known documents (identity, currentFocus, …). Features degrade gracefully when unset or missing. Empty string disables an entry. */
     canonical: z.record(z.string(), z.union([z.literal(""), repoRelativePathSchema])).optional(),
+    /**
+     * Per canonical key: a size budget and a review cadence `brain audit`
+     * checks. Merged field by field over DEFAULT_CANONICAL_POLICY; `null`
+     * unsets a default.
+     */
+    canonicalPolicy: z
+      .record(
+        z.string(),
+        z
+          .object({
+            /** Estimated tokens above which the document is a `budget` issue. */
+            maxTokens: z.number().int().positive().nullable().optional(),
+            /** Days after `updated` at which the document is `review-overdue`. */
+            reviewDays: z.number().int().positive().max(3650).nullable().optional(),
+          })
+          .strict()
+      )
+      .optional(),
     propagation: z.array(propagationRuleSchema).optional(),
     assetTitleRules: z.array(assetTitleRuleSchema).optional(),
     /** type → keyword/phrase list; compiled to word-boundary regexes for heuristic classification. */
@@ -317,6 +335,11 @@ export const DEFAULT_STATS_THRESHOLDS = { coverageFloor: 0.9, brokenLinkCeiling:
 
 /** `instructions.maxTokens` when absent: the shipped contract (~850) plus a generous overlay. */
 export const DEFAULT_INSTRUCTIONS_MAX_TOKENS = 8000;
+
+/** Where the canonical policy lives when a config sets none: the focus document stays short. */
+export const DEFAULT_CANONICAL_POLICY: Record<string, { maxTokens?: number; reviewDays?: number }> = {
+  currentFocus: { maxTokens: 1000 },
+};
 
 export const DEFAULT_CANONICAL: Record<string, string> = {
   identity: "me/identity.md",

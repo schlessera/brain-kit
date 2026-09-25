@@ -122,6 +122,30 @@ Set a key to `""` to disable it. You may add your own canonical keys.
 taxonomy: { canonical: { currentFocus: "" } }   // disable the current-focus lookups
 ```
 
+### `taxonomy.canonicalPolicy`
+
+A size budget and a review cadence per canonical key, which `brain audit`
+checks. They matter for the documents every session reads first.
+
+| Field        | Type             | Means                                                                          |
+| ------------ | ---------------- | ------------------------------------------------------------------------------ |
+| `maxTokens`  | `number \| null` | Estimated tokens (characters ÷ 4) above which the document is a `budget` warning |
+| `reviewDays` | `number \| null` | Days (1 to 3650) after `updated` at which the document is a `review-overdue` warning, unless its `next_review` is still ahead |
+
+The only default is `currentFocus: { maxTokens: 1000 }`. Entries merge field
+by field over the default, so `{ currentFocus: { reviewDays: 14 } }` keeps
+the 1,000-token budget, and `null` unsets a default field:
+
+```ts
+taxonomy: { canonicalPolicy: { currentFocus: { maxTokens: null, reviewDays: 14 }, identity: { maxTokens: 1500 } } }
+```
+
+A canonical document with a policy entry is also scanned for `past-date`
+warnings: a line naming a `YYYY-MM-DD` day before today, outside code blocks
+and inline code as a GFM parser reads them.
+Any non-archived document whose `next_review` has passed is `review-overdue`,
+policy or not.
+
 ### `taxonomy.propagation`
 
 Declares that some documents are derived from a canonical source and must not

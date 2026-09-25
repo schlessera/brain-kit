@@ -87,7 +87,11 @@ until the user says the tree matches how they think about their life.
 After showing a summary of what will be written, generate:
 
 - **`brain.config.ts`** — the approved taxonomy, enabled modules, profile (name, cliTitle),
-  and provider defaults. This is the single source of the structure.
+  and provider defaults. This is the single source of the structure. Include a policy for
+  the focus document, which every session reads first:
+  `taxonomy: { canonicalPolicy: { currentFocus: { maxTokens: 1000, reviewDays: 14 } } }`.
+  `brain audit` then reports it as `budget` when it outgrows 1,000 tokens and as
+  `review-overdue` two weeks after its last update. Ask before changing either number.
 - **Directories**, each with an `_index.md` (type `index`): a one-line purpose blurb and an
   empty registry table.
 - **`me/identity.md`** seeded from the Stage 1 self-description.

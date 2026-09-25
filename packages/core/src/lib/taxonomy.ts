@@ -20,6 +20,7 @@ import type {
 import {
   CORE_TYPES,
   DEFAULT_CANONICAL,
+  DEFAULT_CANONICAL_POLICY,
   DEFAULT_DIR_ANCHORS,
   DEFAULT_EXCLUDE,
   DEFAULT_STALENESS,
@@ -74,10 +75,18 @@ function dirGlobToRegex(pattern: string): RegExp {
   return new RegExp(`^${parts.join("")}${suffix}`);
 }
 
+/** The size budget and review cadence for one canonical document. */
+export interface CanonicalPolicy {
+  maxTokens?: number;
+  reviewDays?: number;
+}
+
 export class Taxonomy {
   readonly types: Record<string, ResolvedTypeSpec>;
   readonly dirAnchors: string[];
   readonly canonical: Record<string, string>;
+  /** Resolved `taxonomy.canonicalPolicy`: defaults merged field by field, `null` dropped. */
+  readonly canonicalPolicy: Record<string, CanonicalPolicy>;
   readonly propagation: PropagationRule[];
   readonly assetTitleRules: AssetTitleRule[];
   readonly exclude: { dirs: string[]; files: string[]; segments: string[] };
@@ -102,6 +111,7 @@ export class Taxonomy {
     types: Record<string, ResolvedTypeSpec>;
     dirAnchors: string[];
     canonical: Record<string, string>;
+    canonicalPolicy?: Record<string, CanonicalPolicy>;
     propagation: PropagationRule[];
     assetTitleRules: AssetTitleRule[];
     classifierRules: ClassifierRule[];
@@ -113,6 +123,7 @@ export class Taxonomy {
     this.types = args.types;
     this.dirAnchors = args.dirAnchors;
     this.canonical = args.canonical;
+    this.canonicalPolicy = args.canonicalPolicy ?? {};
     this.propagation = args.propagation;
     this.assetTitleRules = args.assetTitleRules;
     this.classifierRules = args.classifierRules;
@@ -367,6 +378,18 @@ export function buildTaxonomy(opts: {
     ...(user?.taxonomy?.canonical ?? {}),
   };
 
+  // --- canonical policy: defaults ⊕ user, field by field (null unsets a default)
+  const canonicalPolicy: Record<string, CanonicalPolicy> = {};
+  const userPolicy = user?.taxonomy?.canonicalPolicy ?? {};
+  for (const key of new Set([...Object.keys(DEFAULT_CANONICAL_POLICY), ...Object.keys(userPolicy)])) {
+    const merged: CanonicalPolicy = {};
+    for (const field of ["maxTokens", "reviewDays"] as const) {
+      const set = userPolicy[key] && field in userPolicy[key] ? userPolicy[key][field] : DEFAULT_CANONICAL_POLICY[key]?.[field];
+      if (typeof set === "number") merged[field] = set;
+    }
+    canonicalPolicy[key] = merged;
+  }
+
   // --- propagation + asset title rules: modules then user
   const propagation = [
     ...modules.flatMap((m) => m.manifest.taxonomy?.propagation ?? []),
@@ -398,6 +421,7 @@ export function buildTaxonomy(opts: {
     types,
     dirAnchors,
     canonical,
+    canonicalPolicy,
     propagation,
     assetTitleRules,
     classifierRules,
