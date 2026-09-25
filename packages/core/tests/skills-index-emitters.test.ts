@@ -371,6 +371,69 @@ describe("codexEmitter migrates a repo off the prompts and the index block", () 
     expect(readFileSync(agentsFile, "utf8")).not.toContain(INDEX_START);
   });
 
+  /** Run `fn` with `path` at `mode`, restoring 0755 afterwards. */
+  function withMode<T>(path: string, mode: number, fn: () => T): T {
+    chmodSync(path, mode);
+    try {
+      return fn();
+    } finally {
+      chmodSync(path, 0o755);
+    }
+  }
+
+  test("a prompt that cannot be looked at keeps the index block, and the next sync finishes the job", () => {
+    const { root, add, audit, agentsFile, promptsDir } = legacyRepo();
+    const before = readFileSync(agentsFile, "utf8");
+    const res = withMode(promptsDir, 0o644, () => {
+      // No search permission: the OS refuses to say whether add.md exists.
+      expect(() => lstatSync(join(promptsDir, "add.md"))).toThrow();
+      return codexEmitter.emit([add, audit], root);
+    });
+    expect(res.written).toEqual([]);
+    expect(res.warnings?.join("\n")).toContain("could not inspect .codex/prompts/add.md");
+    expect(readFileSync(agentsFile, "utf8")).toBe(before);
+
+    const retry = codexEmitter.emit([add, audit], root);
+    expect(retry.removed).toEqual(
+      [".codex/prompts/add.md", ".codex/prompts/audit.md", ".codex/prompts", ".codex"]
+    );
+    expect(readFileSync(agentsFile, "utf8")).not.toContain(INDEX_START);
+  });
+
+  test("a .codex that cannot be looked into keeps the index block", () => {
+    const { root, add, audit, agentsFile } = legacyRepo();
+    const before = readFileSync(agentsFile, "utf8");
+    const res = withMode(join(root, ".codex"), 0o644, () => codexEmitter.emit([add, audit], root));
+    expect(res.warnings?.join("\n")).toContain("could not inspect .codex/prompts");
+    expect(readFileSync(agentsFile, "utf8")).toBe(before);
+    expect(codexEmitter.emit([add, audit], root).removed).toContain(".codex");
+  });
+
+  test("a directory that cannot be removed keeps the index block, and the next sync finishes the job", () => {
+    const { root, add, audit, agentsFile } = legacyRepo();
+    const codexDir = join(root, ".codex");
+    const before = readFileSync(agentsFile, "utf8");
+    const res = withMode(codexDir, 0o555, () => {
+      expect(() => writeFileSync(join(codexDir, ".write-probe"), "")).toThrow();
+      return codexEmitter.emit([add, audit], root);
+    });
+    expect(res.removed).toEqual([".codex/prompts/add.md", ".codex/prompts/audit.md"]);
+    expect(res.warnings?.join("\n")).toContain("could not remove .codex/prompts");
+    expect(readFileSync(agentsFile, "utf8")).toBe(before);
+
+    const retry = codexEmitter.emit([add, audit], root);
+    expect(retry.removed).toEqual([".codex/prompts", ".codex"]);
+    expect(readFileSync(agentsFile, "utf8")).not.toContain(INDEX_START);
+  });
+
+  test("a .codex whose prompts directory is already gone is removed too", () => {
+    const root = mkRepo();
+    writeFileSync(join(root, "AGENTS.md"), renderIndexBlock([]) + "\n");
+    mkdirSync(join(root, ".codex"));
+    expect(codexEmitter.emit([], root).removed).toEqual([".codex"]);
+    expect(existsSync(join(root, ".codex"))).toBe(false);
+  });
+
   test("empty legacy directories go even when there was nothing to delete", () => {
     const root = mkRepo();
     writeFileSync(join(root, "AGENTS.md"), renderIndexBlock([]) + "\n");

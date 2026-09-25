@@ -56,13 +56,25 @@ function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function isRealDir(path: string): boolean {
+type Kind = "absent" | "directory" | "file" | "other";
+
+/**
+ * What is at `path`, without following a symlink. Only a missing path counts
+ * as absent; any other failure to look (EACCES on an unsearchable parent)
+ * throws, because "could not look" is not "nothing there".
+ */
+function kindOf(path: string): Kind {
   try {
-    return lstatSync(path).isDirectory();
-  } catch {
-    return false;
+    const stat = lstatSync(path);
+    return stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other";
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return "absent";
+    throw e;
   }
 }
+
+const RETRY = "kept the old index block so the next sync retries";
 
 /**
  * Whether `file` is byte-for-byte the kind of prompt the old emitter wrote for
@@ -90,8 +102,9 @@ function isGeneratedPrompt(text: string, name: string, description: string): boo
  * wrote. A file is deleted only when its row names a valid skill, it is a
  * regular file directly inside a real `.codex/prompts/` directory, and its
  * content is the old generated template for that row. Anything else is left
- * where it is and reported. Returns false when a deletion failed, so the
- * caller keeps the index block and the next sync can retry.
+ * where it is and reported. Returns false when something could not be
+ * inspected, deleted or removed, so the caller keeps the index block, which
+ * is the only record of what was ours, and the next sync can retry.
  */
 function migratePrompts(
   repoRoot: string,
@@ -101,13 +114,20 @@ function migratePrompts(
 ): boolean {
   const codexDir = join(repoRoot, ".codex");
   const promptsDir = join(codexDir, "prompts");
-  if (existsSync(codexDir) && !isRealDir(codexDir)) {
-    warnings.push("`.codex` is not a plain directory; left its prompts in place");
-    return true;
-  }
-  if (existsSync(promptsDir) && !isRealDir(promptsDir)) {
-    warnings.push("`.codex/prompts` is not a plain directory; left its prompts in place");
-    return true;
+  try {
+    for (const [dir, rel] of [
+      [codexDir, ".codex"],
+      [promptsDir, ".codex/prompts"],
+    ] as const) {
+      const kind = kindOf(dir);
+      if (kind !== "absent" && kind !== "directory") {
+        warnings.push(`\`${rel}\` is not a plain directory; left its prompts in place`);
+        return true;
+      }
+    }
+  } catch (e) {
+    warnings.push(`could not inspect .codex/prompts (${(e as Error).message}); ${RETRY}`);
+    return false;
   }
 
   let complete = true;
@@ -122,13 +142,17 @@ function migratePrompts(
     const rel = `.codex/prompts/${name}.md`;
     const file = join(promptsDir, `${name}.md`);
 
-    let isFile: boolean;
+    let generated: boolean;
     try {
-      isFile = lstatSync(file).isFile();
-    } catch {
-      continue; // already gone
+      const kind = kindOf(file);
+      if (kind === "absent") continue;
+      generated = kind === "file" && isGeneratedPrompt(readFileSync(file, "utf8"), name, description);
+    } catch (e) {
+      warnings.push(`could not inspect ${rel} (${(e as Error).message}); ${RETRY}`);
+      complete = false;
+      continue;
     }
-    if (!isFile || !isGeneratedPrompt(readFileSync(file, "utf8"), name, description)) {
+    if (!generated) {
       warnings.push(`${rel} is not the prompt brain-kit generated for "${name}"; left in place`);
       continue;
     }
@@ -136,25 +160,31 @@ function migratePrompts(
       rmSync(file);
       removed.push(rel);
     } catch (e) {
-      warnings.push(`could not delete ${rel} (${(e as Error).message}); kept the old index block so the next sync retries`);
+      warnings.push(`could not delete ${rel} (${(e as Error).message}); ${RETRY}`);
       complete = false;
     }
   }
+  if (!complete) return false;
 
-  // The old emitter created the directories even for zero skills.
+  // The old emitter created the directories even for zero skills. A directory
+  // still holding something (a prompt that was not ours) stays, and so does
+  // its parent.
   for (const [dir, rel] of [
     [promptsDir, ".codex/prompts"],
     [codexDir, ".codex"],
   ] as const) {
-    if (!isRealDir(dir) || readdirSync(dir).length > 0) break;
     try {
+      const kind = kindOf(dir);
+      if (kind === "absent") continue;
+      if (kind !== "directory" || readdirSync(dir).length > 0) break;
       rmdirSync(dir);
       removed.push(rel);
-    } catch {
-      break;
+    } catch (e) {
+      warnings.push(`could not remove ${rel} (${(e as Error).message}); ${RETRY}`);
+      return false;
     }
   }
-  return complete;
+  return true;
 }
 
 export const codexEmitter: SkillEmitter = {

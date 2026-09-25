@@ -68,8 +68,9 @@ block with the contract block in place and removes `.codex/prompts/` and
 row names a valid skill, it is a plain file directly inside a plain
 `.codex/prompts/`, and its frontmatter is exactly what the old emitter wrote
 for that row. Anything else is yours: it stays, and the sync warns about it.
-If a deletion fails, `AGENTS.md` keeps its index block and the next sync
-retries.
+If a prompt or directory cannot be inspected, deleted or removed (a
+permission error, say), `AGENTS.md` keeps its index block, which is the only
+record of what was generated, and the next sync retries.
 
 The emitter only edits a block whose markers are unambiguous: one start marker
 and one end marker, in that order. With a missing, repeated or misordered
