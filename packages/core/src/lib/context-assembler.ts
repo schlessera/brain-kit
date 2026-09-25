@@ -8,13 +8,16 @@ import type { EmbeddingProvider } from "./seams.js";
 import { hybridSearch } from "./search-engine.js";
 import type { SearchResult } from "./types.js";
 
-interface AssembleOptions {
+export interface AssembleOptions {
   query: string;
   maxTokens?: number;
   includeIdentity?: boolean;
   includeCurrentFocus?: boolean;
   /** Embedding provider forwarded to vector search; absent → FTS-only results. */
   embeddings?: EmbeddingProvider;
+  /** When given, the search's warnings (a degraded lane, for example) are
+   * appended to it, so a caller can report them beside the text. */
+  warnings?: string[];
 }
 
 /**
@@ -174,11 +177,12 @@ export async function assembleContext(
   // Search results: a pool sized to the budget, filled greedily — a hit that
   // does not fit is skipped and the next one tried.
   if (opts.query && budget > BUDGET_FLOOR) {
-    const { results } = await hybridSearch(
+    const { results, warnings } = await hybridSearch(
       db,
       { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP) },
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
+    opts.warnings?.push(...warnings);
 
     const hits: string[] = [];
     for (const result of results) {

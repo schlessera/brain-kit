@@ -79,6 +79,8 @@ export {
 export type { SchemaOptions, VecSupport, VecUnavailableReason } from "./lib/db.js";
 export { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
+export { assembleContext, estimateTokens } from "./lib/context-assembler.js";
+export type { AssembleOptions } from "./lib/context-assembler.js";
 // Exported so a retrieval-quality harness can score rerank-on and rerank-off
 // orderings from one candidate list instead of re-embedding the query.
 export { rerank, getDefaultRerankerMode } from "./lib/reranker.js";
