@@ -1,5 +1,6 @@
 /**
- * Extension seams (@experimental until 1.0).
+ * Extension seams. Each seam carries its own `@experimental` tag until 1.0;
+ * docs/extending/README.md lists them.
  *
  * The meta-mechanism: a typed interface here → config accepts a built-in name
  * (string) OR a passed-in implementation (value) → optionally shared as an npm
@@ -18,6 +19,8 @@ export type ContentPart =
 /**
  * Plain (non-agentic) LLM completion. Used for enrichment (chunk contexts,
  * asset descriptions), note processing, and briefings.
+ *
+ * @experimental Extension seam; may change before 1.0.
  */
 export interface CompletionProvider {
   id: string;
@@ -33,6 +36,8 @@ export interface CompletionProvider {
 /**
  * Agentic run inside a repo — shells out to a coding agent CLI (claude, pi,
  * codex, gemini, or any custom value). Used by skill-invoking flows.
+ *
+ * @experimental Extension seam; may change before 1.0.
  */
 export interface AgentRunner {
   id: string;
@@ -50,6 +55,8 @@ export interface AgentRunner {
 /**
  * Text (and optionally multimodal) embeddings. Enrichment/generation concerns
  * live in enrichment.ts on top of CompletionProvider — NOT here.
+ *
+ * @experimental Extension seam; may change before 1.0.
  */
 export interface EmbeddingProvider {
   /** Stable identity, e.g. "gemini:gemini-embedding-2". Changing it forces a re-embed. */
@@ -93,6 +100,8 @@ export interface SkillManifest {
  * is `.agents/skills/` (discovered natively by the pi family); emitters cover
  * agents that need another layout (claude → .claude/skills symlinks,
  * codex → .codex/prompts, …).
+ *
+ * @experimental Extension seam; may change before 1.0.
  */
 export interface SkillEmitter {
   agent: string;

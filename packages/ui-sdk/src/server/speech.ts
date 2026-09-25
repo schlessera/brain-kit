@@ -7,6 +7,7 @@
 
 import type { SpeechCapabilities } from "../protocol.js";
 
+/** @experimental Part of the `SpeechProvider` seam. */
 export interface SpeechSession {
   /** wss endpoint the client connects to. */
   url: string;
@@ -17,6 +18,11 @@ export interface SpeechSession {
   expiresAt: number;
 }
 
+/**
+ * Mints per-session STT connection material for the client's `AsrClient`.
+ *
+ * @experimental Extension seam; may change before 1.0.
+ */
 export interface SpeechProvider {
   id: string;
   capabilities: SpeechCapabilities;

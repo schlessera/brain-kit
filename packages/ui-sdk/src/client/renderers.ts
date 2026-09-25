@@ -41,6 +41,11 @@ export interface ToolSemantics {
   unsandboxed?(tool: ToolCallView): boolean;
 }
 
+/**
+ * How one tool call renders in the chat timeline.
+ *
+ * @experimental Extension seam; may change before 1.0.
+ */
 export interface ToolRenderer {
   /**
    * string = exact tool name; function = scored predicate (return 0 to pass,
@@ -65,6 +70,7 @@ export interface ToolRenderer {
   Output?: ComponentType<{ tool: ToolCallView }>;
 }
 
+/** @experimental Part of the `ToolRenderer` seam. */
 export interface RendererPack {
   /** Restrict this pack's exact-name matches to one backend id. */
   backend?: string;

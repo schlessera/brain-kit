@@ -6,12 +6,18 @@
 
 import type { AsrEvent, SpeechCapabilities, VoiceSessionResponse } from "../protocol.js";
 
+/** @experimental Part of the `AsrClient` seam. */
 export interface AsrClientOptions {
   session: VoiceSessionResponse;
   onEvent: (event: AsrEvent) => void;
   onError: (error: Error) => void;
 }
 
+/**
+ * The browser end of a dictation session a `SpeechProvider` minted.
+ *
+ * @experimental Extension seam; may change before 1.0.
+ */
 export interface AsrClient {
   /** Open the stream and start capturing microphone audio. */
   start(): Promise<void>;

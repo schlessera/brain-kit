@@ -59,25 +59,32 @@ search runs full-text-only. Degraded modes are reported through the existing
 
 ### Stability
 
-All seams are marked `@experimental` until 1.0. Breaking changes to a seam are
+Every seam is marked `@experimental` until 1.0, on its own declaration and on
+the types it is made of. Breaking changes to a seam are
 announced in the CHANGELOG; a change to the stable contract requires a
 `CONTRACT:` commit prefix, and a breaking one a maintainer ruling first (a major
 version bump from 1.0). See [integration-contract.md](../integration-contract.md).
 
 ## The seams
 
-Four seams live in `@schlessera/brain`:
+There are nine. This table is the list; the integration contract's
+"Extension interfaces" table names the same nine, and `tests/seam-list.test.ts`
+fails when the two or the `@experimental` tags in the source disagree.
 
-| Seam                                       | Interface            | What it swaps                         |
-| ------------------------------------------ | -------------------- | ------------------------------------- |
-| [Embeddings](embeddings.md)                | `EmbeddingProvider`  | The vectorizer behind semantic search |
-| [Completions](completions.md)              | `CompletionProvider` | Plain LLM calls for enrichment        |
-| [Agent runners](agent-runners.md)          | `AgentRunner`        | The coding-agent CLI skills shell out to |
-| [Skill emitters](skill-emitters.md)        | `SkillEmitter`       | The agent format skills are emitted for |
+| Seam                                | Interface            | Imported from                     | What it swaps                            |
+| ----------------------------------- | -------------------- | --------------------------------- | ---------------------------------------- |
+| [Embeddings](embeddings.md)         | `EmbeddingProvider`  | `@schlessera/brain`               | The vectorizer behind semantic search    |
+| [Completions](completions.md)       | `CompletionProvider` | `@schlessera/brain`               | Plain LLM calls for enrichment           |
+| [Agent runners](agent-runners.md)   | `AgentRunner`        | `@schlessera/brain`               | The coding-agent CLI skills shell out to |
+| [Skill emitters](skill-emitters.md) | `SkillEmitter`       | `@schlessera/brain`               | The agent format skills are emitted for  |
+| [Agent backends](agent-backends.md) | `AgentBackend`       | `@schlessera/brain-ui-sdk/server` | The runtime that drives a chat session   |
+| Speech                              | `SpeechProvider`     | `@schlessera/brain-ui-sdk/server` | Who mints a dictation session            |
+| Speech                              | `AsrClient`          | `@schlessera/brain-ui-sdk/client` | The browser end of that session          |
+| Tool renderers                      | `ToolRenderer`       | `@schlessera/brain-ui-sdk/client` | How one tool call looks in the timeline  |
+| Site adapters                       | `SiteAdapter`        | `@schlessera/brain-scrape`        | The site a module fetches from           |
 
-The self-hosted chat UI adds four more in `@schlessera/brain-ui-sdk`
-(`packages/ui-sdk` in this monorepo): `AgentBackend` and `SpeechProvider`
-(server), `ToolRenderer` and `AsrClient` (client).
+The first four live in core. The self-hosted chat UI adds four in
+`@schlessera/brain-ui-sdk` (`packages/ui-sdk` in this monorepo).
 
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
   descriptor, constructs an `AgentBackend`, the runtime that drives a chat

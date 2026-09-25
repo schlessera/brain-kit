@@ -403,7 +403,7 @@ fresh-process import of `src/index.ts` with `window`/`localStorage` absent and
 reset → register → resolve (**null**). `registered` in
 `components/chat/renderers/index.ts:10` is never cleared by
 `resetToolRenderers()` (`resetToolRenderers`,
-`ui-sdk/src/client/renderers.ts:178`). The existing
+`ui-sdk/src/client/renderers.ts:184`). The existing
 `registration-on-mount.test.tsx` sidesteps it by running in separate Bun child
 processes — an isolation workaround, not a test of recovery. Fix this in S1.
 

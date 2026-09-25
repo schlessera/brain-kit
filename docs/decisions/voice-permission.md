@@ -41,7 +41,7 @@ either the model speaks the request and waits, or voice runs under a posture
 that needs no interactive approval, or voice is read-only.
 
 Voice today is tap-to-dictate: the speech contract mints a **dictation** session
-(`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:20`) and
+(`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26`) and
 `useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26`
 drives it into the composer.
 There is no voice output and no spoken turn, so nothing in this record describes
@@ -563,7 +563,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:337`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:341`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

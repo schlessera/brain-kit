@@ -571,9 +571,25 @@ Rules a consumer may rely on:
 
 ## Extension interfaces
 
-`EmbeddingProvider`, `CompletionProvider`, `AgentRunner`, `SkillEmitter`
-(core) and the ui-sdk interfaces are `@experimental` until 1.0: breaking
-changes are minor-version events, announced in the CHANGELOG.
+These nine seams are `@experimental` until 1.0: breaking changes are
+minor-version events, announced in the CHANGELOG. Each declaration carries its
+own `@experimental` tag, and so do the types a seam is made of.
+[extending/README.md](extending/README.md#the-seams) says what each one swaps.
+
+| Interface | Imported from |
+|-----------|---------------|
+| `EmbeddingProvider` | `@schlessera/brain` |
+| `CompletionProvider` | `@schlessera/brain` |
+| `AgentRunner` | `@schlessera/brain` |
+| `SkillEmitter` | `@schlessera/brain` |
+| `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
+| `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
+| `AsrClient` | `@schlessera/brain-ui-sdk/client` |
+| `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
+| `SiteAdapter` | `@schlessera/brain-scrape` |
+
+`tests/seam-list.test.ts` fails when this table, the one in
+extending/README.md and the tags in the source disagree.
 
 Module manifests are two-phase: `defineModule({ name, configSchema?, setup })`,
 where `setup(validatedConfig)` returns the contribution. The contribution is
