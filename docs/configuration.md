@@ -75,6 +75,22 @@ Each type spec (`TypeSpec`) accepts:
 | `inbox`         | `boolean`                         | `false`                     | This type's dir is the quick-capture inbox (`brain add`'s default target). **Exactly one type must set this.** |
 | `orphanExempt`  | `boolean`                         | `false`                     | Exempt from the "no wiki-links point here" orphan audit.                                                    |
 | `appendMatch`   | `boolean`                         | `false`                     | `brain add` content titled exactly like an existing doc of this type appends into it instead of creating a new file. |
+| `halfLifeDays`  | `number` (positive int)           | `staleDays`, else `365`     | Search recency half-life: a doc of this type loses half its recency boost per `halfLifeDays` since its `updated` date. |
+
+Search's heuristic reranker multiplies each result's score by a recency factor
+between 0.7 (very old) and 1.0 (updated today), and `halfLifeDays` sets how fast
+a type moves between them. A 30-day half-life gives a 30-day-old document 0.85.
+Give volatile types a short half-life and durable ones a long one. The core
+types ship with their own: `context` 30, `note` 60, `index` 365, `identity`
+1095. Overriding a core type keeps its half-life unless you set
+`halfLifeDays` again.
+
+Upgrading from 0.37 or earlier: the reranker used to carry a built-in table
+of half-lives for type names like `project` (180 days), `travel` (60),
+`conference` (90), `career` (180), `infrastructure` (545), `opinion` and
+`expertise` (730). That table is gone. A type of yours with one of those names
+now decays over its `staleDays`, else 365 days, so set `halfLifeDays` on it to
+keep the old ranking.
 
 ### `taxonomy.dirAnchors`
 

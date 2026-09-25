@@ -179,7 +179,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         // this connection. Without an embedding provider we stay FTS-only
         // (hybridSearch degrades + warns).
         await loadVecSupport(db);
-        return await hybridSearch(db, opts, { embeddings });
+        return await hybridSearch(db, opts, { embeddings, taxonomy: c.taxonomy });
       } finally {
         db.close();
       }
@@ -193,7 +193,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         const { results, warnings } = await hybridSearch(
           db,
           { query, limit: 10 },
-          { embeddings }
+          { embeddings, taxonomy: c.taxonomy }
         );
         // Identity / current-focus are intentionally NOT prepended here: the pi
         // session already loads AGENTS.md / CLAUDE.md (and the Layer-1 contract)

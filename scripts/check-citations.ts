@@ -471,6 +471,8 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the harness as it stood before #209 gave it --both-arms and a recorded version",
   "docs/decisions/claude-code-runtime.md|packages/core/src/lib/registry.ts:40":
     "the completion registry building providers with no options; #253 added completions.apiKeyEnv",
+  "docs/decisions/claude-code-runtime.md|packages/core/src/lib/config.ts:166-171":
+    "the completions schema as it stood when this was written, with only provider and fallback; #253 added completions.apiKeyEnv",
   "docs/decisions/hardening.md|backend.ts:1039":
     "describes getBackendForSession substituting the default, which the fix replaced with a throw",
   "docs/decisions/session-principals.md|middleware/auth.ts:253": {
