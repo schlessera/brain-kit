@@ -175,8 +175,9 @@ function bareAddress(link: Link): string | null {
   if (link.title || !link.children.every(isPlainInline)) return null;
   const text = mdastToString(link);
   if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
-  // A backtick is legal in an address, but a key-value run's value has its
-  // backticks stripped as code-span markup, which would change the address.
+  // A backtick is legal in an address. It was refused because a key-value
+  // run stripped backticks from its values, which no longer happens (#236);
+  // whether to admit it again is #330.
   if (text.includes("`")) return null;
   return MAILTO.test(link.url) ? text.replace(MAILTO, "") : text;
 }
@@ -381,18 +382,76 @@ function timedListCandidate(node: List, id: string, span: CandidateSpan): TimedL
 }
 
 /** `**Key:** value`, `**Key**: value`, `Key: value` — one row of a receipt-shaped run. */
-const KV_LINE = /^(?:\*\*([^*:]{1,40})(?::\*\*|\*\*:)|([A-Z][^:]{0,39}):)\s+(.+)$/;
+const KV_LINE = /^(?:\*\*([^*:]{1,40})(?::\*\*|\*\*:)|([A-Z][^:]{0,39}):)\s+(.+)$/d;
 
-function kvRows(lines: string[]): Array<{ k: string; v: string }> | null {
+/** Where the character at `index` of `flatSource(source, span, flattened)` sits in the source. */
+function sourceOffset(span: CandidateSpan, flattened: readonly Flattened[], index: number): number {
+  let at = span.start;
+  let read = 0;
+  for (const flat of flattened) {
+    if (flat.start < span.start || flat.end > span.end) continue;
+    const plain = flat.start - at;
+    if (index < read + plain) return at + (index - read);
+    read += plain;
+    if (index < read + flat.text.length) return flat.start;
+    read += flat.text.length;
+    at = flat.end;
+  }
+  return at + (index - read);
+}
+
+/**
+ * A stretch of inline markdown as a reader sees it, read the way `cellText`
+ * reads a node, so a value says what a quote of the same text says (#236).
+ * The lead word keeps it inline: on its own `#1`, `- x` or `[a]: b` would
+ * open a block, which after a key it never did.
+ */
+const INLINE_LEAD = "x ";
+
+function inlineText(markdown: string): string {
+  const text = INLINE_LEAD + markdown;
+  const root = parseMarkdown(text);
+  flattenBareAddresses(root, text, []);
+  return cellText(root).slice(INLINE_LEAD.length);
+}
+
+/** One line of a run: `text` is `flatSource` over `span`, from `at` characters in. */
+interface KvLine {
+  text: string;
+  at: number;
+  span: CandidateSpan;
+}
+
+function kvRows(
+  lines: readonly KvLine[],
+  source: string,
+  flattened: readonly Flattened[],
+  breaks: readonly number[]
+): Array<{ k: string; v: string }> | null {
   const rows: Array<{ k: string; v: string }> = [];
   for (const line of lines) {
-    const match = KV_LINE.exec(line.trim());
+    const text = line.text.trim();
+    const match = KV_LINE.exec(text);
     if (!match) return null;
-    // Read from the raw source (the `**` around the key is the signal), so
-    // a code span's backticks are still here; the kit's cells are plain text.
-    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: match[3]!.replace(/`/g, "").trim() });
+    // The key is read from the source, where the `**` around it is the
+    // signal. The value is read as its markup decodes, from where it sits in
+    // the source up to the hard break that may end its line.
+    const lead = line.at + line.text.indexOf(text);
+    const [from, to] = match.indices![3]!;
+    const start = sourceOffset(line.span, flattened, lead + from);
+    let end = sourceOffset(line.span, flattened, lead + to);
+    for (const at of breaks) if (at >= start && at < end) end = at;
+    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: inlineText(source.slice(start, end)) });
   }
   return rows.length >= 2 ? rows : null;
+}
+
+/** Where each hard break under `node` starts in the source. */
+function breakOffsets(node: Node, out: number[] = []): number[] {
+  const start = node.position?.start.offset;
+  if (node.type === "break" && typeof start === "number") out.push(start);
+  for (const child of node.children ?? []) breakOffsets(child, out);
+  return out;
 }
 
 /** A paragraph of key-colon-value lines, or a bullet list whose items are such lines. */
@@ -405,23 +464,28 @@ function kvRunCandidate(
 ): KeyValueRunCandidate | null {
   if (node.type === "paragraph") {
     if (hasRichInline(node)) return null;
-    // Raw source lines, not `toString`: the `**` around the key is the
-    // signal, and toString would strip it. A bare address still reads as its
-    // text, so `<…>` does not reach a cell.
-    const lines = flatSource(source, span, flattened).split(/\r?\n/).map((line) => line.replace(/\s+$/, ""));
-    const rows = kvRows(lines);
+    // Source lines, not `toString`: the `**` around the key is the signal,
+    // and toString would strip it. A bare address still reads as its text,
+    // so `<…>` does not reach a cell.
+    const lines: KvLine[] = [];
+    let at = 0;
+    for (const line of flatSource(source, span, flattened).split("\n")) {
+      lines.push({ text: line.replace(/\s+$/, ""), at, span });
+      at += line.length + 1;
+    }
+    const rows = kvRows(lines, source, flattened, breakOffsets(node));
     return rows ? { kind: "kv_run", id, rows, ...span } : null;
   }
   if (node.ordered || node.children.length < 2) return null;
-  const lines: string[] = [];
+  const lines: KvLine[] = [];
   for (const item of node.children) {
     const paragraphs = item.children.filter((child): child is Paragraph => child.type === "paragraph");
     if (paragraphs.length !== 1 || item.children.length !== 1 || hasRichInline(paragraphs[0]!)) return null;
     const itemSpan = spanOf(paragraphs[0]!);
     if (!itemSpan) return null;
-    lines.push(flatSource(source, itemSpan, flattened));
+    lines.push({ text: flatSource(source, itemSpan, flattened), at: 0, span: itemSpan });
   }
-  const rows = kvRows(lines);
+  const rows = kvRows(lines, source, flattened, breakOffsets(node));
   return rows ? { kind: "kv_run", id, rows, ...span } : null;
 }
 

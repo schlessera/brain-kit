@@ -173,6 +173,40 @@ describe("detectCandidates", () => {
     ]);
   });
 
+  test("a value reads as its markup decodes, as the same text does in a quote", () => {
+    const value = "**600** oars &amp; \\*sails\\* &#58; `spare`";
+    const [quote] = detectCandidates(`> ${value}`);
+    if (quote?.kind !== "blockquote") throw new Error("expected blockquote");
+    expect(quote.text).toBe("600 oars & *sails* : spare");
+
+    for (const text of [
+      `**Ships:** 12\n**Crew:** ${value}`,
+      `**Ships:** 12\n**Crew**: ${value}`,
+      `**Ships:** 12\nCrew: ${value}`,
+      `- **Ships:** 12\n- **Crew:** ${value}`,
+    ]) {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      expect(run.rows).toEqual([
+        { k: "Ships", v: "12" },
+        { k: "Crew", v: quote.text },
+      ]);
+    }
+  });
+
+  test("a value that opens like a block still reads as the text after its key", () => {
+    const [run] = detectCandidates("**Rank:** #1\n**Step:** 1. Row\n**Rule:** ---\n**Ref:** [a]: b\n**Aside:** > far");
+    if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+    expect(run.rows.map((row) => row.v)).toEqual(["#1", "1. Row", "---", "[a]: b", "> far"]);
+  });
+
+  test("a hard break ending a key line is not part of its value", () => {
+    const [run] = detectCandidates("**Ships:** 12\\\n**Crew:** 600\\\\\n**Days at sea:** 9");
+    if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+    // The first line ends in a break; the second in an escaped backslash.
+    expect(run.rows.map((row) => row.v)).toEqual(["12", "600\\", "9"]);
+  });
+
   test("one key line is prose, not a run", () => {
     expect(detectCandidates("**Ships:** 12")).toEqual([]);
   });
@@ -208,9 +242,10 @@ describe("detectCandidates", () => {
       "eurybates@ithaca.example"
     );
     // The scheme is matched in the source: an escaped or entity-encoded one is
-    // left as the author wrote it rather than cut at the decoded length.
-    expect(valueOf("**Herald:** mailto&#58;eurybates@ithaca.example")).toBe("mailto&#58;eurybates@ithaca.example");
-    expect(valueOf("**Herald:** mailto\\:eurybates@ithaca.example")).toBe("mailto\\:eurybates@ithaca.example");
+    // the author's text, not a scheme, so it stays, and reads decoded as any
+    // other text in a value does (#236).
+    expect(valueOf("**Herald:** mailto&#58;eurybates@ithaca.example")).toBe("mailto:eurybates@ithaca.example");
+    expect(valueOf("**Herald:** mailto\\:eurybates@ithaca.example")).toBe("mailto:eurybates@ithaca.example");
     expect(valueOf("**Site:** https://ithaca.example/palace")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** <https://ithaca.example/palace>")).toBe("https://ithaca.example/palace");
     expect(valueOf("**Site:** see https://ithaca.example/palace first")).toBe("see https://ithaca.example/palace first");
@@ -270,8 +305,8 @@ describe("detectCandidates", () => {
     expect(
       run("**Site:** [![https://ithaca.example][pic]](https://ithaca.example)\n\n[pic]: https://ithaca.example/a.png")
     ).toEqual([]);
-    // A backtick is legal in an address, but the run strips backticks as
-    // code-span markup, so flattening would change the address.
+    // A backtick in an address is still refused, though its reason, a run
+    // stripping backticks, is gone (#236); whether to admit it is #330.
     expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);
     // A reference-style link, image or footnote loses its target just as an
     // inline one does, and an address beside it must not let it through
