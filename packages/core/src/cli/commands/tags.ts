@@ -1,3 +1,5 @@
+import type { Database } from "bun:sqlite";
+
 import { openDatabase } from "../../lib/db.js";
 import { tagReport } from "../../lib/tags.js";
 import type { TagReport } from "../../lib/tags.js";
@@ -32,7 +34,8 @@ as silently modified.
   --only <old>            Only change this one old tag
   --dry-run               Report what would change and write nothing
 
-A file edited while the command runs is skipped ("changed during apply"). A
+A file edited while the command runs is skipped ("changed during apply"). An
+index that cannot be opened stops the run before any file is rewritten. A
 file that cannot be read or written is reported with a reason starting
 "failed:", the files already rewritten are still indexed and accepted, and
 the command exits 2.
@@ -77,6 +80,15 @@ function printHuman(report: TagReport): void {
   }
 }
 
+/** Close the index; a failure here comes after the report and must not replace it. */
+function closeQuietly(db: Database | null): void {
+  try {
+    db?.close();
+  } catch (e) {
+    console.error(`Warning: closing the index failed: ${(e as Error).message}`);
+  }
+}
+
 function printApply(report: TagApplyReport & { warnings: string[] }, dryRun: boolean): void {
   const verb = dryRun ? "Would rewrite" : "Rewrote";
   console.log(`${verb} tags in ${report.files.length} file(s).`);
@@ -98,35 +110,55 @@ export const tagsCommand: CoreCommand = {
     if (flags.apply === true) {
       if (flags.only === true) throw new UsageError("--only needs a tag");
       const dryRun = flags["dry-run"] === true;
-      const { report, written, failed } = applyTagChanges(cli.brain.root, cli.brain.taxonomy, {
-        groups: flags.groups === true,
-        redundant: flags.redundant === true,
-        only: typeof flags.only === "string" ? flags.only : undefined,
-        dryRun,
-      });
       const warnings: string[] = [];
-      let indexFailed = false;
-      if (written.size > 0) {
-        // A tag rename is mechanical: `updated` stays, the index picks up the
-        // new tags, and the new mtimes are accepted (packages/core/CONTRACT.md),
-        // but only where the index read back exactly the bytes the rewrite
-        // wrote. A file edited since is left for silent-edit detection.
-        const db = openDatabase(cli.brain.dbPath);
+
+      // Open the index before any file is rewritten: once files change, a
+      // database that cannot be opened would leave them unindexed and
+      // unaccepted, with a retry that finds nothing left to do.
+      let db: Database | null = null;
+      if (!dryRun) {
         try {
-          warnings.push(...(await indexAndAccept(db, cli.brain.root, cli.brain.taxonomy, written)));
+          db = openDatabase(cli.brain.dbPath);
+          db.prepare("SELECT COUNT(*) FROM documents").get();
         } catch (e) {
-          indexFailed = true;
-          warnings.push(
-            `reindexing the rewritten files failed (${(e as Error).message}); ` +
-              "run `brain index`, then `brain accept-mtime <path>` for each rewritten file"
-          );
-        } finally {
-          db.close();
+          closeQuietly(db);
+          warnings.push(`cannot open the index (${(e as Error).message}); nothing was rewritten`);
+          const out = { files: [], skipped: [], warnings };
+          emit(cli.json, out, () => printApply(out, dryRun));
+          return 2;
         }
       }
-      const out = { ...report, warnings };
-      emit(cli.json, out, () => printApply(out, dryRun));
-      return failed || indexFailed ? 2 : 0;
+
+      try {
+        const { report, written, failed } = applyTagChanges(cli.brain.root, cli.brain.taxonomy, {
+          groups: flags.groups === true,
+          redundant: flags.redundant === true,
+          only: typeof flags.only === "string" ? flags.only : undefined,
+          dryRun,
+        });
+        let indexFailed = false;
+        if (db && written.size > 0) {
+          // A tag rename is mechanical: `updated` stays, the index picks up
+          // the new tags, and the new mtimes are accepted
+          // (packages/core/CONTRACT.md), but only where the index read back
+          // exactly the bytes the rewrite wrote. A file edited since is left
+          // for silent-edit detection.
+          try {
+            warnings.push(...(await indexAndAccept(db, cli.brain.root, cli.brain.taxonomy, written)));
+          } catch (e) {
+            indexFailed = true;
+            warnings.push(
+              `reindexing the rewritten files failed (${(e as Error).message}); ` +
+                "run `brain index`, then `brain accept-mtime <path>` for each rewritten file"
+            );
+          }
+        }
+        const out = { ...report, warnings };
+        emit(cli.json, out, () => printApply(out, dryRun));
+        return failed || indexFailed ? 2 : 0;
+      } finally {
+        closeQuietly(db);
+      }
     }
     for (const flag of ["dry-run", "only", "groups", "redundant"]) {
       if (flags[flag] !== undefined) throw new UsageError(`--${flag} only applies with --apply`);

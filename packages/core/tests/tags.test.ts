@@ -4,7 +4,7 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { editDistance, findRedundantTags, findVariantGroups, tagKey } from "../src/lib/tags";
@@ -402,6 +402,8 @@ describe("brain tags --apply, round 1 of review", () => {
     expect(report).toEqual({ files: [], skipped: [{ path: "notes/a.md", reason: "changed during apply" }] });
     expect(written.size).toBe(0);
     expect(read(root, "notes/a.md")).toBe(doc("[trails]") + "an edit made meanwhile\n");
+    // The temporary file with the planned rewrite is gone too.
+    expect(readdirSync(join(root, "notes"))).toEqual(["a.md"]);
   });
 
   test("the mtime is accepted only for the bytes the rewrite wrote", async () => {
@@ -547,5 +549,54 @@ describe("brain tags --apply, round 1 of review", () => {
     expect(refused.stderr).toContain("refusing to modify an uninitialized directory");
     expect((await runCli(root, ["tags", "--apply", "--dry-run", "--json"])).code).toBe(0);
     expect(read(root, "notes/a.md")).toBe(doc("[trails]"));
+  });
+});
+
+describe("brain tags --apply, round 2 of review", () => {
+  const read = (root: string, rel: string) => readFileSync(join(root, rel), "utf-8");
+  const doc = (tags: string) => `---\ntitle: D\ntype: note\ntags: ${tags}\n---\n\nbody\n`;
+
+  test("with --redundant, the plan counts the tags left after removal, so a second run is a no-op", async () => {
+    const root = makeBrain({ aliases: { unused: "trails" } }, {
+      "trail/a.md": doc("[trail]"),
+      "trail/b.md": doc("[trail]"),
+      "trail/c.md": doc("[trail]"),
+      "notes/d.md": doc("[tr_ail]"),
+      "notes/e.md": doc("[trails]"),
+      "notes/f.md": doc("[trails]"),
+    });
+    const run = async () => {
+      const { stdout, code } = await runCli(root, ["tags", "--apply", "--groups", "--redundant", "--json"]);
+      expect(code).toBe(0);
+      return JSON.parse(stdout) as TagApplyReport;
+    };
+    const first = await run();
+    // The trail/ documents lose their directory tag, so `trails` is the
+    // group's most used form once the plan is applied, and tr_ail joins it.
+    expect(first.files.map((f) => [f.path, f.to])).toEqual([
+      ["notes/d.md", ["trails"]],
+      ["trail/a.md", []],
+      ["trail/b.md", []],
+      ["trail/c.md", []],
+    ]);
+    expect((await run()).files).toEqual([]);
+  });
+
+  test("an index that cannot be opened stops the run before any file is rewritten", async () => {
+    const root = makeBrain({ aliases: { trails: "trail" } }, { "notes/a.md": doc("[trails]") });
+    // A directory where the database file should be: SQLite cannot open it.
+    mkdirSync(join(root, "brain.db"));
+    const { stdout, code } = await runCli(root, ["tags", "--apply", "--json"]);
+    expect(code).toBe(2);
+    const out = JSON.parse(stdout);
+    expect(out.files).toEqual([]);
+    expect(out.warnings).toHaveLength(1);
+    expect(out.warnings[0]).toStartWith("cannot open the index");
+    expect(read(root, "notes/a.md")).toBe(doc("[trails]"));
+    // Once the index opens again, the retry does the whole migration.
+    rmSync(join(root, "brain.db"), { recursive: true });
+    const retry = await runCli(root, ["tags", "--apply", "--json"]);
+    expect(retry.code).toBe(0);
+    expect(JSON.parse(retry.stdout).files).toEqual([{ path: "notes/a.md", from: ["trails"], to: ["trail"] }]);
   });
 });

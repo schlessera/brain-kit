@@ -22,6 +22,7 @@ import type { Database } from "bun:sqlite";
 
 import type { TagsConfig } from "./config.js";
 import { collectTaggedDocuments, findRedundantTags, findVariantGroups } from "./tags.js";
+import type { TaggedDocument } from "./tags.js";
 import type { Taxonomy } from "./taxonomy.js";
 
 export interface TagApplyOptions {
@@ -32,7 +33,7 @@ export interface TagApplyOptions {
   /** Only change this old tag. */
   only?: string;
   dryRun?: boolean;
-  /** Test seam: runs after a file's rewrite is planned and before it is committed. */
+  /** Test seam: runs after the temporary file is written, just before the original is hashed again and replaced. */
   beforeCommit?: (path: string) => void;
 }
 
@@ -64,7 +65,7 @@ export interface RenamePlan {
 }
 
 /**
- * One stable plan from the tags in use.
+ * One stable plan from the tagged documents.
  *
  * Explicit `aliases` come first and resolve to the end of their chain; a
  * chain that loops (`a → b → c → b`) is a cycle, and every tag on it is left
@@ -73,10 +74,15 @@ export interface RenamePlan {
  * and never for a tag the aliases name: an alias key is already planned, and
  * an alias target is a canonical tag the owner chose, which inference must
  * not rename away. Groups are recomputed over the tags as the plan leaves
- * them until nothing more joins, so running the plan's result again plans
- * nothing.
+ * them, per document and after `redundant` removal, until nothing more
+ * joins, so running the plan's result again plans nothing.
  */
-export function planRenames(counts: Map<string, number>, config: TagsConfig | null, groups: boolean): RenamePlan {
+export function planRenames(
+  docs: TaggedDocument[],
+  config: TagsConfig | null,
+  groups: boolean,
+  redundant = false
+): RenamePlan {
   const aliases = new Map<string, string>(Object.entries(config?.aliases ?? {}));
   const aliasTargets = new Set(aliases.values());
   const vocabulary = new Set(config?.vocabulary ?? []);
@@ -95,12 +101,26 @@ export function planRenames(counts: Map<string, number>, config: TagsConfig | nu
     else if (to !== from) renames.set(from, to);
   }
 
-  for (let round = 0; round <= counts.size; round++) {
-    const projected = new Map<string, number>();
-    for (const [tag, count] of counts) {
-      const to = renames.get(tag) ?? tag;
-      projected.set(to, (projected.get(to) ?? 0) + count);
+  // Each document's tags as the plan so far leaves them: renamed, redundant
+  // ones dropped, merged. A document on an alias cycle is not rewritten.
+  const projectedCounts = (): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const doc of docs) {
+      const onCycle = doc.tags.some((t) => cycles.has(t));
+      const tags = new Set<string>();
+      for (const tag of doc.tags) {
+        const to = onCycle ? tag : (renames.get(tag) ?? tag);
+        if (!onCycle && redundant && isRedundant(doc, to)) continue;
+        tags.add(to);
+      }
+      for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
+    return counts;
+  };
+
+  const distinct = new Set(docs.flatMap((d) => d.tags)).size;
+  for (let round = 0; round <= distinct; round++) {
+    const projected = projectedCounts();
     let changed = false;
     for (const group of findVariantGroups(projected, config)) {
       if (!groups && !vocabulary.has(group.canonical)) continue;
@@ -116,6 +136,11 @@ export function planRenames(counts: Map<string, number>, config: TagsConfig | nu
     if (!changed) break;
   }
   return { renames, cycles };
+}
+
+/** Whether `tag` repeats the document's type or a directory of its path. */
+export function isRedundant(doc: { path: string; type: string | null }, tag: string): boolean {
+  return findRedundantTags([{ path: doc.path, type: doc.type, tags: [tag] }]).length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,15 +393,31 @@ export function rewriteTags(
 
 /**
  * Replace a file with `text` only if it still holds exactly the bytes read
- * before: through a temporary file renamed into place, so a reader never
- * sees half a file. Returns false when the file changed in the meantime.
+ * before. The new text goes to a temporary file first, so a reader never sees
+ * half a file; the original is hashed again as the last step before the
+ * rename, and a mismatch leaves the file alone. Returns false then.
+ *
+ * A window remains between that last hash and the rename: an editor that
+ * saves in it loses its save. POSIX has no compare-and-rename, and closing it
+ * would take locking every editor cooperates with. It is the same window
+ * `sed -i` and an editor's own save-by-rename have, and it is as short as
+ * one read and one rename.
  */
-function commitIfUnchanged(fullPath: string, expectedHash: string, text: string): boolean {
-  if (contentHash(readFileSync(fullPath, "utf-8")) !== expectedHash) return false;
+function commitIfUnchanged(
+  fullPath: string,
+  expectedHash: string,
+  text: string,
+  beforeRename?: () => void
+): boolean {
   const temp = `${fullPath}.brain-tags-${process.pid}.tmp`;
   try {
     writeFileSync(temp, text, "utf-8");
     chmodSync(temp, statSync(fullPath).mode);
+    beforeRename?.();
+    if (contentHash(readFileSync(fullPath, "utf-8")) !== expectedHash) {
+      unlinkSync(temp);
+      return false;
+    }
     renameSync(temp, fullPath);
   } catch (e) {
     try {
@@ -395,11 +436,12 @@ function commitIfUnchanged(fullPath: string, expectedHash: string, text: string)
  * already rewritten still get indexed and accepted by the caller.
  */
 export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApplyOptions): TagApplyResult {
-  const counts = new Map<string, number>();
-  for (const doc of collectTaggedDocuments(root, taxonomy)) {
-    for (const tag of doc.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  }
-  const { renames, cycles } = planRenames(counts, taxonomy.tags, opts.groups ?? false);
+  const { renames, cycles } = planRenames(
+    collectTaggedDocuments(root, taxonomy),
+    taxonomy.tags,
+    opts.groups ?? false,
+    opts.redundant ?? false
+  );
   const result: TagApplyResult = { report: { files: [], skipped: [] }, written: new Map(), failed: false };
   const { report } = result;
 
@@ -421,7 +463,7 @@ export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApply
         const entries = tags.map((tag): string | null => {
           if (!applies(tag)) return tag;
           const next = renames.get(tag) ?? tag;
-          if (opts.redundant && findRedundantTags([{ path, type, tags: [next] }]).length > 0) return null;
+          if (opts.redundant && isRedundant({ path, type }, next)) return null;
           return next;
         });
         // Merge only what the plan produced: a renamed entry that meets its
@@ -442,8 +484,7 @@ export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApply
         continue;
       }
       if (!opts.dryRun) {
-        opts.beforeCommit?.(path);
-        if (!commitIfUnchanged(fullPath, contentHash(text), outcome.text)) {
+        if (!commitIfUnchanged(fullPath, contentHash(text), outcome.text, () => opts.beforeCommit?.(path))) {
           report.skipped.push({ path, reason: "changed during apply" });
           continue;
         }
