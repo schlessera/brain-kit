@@ -3825,3 +3825,112 @@ of 16 on pi. `contact` as its own question belongs to #119. The two backends
 also billed differently, the subscription here and an API key on pi. No
 mechanism is known by which billing reaches what the model decides, but the
 two runs were not identical in that respect.
+
+## 2026-09-25 — measured: eager brain tools change how the Claude backend reads the brain; no observed gain on `contact` or `quote` (#358)
+
+**Question.** The entry above left the tool roster as the leading suspect for
+the gap to pi, which sits in the prompts answered by reading the brain. On pi
+the eight `brain_*` tools are in the prompt. On the Claude backend they come
+from the brain's `.mcp.json` as a stdio server without `alwaysLoad`, so they
+wait behind `ToolSearch`. This run changes that one difference and nothing
+else: does the rate on the brain-reading prompts move when the brain tools
+are in the Claude prompt?
+
+**Method.** The same harness, model, prompts and counts as #137:
+`scripts/measure-show-block-server.ts --backend claude --model
+claude-sonnet-5`, prompts 0–3 at six reps and 4–7 at two, run twice. That is
+64 turns on 2026-09-25, from 04:51:00Z (the first measured turn's stream) to
+05:15:43Z, on Claude Code 2.1.280 under `@anthropic-ai/claude-agent-sdk`
+0.3.280. The environment is #137's, rebuilt rather than reused: a fresh copy
+of `packages/core/fixtures/corpus/` under `/tmp`, outside any home directory
+and checkout, with no `.claude` ancestor and no git repository, indexed
+before the first turn. `HOME` and `CLAUDE_CONFIG_DIR` were empty, the
+subscription's access token was passed as `CLAUDE_CODE_OAUTH_TOKEN`, and
+the brain copy's `.claude/settings.json` set `autoMemoryEnabled: false` and
+`enableAllProjectMcpServers: true`. The environment presences on all four run
+files were `CLAUDE_CODE_OAUTH_TOKEN` alone, and `apiKeySource` was `none` on
+every turn. **The one difference:** the brain's `.mcp.json` entry carried
+`"alwaysLoad": true`. One smoke turn (`contact`) confirmed the roster and the
+isolation before the measured runs. **All 64 turns completed. 3 are excluded
+for leaving the brain (below), so 61 are counted.**
+
+**The roster each turn saw**, identical on all 64 turns and read the way #137
+read it: the `init` inventory minus the names the session transcript's
+`deferred_tools_delta` announced.
+
+| | Claude backend, eager brain tools (this run) | Claude backend, shipping (#137) |
+| --- | --- | --- |
+| in the prompt as schemas | the same 13 CLI tools and five bridge tools, **plus all eight `mcp__brain__*` tools**: 26 | 13 CLI tools and five bridge tools: 18 |
+| behind tool search, by name only | 16 CLI tools, the same 16 as #137 | the same 16 CLI tools plus all eight `mcp__brain__*` tools |
+| called, across the counted turns | `brain_read` 61, `show_block` 43, `Bash` 35, `brain_list` 26, `brain_search` 25, `brain_context` 6, `Skill` 1 | `Bash` 103, `Read` 72, `show_block` 40, `Grep` 28, `Glob` 5, `ToolSearch` 5, `brain_search` 3, `brain_list` 3 |
+
+**The change took.** No turn called `ToolSearch`, `Read`, `Grep` or `Glob`.
+33 of the 61 counted turns called a brain tool, against 3 in #137, and every
+one of the 28 turns on prompts 3–7 read the brain through the brain tools
+alone. `Bash` survived only on `trend`, where the model counted files by
+creation date. The only skill loaded was the CLI's built-in `dataviz`, once,
+on a `trend` turn.
+
+**Three turns left the brain.** All three are `trend` turns in run 1. One ran
+`find / -maxdepth 3 -iname "brain"`, and two listed the directory that holds
+the brain copy. The harness's escape rule, conservative since #360, flagged
+all three itself. The transcript audit read every path-like token handed to a
+non-block tool, a bare `/`, `~` and `..` included, and found the same three
+and no others. All three are **excluded**. Two of them drew a `trend` block
+and one did not, so the exclusion moves the overall rate from 44/64 (68.75%)
+to 42/61 (68.85%). Apart from those, the audit found no
+instruction file, no user skill or agent, and no account email. Skills and
+agents were the CLI's built-ins, the same list #137 saw. Every `contact`
+answer named Alex Example.
+
+**The rate, on one axis**, beside #137's Claude run and pi's run. Each cell
+counts turns that drew at least one accepted block. The excluded turns are
+out of every cell.
+
+| prompt | expected kind | eager, run 1 | eager, run 2 | eager, pooled | Claude #137, pooled | pi, pooled |
+| --- | --- | --- | --- | --- | --- | --- |
+| `compare-short` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 | 12/12, right 12 |
+| `compare-long` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 | 12/12, right 12 |
+| `trend` | `trend` | 3/3 | 6/6 | **9/9**, right 8 (`timeline` ×1; one turn drew `bars` after its `trend`) | 10/10, right 10 | 8/8, right 8 |
+| `contact` | `contact` | 0/6 | 0/6 | **0/12** | 0/12 | 5/12, right 5 |
+| `steps` | `steps` | 2/2 | 2/2 | **4/4**, right 4 | 3/4, right 3 | 4/4, right 4 |
+| `schedule` | `schedule` | 1/2 | 1/2 | **2/4**, right 0 (`timeline`, `receipt`) | 2/4, right 0 (`timeline` ×2) | 4/4, right 0 (`timeline` ×4) |
+| `quote` | `quote` | 0/2 | 0/2 | **0/4** | 0/4 | 3/4, right 3 |
+| project summary | — | 1/2 | 2/2 | **3/4** (`receipt`) | 1/4 (`receipt`) | 4/4 |
+| overall | | 19/29 | 23/32 | **42/61 (69%)** | **40/62 (65%)** | **52/60 (87%)** |
+
+Right kind is 36 of 39 scorable turns, against 37 of 39 in #137. The handler
+rejected no call, and no turn typed a markdown table. On `quote` the model
+typed the sentence as a markdown blockquote all four times, as it did in #137.
+
+**The effect, with a number.** Over the five prompts answered by reading the
+brain (`contact`, `steps`, `schedule`, `quote` and the summary), eager brain
+tools drew on **9 of 28 turns, against 6 of 28 with the tools deferred**. pi
+drew on 20 of 28. The whole move is three turns in the two-rep cells, the
+summary and `steps`. At four turns a cell, 1/4 to 3/4 is too few turns to
+call either an effect or noise. On `contact` and `quote` there was **no
+observed improvement: 0 of 16 with eager brain tools, 0 of 16 deferred, and
+8 of 16 on pi**. The overall rate went from 65% to 69%, and it is still 18
+points short of pi's 87%.
+
+**What that means for the roster candidate.** Deferral of the brain tools
+explains *how* the Claude backend read the brain in #137. It went through
+`Bash` and `Read` because the brain tools were behind tool search, and with
+them in the prompt it reads through them, as pi does. It does not explain
+*whether* it draws. On `contact` and `quote` the model now reads the brain
+the way pi does and still typed the answer on every turn measured. So
+deferral does not account for the size of pi's lead on those two cells (8 of
+16 against 0 of 16). These counts cannot rule out a smaller effect: a true
+draw rate of 10% still gives 0 of 4 about two times in three. It does not
+rule out the roster either. The Claude prompt still carries
+the 13 CLI tools, and pi carries its curated set, so the two rosters still
+differ in size and composition. The layer and the backend are also still
+open. Nothing here separates them from what is left of the roster.
+
+**What this does not say.** It does not say what `brain setup` or the
+template should write into `.mcp.json`. That is a separate decision this run
+informs, not makes. The rate is one input to it. The prompt was 8 schemas
+larger, and on prompts 3–7 the model stopped reading the brain through a
+shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
+and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
+`contact` and `quote` smaller than these counts can see.
