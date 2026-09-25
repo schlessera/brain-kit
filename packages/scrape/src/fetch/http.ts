@@ -25,6 +25,9 @@ const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 /** Cap on how long a `Retry-After` may park a request. */
 const MAX_RETRY_AFTER_MS = 60_000;
+/** The fetch standard's redirect limit. */
+const MAX_REDIRECTS = 20;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export interface ScrapeClientOptions {
   /** Sent on every request, and matched against robots.txt groups. */
@@ -69,8 +72,9 @@ export interface FetchedPage {
    * domain started 301ing to a different job site, and it went on reporting
    * successful, empty scrapes. This is the one thing that distinguishes them.
    *
-   * Falls back to the requested URL when the platform does not report one,
-   * which is the case on the proxy path.
+   * `ScrapeClient` follows redirects itself, so this is the last hop's URL
+   * on both the native and the proxy path. Falls back to the requested URL
+   * only for a `get` that reports none, such as a test double.
    */
   url: string;
 }
@@ -105,26 +109,28 @@ function sleep(ms: number): Promise<void> {
  *
  * Bun's `fetch` ignores `HTTP_PROXY`, and there is no per-request proxy
  * option, so a proxied request has to leave the runtime. Response headers are
- * not captured on this path — `-w` gives us the status and nothing else — so a
- * proxied 429 backs off on the exponential schedule rather than on
- * `Retry-After`.
+ * not captured on this path — `-w` gives us the status and the redirect
+ * target and nothing else — so a proxied 429 backs off on the exponential
+ * schedule rather than on `Retry-After`.
+ *
+ * curl does not follow redirects here (no `-L`): `ScrapeClient.get` follows
+ * them itself, so each hop is checked against robots.txt and paced.
  */
 async function fetchThroughProxy(
   url: string,
   proxy: string,
   headers: Record<string, string>,
   timeoutMs: number
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; location: string }> {
   const args = [
     "curl",
     "-s",
     "-w",
-    "\n%{http_code}",
+    "\n%{http_code}\n%{redirect_url}",
     "-x",
     proxy,
     "--max-time",
     String(Math.ceil(timeoutMs / 1000)),
-    "-L",
     "-A",
     headers["User-Agent"] ?? DEFAULT_USER_AGENT,
   ];
@@ -143,8 +149,36 @@ async function fetchThroughProxy(
   }
 
   const lines = output.split("\n");
+  const location = lines.pop()?.trim() ?? "";
   const status = Number.parseInt(lines.pop()?.trim() || "0", 10);
-  return { status, body: lines.join("\n") };
+  return { status, body: lines.join("\n"), location };
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/** Report `url` as the response's URL, which a constructed `Response` lacks. */
+function servedFrom(response: Response, url: string): Response {
+  if (response.url !== url) Object.defineProperty(response, "url", { value: url, configurable: true });
+  return response;
+}
+
+/**
+ * Headers for a hop to another origin. Credentials the caller set for the
+ * site it asked for do not travel to a site it did not ask for; the fetch
+ * standard drops `Authorization` the same way, and curl drops both.
+ */
+function withoutCredentials(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([key]) => !["authorization", "cookie"].includes(key.toLowerCase())
+    )
+  );
 }
 
 export class ScrapeClient {
@@ -164,12 +198,13 @@ export class ScrapeClient {
   /**
    * Check robots.txt and wait out the host's rate limit.
    *
-   * Returns nothing; throws `RobotsDisallowedError` when the URL is off
-   * limits. `Crawl-delay` is folded in as a floor here rather than at the
-   * limiter, because it is a property of the site's rules and not of the
-   * caller's configuration.
+   * Returns the delay it acquired the limiter with, so a retry of the same
+   * URL is paced the same way without fetching robots.txt again; throws
+   * `RobotsDisallowedError` when the URL is off limits. `Crawl-delay` is
+   * folded in as a floor here rather than at the limiter, because it is a
+   * property of the site's rules and not of the caller's configuration.
    */
-  private async clearToFetch(url: string, opts: FetchOptions): Promise<void> {
+  private async clearToFetch(url: string, opts: FetchOptions): Promise<number> {
     let crawlDelayMs: number | undefined;
     const userAgent = opts.userAgent ?? this.userAgent;
 
@@ -199,30 +234,79 @@ export class ScrapeClient {
     // Each delay is checked on its own before they are combined, so an
     // unusable caller value cannot take the site's Crawl-delay down with it.
     const callerDelayMs = Number.isFinite(opts.delayMs) ? (opts.delayMs as number) : 0;
-    await this.rateLimiter.acquire(hostOf(url), Math.max(callerDelayMs, crawlDelayMs ?? 0));
+    const delayMs = Math.max(callerDelayMs, crawlDelayMs ?? 0);
+    await this.rateLimiter.acquire(hostOf(url), delayMs);
+    return delayMs;
   }
 
   /**
-   * GET with retries. Retries 429 and 5xx, honouring `Retry-After` when the
-   * response carried one; a 4xx other than 429 is returned as-is, because
-   * retrying it will not change the answer.
+   * GET with retries, following redirects one hop at a time.
+   *
+   * Retries 429 and 5xx, honouring `Retry-After` when the response carried
+   * one; a 4xx other than 429 is returned as-is, because retrying it will not
+   * change the answer.
+   *
+   * Every hop goes through `clearToFetch`, so a redirect target is held to
+   * its own origin's robots.txt and paced for its own host. `allowDisallowed`
+   * covers the origin that was asked for and nothing else: a per-call yes for
+   * one site is not a yes for wherever it redirects (see
+   * docs/decisions/scraping-politeness.md).
    */
   async get(url: string, opts: FetchOptions = {}): Promise<Response> {
-    await this.clearToFetch(url, opts);
-
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const retries = opts.retries ?? DEFAULT_RETRIES;
-    const retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
-    const headers: Record<string, string> = {
+    let headers: Record<string, string> = {
       "User-Agent": opts.userAgent ?? this.userAgent,
       Accept: "application/json, text/html, application/xml, */*",
       ...opts.headers,
     };
+    const startOrigin = originOf(url);
+    let current = url;
+
+    for (let hops = 0; ; hops++) {
+      const crossOrigin = originOf(current) !== startOrigin;
+      if (crossOrigin) headers = withoutCredentials(headers);
+      const response = await this.fetchHop(
+        current,
+        crossOrigin ? { ...opts, allowDisallowed: false } : opts,
+        headers
+      );
+      const location = REDIRECT_STATUSES.has(response.status)
+        ? response.headers.get("location")
+        : null;
+      if (!location) return servedFrom(response, current);
+
+      await response.body?.cancel().catch(() => {});
+      if (hops === MAX_REDIRECTS) {
+        throw new Error(`${url} redirected more than ${MAX_REDIRECTS} times`);
+      }
+      const next = new URL(location, current);
+      // Native fetch would refuse these too; following one by hand must not
+      // turn a redirect into a read of a local file.
+      if (next.protocol !== "http:" && next.protocol !== "https:") {
+        throw new Error(`${current} redirected to unsupported URL ${next.href}`);
+      }
+      current = next.href;
+    }
+  }
+
+  /** One URL, with its robots.txt check, pacing and retries, not following redirects. */
+  private async fetchHop(
+    url: string,
+    opts: FetchOptions,
+    headers: Record<string, string>
+  ): Promise<Response> {
+    const delayMs = await this.clearToFetch(url, opts);
+
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const retries = opts.retries ?? DEFAULT_RETRIES;
+    const retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+        // A retry is a request to the host like any other: it waits out the
+        // same Crawl-delay and per-host spacing as the first attempt did.
+        if (attempt > 0) await this.rateLimiter.acquire(hostOf(url), delayMs);
         if (opts.proxy) {
           const result = await fetchThroughProxy(url, opts.proxy, headers, timeoutMs);
           if (result.status === 429 || result.status >= 500) {
@@ -240,6 +324,7 @@ export class ScrapeClient {
           return new Response(result.body, {
             status: result.status,
             statusText: result.status === 200 ? "OK" : `HTTP ${result.status}`,
+            headers: result.location ? { location: result.location } : undefined,
           });
         }
 
@@ -250,7 +335,7 @@ export class ScrapeClient {
           response = await fetch(url, {
             headers,
             signal: controller.signal,
-            redirect: "follow",
+            redirect: "manual",
           });
         } finally {
           clearTimeout(timer);
