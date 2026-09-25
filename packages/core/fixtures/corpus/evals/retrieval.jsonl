@@ -1,3 +1,21 @@
-{"id": "telescope-setup", "q": "telescope setup", "class": "exact", "expected": ["studies/telescope-setup.md"]}
-{"id": "knee-injury", "q": "knee injury", "class": "exact", "expected": ["health/knee-injury.md"]}
-{"id": "sleep-tracking", "q": "sleep tracking", "class": "exact", "expected": ["health/sleep-tracking.md"]}
+{"now": "2026-07-12"}
+{"id": "exact-title-telescope", "q": "Telescope Setup & Collimation", "class": "exact", "expected": ["studies/telescope-setup.md"]}
+{"id": "exact-title-plan", "q": "Bookshelf Build Plan", "class": "exact", "expected": ["projects/active/bookshelf/plan.md"]}
+{"id": "question-collimate", "q": "how do I collimate the telescope?", "class": "question", "expected": ["studies/telescope-setup.md"]}
+{"id": "question-physio", "q": "when is my next physio appointment", "class": "question", "expected": ["health/knee-injury.md"]}
+{"id": "paraphrase-signs", "q": "route and seal the sign", "class": "paraphrase", "expected": ["projects/active/trail-signage/status.md"]}
+{"id": "paraphrase-blanks", "q": "cedar blank", "class": "paraphrase", "expected": ["projects/active/trail-signage/materials.md"]}
+{"id": "alias-dobsonian", "q": "the Dobsonian", "class": "alias", "expected": ["studies/telescope-setup.md"]}
+{"id": "alias-scope", "q": "my scope", "class": "alias", "expected": ["studies/telescope-setup.md"]}
+{"id": "filename-bookshelf", "q": "bookshelf status", "class": "ambiguous-filename", "expected": ["projects/active/bookshelf/status.md"]}
+{"id": "filename-signage", "q": "trail signage status", "class": "ambiguous-filename", "expected": ["projects/active/trail-signage/status.md"]}
+{"id": "time-due-next", "q": "what is due next", "class": "time", "expect": {"select": {"field": "deadline", "after": "now", "order": "asc", "take": 1}}}
+{"id": "time-review", "q": "what should I review next", "class": "time", "expect": {"select": {"type": "context", "field": "next_review", "after": "now", "order": "asc", "take": 1}}}
+{"id": "stale-bio", "q": "short bio", "class": "stale-vs-current", "expected": ["me/basics/FACTS.md"], "stale": ["me/basics/short-bio.md"]}
+{"id": "stale-facts", "q": "biographical facts", "class": "stale-vs-current", "expected": ["me/basics/FACTS.md"], "stale": ["me/basics/short-bio.md"]}
+{"id": "no-answer-tax", "q": "tax return deadline", "class": "no-answer", "expected": []}
+{"id": "multi-hop-collimate", "q": "what should I collimate before the deep-sky session", "class": "multi-hop", "expected": ["studies/telescope-setup.md"]}
+{"id": "multi-hop-focus", "q": "current focus telescope", "class": "multi-hop", "expected": ["studies/telescope-setup.md"]}
+{"id": "non-english-title", "q": "Deep-Sky Übersicht", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
+{"id": "non-english-word", "q": "Katalog", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
+{"id": "recency-rehab", "q": "knee rehab", "class": "recency", "expected": ["context/current-focus.md"]}

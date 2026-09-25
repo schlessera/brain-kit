@@ -124,8 +124,11 @@ on, links to or describes them.
 ## Testing expectations
 
 - Every library keeps or gains unit tests. Integration tests run against
-  `packages/core/fixtures/corpus/` — keyless, deterministic, FTS-only goldens.
-  Never add a test that needs an API key or the network.
+  `packages/core/fixtures/corpus/` — keyless, deterministic. Its retrieval
+  goldens (`evals/retrieval.jsonl`, one query per class, and the ranks in
+  `evals/expected-ranks.json`, asserted by
+  `packages/core/tests/eval-corpus.test.ts`) make any ranking change a
+  reviewed diff. Never add a test that needs an API key or the network.
 - Contract tests assert the `--json` envelopes. CI runs typecheck, tests, the
   keyless Tier-0 e2e funnel, a packaging smoke test, and the leakage gate.
 - Predicate-only unit tests are not proof for anything with a runtime: the
