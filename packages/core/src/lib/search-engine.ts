@@ -441,29 +441,55 @@ async function vectorSearch(
   }
 }
 
+// Weighted reciprocal rank fusion (#404): a document scores
+// sum(weight / (RRF_K + rank)) over the lanes that found it.
+//
+// PROVISIONAL. These constants are reasoned, not measured: the keyed
+// before/after `brain eval` run that should choose them is its own issue
+// (#468). Until it lands:
+//
+// - RRF_K = 60 is the Cormack, Clarke and Büttcher (SIGIR 2009) default.
+// - The vector lane keeps weight 1. The full-text lane gets 0.8 because a
+//   retrieval audit on 0.35.0 measured hybrid below vector-only on hit@1.
+//   At 0.8, agreement still wins (FTS 1 + vector 3 ≈ 0.0290 against vector 1
+//   alone ≈ 0.0164), and an FTS-only first place (≈ 0.0131) lands among
+//   vector's mid-teens rather than above its top hits.
+// - The pool guard: when the full-text lane returns fewer than
+//   FTS_POOL_GUARD × limit candidates, the query barely matched as text and
+//   those few hits would each collect a two-lane bonus. Their weight drops to
+//   THIN_FTS_WEIGHT = 0.05, where an FTS first place is worth about three
+//   vector ranks at the top (0.05 / 61 ≈ 0.00082 ≈ 1/61 − 1/64), so a thin
+//   lane can reorder near neighbours but not outvote vector's first place.
+const RRF_K = 60;
+const VECTOR_LANE_WEIGHT = 1.0;
+const FTS_LANE_WEIGHT = 0.8;
+const FTS_POOL_GUARD = 0.5;
+const THIN_FTS_WEIGHT = 0.05;
+
+/** The full-text lane's fusion weight for a pool of `ftsCount` candidates. */
+export function ftsLaneWeight(ftsCount: number, limit: number): number {
+  return ftsCount < FTS_POOL_GUARD * limit ? THIN_FTS_WEIGHT : FTS_LANE_WEIGHT;
+}
+
 /**
- * Merge result lists using Reciprocal Rank Fusion (RRF).
- * score(d) = sum(1 / (60 + rank)) where rank is 1-indexed position in each list.
+ * Merge weighted result lists with reciprocal rank fusion. A document found
+ * by several lanes keeps the first lane's result object (its snippet) and
+ * sums the lanes' weighted terms.
  */
-function reciprocalRankFusion(
-  ...resultLists: SearchResult[][]
+export function weightedRankFusion(
+  lanes: { results: SearchResult[]; weight: number }[]
 ): SearchResult[] {
   const scoreMap = new Map<string, { score: number; result: SearchResult }>();
 
-  for (const results of resultLists) {
+  for (const { results, weight } of lanes) {
     for (let i = 0; i < results.length; i++) {
-      const rank = i + 1;
-      const rrfScore = 1 / (60 + rank);
+      const term = weight / (RRF_K + i + 1);
       const key = results[i].path;
-
       const existing = scoreMap.get(key);
       if (existing) {
-        existing.score += rrfScore;
+        existing.score += term;
       } else {
-        scoreMap.set(key, {
-          score: rrfScore,
-          result: results[i],
-        });
+        scoreMap.set(key, { score: term, result: results[i] });
       }
     }
   }
@@ -515,7 +541,8 @@ export async function hybridSearch(
   }
 
   const query = opts.query;
-  const resultLists: SearchResult[][] = [];
+  let ftsResults: SearchResult[] | null = null;
+  let vecResults: SearchResult[] | null = null;
 
   // A date sort picks the `limit` results by date, not by score, so each lane
   // retrieves a wider pool first. The full-text lane takes its best
@@ -530,8 +557,7 @@ export async function hybridSearch(
   // FTS search
   if (mode === "fts" || mode === "hybrid") {
     try {
-      const ftsResults = dateSorted ? ftsSearch(db, query, opts, pool) : ftsSearch(db, query, opts);
-      resultLists.push(ftsResults);
+      ftsResults = dateSorted ? ftsSearch(db, query, opts, pool) : ftsSearch(db, query, opts);
     } catch (e) {
       // FTS might fail on malformed queries; treat as empty results
       warnings.push(`FTS search failed: ${(e as Error).message}`);
@@ -563,28 +589,31 @@ export async function hybridSearch(
       );
     } else {
       try {
-        const vecResults = await vectorSearch(db, query, laneOpts, embeddings, queryTimeoutMs);
-        resultLists.push(vecResults);
+        vecResults = await vectorSearch(db, query, laneOpts, embeddings, queryTimeoutMs);
       } catch (e) {
         warnings.push(`vector search failed: ${(e as Error).message}${degraded}`);
       }
     }
-    if (mode === "vector" && resultLists.length === 0) {
+    if (mode === "vector" && vecResults === null) {
       return { results: [], warnings };
     }
   }
 
   // No results from any source
-  if (resultLists.length === 0) {
+  if (ftsResults === null && vecResults === null) {
     return { results: [], warnings };
   }
 
-  // Merge or use single source
+  // Merge or use single source. FTS goes first, so a document both lanes
+  // found keeps its FTS snippet.
   let candidates: SearchResult[];
-  if (resultLists.length === 1) {
-    candidates = resultLists[0];
+  if (ftsResults !== null && vecResults !== null) {
+    candidates = weightedRankFusion([
+      { results: ftsResults, weight: ftsLaneWeight(ftsResults.length, limit) },
+      { results: vecResults, weight: VECTOR_LANE_WEIGHT },
+    ]);
   } else {
-    candidates = reciprocalRankFusion(...resultLists);
+    candidates = (ftsResults ?? vecResults)!;
   }
 
   // Rerank pass — but never on pure-vector results: raw cosine scores are

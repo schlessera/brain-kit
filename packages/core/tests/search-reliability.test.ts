@@ -338,3 +338,65 @@ test("an invalid date filter is refused rather than matching nothing", async () 
   ).rejects.toThrow("updatedSince must be a date written YYYY-MM-DD");
   expect(() => filterSearch(db, { deadlineTo: "soon" })).toThrow("deadlineTo must be a date written YYYY-MM-DD");
 });
+
+// ---------------------------------------------------------------------------
+// Weighted fusion and the full-text pool guard (#404)
+// ---------------------------------------------------------------------------
+
+describe("hybrid fusion", () => {
+  // One document per id: a single chunk at `distance` from the query vector
+  // (rank order in the vector lane), and `text` as its full-text body.
+  function addLaneDoc(id: number, name: string, distance: number, text: string) {
+    db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,'note','active','2026-01-01','2026-01-01',?,'2026-01-01')", [id, `notes/${name}.md`, `Doc ${name}`, text]);
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','',?,'')", [id, text]);
+    const row = db.prepare("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,0,'',?,1) RETURNING id").get(id, text) as { id: number };
+    db.run("INSERT INTO vec_chunks(chunk_id,embedding,is_archived,doc_type) VALUES (?,?,0,'note')", [row.id, new Uint8Array(new Float32Array([1, distance]).buffer)]);
+  }
+  const hybrid = (limit: number) =>
+    hybridSearch(db, { query: "lantern", mode: "hybrid", rerank: "none", limit }, { embeddings: provider });
+  const ftsOnly = (limit: number) =>
+    hybridSearch(db, { query: "lantern", mode: "fts", rerank: "none", limit });
+  const vectorOnly = (limit: number) =>
+    hybridSearch(db, { query: "lantern", mode: "vector", limit }, { embeddings: provider });
+
+  test("a thin full-text lane cannot outvote the vector lane's first place", async () => {
+    // Vector order: x, v2, v3, v4, y, a, b. Full-text matches only a, b, y,
+    // in that order: three candidates, below half of limit 10.
+    addLaneDoc(1, "x", 0.0, "unrelated words");
+    addLaneDoc(2, "v2", 0.1, "other words");
+    addLaneDoc(3, "v3", 0.2, "more words");
+    addLaneDoc(4, "v4", 0.3, "still other words");
+    addLaneDoc(5, "y", 0.4, "a lantern in a long line of words that dilutes the match somewhat");
+    addLaneDoc(6, "a", 0.5, "lantern lantern lantern");
+    addLaneDoc(7, "b", 0.6, "lantern lantern");
+    // The premise: the lanes rank as described.
+    expect((await ftsOnly(10)).results.map(r => r.path)).toEqual(["notes/a.md", "notes/b.md", "notes/y.md"]);
+    expect((await vectorOnly(10)).results.map(r => r.path).slice(0, 5)).toEqual(["notes/x.md", "notes/v2.md", "notes/v3.md", "notes/v4.md", "notes/y.md"]);
+
+    const { results } = await hybrid(10);
+    expect(results[0]!.path).toBe("notes/x.md");
+  });
+
+  test("with a full full-text pool, a document both lanes rank still wins", async () => {
+    // Exactly five full-text matches for limit 10: at the guard, so the lane
+    // keeps its full weight. z is FTS first and vector fifth; x is vector
+    // first only. At the thin weight z would lose to x (0.05/61 + 1/65 <
+    // 1/61), so this also pins where the guard starts.
+    addLaneDoc(1, "x", 0.0, "unrelated words");
+    addLaneDoc(2, "v2", 0.1, "other words");
+    addLaneDoc(3, "v3", 0.2, "more words");
+    addLaneDoc(4, "v4", 0.3, "still other words");
+    addLaneDoc(5, "z", 0.4, "lantern lantern lantern lantern");
+    addLaneDoc(6, "f3", 0.7, "lantern lantern lantern");
+    addLaneDoc(7, "f4", 0.8, "lantern lantern");
+    addLaneDoc(8, "f5", 0.9, "a lantern among words");
+    addLaneDoc(9, "f6", 0.95, "one lantern in a much longer run of other words here");
+    const fts = (await ftsOnly(10)).results.map(r => r.path);
+    expect(fts).toHaveLength(5);
+    expect(fts[0]).toBe("notes/z.md");
+    expect((await vectorOnly(10)).results.map(r => r.path)[4]).toBe("notes/z.md");
+
+    const { results } = await hybrid(10);
+    expect(results[0]!.path).toBe("notes/z.md");
+  });
+});
