@@ -57,7 +57,8 @@ hosts; `data:` URIs always render.
 | `validate` ⚖ | Config, frontmatter, wiki-link, and index-drift validation | `{ok, issues, errors, warnings}`; exit 1 on error-level issues |
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker audit | `{issues, errors, warnings, infos}`; module hygiene checks appended |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |
-| `maintain` | Routine maintenance sequence: incremental index, audit snapshot, scratch prune | exit 2 if any step failed; the hosting container runs it daily. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
+| `tags` ⚖ | Tag hygiene report: variant groups with a proposed canonical tag, tags that repeat the document's type or directory, alias hits, out-of-vocabulary tags | read-only; reads frontmatter, not the index; configure with [`taxonomy.tags`](configuration.md#taxonomytags) |
+| `maintain` | Routine maintenance sequence: incremental index, audit snapshot, tag report (counts only), scratch prune | exit 2 if any step failed (the tag report never fails it); the hosting container runs it daily. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
 | `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], failed: [{path, reason}], bytes, files}`; exit 2 when a file could not be removed; `render`, `image`, `okf export` and the UI's mask tool prune after writing there, and the chat server prunes hourly |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top |
 
