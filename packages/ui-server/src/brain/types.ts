@@ -36,10 +36,8 @@ export interface BrainStats {
   chunks: number;
 }
 
+/** What a `brain sync` that exited 0 printed; a failed sync throws instead. */
 export interface BrainSyncResult {
-  success: boolean;
-  commits: number;
-  conflicts: number;
   message: string;
 }
 
