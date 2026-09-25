@@ -207,6 +207,37 @@ describe("detectCandidates", () => {
     expect(run.rows.map((row) => row.v)).toEqual(["12", "600\\", "9"]);
   });
 
+  test("a value that starts or ends inside a flattened address keeps the part of it that is on the value's side", () => {
+    const rows = (text: string) => {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      return run.rows;
+    };
+    // The trailing space is inside the address, so trimming the line ends the
+    // value inside it.
+    const site = "[https://ithaca.example/ ](<https://ithaca.example/ >)";
+    expect(rows(`**Name:** Odysseus\n**Site:** ${site}`)[1]).toEqual({ k: "Site", v: "https://ithaca.example/" });
+    expect(rows(`- **Name:** Odysseus\n- **Site:** ${site}`)[1]).toEqual({ k: "Site", v: "https://ithaca.example/" });
+    expect(rows(`**Name:** Odysseus\n**Site:** go ${site}`)[1]).toEqual({ k: "Site", v: "go https://ithaca.example/" });
+    // The key is inside the address, so the value starts inside it.
+    expect(rows("[Key: value](<Key: value>)\nShips: 12")).toEqual([
+      { k: "Key", v: "value" },
+      { k: "Ships", v: "12" },
+    ]);
+  });
+
+  test("markup that spans a line or the key keeps no delimiters in a value", () => {
+    const values = (text: string) => {
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error(`no kv_run for ${JSON.stringify(text)}`);
+      return run.rows.map((row) => row.v);
+    };
+    expect(values("Crew: `600\nShips: 12`")).toEqual(["600", "12"]);
+    expect(values("Crew: **600\nShips: 12**")).toEqual(["600", "12"]);
+    expect(values("Crew *count: 600*\nShips: 12")).toEqual(["600", "12"]);
+    expect(values("- Crew *count: 600*\n- Ships: 12")).toEqual(["600", "12"]);
+  });
+
   test("one key line is prose, not a run", () => {
     expect(detectCandidates("**Ships:** 12")).toEqual([]);
   });

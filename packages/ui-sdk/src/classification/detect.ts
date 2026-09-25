@@ -14,6 +14,7 @@
  */
 
 import { toString as mdastToString } from "mdast-util-to-string";
+import { decodeString } from "micromark-util-decode-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -240,6 +241,9 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
         const ahead = lastCodePoint(prose.slice(0, -scheme)) || (seenBefore.get(before) ?? "");
         if (!/[\p{L}\p{N}]/u.test(ahead)) {
           (before as Text).value = prose.slice(0, -scheme);
+          // Its source now ends where the scheme starts, so no two text
+          // nodes claim the same characters.
+          before.position = { start: { offset: before.position.start.offset }, end: { offset: start - scheme } };
           from = start - scheme;
         }
       }
@@ -384,74 +388,89 @@ function timedListCandidate(node: List, id: string, span: CandidateSpan): TimedL
 /** `**Key:** value`, `**Key**: value`, `Key: value` — one row of a receipt-shaped run. */
 const KV_LINE = /^(?:\*\*([^*:]{1,40})(?::\*\*|\*\*:)|([A-Z][^:]{0,39}):)\s+(.+)$/d;
 
-/** Where the character at `index` of `flatSource(source, span, flattened)` sits in the source. */
-function sourceOffset(span: CandidateSpan, flattened: readonly Flattened[], index: number): number {
-  let at = span.start;
-  let read = 0;
-  for (const flat of flattened) {
-    if (flat.start < span.start || flat.end > span.end) continue;
-    const plain = flat.start - at;
-    if (index < read + plain) return at + (index - read);
-    read += plain;
-    if (index < read + flat.text.length) return flat.start;
-    read += flat.text.length;
-    at = flat.end;
+/**
+ * A piece of text the inline tree ends in — a text node, a code span, a hard
+ * break — with where it sits in the source and in `flatSource`. A flattened
+ * address is one too, and carries its text: its source is not what it reads.
+ */
+interface Leaf {
+  node: Node;
+  start: number;
+  end: number;
+  at: number;
+  length: number;
+  flat?: string;
+}
+
+/** The leaves under `node`, placed in `flatSource(source, span, flattened)`. */
+function leavesOf(node: Node, span: CandidateSpan, flattened: readonly Flattened[], out: Leaf[] = []): Leaf[] {
+  for (const child of node.children ?? []) {
+    if (Array.isArray(child.children)) {
+      leavesOf(child, span, flattened, out);
+      continue;
+    }
+    const start = child.position?.start.offset;
+    const end = child.position?.end.offset;
+    if (typeof start !== "number" || typeof end !== "number") continue;
+    let at = start - span.start;
+    let flat: string | undefined;
+    for (const f of flattened) {
+      if (f.start < span.start || f.end > span.end) continue;
+      if (f.start === start && f.end === end) flat = f.text;
+      else if (f.end <= start) at -= f.end - f.start - f.text.length;
+    }
+    out.push({ node: child, start, end, at, length: flat?.length ?? end - start, flat });
   }
-  return at + (index - read);
+  return out;
 }
 
 /**
- * A stretch of inline markdown as a reader sees it, read the way `cellText`
- * reads a node, so a value says what a quote of the same text says (#236).
- * The lead word keeps it inline: on its own `#1`, `- x` or `[a]: b` would
- * open a block, which after a key it never did.
+ * The text of the leaves between `from` and `to` in `flatSource`, read as a
+ * reader sees it, the way `cellText` reads a node (#236). A leaf cut by the
+ * range gives the part on its side: the markup around it — emphasis opened
+ * on the key's side, a code span running on to the next line — is the
+ * tree's, so no delimiter reaches the value. A hard break only ever ends a
+ * line, so the value never holds all of one, and part of one reads as nothing.
  */
-const INLINE_LEAD = "x ";
-
-function inlineText(markdown: string): string {
-  const text = INLINE_LEAD + markdown;
-  const root = parseMarkdown(text);
-  flattenBareAddresses(root, text, []);
-  return cellText(root).slice(INLINE_LEAD.length);
+function textBetween(leaves: readonly Leaf[], source: string, from: number, to: number): string {
+  let out = "";
+  for (const leaf of leaves) {
+    const lo = Math.max(from, leaf.at) - leaf.at;
+    const hi = Math.min(to, leaf.at + leaf.length) - leaf.at;
+    if (lo >= hi) continue;
+    const whole = lo === 0 && hi === leaf.length;
+    if (leaf.flat !== undefined) out += leaf.flat.slice(lo, hi);
+    else if (whole) out += plainText(leaf.node);
+    else if (leaf.node.type === "text") out += decodeString(source.slice(leaf.start + lo, leaf.start + hi));
+    else if (leaf.node.type === "inlineCode") {
+      // A code span's content is literal; only its fences are not text.
+      const fence = /^`+/.exec(source.slice(leaf.start, leaf.end))?.[0].length ?? 0;
+      out += source.slice(leaf.start + Math.max(lo, fence), leaf.start + Math.min(hi, leaf.length - fence));
+    }
+  }
+  return out.replace(/\s+/g, " ").trim();
 }
 
-/** One line of a run: `text` is `flatSource` over `span`, from `at` characters in. */
+/** One line of a run: `text` is `flatSource` over the line's block, from `at` characters in. */
 interface KvLine {
   text: string;
   at: number;
-  span: CandidateSpan;
+  leaves: readonly Leaf[];
 }
 
-function kvRows(
-  lines: readonly KvLine[],
-  source: string,
-  flattened: readonly Flattened[],
-  breaks: readonly number[]
-): Array<{ k: string; v: string }> | null {
+function kvRows(lines: readonly KvLine[], source: string): Array<{ k: string; v: string }> | null {
   const rows: Array<{ k: string; v: string }> = [];
   for (const line of lines) {
     const text = line.text.trim();
     const match = KV_LINE.exec(text);
     if (!match) return null;
     // The key is read from the source, where the `**` around it is the
-    // signal. The value is read as its markup decodes, from where it sits in
-    // the source up to the hard break that may end its line.
+    // signal; the value from the tree, as every other candidate kind is.
     const lead = line.at + line.text.indexOf(text);
     const [from, to] = match.indices![3]!;
-    const start = sourceOffset(line.span, flattened, lead + from);
-    let end = sourceOffset(line.span, flattened, lead + to);
-    for (const at of breaks) if (at >= start && at < end) end = at;
-    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: inlineText(source.slice(start, end)) });
+    rows.push({ k: (match[1] ?? match[2] ?? "").trim(), v: textBetween(line.leaves, source, lead + from, lead + to) });
   }
   return rows.length >= 2 ? rows : null;
-}
-
-/** Where each hard break under `node` starts in the source. */
-function breakOffsets(node: Node, out: number[] = []): number[] {
-  const start = node.position?.start.offset;
-  if (node.type === "break" && typeof start === "number") out.push(start);
-  for (const child of node.children ?? []) breakOffsets(child, out);
-  return out;
 }
 
 /** A paragraph of key-colon-value lines, or a bullet list whose items are such lines. */
@@ -467,13 +486,14 @@ function kvRunCandidate(
     // Source lines, not `toString`: the `**` around the key is the signal,
     // and toString would strip it. A bare address still reads as its text,
     // so `<…>` does not reach a cell.
+    const leaves = leavesOf(node, span, flattened);
     const lines: KvLine[] = [];
     let at = 0;
     for (const line of flatSource(source, span, flattened).split("\n")) {
-      lines.push({ text: line.replace(/\s+$/, ""), at, span });
+      lines.push({ text: line.replace(/\s+$/, ""), at, leaves });
       at += line.length + 1;
     }
-    const rows = kvRows(lines, source, flattened, breakOffsets(node));
+    const rows = kvRows(lines, source);
     return rows ? { kind: "kv_run", id, rows, ...span } : null;
   }
   if (node.ordered || node.children.length < 2) return null;
@@ -483,9 +503,9 @@ function kvRunCandidate(
     if (paragraphs.length !== 1 || item.children.length !== 1 || hasRichInline(paragraphs[0]!)) return null;
     const itemSpan = spanOf(paragraphs[0]!);
     if (!itemSpan) return null;
-    lines.push({ text: flatSource(source, itemSpan, flattened), at: 0, span: itemSpan });
+    lines.push({ text: flatSource(source, itemSpan, flattened), at: 0, leaves: leavesOf(paragraphs[0]!, itemSpan, flattened) });
   }
-  const rows = kvRows(lines, source, flattened, breakOffsets(node));
+  const rows = kvRows(lines, source);
   return rows ? { kind: "kv_run", id, rows, ...span } : null;
 }
 
