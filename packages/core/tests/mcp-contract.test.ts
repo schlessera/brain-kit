@@ -1,13 +1,14 @@
 /**
  * MCP contract tests. Spawns the real stdio server against a temp corpus and
- * asserts the tool surface (all 8 `brain_*` names, readOnly annotations) and
- * the structuredContent shapes for brain_search and brain_list.
+ * asserts the tool surface (all 8 `brain_*` names, readOnly annotations, the
+ * input schemas pinned in mcp-input-schemas.json) and the result shapes of the
+ * five read tools.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -15,6 +16,30 @@ import { packageVersion } from "../src/package-version";
 
 let root: string;
 let client: Client;
+
+const SCHEMA_SNAPSHOT = join(import.meta.dir, "mcp-input-schemas.json");
+
+/**
+ * An input schema as the contract pins it: names, types, enums, defaults and
+ * `required`. Descriptions are prose, and some interpolate the brain's own
+ * taxonomy, so the `description` annotation is dropped from every schema
+ * node. A `properties` map is not a schema node: its keys are input names,
+ * and an input called `description` must stay.
+ */
+function withoutDescriptions(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withoutDescriptions);
+  if (!schema || typeof schema !== "object") return schema;
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(([key]) => key !== "description")
+      .map(([key, v]) => [
+        key,
+        key === "properties" && v && typeof v === "object" && !Array.isArray(v)
+          ? Object.fromEntries(Object.entries(v).map(([name, s]) => [name, withoutDescriptions(s)]))
+          : withoutDescriptions(v),
+      ])
+  );
+}
 
 const READ_TOOLS = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph"];
 const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive"];
@@ -66,6 +91,28 @@ test("write tools are marked non-destructive / idempotent", async () => {
   }
 });
 
+// A schema change must be made on purpose: rerun locally with
+// UPDATE_MCP_SCHEMAS=1 to rewrite the snapshot, and update
+// docs/integration-contract.md with it. Update mode is refused under CI, where
+// it would rewrite the expectation it is about to compare against.
+test("input schemas match the checked-in snapshot", async () => {
+  const update = process.env.UPDATE_MCP_SCHEMAS === "1";
+  if (update && process.env.CI) {
+    throw new Error("UPDATE_MCP_SCHEMAS is refused under CI: regenerate the snapshot locally and commit it");
+  }
+  const { tools } = await client.listTools();
+  const schemas = Object.fromEntries(
+    [...tools]
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+      .map((t) => [t.name, withoutDescriptions(t.inputSchema)])
+  );
+  if (update) {
+    writeFileSync(SCHEMA_SNAPSHOT, `${JSON.stringify(schemas, null, 2)}\n`);
+  }
+  expect(Object.keys(schemas)).toHaveLength(ALL_TOOLS.length);
+  expect(schemas).toEqual(JSON.parse(readFileSync(SCHEMA_SNAPSHOT, "utf-8")));
+});
+
 describe("brain_search", () => {
   test("returns { results, warnings } structuredContent", async () => {
     const res = await client.callTool({
@@ -93,6 +140,55 @@ describe("brain_list", () => {
     expect(Array.isArray(sc.documents)).toBe(true);
     expect(Array.isArray(sc.warnings)).toBe(true);
     expect(sc.documents.every((d) => d.type === "health")).toBe(true);
+  });
+});
+
+describe("brain_context", () => {
+  test("returns { context, warnings } structuredContent", async () => {
+    const res = await client.callTool({
+      name: "brain_context",
+      arguments: { query: "astronomy", max_tokens: 1000 },
+    });
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as { context: string; warnings: unknown[] };
+    expect(typeof sc.context).toBe("string");
+    expect(sc.context).toContain("##");
+    expect(Array.isArray(sc.warnings)).toBe(true);
+  });
+});
+
+describe("brain_read", () => {
+  // No structuredContent: the document is the first text block, verbatim.
+  test("returns the file text as content, with no structuredContent", async () => {
+    const res = await client.callTool({
+      name: "brain_read",
+      arguments: { path: "me/identity.md" },
+    });
+    expect(res.structuredContent).toBeUndefined();
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    expect(first.type).toBe("text");
+    expect(first.text).toBe(readFileSync(join(root, "me/identity.md"), "utf-8"));
+  });
+});
+
+describe("brain_graph", () => {
+  test("returns { edges, warnings } structuredContent", async () => {
+    const res = await client.callTool({
+      name: "brain_graph",
+      arguments: { path: "me/identity.md" },
+    });
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as {
+      edges: Array<{ source: unknown; target: unknown; resolved: unknown }>;
+      warnings: unknown[];
+    };
+    expect(Array.isArray(sc.warnings)).toBe(true);
+    expect(sc.edges.length).toBeGreaterThan(0);
+    for (const edge of sc.edges) {
+      expect(typeof edge.source).toBe("string");
+      expect(typeof edge.target).toBe("string");
+      expect(typeof edge.resolved).toBe("boolean");
+    }
   });
 });
 

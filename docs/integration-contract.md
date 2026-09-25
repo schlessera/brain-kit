@@ -22,7 +22,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 
 | Consumer | Surfaces used |
 |----------|---------------|
-| brain-ui (`packages/ui-server/src/brain/client.ts`, `packages/ui-server/src/graph/reader.ts`) | CLI `--json` commands, brain.db reads (voice keyterms; the `links` and `graph_*` tables for the knowledge graph), file paths |
+| brain-ui (`packages/ui-server/src/brain/client.ts`, `packages/ui-server/src/graph/reader.ts`, `packages/ui-server/src/cron/emit.ts`) | CLI `--json` commands, brain.db reads (voice keyterms; the `links` and `graph_*` tables for the knowledge graph), file paths |
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
@@ -43,12 +43,17 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | Command | Shape |
 |---------|-------|
 | `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key) |
-| `brain audit --json` | `{ "issues": AuditIssue[], ... }` — markdown documents only (assets excluded) |
+| `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos" }` — markdown documents only (assets excluded). The three counts are the number of issues at each severity. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
-| `brain index [--force] [--embeddings]` | stats object; incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
+| `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
+| `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
+| `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
+| `brain sync` | no JSON. With no verb, `sync` runs the `/sync` skill through the configured coding agent and prints the agent's final text on stdout, whatever the output mode; exit `1` when no agent runner is available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` still runs the agent, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`assess`, `group`, `pull`, `conflicts`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for that skill to drive, are not part of this contract |
+| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "cron": [{ "name", "schedule", "command" }] }], "available": [{ "key", "description", "enabled": false }] }` — `key` is the module's `brain.config` key (a package name or `./path`). `types` and `commands` are the type names and CLI words it contributes. `description` comes from the module's `package.json` and is `null` when it has none. `available` lists `@schlessera/brain-module-*` packages the brain's `package.json` declares but its config does not enable; `description` is `null` there when the package is not installed. `cron` is shape-constrained (see [Guarantees](#guarantees-consumers-may-rely-on)) |
+| `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit) |
-| `brain init --check` | preflight object (new in brain-kit). Its `config` block is `{ exists, valid, initialized, path, error? }`; `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0) |
+| `brain init --check` | `{ "bun": { "version", "ok" }, "git": { "repo" }, "hooksPath": { "set", "value" }, "config": { "exists", "valid", "initialized", "path", "error"? }, "contentDirs": { "present", "missing" }, "keys": { "GEMINI_API_KEY", "ANTHROPIC_API_KEY" } }` (new in brain-kit). `bun.version` is `null` when not running under Bun. `git.repo` says whether the root is inside a git work tree. `hooksPath.value` is git's `core.hooksPath`, `null` when unset. `config.path` is `null` when there is no config, and `error` is present only when the config failed to load (`valid: false`). `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0). `contentDirs` splits the core types' directories into those that exist and those that do not. Each `keys` entry is a boolean — whether that variable is set — never the key |
 | `brain okf export --json` | `{ "outDir", "filesExported", "assetsCopied", "linksConverted", "linksDegraded", "degradedLinks", "indexFilesGenerated", "topLevelDirectories", "warnings" }` |
 | `brain okf check [dir] --json` | `{ "directory", "ok", "filesChecked", "errors", "warnings", "issues": [{ "severity", "path", "message" }] }`; exit 1 when `errors > 0` |
 | `brain scratch clean\|prune --json` | `{ "action": "clean"\|"prune", "removed": [{ "path", "bytes", "reason": "age"\|"size"\|"clean" }], "failed": [{ "path", "reason" }], "bytes", "files" }` — `path` is repo-relative; `failed` lists files the OS refused to remove (they are still there, and the exit code is `2`); `bytes` and `files` are what is left in the scratch area afterwards, those included (additive in 0.38.0) |
@@ -61,6 +66,52 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, plus ranking metadata. Treat unknown fields as
 additive; never rely on field order.
+
+`ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
+`updated` (strings); `summary` (string or `null`); `tags` (the document's tags
+joined with `", "`, or `null` when it has none — a string, not an array);
+`score` (always `0`, since a filter has nothing to rank) and `snippet` (always
+`""`).
+
+`AuditIssue` fields: `path`, a repo-relative document path or a
+parenthesised sentinel for an issue that belongs to no one file — `"(corpus)"`
+for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
+— so a consumer must not open a `path` that starts with `(`; `severity`, one of `"error"`,
+`"warning"`, `"info"`; `category`, a string naming the check; `message`; and
+`suggestion`, a string present only when the check has one. Core categories are
+`staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
+`verify`, `type-mismatch` and `orphan`. Modules add their own, and a failing
+module check reports as `module-hygiene` with `path: "(module)"`, so treat the
+set as open.
+
+#### `brain index` counters
+
+Each counter describes this run, not the index as a whole, and they do not
+partition one another:
+
+- `total` — markdown files the scan found. It includes files the run then
+  skipped as unreadable or missing `title`/`type` (each skip is a `SKIP:`
+  warning on stderr), so `added + updated + unchanged` can be less than it.
+- `added` / `updated` — markdown documents written this run that were not /
+  were already in the index. Under `--force` every parsed file is one or the
+  other.
+- `unchanged` — markdown documents left alone because their content hash
+  matched. Always `0` under `--force`.
+- `deleted` — index rows the deletion sweep removed because their file is
+  gone, markdown and assets alike. It is not part of `total`: deleting the
+  last document reads `total: 0, deleted: 1`. Under `--force` every markdown
+  row is wiped before the sweep runs, so a markdown file removed since the
+  last run is not counted (`deleted: 0`); only removed assets are.
+- `chunks` — chunks written this run: those of the added and updated
+  documents, plus one per asset indexed.
+- `embeddings` — vectors written this run, text chunks and assets together.
+- `assets` — images and PDFs (re)indexed this run. Assets are only indexed
+  on an `--embeddings` run, so it is `0` otherwise.
+- `graphMs` / `graphNodes` — the graph rebuild's wall time and node count.
+  Both are `0` when this run did not rebuild the graph: either nothing it
+  depends on changed and the previous tables were reused, or the rebuild
+  failed, which also prints `Graph precompute failed: …` on stderr and keeps
+  the previous tables. The JSON alone does not tell those two apart.
 
 `brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
 renamed, so a consumer reading only the flat counts other than `embeddings` (as
@@ -204,10 +255,27 @@ Tool names and input schemas are stable:
 |------|-------------|-------------------|
 | `brain_search` | readOnly | `{ results, warnings }` |
 | `brain_context` | readOnly | `{ context, warnings }` |
-| `brain_read` | readOnly | file text |
+| `brain_read` | readOnly | none — the file text, verbatim, is the first `content` block |
 | `brain_list` | readOnly | `{ documents, warnings }` |
-| `brain_graph` | readOnly | `{ edges, warnings }` |
+| `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], warnings }` |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+
+The input schemas, as `tools/list` reports them, are pinned in
+[`packages/core/tests/mcp-input-schemas.json`](../packages/core/tests/mcp-input-schemas.json)
+with descriptions left out; `mcp-contract.test.ts` fails when a tool's schema
+drifts from it. `?` marks an optional input; a default is given where the tool
+applies one:
+
+| Tool | Inputs |
+|------|--------|
+| `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`, default `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`) |
+| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
+| `brain_read` | `path` |
+| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (default `20`) |
+| `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
+| `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |
+| `brain_update` | `path`, `summary?`, `status?` (`active`\|`archived`\|`draft`), `relevance?` (`primary`\|`secondary`\|`historical`), `tags?` (comma-separated, replaces), `deadline?`, `next_review?` (ISO 8601; `""` removes), `append_content?` |
+| `brain_archive` | `path`, `dry_run?` (default `false`) |
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
