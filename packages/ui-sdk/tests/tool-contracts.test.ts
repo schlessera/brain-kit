@@ -115,7 +115,7 @@ describe("show_block", () => {
     // The Receipt value budget, measured by ui-kit's browser suite
     // (`tests/visual/receipt-value-budget.visual.tsx`), so a value the model
     // judges is written to fit.
-    expect(description).toContain("a toned value fits one phone line at 30 characters");
+    expect(description).toContain("a toned value fits one phone line at 25 characters");
   });
 
   test("the eleven kinds, in brief order", () => {

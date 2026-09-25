@@ -1,5 +1,5 @@
 /**
- * The Receipt value budget at 320px, measured in a real browser (#315).
+ * The Receipt value budget on a 320px phone, measured in a real browser (#315).
  *
  * A toned row draws its tone's glyph inline before the value (#309), and the
  * glyph takes width the value used to have. How much is a question about
@@ -9,8 +9,18 @@
  * the model (`packages/ui-sdk/src/tool-contracts/blocks.ts`), so a change
  * that moves it moves that sentence too.
  *
- * Measured in a 320px box with the component's own key column, the default
- * 56px, which leaves the value 228px.
+ * Measured in the box a drawn receipt gets in the chat on a 320px phone,
+ * with the component's own key column, the default 56px. The chat's message
+ * list pads its scroller `px-4` below `md` and centres a `max-w-3xl` reading
+ * column inside it (`scrollRef`,
+ * `packages/ui-react/src/components/chat/chat-page.tsx:286-291`); below
+ * `tablet` the side rail is hidden and the tab bar is fixed to the bottom,
+ * so neither takes width. Between that column and the receipt sit the
+ * message's `py-4`, the answer's `space-y-3` and `BlockCard`'s bare `div`
+ * (`packages/ui-react/src/components/chat/tool-cards/block-card.tsx`), none
+ * of them horizontal. So the receipt box is 320 - 2 x 16 = 288px, and its
+ * value column 288 - 2 (border) - 24 (row padding) - 56 - 10 (gap) = 196px.
+ * A phone's overlay scrollbar takes none of it.
  *
  * ## The font
  *
@@ -24,7 +34,7 @@
  *
  * Chromium in the pinned image lays that advance out on whole pixels: 6.6px
  * at 11px becomes 7. A renderer with subpixel positioning keeps 6.6 and fits
- * about two characters more, so the figures measured here are the lower
+ * one or two characters more, so the figures measured here are the lower
  * ones and hold on both. The first assertion pins the 7px advance, so a
  * stand-in or a renderer that moves it says so before the budgets do.
  *
@@ -38,10 +48,11 @@ import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import "../../src/styles.css";
 import { Receipt, type ReceiptRow } from "../../src/evidence/Receipt.js";
 
-const WIDTH = 320;
+/** The receipt box in the chat at a 320px viewport, derived above. */
+const WIDTH = 288;
 /** The longest value that stays on one line, per row kind. */
-const UNTONED_BUDGET = 32;
-const TONED_BUDGET = 30;
+const UNTONED_BUDGET = 28;
+const TONED_BUDGET = 25;
 
 let host: HTMLDivElement | null = null;
 
@@ -61,7 +72,7 @@ function value(length: number): string {
   return Array.from({ length }, (_, i) => String((i + 1) % 10)).join("");
 }
 
-/** Renders one row at 320px and returns its value element. */
+/** Renders one row in the chat's 288px box and returns its value element. */
 function renderRow(row: ReceiptRow): HTMLElement {
   host?.remove();
   host = document.createElement("div");
@@ -90,10 +101,10 @@ function lines(cell: HTMLElement): number {
   return new Set([...textRange(cell).getClientRects()].map((rect) => Math.round(rect.top))).size;
 }
 
-describe("receipt: the value budget at 320px", () => {
-  test("the value column is 228px and the mono advance is 7px", () => {
+describe("receipt: the value budget in the chat at a 320px viewport", () => {
+  test("the value column is 196px and the mono advance is 7px", () => {
     const cell = renderRow({ k: "path", v: value(10) });
-    expect(cell.getBoundingClientRect().width).toBe(228);
+    expect(cell.getBoundingClientRect().width).toBe(196);
     expect(textRange(cell).getBoundingClientRect().width).toBe(70);
   });
 

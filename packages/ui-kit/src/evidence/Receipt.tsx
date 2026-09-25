@@ -19,8 +19,8 @@ import type { Tone, ValueTone } from "../types.js";
  * A judged row draws its tone's glyph leading the value, inline, so the
  * `break-all` behaviour is unchanged (`internal/tone-cue.ts`, #309). The
  * title and scope icons need none: each is already a shape, and the text
- * says what it is. A toned row loses two mono characters to the glyph: at
- * 320px a value fits 30, not 32 (`tests/visual/receipt-value-budget.visual.tsx`).
+ * says what it is. A toned row loses three mono characters to the glyph: in
+ * a 320px phone's chat a value fits 25, not 28 (`tests/visual/receipt-value-budget.visual.tsx`).
  */
 export interface ReceiptRow {
   k: string;
