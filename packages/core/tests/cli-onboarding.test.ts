@@ -173,10 +173,21 @@ test("graph compute refuses without a brain.config; its readers behave like othe
   expect(existsSync(join(root, "brain.db"))).toBe(false);
 });
 
+/**
+ * A throwaway HOME and bin directory for a command that may write there:
+ * setup and doctor --fix link `brain` into XDG_BIN_HOME (else ~/.local/bin),
+ * and must never replace the developer's own link.
+ */
+function isolatedHome(): Record<string, string> {
+  const home = mkdtempSync(join(tmpdir(), "brain-home-"));
+  temps.push(home);
+  return { HOME: home, XDG_BIN_HOME: join(home, "bin") };
+}
+
 test("skills sync and setup also refuse to run without a brain.config", async () => {
   const root = tempBrain({ empty: true });
   for (const cmd of [["skills", "sync"], ["setup"]]) {
-    const { code, stderr } = await runCli(root, cmd);
+    const { code, stderr } = await runCli(root, cmd, isolatedHome());
     expect(code).toBe(1);
     expect(stderr).toContain("refusing to modify an uninitialized directory");
   }
@@ -606,11 +617,9 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
   ]);
 });
 
-/** PATH with only `bun`, and a throwaway HOME and bin directory, so setup's bin links land nowhere real. */
+/** PATH with only `bun`, and a throwaway HOME and bin directory (see isolatedHome). */
 function noGitEnv(): Record<string, string> {
-  const home = mkdtempSync(join(tmpdir(), "brain-home-"));
-  temps.push(home);
-  return { PATH: bunOnlyPath(), HOME: home, XDG_BIN_HOME: join(home, "bin") };
+  return { ...isolatedHome(), PATH: bunOnlyPath() };
 }
 
 test("doctor --fix and brain setup without git on PATH finish and say why hooks were skipped", async () => {
@@ -635,7 +644,8 @@ test("a check that throws becomes a warn, and every later check still reports", 
   writeFileSync(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } }));
   // A file where the scratch directory's parent should be: mkdir throws ENOTDIR inside the check.
   writeFileSync(join(root, ".brain"), "not a directory\n");
-  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"]);
+  const env = isolatedHome();
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], env);
   expect(code, stderr).toBe(0);
   const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
   const scratch = checks.find((c) => c.id === "scratch");
@@ -643,7 +653,9 @@ test("a check that throws becomes a warn, and every later check still reports", 
   expect(scratch?.detail).toStartWith("the check itself failed: ENOTDIR");
   expect(checks.map((c) => c.id).slice(-2)).toEqual(["cache-merge", "sqlite-vec-macos"]);
 
-  const fix = await runCli(root, ["doctor", "--fix", "--json"]);
+  const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
   expect(fix.code, fix.stderr).toBe(0);
   expect(fix.stderr).toContain("doctor --fix: scratch fix failed: ENOTDIR");
+  // Whatever --fix linked went into the throwaway bin directory.
+  expect(existsSync(join(env.HOME!, ".local"))).toBe(false);
 });
