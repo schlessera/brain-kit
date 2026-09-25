@@ -288,6 +288,16 @@ describe("collisions and overrides", () => {
     expect(tax.canonicalPath("identity")).toBe("me/identity.md");
   });
 
+  test("a canonical path comes back in the index's spelling", () => {
+    const tax = buildTaxonomy({
+      user: brainConfigSchema.parse({
+        taxonomy: { canonical: { currentFocus: "./context//current-focus.md", identity: "me/./identity.md" } },
+      }),
+    });
+    expect(tax.canonicalPath("currentFocus")).toBe("context/current-focus.md");
+    expect(tax.canonicalPath("identity")).toBe("me/identity.md");
+  });
+
   test("classifierHints for unknown type throws", () => {
     expect(() =>
       buildTaxonomy({

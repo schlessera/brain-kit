@@ -10,6 +10,8 @@
  * titles, exclusions, classification hints) are answered here and nowhere else.
  */
 
+import { posix } from "path";
+
 import type {
   AssetTitleRule,
   BrainConfig,
@@ -253,9 +255,14 @@ export class Taxonomy {
   }
 
   /** Well-known document path (identity, currentFocus, …); null when unset/disabled. */
+  /**
+   * The canonical document for `key`, in the one spelling the index uses
+   * (`./context/x.md` and `context//x.md` are `context/x.md`), or null when
+   * the key is unset or disabled.
+   */
   canonicalPath(key: string): string | null {
     const value = this.canonical[key];
-    return value ? value : null;
+    return value ? posix.normalize(value).replace(/^\.\//, "") : null;
   }
 }
 
