@@ -15,6 +15,7 @@ import { join, relative } from "path";
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
 import { loadVecSupport, vecTableExists } from "./db.js";
+import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
 
 export interface StatsThresholds {
@@ -53,8 +54,13 @@ export interface BrainStats {
   size: {
     /** Files under the root that the index would consider, and their bytes; null when a wanted directory could not be read. */
     corpus: { bytes: number; files: number } | null;
-    /** brain.db plus its WAL on disk (a rebuild-cost figure — the index is disposable) and its row counts. */
-    db: { bytes: number | null; tables: Record<string, number> };
+    /**
+     * brain.db plus its WAL on disk (a rebuild-cost figure — the index is
+     * disposable), its row counts, and the vector table's live rows against
+     * the slots sqlite-vec has allocated for them. `allocated` is null when
+     * the extension will not load or its chunk table cannot be read.
+     */
+    db: { bytes: number | null; tables: Record<string, number>; vectorSlots: VectorSlots };
     /** Bytes available to this user on the volume holding the brain; null when it could not be read. */
     freeBytes: number | null;
   };
@@ -308,7 +314,7 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
     },
     size: {
       corpus: corpusSize(root, dbPath, taxonomy),
-      db: { bytes: dbBytes, tables: tableCounts(db) },
+      db: { bytes: dbBytes, tables: tableCounts(db), vectorSlots: readVectorSlots(db) },
       freeBytes: freeSpaceBytes(root, opts.statfs),
     },
   };

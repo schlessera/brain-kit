@@ -1,5 +1,5 @@
-import { forgetCachedEnrichment, indexAll } from "../../lib/indexer.js";
-import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
+import { compactVectors, forgetCachedEnrichment, indexAll, readVectorSlots } from "../../lib/indexer.js";
+import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
@@ -11,8 +11,12 @@ const HELP = `brain index — update the search index (incremental by default)
   --forget-cache <path>   Discard the cached contexts or description of one
                           document or asset, so the next --embeddings run
                           generates them again. Runs no index pass.
+  --compact               Rebuild the vector table from its live rows and
+                          VACUUM, reclaiming the slots deleted vectors leave.
+                          No provider call. Runs no index pass.
 
---json: IndexStats object; with --forget-cache, { path, forgotten }.`;
+--json: IndexStats object; with --forget-cache, { path, forgotten }; with
+--compact, { compacted, before, after }.`;
 
 export const indexCommand: CoreCommand = {
   summary: "Update the search index (incremental by default)",
@@ -28,6 +32,9 @@ export const indexCommand: CoreCommand = {
         throw new UsageError("--forget-cache runs alone; run --embeddings afterwards");
       }
     }
+    if (flags.compact === true && (flags.force === true || flags.embeddings === true || forget !== undefined)) {
+      throw new UsageError("--compact runs alone; run the index separately");
+    }
 
     const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
     try {
@@ -39,6 +46,20 @@ export const indexCommand: CoreCommand = {
             `Forgot ${forgotten} cache entr${forgotten === 1 ? "y" : "ies"} for ${forget}. ` +
               "Run `brain index --embeddings` to generate them again."
           );
+        });
+        return;
+      }
+
+      if (flags.compact === true) {
+        // The read path: loads the extension and migrates nothing, so the
+        // rebuild recreates the table exactly as it is.
+        if (vecTableExists(db)) await loadVecSupport(db);
+        const before = readVectorSlots(db);
+        const compacted = compactVectors(db);
+        const after = readVectorSlots(db);
+        emit(cli.json, { compacted, before, after }, () => {
+          if (!compacted) console.log("No vector table: nothing to compact.");
+          else console.log(`Vector slots: ${before.allocated} allocated for ${before.live} live, now ${after.allocated}.`);
         });
         return;
       }

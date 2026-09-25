@@ -202,7 +202,7 @@ function statsWith(overrides: Partial<BrainStats> = {}): BrainStats {
     },
     size: {
       corpus: { bytes: 2048, files: 10 },
-      db: { bytes: 4096, tables: { documents: 10 } },
+      db: { bytes: 4096, tables: { documents: 10 }, vectorSlots: { live: 0, allocated: 0 } },
       freeBytes: 1024 * 1024 * 1024,
     },
     ...overrides,
@@ -290,7 +290,7 @@ describe("null figures never read as a number", () => {
   test("unknowable sizes are n/a, not 0", () => {
     const out = formatStats(
       statsWith({
-        size: { corpus: null, db: { bytes: null, tables: {} }, freeBytes: null },
+        size: { corpus: null, db: { bytes: null, tables: {}, vectorSlots: { live: null, allocated: null } }, freeBytes: null },
       }),
       { all: false, stale: STALE }
     );
@@ -316,7 +316,7 @@ describe("null figures never read as a number", () => {
         chunks: 0,
         embeddings: 0,
         health: { ...statsWith().health, brokenLinkRate: null, embeddingCoverage: null },
-        size: { corpus: null, db: { bytes: null, tables: {} }, freeBytes: null },
+        size: { corpus: null, db: { bytes: null, tables: {}, vectorSlots: { live: null, allocated: null } }, freeBytes: null },
       }),
       { all: false, stale: STALE }
     );
@@ -893,7 +893,7 @@ describe("byte scaling", () => {
 
   for (const [count, rendered] of cases) {
     test(`${count} bytes renders as ${rendered}`, () => {
-      const out = formatStats(statsWith({ size: { corpus: null, db: { bytes: count, tables: {} }, freeBytes: null } }), {
+      const out = formatStats(statsWith({ size: { corpus: null, db: { bytes: count, tables: {}, vectorSlots: { live: 0, allocated: 0 } }, freeBytes: null } }), {
         all: false,
         stale: STALE,
       });
