@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
@@ -114,4 +114,39 @@ test("a sliced embedding uses only its own bytes", async () => {
   const result = await hybridSearch(db, { query: "topic", mode: "vector" }, { embeddings: provider });
   expect(result.results).toHaveLength(1);
   expect(result.warnings).toEqual([]);
+});
+
+function addDatedDoc(id: number, type: string, updated: string, content: string) {
+  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,?,'active',?,?,?,?)", [id, `notes/${id}.md`, `Doc ${id}`, type, updated, updated, content, updated]);
+  db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','',?,'')", [id, content]);
+}
+
+test("recency reranking measures from the pinned now, not the wall clock", async () => {
+  // notes/1.md wins on BM25 (a shorter document) but is older and a context
+  // doc, which loses recency credit fast; notes/2.md is an identity doc,
+  // which barely decays. Fresh, the base score decides; two years on,
+  // notes/1.md sits at the recency floor and notes/2.md overtakes it.
+  addDatedDoc(1, "context", "2026-07-11", "harbour ferry timetable");
+  addDatedDoc(2, "identity", "2026-07-12", "harbour ferry timetable notes");
+  const search = (now: string) =>
+    hybridSearch(db, { query: "harbour", mode: "fts", rerank: "heuristic", now: new Date(now) });
+
+  // Freeze the ambient clock on the first date, so a search that ignored
+  // `now` would pass the first assertion and fail on the second.
+  setSystemTime(new Date("2026-07-12"));
+  try {
+    const fresh = await search("2026-07-12");
+    expect(fresh.results.map(r => r.path)).toEqual(["notes/1.md", "notes/2.md"]);
+    const later = await search("2028-07-12");
+    expect(later.results.map(r => r.path)).toEqual(["notes/2.md", "notes/1.md"]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("an invalid now is refused rather than scoring every result NaN", async () => {
+  addDatedDoc(1, "context", "2026-07-11", "harbour");
+  await expect(
+    hybridSearch(db, { query: "harbour", mode: "fts", now: new Date("not-a-date") })
+  ).rejects.toThrow("now must be a valid Date");
 });

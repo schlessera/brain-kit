@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 
 import { recencyFactor, rerank } from "../src/lib/reranker";
 import type { SearchResult } from "../src/lib/types";
@@ -74,5 +74,34 @@ describe("rerank", () => {
     ];
     const ranked = rerank("query", candidates, { mode: "none" });
     expect(ranked[0].path).toBe("first.md");
+  });
+});
+
+describe("rerank with a pinned now", () => {
+  // Higher base score, older, fast-decaying type vs. lower base score,
+  // newer, slow-decaying type: the order flips as the clock moves on.
+  const candidates = () => [
+    result({ path: "context.md", type: "context", updated: "2026-07-11", score: 1.12 }),
+    result({ path: "identity.md", type: "identity", updated: "2026-07-12", score: 1 }),
+  ];
+
+  test("recency is measured from config.now", () => {
+    // Freeze the ambient clock on the first date, so a rerank that ignored
+    // `now` would pass the first assertion and fail on the second.
+    setSystemTime(new Date("2026-07-12"));
+    try {
+      const fresh = rerank("query", candidates(), { mode: "heuristic", now: new Date("2026-07-12") });
+      expect(fresh.map((r) => r.path)).toEqual(["context.md", "identity.md"]);
+      const later = rerank("query", candidates(), { mode: "heuristic", now: new Date("2028-07-12") });
+      expect(later.map((r) => r.path)).toEqual(["identity.md", "context.md"]);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("an invalid now throws", () => {
+    expect(() => rerank("query", candidates(), { mode: "heuristic", now: new Date("nope") })).toThrow(
+      "now must be a valid Date"
+    );
   });
 });

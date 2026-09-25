@@ -369,6 +369,9 @@ export async function hybridSearch(
   if (!Number.isFinite(queryTimeoutMs) || queryTimeoutMs <= 0) {
     throw new Error("queryTimeoutMs must be a positive finite number");
   }
+  if (opts.now && Number.isNaN(opts.now.getTime())) {
+    throw new Error("now must be a valid Date");
+  }
   const limit = opts.limit ?? 20;
   const mode = opts.mode ?? "hybrid";
   const warnings: string[] = [];
@@ -448,7 +451,7 @@ export async function hybridSearch(
   // positive (hit@1 0.370 → 0.481), so it stays for fts/hybrid.
   const rerankMode = opts.rerank ?? getDefaultRerankerMode();
   if (rerankMode !== "none" && mode !== "vector" && candidates.length > 1) {
-    candidates = rerank(query, candidates, { mode: rerankMode });
+    candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now });
   }
 
   return { results: candidates.slice(0, limit), warnings };

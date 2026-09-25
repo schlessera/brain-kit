@@ -3,6 +3,8 @@ import type { SearchResult } from "./types.js";
 
 export interface RerankerConfig {
   mode: "none" | "heuristic";
+  /** The moment recency is measured from. Defaults to the wall clock. */
+  now?: Date;
 }
 
 // Multiplicative boosts: they preserve their relative effect regardless of the
@@ -101,7 +103,8 @@ export function recencyFactor(
  */
 function heuristicRerank(
   query: string,
-  candidates: SearchResult[]
+  candidates: SearchResult[],
+  now: number
 ): SearchResult[] {
   const queryTerms = query
     .toLowerCase()
@@ -109,7 +112,6 @@ function heuristicRerank(
     .filter((t) => t.length > 2);
 
   const visualIntent = hasVisualIntent(queryTerms);
-  const now = Date.now();
 
   const scored = candidates.map((result) => {
     const factor =
@@ -136,9 +138,11 @@ export function rerank(
   candidates: SearchResult[],
   config: RerankerConfig
 ): SearchResult[] {
+  const now = config.now?.getTime() ?? Date.now();
+  if (Number.isNaN(now)) throw new Error("rerank: now must be a valid Date");
   if (config.mode === "none" || candidates.length <= 1) {
     return candidates;
   }
 
-  return heuristicRerank(query, candidates);
+  return heuristicRerank(query, candidates, now);
 }
