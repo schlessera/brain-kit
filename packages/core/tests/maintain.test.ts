@@ -5,7 +5,7 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, symlinkSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -120,4 +120,68 @@ test("a machine without git skips the step with the reason and still runs the re
   expect(step?.result).toStartWith("skipped — git could not be run");
   expect(steps.map((s) => s.step)).toEqual(["index", "vectors", "audit", "tags", "git", "scratch"]);
   expect(code).toBe(0);
+});
+
+/**
+ * An empty brain whose one local module has a hygiene check that either
+ * returns one warning or throws. The core audit of an empty brain finds
+ * nothing, so every counted issue comes from the module.
+ */
+function brainWithHygiene(mode: "warn" | "throw"): string {
+  const root = makeTempBrain({ empty: true });
+  temps.push(root);
+  mkdirSync(join(root, "modules", "hygiene"), { recursive: true });
+  writeFileSync(
+    join(root, "modules", "hygiene", "module.ts"),
+    `import { defineModule } from "@schlessera/brain";
+import { z } from "zod";
+export default defineModule({
+  name: "hygiene",
+  configSchema: z.object({ mode: z.enum(["warn", "throw"]) }).strict(),
+  setup: (config) => ({
+    hygieneChecks: [
+      async () => {
+        if (config.mode === "throw") throw new Error("ledger unreadable");
+        return [{ path: "ledger.md", severity: "warning", category: "stale-block", message: "generated block is stale" }];
+      },
+    ],
+  }),
+});
+`
+  );
+  writeFileSync(join(root, "modules", "hygiene", "package.json"), JSON.stringify({ name: "hygiene" }));
+  writeFileSync(
+    join(root, "brain.config.ts"),
+    `import { defineConfig } from "@schlessera/brain";
+export default defineConfig({ modules: { "./modules/hygiene": { mode: "${mode}" } } });
+`
+  );
+  return root;
+}
+
+async function auditCounts(root: string) {
+  const { stdout, stderr, code } = await runCli(root, ["audit", "--json"]);
+  expect(code, stderr).toBe(0);
+  return JSON.parse(stdout) as { issues: { category: string; message: string }[]; errors: number; warnings: number; infos: number };
+}
+
+test("the audit step counts a module hygiene warning, the same number brain audit reports", async () => {
+  const root = brainWithHygiene("warn");
+  const { code, steps } = await maintain(root);
+  expect(code).toBe(0);
+  const audited = await auditCounts(root);
+  expect(audited.warnings).toBe(1);
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+});
+
+test("a throwing module check is one module-hygiene warning in both commands, and neither crashes", async () => {
+  const root = brainWithHygiene("throw");
+  const { code, steps } = await maintain(root);
+  expect(code).toBe(0);
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+
+  const audited = await auditCounts(root);
+  expect(audited.warnings).toBe(1);
+  expect(audited.issues.map((i) => i.category)).toEqual(["module-hygiene"]);
+  expect(audited.issues[0].message).toBe('hygiene check from module "hygiene" failed: ledger unreadable');
 });

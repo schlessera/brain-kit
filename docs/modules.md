@@ -47,7 +47,7 @@ load, and unknown keys are load errors):
 | `taxonomy`      | `{ types?, classifierHints?, assetTitleRules?, propagation? }` | Types, capture hints, and rules merged into the effective taxonomy.                     |
 | `skills`        | `string`                                         | Path to the module's `skills/` directory (relative to the package root).                             |
 | `commands`      | `Record<word, () => import(...)>`                | **One** namespaced top-level CLI word, lazily imported (e.g. `brain jobs …`).                         |
-| `hygieneChecks` | `((ctx) => AuditIssue[])[]`                       | Extra checks surfaced by `brain audit`. `ctx` is `{ db, root, config }`, with `config` typed by your configSchema. |
+| `hygieneChecks` | `((ctx) => AuditIssue[])[]`                       | Extra checks surfaced by `brain audit` and counted in `brain maintain`'s audit step; a check that throws becomes one `module-hygiene` warning. `ctx` is `{ db, root, config }`, with `config` typed by your configSchema. |
 | `indexRules`    | `{ dirAnchors?: string[] }`                       | Directory anchor files (for `[[dir/]]` wiki-link resolution).                                         |
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
 | `cron`          | `{ name, schedule, command }[]`                   | Advisory schedules consumed by container entrypoints and `brain doctor`.                              |

@@ -1,6 +1,6 @@
 import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { compactVectors, indexAll, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
-import { audit } from "../../lib/auditor.js";
+import { auditWithModules } from "../../lib/auditor.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
@@ -12,7 +12,8 @@ const HELP = `brain maintain — routine maintenance (cron-friendly)
 
 Runs, in order: incremental index (+embeddings when a key is configured), a
 vector-table compaction when fewer than half its slots are live (the same step
-as \`brain index --compact\`), an audit snapshot, a tag report (counts only;
+as \`brain index --compact\`), an audit snapshot (the counts \`brain audit\`
+reports, module hygiene checks included), a tag report (counts only;
 see \`brain tags\`), a git packing pass when the brain is a git work tree (git's
 non-destructive loose-objects, incremental-repack and pack-refs tasks), then a
 prune of the scratch area (files older than 7 days, then the oldest until
@@ -87,8 +88,12 @@ export const maintainCommand: CoreCommand = {
     // 3. Audit snapshot.
     try {
       const db = openDatabase(cli.brain.dbPath, { readonly: true });
-      const issues = audit(db, cli.brain.taxonomy);
-      db.close();
+      let issues;
+      try {
+        issues = await auditWithModules(db, cli.brain);
+      } finally {
+        db.close();
+      }
       const errors = issues.filter((i) => i.severity === "error").length;
       const warnings = issues.filter((i) => i.severity === "warning").length;
       const infos = issues.filter((i) => i.severity === "info").length;
