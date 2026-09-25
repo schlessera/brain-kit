@@ -6,7 +6,7 @@ import { join, resolve } from "path";
 import { initContext } from "../src/lib/context";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
-import { hybridSearch } from "../src/lib/search-engine";
+import { filterSearch, hybridSearch } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
 let db: Database;
@@ -25,10 +25,11 @@ beforeEach(async () => {
 });
 afterEach(() => db.close());
 
-function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string } = {}) {
+function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string; updated?: string } = {}) {
   const status = opts.status ?? "active";
   const type = opts.type ?? "note";
-  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01','2026-01-01','topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status]);
+  const updated = opts.updated ?? "2026-01-01";
+  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01',?,'topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status, updated]);
   db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','','topic','')", [id]);
   if (opts.tagged) {
     db.run("INSERT OR IGNORE INTO tags(id,name) VALUES (1,'wanted')");
@@ -59,6 +60,29 @@ test("widens after tag filtering and still excludes archived and other-type docu
   const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 2, tag: "wanted", type: "note" }, { embeddings: provider });
   expect(result.results.map(r => r.path)).toEqual(["notes/2.md", "notes/3.md"]);
   expect(embedCalls).toBe(1);
+});
+
+test("a post-KNN date filter widens the window to fill the limit", async () => {
+  // Doc 1 owns the nearest chunks but is too old; the two recent docs sit
+  // beyond the first KNN window.
+  addDoc(1, 20, 0, { updated: "2026-01-01" });
+  addDoc(2, 1, 0.2, { updated: "2026-03-01" });
+  addDoc(3, 1, 0.3, { updated: "2026-03-02" });
+  const ks: number[] = [];
+  const prepare = db.prepare.bind(db);
+  db.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    if (!sql.includes("FROM vec_chunks WHERE embedding MATCH")) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = ((...args: Parameters<typeof all>) => { ks.push(args[1] as number); return all(...args); }) as typeof statement.all;
+    return statement;
+  }) as typeof db.prepare;
+
+  const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 2, updatedSince: "2026-03-01" }, { embeddings: provider });
+  expect(result.results.map(r => r.path)).toEqual(["notes/2.md", "notes/3.md"]);
+  expect(embedCalls).toBe(1);
+  // A date filter is a post-filter: the first window is limit x 10, not x 3.
+  expect(ks[0]).toBe(20);
 });
 
 test("stops at exhaustion when filters leave too few results", async () => {
@@ -275,4 +299,12 @@ describe("full-text lane over fixtures/corpus", () => {
       expect({ query, warnings }).toEqual({ query, warnings: [] });
     }
   });
+});
+
+test("an invalid date filter is refused rather than matching nothing", async () => {
+  addDoc(1, 1, 0);
+  await expect(
+    hybridSearch(db, { query: "topic", mode: "fts", updatedSince: "2026-13-01" })
+  ).rejects.toThrow("updatedSince must be a date written YYYY-MM-DD");
+  expect(() => filterSearch(db, { deadlineTo: "soon" })).toThrow("deadlineTo must be a date written YYYY-MM-DD");
 });

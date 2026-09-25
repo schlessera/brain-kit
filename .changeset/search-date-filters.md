@@ -1,0 +1,5 @@
+---
+"@schlessera/brain": minor
+---
+
+`brain search` and the `brain_search` tool can filter and sort by date. The new filters are `--updated-since`, `--updated-before`, `--deadline-from` and `--deadline-to` (`updated_since`, `updated_before`, `deadline_from` and `deadline_to` in `brain_search`). Each takes a `YYYY-MM-DD` date and includes that day. `--sort updated` puts the newest documents first. `--sort deadline` puts the earliest deadline first and documents without a deadline last. `--upcoming` is short for `--deadline-from <today> --sort deadline`. An agent that is asked "what is due next" turns the date into one of these filters itself: core does not parse date phrases. An invalid date is a usage error in the CLI and a tool error in `brain_search`. The filters apply in the full-text lane, in the vector lane and in filter-only search.

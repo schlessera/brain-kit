@@ -59,6 +59,29 @@ describe("search", () => {
     const { code } = await runCli(root, ["search", "--json"]);
     expect(code).toBe(1);
   });
+
+  test("--deadline-from with --sort deadline puts the next deadline first", async () => {
+    const { stdout, code } = await runCli(root, ["search", "status", "--deadline-from", "2026-07-12", "--sort", "deadline", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(Array.isArray(out.warnings)).toBe(true);
+    expect(out.results[0]?.path).toBe("projects/active/bookshelf/status.md");
+  });
+
+  test("an invalid date is a usage error (exit 1) naming the flag, not an empty result", async () => {
+    for (const args of [["--updated-since", "2026-02-30"], ["--deadline-to", "tomorrow"], ["--deadline-from"]]) {
+      const { stdout, stderr, code } = await runCli(root, ["search", "status", ...args, "--json"]);
+      expect({ args, code }).toEqual({ args, code: 1 });
+      expect(stderr).toContain(args[0]!);
+      expect(stdout).not.toContain("results");
+    }
+  });
+
+  test("an unknown --sort is a usage error (exit 1)", async () => {
+    const { stderr, code } = await runCli(root, ["search", "status", "--sort", "newest", "--json"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("--sort");
+  });
 });
 
 describe("audit", () => {

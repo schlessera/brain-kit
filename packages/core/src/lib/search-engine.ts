@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 
-import type { SearchResult, SearchOptions } from "./types.js";
+import { SEARCH_SORTS, type SearchResult, type SearchOptions } from "./types.js";
 import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches } from "./db.js";
@@ -29,6 +29,45 @@ export interface SearchDeps {
 interface FilterResult {
   where: string;
   params: any[];
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True for a real calendar date written `YYYY-MM-DD`. */
+export function isIsoDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
+const DATE_FILTERS = [
+  ["updatedSince", "updated", ">="],
+  ["updatedBefore", "updated", "<="],
+  ["deadlineFrom", "deadline", ">="],
+  ["deadlineTo", "deadline", "<="],
+] as const;
+
+/**
+ * The first invalid date filter or sort in `opts`, as a message, or null.
+ * Callers check this before searching, so a bad date is an error rather than
+ * a lane that quietly matches nothing.
+ */
+export function searchOptionsError(opts: SearchOptions): string | null {
+  for (const [key] of DATE_FILTERS) {
+    const value = opts[key];
+    if (value !== undefined && (typeof value !== "string" || !isIsoDate(value))) {
+      return `${key} must be a date written YYYY-MM-DD, got ${JSON.stringify(value)}`;
+    }
+  }
+  if (opts.sort !== undefined && !SEARCH_SORTS.includes(opts.sort)) {
+    return `sort must be one of ${SEARCH_SORTS.join(", ")}, got ${JSON.stringify(opts.sort)}`;
+  }
+  return null;
+}
+
+function assertSearchOptions(opts: SearchOptions): void {
+  const error = searchOptionsError(opts);
+  if (error) throw new Error(error);
 }
 
 /**
@@ -70,6 +109,14 @@ function buildFilters(opts: SearchOptions): FilterResult {
     params.push("markdown");
   }
 
+  // `updated` can carry a time (the indexer's fallback is a full timestamp),
+  // so compare its date part; the bounds are whole days.
+  for (const [key, column, op] of DATE_FILTERS) {
+    if (opts[key] === undefined) continue;
+    clauses.push(`substr(d.${column}, 1, 10) ${op} ?`);
+    params.push(opts[key]);
+  }
+
   return {
     where: clauses.length > 0 ? " AND " + clauses.join(" AND ") : "",
     params,
@@ -78,11 +125,16 @@ function buildFilters(opts: SearchOptions): FilterResult {
 
 /**
  * Filter-only search (no query text). Returns documents matching filters,
- * ordered by updated date descending.
+ * ordered by updated date descending, or by deadline with `sort: "deadline"`.
  */
 export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] {
+  assertSearchOptions(opts);
   const limit = opts.limit ?? 20;
   const filters = buildFilters(opts);
+  const order =
+    opts.sort === "deadline"
+      ? "d.deadline IS NULL, d.deadline ASC, d.updated DESC"
+      : "d.updated DESC";
 
   const sql = `
     SELECT
@@ -94,7 +146,7 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
       '' as snippet
     FROM documents d
     WHERE 1=1 ${filters.where}
-    ORDER BY d.updated DESC
+    ORDER BY ${order}
     LIMIT ?
   `;
 
@@ -249,9 +301,12 @@ async function vectorSearch(
   const queryBytes = new Uint8Array(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
 
   // Only is_archived and doc_type are KNN-prefiltered; tag/relevance/status/
-  // assets filters run post-KNN, so widen the candidate window when they are
+  // assets/date filters run post-KNN, so widen the candidate window when they are
   // present or filtering starves the result set.
-  const hasPostFilters = !!(opts.tag || opts.relevance || opts.status || opts.assetsOnly);
+  const hasPostFilters = !!(
+    opts.tag || opts.relevance || opts.status || opts.assetsOnly ||
+    DATE_FILTERS.some(([key]) => opts[key] !== undefined)
+  );
   let k = Math.min(Math.max(1, limit * (hasPostFilters ? 10 : 3)), 500);
 
   // KNN search on vec_chunks, pre-filtered on metadata columns so archived
@@ -417,6 +472,7 @@ export async function hybridSearch(
   if (opts.now && Number.isNaN(opts.now.getTime())) {
     throw new Error("now must be a valid Date");
   }
+  assertSearchOptions(opts);
   const limit = opts.limit ?? 20;
   const mode = opts.mode ?? "hybrid";
   const warnings: string[] = [];
@@ -498,6 +554,28 @@ export async function hybridSearch(
   if (rerankMode !== "none" && mode !== "vector" && candidates.length > 1) {
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
+  if (opts.sort === "updated" || opts.sort === "deadline") {
+    candidates = sortByDate(candidates, opts.sort);
+  }
 
   return { results: candidates.slice(0, limit), warnings };
+}
+
+/**
+ * Reorder ranked candidates by a date. The sort is stable, so documents with
+ * the same date keep their ranked order.
+ */
+function sortByDate(candidates: SearchResult[], sort: "updated" | "deadline"): SearchResult[] {
+  if (sort === "updated") {
+    const key = (r: SearchResult) => r.updated ?? "";
+    return [...candidates].sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
+  }
+  return [...candidates].sort((a, b) => {
+    const left = a.deadline ?? null;
+    const right = b.deadline ?? null;
+    if (left === right) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    return left < right ? -1 : 1;
+  });
 }

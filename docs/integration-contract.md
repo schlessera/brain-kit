@@ -44,7 +44,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 
 | Command | Shape |
 |---------|-------|
-| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key) |
+| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key). Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. An invalid date or sort is a usage error (exit `1`) |
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos" }` — markdown documents only (assets excluded). The three counts are the number of issues at each severity. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
@@ -343,7 +343,7 @@ applies one:
 
 | Tool | Inputs |
 |------|--------|
-| `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`, default `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`) |
+| `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`, default `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
 | `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
 | `brain_read` | `path` |
 | `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (default `20`) |

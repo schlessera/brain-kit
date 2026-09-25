@@ -47,6 +47,7 @@ export const BOOLEAN_FLAGS = new Set([
   "no-assets",
   "no-isolates",
   "scratch",
+  "upcoming",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -58,6 +59,7 @@ export const VALUE_FLAGS = new Set([
   "format", "as", "width", "allow-host",
   "forget-cache",
   "set", "k",
+  "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);
