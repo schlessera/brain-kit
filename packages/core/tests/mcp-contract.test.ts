@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import matter from "gray-matter";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -273,6 +274,71 @@ describe("brain_graph", () => {
       expect(typeof edge.target).toBe("string");
       expect(typeof edge.resolved).toBe("boolean");
     }
+  });
+
+  // Pinned from the tree before nodes were added, so the edge query's join
+  // is held to the per-edge lookup it replaced.
+  test("edges from me/identity.md are unchanged", async () => {
+    const res = await client.callTool({ name: "brain_graph", arguments: { path: "me/identity.md" } });
+    expect((res.structuredContent as { edges: unknown[] }).edges).toEqual([
+      { source: "me/identity.md", target: "context/current-focus.md", resolved: true },
+      { source: "me/identity.md", target: "me/basics/short-bio.md", resolved: true },
+      { source: "_index.md", target: "me/identity.md", resolved: true },
+      { source: "me/basics/FACTS.md", target: "me/identity.md", resolved: true },
+      { source: "me/basics/long-bio.md", target: "me/identity.md", resolved: true },
+      { source: "me/basics/short-bio.md", target: "me/identity.md", resolved: true },
+    ]);
+  });
+
+  type GraphResult = {
+    edges: Array<{ source: string; target: string; resolved: boolean }>;
+    nodes: Array<{ path: string; title: string; type: string; summary: unknown; updated: unknown }>;
+  };
+  const graph = async (path: string) => {
+    const res = await client.callTool({ name: "brain_graph", arguments: { path } });
+    expect(res.isError).toBeFalsy();
+    expect((res.structuredContent as Partial<GraphResult>).nodes).toBeArray();
+    return res.structuredContent as GraphResult;
+  };
+
+  for (const start of ["me/identity.md", "context/current-focus.md"]) {
+    test(`nodes from ${start} describe every resolved endpoint`, async () => {
+      const sc = await graph(start);
+      const endpoints = new Set<string>();
+      for (const e of sc.edges) {
+        endpoints.add(e.source);
+        if (e.resolved) endpoints.add(e.target);
+      }
+      expect(endpoints.size).toBeGreaterThan(1);
+      // In path order as returned, with each document's own frontmatter.
+      const expected = [...endpoints].sort().map((path) => {
+        const data = matter(readFileSync(join(root, path), "utf-8"), {}).data;
+        const date = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+        return { path, title: data.title, type: data.type, summary: data.summary ?? null, updated: date(data.updated) };
+      });
+      expect(expected.every((n) => n.title && n.type && /^\d{4}-\d{2}-\d{2}$/.test(n.updated))).toBe(true);
+      expect(sc.nodes).toEqual(expected);
+      expect(typeof sc.nodes.find((n) => n.path === start)?.summary).toBe("string");
+    });
+  }
+
+  test("every node carries summary and updated, null when unset", async () => {
+    const { tools } = await client.listTools();
+    const schema = tools.find((t) => t.name === "brain_graph")!.outputSchema as unknown as {
+      properties: { nodes: { items: { required: string[]; properties: Record<string, { type: unknown }> } } };
+    };
+    const node = schema.properties.nodes.items;
+    expect([...node.required].sort()).toEqual(["path", "summary", "title", "type", "updated"]);
+    for (const field of ["summary", "updated"]) {
+      expect(node.properties[field].type).toEqual(["string", "null"]);
+    }
+  });
+
+  test("an unresolved target is an edge and not a node", async () => {
+    const sc = await graph("context/current-focus.md");
+    const edge = sc.edges.find((e) => e.target === "does-not-exist");
+    expect(edge).toEqual({ source: "context/current-focus.md", target: "does-not-exist", resolved: false });
+    expect(sc.nodes.map((n) => n.path)).not.toContain("does-not-exist");
   });
 });
 

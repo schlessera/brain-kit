@@ -18,12 +18,12 @@ import { join } from "path";
 import { openDatabase, SCHEMA_VERSION } from "../src/lib/db.js";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness.js";
 
-/** The `incoming` branch of brain_graph in src/mcp-server.ts, verbatim. */
+/** The `incoming` branch of brain_graph's walk in src/lib/link-walk.ts, verbatim. */
 const INCOMING_QUERY = `SELECT d2.path AS source, d.path AS target
-                   FROM links l
-                   JOIN documents d ON d.id = l.target_id
-                   JOIN documents d2 ON d2.id = l.source_id
-                   WHERE d.path = ?`;
+               FROM links l
+               JOIN documents d ON d.id = l.target_id
+               JOIN documents d2 ON d2.id = l.source_id
+               WHERE d.path = ?`;
 
 /** The last schema without the index. Fixed, not SCHEMA_VERSION - 1: a later bump must not move it. */
 const PRE_INDEX_VERSION = 8;
@@ -80,7 +80,7 @@ function downgradeToPreIndex(dbPath: string): void {
 describe("links.target_id index", () => {
   test("the query under test is still the one brain_graph runs", () => {
     // A stale copy would keep the plan test green while the real query moved.
-    const source = readFileSync(join(import.meta.dir, "../src/mcp-server.ts"), "utf8");
+    const source = readFileSync(join(import.meta.dir, "../src/lib/link-walk.ts"), "utf8");
     expect(source.includes(INCOMING_QUERY)).toBe(true);
   });
 

@@ -26,6 +26,7 @@ import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
+import { walkLinks } from "./lib/link-walk.js";
 import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
 import { archiveDocument } from "./lib/archiver.js";
@@ -418,12 +419,19 @@ export async function startMcpServer(
     target: z.string(),
     resolved: z.boolean(),
   });
+  const graphNodeSchema = z.object({
+    path: z.string(),
+    title: z.string(),
+    type: z.string(),
+    summary: z.string().nullable(),
+    updated: z.string().nullable(),
+  });
 
   server.registerTool(
     "brain_graph",
     {
       description:
-        "Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]].",
+        "Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]], and nodes (path, title, type, summary, updated) for every document an edge touches.",
       inputSchema: {
         path: z.string().describe("Starting document path"),
         depth: z.number().default(1).describe("How many hops to traverse"),
@@ -431,83 +439,19 @@ export async function startMcpServer(
       },
       outputSchema: {
         edges: z.array(graphEdgeSchema),
+        nodes: z.array(graphNodeSchema),
         warnings: z.array(z.string()),
       },
       annotations: { readOnlyHint: true },
     },
     async (params) => {
       try {
-        const edges: Array<{ source: string; target: string; resolved: boolean }> = [];
-        const visited = new Set<string>();
-        let frontier = new Set<string>([params.path]);
         const depth = Math.min(Math.max(1, params.depth), MAX_GRAPH_DEPTH);
-
-        for (let hop = 0; hop < depth; hop++) {
-          const nextFrontier = new Set<string>();
-
-          for (const currentPath of frontier) {
-            if (visited.has(currentPath)) continue;
-            visited.add(currentPath);
-
-            if (params.direction === "outgoing" || params.direction === "both") {
-              const outgoing = db
-                .prepare(
-                  `SELECT d.path AS source, l.target, l.target_id
-                   FROM links l
-                   JOIN documents d ON d.id = l.source_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{ source: string; target: string; target_id: number | null }>;
-
-              for (const row of outgoing) {
-                let targetPath = row.target;
-                let resolved = false;
-                if (row.target_id) {
-                  const targetDoc = db
-                    .prepare("SELECT path FROM documents WHERE id = ?")
-                    .get(row.target_id) as { path: string } | null;
-                  if (targetDoc) {
-                    targetPath = targetDoc.path;
-                    resolved = true;
-                  }
-                }
-                edges.push({ source: row.source, target: targetPath, resolved });
-                if (resolved) nextFrontier.add(targetPath);
-              }
-            }
-
-            if (params.direction === "incoming" || params.direction === "both") {
-              const incoming = db
-                .prepare(
-                  `SELECT d2.path AS source, d.path AS target
-                   FROM links l
-                   JOIN documents d ON d.id = l.target_id
-                   JOIN documents d2 ON d2.id = l.source_id
-                   WHERE d.path = ?`
-                )
-                .all(currentPath) as Array<{ source: string; target: string }>;
-
-              for (const row of incoming) {
-                edges.push({ source: row.source, target: row.target, resolved: true });
-                nextFrontier.add(row.source);
-              }
-            }
-          }
-
-          frontier = nextFrontier;
-        }
-
-        const seen = new Set<string>();
-        const uniqueEdges = edges.filter((e) => {
-          const key = `${e.source}->${e.target}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
+        const { edges, nodes } = walkLinks(db, { path: params.path, depth, direction: params.direction });
 
         const stale = indexStalenessWarning();
         const warnings = toolWarnings(stale);
-        const structured = { edges: uniqueEdges, warnings };
+        const structured = { edges, nodes, warnings };
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(structured) }],
