@@ -178,6 +178,30 @@ describe("the catalogue", () => {
     ]);
   });
 
+  test("a column named after something on Object.prototype is offered and can be marked recommended", () => {
+    // Headers are model output. `in` also sees `constructor` and the rest of
+    // Object.prototype, and assigning `__proto__` on a plain object sets its
+    // prototype instead of a key, so both went unoffered.
+    for (const header of ["constructor", "__proto__"]) {
+      const [table] = detectCandidates(
+        `| | ${header.replaceAll("_", "\\_")} | Pylos |\n|---|---|---|\n| Days at sea | 0 | 4 |\n| Host | Penelope | Nestor |`
+      );
+      const recommended = questionsFor(table!)["c0.recommended"];
+      expect(recommended?.type).toBe("choice");
+      if (recommended?.type !== "choice") return;
+      expect(Object.keys(recommended.criteria)).toEqual(["none", header, "Pylos"]);
+      const result = transformCandidate(table!, {
+        "c0.shape": choice("comparison", 0.9),
+        "c0.recommended": choice(header, 0.9),
+        "c0.criteria_first": noul(1),
+      });
+      expect(result?.block.kind === "comparison" && result.block.columns).toEqual([
+        { label: header, recommended: true },
+        { label: "Pylos" },
+      ]);
+    }
+  });
+
   test("above the bound, a comparison stays markdown and a data table is drawn with no column recommended", () => {
     const [wide] = detectCandidates(wideTable(5));
     // A recommendation the classifier was never asked for is not honoured
@@ -326,16 +350,18 @@ describe("the catalogue", () => {
 
   test("a key that also names something on Object.prototype is still offered", () => {
     // The run's keys are model output, and `toString` or `constructor` would
-    // be masked by a plain `in` check: unoffered by the question, accepted by
-    // the transform.
-    const [run] = detectCandidates("**toString:** Odysseus\n**Role:** King of Ithaca");
-    const subject = questionsFor(run!)["c0.subject"];
-    expect(subject?.type).toBe("choice");
-    if (subject?.type !== "choice") return;
-    expect(Object.keys(subject.criteria)).toEqual(["none", "toString", "Role"]);
-    expect(
-      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("toString", 0.9) })?.block
-    ).toMatchObject({ kind: "contact", label: "Odysseus" });
+    // be masked by a plain `in` check, and `__proto__` by assigning it:
+    // unoffered by the question, accepted by the transform.
+    for (const key of ["toString", "__proto__"]) {
+      const [run] = detectCandidates(`**${key}:** Odysseus\n**Role:** King of Ithaca`);
+      const subject = questionsFor(run!)["c0.subject"];
+      expect(subject?.type).toBe("choice");
+      if (subject?.type !== "choice") return;
+      expect(Object.keys(subject.criteria)).toEqual(["none", key, "Role"]);
+      expect(
+        transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice(key, 0.9) })?.block
+      ).toMatchObject({ kind: "contact", label: "Odysseus" });
+    }
   });
 
   test("a name that strips to nothing is no name, so the markdown stays", () => {
