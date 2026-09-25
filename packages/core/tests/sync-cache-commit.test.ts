@@ -308,6 +308,28 @@ describe("sync pull when the merge does not finish", () => {
     return root;
   }
 
+  /** A hook `name` running `body`, in a hooks directory only this clone uses. */
+  function hook(root: string, name: string, body: string): void {
+    const hooks = join(root, ".git", "test-hooks");
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(join(hooks, name), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(hooks, name), 0o755);
+    git(root, "config", "core.hooksPath", hooks);
+  }
+
+  /** Both clones committed a different edit to the cache; theirs updates `a`, ours prunes it. */
+  function cacheConflict(): { root: string; remote: string } {
+    const { root, remote } = brainWithRemote();
+    git(root, "config", "merge.conflictStyle", "diff3");
+    writeFileSync(join(root, CACHE), '{"k":"a","v":"base"}\n{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    git(root, "push", "-q", "origin", "main");
+    pushFromOtherClone(remote, { [CACHE]: '{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n' });
+    writeFileSync(join(root, CACHE), '{"k":"b","v":"base"}\n');
+    git(root, "commit", "-qam", "Refresh derived index caches");
+    return { root, remote };
+  }
+
   test("git refusing to start the merge is merge-failed, exit 1, not a conflict with nothing to resolve", async () => {
     const root = diverged("# Loose idea\n\nEdited here and not committed.\n");
     writeFileSync(join(root, "local-note.md"), "# Local\n");
@@ -331,5 +353,75 @@ describe("sync pull when the merge does not finish", () => {
     expect(body.status).toBe("conflicted");
     expect(body.conflicts).toEqual([NOTE]);
     expect(result.code).toBe(0);
+  });
+
+  test("a squash merge (branch.main.mergeOptions) that stops on a conflict is conflicted, though it leaves no MERGE_HEAD", async () => {
+    const root = diverged("# Loose idea\n\nEdited here and committed.\n");
+    git(root, "commit", "-qam", "local edit");
+    git(root, "config", "branch.main.mergeOptions", "--squash");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("conflicted");
+    expect(body.conflicts).toEqual([NOTE]);
+    expect(result.code).toBe(0);
+  });
+
+  test("a merge left unfinished before the pull, with nothing unmerged, is merge-failed, not an empty conflict", async () => {
+    const { root, remote } = brainWithRemote();
+    pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+    writeFileSync(join(root, "local-note.md"), "# Local\n");
+    git(root, "add", "local-note.md");
+    git(root, "commit", "-qm", "local content");
+    git(root, "fetch", "-q", "origin", "main");
+    git(root, "merge", "--no-commit", "--no-ff", "origin/main");
+    expect(git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")).not.toBe("");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("merge-failed");
+    expect(body.conflicts).toEqual([]);
+    expect(result.code).toBe(1);
+  });
+
+  test("a merge commit a hook rejects is merge-failed, though the merge left a MERGE_HEAD", async () => {
+    const { root, remote } = brainWithRemote();
+    pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+    writeFileSync(join(root, "local-note.md"), "# Local\n");
+    git(root, "add", "local-note.md");
+    git(root, "commit", "-qm", "local content");
+    hook(root, "pre-merge-commit", "exit 1");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("merge-failed");
+    expect(body.conflicts).toEqual([]);
+    expect(result.code).toBe(1);
+  });
+
+  test("a cache-only conflict whose concluding commit a hook rejects is merge-failed, not conflicted with nothing listed", async () => {
+    const { root } = cacheConflict();
+    hook(root, "pre-commit", "exit 1");
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe("merge-failed");
+    expect(body.conflicts).toEqual([]);
+    expect(body.mergedCaches).toEqual([CACHE]);
+    expect(result.code).toBe(1);
+  });
+
+  test("a cache conflict a squash merge left unmerged, without MERGE_HEAD, is resolved from the stages", async () => {
+    const { root } = cacheConflict();
+    git(root, "fetch", "-q", "origin", "main");
+    Bun.spawnSync(["git", "-C", root, "merge", "--squash", "origin/main"]);
+    expect(git(root, "diff", "--name-only", "--diff-filter=U")).toBe(CACHE);
+    expect(Bun.spawnSync(["git", "-C", root, "rev-parse", "-q", "--verify", "MERGE_HEAD"]).exitCode).not.toBe(0);
+
+    const result = await runCli(root, ["sync", "pull", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(body.conflicts).toEqual([]);
+    expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
+    expect(body.status).toBe("merged");
   });
 });
