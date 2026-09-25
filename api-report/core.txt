@@ -64,6 +64,7 @@ export "." (./src/index.ts)
   SCRATCH_DIR
   SCRATCH_MAX_BYTES
   SCRATCH_TTL_MS
+  SEARCH_SORTS
   type SchemaOptions
   type ScratchFailure
   ScratchNotIgnoredError
@@ -126,6 +127,7 @@ export "." (./src/index.ts)
   initContext
   installBinLinks
   isInScratch
+  isIsoDate
   isWriteRefusal
   lintSkills
   loadModules
