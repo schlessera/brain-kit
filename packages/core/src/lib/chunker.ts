@@ -106,13 +106,28 @@ function splitBySections(content: string): Section[] {
  * each document whose stored version is another one, once, even when its file did
  * not change.
  */
-export const CHUNKER_VERSION = 2;
+export const CHUNKER_VERSION = 3;
 
 /** Every code block in the subtree, as [start, end) offsets: nothing is split inside one. HTML is not code. */
 function codeRanges(node: MdNode, base: number, ranges: Array<[number, number]>): Array<[number, number]> {
   if (node.type === "code") ranges.push([base + startOf(node), base + endOf(node)]);
   for (const child of node.children ?? []) codeRanges(child, base, ranges);
   return ranges;
+}
+
+/** Every table in the subtree below `node`, the node itself excluded. */
+function nestedTables(node: MdNode, tables: MdNode[]): MdNode[] {
+  for (const child of node.children ?? []) {
+    if (child.type === "table") tables.push(child);
+    else nestedTables(child, tables);
+  }
+  return tables;
+}
+
+/** A run of a block's lines that is cut as one, and the rows a piece starting at it repeats first. */
+interface LineUnit {
+  text: string;
+  header?: string;
 }
 
 /**
@@ -123,28 +138,56 @@ function codeRanges(node: MdNode, base: number, ranges: Array<[number, number]>)
  *
  * The units are the block's lines, except that the lines of
  * a code block (at any depth, a fence inside a list item included) stay
- * together as one unit.
+ * together as one unit. With `tables`, a table inside the block (in a list
+ * item, a blockquote) keeps its header and separator lines together, and each
+ * of its data rows carries those two lines, with the prefix its own line has
+ * (`> `, the list indentation, never a list marker), to lead a piece it opens.
  */
-function lineUnits(block: string, node: MdNode, base: number): string[] {
-  const ranges = codeRanges(node, -base, []);
-  const units: string[] = [];
+function lineUnits(block: string, node: MdNode, base: number, tables = false): LineUnit[] {
+  const lines = block.split("\n");
+  const starts: number[] = [];
   let offset = 0;
-  let current: string[] = [];
-  let currentEnd = -1;
-  for (const line of block.split("\n")) {
-    const lineStart = offset;
+  for (const line of lines) {
+    starts.push(offset);
     offset += line.length + 1;
-    const range = ranges.find(([s, e]) => lineStart < e && offset - 1 > s);
-    if (current.length > 0 && lineStart < currentEnd) {
-      current.push(line);
-      if (range) currentEnd = Math.max(currentEnd, range[1]);
-      continue;
-    }
-    if (current.length > 0) units.push(current.join("\n"));
-    current = [line];
-    currentEnd = range ? range[1] : -1;
   }
-  if (current.length > 0) units.push(current.join("\n"));
+  const lineAt = (at: number) => {
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (starts[mid] <= at) low = mid;
+      else high = mid - 1;
+    }
+    return low;
+  };
+  // Where each line's unit ends (inclusive), when it runs past the line.
+  const joinTo = lines.map((_, index) => index);
+  const headers: Array<string | undefined> = [];
+  for (const [s, e] of codeRanges(node, -base, [])) {
+    const first = lineAt(s);
+    joinTo[first] = Math.max(joinTo[first], lineAt(e - 1));
+  }
+  for (const table of tables ? nestedTables(node, []) : []) {
+    const rows = table.children ?? [];
+    if (rows.length < 2) continue;
+    const headerLine = lineAt(startOf(rows[0]) - base);
+    const firstRow = lineAt(startOf(rows[1]) - base);
+    joinTo[headerLine] = Math.max(joinTo[headerLine], firstRow - 1);
+    const prefix = lines[firstRow].slice(0, startOf(rows[1]) - base - starts[firstRow]);
+    const header = [
+      prefix + lines[headerLine].slice(startOf(rows[0]) - base - starts[headerLine]),
+      ...lines.slice(headerLine + 1, firstRow),
+    ].join("\n");
+    for (const row of rows.slice(1)) headers[lineAt(startOf(row) - base)] = header;
+  }
+  const units: LineUnit[] = [];
+  for (let index = 0; index < lines.length; ) {
+    let end = joinTo[index];
+    for (let k = index; k <= end; k++) end = Math.max(end, joinTo[k]);
+    units.push({ text: lines.slice(index, end + 1).join("\n"), header: headers[index] });
+    index = end + 1;
+  }
   return units;
 }
 
@@ -197,25 +240,32 @@ function splitTable(block: string, node: MdNode, base: number): string[] {
 /**
  * Break one top-level block that is over the limit into pieces that are not:
  * a table at row boundaries, anything else, HTML included, at line boundaries
- * outside code. A code block is never broken; a single line over the limit
+ * outside code, a table nested in it (a list, a blockquote) led by its header
+ * rows in every piece that opens inside it. A code block is never broken; a single line over the limit
  * stays whole.
  */
 function splitBlock(block: string, node: MdNode, base: number): string[] {
   if (node.type === "code") return [block];
   if (node.type === "table") return splitTable(block, node, base);
-  return splitLines(block, node, base);
+  return splitLines(block, node, base, true);
 }
 
-/** Cut a block at line boundaries into pieces within the limit, never inside code. */
-function splitLines(block: string, node: MdNode, base: number): string[] {
+/**
+ * Cut a block at line boundaries into pieces within the limit, never inside
+ * code. With `tables`, a piece that opens on a nested table's data row starts
+ * with that table's header and separator rows, when they fit with the row.
+ */
+function splitLines(block: string, node: MdNode, base: number, tables = false): string[] {
   const pieces: string[] = [];
+  const fits = (lines: string[]) => estimateTokens(lines.join("\n")) <= MAX_TOKENS;
   let current: string[] = [];
-  for (const unit of lineUnits(block, node, base)) {
-    if (current.length > 0 && estimateTokens([...current, unit].join("\n")) > MAX_TOKENS) {
+  for (const unit of lineUnits(block, node, base, tables)) {
+    if (current.length > 0 && !fits([...current, unit.text])) {
       pieces.push(current.join("\n"));
       current = [];
     }
-    current.push(unit);
+    if (current.length === 0 && unit.header && fits([unit.header, unit.text])) current.push(unit.header);
+    current.push(unit.text);
   }
   if (current.length > 0) pieces.push(current.join("\n"));
   return pieces;
