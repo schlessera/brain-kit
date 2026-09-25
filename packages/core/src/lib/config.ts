@@ -241,6 +241,18 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     /**
+     * The always-loaded instruction weight `brain doctor` checks: CLAUDE.md
+     * with its `@` imports, AGENTS.md, and model-invocable skill descriptions.
+     * A missing key falls back to DEFAULT_INSTRUCTIONS_MAX_TOKENS.
+     */
+    instructions: z
+      .object({
+        /** Estimated tokens above which `brain doctor` warns. */
+        maxTokens: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
      * package name or ./local/path → module config block (validated by the
      * module's configSchema). Keys lead to import() — constrain them: a
      * `./`-prefixed key must stay inside the repo (no `..`, no absolute), and
@@ -300,6 +312,9 @@ export const DEFAULT_STALENESS = { days: 180, severity: "info" as const };
 
 /** Warn levels `brain stats` applies when the `stats` config block is absent. */
 export const DEFAULT_STATS_THRESHOLDS = { coverageFloor: 0.9, brokenLinkCeiling: 0.05 };
+
+/** `instructions.maxTokens` when absent: the shipped contract (~850) plus a generous overlay. */
+export const DEFAULT_INSTRUCTIONS_MAX_TOKENS = 8000;
 
 export const DEFAULT_CANONICAL: Record<string, string> = {
   identity: "me/identity.md",

@@ -14,6 +14,8 @@ import {
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
+import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
+import { estimateTokens } from "../../lib/context-assembler.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
@@ -189,6 +191,94 @@ function checkShadowedCommands(cli: CliContext): Check {
     status: "warn",
     detail: `${shadowed.length} command file(s) shadowed by a skill of the same name: ${shadowed.join(", ")}`,
     fix: "delete or rename each file; the skill runs, not the command",
+  };
+}
+
+/**
+ * `@path` imports in a CLAUDE.md, as Claude Code reads them: outside code
+ * spans and fences, after whitespace or at a line start. Only relative paths
+ * are returned; home and absolute imports live outside the brain.
+ */
+function claudeImports(text: string): string[] {
+  const prose = text.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  const found: string[] = [];
+  for (const m of prose.matchAll(/(?:^|\s)@([^\s`]+)/g)) {
+    const path = m[1];
+    if (path.startsWith("~") || isAbsolute(path)) continue;
+    found.push(path);
+  }
+  return found;
+}
+
+/**
+ * What every session pays for before any work starts: CLAUDE.md with its `@`
+ * imports resolved one level, AGENTS.md, and the description of every skill a
+ * model may invoke on its own. Estimated as characters / 4, like `brain
+ * context`.
+ */
+function checkInstructionsWeight(cli: CliContext): Check {
+  const root = cli.brain.root;
+  const limit = cli.brain.config?.instructions?.maxTokens ?? DEFAULT_INSTRUCTIONS_MAX_TOKENS;
+  const contributors: { name: string; tokens: number }[] = [];
+  const seen = new Set<string>();
+  const readInside = (rel: string): string | null => {
+    const abs = resolve(root, rel);
+    if (seen.has(abs) || !(abs === root || abs.startsWith(root + sep))) return null;
+    seen.add(abs);
+    try {
+      return statSync(abs).isFile() ? readFileSync(abs, "utf8") : null;
+    } catch {
+      return null;
+    }
+  };
+
+  let skillTokens = 0;
+  let skillCount = 0;
+  try {
+    const claude = readInside("CLAUDE.md");
+    if (claude !== null) {
+      contributors.push({ name: "CLAUDE.md", tokens: estimateTokens(claude) });
+      for (const rel of claudeImports(claude)) {
+        const text = readInside(rel);
+        if (text !== null) contributors.push({ name: rel, tokens: estimateTokens(text) });
+      }
+    }
+    const agents = readInside("AGENTS.md");
+    if (agents !== null) contributors.push({ name: "AGENTS.md", tokens: estimateTokens(agents) });
+
+    for (const skill of discoverSkills({ root, modules: cli.brain.modules }).skills) {
+      if (skill.frontmatter["disable-model-invocation"] === true) continue;
+      const tokens = estimateTokens(skill.description);
+      contributors.push({ name: `skill ${skill.name}`, tokens });
+      skillTokens += tokens;
+      skillCount++;
+    }
+  } catch (e) {
+    return { id: "instructions-weight", status: "warn", detail: `could not measure: ${(e as Error).message}` };
+  }
+
+  const total = contributors.reduce((sum, c) => sum + c.tokens, 0);
+  const files = contributors.filter((c) => !c.name.startsWith("skill "));
+  const parts = [
+    ...files.map((c) => `${c.name} ${c.tokens}`),
+    `${skillCount} skill description(s) ${skillTokens}`,
+  ];
+  if (total <= limit) {
+    return {
+      id: "instructions-weight",
+      status: "pass",
+      detail: `~${total} tokens always loaded (limit ${limit}): ${parts.join(", ")}`,
+    };
+  }
+  const largest = [...contributors]
+    .sort((a, b) => b.tokens - a.tokens || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .slice(0, 3)
+    .map((c) => `${c.name} (${c.tokens})`);
+  return {
+    id: "instructions-weight",
+    status: "warn",
+    detail: `~${total} tokens always loaded, over the ${limit} limit; largest: ${largest.join(", ")}. All: ${parts.join(", ")}`,
+    fix: "trim the largest files, move rules a session rarely needs into a skill, or raise `instructions.maxTokens` in brain.config",
   };
 }
 
@@ -471,6 +561,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkGitHooks(root),
     checkSymlinks(root),
     checkShadowedCommands(cli),
+    checkInstructionsWeight(cli),
     checkConfig(cli),
     checkDb(cli),
     await checkEmbeddings(cli),
