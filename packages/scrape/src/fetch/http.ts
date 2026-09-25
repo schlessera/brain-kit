@@ -114,7 +114,10 @@ function sleep(ms: number): Promise<void> {
  * schedule rather than on `Retry-After`.
  *
  * curl does not follow redirects here (no `-L`): `ScrapeClient.get` follows
- * them itself, so each hop is checked against robots.txt and paced.
+ * them itself, so each hop is checked against robots.txt and paced. For the
+ * same reason `--globoff` is set: without it curl expands `[1-3]` or `{a,b}`
+ * in a URL into several requests, none of which robots.txt or the limiter
+ * saw.
  */
 async function fetchThroughProxy(
   url: string,
@@ -125,6 +128,7 @@ async function fetchThroughProxy(
   const args = [
     "curl",
     "-s",
+    "--globoff",
     "-w",
     "\n%{http_code}\n%{redirect_url}",
     "-x",
@@ -169,15 +173,18 @@ function servedFrom(response: Response, url: string): Response {
 }
 
 /**
- * Headers for a hop to another origin. Credentials the caller set for the
- * site it asked for do not travel to a site it did not ask for; the fetch
- * standard drops `Authorization` the same way, and curl drops both.
+ * The headers that may travel to an origin the caller did not ask for: the
+ * client's own identity and content negotiation, which are all any caller in
+ * this repo sets. Anything else may be a credential for the requested site
+ * (`Authorization`, `Cookie`, `Proxy-Authorization`, an `X-Api-Key`), and
+ * there is no telling which, so it stays behind. An https-to-http downgrade
+ * is always a change of origin, so it is covered too.
  */
-function withoutCredentials(headers: Record<string, string>): Record<string, string> {
+const CROSS_ORIGIN_HEADERS = new Set(["user-agent", "accept"]);
+
+function forAnotherOrigin(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(headers).filter(
-      ([key]) => !["authorization", "cookie"].includes(key.toLowerCase())
-    )
+    Object.entries(headers).filter(([key]) => CROSS_ORIGIN_HEADERS.has(key.toLowerCase()))
   );
 }
 
@@ -263,7 +270,7 @@ export class ScrapeClient {
 
     for (let hops = 0; ; hops++) {
       const crossOrigin = originOf(current) !== startOrigin;
-      if (crossOrigin) headers = withoutCredentials(headers);
+      if (crossOrigin) headers = forAnotherOrigin(headers);
       const response = await this.fetchHop(
         current,
         crossOrigin ? { ...opts, allowDisallowed: false } : opts,
