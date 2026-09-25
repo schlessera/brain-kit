@@ -224,6 +224,14 @@ describe("index table lag", () => {
     ]);
   });
 
+  test("a generated registry table is left to brain registry, not diffed row by row", () => {
+    const table = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Alpha](alpha.md) | active | 2026-05-01 |\n";
+    const detail = doc("work/alpha.md", "note", "2026-06-10");
+    const lag = (content: string) => indexTableLag([doc("work/_index.md", "index", "2026-06-01", content), detail]);
+    expect(lag(table)).toHaveLength(1); // the premise: the same table by hand lags
+    expect(lag(`<!-- brain:generated:registry -->\n\n${table}\n<!-- /brain:generated:registry -->\n`)).toEqual([]);
+  });
+
   test("a table without outer pipes, and a wiki-link with a label, are read as GFM reads them", () => {
     const detail = doc("work/alpha.md", "note", "2026-06-10");
     const lag = (table: string) => indexTableLag([doc("work/_index.md", "index", "2026-06-01", table), detail]);

@@ -16,6 +16,8 @@
 import { resolve, join, relative } from "path";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
 import matter from "gray-matter";
+
+import { rewriteGeneratedRegion, splitFrontmatterBlock } from "@schlessera/brain";
 import { safeResolve } from "@schlessera/brain";
 
 /** Runtime configuration for the AR engine, threaded through every entry point. */
@@ -36,10 +38,13 @@ export interface FinanceOptions {
   defaultTermsDays: number;
 }
 
-// Markers delimiting the generated block inside a markdown body. Hand-written
-// prose above the opening marker (and below the closing one) is preserved.
-const GEN_BEGIN = "<!-- BEGIN GENERATED — do not edit by hand; run `brain finance sync` -->";
-const GEN_END = "<!-- END GENERATED -->";
+// The generated block inside a ledger or dashboard body is core's generated
+// region `finance` (<!-- brain:generated:finance --> … <!-- /brain:generated:finance -->).
+// Hand-written prose above and below it is preserved.
+const REGION = "finance";
+// The markers this module wrote before core had one generated-region syntax.
+// Still read: a file carrying them is rewritten to the region on its next sync.
+const LEGACY_BLOCK = /<!-- BEGIN GENERATED[^>]*-->[\s\S]*?<!-- END GENERATED -->/;
 
 export interface Allocation {
   invoice: string;
@@ -457,7 +462,7 @@ const STATUS_LABEL: Record<InvoiceStatus, string> = {
 };
 
 /** Markdown tables + summary for a single client's ledger body. */
-function renderLedgerTables(c: ClientReport, payments: Payment[]): string {
+export function renderLedgerTables(c: ClientReport, payments: Payment[]): string {
   const cur = c.currency;
   const lines: string[] = [];
 
@@ -528,41 +533,26 @@ function renderIndexTable(pf: Portfolio): string {
   return lines.join("\n");
 }
 
-/** Replace the generated block in `body`, preserving hand-written prose. */
-function replaceGeneratedBlock(body: string, generated: string): string {
-  const block = `${GEN_BEGIN}\n\n${generated}\n\n${GEN_END}`;
-  const re = new RegExp(`${escapeRe(GEN_BEGIN)}[\\s\\S]*?${escapeRe(GEN_END)}`);
-  if (re.test(body)) return body.replace(re, block);
-  return `${body.trimEnd()}\n\n${block}\n`;
+/** A body whose legacy block, if any, is replaced by an empty `finance` region in the same place. */
+function migrateLegacyBlock(body: string): string {
+  return body.replace(LEGACY_BLOCK, `<!-- brain:generated:${REGION} -->\n\n<!-- /brain:generated:${REGION} -->`);
 }
-
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export interface SyncResult {
   files: string[];
 }
 
-// Split a file into its raw frontmatter block (including the --- fences) and
-// the body. Frontmatter is preserved verbatim so hand-formatted YAML data
-// arrays are never re-serialized (which would mangle them into flow style).
-function splitFrontmatter(raw: string): { fm: string; body: string } {
-  const m = raw.match(/^(---\r?\n[\s\S]*?\r?\n---)(\r?\n[\s\S]*)?$/);
-  if (!m) return { fm: "", body: raw };
-  return { fm: m[1], body: m[2] ?? "" };
-}
-
 /**
  * Compute the rewritten file content for a ledger/dashboard: replaces only the
- * generated body block and bumps `updated:` in the frontmatter text. Returns
- * null when the generated block is already current (nothing to write).
+ * generated region and bumps `updated:` in the frontmatter text, which is kept
+ * verbatim. Returns null when the region is already current (nothing to write).
  */
 function computeRewrite(abs: string, generated: string, asOf: string): string | null {
   const raw = readFileSync(abs, "utf8");
-  const { fm, body } = splitFrontmatter(raw);
-  const newBody = replaceGeneratedBlock(body, generated);
-  if (newBody === body) return null;
-  const newFm = fm.replace(/^updated:.*$/m, `updated: ${asOf}`);
-  return `${newFm}${newBody}`;
+  const { frontmatter, body } = splitFrontmatterBlock(raw);
+  const migrated = `${frontmatter}${migrateLegacyBlock(body)}`;
+  // A legacy file always changes here: its markers become the region's.
+  return rewriteGeneratedRegion(migrated, REGION, generated, asOf);
 }
 
 /** Rewrite only the generated body block; bump `updated:`. Returns true if written. */

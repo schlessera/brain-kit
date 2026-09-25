@@ -1,12 +1,13 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import matter from "gray-matter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
 import { hasDocumentsColumn } from "./db.js";
 import { topLevelBlocks } from "./document-parts.js";
+import { planRegistry } from "./index-registry.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
@@ -610,8 +611,16 @@ export function audit(
   // 2b. Index lag check — _index.md files older than their detail files
   // ---------------------------------------------------------------
   // Mechanical enforcement of the Index Sync Principle: an _index.md is a
-  // summary layer over its directory subtree and must not lag behind it.
-  const indexDocs = docs.filter((d) => d.path.endsWith("_index.md"));
+  // summary layer over its directory subtree and must not lag behind it. An
+  // index with a generated registry table is judged by that table instead
+  // (2b'): its `updated` moves only when the table does, so lag says nothing.
+  // A root that is not a directory (a caller auditing an index alone) has no registry to plan.
+  const registry = opts.root && existsSync(opts.root) ? planRegistry(opts.root, taxonomy, isoDay(now)) : null;
+  const generated = new Set([
+    ...(registry?.indexes.map((i) => i.path) ?? []),
+    ...(registry?.problems.map((p) => p.path) ?? []),
+  ]);
+  const indexDocs = docs.filter((d) => d.path.endsWith("_index.md") && !generated.has(d.path));
   for (const indexDoc of indexDocs) {
     const dirPrefix = indexDoc.path.slice(0, -"_index.md".length);
     const indexUpdated = new Date(indexDoc.updated).getTime();
@@ -640,6 +649,29 @@ export function audit(
         });
       }
     }
+  }
+
+  // ---------------------------------------------------------------
+  // 2b'. Stale registry tables — a generated table that no longer matches
+  // ---------------------------------------------------------------
+  for (const index of registry?.indexes ?? []) {
+    if (index.next === null) continue;
+    issues.push({
+      path: index.path,
+      severity: "warning",
+      category: "index-stale",
+      message: "The registry table no longer matches its children's frontmatter",
+      suggestion: "Run `brain registry` to regenerate it",
+    });
+  }
+  for (const { path, error } of registry?.problems ?? []) {
+    issues.push({
+      path,
+      severity: "warning",
+      category: "index-stale",
+      message: `The registry: block is invalid, so the table cannot be generated (${error})`,
+      suggestion: `Fix the registry: frontmatter of ${path}`,
+    });
   }
 
   // ---------------------------------------------------------------

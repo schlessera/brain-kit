@@ -1,6 +1,7 @@
 import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { compactVectors, indexAll, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
 import { auditWithModules } from "../../lib/auditor.js";
+import { runRegistry } from "../../lib/index-registry.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
@@ -10,7 +11,9 @@ import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 
-Runs, in order: incremental index (+embeddings when a key is configured), a
+Runs, in order: the _index.md registry tables (the same step as
+\`brain registry\`, which writes only generated regions whose table changed),
+an incremental index (+embeddings when a key is configured), a
 vector-table compaction when fewer than half its slots are live (the same step
 as \`brain index --compact\`), an audit snapshot (the counts \`brain audit\`
 reports, module hygiene checks included), a tag report (counts only;
@@ -28,13 +31,29 @@ other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
-  summary: "Run routine maintenance: incremental index, vector compaction, audit snapshot, tag report, git packing, scratch prune",
+  summary: "Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, tag report, git packing, scratch prune",
   helpBlock: HELP,
   async run(args, cli): Promise<number> {
     const { args: pos, flags } = parseArgs(args);
     if (pos.length > 0) throw new UsageError(`brain maintain takes no positional arguments (got "${pos[0]}")`);
     const report: Array<{ step: string; result: string }> = [];
     const dims = embeddingDims(cli.embeddings);
+
+    // 0. Registry tables, before the index so it reads what they wrote. The
+    // only markdown maintain writes: generated regions whose content changed.
+    try {
+      const result = runRegistry(cli.brain.root, cli.brain.taxonomy, { asOf: new Date().toISOString().slice(0, 10) });
+      const summary = `${result.written.length} of ${result.indexes} table(s) rewritten`;
+      report.push({
+        step: "registry",
+        result:
+          result.invalid.length === 0
+            ? `ok — ${summary}`
+            : `FAILED — invalid registry: in ${result.invalid.map((p) => p.path).join(", ")}; ${summary}`,
+      });
+    } catch (e) {
+      report.push({ step: "registry", result: `FAILED — ${(e as Error).message}` });
+    }
 
     // 1. Incremental index (+embeddings when available — self-heals vectors).
     try {

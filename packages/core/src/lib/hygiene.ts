@@ -285,6 +285,9 @@ export function indexTableLag(docs: AuditDoc[]): HygieneCandidate[] {
   for (const index of docs) {
     if (index.type !== "index" && !index.path.endsWith("_index.md")) continue;
     if (index.status === "archived") continue;
+    // A generated registry table is `brain registry`'s: audit reports it as
+    // index-stale, and a hand fix would be overwritten.
+    if (/^[ \t]*<!-- brain:generated:registry -->[ \t]*$/m.test(index.content)) continue;
     const indexDir = posix.dirname(index.path);
     for (const [headerRow, ...rows] of tables(index.content)) {
       const header = (headerRow ?? []).map(plain);

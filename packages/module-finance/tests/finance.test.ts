@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "path";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 
-import { buildTaxonomy } from "@schlessera/brain";
+import { buildTaxonomy, readGeneratedRegion } from "@schlessera/brain";
 import type { LoadedModule } from "@schlessera/brain";
 
 import manifest, { configSchema } from "../src/module";
@@ -9,6 +11,8 @@ import {
   buildPortfolio,
   computeClient,
   loadLedgers,
+  renderLedgerTables,
+  syncFiles,
   type FinanceOptions,
 } from "../src/finance";
 
@@ -102,5 +106,44 @@ describe("module manifest", () => {
   test("setup shapes the finance dir from clientsDir", () => {
     const custom = manifest.setup(configSchema.parse({ clientsDir: "accounts" }));
     expect(custom.taxonomy?.types?.finance?.dir).toBe("accounts");
+  });
+});
+
+describe("the generated region (#403)", () => {
+  const LEGACY_BEGIN = "<!-- BEGIN GENERATED — do not edit by hand; run `brain finance sync` -->";
+  const LEGACY_END = "<!-- END GENERATED -->";
+
+  function copyFixtures(): string {
+    const root = mkdtempSync(join(tmpdir(), "finance-region-"));
+    cpSync(resolve(import.meta.dir, "fixtures"), root, { recursive: true });
+    return root;
+  }
+
+  test("a ledger carrying the old markers is rewritten to core's region, with today's tables", () => {
+    const root = copyFixtures();
+    try {
+      const path = join(root, "clients/acme-corp/ledger.md");
+      const prose = "Hand-written notes that must survive.";
+      writeFileSync(path, `${readFileSync(path, "utf8").trimEnd()}\n\n${prose}\n\n${LEGACY_BEGIN}\n\nold table\n\n${LEGACY_END}\n\nClosing words.\n`);
+      const opts = { ...OPTS, root };
+
+      const { files } = syncFiles(opts, AS_OF);
+      expect(files).toContain("clients/acme-corp/ledger.md");
+      const body = readFileSync(path, "utf8");
+      expect(body).not.toContain("BEGIN GENERATED");
+      expect(body).not.toContain("old table");
+      expect(body).toContain(`${prose}\n\n<!-- brain:generated:finance -->`);
+      expect(body).toContain("<!-- /brain:generated:finance -->\n\nClosing words.\n");
+
+      const ledger = loadLedgers(opts, "acme-corp")[0];
+      const expected = renderLedgerTables(computeClient(ledger, opts.feeTolerance, AS_OF), ledger.payments);
+      expect(expected.length).toBeGreaterThan(0);
+      expect(readGeneratedRegion(body, "finance")).toBe(expected);
+
+      // A second sync writes nothing.
+      expect(syncFiles(opts, AS_OF).files).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

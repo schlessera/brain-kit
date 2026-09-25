@@ -1,7 +1,7 @@
 ---
 # Client ledger — the source of truth for accounts-receivable tracking.
 #
-# Everything below the "BEGIN GENERATED" marker in the body is rewritten by
+# The `brain:generated:finance` region in the body is rewritten by
 # `brain finance sync` from the frontmatter below. Edit only this frontmatter
 # by hand; hand-written prose outside the generated block is preserved.
 type: finance
@@ -71,8 +71,8 @@ payments:
 Hand-written context about this client goes here (contacts, scope, rate history).
 Prose above and below the generated block is preserved by `brain finance sync`.
 
-<!-- BEGIN GENERATED — do not edit by hand; run `brain finance sync` -->
+<!-- brain:generated:finance -->
 
 _Run `brain finance sync` to populate the summary, invoice, and payment tables._
 
-<!-- END GENERATED -->
+<!-- /brain:generated:finance -->
