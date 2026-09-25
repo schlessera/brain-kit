@@ -3355,7 +3355,9 @@ comparable.
 
 _Resolved on 2026-09-25, in "measured: the Claude backend at server level,
 beside pi (#137)" below. The brain tools were present but deferred, and the
-remaining leak was the CLI's ancestor walk, not the config directory._
+remaining leak was the CLI's ancestor walk, not the config directory. Two
+turns there still ran a `find /` that the escape rule cannot see, and were
+excluded._
 
 ## 2026-09-22 — the composer follows soft wrap
 
@@ -3654,14 +3656,14 @@ layers, and the Claude arm had never run where its brain tools could appear.
 
 **Method.** `scripts/measure-show-block-server.ts --backend claude --model
 claude-sonnet-5`, at pi's counts: prompts 0–3 at six reps and 4–7 at two, run
-twice. That is 64 turns, run on 2026-09-25 from 01:44:55Z to 02:12:48Z. It is
-the shipping configuration, with the bridge server always loaded (D44) and the
-brief in the prompt. Claude Code 2.1.280 ran under
-`@anthropic-ai/claude-agent-sdk` 0.3.280. The brain was a copy of
+twice. That is 64 turns on 2026-09-25, from 01:45:23Z (the first measured
+turn's stream) to 02:12:48Z. It is the shipping configuration, with the bridge
+server always loaded (D44) and the brief in the prompt. Claude Code 2.1.280 ran
+under `@anthropic-ai/claude-agent-sdk` 0.3.280. The brain was a copy of
 `packages/core/fixtures/corpus/`. It was not a git repository and was indexed
-with `brain index` before the first turn. D43's counting rules and the harness's
-escape rule carry over unchanged. **Every one of the 64 turns completed, and
-none was excluded.**
+with `brain index` before the first turn. D43's counting rules carry over
+unchanged. **Every one of the 64 turns completed, and 2 are excluded for
+leaving the brain (below), so 62 are counted.**
 
 The environment presences the harness recorded, identical on all four run
 files: `CLAUDE_CODE_OAUTH_TOKEN` set. `TYPESAFE_API_KEY`, `ANTHROPIC_BASE_URL`,
@@ -3704,91 +3706,116 @@ and each closed before the measured runs:
   changes to the backend. pi has no memory feature, so this narrows a
   difference rather than adding one.
 
-The per-turn roster was read from each turn's stream-json `init` message. The
-CLI was launched through `BRAIN_UI_EXEC_WRAPPER`, and the wrapper copied its
-stdout to a file and changed nothing else. The roster was then joined to the
-CLI's session transcript by session id. A full audit of the 64 transcripts
-found no tool argument naming a path outside the brain, no instruction file,
-no user skill or agent, and no account email. Skills and agents were only the
-CLI's built-ins. Every contact answer named Alex Example, and every
-schedule answer reasoned about the corpus's own dates.
+**Two turns left the brain anyway, and the harness did not see it.** Run 1's
+fifth `trend` turn and run 2's fourth each looked for git history. Both ran
+`find / -maxdepth 3 -iname "*.git" -type d` and got back repositories
+elsewhere on the host. The saved `escapedBrain` flag is `false` on both,
+because the rule (`export function escapesBrain`,
+`scripts/measure-show-block-server.ts:200`) looks only for `~/` and `/home/`
+paths. A bare `/` never matches that pattern. This brain lived under `/tmp`,
+so a path elsewhere outside `/home` would not have matched either. The rule's
+gap is #360. So the
+audit here reads every path-like token handed to a non-block tool — a
+bare `/`, `~` and `..` included — out of the CLI's own transcripts. It finds
+exactly these two turns. Both are **excluded**, under the rule the harness
+states: a turn whose shell left the brain is not a measurement of this brain.
+Both drew a `trend` block, so the exclusion lowers the Claude rate rather than
+flattering it. `trend` is also the prompt that cost pi its four excluded
+turns.
 
-**The roster each turn saw**, identical on all 64:
+Apart from those two, an audit of all 64 transcripts found no tool argument
+naming a path outside the brain, no instruction file, no user skill or agent,
+and no account email. Skills and agents were only the CLI's built-ins. Every
+contact answer named Alex Example, and every schedule answer reasoned about
+the corpus's own dates. The per-turn roster was read from each turn's
+stream-json `init` message. The CLI was launched through
+`BRAIN_UI_EXEC_WRAPPER`, and the wrapper copied its stdout to a file and
+changed nothing else. The roster was then joined to the CLI's session
+transcript by session id.
+
+**The roster each turn saw**, identical on all 62 counted turns. `init` lists
+34 tool names, but that list is an inventory. The session transcript's
+`deferred_tools_delta` announces 16 of those names by name only, so they are
+behind tool search rather than in the prompt as schemas.
 
 | | Claude backend (this run) | pi (#50) |
 | --- | --- | --- |
-| in the prompt | 29 CLI built-ins (`Bash`, `Read`, `Grep`, `Glob`, `Edit`, `Write`, `Task`, `Skill`, `ToolSearch` and 20 more) plus the five bridge tools, `show_block` among them | pi's curated surface: `read_file`, `grep`, `bash`, the file writers, the eight `brain_*` tools, and the bridge tools with `show_block` |
-| behind tool search | **all eight `mcp__brain__*` tools**, plus 16 CLI tools | nothing; pi cannot defer a registered tool |
-| called, across all turns | `Bash` 116, `Read` 72, `show_block` 42, `Grep` 28, `Glob` 5, `ToolSearch` 5, `brain_search` 3, `brain_list` 3 | `bash`, `show_block`, `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph` |
+| in the prompt as schemas | 13 CLI tools (`Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Task`, `Skill`, `ToolSearch`, `ListAgents`, `ReportFindings`, `ScheduleWakeup`, `Workflow`) plus the five bridge tools, `show_block` among them: 18 | pi's curated surface: `read_file`, `grep`, `bash`, the file writers, the eight `brain_*` tools, and the bridge tools with `show_block` |
+| behind tool search, by name only | **all eight `mcp__brain__*` tools**, plus 16 CLI tools (`WebFetch`, `WebSearch`, `NotebookEdit`, the cron, plan-mode, worktree and messaging tools and others) | nothing; pi cannot defer a registered tool |
+| called, across the counted turns | `Bash` 103, `Read` 72, `show_block` 40, `Grep` 28, `Glob` 5, `ToolSearch` 5, `brain_search` 3, `brain_list` 3 | `bash`, `show_block`, `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph` |
 
 **The brain MCP tools are in the Claude roster, but deferred.** The brain's
 `.mcp.json` registers a stdio server without `alwaysLoad`, so the CLI lists its
 eight tools by name only, behind `ToolSearch`. This is the configuration every
 brain made from the template ships, not a harness artefact. The model loaded
-them in 5 of 64 turns and called one in 3. It read the brain with `Bash` and
+them in 5 of 62 turns and called one in 3. It read the brain with `Bash` and
 `Read` instead. D43 found the same mechanism for `show_block`. Here it applies
 to the tools that read the brain.
 
 **The rate, on one axis.** Each cell counts turns that drew at least one
 accepted block. Right kind is scored against the kind the brief prescribes.
+The excluded turns are out of every cell.
 
 | prompt | expected kind | Claude, run 1 | Claude, run 2 | Claude, pooled | pi, pooled |
 | --- | --- | --- | --- | --- | --- |
 | `compare-short` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 |
 | `compare-long` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 |
-| `trend` | `trend` | 6/6 | 6/6 | **12/12**, right 12 | 8/8, right 8 |
+| `trend` | `trend` | 5/5 | 5/5 | **10/10**, right 10 | 8/8, right 8 |
 | `contact` | `contact` | 0/6 | 0/6 | **0/12** | 5/12, right 5 |
 | `steps` | `steps` | 2/2 | 1/2 | **3/4**, right 3 | 4/4, right 4 |
 | `schedule` | `schedule` | 2/2 | 0/2 | **2/4**, right 0 (`timeline` ×2) | 4/4, right 0 (`timeline` ×4) |
 | `quote` | `quote` | 0/2 | 0/2 | **0/4** | 3/4, right 3 |
 | project summary | — | 0/2 | 1/2 | **1/4** (`receipt`) | 4/4 |
-| overall | | 22/32 | 20/32 | **42/64 (66%)** | **52/60 (87%)** |
+| overall | | 21/31 | 19/31 | **40/62 (65%)** | **52/60 (87%)** |
 
-Right kind is 39 of 41 scorable turns on Claude and 44 of 48 on pi. Both
+Right kind is 37 of 39 scorable turns on Claude and 44 of 48 on pi. Both
 backends make the same kind error: they draw `timeline` where the brief
 prescribes `schedule`. Neither backend typed a markdown table on any turn,
-and the handler rejected no Claude call. pi's four excluded turns were all
-`trend`, which Claude drew on every turn. Counted the way pi's run was, with
-eight `trend` turns, Claude reads 38/60 (63%).
+and the handler rejected no Claude call. pi counted eight `trend` turns and
+Claude ten, and Claude drew on every one. With `trend` held at pi's eight,
+Claude reads 38/60 (63%).
 
 **The gap is wider than it looked, and it is not a flat rate.** Measured at
-the same layer on the same prompts, it is 87% against 66%, not 76–77%. The
+the same layer on the same prompts, it is 87% against 65%, not 76–77%. The
 whole gap sits in five prompts, and all five are answered by reading the
 brain: `contact`, `quote`, the project summary, `steps` and `schedule`. On the
-three prompts where both backends draw every time, the two are identical at
-36 of 36 against 32 of 32. On `contact` and `quote` the Claude backend drew
-nothing in 16 turns. It typed the answer instead, with the quote as a markdown
+three prompts where both backends draw every time, they match at 34 of 34
+against 32 of 32. On `contact` and `quote` the Claude backend drew nothing in
+16 turns. It typed the answer instead, with the quote as a markdown
 blockquote all four times, which is the classification pass's candidate
 rather than the tool's.
 
-**The three candidates.**
+**The three candidates.** None is ruled out.
 
-1. **The layer is ruled out.** The SDK harness and this one share three
-   prompts verbatim: `compare-short`, `compare-long` and `contact`. With the
-   tools loaded, the SDK harness drew on 6/6, 6/6 and 1/6 of them (D43's
-   per-prompt table, both arms), and #148 reports `contact` at 0/3 in both of
-   D44's arms. This run drew on 12/12, 12/12 and 0/12. The per-prompt pattern
-   is the same at both layers, including the `contact` miss, and a declined
-   `quote` leaves a blockquote at both layers too. What moved between the SDK
-   harness's 76–77% and this run's 66% is the prompt mix: this harness weighs
-   `contact` at 12 turns in 64 and adds four brain-reading prompts that the
-   SDK harness does not have. That is not a layer effect.
-2. **The roster is still open, and it is now the leading suspect.** The two
-   backends differ in exactly the way that could matter on the prompts where
-   they diverge. On pi the brain tools are in the prompt and get called. On
-   the Claude backend they are deferred and almost never loaded, and about 34
-   tools stand beside `show_block` in the prompt against pi's curated set.
-   This run cannot separate that from candidate 3, because the roster and the
-   backend changed together.
-3. **The backend itself is still open** for the same reason, and remains
-   whatever is left once the roster is equalised.
+1. **The layer is still open, though what could be compared looks the
+   same.** The SDK harness and this one share three prompts verbatim:
+   `compare-short`, `compare-long` and `contact`. With the tools loaded, the
+   SDK harness drew on 6/6, 6/6 and 1/6 of them (D43's per-prompt table, both
+   arms), and #148 reports `contact` at 0/3 in both of D44's arms. This run
+   drew on 12/12, 12/12 and 0/12. The pattern on those three is similar at
+   both layers. That does not rule out a layer effect on the prompts the two
+   harnesses do not share. `trend`, `steps` and `quote` are worded
+   differently, and `schedule` and the summary have no SDK-level counterpart.
+   Most of the gap to pi sits in exactly those prompts. So the 76–77% against
+   65% difference is at least partly prompt mix, and this run cannot say it
+   is only that.
+2. **The roster is still open, and it is the leading suspect.** On the
+   prompts where the backends diverge, they differ in exactly the way that
+   could matter. On pi the brain tools are in the prompt and get called. On
+   the Claude backend they are deferred and almost never loaded. The two
+   prompt-level rosters also differ in size and composition — 18 schemas here,
+   pi's curated set there. This run cannot separate the roster from candidate
+   3, because the roster and the backend changed together.
+3. **The backend itself is still open** for the same reason.
 
-The measurement that separates 2 from 3 is one configuration change on the
-brain side: `alwaysLoad: true` on the brain's own stdio server in `.mcp.json`,
-which puts the eight `brain_*` tools in the Claude prompt the way pi has them.
-The server-level harness can run it unchanged. It is #358, filed as its own
-issue rather than folded into this one. A behind-tool-search `show_block` cell
-was not needed: the always-loaded result did not depend on it.
+The next measurement changes one roster difference on the brain side:
+`alwaysLoad: true` on the brain's own stdio server in `.mcp.json`, which puts
+the eight `brain_*` tools in the Claude prompt the way pi has them. The
+server-level harness can run it unchanged, and it is #358. It tests whether
+eager brain tools close the gap. It does not make the two rosters equal: the
+13 CLI tools and pi's curated set still differ. A behind-tool-search
+`show_block` cell was not needed, because nothing in the always-loaded result
+turned on it.
 
 **What this does not say.** Sixteen turns at two reps per prompt on prompts
 4–7 are thin. The `steps`, `schedule` and summary cells can move by a turn in
