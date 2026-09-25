@@ -176,10 +176,6 @@ function bareAddress(link: Link): string | null {
   if (link.title || !link.children.every(isPlainInline)) return null;
   const text = mdastToString(link);
   if (!text || (link.url !== text && link.url !== `mailto:${text}`)) return null;
-  // A backtick is legal in an address. It was refused because a key-value
-  // run stripped backticks from its values, which no longer happens (#236);
-  // whether to admit it again is #330.
-  if (text.includes("`")) return null;
   return MAILTO.test(link.url) ? text.replace(MAILTO, "") : text;
 }
 
