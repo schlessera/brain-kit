@@ -3,18 +3,22 @@
  * thresholds (#415): `findStale`, the definition `brain audit` and
  * `brain stats` share, not a hard-coded 30 days on `context`.
  *
- * Briefing measures against the wall clock, so every date here is written
- * relative to today.
+ * Briefing measures against the wall clock. The fixture dates are written
+ * relative to a fixed NOW and briefing runs in-process with the clock pinned
+ * to it, so a run that crosses UTC midnight cannot shift an age by a day.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
+import { generateBriefing } from "../src/cli/commands/briefing";
+import { initContext } from "../src/lib/context";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const DAY = 86_400_000;
-const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString().slice(0, 10);
+const NOW = new Date("2026-07-01T12:00:00Z");
+const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY).toISOString().slice(0, 10);
 
 const brains: string[] = [];
 afterAll(() => { for (const dir of brains) cleanup(dir); });
@@ -23,7 +27,7 @@ function doc(type: string, updated: string, status = "active"): string {
   return `---\ntype: ${type}\ntitle: "A ${type}"\ncreated: 2026-01-01\nupdated: ${updated}\ntags: [t]\nstatus: ${status}\n---\n\nBody.\n`;
 }
 
-/** Build and index a brain, run `brain briefing`, return its stale section's lines. */
+/** Build and index a brain, run the briefing at NOW, return its stale section's lines. */
 async function staleSection(config: string, files: Record<string, string>): Promise<string[]> {
   const root = makeTempBrain({ empty: true });
   brains.push(root);
@@ -33,8 +37,14 @@ async function staleSection(config: string, files: Record<string, string>): Prom
     writeFileSync(join(root, rel), text);
   }
   expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-  const { stdout, stderr, code } = await runCli(root, ["briefing"]);
-  if (code !== 0) throw new Error(`briefing exit ${code}: ${stderr}`);
+  const brain = await initContext({ root });
+  setSystemTime(NOW);
+  let stdout: string;
+  try {
+    stdout = generateBriefing(brain);
+  } finally {
+    setSystemTime();
+  }
   const section = stdout.split("\n## Stale Documents\n")[1];
   if (section === undefined) return [];
   return section.split("\n## ")[0]!.split("\n").filter((line) => line.startsWith("- "));
