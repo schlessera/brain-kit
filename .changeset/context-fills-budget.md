@@ -1,0 +1,5 @@
+---
+"@schlessera/brain": patch
+---
+
+`brain context` and the `brain_context` MCP tool now use the budget they are given. The number of search hits grows with `--max-tokens` / `max_tokens`, instead of staying at a fixed 10. A hit that does not fit is skipped and the next one is tried, where before assembly stopped at the first hit that did not fit. Identity and current focus are included whole when they fit. When they do not, they are cut at a paragraph boundary with a `(truncated — brain read <path>)` pointer, instead of at a fixed 500 or 800 characters in the middle of a sentence. The identity and focus documents are no longer repeated as search hits. Each hit's header line carries its path, `updated` date, status and summary. Full-text highlight markers (`>>>`, `<<<`) no longer leak into the output, and a heading inside a hit can no longer open a section of its own.
