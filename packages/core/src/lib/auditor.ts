@@ -374,7 +374,7 @@ export async function auditWithModules(
           path: "(module)",
           severity: "warning",
           category: "module-hygiene",
-          message: `hygiene check from module "${mod.manifest.name}" failed: ${(e as Error).message}`,
+          message: `hygiene check from module "${mod.manifest.name}" failed: ${e instanceof Error ? e.message : String(e)}`,
         });
       }
     }

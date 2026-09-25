@@ -39,18 +39,22 @@ export const maintainCommand: CoreCommand = {
     // 1. Incremental index (+embeddings when available — self-heals vectors).
     try {
       const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-      await migrateVecSchema(db, storedVectorWidth(db, dims));
-      const wantEmbeddings = !!cli.embeddings;
-      const stats = await indexAll(db, {
-        root: cli.brain.root,
-        taxonomy: cli.brain.taxonomy,
-        force: false,
-        quiet: true,
-        embeddings: wantEmbeddings,
-        provider: wantEmbeddings ? cli.embeddings : undefined,
-        enrichment: wantEmbeddings ? cli.enrichment : undefined,
-      });
-      db.close();
+      let stats;
+      try {
+        await migrateVecSchema(db, storedVectorWidth(db, dims));
+        const wantEmbeddings = !!cli.embeddings;
+        stats = await indexAll(db, {
+          root: cli.brain.root,
+          taxonomy: cli.brain.taxonomy,
+          force: false,
+          quiet: true,
+          embeddings: wantEmbeddings,
+          provider: wantEmbeddings ? cli.embeddings : undefined,
+          enrichment: wantEmbeddings ? cli.enrichment : undefined,
+        });
+      } finally {
+        db.close();
+      }
       report.push({
         step: "index",
         result: `ok — ${stats.added} added, ${stats.updated} updated, ${stats.deleted} deleted, ${stats.embeddings} embeddings`,
