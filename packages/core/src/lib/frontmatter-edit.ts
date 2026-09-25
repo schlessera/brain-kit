@@ -72,27 +72,35 @@ function readFlow(block: string, i: number): Token | null {
   return null;
 }
 
-/** A string as a YAML scalar: plain when that reads back as the same string, else double-quoted. */
-function plainOrQuoted(value: string): string {
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A string as a YAML scalar: plain when that reads back as the same string,
+ * else double-quoted. A bare `YYYY-MM-DD` stays plain only where `dates` is
+ * true: a scalar like `updated` is a date by convention, but a list entry must
+ * stay a string, and plain it would read back as a Date.
+ */
+function plainOrQuoted(value: string, dates: boolean): string {
   const plain =
     /^[\p{L}\p{N}][\p{L}\p{N}_.\-/]*$/u.test(value) &&
-    !/^(?:true|false|yes|no|on|off|null|~|[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[\da-f]+|0o[0-7]+)$/i.test(value);
+    !/^(?:true|false|yes|no|on|off|null|~|[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[\da-f]+|0o[0-7]+)$/i.test(value) &&
+    (dates ? !/^\d{4}-\d{2}-\d{2}./.test(value) : !/^\d{4}-\d{1,2}-\d{1,2}/.test(value));
   return plain ? value : JSON.stringify(value);
 }
 
 function formatValue(value: string | string[], quote: Token["quote"]): string {
-  if (Array.isArray(value)) return `[${value.map(plainOrQuoted).join(", ")}]`;
+  if (Array.isArray(value)) return `[${value.map((entry) => plainOrQuoted(entry, false)).join(", ")}]`;
   if (quote === "'") return `'${value.replace(/'/g, "''")}'`;
   if (quote === '"') return JSON.stringify(value);
-  return plainOrQuoted(value);
+  return plainOrQuoted(value, true);
 }
 
-/** Compare as the file will be read: dates as `YYYY-MM-DD`, lists entry by entry. */
-function normalize(value: unknown): unknown {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (Array.isArray(value)) return value.map(normalize);
+/** Parsed data with its types kept for comparison: a Date is not the string it prints as. */
+function typed(value: unknown): unknown {
+  if (value instanceof Date) return { $date: value.toISOString() };
+  if (Array.isArray(value)) return value.map(typed);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalize(v)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, typed(v)]));
   }
   return value;
 }
@@ -101,69 +109,123 @@ function parseData(text: string): Record<string, unknown> | null {
   try {
     // Options bypass gray-matter's cache, which shares one data object
     // between byte-identical inputs (#142).
-    return normalize(matter(text, {}).data) as Record<string, unknown>;
+    return matter(text, {}).data as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
+/** Whether a parsed value is what was asked for: a list of exactly these strings, or the string (a bare date may read back as that Date). */
+function readsAs(actual: unknown, wanted: string | string[]): boolean {
+  if (Array.isArray(wanted)) {
+    return Array.isArray(actual) && actual.length === wanted.length && actual.every((v, i) => v === wanted[i]);
+  }
+  if (actual instanceof Date) return BARE_DATE.test(wanted) && actual.toISOString().slice(0, 10) === wanted;
+  return actual === wanted;
+}
+
+interface Line {
+  start: number;
+  /** Offset of the line's end, before its `\n`. */
+  end: number;
+  text: string;
+}
+
+function splitLines(block: string): Line[] {
+  const lines: Line[] = [];
+  let start = 0;
+  while (start < block.length) {
+    const nl = block.indexOf("\n", start);
+    const end = nl === -1 ? block.length : nl;
+    lines.push({ start, end, text: block.slice(start, end) });
+    start = end + 1;
+  }
+  return lines;
+}
+
+const COMMENT_LINE = /^[ \t]*#/;
+const BLANK_LINE = /^[ \t]*\r?$/;
+
 /**
  * `text` with each key in `updates` set (or removed, for null), every other
- * byte kept. A missing key is appended at the end of the frontmatter. Returns
- * null when the text has no frontmatter, a key's current value is in a form
- * this does not rewrite (a block scalar, a multi-line flow sequence, a nested
- * map), or the result does not read back as intended.
+ * byte kept. A missing key is appended at the end of the frontmatter.
+ *
+ * It rewrites a top-level key (plain or quoted) whose value is a one-line
+ * scalar or flow sequence, a block list, an empty value, or a block scalar
+ * (`|`, `>`). Comment lines inside a value's lines stay, except in a block
+ * scalar, where they are its text. It refuses (null) anything else, such as a
+ * multi-line flow sequence, a multi-line plain scalar, a flow map, or keys
+ * indented under the fence; and it refuses when the result does not read back
+ * as exactly the requested values, types included, with every other key
+ * unchanged. Callers then fall back to their serializer.
  */
 export function editFrontmatter(text: string, updates: Record<string, FrontmatterValue>): string | null {
   const bounds = frontmatterBounds(text);
   if (!bounds) return null;
   const block = text.slice(bounds.start, bounds.end);
+  const lines = splitLines(block);
   const edits: [number, number, string][] = [];
   const appended: string[] = [];
 
   for (const [key, value] of Object.entries(updates)) {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = new RegExp(`^${escaped}[ \\t]*:`, "m").exec(block);
-    if (!match) {
+    const keyPattern = new RegExp(`^(?:${escaped}|"${escaped}"|'${escaped}')[ \\t]*:(?=[ \\t\\r]|$)`);
+    const k = lines.findIndex((line) => keyPattern.test(line.text));
+    if (k === -1) {
       if (value !== null) appended.push(`${key}: ${formatValue(value, null)}\n`);
       continue;
     }
-    const lineStart = match.index;
-    let lineEnd = block.indexOf("\n", lineStart);
-    if (lineEnd === -1) lineEnd = block.length;
-    // Lines that belong to this key's value: indented, or `- ` list entries.
-    let valueEnd = lineEnd;
-    while (valueEnd < block.length) {
-      const next = block.indexOf("\n", valueEnd + 1);
-      const line = block.slice(valueEnd + 1, next === -1 ? block.length : next);
-      if (!/^(?:[ \t]+\S|-(?:[ \t]|$))/.test(line)) break;
-      valueEnd = next === -1 ? block.length : next;
+    const keyLine = lines[k]!;
+    const colonEnd = keyLine.start + keyPattern.exec(keyLine.text)![0].length;
+
+    // The value's lines: indented or `- ` entries after the key, up to the
+    // last one before the next top-level line (blank lines between them count).
+    let last = k;
+    for (let j = k + 1; j < lines.length; j++) {
+      const t = lines[j]!.text;
+      if (/^(?:[ \t]+\S|-(?:[ \t]|\r?$))/.test(t)) last = j;
+      else if (!BLANK_LINE.test(t)) break;
     }
+    const valueLines = lines.slice(k + 1, last + 1);
+
+    let i = colonEnd;
+    while (block[i] === " " || block[i] === "\t") i++;
+    const inline = block.slice(i, keyLine.end).replace(/\r$/, "");
+    const blockScalar = /^[|>]/.test(inline);
+    // Comment lines survive the edit, except inside a block scalar, where
+    // they are text.
+    const comments = blockScalar ? [] : valueLines.filter((line) => COMMENT_LINE.test(line.text)).map((line) => line.text);
+    const content = blockScalar
+      ? valueLines
+      : valueLines.filter((line) => !COMMENT_LINE.test(line.text) && !BLANK_LINE.test(line.text));
+    const rangeEnd = last > k ? lines[last]!.end : keyLine.end;
+    const kept = comments.map((comment) => `\n${comment}`).join("");
 
     if (value === null) {
-      edits.push([lineStart, Math.min(valueEnd + 1, block.length), ""]);
+      // The key line and its value go; its comment lines stay where they were.
+      const next = rangeEnd < block.length ? rangeEnd + 1 : rangeEnd;
+      edits.push([keyLine.start, next, comments.map((comment) => `${comment}\n`).join("")]);
       continue;
     }
 
-    let i = match.index + match[0].length;
-    while (block[i] === " " || block[i] === "\t") i++;
-    const inlineEmpty = i >= lineEnd || block[i] === "#" || block[i] === "\r";
-    if (inlineEmpty) {
-      // A block value (a `- item` list, most often): replaced whole, on the
-      // key's line, keeping any comment after the colon.
-      if (valueEnd === lineEnd) {
-        edits.push([match.index + match[0].length, match.index + match[0].length, ` ${formatValue(value, null)}`]);
-      } else {
-        const comment = block.slice(i, lineEnd).replace(/\r$/, "");
-        edits.push([match.index + match[0].length, valueEnd, ` ${formatValue(value, null)}${comment ? ` ${comment}` : ""}`]);
-      }
+    if (inline === "" || inline.startsWith("#")) {
+      // An empty or block value (a `- item` list, most often): replaced on the
+      // key's line, keeping the key's comment and the comment lines.
+      edits.push([colonEnd, rangeEnd, ` ${formatValue(value, null)}${inline ? ` ${inline}` : ""}${kept}`]);
       continue;
     }
-    if (valueEnd !== lineEnd) return null;
-    if (block[i] === "|" || block[i] === ">" || block[i] === "{") return null;
+    if (blockScalar) {
+      // `|` or `>` and its indented text, replaced; a comment after the
+      // indicator stays.
+      const comment = /[ \t]#.*$/.exec(inline)?.[0].trim() ?? "";
+      edits.push([i, rangeEnd, `${formatValue(value, null)}${comment ? ` ${comment}` : ""}`]);
+      continue;
+    }
+    if (content.length > 0) return null;
+    if (block[i] === "{") return null;
     const token = block[i] === "[" ? readFlow(block, i) : readScalar(block, i);
     if (!token) return null;
-    if (!/^[ \t]*(#.*)?\r?$/.test(block.slice(token.end, lineEnd))) return null;
+    if (!/^[ \t]*(#.*)?\r?$/.test(block.slice(token.end, keyLine.end))) return null;
     edits.push([token.start, token.end, formatValue(value, Array.isArray(value) ? null : token.quote)]);
   }
 
@@ -177,15 +239,15 @@ export function editFrontmatter(text: string, updates: Record<string, Frontmatte
   }
   const result = text.slice(0, bounds.start) + newBlock + text.slice(bounds.end);
 
-  // The edit must read back as exactly the requested change.
+  // The edit must read back as exactly the requested change, types included.
   const before = parseData(text);
   const after = parseData(result);
   if (!before || !after) return null;
   for (const key of new Set([...Object.keys(before), ...Object.keys(after), ...Object.keys(updates)])) {
     if (key in updates) {
       const wanted = updates[key];
-      if (wanted === null ? key in after : JSON.stringify(after[key]) !== JSON.stringify(wanted)) return null;
-    } else if (JSON.stringify(after[key]) !== JSON.stringify(before[key])) {
+      if (wanted === null ? key in after : !readsAs(after[key], wanted)) return null;
+    } else if (JSON.stringify(typed(after[key])) !== JSON.stringify(typed(before[key]))) {
       return null;
     }
   }
