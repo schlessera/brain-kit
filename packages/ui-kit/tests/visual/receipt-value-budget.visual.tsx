@@ -38,6 +38,12 @@
  * ones and hold on both. The first assertion pins the 7px advance, so a
  * stand-in or a renderer that moves it says so before the budgets do.
  *
+ * What this does not guard: the 288px box is copied from ui-react, which
+ * ui-kit cannot render, and the font is a stand-in. A change to the chat's
+ * gutters or to the shipped mono face leaves this test green while the real
+ * budget moves, so either change re-measures here. The figures are
+ * conservative fit budgets, not the exact wrap threshold on every renderer.
+ *
  * It lives in the visual project because that is the runner with a layout
  * engine; it takes no screenshot.
  */
