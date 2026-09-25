@@ -195,7 +195,7 @@ it (`tests/release-manifest.test.ts`); the notes below and in CONTRIBUTING.md
 are the reasoning behind it.
 
 - Full sequence: changeset → `bun run version` → **read the version it
-  produced** → `bun run build && bun run typecheck && bun test packages tests`
+  produced** → `bun run build && bun run typecheck && bun run test`
   → commit `chore: version packages to X.Y.Z` → push → `bun run release`.
 - **`bun run version` MUST be followed by `rm bun.lock && bun install` before
   `bun run release`** — `bun run version` chains this for you; doing
