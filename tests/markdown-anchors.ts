@@ -1,62 +1,108 @@
 /**
- * The anchors a markdown file exposes to a `#fragment` link, as GitHub renders
- * them.
+ * The links a markdown file makes and the anchors it exposes to a `#fragment`
+ * link, read from the parsed document as GitHub renders it.
  *
- * tests/docs-paths.test.ts uses this to check that a link such as
+ * tests/docs-paths.test.ts uses these to check that a relative link resolves
+ * and that a link such as
  * `docs/extending/README.md#promoting-a-community-provider-to-a-built-in`
- * still names a heading after the heading is edited. It lives in its own
- * module (not exported from a .test.ts file) so its unit tests can import it
- * without re-registering the link gate.
+ * still names a heading after the heading is edited. Both come from the
+ * markdown syntax tree rather than from regular expressions over the text: a
+ * regex cannot tell a link from Overpass QL in a code span
+ * (`way["natural"="coastline"](bbox)`), a heading from a comment in a tilde
+ * fence, or a reference-style link from prose. It lives in its own module (not
+ * exported from a .test.ts file) so its unit tests can import it without
+ * re-registering the link gate.
  */
 
+import GithubSlugger from "github-slugger";
+import type { Html, Nodes, Root } from "mdast";
+import { toString } from "mdast-util-to-string";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
+const MARKDOWN = unified().use(remarkParse).use(remarkGfm);
+
 /**
- * GitHub's heading slug, before duplicate numbering: link syntax reduced to
- * its text, lowercased, every character that is not a letter, a digit, a
- * space, `-` or `_` dropped (inline code backticks included), and each space
- * turned into `-`.
+ * A YAML front-matter block, which GitHub renders as a table. Left in, its
+ * closing `---` reads as a setext underline and invents a heading.
  */
-export function headingSlug(text: string): string {
-  return text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
-    .replace(/ /g, "-");
+const FRONT_MATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
+
+function parse(body: string): Root {
+  return MARKDOWN.parse(body.replace(FRONT_MATTER, ""));
+}
+
+function walk(node: Nodes, visit: (node: Nodes) => void): void {
+  visit(node);
+  if ("children" in node) for (const child of node.children) walk(child, visit);
 }
 
 /**
- * Every anchor in a markdown body: one slug per ATX heading, with `-1`, `-2`
- * suffixes on repeats, plus explicit `<a id="…">` / `<a name="…">` targets.
- * Headings and anchors inside fenced code blocks are not rendered as either,
- * so they do not count.
+ * The destination of every inline link, image and link reference definition.
+ * A reference-style link (`[x][ref]`) is covered by its definition. Code spans,
+ * fenced and indented code, and HTML are never links, so nothing inside them
+ * is returned.
+ */
+export function markdownLinks(body: string): string[] {
+  const urls: string[] = [];
+  walk(parse(body), (node) => {
+    if (node.type === "link" || node.type === "image" || node.type === "definition") {
+      urls.push(node.url);
+    }
+  });
+  return urls;
+}
+
+/**
+ * A link destination split at its first `#` and percent-decoded, the way a
+ * browser resolves it. A malformed escape (`#100%`) is reported, not thrown,
+ * so one bad link names itself instead of aborting the whole check.
+ */
+export function splitLink(
+  url: string,
+): { path: string; fragment: string | null } | { error: string } {
+  const hash = url.indexOf("#");
+  const rawPath = hash === -1 ? url : url.slice(0, hash);
+  const rawFragment = hash === -1 ? null : url.slice(hash + 1);
+  try {
+    return {
+      path: decodeURIComponent(rawPath),
+      fragment: rawFragment === null ? null : decodeURIComponent(rawFragment),
+    };
+  } catch {
+    return { error: `malformed percent-escape in ${url}` };
+  }
+}
+
+/** Every `<a>` tag's `id` or `name` value, from HTML outside comments. */
+function explicitAnchors(node: Html): string[] {
+  const html = node.value.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  const found: string[] = [];
+  for (const tag of html.matchAll(/<a\s[^>]*>/gi)) {
+    for (const attr of tag[0].matchAll(/\s(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
+      found.push(attr[1] ?? attr[2] ?? attr[3]);
+    }
+  }
+  return found;
+}
+
+/**
+ * Every anchor in a markdown body: one GitHub slug per heading (ATX or setext,
+ * at any depth, numbered `-1`, `-2` around every slug already taken), plus the
+ * `id` / `name` of each `<a>` tag. A heading's slug is taken from its rendered
+ * text, so inline HTML tags and emphasis markers do not reach it. Code and
+ * HTML comments render neither headings nor anchors, so they add nothing.
  */
 export function markdownAnchors(body: string): Set<string> {
   const anchors = new Set<string>();
-  const seen = new Map<string, number>();
-  let fence: string | null = null;
-  for (const line of body.split("\n")) {
-    if (fence !== null) {
-      // Only a bare run of the opening character, at least as long, closes it.
-      const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
-      continue;
+  const slugger = new GithubSlugger();
+  walk(parse(body), (node) => {
+    if (node.type === "heading") {
+      anchors.add(slugger.slug(toString(node, { includeHtml: false })));
+    } else if (node.type === "html") {
+      for (const anchor of explicitAnchors(node)) anchors.add(anchor);
     }
-    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (open) {
-      fence = open[1];
-      continue;
-    }
-
-    const heading = line.match(/^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/);
-    if (heading) {
-      const slug = headingSlug(heading[1]);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      anchors.add(count === 0 ? slug : `${slug}-${count}`);
-    }
-    for (const explicit of line.matchAll(/<a\s[^>]*?\b(?:id|name)\s*=\s*["']([^"']+)["']/gi)) {
-      anchors.add(explicit[1]);
-    }
-  }
+  });
   return anchors;
 }

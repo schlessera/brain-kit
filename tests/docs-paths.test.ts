@@ -22,7 +22,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { dirname, join, normalize, relative, resolve } from "path";
-import { markdownAnchors } from "./markdown-anchors";
+import { markdownAnchors, markdownLinks, splitLink } from "./markdown-anchors";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -81,17 +81,6 @@ const DOC_FILES = [
  */
 const CITATION_EXEMPT_DIRS = new Set(["plans", "brainstorms", "decisions"]);
 
-/**
- * Inline code spans and fenced blocks, blanked out.
- *
- * Without this the link test reads Overpass QL — `way["natural"="coastline"](bbox)`
- * — as a markdown link to a file called `bbox`. Any bracket-then-paren syntax
- * inside a code span does the same.
- */
-function withoutCode(body: string): string {
-  return body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
-}
-
 /** `path.ts:12` and `path.ts:12-40` are citations of a path, not of a file. */
 function withoutLineSuffix(target: string): string {
   return target.replace(/:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/, "");
@@ -117,18 +106,17 @@ const citationFiles = files.filter(
   (file) => !file.split("/").some((segment) => CITATION_EXEMPT_DIRS.has(segment)),
 );
 
-/**
- * `[text](target#fragment)`, with an optional title. Either part may be empty:
- * `[x](#heading)` is a same-file link.
- */
-const markdownLink = /\[[^\]]*\]\(([^)\s#]*)(?:#([^)\s]*))?(?:\s+"[^"]*")?\)/g;
+/** Links to another scheme are not files in this repo. */
+const EXTERNAL = /^(https?:|mailto:|data:)/;
+
+/** Each doc's links, parsed once: code spans and fences hold none. */
+const linksOf = new Map(files.map((file) => [file, markdownLinks(readFileSync(join(ROOT, file), "utf8"))]));
 
 const anchorCache = new Map<string, Set<string>>();
-/** Heading slugs and explicit anchors, lowercased as GitHub matches them. */
 function anchorsOf(path: string): Set<string> {
   let anchors = anchorCache.get(path);
   if (!anchors) {
-    anchors = new Set([...markdownAnchors(readFileSync(path, "utf8"))].map((a) => a.toLowerCase()));
+    anchors = markdownAnchors(readFileSync(path, "utf8"));
     anchorCache.set(path, anchors);
   }
   return anchors;
@@ -141,13 +129,17 @@ describe("documentation paths", () => {
 
   test("every relative markdown link resolves", () => {
     const broken: string[] = [];
-    for (const file of files) {
-      const body = withoutCode(readFileSync(join(ROOT, file), "utf8"));
-      for (const match of body.matchAll(markdownLink)) {
-        const target = match[1];
-        if (target === "" || /^(https?:|mailto:|data:)/.test(target)) continue;
-        const resolved = normalize(join(ROOT, dirname(file), target));
-        if (!existsSync(resolved)) broken.push(`${file} -> ${target}`);
+    for (const [file, urls] of linksOf) {
+      for (const url of urls) {
+        if (EXTERNAL.test(url)) continue;
+        const link = splitLink(url);
+        if ("error" in link) {
+          broken.push(`${file} -> ${link.error}`);
+          continue;
+        }
+        if (link.path === "") continue;
+        const resolved = normalize(join(ROOT, dirname(file), link.path));
+        if (!existsSync(resolved)) broken.push(`${file} -> ${url}`);
       }
     }
     expect(broken).toEqual([]);
@@ -156,18 +148,19 @@ describe("documentation paths", () => {
   test("every #fragment on a relative markdown link names a heading in its target", () => {
     // A renamed heading breaks every link into it and leaves the file part
     // resolving, so the test above stays green. Fragments into other file
-    // kinds (`#L10` on source) and on external links are not checked.
+    // kinds (`#L10` on source) and on external links are not checked. The
+    // match is exact: every heading slug is lowercase, so `#Setup` is written
+    // wrong even if a browser forgives it, and an explicit anchor keeps the
+    // case it was written with.
     const broken: string[] = [];
-    for (const file of files) {
-      const body = withoutCode(readFileSync(join(ROOT, file), "utf8"));
-      for (const match of body.matchAll(markdownLink)) {
-        const [, target, fragment] = match;
-        if (!fragment || /^(https?:|mailto:|data:)/.test(target)) continue;
-        const resolved = target === "" ? join(ROOT, file) : normalize(join(ROOT, dirname(file), target));
+    for (const [file, urls] of linksOf) {
+      for (const url of urls) {
+        if (EXTERNAL.test(url)) continue;
+        const link = splitLink(url);
+        if ("error" in link || !link.fragment) continue;
+        const resolved = link.path === "" ? join(ROOT, file) : normalize(join(ROOT, dirname(file), link.path));
         if (!resolved.endsWith(".md") || !existsSync(resolved)) continue;
-        if (!anchorsOf(resolved).has(decodeURIComponent(fragment).toLowerCase())) {
-          broken.push(`${file} -> ${target}#${fragment}`);
-        }
+        if (!anchorsOf(resolved).has(link.fragment)) broken.push(`${file} -> ${url}`);
       }
     }
     expect(broken).toEqual([]);
