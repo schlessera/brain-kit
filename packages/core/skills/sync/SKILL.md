@@ -88,6 +88,10 @@ brain sync pull
 - `STATUS=synced` / `fast-forwarded` / `merged` → skip to Phase 5.
 - `STATUS=conflicted` → Phase 4.
 - `STATUS=fetch-failed` → warn the user (network?) and stop.
+- `STATUS=merge-failed` → git refused to merge, usually because of local changes Phases 1–2 did
+  not commit (an edit to a file the incoming commits change). Nothing was merged and there is
+  nothing to resolve. Run `git status`, show the user which changes block the merge, and stop. Do
+  not retry, and do not commit, stash or discard those changes for the user.
 
 When the remote has new commits, `pull` sets local changes to the derived caches aside for the
 merge, unions this clone's entries back into the merged copy, and reports each as
