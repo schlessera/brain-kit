@@ -23,6 +23,14 @@ export interface SchemaOptions {
 }
 
 /**
+ * The size SQLite shrinks `brain.db-wal` back to once a checkpoint has reset
+ * it. Without a limit the file keeps the high-water size of the largest write
+ * (a full reindex) for as long as any connection is open, and the MCP server
+ * keeps one open for a whole agent session.
+ */
+export const JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
+
+/**
  * Open the brain database, creating tables if needed.
  * Synchronous for broad compatibility.
  */
@@ -45,6 +53,7 @@ export function openDatabase(
     // NORMAL is durable under WAL (loses at most the last commit on power
     // failure, never corrupts) and avoids an fsync per autocommit write.
     db.run("PRAGMA synchronous=NORMAL");
+    db.run(`PRAGMA journal_size_limit=${JOURNAL_SIZE_LIMIT_BYTES}`);
     db.run("PRAGMA foreign_keys=ON");
     applySchema(db, options);
   }

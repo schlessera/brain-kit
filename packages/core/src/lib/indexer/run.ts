@@ -17,6 +17,7 @@
  *   embeddings contexts then vectors, for chunks and assets alike
  *   caches     bank descriptions and contexts, then prune what is unreachable
  *   graph      derived tables, which read the links persist just wrote
+ *   checkpoint truncate the WAL the run grew, when no reader is in the way
  *
  * Phases degrade rather than throw. A run with no embedding provider, no
  * enrichment, or no sqlite-vec still produces a correct index — it just
@@ -116,6 +117,31 @@ function saveSidecarCaches(run: IndexRun): void {
   }
 }
 
+/**
+ * Fold the WAL back into `brain.db` and truncate it to zero bytes.
+ *
+ * An index run is the largest writer core has, and without this the WAL keeps
+ * its size until every connection closes. Best-effort: a connection holding a
+ * read transaction open (another process mid-query) makes the checkpoint
+ * busy, and waiting out the 5 s busy timeout for it would stall every hook
+ * run. The run reports it and moves on; the next run, or SQLite's own
+ * checkpoints under `journal_size_limit`, catch up.
+ */
+function checkpointWal(run: IndexRun): void {
+  const { timeout } = run.db.prepare("PRAGMA busy_timeout").get() as { timeout: number };
+  try {
+    run.db.run("PRAGMA busy_timeout=0");
+    const result = run.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number } | null;
+    if (result?.busy) {
+      run.report("WAL checkpoint busy: another connection is reading; the WAL is left for a later run");
+    }
+  } catch (e) {
+    run.report(`WAL checkpoint skipped: ${(e as Error).message}`);
+  } finally {
+    run.db.run(`PRAGMA busy_timeout=${timeout}`);
+  }
+}
+
 /** Incrementally index all markdown files (and assets) into the database. */
 export async function indexAll(db: Database, options: IndexOptions): Promise<IndexStats> {
   // Claim before even the force wipe or asset descriptions. Plain FTS index
@@ -191,6 +217,9 @@ async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats
 
   // --- graph --------------------------------------------------------------
   if (options.graph !== false) precomputeGraph(run);
+
+  // --- checkpoint ---------------------------------------------------------
+  checkpointWal(run);
 
   return run.stats;
 }

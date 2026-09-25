@@ -16,7 +16,7 @@ import { dirname, join } from "path";
 
 import { chunkContextKey, forgetCachedEnrichment, indexAll, type IndexStats } from "../src/lib/indexer";
 import { loadAssetCache, loadContextCache } from "../src/lib/indexer/caches";
-import { openDatabase, migrateVecSchema } from "../src/lib/db";
+import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import type { Enrichment } from "../src/lib/enrichment";
@@ -1140,5 +1140,72 @@ describe("brain index --forget-cache (#408)", () => {
     await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
     expect(counting.described.length).toBe(1);
     expect(readAssetCache(root).length).toBe(2);
+  });
+});
+
+describe("the WAL after an index run (#423)", () => {
+  /** Enough text that indexing it writes several MB through the WAL. */
+  function bulkyCorpus(): string {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 120; i++) {
+      const words = Array.from({ length: 3000 }, (_, j) => `word${(i * 7919 + j * 104729) % 50021}`);
+      files[`notes/bulk-${i}.md`] = md(`Bulk ${i}`, words.join(" "));
+    }
+    return makeCorpus(files);
+  }
+
+  function walBytes(root: string): number {
+    const wal = join(root, "brain.db-wal");
+    return existsSync(wal) ? statSync(wal).size : 0;
+  }
+
+  test("a writable connection caps the journal at JOURNAL_SIZE_LIMIT_BYTES", () => {
+    const root = makeCorpus({});
+    const db = openDatabase(join(root, "brain.db"));
+    const { journal_size_limit } = db.prepare("PRAGMA journal_size_limit").get() as { journal_size_limit: number };
+    db.close();
+    expect(journal_size_limit).toBe(JOURNAL_SIZE_LIMIT_BYTES);
+  });
+
+  test("with another connection open and idle, the run leaves an empty WAL", async () => {
+    const root = bulkyCorpus();
+    const idle = openDatabase(join(root, "brain.db"));
+    try {
+      const stats = await runIndex(root);
+      expect(stats.added).toBe(120);
+      // The idle connection keeps the WAL file from being removed on close,
+      // so its size is what the checkpoint left behind.
+      expect(existsSync(join(root, "brain.db-wal"))).toBe(true);
+      expect(walBytes(root)).toBe(0);
+    } finally {
+      idle.close();
+    }
+  });
+
+  test("a reader holding a transaction open makes the checkpoint busy, not the run", async () => {
+    const root = bulkyCorpus();
+    await runIndex(root);
+    writeFileSync(join(root, "notes/bulk-0.md"), md("Bulk 0", "rewritten so the run writes"));
+
+    const reader = openDatabase(join(root, "brain.db"));
+    const logged: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => logged.push(args.join(" "));
+    try {
+      reader.run("BEGIN");
+      reader.prepare("SELECT COUNT(*) FROM documents").get();
+      const started = Date.now();
+      const stats = await runIndex(root, { quiet: false });
+      expect(stats.updated).toBe(1);
+      expect(Date.now() - started).toBeLessThan(4000); // did not wait out the busy timeout
+      expect(logged.filter((line) => line.includes("WAL checkpoint"))).toEqual([
+        "WAL checkpoint busy: another connection is reading; the WAL is left for a later run",
+      ]);
+      expect(walBytes(root)).toBeGreaterThan(0);
+    } finally {
+      console.log = log;
+      reader.run("ROLLBACK");
+      reader.close();
+    }
   });
 });
