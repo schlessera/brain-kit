@@ -69,7 +69,8 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 metadata. Treat unknown fields as additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
-`updated` (strings); `summary` (string or `null`); `tags` (the document's tags
+`updated` (strings); `summary` (string or `null`); `deadline` (`YYYY-MM-DD`,
+or `null` when the frontmatter sets none; additive in 0.38.0); `tags` (the document's tags
 joined with `", "`, or `null` when it has none — a string, not an array);
 `score` (always `0`, since a filter has nothing to rank) and `snippet` (always
 `""`).

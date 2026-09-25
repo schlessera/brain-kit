@@ -134,6 +134,15 @@ describe("list", () => {
     // Every health fixture is tagged, so this is the comma-joined form.
     expect(results[0].tags).toContain(", ");
   });
+
+  test("a document's deadline is listed, and null where it sets none", async () => {
+    const { stdout, code } = await runCli(root, ["list", "--type", "project", "--limit", "100", "--json"]);
+    expect(code).toBe(0);
+    const results = JSON.parse(stdout) as Array<{ path: string; deadline: string | null }>;
+    const status = results.find((d) => d.path === "projects/active/bookshelf/status.md");
+    expect(status?.deadline).toBe("2026-08-15");
+    expect(results.some((d) => d.deadline === null)).toBe(true);
+  });
 });
 
 describe("add", () => {
