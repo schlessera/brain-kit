@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { audit } from "../src/lib/auditor";
+import { audit, REPEATED_TEXT_MIN_CHARS } from "../src/lib/auditor";
 import { openDatabase } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { brainConfigSchema } from "../src/lib/config";
@@ -364,5 +364,53 @@ describe("audit fact-drift (#392)", () => {
         taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (?:about )?(\\d{4})"] } } },
       }).success
     ).toBe(true);
+  });
+});
+
+describe("audit repeated-text (#431)", () => {
+  // 240 characters of boilerplate, the kind a generated set repeats.
+  const BOILERPLATE =
+    "This entry was generated from the trail survey template. Figures are provisional until the season report is filed, " +
+    "and any measurement taken during a storm closure should be read as an estimate rather than a reading from the gauge.";
+  const note = (i: number, extra: string) => ({
+    path: `notes/survey-${i}.md`,
+    type: "note",
+    updated: "2026-06-01",
+    content: `## Survey ${i}\n\nSegment ${i} findings.\n\n${extra}\n`,
+  });
+  const repeated = (db: Database) => categories(audit(db, taxonomy, { now: NOW }), "repeated-text");
+
+  test("a paragraph in 6 documents is one corpus issue", () => {
+    expect(BOILERPLATE.length).toBeGreaterThanOrEqual(REPEATED_TEXT_MIN_CHARS);
+    const db = freshDb();
+    // Wrapped differently in two copies: only whitespace normalisation makes six.
+    for (let i = 0; i < 6; i++) insertDoc(db, note(i, i >= 4 ? BOILERPLATE.replace(/\. /g, ".\n") : BOILERPLATE));
+    const issues = repeated(db);
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatchObject({ path: "(corpus)", severity: "info" });
+    expect(issues[0].message).toContain("6 documents");
+    expect(issues[0].message).toContain("notes/survey-0.md, notes/survey-1.md, notes/survey-2.md, …");
+    expect(issues[0].message).toContain(`"${BOILERPLATE.slice(0, 80)}…"`);
+    db.close();
+  });
+
+  test("the same paragraph in 4 documents is none", () => {
+    const db = freshDb();
+    for (let i = 0; i < 4; i++) insertDoc(db, note(i, BOILERPLATE));
+    expect(repeated(db)).toEqual([]);
+    db.close();
+  });
+
+  test("a 199-character paragraph, or one inside a fence, is none even in 6 documents", () => {
+    const short = BOILERPLATE.slice(0, REPEATED_TEXT_MIN_CHARS - 1);
+    const shortDb = freshDb();
+    for (let i = 0; i < 6; i++) insertDoc(shortDb, note(i, short));
+    expect(repeated(shortDb)).toEqual([]);
+    shortDb.close();
+
+    const fencedDb = freshDb();
+    for (let i = 0; i < 6; i++) insertDoc(fencedDb, note(i, `\`\`\`text\n${BOILERPLATE}\n\`\`\``));
+    expect(repeated(fencedDb)).toEqual([]);
+    fencedDb.close();
   });
 });

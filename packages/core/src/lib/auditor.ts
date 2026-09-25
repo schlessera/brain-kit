@@ -387,6 +387,94 @@ export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string
   return drift;
 }
 
+/** A paragraph shorter than this, after whitespace normalisation, is never counted as repeated. */
+export const REPEATED_TEXT_MIN_CHARS = 200;
+/** A paragraph found in at least this many documents is reported as repeated. */
+export const REPEATED_TEXT_MIN_DOCS = 5;
+
+export interface RepeatedText {
+  /** The paragraph, whitespace collapsed. */
+  text: string;
+  /** The documents that carry it, in path order. */
+  paths: string[];
+}
+
+/**
+ * The paragraphs of a document body: runs of non-blank lines, with an ATX
+ * heading line always a block of its own (and never a paragraph). Offsets
+ * are into `content`; `text` has its whitespace collapsed.
+ */
+function paragraphsOf(content: string): Array<{ text: string; start: number; end: number }> {
+  const blocks: Array<{ text: string; start: number; end: number }> = [];
+  let start = -1;
+  let end = 0;
+  let lines: string[] = [];
+  const flush = () => {
+    if (lines.length > 0) blocks.push({ text: lines.join(" ").replace(/\s+/g, " ").trim(), start, end });
+    lines = [];
+    start = -1;
+  };
+  let offset = 0;
+  for (const line of content.split("\n")) {
+    const lineStart = offset;
+    offset += line.length + 1;
+    if (!line.trim() || /^ {0,3}#{1,6}(?:\s|$)/.test(line)) {
+      flush();
+      continue;
+    }
+    if (start === -1) start = lineStart;
+    end = lineStart + line.length;
+    lines.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/**
+ * Paragraphs of at least REPEATED_TEXT_MIN_CHARS that at least
+ * REPEATED_TEXT_MIN_DOCS documents carry, compared after whitespace
+ * normalisation. Each copy is chunked, contextualised and embedded on its own,
+ * and near-identical vectors crowd the candidate window of any query they
+ * match. A paragraph that touches code is not counted.
+ *
+ * Paragraphs are found by blank lines, which is cheap; only a document that
+ * carries a candidate and could hold code (a backtick, a tilde fence, an
+ * indented line) is parsed, to find its code.
+ */
+export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
+  const seen = new Map<string, Map<string, { start: number; end: number }>>();
+  for (const doc of docs) {
+    for (const { text, start, end } of paragraphsOf(doc.content)) {
+      if (text.length < REPEATED_TEXT_MIN_CHARS) continue;
+      let where = seen.get(text);
+      if (!where) seen.set(text, (where = new Map()));
+      if (!where.has(doc.path)) where.set(doc.path, { start, end });
+    }
+  }
+
+  const code = new Map<string, [number, number][]>();
+  const content = new Map(docs.map((d) => [d.path, d.content]));
+  const inCode = (path: string, start: number, end: number) => {
+    let ranges = code.get(path);
+    if (!ranges) {
+      const text = content.get(path) ?? "";
+      // Code needs a backtick, a tilde fence or an indented line; a document
+      // with none of them has no code, and is not parsed.
+      ranges = /`|~~~|^(?: {4}|\t)/m.test(text) ? codeRanges(text) : [];
+      code.set(path, ranges);
+    }
+    return ranges.some(([s, e]) => start < e && end > s);
+  };
+
+  const repeated: RepeatedText[] = [];
+  for (const [text, where] of seen) {
+    if (where.size < REPEATED_TEXT_MIN_DOCS) continue;
+    const paths = [...where].filter(([path, at]) => !inCode(path, at.start, at.end)).map(([path]) => path);
+    if (paths.length >= REPEATED_TEXT_MIN_DOCS) repeated.push({ text, paths: paths.sort() });
+  }
+  return repeated.sort((a, b) => b.paths.length - a.paths.length || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
+}
+
 /**
  * Run all audit checks against the indexed database.
  *
@@ -525,6 +613,20 @@ export function audit(
     }
   } catch {
     // tags tables may be empty
+  }
+
+  // ---------------------------------------------------------------
+  // 2e. Repeated text — one paragraph copied into many documents
+  // ---------------------------------------------------------------
+  for (const { text, paths } of findRepeatedText(docs)) {
+    const shown = paths.slice(0, 3).join(", ") + (paths.length > 3 ? ", …" : "");
+    issues.push({
+      path: "(corpus)",
+      severity: "info",
+      category: "repeated-text",
+      message: `A paragraph appears in ${paths.length} documents (${shown}): "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
+      suggestion: "Keep the text in one document and link to it from the others; each copy is embedded on its own",
+    });
   }
 
   // ---------------------------------------------------------------
