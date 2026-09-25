@@ -96,6 +96,63 @@ describe("brain doctor cache-merge", () => {
     }, 120_000);
   }
 
+  test("a rule in info/attributes that overrides the committed one is reported, and --fix appends nothing", async () => {
+    const root = makeTempBrain();
+    try {
+      git(root, "init", "-q");
+      const committed = readFileSync(TEMPLATE_ATTRIBUTES, "utf8");
+      writeFileSync(join(root, ".gitattributes"), committed);
+      writeFileSync(join(root, ".git", "info", "attributes"), ".context-cache.jsonl -merge\n");
+
+      const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
+      expect(cacheMerge(before)?.status).toBe("warn");
+      expect(cacheMerge(before)?.detail).toContain("a rule local to this clone");
+
+      for (let run = 0; run < 2; run++) {
+        const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
+        expect(fixed.fixesApplied).not.toContain("cache-merge");
+        expect(cacheMerge(fixed)?.detail).toContain("a rule local to this clone");
+      }
+      expect(readFileSync(join(root, ".gitattributes"), "utf8")).toBe(committed);
+    } finally {
+      cleanup(root);
+    }
+  }, 120_000);
+
+  test("a local core.attributesFile does not stand in for the committed rule", async () => {
+    const root = makeTempBrain();
+    try {
+      git(root, "init", "-q");
+      const local = join(root, ".git", "local-attributes");
+      writeFileSync(local, ".context-cache.jsonl merge=union\n.asset-cache.jsonl merge=union\n");
+      git(root, "config", "core.attributesFile", local);
+      expect(git(root, "check-attr", "merge", "--", ".context-cache.jsonl").out).toContain("merge: union");
+
+      const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
+      expect(cacheMerge(before)?.status).toBe("warn");
+      expect(cacheMerge(before)?.detail).toContain(".gitattributes gives .context-cache.jsonl and .asset-cache.jsonl no merge=union");
+
+      const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
+      expect(cacheMerge(fixed)?.status).toBe("pass");
+      expect(readFileSync(join(root, ".gitattributes"), "utf8")).toContain(".context-cache.jsonl merge=union");
+    } finally {
+      cleanup(root);
+    }
+  }, 120_000);
+
+  test("--fix keeps a CRLF .gitattributes CRLF", async () => {
+    const root = makeTempBrain();
+    try {
+      writeFileSync(join(root, ".gitattributes"), "*.txt text\r\n");
+      await runCli(root, ["doctor", "--fix", "--json"]);
+      const text = readFileSync(join(root, ".gitattributes"), "utf8");
+      expect(text).toContain(".asset-cache.jsonl merge=union\r\n");
+      expect(text.replaceAll("\r\n", "")).not.toContain("\n");
+    } finally {
+      cleanup(root);
+    }
+  }, 120_000);
+
   test("an attribute git already applies is a pass, whatever file sets it", async () => {
     const root = makeTempBrain();
     try {

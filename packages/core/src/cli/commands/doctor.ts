@@ -24,7 +24,7 @@ import { resolveEmitters } from "../skills-util.js";
 import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
-import { cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
+import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
 import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
 
 const HELP = `brain doctor — health check battery
@@ -510,25 +510,40 @@ function checkScratch(root: string): Check {
 
 /**
  * The sidecar caches should union-merge in any git merge, not only in
- * `brain sync pull`, or a plain `git pull` conflicts on them. Fixable:
- * `--fix` appends the `merge=union` lines to `.gitattributes`.
+ * `brain sync pull`, or a plain `git pull` conflicts on them. What counts is
+ * the brain's own committed `.gitattributes`, which every clone gets; `--fix`
+ * appends the `merge=union` lines there. A clone-local rule
+ * (`info/attributes`, `core.attributesFile`) can neither stand in for a
+ * missing committed rule nor be fixed by another line in the file, so one
+ * that overrides the committed rule is reported on its own, with no fix.
  */
 function checkCacheMerge(root: string): Check {
-  let missing: string[];
+  let portable: string[];
+  let effective: string[];
   try {
-    missing = cachesWithoutUnionMerge(root);
+    portable = cachesWithoutPortableUnionMerge(root);
+    effective = cachesWithoutUnionMerge(root);
   } catch (error) {
     return { id: "cache-merge", status: "warn", detail: (error as Error).message };
   }
-  if (missing.length === 0) {
-    return { id: "cache-merge", status: "pass", detail: "the sidecar caches union-merge (.gitattributes)" };
+  const list = (files: string[]) => files.join(" and ");
+  if (portable.length > 0) {
+    return {
+      id: "cache-merge",
+      status: "warn",
+      detail: `.gitattributes gives ${list(portable)} no merge=union attribute, so a plain git merge conflicts on ${portable.length === 1 ? "it" : "them"}`,
+      fix: "run `brain doctor --fix`",
+    };
   }
-  return {
-    id: "cache-merge",
-    status: "warn",
-    detail: `${missing.join(" and ")} ${missing.length === 1 ? "has" : "have"} no merge=union attribute, so a plain git merge conflicts on ${missing.length === 1 ? "it" : "them"}`,
-    fix: "run `brain doctor --fix`",
-  };
+  if (effective.length > 0) {
+    return {
+      id: "cache-merge",
+      status: "warn",
+      detail: `.gitattributes union-merges ${list(effective)}, but a rule local to this clone (.git/info/attributes or core.attributesFile) overrides it`,
+      fix: "remove the overriding rule from .git/info/attributes or the file core.attributesFile names",
+    };
+  }
+  return { id: "cache-merge", status: "pass", detail: "the sidecar caches union-merge (.gitattributes)" };
 }
 
 async function runChecks(cli: CliContext): Promise<Check[]> {
