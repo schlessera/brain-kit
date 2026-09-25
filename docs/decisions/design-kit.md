@@ -3711,10 +3711,10 @@ fifth `trend` turn and run 2's fourth each looked for git history. Both ran
 `find / -maxdepth 3 -iname "*.git" -type d` and got back repositories
 elsewhere on the host. The saved `escapedBrain` flag is `false` on both,
 because the rule (`export function escapesBrain`,
-`scripts/measure-show-block-server.ts:200`) looks only for `~/` and `/home/`
-paths. A bare `/` never matches that pattern. This brain lived under `/tmp`,
-so a path elsewhere outside `/home` would not have matched either. The rule's
-gap is #360. So the
+`scripts/measure-show-block-server.ts:229`) looked only for `~/` and `/home/`
+paths when these turns ran. A bare `/` never matched that pattern. This brain
+lived under `/tmp`, so a path elsewhere outside `/home` would not have matched
+either. #360 closed the gap. So the
 audit here reads every path-like token handed to a non-block tool — a
 bare `/`, `~` and `..` included — out of the CLI's own transcripts. It finds
 exactly these two turns. Both are **excluded**, under the rule the harness
