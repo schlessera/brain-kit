@@ -85,6 +85,13 @@ types ship with their own: `context` 30, `note` 60, `index` 365, `identity`
 1095. Overriding a core type keeps its half-life unless you set
 `halfLifeDays` again.
 
+Upgrading from 0.37 or earlier: the reranker used to carry a built-in table
+of half-lives for type names like `project` (180 days), `travel` (60),
+`conference` (90), `career` (180), `infrastructure` (545), `opinion` and
+`expertise` (730). That table is gone. A type of yours with one of those names
+now decays over its `staleDays`, else 365 days, so set `halfLifeDays` on it to
+keep the old ranking.
+
 ### `taxonomy.dirAnchors`
 
 Filenames a directory wiki-link (`[[some/dir/]]`) resolves to, in order. Core
