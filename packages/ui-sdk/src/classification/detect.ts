@@ -288,8 +288,19 @@ function spanOf(node: RootContent): CandidateSpan | null {
   return { start, end };
 }
 
+/**
+ * A node's text on one line. `toString` emits nothing for a hard break, so
+ * `Sail`, a break and `home` would read `Sailhome`; the break is a space
+ * here (#240).
+ */
 function cellText(node: Node): string {
-  return mdastToString(node).replace(/\s+/g, " ").trim();
+  return plainText(node).replace(/\s+/g, " ").trim();
+}
+
+function plainText(node: Node): string {
+  if (node.type === "break") return " ";
+  if (Array.isArray(node.children)) return node.children.map(plainText).join("");
+  return mdastToString(node);
 }
 
 function tableCandidate(node: Table, id: string, span: CandidateSpan): TableCandidate | null {
@@ -311,13 +322,14 @@ function tableCandidate(node: Table, id: string, span: CandidateSpan): TableCand
   return { kind: "table", id, headers, align, rows, ...span };
 }
 
-/** The first paragraph is the item's title; the rest of its prose is detail. */
+/**
+ * The first paragraph is the item's title; the rest of its prose is detail.
+ * An item holding any other block — a nested list, code, a table, a quote, a
+ * heading, a definition — is not one the kit can draw without losing it (#240).
+ */
 function itemParts(item: ListItem): { title: string; detail?: string } | null {
   const paragraphs = item.children.filter((child): child is Paragraph => child.type === "paragraph");
-  if (paragraphs.length === 0) return null;
-  if (item.children.some((child) => child.type === "list" || child.type === "code" || child.type === "table")) {
-    return null;
-  }
+  if (paragraphs.length === 0 || paragraphs.length !== item.children.length) return null;
   if (paragraphs.some((paragraph) => hasRichInline(paragraph))) return null;
   const title = cellText(paragraphs[0]!);
   const detail = paragraphs.slice(1).map(cellText).filter(Boolean).join(" ");
