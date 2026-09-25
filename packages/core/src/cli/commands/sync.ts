@@ -3,7 +3,7 @@ import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
 import type { CoreCommand, CliContext } from "../types.js";
-import { emit, embeddingDims, UsageError } from "../io.js";
+import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -363,7 +363,9 @@ export const syncCommand: CoreCommand = {
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const root = cli.brain.root;
-    const verb = args[0];
+    // The argv remainder still carries the output-mode flags; the verb is the
+    // first positional, so `brain sync --json assess` routes like `assess --json`.
+    const verb = parseArgs(args).args[0];
 
     if (!verb) {
       if (!cli.agentRunner) {
