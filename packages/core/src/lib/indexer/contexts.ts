@@ -84,7 +84,7 @@ export async function generateChunkContexts(
         }
         if (doc.n <= 1) return Promise.resolve(c.summary ?? "");
         // Tier 3: generate.
-        return enrichment.generateChunkContext(c.title, doc.content, c.heading, c.content);
+        return enrichment.generateChunkContext(c.title, doc.content, c.heading, c.content, c.summary);
       })
     );
 

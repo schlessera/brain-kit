@@ -1,0 +1,5 @@
+---
+"@schlessera/brain": patch
+---
+
+Chunk contexts for long documents are now written with the chunk's own surroundings in view. For a document over 8,000 characters, the chunk-context prompt used to carry only the first 8,000 characters, so a chunk further in was situated without seeing any text around it. The document part of the prompt now carries the frontmatter summary, the outline of every `##` and `###` heading, and a window of text centred on the chunk, all within the same 8,000-character budget. The outline is sent whole when it fits in half the budget. An outline too long for that drops its `###` headings first, then keeps the first and last `##` headings with a line counting the ones left out. The chunk is located by its full text, and a repeated opening or heading never places it in another section. No clip point splits a surrogate pair. A document within the budget gets exactly the same prompt as before. `Enrichment.generateChunkContext` gains an optional fifth argument, the document summary. Existing contexts are keyed by chunk text, not by prompt, so none is regenerated.
