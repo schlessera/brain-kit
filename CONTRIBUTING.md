@@ -154,9 +154,24 @@ it also records each declaration's signature: its public surface, without
 comments, bodies, default values or private members. The same goes for every
 type declared in this repo that such a surface names, whether by reference,
 by inline `import("…")` or through `typeof`, directly or through another
-recorded type. A type used only by a private member is not recorded. An
-unannotated constant is recorded by the type it infers to. The `SEAMS` list at
-the top of the script names the seams. Adding or removing an export fails `… matches the current exports`. Retyping a
+recorded type. A type used only by a private member is not recorded.
+
+The report records what is written, so it refuses a seam-reachable surface
+whose type is not written down. `bun run api-report` and the test fail, naming
+the declaration and its `file:line`, when any of these is reachable:
+
+- a public or protected property, method, getter or function whose type or
+  return type is inferred;
+- a parameter without an annotation, including one with a default value and a
+  constructor parameter property;
+- an unannotated constant whose inferred type names a type declared in this
+  repo (a constant of purely structural type, like `BLOCK_SCHEMA`, is recorded
+  by the type it infers to);
+- a whole module used as a type (`typeof import("x")`, or `typeof ns` for
+  `import * as ns`).
+
+The fix is to write the type down, which changes no behaviour. The `SEAMS`
+list at the top of the script names the seams. Adding or removing an export fails `… matches the current exports`. Retyping a
 seam member, or a member of any type it is made of, fails `… matches the
 current seam signatures`, and the failure shows the changed line.
 
