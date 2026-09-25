@@ -1,10 +1,12 @@
 /**
  * Date filters and date sorts on `brain search` and `brain_search` (#410).
  *
- * A temp copy of the fixture corpus gains a handful of "lantern" docs whose
- * `updated` and `deadline` sit one day either side of a boundary, so each
- * inclusive bound is tested on its own document. The copy keeps the pinned
- * corpus counts elsewhere untouched.
+ * A temp copy of the fixture corpus gains "lantern" docs whose `updated` and
+ * `deadline` sit one day either side of a boundary, so each inclusive bound
+ * is tested on its own document, plus offset and malformed dates. "beacon"
+ * docs carry the sort tests: their text-match order is the reverse of their
+ * date order, so a sort that did not run would leave them in score order.
+ * The copy keeps the pinned corpus counts elsewhere untouched.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -15,16 +17,31 @@ import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
+interface Doc { updated: string; deadline?: string; body?: string }
+
 // updated: 08-09 / 08-10 / 08-11 around 2026-08-10; deadline: 10-09 / 10-10 /
 // 10-11 around 2026-10-10.
-const DOCS: Record<string, { updated: string; deadline?: string }> = {
+const DOCS: Record<string, Doc> = {
   "notes/lantern-a.md": { updated: "2026-08-09", deadline: "2026-10-09" },
   "notes/lantern-b.md": { updated: "2026-08-10", deadline: "2026-10-10" },
   "notes/lantern-c.md": { updated: "2026-08-11", deadline: "2026-10-11" },
   // A quoted timestamp stays a string with its time on it.
   "notes/lantern-timed.md": { updated: '"2026-08-10T09:30:00Z"' },
+  // Offsets: 00:30 at +02:00 is still 08-09 in UTC; 23:30 at -02:00 is
+  // already 08-10.
+  "notes/lantern-east.md": { updated: '"2026-08-10T00:30:00+02:00"' },
+  "notes/lantern-west.md": { updated: '"2026-08-09T23:30:00-02:00"' },
+  // Malformed dates survive indexing as strings.
+  "notes/lantern-garbled.md": { updated: '"not-a-date"', deadline: '"someday"' },
   "notes/lantern-far.md": { updated: "2026-08-01", deadline: "2099-01-01" },
   "notes/lantern-past.md": { updated: "2026-08-01", deadline: "2000-01-01" },
+  // Text-match strength falls from beacon-u to beacon-3, while the deadline
+  // gets earlier and the update newer. beacon-u has no deadline and the
+  // oldest update.
+  "notes/beacon-u.md": { updated: "2026-05-01", body: "beacon beacon beacon beacon beacon beacon" },
+  "notes/beacon-1.md": { updated: "2026-05-02", deadline: "2026-12-03", body: "beacon beacon beacon beacon" },
+  "notes/beacon-2.md": { updated: "2026-05-03", deadline: "2026-12-02", body: "beacon beacon" },
+  "notes/beacon-3.md": { updated: "2026-05-04", deadline: "2026-12-01", body: "beacon" },
 };
 
 let root: string;
@@ -32,10 +49,11 @@ let root: string;
 beforeAll(async () => {
   root = makeTempBrain();
   mkdirSync(join(root, "notes"), { recursive: true });
-  for (const [path, { updated, deadline }] of Object.entries(DOCS)) {
-    const lines = ["---", "type: note", `title: "Lantern ${path}"`, "created: 2026-01-01", `updated: ${updated}`, "tags: [lantern]"];
+  for (const [path, { updated, deadline, body }] of Object.entries(DOCS)) {
+    const topic = path.includes("beacon") ? "Signal" : "Lantern";
+    const lines = ["---", "type: note", `title: "${topic} ${path}"`, "created: 2026-01-01", `updated: ${updated}`, "tags: [t]"];
     if (deadline) lines.push(`deadline: ${deadline}`);
-    lines.push("---", "", "Check the lantern wick.", "");
+    lines.push("---", "", body ?? "Check the lantern wick.", "Some shared filler text for every note.", "");
     writeFileSync(join(root, path), lines.join("\n"));
   }
   const idx = await runCli(root, ["index", "--json"]);
@@ -45,7 +63,8 @@ beforeAll(async () => {
 afterAll(() => cleanup(root));
 
 async function search(...args: string[]): Promise<string[]> {
-  const { stdout, stderr, code } = await runCli(root, ["search", ...args, "--limit", "50", "--json"]);
+  const limit = args.includes("--limit") ? [] : ["--limit", "50"];
+  const { stdout, stderr, code } = await runCli(root, ["search", ...args, ...limit, "--json"]);
   if (code !== 0) throw new Error(`exit ${code}: ${stderr}`);
   return (JSON.parse(stdout).results as { path: string }[]).map((r) => r.path);
 }
@@ -85,22 +104,64 @@ for (const [lane, query] of [["full-text", ["lantern", "--mode", "fts"]], ["filt
       expect(await search(...query, "--deadline-to", "2099-12-31")).not.toContain("notes/lantern-timed.md");
     });
     test("--sort deadline orders earliest first", async () => {
-      const paths = await search(...query, "--deadline-from", "2026-10-09", "--sort", "deadline");
-      expect(paths).toEqual(["notes/lantern-a.md", "notes/lantern-b.md", "notes/lantern-c.md", "notes/lantern-far.md"]);
+      const paths = await search(...query, "--deadline-from", "2026-10-09", "--deadline-to", "2026-11-30", "--sort", "deadline");
+      expect(paths).toEqual(["notes/lantern-a.md", "notes/lantern-b.md", "notes/lantern-c.md"]);
     });
   });
 }
 
+describe("stored dates are compared as UTC days", () => {
+  test("an offset timestamp late on the previous UTC day is excluded by --updated-since", async () => {
+    expect(await search("lantern", "--mode", "fts", "--updated-since", "2026-08-10")).not.toContain("notes/lantern-east.md");
+  });
+  test("an offset timestamp late on the previous UTC day is included by --updated-before that day", async () => {
+    expect(await search("lantern", "--mode", "fts", "--updated-before", "2026-08-09")).toContain("notes/lantern-east.md");
+  });
+  test("a negative offset that crosses into the next UTC day is included by --updated-since", async () => {
+    expect(await search("lantern", "--mode", "fts", "--updated-since", "2026-08-10")).toContain("notes/lantern-west.md");
+  });
+  test("a negative offset that crosses into the next UTC day is excluded by --updated-before the day before", async () => {
+    expect(await search("lantern", "--mode", "fts", "--updated-before", "2026-08-09")).not.toContain("notes/lantern-west.md");
+  });
+  test("a malformed updated matches no bound", async () => {
+    expect(await search("lantern", "--mode", "fts", "--updated-since", "2000-01-01")).not.toContain("notes/lantern-garbled.md");
+    expect(await search("lantern", "--mode", "fts", "--updated-before", "2100-01-01")).not.toContain("notes/lantern-garbled.md");
+  });
+  test("a malformed deadline matches no bound", async () => {
+    expect(await search("lantern", "--mode", "fts", "--deadline-from", "2000-01-01")).not.toContain("notes/lantern-garbled.md");
+    expect(await search("lantern", "--mode", "fts", "--deadline-to", "2100-01-01")).not.toContain("notes/lantern-garbled.md");
+  });
+  test("a malformed updated sorts last under --sort updated", async () => {
+    const paths = await search("lantern", "--mode", "fts", "--rerank", "none", "--sort", "updated");
+    expect(paths.at(-1)).toBe("notes/lantern-garbled.md");
+  });
+});
+
 describe("sorting a query's results", () => {
-  test("--sort deadline puts undated documents last", async () => {
-    const paths = await search("lantern", "--mode", "fts", "--sort", "deadline");
-    expect(paths.slice(0, 4)).toEqual(["notes/lantern-past.md", "notes/lantern-a.md", "notes/lantern-b.md", "notes/lantern-c.md"]);
-    expect(paths.at(-1)).toBe("notes/lantern-timed.md");
+  // Reranking off, so the base order is the text-match score alone.
+  const beacon = (...args: string[]) => search("beacon", "--mode", "fts", "--rerank", "none", ...args);
+
+  test("the premise: score order runs opposite to date order", async () => {
+    expect(await beacon()).toEqual(["notes/beacon-u.md", "notes/beacon-1.md", "notes/beacon-2.md", "notes/beacon-3.md"]);
+  });
+
+  test("--sort deadline orders dated results earliest first", async () => {
+    expect((await beacon("--sort", "deadline")).slice(0, 3)).toEqual(["notes/beacon-3.md", "notes/beacon-2.md", "notes/beacon-1.md"]);
+  });
+
+  test("--sort deadline puts an undated result last", async () => {
+    expect((await beacon("--sort", "deadline")).at(-1)).toBe("notes/beacon-u.md");
   });
 
   test("--sort updated orders newest first", async () => {
-    const paths = await search("lantern", "--mode", "fts", "--updated-since", "2026-08-09", "--sort", "updated");
-    expect(paths).toEqual(["notes/lantern-c.md", "notes/lantern-timed.md", "notes/lantern-b.md", "notes/lantern-a.md"]);
+    expect(await beacon("--sort", "updated")).toEqual(["notes/beacon-3.md", "notes/beacon-2.md", "notes/beacon-1.md", "notes/beacon-u.md"]);
+  });
+
+  test("a date sort chooses the limit by date, not from the top of the score order", async () => {
+    // beacon-3 has the weakest match and the earliest deadline and newest
+    // update: a pool of only the best-scored candidates would miss it.
+    expect(await beacon("--sort", "deadline", "--limit", "1")).toEqual(["notes/beacon-3.md"]);
+    expect(await beacon("--sort", "updated", "--limit", "1")).toEqual(["notes/beacon-3.md"]);
   });
 
   test("--upcoming keeps future deadlines only, earliest first", async () => {
@@ -129,10 +190,15 @@ describe("brain_search", () => {
   const paths = (res: Awaited<ReturnType<typeof call>>) =>
     ((res.structuredContent as { results: { path: string }[] }).results).map((r) => r.path);
 
-  test("applies the date filters and the deadline sort", async () => {
-    const res = await call({ updated_since: "2026-08-10", deadline_to: "2026-10-10", sort: "deadline" });
+  test("applies the date filters", async () => {
+    const res = await call({ updated_since: "2026-08-10", deadline_to: "2026-10-10" });
     expect(res.isError).toBeFalsy();
     expect(paths(res)).toEqual(["notes/lantern-b.md"]);
+  });
+
+  test("applies the deadline sort against score order", async () => {
+    const res = await call({ query: "beacon", rerank: "none", sort: "deadline" });
+    expect(paths(res)).toEqual(["notes/beacon-3.md", "notes/beacon-2.md", "notes/beacon-1.md", "notes/beacon-u.md"]);
   });
 
   test("upcoming keeps future deadlines only", async () => {

@@ -109,11 +109,12 @@ function buildFilters(opts: SearchOptions): FilterResult {
     params.push("markdown");
   }
 
-  // `updated` can carry a time (the indexer's fallback is a full timestamp),
-  // so compare its date part; the bounds are whole days.
+  // Stored dates are frontmatter strings: a bare date, or a timestamp with
+  // or without an offset. SQLite's date() turns each into its UTC day and a
+  // malformed value into NULL, which no bound matches.
   for (const [key, column, op] of DATE_FILTERS) {
     if (opts[key] === undefined) continue;
-    clauses.push(`substr(d.${column}, 1, 10) ${op} ?`);
+    clauses.push(`date(d.${column}) ${op} ?`);
     params.push(opts[key]);
   }
 
@@ -124,8 +125,19 @@ function buildFilters(opts: SearchOptions): FilterResult {
 }
 
 /**
+ * SQL sort keys for the date sorts: the stored string normalised to a UTC
+ * datetime, NULL (sorted last) when it is missing or malformed.
+ */
+const DATE_SORT_KEY = {
+  updated: "datetime(d.updated)",
+  deadline: "datetime(d.deadline)",
+} as const;
+
+/**
  * Filter-only search (no query text). Returns documents matching filters,
- * ordered by updated date descending, or by deadline with `sort: "deadline"`.
+ * ordered by updated date descending; with `sort: "updated"` or
+ * `sort: "deadline"`, by the normalised date, newest update or earliest
+ * deadline first, with a missing or malformed date last.
  */
 export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] {
   assertSearchOptions(opts);
@@ -133,8 +145,10 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
   const filters = buildFilters(opts);
   const order =
     opts.sort === "deadline"
-      ? "d.deadline IS NULL, d.deadline ASC, d.updated DESC"
-      : "d.updated DESC";
+      ? `${DATE_SORT_KEY.deadline} IS NULL, ${DATE_SORT_KEY.deadline} ASC, d.updated DESC`
+      : opts.sort === "updated"
+        ? `${DATE_SORT_KEY.updated} IS NULL, ${DATE_SORT_KEY.updated} DESC`
+        : "d.updated DESC";
 
   const sql = `
     SELECT
@@ -485,10 +499,18 @@ export async function hybridSearch(
   const query = opts.query;
   const resultLists: SearchResult[][] = [];
 
+  // A date sort picks the `limit` results by date, not by score, so each lane
+  // retrieves a wider pool of query matches first: dateSortPool(limit)
+  // documents (the vector lane also stops at its 500-chunk KNN ceiling). The
+  // fused pool is then date-sorted and cut to `limit`. A match ranked below
+  // the pool is not considered.
+  const dateSorted = opts.sort === "updated" || opts.sort === "deadline";
+  const laneOpts: SearchOptions = dateSorted ? { ...opts, limit: dateSortPool(limit) } : opts;
+
   // FTS search
   if (mode === "fts" || mode === "hybrid") {
     try {
-      const ftsResults = ftsSearch(db, query, opts);
+      const ftsResults = ftsSearch(db, query, laneOpts);
       resultLists.push(ftsResults);
     } catch (e) {
       // FTS might fail on malformed queries; treat as empty results
@@ -521,7 +543,7 @@ export async function hybridSearch(
       );
     } else {
       try {
-        const vecResults = await vectorSearch(db, query, opts, embeddings, queryTimeoutMs);
+        const vecResults = await vectorSearch(db, query, laneOpts, embeddings, queryTimeoutMs);
         resultLists.push(vecResults);
       } catch (e) {
         warnings.push(`vector search failed: ${(e as Error).message}${degraded}`);
@@ -555,27 +577,36 @@ export async function hybridSearch(
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
   if (opts.sort === "updated" || opts.sort === "deadline") {
-    candidates = sortByDate(candidates, opts.sort);
+    candidates = sortByDate(db, candidates, opts.sort);
   }
 
   return { results: candidates.slice(0, limit), warnings };
 }
 
+/** How many query matches each lane retrieves before a date sort. */
+function dateSortPool(limit: number): number {
+  return Math.max(limit * 20, 500);
+}
+
 /**
- * Reorder ranked candidates by a date. The sort is stable, so documents with
- * the same date keep their ranked order.
+ * Reorder ranked candidates by a date, normalised in SQL the same way the
+ * filters normalise it, with a missing or malformed date last. The sort is
+ * stable, so documents with the same date keep their ranked order.
  */
-function sortByDate(candidates: SearchResult[], sort: "updated" | "deadline"): SearchResult[] {
-  if (sort === "updated") {
-    const key = (r: SearchResult) => r.updated ?? "";
-    return [...candidates].sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
-  }
+function sortByDate(db: Database, candidates: SearchResult[], sort: "updated" | "deadline"): SearchResult[] {
+  if (candidates.length === 0) return candidates;
+  const placeholders = candidates.map(() => "?").join(",");
+  const rows = db
+    .prepare(`SELECT d.path AS path, ${DATE_SORT_KEY[sort]} AS day FROM documents d WHERE d.path IN (${placeholders})`)
+    .all(...candidates.map((r) => r.path)) as { path: string; day: string | null }[];
+  const keys = new Map(rows.map((r) => [r.path, r.day]));
+  const direction = sort === "updated" ? -1 : 1;
   return [...candidates].sort((a, b) => {
-    const left = a.deadline ?? null;
-    const right = b.deadline ?? null;
+    const left = keys.get(a.path) ?? null;
+    const right = keys.get(b.path) ?? null;
     if (left === right) return 0;
     if (left === null) return 1;
     if (right === null) return -1;
-    return left < right ? -1 : 1;
+    return (left < right ? -1 : 1) * direction;
   });
 }

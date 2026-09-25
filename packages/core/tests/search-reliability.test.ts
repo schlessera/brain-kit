@@ -25,11 +25,11 @@ beforeEach(async () => {
 });
 afterEach(() => db.close());
 
-function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string; updated?: string } = {}) {
+function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string; updated?: string; deadline?: string } = {}) {
   const status = opts.status ?? "active";
   const type = opts.type ?? "note";
   const updated = opts.updated ?? "2026-01-01";
-  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01',?,'topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status, updated]);
+  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,deadline,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01',?,?,'topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status, updated, opts.deadline ?? null]);
   db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','','topic','')", [id]);
   if (opts.tagged) {
     db.run("INSERT OR IGNORE INTO tags(id,name) VALUES (1,'wanted')");
@@ -83,6 +83,16 @@ test("a post-KNN date filter widens the window to fill the limit", async () => {
   expect(embedCalls).toBe(1);
   // A date filter is a post-filter: the first window is limit x 10, not x 3.
   expect(ks[0]).toBe(20);
+});
+
+test("a vector-lane date sort chooses the limit by date, beyond the nearest document's chunks", async () => {
+  // Doc 1 owns the nearest chunks and the latest deadline; doc 3 is farthest
+  // and due first.
+  addDoc(1, 10, 0, { deadline: "2026-12-31" });
+  addDoc(2, 1, 0.2, { deadline: "2026-06-01" });
+  addDoc(3, 1, 0.3, { deadline: "2026-03-01" });
+  const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 1, sort: "deadline" }, { embeddings: provider });
+  expect(result.results.map(r => r.path)).toEqual(["notes/3.md"]);
 });
 
 test("stops at exhaustion when filters leave too few results", async () => {
