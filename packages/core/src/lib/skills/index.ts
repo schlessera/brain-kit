@@ -19,7 +19,13 @@ export {
 export { lintSkills, type LintFinding, type LintSeverity } from "./lint.js";
 
 export { claudeEmitter } from "./emitters/claude.js";
-export { codexEmitter } from "./emitters/codex.js";
+export {
+  codexEmitter,
+  CONTRACT_START,
+  CONTRACT_END,
+  CONTRACT_FILE,
+  renderContractBlock,
+} from "./emitters/codex.js";
 export { geminiEmitter } from "./emitters/gemini.js";
 export { piEmitter } from "./emitters/pi.js";
 export {

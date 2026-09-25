@@ -304,10 +304,10 @@ emitter always runs; list additional built-in emitters to also emit for them.
 
 | Key        | Type       | Default | Built-ins available    |
 | ---------- | ---------- | ------- | ---------------------- |
-| `emitters` | `string[]` | `[]`    | `codex`, `gemini`      |
+| `emitters` | `string[]` | `[]`    | `codex`, `gemini`, `pi` |
 
 ```ts
-skills: { emitters: ["codex", "pi"] }   // .codex/prompts + AGENTS.md index; .pi/skills symlinks
+skills: { emitters: ["codex", "pi"] }   // the agent contract in AGENTS.md; .pi/skills symlinks
 ```
 
 See [extending/skill-emitters.md](extending/skill-emitters.md).

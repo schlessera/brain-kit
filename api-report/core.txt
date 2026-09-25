@@ -234,6 +234,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         emit(skills: SkillManifest[], repoRoot: string): {
             written: string[];
             removed: string[];
+            warnings?: string[];
         };
     }
   SkillManifest (packages/core/src/lib/seams.ts)

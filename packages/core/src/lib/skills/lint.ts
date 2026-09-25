@@ -9,6 +9,7 @@
  * | shell command that is neither `brain …` nor in `compatibility:` | warning |
  * | `requires:` present (not a specification field)              | warning  |
  * | allowed-tools / disable-model-invocation present            | info     |
+ * | disable-model-invocation disagrees with agents/openai.yaml  | warning  |
  * | absolute path in body                                       | warning  |
  *
  * SkillManifest carries no body, so the body-based rules re-read the skill's
@@ -92,6 +93,11 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
     }
   }
 
+  // Rule: Codex marks a manual-only skill in `agents/openai.yaml`, not in the
+  // frontmatter, so the two must say the same thing → warning.
+  const mismatch = manualOnlyMismatch(skill.dir, frontmatter["disable-model-invocation"] === true);
+  if (mismatch) add("manual-only-policy", "warning", mismatch);
+
   // Rule: Claude-only tool references (outside an <!-- agent:claude --> section) → error.
   const bodyOutsideClaude = stripClaudeSections(body);
   for (const tool of CLAUDE_ONLY_TOOLS) {
@@ -159,6 +165,33 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
   }
 
   return findings;
+}
+
+/**
+ * Why a skill's `disable-model-invocation` and its `agents/openai.yaml`
+ * `policy.allow_implicit_invocation` disagree, or null when they agree. Codex
+ * defaults to implicit invocation, so a missing file or key means "allowed".
+ */
+function manualOnlyMismatch(skillDir: string, manualOnly: boolean): string | null {
+  const file = join(skillDir, "agents", "openai.yaml");
+  let allowImplicit: unknown = true;
+  if (existsSync(file)) {
+    let parsed: unknown;
+    try {
+      parsed = Bun.YAML.parse(readFileSync(file, "utf8"));
+    } catch (e) {
+      return `agents/openai.yaml could not be parsed: ${(e as Error).message}`;
+    }
+    const policy = (parsed as { policy?: { allow_implicit_invocation?: unknown } } | null)?.policy;
+    allowImplicit = policy?.allow_implicit_invocation ?? true;
+  }
+  if (manualOnly && allowImplicit !== false) {
+    return "`disable-model-invocation: true` but agents/openai.yaml does not set `policy.allow_implicit_invocation: false`, so Codex can still invoke it on its own";
+  }
+  if (!manualOnly && allowImplicit === false) {
+    return "agents/openai.yaml sets `policy.allow_implicit_invocation: false` but the frontmatter lacks `disable-model-invocation: true`, so Claude Code can still invoke it on its own";
+  }
+  return null;
 }
 
 /**

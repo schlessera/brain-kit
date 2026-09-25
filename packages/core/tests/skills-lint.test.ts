@@ -233,3 +233,57 @@ describe("lint rules — one fixture per rule", () => {
     expect(findings.every((f) => f.skill === "b-bad")).toBe(true);
   });
 });
+
+describe("manual-only-policy — disable-model-invocation vs agents/openai.yaml", () => {
+  const manualOnly = { "disable-model-invocation": true };
+  const withYaml = (s: SkillManifest, yaml: string) => {
+    mkdirSync(join(s.dir, "agents"), { recursive: true });
+    writeFileSync(join(s.dir, "agents", "openai.yaml"), yaml);
+    return s;
+  };
+  const policy = (s: SkillManifest) =>
+    lintSkills([s]).filter((f) => f.rule === "manual-only-policy");
+
+  test("manual-only skill without the yaml → warning", () => {
+    const s = mkSkill("manual", { name: "manual", description: "d", extraFm: manualOnly });
+    const found = policy(s);
+    expect(found.map((f) => f.severity)).toEqual(["warning"]);
+    expect(found[0].message).toContain("Codex can still invoke it");
+  });
+
+  test("manual-only skill whose yaml allows implicit invocation → warning", () => {
+    const s = withYaml(
+      mkSkill("manual", { name: "manual", description: "d", extraFm: manualOnly }),
+      "policy:\n  allow_implicit_invocation: true\n"
+    );
+    expect(policy(s).map((f) => f.severity)).toEqual(["warning"]);
+  });
+
+  test("yaml forbids implicit invocation but the frontmatter does not → warning", () => {
+    const s = withYaml(
+      mkSkill("auto", { name: "auto", description: "d" }),
+      "policy:\n  allow_implicit_invocation: false\n"
+    );
+    const found = policy(s);
+    expect(found.map((f) => f.severity)).toEqual(["warning"]);
+    expect(found[0].message).toContain("Claude Code can still invoke it");
+  });
+
+  test("an unparseable yaml → warning", () => {
+    const s = withYaml(
+      mkSkill("manual", { name: "manual", description: "d", extraFm: manualOnly }),
+      "policy: [unclosed\n"
+    );
+    expect(policy(s)[0].message).toContain("could not be parsed");
+  });
+
+  test("agreeing flag and yaml, or neither → no finding", () => {
+    const agreeing = withYaml(
+      mkSkill("manual", { name: "manual", description: "d", extraFm: manualOnly }),
+      "policy:\n  allow_implicit_invocation: false\n"
+    );
+    const neither = mkSkill("auto", { name: "auto", description: "d" });
+    expect(policy(agreeing)).toEqual([]);
+    expect(policy(neither)).toEqual([]);
+  });
+});

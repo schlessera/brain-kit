@@ -96,6 +96,10 @@ After showing a summary of what will be written, generate:
   (Quick Navigation, Key Conventions, Directory Structure, Personal Rules). Wrap every
   generated region in `<!-- brain:generated:{section} -->` … `<!-- /brain:generated:{section} -->`
   markers. Anything outside the markers is the user's forever and must never be rewritten.
+  **When `brain.config.ts` lists `"codex"` in `skills.emitters`**, the first line is
+  `@AGENTS.md` instead, followed by the same overlay: the codex emitter copies the contract
+  into `AGENTS.md`, and importing both would load it twice. Run `brain skills sync` after
+  writing the config so `AGENTS.md` carries the contract before the first session.
 - **`.env`** from `.env.example` with keys commented out.
 - Ensure the empty sidecar caches exist (`.context-cache.jsonl`, `.asset-cache.jsonl`).
 

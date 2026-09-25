@@ -5,7 +5,8 @@
  *   1. `agent` is a string
  *   2. every `emit` returns `{ written, removed }` synchronously, as
  *      repo-relative paths; everything it reports written exists afterwards
- *      (a link resolves), everything it reports removed does not
+ *      (a link resolves), everything it reports removed does not; `warnings`,
+ *      when present, is a list of strings
  *   3. every skill it is given is reachable from the emitted layout: a
  *      written path names it, or a written file mentions it (a written
  *      directory counts through the paths and files inside it)
@@ -16,6 +17,11 @@
  *      place: every skill is still reachable from what was emitted
  *   6. the canonical home, `.agents/skills/`, is read, never written: no
  *      emitted path lies inside it and every SKILL.md there is unchanged
+ *
+ * An agent that discovers skills in `.agents/skills/` itself (Codex) is
+ * reached through the canonical home, not through what its emitter writes.
+ * Its harness sets `readsCanonicalHome`, which waives case 3 and the
+ * still-reachable halves of cases 4 and 5; everything else still holds.
  *
  * Cases 2 and 6 hold after EVERY emission, so they run the whole lifecycle —
  * first emit, unchanged re-emit, a dropped skill, an empty list — and check
@@ -48,6 +54,11 @@ export interface SkillEmitterContractHarness {
   name: string;
   /** A fresh emitter; the suite calls it once per case. */
   emitter(): SkillEmitter;
+  /**
+   * The agent reads `.agents/skills/` natively, so the emitter need not make
+   * a skill reachable from what it writes. Default false.
+   */
+  readsCanonicalHome?: boolean;
 }
 
 const ALPHA = "contract-alpha-skill";
@@ -156,6 +167,10 @@ export function runSkillEmitterContract(
             problems.push(`${step}: not { written: string[], removed: string[] }`);
             return;
           }
+          const { warnings } = result as { warnings?: unknown };
+          if (warnings !== undefined && !(Array.isArray(warnings) && warnings.every((w) => typeof w === "string"))) {
+            problems.push(`${step}: warnings is not a list of strings`);
+          }
           for (const rel of [...result.written, ...result.removed]) {
             if (!isRepoRelative(rel)) problems.push(`${step}: not repo-relative: ${rel}`);
           }
@@ -170,15 +185,17 @@ export function runSkillEmitterContract(
       });
     });
 
-    test("every skill is reachable from the emitted layout", () => {
-      withRepo(({ root, skills }) => {
-        const { written } = harness.emitter().emit(skills, root);
-        const unreached = skills
-          .map((s) => s.name)
-          .filter((name) => !written.some((rel) => reaches(root, rel, name)));
-        expect(unreached).toEqual([]);
+    if (!harness.readsCanonicalHome) {
+      test("every skill is reachable from the emitted layout", () => {
+        withRepo(({ root, skills }) => {
+          const { written } = harness.emitter().emit(skills, root);
+          const unreached = skills
+            .map((s) => s.name)
+            .filter((name) => !written.some((rel) => reaches(root, rel, name)));
+          expect(unreached).toEqual([]);
+        });
       });
-    });
+    }
 
     test("a skill dropped from the list leaves the layout", () => {
       withRepo(({ root, skills }) => {
@@ -195,9 +212,11 @@ export function runSkillEmitterContract(
           (rel) => existsSync(join(root, rel)) && reaches(root, rel, BETA)
         );
         expect(stale).toEqual([]);
-        expect(emitted.some((rel) => existsSync(join(root, rel)) && reaches(root, rel, ALPHA))).toBe(
-          true
-        );
+        if (!harness.readsCanonicalHome) {
+          expect(
+            emitted.some((rel) => existsSync(join(root, rel)) && reaches(root, rel, ALPHA))
+          ).toBe(true);
+        }
 
         // Down to nothing: an empty list is a list, not a reason to skip.
         const third = emitter.emit([], root);
@@ -217,6 +236,7 @@ export function runSkillEmitterContract(
         expect(second.removed).toEqual([]);
         expect(first.written.filter((rel) => !existsSync(join(root, rel)))).toEqual([]);
         const emitted = [...new Set([...first.written, ...second.written])];
+        if (harness.readsCanonicalHome) return;
         const lost = skills
           .map((s) => s.name)
           .filter((name) => !emitted.some((rel) => reaches(root, rel, name)));
