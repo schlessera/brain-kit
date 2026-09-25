@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { CommandContext } from "@schlessera/brain";
 import command, { selectSources } from "../src/cli";
 import { configSchema, type JobsConfig } from "../src/module";
-import { ALL_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES } from "../src/types";
+import { ALL_SOURCES, BROWSER_SOURCES, DISABLED_BY_DEFAULT, RETIRED_SOURCES, SOURCES } from "../src/types";
 
 describe("selectSources", () => {
   test("a scrape naming a retired board is refused, and says it was retired", () => {
@@ -90,6 +90,16 @@ describe("the default boards and the disabled ones", () => {
     }
     for (const source of disabled) expect(ALL_SOURCES as readonly string[]).toContain(source);
     for (const reason of Object.values(DISABLED_BY_DEFAULT)) expect(reason.length).toBeGreaterThan(0);
+  });
+
+  test("a disabled browser board gives the browser reason, not a stale one of its own (#246)", () => {
+    const reasons = DISABLED_BY_DEFAULT as Record<string, string>;
+    const disabledBrowserBoards = BROWSER_SOURCES.filter((source) => source in reasons);
+    // More than nodesk alone, or the loop below only compares nodesk with itself.
+    expect(disabledBrowserBoards.length).toBeGreaterThan(1);
+    for (const source of disabledBrowserBoards) {
+      expect(`${source}: ${reasons[source]}`).toBe(`${source}: ${reasons.nodesk}`);
+    }
   });
 });
 
