@@ -73,6 +73,9 @@ export interface SearchOptions {
   includeArchived?: boolean;
   assetsOnly?: boolean;
   limit?: number;
+  /** The moment recency reranking is measured from. Defaults to the wall
+   * clock; tests and `brain eval` pin it so ranking is reproducible. */
+  now?: Date;
 }
 
 export interface AuditIssue {

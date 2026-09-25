@@ -76,3 +76,25 @@ describe("rerank", () => {
     expect(ranked[0].path).toBe("first.md");
   });
 });
+
+describe("rerank with a pinned now", () => {
+  // Higher base score, older, fast-decaying type vs. lower base score,
+  // newer, slow-decaying type: the order flips as the clock moves on.
+  const candidates = () => [
+    result({ path: "context.md", type: "context", updated: "2026-07-11", score: 1.12 }),
+    result({ path: "identity.md", type: "identity", updated: "2026-07-12", score: 1 }),
+  ];
+
+  test("recency is measured from config.now", () => {
+    const fresh = rerank("query", candidates(), { mode: "heuristic", now: new Date("2026-07-12") });
+    expect(fresh.map((r) => r.path)).toEqual(["context.md", "identity.md"]);
+    const later = rerank("query", candidates(), { mode: "heuristic", now: new Date("2028-07-12") });
+    expect(later.map((r) => r.path)).toEqual(["identity.md", "context.md"]);
+  });
+
+  test("an invalid now throws", () => {
+    expect(() => rerank("query", candidates(), { mode: "heuristic", now: new Date("nope") })).toThrow(
+      "now must be a valid Date"
+    );
+  });
+});
