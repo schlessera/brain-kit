@@ -22,6 +22,7 @@ import { resolveEmitters } from "../skills-util.js";
 import { HOOK_NAMES, installGitHooks, isGitRepo } from "../hooks-util.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
+import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
 
 const HELP = `brain doctor — health check battery
 
@@ -366,6 +367,45 @@ function checkVersion(): Check {
   }
 }
 
+/** Loose objects above this many bytes warn: `brain maintain` packs them. */
+const LOOSE_OBJECTS_WARN_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Git storage health, read-only. Loose objects are packed by `brain
+ * maintain`. A `refs/original/` backup (left by `git filter-branch`) pins
+ * everything the rewrite meant to drop; removing it cannot be undone, so the
+ * command is shown as text and never run, not even by `--fix`.
+ */
+function checkGitStorage(root: string): Check {
+  let loose;
+  let backups: string[];
+  try {
+    if (!isGitWorkTree(root)) return { id: "git-storage", status: "pass", detail: "not a git repository" };
+    loose = looseObjects(root);
+    backups = originalRefs(root);
+  } catch (e) {
+    return { id: "git-storage", status: "warn", detail: `could not read git storage: ${(e as Error).message}` };
+  }
+  const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  const problems: string[] = [];
+  const fixes: string[] = [];
+  if (loose.bytes > LOOSE_OBJECTS_WARN_BYTES) {
+    problems.push(`${loose.count} loose object(s) use ${mb(loose.bytes)}`);
+    fixes.push("run `brain maintain` to pack them");
+  }
+  if (backups.length > 0) {
+    problems.push(`${backups.length} filter-branch backup ref(s) keep rewritten history alive: ${backups.join(", ")}`);
+    fixes.push(
+      "if the rewrite is final, delete them by hand — this cannot be undone: " +
+        "`git for-each-ref --format='delete %(refname)' refs/original/ | git update-ref --stdin`"
+    );
+  }
+  if (problems.length === 0) {
+    return { id: "git-storage", status: "pass", detail: `${loose.count} loose object(s), ${mb(loose.bytes)}; no refs/original backups` };
+  }
+  return { id: "git-storage", status: "warn", detail: problems.join("; "), fix: fixes.join("; ") };
+}
+
 function checkPrivacy(root: string): Check {
   const hasRemote = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"]).exitCode === 0;
   if (!hasRemote) return { id: "privacy", status: "pass", detail: "no git remote (nothing published)" };
@@ -438,6 +478,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkDeps(root),
     checkVersion(),
     checkPrivacy(root),
+    checkGitStorage(root),
     checkScratch(root),
     await checkSqliteVecMac(),
   ];
