@@ -9,9 +9,10 @@ Turns a job listing into a tracked opportunity: extracted details, company
 research, an honest fit assessment against your own criteria, and a
 conversation about whether to pursue it.
 
-The opportunity directory is whatever `opportunitiesDir` is set to in the jobs
-module config (default `career/opportunities/`). Paths below use that default;
-substitute your own.
+Find the opportunity directory before anything else. Run
+`brain config check --json` and read `taxonomy.types.opportunity.dir`: it is
+the jobs module's `opportunitiesDir`, which is `career/opportunities` by
+default. Every path below writes it as `{opportunities}`.
 
 ## Prompts
 
@@ -32,7 +33,7 @@ substitute your own.
    ("CloudLinux" → `cloudlinux`, "Weights & Biases" → `weights-and-biases`).
 
 3. **Check for an existing opportunity.** If
-   `career/opportunities/{company-slug}/` already exists, ask whether to update
+   `{opportunities}/{company-slug}/` already exists, ask whether to update
    it or stop.
 
 4. **Research the company.** What they build, products, size and stage,
@@ -42,8 +43,8 @@ substitute your own.
    little to find.
 
 5. **Read the context you need to judge fit.**
-   - The criteria file named by the jobs module's `criteria` config (default
-     `career/opportunities/search-criteria.md`) — must-haves, strong
+   - The criteria file named by the jobs module's `criteria` config (for
+     example `{opportunities}/search-criteria.md`) — must-haves, strong
      preferences, dealbreakers. Its `scoring:` frontmatter is what
      `brain jobs score` uses; the prose below it is what *you* use.
    - Your identity/positioning doc (the taxonomy's canonical `identity`, e.g.
@@ -60,7 +61,7 @@ substitute your own.
    - If you maintain more than one CV variant, suggest which one fits.
 
 7. **Create the opportunity directory and `status.md`.**
-   - Path: `career/opportunities/{company-slug}/status.md`
+   - Path: `{opportunities}/{company-slug}/status.md`
    - Frontmatter:
      ```yaml
      type: opportunity
@@ -85,7 +86,7 @@ substitute your own.
 
 8. **Create `research.md`** — only if the company research actually turned
    something up.
-   - Path: `career/opportunities/{company-slug}/research.md`
+   - Path: `{opportunities}/{company-slug}/research.md`
    - Frontmatter mirrors `status.md` with `title: "{Company Name} — Research"`
      and `tags: [job-search, research, {company-slug}]`.
    - Sections: Company Overview, Why This Could Work, Concerns / Red Flags,
@@ -94,7 +95,7 @@ substitute your own.
      nothing.
 
 9. **Update the pipeline index** — add a row to
-   `career/opportunities/_index.md`:
+   `{opportunities}/_index.md`:
    `| {Company} | {Role} | researching | {YYYY-MM-DD} | {strong/moderate/weak/assessing} | [{company-slug}]({company-slug}/) |`
    and bump the file's `updated`.
 
@@ -110,14 +111,14 @@ substitute your own.
 
 ### Files to read
 - The criteria file from the module's `criteria` config (fit assessment)
-- `career/opportunities/_index.md` (duplicate check, pipeline row)
+- `{opportunities}/_index.md` (duplicate check, pipeline row)
 - Your identity doc (current positioning)
 - Your expertise index, if you keep one (gap analysis)
 
 ### Files to write or modify
-- Create: `career/opportunities/{company-slug}/status.md`
-- Create (optional): `career/opportunities/{company-slug}/research.md`
-- Modify: `career/opportunities/_index.md`
+- Create: `{opportunities}/{company-slug}/status.md`
+- Create (optional): `{opportunities}/{company-slug}/research.md`
+- Modify: `{opportunities}/_index.md`
 
 ### External sources (WebFetch/WebSearch)
 - The job listing URL, the company website, funding databases, professional
