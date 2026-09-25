@@ -95,6 +95,26 @@ test("a vector-lane date sort chooses the limit by date, beyond the nearest docu
   expect(result.results.map(r => r.path)).toEqual(["notes/3.md"]);
 });
 
+test("a full-text date sort considers exactly the best max(limit x 20, 500) documents", async () => {
+  // 520 matches. The two weakest (longest documents) carry the two earliest
+  // deadlines: rank 501 is outside the documented pool, rank 500 inside it.
+  const insert = (id: number, content: string, deadline: string) => {
+    db.run("INSERT INTO documents(id,path,title,type,status,created,updated,deadline,content,indexed_at) VALUES (?,?,?,'note','active','2026-01-01','2026-01-01',?,?,'2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, deadline, content]);
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','',?,'')", [id, content]);
+  };
+  for (let id = 1; id <= 498; id++) insert(id, "topic", "2026-12-31");
+  insert(499, `topic ${"filler ".repeat(5)}`, "2026-12-31");
+  insert(500, `topic ${"filler ".repeat(10)}`, "2026-02-01");
+  insert(501, `topic ${"filler ".repeat(20)}`, "2026-01-01");
+  for (let id = 502; id <= 520; id++) insert(id, `topic ${"filler ".repeat(40)}`, "2026-12-31");
+  const ranked = await hybridSearch(db, { query: "topic", mode: "fts", rerank: "none", limit: 520 });
+  expect(ranked.results.findIndex(r => r.path === "notes/500.md")).toBe(499);
+  expect(ranked.results.findIndex(r => r.path === "notes/501.md")).toBe(500);
+
+  const result = await hybridSearch(db, { query: "topic", mode: "fts", rerank: "none", limit: 1, sort: "deadline" });
+  expect(result.results.map(r => r.path)).toEqual(["notes/500.md"]);
+});
+
 test("stops at exhaustion when filters leave too few results", async () => {
   addDoc(1, 25, 0);
   const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 2, tag: "wanted" }, { embeddings: provider });

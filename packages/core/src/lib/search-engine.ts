@@ -109,12 +109,9 @@ function buildFilters(opts: SearchOptions): FilterResult {
     params.push("markdown");
   }
 
-  // Stored dates are frontmatter strings: a bare date, or a timestamp with
-  // or without an offset. SQLite's date() turns each into its UTC day and a
-  // malformed value into NULL, which no bound matches.
   for (const [key, column, op] of DATE_FILTERS) {
     if (opts[key] === undefined) continue;
-    clauses.push(`date(d.${column}) ${op} ?`);
+    clauses.push(`${storedDate(column, "date")} ${op} ?`);
     params.push(opts[key]);
   }
 
@@ -125,12 +122,33 @@ function buildFilters(opts: SearchOptions): FilterResult {
 }
 
 /**
- * SQL sort keys for the date sorts: the stored string normalised to a UTC
- * datetime, NULL (sorted last) when it is missing or malformed.
+ * A stored date as SQL: `fn` (date() for a UTC day, julianday() for an
+ * exact instant) of the column when it holds a valid ISO date or datetime,
+ * else NULL, which matches no bound and sorts last.
+ *
+ * Stored dates are frontmatter strings: a bare `YYYY-MM-DD`, or that
+ * followed by `T` or a space, `HH:MM`, optional seconds and fraction, and an
+ * optional `Z` or `±HH:MM` offset. SQLite's own parser is lenient where this
+ * must not be: it rolls `2026-02-30` over to March 2, reads `now` as the
+ * current time, a bare number as a Julian day, and accepts hour 24 and a bare
+ * trailing `T`. So the first ten characters must survive a date() round trip
+ * unchanged (which only a real `YYYY-MM-DD` does), and any time part must
+ * start `HH:MM` with an hour below 24 and parse.
  */
+function storedDate(column: "updated" | "deadline", fn: "date" | "julianday"): string {
+  const c = `d.${column}`;
+  const valid =
+    `date(substr(${c}, 1, 10)) = substr(${c}, 1, 10) ` +
+    `AND (length(${c}) = 10 OR (` +
+    `substr(${c}, 11) GLOB '[T ][0-2][0-9]:[0-5][0-9]*' ` +
+    `AND substr(${c}, 12, 2) < '24' AND julianday(${c}) IS NOT NULL))`;
+  return `(CASE WHEN ${valid} THEN ${fn}(${c}) END)`;
+}
+
+/** Date-sort keys: the validated instant, full precision, NULL last. */
 const DATE_SORT_KEY = {
-  updated: "datetime(d.updated)",
-  deadline: "datetime(d.deadline)",
+  updated: storedDate("updated", "julianday"),
+  deadline: storedDate("deadline", "julianday"),
 } as const;
 
 /**
@@ -225,9 +243,9 @@ function sanitizeFtsQuery(query: string): string {
 function ftsSearch(
   db: Database,
   query: string,
-  opts: SearchOptions
+  opts: SearchOptions,
+  candidates = (opts.limit ?? 20) * 2
 ): SearchResult[] {
-  const limit = opts.limit ?? 20;
   const filters = buildFilters(opts);
   query = sanitizeFtsQuery(query);
 
@@ -250,7 +268,7 @@ function ftsSearch(
     LIMIT ?
   `;
 
-  const params = [query, ...filters.params, limit * 2];
+  const params = [query, ...filters.params, candidates];
   return db.prepare(sql).all(...params) as SearchResult[];
 }
 
@@ -500,17 +518,19 @@ export async function hybridSearch(
   const resultLists: SearchResult[][] = [];
 
   // A date sort picks the `limit` results by date, not by score, so each lane
-  // retrieves a wider pool of query matches first: dateSortPool(limit)
-  // documents (the vector lane also stops at its 500-chunk KNN ceiling). The
-  // fused pool is then date-sorted and cut to `limit`. A match ranked below
-  // the pool is not considered.
+  // retrieves a wider pool first. The full-text lane takes its best
+  // dateSortPool(limit) documents. The vector lane takes the documents behind
+  // its nearest chunks, up to dateSortPool(limit) documents and never more
+  // than the 500-chunk KNN ceiling. The fused pool is date-sorted, then cut to
+  // `limit`; a match outside the pool is not considered.
   const dateSorted = opts.sort === "updated" || opts.sort === "deadline";
-  const laneOpts: SearchOptions = dateSorted ? { ...opts, limit: dateSortPool(limit) } : opts;
+  const pool = dateSortPool(limit);
+  const laneOpts: SearchOptions = dateSorted ? { ...opts, limit: pool } : opts;
 
   // FTS search
   if (mode === "fts" || mode === "hybrid") {
     try {
-      const ftsResults = ftsSearch(db, query, laneOpts);
+      const ftsResults = dateSorted ? ftsSearch(db, query, opts, pool) : ftsSearch(db, query, opts);
       resultLists.push(ftsResults);
     } catch (e) {
       // FTS might fail on malformed queries; treat as empty results
@@ -589,16 +609,17 @@ function dateSortPool(limit: number): number {
 }
 
 /**
- * Reorder ranked candidates by a date, normalised in SQL the same way the
- * filters normalise it, with a missing or malformed date last. The sort is
- * stable, so documents with the same date keep their ranked order.
+ * Reorder ranked candidates by a date, validated in SQL the same way the
+ * filters validate it and compared as an exact instant (julianday keeps
+ * fractional seconds), with a missing or malformed date last. The sort is
+ * stable, so documents with the same instant keep their ranked order.
  */
 function sortByDate(db: Database, candidates: SearchResult[], sort: "updated" | "deadline"): SearchResult[] {
   if (candidates.length === 0) return candidates;
   const placeholders = candidates.map(() => "?").join(",");
   const rows = db
     .prepare(`SELECT d.path AS path, ${DATE_SORT_KEY[sort]} AS day FROM documents d WHERE d.path IN (${placeholders})`)
-    .all(...candidates.map((r) => r.path)) as { path: string; day: string | null }[];
+    .all(...candidates.map((r) => r.path)) as { path: string; day: number | null }[];
   const keys = new Map(rows.map((r) => [r.path, r.day]));
   const direction = sort === "updated" ? -1 : 1;
   return [...candidates].sort((a, b) => {

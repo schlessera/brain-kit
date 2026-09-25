@@ -31,8 +31,20 @@ const DOCS: Record<string, Doc> = {
   // already 08-10.
   "notes/lantern-east.md": { updated: '"2026-08-10T00:30:00+02:00"' },
   "notes/lantern-west.md": { updated: '"2026-08-09T23:30:00-02:00"' },
-  // Malformed dates survive indexing as strings.
+  // Malformed dates survive indexing as strings. SQLite alone would read
+  // 2026-02-30 as March 2 and "now" as the current time.
   "notes/lantern-garbled.md": { updated: '"not-a-date"', deadline: '"someday"' },
+  "notes/lantern-rollover.md": { updated: '"2026-02-30"', deadline: '"2026-02-30"' },
+  "notes/lantern-now.md": { updated: '"now"', deadline: '"now"' },
+  "notes/lantern-midnight.md": { updated: '"2026-08-10T24:00:00"', deadline: '"2026-08-10T"' },
+  // Two instants within one second: flare-early is the stronger text match,
+  // flare-late the newer update.
+  "notes/flare-early.md": { updated: '"2026-08-10T09:30:00.100Z"', body: "flare flare flare flare" },
+  "notes/flare-late.md": { updated: '"2026-08-10T09:30:00.900Z"', body: "flare" },
+  // Two deadlines within one second on 2026-12-05: tick-b is due first, tick-a
+  // was updated later (the filter-only tie-break).
+  "notes/tick-a.md": { updated: "2026-08-02", deadline: '"2026-12-05T09:00:00.900Z"' },
+  "notes/tick-b.md": { updated: "2026-08-01", deadline: '"2026-12-05T09:00:00.100Z"' },
   "notes/lantern-far.md": { updated: "2026-08-01", deadline: "2099-01-01" },
   "notes/lantern-past.md": { updated: "2026-08-01", deadline: "2000-01-01" },
   // Text-match strength falls from beacon-u to beacon-3, while the deadline
@@ -131,9 +143,39 @@ describe("stored dates are compared as UTC days", () => {
     expect(await search("lantern", "--mode", "fts", "--deadline-from", "2000-01-01")).not.toContain("notes/lantern-garbled.md");
     expect(await search("lantern", "--mode", "fts", "--deadline-to", "2100-01-01")).not.toContain("notes/lantern-garbled.md");
   });
-  test("a malformed updated sorts last under --sort updated", async () => {
+  for (const [value, path] of [
+    ["2026-02-30", "notes/lantern-rollover.md"],
+    ["now", "notes/lantern-now.md"],
+    ["2026-08-10T24:00:00 / 2026-08-10T", "notes/lantern-midnight.md"],
+  ] as const) {
+    test(`a stored "${value}" matches no updated bound`, async () => {
+      expect(await search("lantern", "--mode", "fts", "--updated-since", "2000-01-01")).not.toContain(path);
+      expect(await search("--updated-before", "2100-01-01")).not.toContain(path);
+    });
+    test(`a stored "${value}" matches no deadline bound`, async () => {
+      expect(await search("lantern", "--mode", "fts", "--deadline-from", "2026-03-02", "--deadline-to", "2026-03-02")).not.toContain(path);
+      expect(await search("--deadline-from", "2000-01-01", "--deadline-to", "2100-01-01")).not.toContain(path);
+    });
+    test(`a stored "${value}" deadline sorts with the undated, after every valid deadline`, async () => {
+      const paths = await search("lantern", "--mode", "fts", "--rerank", "none", "--sort", "deadline");
+      expect(paths.indexOf(path)).toBeGreaterThan(paths.indexOf("notes/lantern-far.md"));
+    });
+  }
+
+  test("--sort updated orders two updates within one second", async () => {
+    const paths = await search("flare", "--mode", "fts", "--rerank", "none", "--sort", "updated");
+    expect(paths).toEqual(["notes/flare-late.md", "notes/flare-early.md"]);
+  });
+
+  test("filter-only --sort deadline orders two deadlines within one second", async () => {
+    const paths = await search("--deadline-from", "2026-12-05", "--deadline-to", "2026-12-05", "--sort", "deadline");
+    expect(paths).toEqual(["notes/tick-b.md", "notes/tick-a.md"]);
+  });
+
+  test("malformed updated values sort last under --sort updated", async () => {
     const paths = await search("lantern", "--mode", "fts", "--rerank", "none", "--sort", "updated");
-    expect(paths.at(-1)).toBe("notes/lantern-garbled.md");
+    const malformed = ["notes/lantern-garbled.md", "notes/lantern-midnight.md", "notes/lantern-now.md", "notes/lantern-rollover.md"];
+    expect(paths.slice(-4).sort()).toEqual(malformed);
   });
 });
 
