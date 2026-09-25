@@ -365,9 +365,6 @@ describe("detectCandidates", () => {
     expect(
       run("**Site:** [![https://ithaca.example][pic]](https://ithaca.example)\n\n[pic]: https://ithaca.example/a.png")
     ).toEqual([]);
-    // A backtick in an address is still refused, though its reason, a run
-    // stripping backticks, is gone (#236); whether to admit it is #330.
-    expect(run("**Herald:** <eury`bates@ithaca.example>")).toEqual([]);
     // A reference-style link, image or footnote loses its target just as an
     // inline one does, and an address beside it must not let it through
     // (#220): before #167 the address kept the run out, now nothing else did.
@@ -400,6 +397,58 @@ describe("detectCandidates", () => {
     ).toEqual([]);
     // And a labelled link still rejects there too.
     expect(detectCandidates("| Who | Reach |\n|---|---|\n| Eurybates | [write](mailto:eurybates@ithaca.example) |")).toEqual([]);
+  });
+
+  test("an address with a backtick in it flattens to the same address in every candidate kind", () => {
+    // A value is read as its markup decodes, so no kind strips the backtick
+    // (#236), and the address is admitted like any other (#330). Each
+    // spelling here is a link whose text is its destination and holds one.
+    const spellings: Array<[string, string]> = [
+      ["<eury`bates@ithaca.example>", "eury`bates@ithaca.example"],
+      ["<mailto:eury`bates@ithaca.example>", "eury`bates@ithaca.example"],
+      ["[eury\\`bates@ithaca.example](mailto:eury\\`bates@ithaca.example)", "eury`bates@ithaca.example"],
+      ["[eury&#96;bates@ithaca.example](mailto:eury&#96;bates@ithaca.example)", "eury`bates@ithaca.example"],
+      ["<https://ithaca.example/a`b>", "https://ithaca.example/a`b"],
+      ["https://ithaca.example/a`b", "https://ithaca.example/a`b"],
+      // Beside a code span, a backtick pairs only as the parser paired it.
+      ["<eury`bates@ithaca.example> or `code`", "eury`bates@ithaca.example or code"],
+      ["`code` or <eury`bates@ithaca.example>", "code or eury`bates@ithaca.example"],
+    ];
+    // Each kind with the value it reads, so a shape that stops being its kind
+    // fails here, not only one that reads the address wrong.
+    const read = (text: string): [string, string | undefined] | null => {
+      const [c] = detectCandidates(text);
+      switch (c?.kind) {
+        case "kv_run":
+          return [c.kind, c.rows[1]?.v];
+        case "table":
+          return [c.kind, c.rows[0]?.[1]];
+        case "ordered_list":
+        case "timed_list":
+          return [c.kind, c.items[0]?.title];
+        case "blockquote":
+          return [c.kind, c.text];
+        default:
+          return null;
+      }
+    };
+    for (const [written, reads] of spellings) {
+      expect([
+        read(`**Name:** Odysseus\n**Herald:** ${written}`),
+        read(`- **Name:** Odysseus\n- **Herald:** ${written}`),
+        read(`| Who | Reach |\n|---|---|\n| Eurybates | ${written} |`),
+        read(`1. ${written}\n2. Rest`),
+        read(`- 09:00 ${written}\n- 10:00 Rest`),
+        read(`> ${written}`),
+      ]).toEqual([
+        ["kv_run", reads],
+        ["kv_run", reads],
+        ["table", reads],
+        ["ordered_list", reads],
+        ["timed_list", reads],
+        ["blockquote", reads],
+      ]);
+    }
   });
 
   test("candidates keep document order and stable ids", () => {
