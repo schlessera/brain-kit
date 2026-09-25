@@ -65,13 +65,16 @@ const parser = unified().use(remarkParse).use(remarkGfm);
 
 /**
  * Length of the frontmatter block, by the rule gray-matter applies when core
- * reads a document: the file opens with `---` not followed by a fourth `-`,
- * and the block runs to the first `\n---` (to the end of the file if there is
- * none), plus one line ending after it.
+ * reads a document: after a byte order mark, which gray-matter strips, the
+ * file opens with `---` not followed by a fourth `-`, and the block runs to
+ * the first `\n---` (to the end of the file if there is none), plus one line
+ * ending after it. The length counts the mark, so it is an offset into the
+ * original text.
  */
 export function frontmatterLength(text: string): number {
-  if (!text.startsWith("---") || text.charAt(3) === "-") return 0;
-  const close = text.indexOf("\n---", 3);
+  const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  if (!text.startsWith("---", bom) || text.charAt(bom + 3) === "-") return 0;
+  const close = text.indexOf("\n---", bom + 3);
   if (close === -1) return text.length;
   let end = close + 4;
   if (text[end] === "\r") end++;
@@ -123,18 +126,21 @@ function matchKey(text: string): string {
   return caseFold(text.replace(/\s+/g, " ").trim());
 }
 
-/** Offset in the body after the section opened by headings[i]. */
-function sectionEnd(headings: LocatedHeading[], i: number, bodyLength: number): number {
+/** Offset in the body after the section opened by headings[i], or `end` when no later heading closes it. */
+function sectionEnd(headings: LocatedHeading[], i: number, end: number): number {
   const next = headings.slice(i + 1).find((h) => h.level <= headings[i].level);
-  return next ? next.start : bodyLength;
+  return next ? next.start : end;
 }
 
 export function readDocumentPart(text: string, opts: ReadPartOptions): string {
   if (opts.section === undefined && opts.maxTokens === undefined) return text;
 
   const frontmatter = text.slice(0, frontmatterLength(text));
-  let body = text.slice(frontmatter.length);
+  const body = text.slice(frontmatter.length);
+  // Parsed once, whole: a selected section's subheadings keep what the rest
+  // of the document gives them, such as a reference link defined below it.
   let headings = locateHeadings(body);
+  let range = { start: 0, end: body.length };
   let result = text;
 
   if (opts.section !== undefined) {
@@ -147,9 +153,9 @@ export function readDocumentPart(text: string, opts: ReadPartOptions): string {
           (available ? `available headings: ${available}` : "the document has no headings")
       );
     }
-    body = body.slice(headings[i].start, sectionEnd(headings, i, body.length));
-    headings = locateHeadings(body);
-    result = body;
+    range = { start: headings[i].start, end: sectionEnd(headings, i, body.length) };
+    headings = headings.filter((h) => h.start >= range.start && h.start < range.end);
+    result = body.slice(range.start, range.end);
   }
 
   const total = estimateTokens(result);
@@ -158,7 +164,7 @@ export function readDocumentPart(text: string, opts: ReadPartOptions): string {
   const outline: DocumentHeading[] = headings.map((h, i) => ({
     level: h.level,
     text: h.text,
-    tokens: estimateTokens(body.slice(h.start, sectionEnd(headings, i, body.length))),
+    tokens: estimateTokens(body.slice(h.start, sectionEnd(headings, i, range.end))),
   }));
   const scope = opts.section === undefined ? "This document" : `The section "${opts.section}"`;
   const note =

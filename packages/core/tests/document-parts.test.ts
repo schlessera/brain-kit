@@ -275,14 +275,43 @@ describe("frontmatter and line endings", () => {
       "----\nnot frontmatter\n",
       "---\nunterminated\n",
       "## no frontmatter\n",
+      "\uFEFF---\ntitle: T\n---\n## A\n",
+      "\uFEFF## no frontmatter\n",
     ]) {
+      // gray-matter strips a leading byte order mark from what it returns.
       const body = matter(doc).content;
-      expect({ doc, body: doc.slice(frontmatterLength(doc)) }).toEqual({ doc, body });
+      expect({ doc, body: doc.slice(frontmatterLength(doc)).replace(/^\uFEFF/, "") }).toEqual({ doc, body });
     }
+  });
+
+  test("frontmatter after a byte order mark is still frontmatter, for selection and outline", () => {
+    const doc = "\uFEFF---\nnotes: |\n  ## A\n---\n## A\nbody\n";
+    expect(section(doc, "A")).toBe("## A\nbody\n");
+    const outline = readDocumentPart(doc, { maxTokens: 1, sectionHint: hint });
+    expect(outline.startsWith("\uFEFF---\nnotes: |\n  ## A\n---\n\n[")).toBe(true);
+    expect(outline.match(/^- ## /gm)).toEqual(["- ## "]);
   });
 
   test("CR-only and CRLF documents have headings too, cut byte for byte", () => {
     expect(section("## A\rx\r## B\ry\r", "A")).toBe("## A\rx\r");
     expect(section("## A\r\nx\r\n## B\r\ny\r\n", "B")).toBe("## B\r\ny\r\n");
+  });
+});
+
+describe("outlining a selected section", () => {
+  test("subheadings keep what the rest of the document gives them, like a reference link", () => {
+    const doc = "## A\n\n### [Child][ref]\nbody\n## B\n\n[ref]: https://example.com\n";
+    const outline = readDocumentPart(doc, { section: "A", maxTokens: 1, sectionHint: hint });
+    expect(outline).toContain("- ### Child (~");
+    expect(outline).not.toContain("[Child][ref]");
+    // The listed name selects the subsection.
+    expect(section(doc, "Child")).toBe("### [Child][ref]\nbody\n");
+  });
+
+  test("the sub-outline holds the section's own headings and counts them within it", () => {
+    const doc = "## A\n\n### A1\n" + "a".repeat(40) + "\n### A2\nx\n## B\n### B1\n";
+    const outline = readDocumentPart(doc, { section: "A", maxTokens: 1, sectionHint: hint });
+    expect(outline).toContain("- ## A (~16 tokens)\n  - ### A1 (~12 tokens)\n  - ### A2 (~3 tokens)\n");
+    expect(outline).not.toContain("B1");
   });
 });
