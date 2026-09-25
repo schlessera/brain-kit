@@ -57,6 +57,7 @@ export const VALUE_FLAGS = new Set([
   "center", "depth", "direction", "stale-days", "community",
   "format", "as", "width", "allow-host",
   "forget-cache",
+  "set", "k",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

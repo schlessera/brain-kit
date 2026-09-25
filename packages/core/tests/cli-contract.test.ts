@@ -6,7 +6,8 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -408,6 +409,49 @@ describe("okf", () => {
     const checked = await runCli(root, ["okf", "check", "--json"]);
     expect(checked.code).toBe(0);
     expect(JSON.parse(checked.stdout)).toMatchObject({ ok: true, errors: 0 });
+  });
+});
+
+describe("eval", () => {
+  // The set lives outside the brain root so it cannot change any count the
+  // other tests in this file pin.
+  test("returns the { schema_version, meta, rows, per_query, warnings } envelope", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-eval-set-"));
+    try {
+      const set = join(dir, "retrieval.jsonl");
+      writeFileSync(
+        set,
+        [
+          { id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
+          { id: "none", q: "telescope", class: "no-answer", expected: [] },
+        ].map((q) => JSON.stringify(q)).join("\n")
+      );
+      const { stdout, code } = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--json"]);
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(Object.keys(out).sort()).toEqual(["meta", "per_query", "rows", "schema_version", "warnings"]);
+      expect(out.schema_version).toBe(1);
+      expect(Object.keys(out.meta).sort()).toEqual([
+        "documents", "embedding_model", "k", "modes", "now", "pool", "queries",
+        "rerank", "set", "set_sha256", "source", "version",
+      ]);
+      expect(out.meta).toMatchObject({ version: packageVersion(), queries: 2, modes: ["fts"], k: [1, 3, 10] });
+      expect(out.rows.length).toBeGreaterThan(0);
+      for (const row of out.rows) {
+        expect(Object.keys(row).sort()).toEqual([
+          "class", "hit_at", "mode", "mrr_at_10", "n", "oracle", "top1_score_median",
+        ]);
+      }
+      expect(out.per_query).toHaveLength(2);
+      for (const query of out.per_query) {
+        expect(Object.keys(query).sort()).toEqual([
+          "class", "expected", "hit_at", "id", "mode", "q", "rank", "rr", "top", "top1_score",
+        ]);
+      }
+      expect(out.warnings).toEqual([]);
+    } finally {
+      cleanup(dir);
+    }
   });
 });
 

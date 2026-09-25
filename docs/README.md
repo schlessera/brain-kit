@@ -13,6 +13,7 @@ understand the model. The rest is reference.
 | [configuration.md](configuration.md) | The full `brain.config.ts` reference — every key, its type, default, and an example — plus every environment variable brain-kit reads, root resolution, and the `brain.config.json` variant. |
 | [modules.md](modules.md) | What a module is, enabling/disabling via `/brain-module`, the three first-party modules (jobs, speaking, finance), local path modules, and authoring with `/new-module`. |
 | [cli.md](cli.md) | Command reference for the `brain` bin — all commands, key flags, and which `--json` shapes are contract-bound. |
+| [evaluating-search.md](evaluating-search.md) | `brain eval`: writing a query set for your own brain, the validity gates, and reading hit@1 against the oracle row. |
 | [mcp.md](mcp.md) | The stdio MCP server: registration, the eight `brain_*` tools, staleness warnings, and taxonomy-generated type filters. |
 | [extending/README.md](extending/README.md) | The seam meta-mechanism (typed interface → string-or-value config → optional package), the bar for promoting a community provider to a built-in, and the verbatim not-pluggable list. |
 | [extending/embeddings.md](extending/embeddings.md) | The `EmbeddingProvider` seam. |
