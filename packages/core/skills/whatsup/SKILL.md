@@ -23,8 +23,8 @@ brain briefing
 ```
 
 This emits only the sections that have data: Current Focus, Focus-Linked Documents, Upcoming
-Deadlines, Overdue Reviews, Recently Active docs, Silently Modified files, and Stale Context
-warnings.
+Deadlines, Overdue Reviews, Recently Active docs, Silently Modified files, and Stale Documents
+(past their type's staleness threshold, most overdue first).
 
 ## 2. Read 1–3 files for detail (optional)
 
