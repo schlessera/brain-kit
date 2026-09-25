@@ -343,7 +343,7 @@ Tool names and input schemas are stable:
 | `brain_context` | readOnly | `{ context, warnings }` |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
 | `brain_list` | readOnly | `{ documents, warnings }` |
-| `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], warnings }` |
+| `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
 
 `brain_search`, `brain_list` and `brain_graph` repeat their structuredContent

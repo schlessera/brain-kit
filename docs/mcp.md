@@ -30,7 +30,7 @@ claude mcp add brain -- bun packages/core/src/mcp-server.ts
 | `brain_context` | read-only | `{ context, warnings }` |
 | `brain_read` | read-only | file text; `section` returns one section, and `max_tokens` returns the frontmatter and an outline when the file is larger. `max_tokens` is a threshold, not a cap on the output |
 | `brain_list` | read-only | `{ documents, warnings }` |
-| `brain_graph` | read-only | `{ edges, warnings }` — the wiki-link graph |
+| `brain_graph` | read-only | `{ edges, nodes, warnings }` — the wiki-link graph, and the title, type, summary and date of each document in it |
 | `brain_add` | write (non-destructive) | ingest result object |
 | `brain_update` | write (idempotent) | update result object |
 | `brain_archive` | write (idempotent) | archive result object |

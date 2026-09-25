@@ -418,12 +418,19 @@ export async function startMcpServer(
     target: z.string(),
     resolved: z.boolean(),
   });
+  const graphNodeSchema = z.object({
+    path: z.string(),
+    title: z.string(),
+    type: z.string(),
+    summary: z.string().nullish(),
+    updated: z.string().nullish(),
+  });
 
   server.registerTool(
     "brain_graph",
     {
       description:
-        "Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]].",
+        "Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]], and nodes (path, title, type, summary, updated) for every document an edge touches.",
       inputSchema: {
         path: z.string().describe("Starting document path"),
         depth: z.number().default(1).describe("How many hops to traverse"),
@@ -431,6 +438,7 @@ export async function startMcpServer(
       },
       outputSchema: {
         edges: z.array(graphEdgeSchema),
+        nodes: z.array(graphNodeSchema),
         warnings: z.array(z.string()),
       },
       annotations: { readOnlyHint: true },
@@ -450,29 +458,23 @@ export async function startMcpServer(
             visited.add(currentPath);
 
             if (params.direction === "outgoing" || params.direction === "both") {
+              // A target_id whose document is gone reads as unresolved, with
+              // the raw link text as its target.
               const outgoing = db
                 .prepare(
-                  `SELECT d.path AS source, l.target, l.target_id
+                  `SELECT d.path AS source, COALESCE(t.path, l.target) AS target,
+                          t.id IS NOT NULL AS resolved
                    FROM links l
                    JOIN documents d ON d.id = l.source_id
+                   LEFT JOIN documents t ON t.id = l.target_id
                    WHERE d.path = ?`
                 )
-                .all(currentPath) as Array<{ source: string; target: string; target_id: number | null }>;
+                .all(currentPath) as Array<{ source: string; target: string; resolved: number }>;
 
               for (const row of outgoing) {
-                let targetPath = row.target;
-                let resolved = false;
-                if (row.target_id) {
-                  const targetDoc = db
-                    .prepare("SELECT path FROM documents WHERE id = ?")
-                    .get(row.target_id) as { path: string } | null;
-                  if (targetDoc) {
-                    targetPath = targetDoc.path;
-                    resolved = true;
-                  }
-                }
-                edges.push({ source: row.source, target: targetPath, resolved });
-                if (resolved) nextFrontier.add(targetPath);
+                const resolved = row.resolved === 1;
+                edges.push({ source: row.source, target: row.target, resolved });
+                if (resolved) nextFrontier.add(row.target);
               }
             }
 
@@ -505,9 +507,29 @@ export async function startMcpServer(
           return true;
         });
 
+        // Every source is a document; a target is one only when resolved.
+        const touched = new Set<string>();
+        for (const e of uniqueEdges) {
+          touched.add(e.source);
+          if (e.resolved) touched.add(e.target);
+        }
+        const nodes = db
+          .prepare(
+            `SELECT path, title, type, summary, updated FROM documents
+             WHERE path IN (SELECT value FROM json_each(?))
+             ORDER BY path`
+          )
+          .all(JSON.stringify([...touched])) as Array<{
+            path: string;
+            title: string;
+            type: string;
+            summary: string | null;
+            updated: string | null;
+          }>;
+
         const stale = indexStalenessWarning();
         const warnings = toolWarnings(stale);
-        const structured = { edges: uniqueEdges, warnings };
+        const structured = { edges: uniqueEdges, nodes, warnings };
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(structured) }],
