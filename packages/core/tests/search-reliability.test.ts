@@ -1,6 +1,11 @@
-import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import { initContext } from "../src/lib/context";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
+import { indexAll } from "../src/lib/indexer";
 import { hybridSearch } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
@@ -149,4 +154,88 @@ test("an invalid now is refused rather than scoring every result NaN", async () 
   await expect(
     hybridSearch(db, { query: "harbour", mode: "fts", now: new Date("not-a-date") })
   ).rejects.toThrow("now must be a valid Date");
+});
+
+// ---------------------------------------------------------------------------
+// The full-text lane over fixtures/corpus (#400)
+// ---------------------------------------------------------------------------
+
+describe("full-text lane over fixtures/corpus", () => {
+  const CORE_ROOT = resolve(import.meta.dir, "..");
+  let root: string;
+  let corpus: Database;
+
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), "brain-fts-corpus-"));
+    cpSync(join(CORE_ROOT, "fixtures/corpus"), root, { recursive: true });
+    // The fixture's brain.config.ts imports @schlessera/brain.
+    symlinkSync(resolve(CORE_ROOT, "../../node_modules"), join(root, "node_modules"));
+    const ctx = await initContext({ root });
+    corpus = openDatabase(ctx.dbPath);
+    await indexAll(corpus, { root, taxonomy: ctx.taxonomy, quiet: true });
+  });
+
+  afterAll(() => {
+    corpus?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // rerank "none" keeps these about the lane: the heuristic reranker reads the
+  // wall clock.
+  const fts = (query: string) => hybridSearch(corpus, { query, mode: "fts", rerank: "none" }, {});
+
+  // Documents a raw MATCH expression hits, bypassing the query builder.
+  const rawMatch = (expr: string) =>
+    (corpus.prepare("SELECT d.path FROM documents_fts JOIN documents d ON d.id = documents_fts.rowid WHERE documents_fts MATCH ?")
+      .all(expr) as { path: string }[]).map(r => r.path).sort();
+
+  test("a question matches the document that holds its content words but not its question words", async () => {
+    const status = "projects/active/bookshelf/status.md";
+    // The premise: "when" is nowhere in the document, so an AND of every
+    // word cannot match it.
+    expect(readFileSync(join(root, status), "utf8")).not.toMatch(/\bwhen\b/i);
+    expect(rawMatch('"when" "is" "the" "bookshelf" "deadline"')).toEqual([]);
+
+    const { results, warnings } = await fts("when is the bookshelf deadline");
+    expect(warnings).toEqual([]);
+    expect(results.map(r => r.path)).toContain(status);
+  });
+
+  test("an exact multi-word keyword query still ranks the one document holding every word first", async () => {
+    const status = "projects/active/bookshelf/status.md";
+    expect(rawMatch('"carcass" "glue-up"')).toEqual([status]);
+
+    const { results } = await fts("carcass glue-up");
+    expect(results.length).toBeGreaterThan(1);
+    expect(results[0]!.path).toBe(status);
+  });
+
+  test("a query made only of stopwords keeps the AND of all its terms", async () => {
+    const expected = rawMatch('"the" "who"');
+    expect(expected.length).toBeGreaterThan(0);
+
+    const { results, warnings } = await fts("the who");
+    expect(results.map(r => r.path).sort()).toEqual(expected);
+    expect(warnings).toEqual([]);
+
+    // A token with no letter or digit is not a content word either.
+    const punctuated = await fts("? the who");
+    expect(punctuated.results.map(r => r.path).sort()).toEqual(expected);
+  });
+
+  test("a query that is one quoted phrase stays a phrase", async () => {
+    const expected = rawMatch('"face frame"');
+    // The phrase is narrower than its words, or this proves nothing.
+    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+
+    const { results } = await fts('"face frame"');
+    expect(results.map(r => r.path).sort()).toEqual(expected);
+  });
+
+  test("tokens carrying FTS5 syntax characters never raise a syntax error", async () => {
+    for (const query of ['foo"bar', "deadline*", "a:b", "-bookshelf", "(bookshelf", "bookshelf)", "NEAR(bookshelf", "? the", '"unterminated bookshelf']) {
+      const { warnings } = await fts(query);
+      expect({ query, warnings }).toEqual({ query, warnings: [] });
+    }
+  });
 });

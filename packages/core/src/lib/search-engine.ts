@@ -99,15 +99,53 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
 }
 
 /**
- * Sanitize a query string for FTS5 MATCH syntax.
- * Wraps each token in double quotes to treat special characters (/ - : etc.) as literals.
+ * English function words dropped from a full-text query before its terms are
+ * ORed. FTS5 ships no stopword list, and without one an OR of a question's
+ * words matches nearly every document through "the" or "is". English only, to
+ * match the `porter unicode61` tokenizer, which stems English only.
+ */
+const FTS_STOPWORDS = new Set([
+  "a", "about", "after", "all", "also", "am", "an", "and", "any", "are", "as",
+  "at", "be", "been", "before", "being", "but", "by", "can", "could", "did",
+  "do", "does", "doing", "for", "from", "had", "has", "have", "having", "he",
+  "her", "here", "hers", "him", "his", "how", "i", "if", "in", "into", "is",
+  "it", "its", "just", "me", "my", "no", "nor", "not", "of", "on", "or",
+  "our", "ours", "out", "over", "she", "should", "so", "some", "than", "that",
+  "the", "their", "theirs", "them", "then", "there", "these", "they", "this",
+  "those", "to", "too", "under", "up", "us", "was", "we", "were", "what",
+  "when", "where", "which", "while", "who", "whom", "why", "will", "with",
+  "would", "you", "your", "yours",
+]);
+
+/** Quote one token as an FTS5 phrase so `/ - : * (` stay literal. */
+function quoteFtsTerm(token: string): string {
+  return `"${token.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Build an FTS5 MATCH expression from a free-text query.
+ *
+ * Each token is quoted, stopwords are dropped and the rest are ORed, so a
+ * question matches every document that shares a content word with it and
+ * BM25 ranks the ones that share the rarest words first. FTS5 reads
+ * space-separated phrases as AND, which starved the lane on natural questions
+ * (#400). A query that is one quoted phrase stays a phrase. A query made only
+ * of stopwords keeps the AND of all its terms, so "the who" still means
+ * something.
  */
 function sanitizeFtsQuery(query: string): string {
-  return query
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => `"${token.replace(/"/g, '""')}"`)
-    .join(" ");
+  const phrase = /^\s*"([^"]+)"\s*$/.exec(query);
+  if (phrase) return quoteFtsTerm(phrase[1]!.trim());
+
+  const tokens = query.split(/\s+/).filter(Boolean);
+  // A token with no letter or digit (`?`, `-`) is an empty phrase: FTS5's AND
+  // skips it, but alone in an OR it matches nothing, so it is not a content term.
+  const content = tokens.filter((token) => {
+    const word = token.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    return word !== "" && !FTS_STOPWORDS.has(word);
+  });
+  if (content.length === 0) return tokens.map(quoteFtsTerm).join(" ");
+  return [...new Set(content.map(quoteFtsTerm))].join(" OR ");
 }
 
 /**
