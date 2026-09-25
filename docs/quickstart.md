@@ -74,7 +74,13 @@ this is an uninitialized brain and points at the first step. Run:
    revertable — the skill tells you so.
 5. **Validation ladder** — it indexes, validates, runs a full-text search for
    your name to prove `me/identity.md` is findable, optionally wires up
-   embeddings (below), and registers the MCP server.
+   embeddings (below), and makes sure the MCP server is registered. The
+   template's `.mcp.json` already declares it for the project, so on a template
+   brain the interview reads the `mcp` check of `brain doctor --json` and
+   leaves the registration alone. It runs `claude mcp add` only when that check
+   does not pass. Either way it then reads `me/identity.md` through the MCP
+   tools and compares it with the file on disk, and if the server that answers
+   is not this brain's, it registers one for this project.
 6. **Handoff** — it points you at `/brain-import` (if you mentioned existing
    notes), `/brain-host`, and demonstrates a `brain add` capture.
 
