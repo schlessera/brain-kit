@@ -83,6 +83,8 @@ test("every built-in agent runner passes the AgentRunner contract suite", async 
       },
       stdout: "pipe",
       stderr: "pipe",
+      // Killed if it outlives this test; the stand-ins exit on their own.
+      timeout: 55_000,
     }
   );
   const [stdout, stderr, code] = await Promise.all([
@@ -92,9 +94,9 @@ test("every built-in agent runner passes the AgentRunner contract suite", async 
   ]);
   const report = `${stdout}\n${stderr}`;
 
-  // Five cases per runner; a runner without runStreaming passes that case by
+  // Six cases per runner; a runner without runStreaming passes that case by
   // having nothing to check.
-  const expected = Object.keys(AGENT_RUNNERS).length * 5;
+  const expected = Object.keys(AGENT_RUNNERS).length * 6;
   expect({ code, failed: report.match(/^\(fail\).*$/gm) ?? [] }).toEqual({ code: 0, failed: [] });
   expect(report).toMatch(new RegExp(`^\\s*${expected} pass$`, "m"));
   expect(report).toMatch(/^\s*0 fail$/m);

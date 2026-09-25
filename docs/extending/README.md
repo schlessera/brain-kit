@@ -209,7 +209,8 @@ there is no vote and no score.
    `runCompletionProviderContract`, `runAgentRunnerContract` or
    `runSkillEmitterContract`), run against the real provider code driven
    through an isolated `fetch` or a fake binary, as
-   `packages/core/tests/seam-contracts.test.ts` runs every built-in. The suite
+   `packages/core/tests/seam-contracts.test.ts` and
+   `agent-runner-contracts.test.ts` beside it run every built-in. The suite
    is the floor: cover every method and every `capabilities` flag the provider
    declares beyond it too. A test of a predicate is not proof for anything with
    a runtime.

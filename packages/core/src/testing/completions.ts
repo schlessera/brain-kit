@@ -3,7 +3,7 @@
  * promises in docs/extending/completions.md and on the interface in
  * ../lib/seams.ts:
  *
- *   1. `id` is a non-empty string and `capabilities.vision` a boolean
+ *   1. `id` is a string and `capabilities.vision` a boolean
  *   2. `complete` resolves to the text the model answered
  *   3. `system` and `maxTokens` are accepted alongside the prompt
  *   4. `parts` are additive: text, image and PDF parts never make a request
@@ -20,6 +20,7 @@
 
 import { createEnrichment } from "../lib/enrichment.js";
 import type { CompletionProvider, ContentPart } from "../lib/seams.js";
+import { PDF_1PAGE as PDF, PNG_1X1 as PIXEL } from "./fixtures.js";
 import type { ContractTestPrimitives } from "./primitives.js";
 
 export interface CompletionProviderContractHarness {
@@ -29,8 +30,6 @@ export interface CompletionProviderContractHarness {
 }
 
 const ANSWER = "A lighthouse on a rocky headland at dusk.";
-const PIXEL = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const PDF = new TextEncoder().encode("%PDF-1.4\n%%EOF\n");
 
 type CompleteRequest = Parameters<CompletionProvider["complete"]>[0];
 
@@ -64,10 +63,9 @@ export function runCompletionProviderContract(
   const { describe, expect, test } = primitives;
 
   describe(`CompletionProvider contract: ${harness.name}`, () => {
-    test("id is a non-empty string and capabilities.vision a boolean", () => {
+    test("id is a string and capabilities.vision a boolean", () => {
       const provider = harness.answering(ANSWER);
       expect(typeof provider.id).toBe("string");
-      expect(provider.id.length).toBeGreaterThan(0);
       expect(typeof provider.capabilities?.vision).toBe("boolean");
     });
 

@@ -123,6 +123,26 @@ describe("EmbeddingProvider contract suite", () => {
     );
     expect(result.failed).toEqual(["a forwarded signal rejects the pending embedQuery once it aborts"]);
   }, 15_000);
+
+  test("a query that rejects on its own, not on the abort, fails the cancellation case", async () => {
+    const result = await failingCases((p) =>
+      runEmbeddingProviderContract(
+        {
+          name: "impatient",
+          provider: () => embeddings(),
+          hanging: () =>
+            embeddings({
+              embedQuery: () =>
+                new Promise<Float32Array>((_, reject) =>
+                  setTimeout(() => reject(new Error("gave up")), 40)
+                ),
+            }),
+        },
+        p
+      )
+    );
+    expect(result.failed).toEqual(["a forwarded signal rejects the pending embedQuery once it aborts"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -159,7 +179,7 @@ describe("CompletionProvider contract suite", () => {
     const result = await failingCases((p) =>
       runCompletionProviderContract({ name: "stringly", answering }, p)
     );
-    expect(result.failed).toEqual(["id is a non-empty string and capabilities.vision a boolean"]);
+    expect(result.failed).toEqual(["id is a string and capabilities.vision a boolean"]);
   });
 
   test("a provider that rejects image parts fails the additive-parts case", async () => {
@@ -203,7 +223,7 @@ describe("AgentRunner contract suite", () => {
     const result = await failingCases((p) =>
       runAgentRunnerContract({ name: "fake", echoing: () => echoRunner(), hanging: timingOut }, p)
     );
-    expect(result).toEqual({ ran: 5, failed: [] });
+    expect(result).toEqual({ ran: 6, failed: [] });
   });
 
   test("streaming declared without runStreaming fails the agreement case", async () => {
@@ -246,8 +266,24 @@ describe("AgentRunner contract suite", () => {
         p
       )
     );
-    expect(result.failed).toEqual(["run honours timeoutMs: a run that never finishes rejects instead of hanging"]);
-  }, 15_000);
+    expect(result.failed).toEqual([
+      "run honours timeoutMs: a run that never finishes rejects once its deadline passes",
+      "run honours timeoutMs: a longer deadline keeps the run going past the shorter one",
+    ]);
+  }, 20_000);
+
+  test("a runner on a fixed deadline of its own fails the longer-deadline case", async () => {
+    const fixed = (): AgentRunner =>
+      echoRunner({
+        run: () => new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 600)),
+      });
+    const result = await failingCases((p) =>
+      runAgentRunnerContract({ name: "fixed", echoing: () => echoRunner(), hanging: fixed }, p)
+    );
+    expect(result.failed).toEqual([
+      "run honours timeoutMs: a longer deadline keeps the run going past the shorter one",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -287,6 +323,24 @@ describe("SkillEmitter contract suite", () => {
   test("a conforming emitter passes every case", async () => {
     const result = await failingCases((p) =>
       runSkillEmitterContract({ name: "fake", emitter: () => fileEmitter({ prune: true }) }, p)
+    );
+    expect(result).toEqual({ ran: 6, failed: [] });
+  });
+
+  test("a conforming emitter that reports a whole directory passes every case", async () => {
+    // Writes the same files, but reports the directory rather than each file.
+    const directory = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      return {
+        agent: "fake-dir",
+        emit(skills, repoRoot) {
+          const { removed } = inner.emit(skills, repoRoot);
+          return { written: [".fake"], removed };
+        },
+      };
+    };
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "directory", emitter: directory }, p)
     );
     expect(result).toEqual({ ran: 6, failed: [] });
   });

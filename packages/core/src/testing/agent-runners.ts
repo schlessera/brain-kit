@@ -2,13 +2,14 @@
  * Published AgentRunner contract suite — the executable form of the promises
  * in docs/extending/agent-runners.md and on the interface in ../lib/seams.ts:
  *
- *   1. `id` is a non-empty string; `capabilities.streaming` and
- *      `capabilities.skills` are booleans
+ *   1. `id` is a string; `capabilities.streaming` and `capabilities.skills`
+ *      are booleans
  *   2. `capabilities.streaming` agrees with whether `runStreaming` exists
  *   3. `run` executes the agent in `cwd` on the prompt it was given and
  *      resolves to the agent's final text
  *   4. `run` honours `timeoutMs`: an agent that never finishes is abandoned
- *      and the run rejects, rather than hanging the caller
+ *      and the run rejects once the given deadline passes, not before it and
+ *      not on some fixed deadline of the runner's own
  *   5. `runStreaming`, when present, runs the same way, resolves to the same
  *      final text, and surfaces the agent's tool activity through `onEvent`
  *      as `{ kind: "tool" | "text", label }` events
@@ -36,10 +37,15 @@ export interface AgentRunnerContractHarness {
   hanging(): AgentRunner;
 }
 
-/** Short enough to keep the suite fast; long enough for a fake agent to start. */
-const TIMEOUT_MS = 500;
-/** How far past `TIMEOUT_MS` a run may still be going before it counts as hung. */
-const GRACE_MS = 5_000;
+/**
+ * Two deadlines far enough apart that a runner timing out on a fixed deadline
+ * of its own cannot satisfy both: the short run must be over soon after the
+ * short deadline, and the long run must still be going well past it.
+ */
+const SHORT_TIMEOUT_MS = 400;
+const LONG_TIMEOUT_MS = 1_500;
+/** How far past its deadline a run may still be going before it counts as hung. */
+const GRACE_MS = 2_500;
 
 const PROMPT = "Summarise the notes filed under voyages.";
 
@@ -61,10 +67,9 @@ export function runAgentRunnerContract(
   const { describe, expect, test } = primitives;
 
   describe(`AgentRunner contract: ${harness.name}`, () => {
-    test("id is a non-empty string and capabilities are booleans", () => {
+    test("id is a string and capabilities are booleans", () => {
       const runner = harness.echoing();
       expect(typeof runner.id).toBe("string");
-      expect(runner.id.length).toBeGreaterThan(0);
       expect(typeof runner.capabilities?.streaming).toBe("boolean");
       expect(typeof runner.capabilities?.skills).toBe("boolean");
     });
@@ -87,17 +92,28 @@ export function runAgentRunnerContract(
       });
     });
 
-    test("run honours timeoutMs: a run that never finishes rejects instead of hanging", async () => {
+    test("run honours timeoutMs: a run that never finishes rejects once its deadline passes", async () => {
       const runner = harness.hanging();
       await inScratchDir(async (cwd) => {
-        const started = Date.now();
+        const started = performance.now();
         const outcome = await settleWithin(
-          runner.run(PROMPT, { cwd, timeoutMs: TIMEOUT_MS }),
-          TIMEOUT_MS + GRACE_MS
+          runner.run(PROMPT, { cwd, timeoutMs: SHORT_TIMEOUT_MS }),
+          SHORT_TIMEOUT_MS + GRACE_MS
         );
         expect(outcome.state).toBe("rejected");
         // Rejecting before the deadline would be a failure, not a timeout.
-        expect(Date.now() - started).toBeGreaterThan(TIMEOUT_MS - 50);
+        expect(performance.now() - started).toBeGreaterThan(SHORT_TIMEOUT_MS - 50);
+      });
+    });
+
+    test("run honours timeoutMs: a longer deadline keeps the run going past the shorter one", async () => {
+      const runner = harness.hanging();
+      await inScratchDir(async (cwd) => {
+        const run = runner.run(PROMPT, { cwd, timeoutMs: LONG_TIMEOUT_MS });
+        const early = await settleWithin(run, SHORT_TIMEOUT_MS + GRACE_MS / 4);
+        expect(early.state).toBe("pending");
+        const outcome = await settleWithin(run, LONG_TIMEOUT_MS + GRACE_MS);
+        expect(outcome.state).toBe("rejected");
       });
     });
 

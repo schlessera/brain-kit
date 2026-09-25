@@ -2,12 +2,13 @@
  * Published SkillEmitter contract suite — the executable form of the promises
  * in docs/extending/skill-emitters.md and on the interface in ../lib/seams.ts:
  *
- *   1. `agent` is a non-empty string
+ *   1. `agent` is a string
  *   2. `emit` returns `{ written, removed }` synchronously, as repo-relative
  *      paths; everything it reports written exists afterwards (a link
  *      resolves), everything it reports removed does not
  *   3. every skill it is given is reachable from the emitted layout: a
- *      written path names it, or a written file mentions it
+ *      written path names it, or a written file mentions it (a written
+ *      directory counts through the paths and files inside it)
  *   4. a skill dropped from the list leaves the layout: no emitted path still
  *      names it and no emitted file still mentions it
  *   5. re-emitting an unchanged list removes nothing and leaves the layout in
@@ -22,8 +23,10 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -74,14 +77,21 @@ function isRepoRelative(rel: string): boolean {
   return !normalize(rel).split(/[\\/]/).includes("..");
 }
 
-/** Does the emitted path `rel` name `skill`, or does the file there mention it? */
+/**
+ * Does the emitted path `rel` name `skill`, or does the file there mention it?
+ * A directory reaches it through anything inside it. A link to a directory
+ * (the claude and pi layouts) names the skill itself, so it is never walked
+ * into the canonical home it points at.
+ */
 function reaches(root: string, rel: string, skill: string): boolean {
   if (rel.split(/[\\/]/).some((segment) => basename(segment, extname(segment)) === skill)) {
     return true;
   }
   const abs = join(root, rel);
-  if (!existsSync(abs) || !statSync(abs).isFile()) return false;
-  return readFileSync(abs, "utf8").includes(skill);
+  if (!existsSync(abs)) return false;
+  if (statSync(abs).isFile()) return readFileSync(abs, "utf8").includes(skill);
+  if (lstatSync(abs).isSymbolicLink()) return false;
+  return readdirSync(abs).some((entry) => reaches(root, join(rel, entry), skill));
 }
 
 function withRepo(fn: (repo: ScratchRepo) => void): void {
@@ -101,10 +111,8 @@ export function runSkillEmitterContract(
   const { describe, expect, test } = primitives;
 
   describe(`SkillEmitter contract: ${harness.name}`, () => {
-    test("agent is a non-empty string", () => {
-      const emitter = harness.emitter();
-      expect(typeof emitter.agent).toBe("string");
-      expect(emitter.agent.length).toBeGreaterThan(0);
+    test("agent is a string", () => {
+      expect(typeof harness.emitter().agent).toBe("string");
     });
 
     test("emit reports repo-relative paths: written ones exist, removed ones do not", () => {

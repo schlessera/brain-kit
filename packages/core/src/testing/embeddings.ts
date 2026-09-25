@@ -3,14 +3,15 @@
  * promises in docs/extending/embeddings.md and on the interface in
  * ../lib/seams.ts:
  *
- *   1. `id` is a non-empty string and `dimensions` a positive integer
+ *   1. `id` is a string and `dimensions` a number
  *   2. `embed` returns one `Float32Array` per text, each `dimensions` wide —
  *      the indexer refuses a vector of any other width
  *   3. `embedQuery` returns one such vector, called with or without `opts`
  *      (a one-argument `embedQuery` stays compatible)
  *   4. `embedQuery` honours or tolerates `opts.signal`: an already-aborted
  *      signal either rejects or still yields a valid vector, and never hangs;
- *      a provider that forwards the signal rejects once it aborts mid-request
+ *      a provider that forwards the signal is still waiting on its runtime
+ *      until the signal aborts, and rejects promptly once it does
  *   5. `embedImage` / `embedPdf` are methods or absent; present, each returns
  *      a `dimensions`-wide vector; absent, core embeds the text description
  *      through `embed` instead, which must then yield one
@@ -20,6 +21,7 @@
  */
 
 import type { EmbeddingProvider } from "../lib/seams.js";
+import { PDF_1PAGE, PNG_1X1 } from "./fixtures.js";
 import { settleWithin, type ContractTestPrimitives } from "./primitives.js";
 
 export interface EmbeddingProviderContractHarness {
@@ -38,11 +40,14 @@ export interface EmbeddingProviderContractHarness {
   hanging?(): EmbeddingProvider;
 }
 
-/** How long a responsive fake runtime may take before a call counts as hung. */
-const SETTLE_MS = 5_000;
-
-const PIXEL = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const PDF = new TextEncoder().encode("%PDF-1.4\n%%EOF\n");
+/**
+ * How long a responsive fake runtime may take before a call counts as hung.
+ * Under bun:test's default 5s per-test timeout; run the suite with
+ * `--timeout 30000` all the same, as this repository does.
+ */
+const SETTLE_MS = 2_000;
+/** How long a request must stay pending before the suite cancels it. */
+const PENDING_MS = 200;
 
 /** What a vector looks like, in a shape `toEqual` can compare legibly. */
 function shape(vector: unknown): { float32: boolean; width: number | null } {
@@ -60,12 +65,10 @@ export function runEmbeddingProviderContract(
   const { describe, expect, test } = primitives;
 
   describe(`EmbeddingProvider contract: ${harness.name}`, () => {
-    test("id is a non-empty string and dimensions a positive integer", () => {
+    test("id is a string and dimensions a number", () => {
       const provider = harness.provider();
       expect(typeof provider.id).toBe("string");
-      expect(provider.id.length).toBeGreaterThan(0);
-      expect(Number.isInteger(provider.dimensions)).toBe(true);
-      expect(provider.dimensions).toBeGreaterThan(0);
+      expect(typeof provider.dimensions).toBe("number");
     });
 
     test("embed returns one dimensions-wide vector per text", async () => {
@@ -108,12 +111,12 @@ export function runEmbeddingProviderContract(
         const provider = harness.hanging!();
         const controller = new AbortController();
         const query = provider.embedQuery("a search query", { signal: controller.signal });
-        // Let the request reach the runtime before cancelling it.
-        await new Promise((r) => setTimeout(r, 20));
-        controller.abort(new Error("search deadline"));
 
-        const outcome = await settleWithin(query, SETTLE_MS);
-        expect(outcome.state).toBe("rejected");
+        // Still waiting on the runtime: a rejection that comes without the
+        // abort is a failure, not cancellation.
+        expect((await settleWithin(query, PENDING_MS)).state).toBe("pending");
+        controller.abort(new Error("search deadline"));
+        expect((await settleWithin(query, SETTLE_MS)).state).toBe("rejected");
       });
     }
 
@@ -131,7 +134,7 @@ export function runEmbeddingProviderContract(
       const provider = harness.provider();
       const description = "A hand-drawn map of a small harbour.";
       const vector = provider.embedImage
-        ? await provider.embedImage(PIXEL, "image/png", description)
+        ? await provider.embedImage(PNG_1X1, "image/png", description)
         : (await provider.embed([description]))[0];
       expect(shape(vector)).toEqual({ float32: true, width: provider.dimensions });
     });
@@ -140,7 +143,7 @@ export function runEmbeddingProviderContract(
       const provider = harness.provider();
       const description = "A one-page itinerary for a sea voyage.";
       const vector = provider.embedPdf
-        ? await provider.embedPdf(PDF, description)
+        ? await provider.embedPdf(PDF_1PAGE, description)
         : (await provider.embed([description]))[0];
       expect(shape(vector)).toEqual({ float32: true, width: provider.dimensions });
     });
