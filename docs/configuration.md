@@ -285,7 +285,7 @@ exclude: { dirs: ["drafts"], segments: ["private"] }
 
 Separately from `exclude`, the indexer leaves out **images and PDFs that git
 ignores** (`.gitignore`, `.git/info/exclude`, your global excludes file), the
-same set `git ls-files --others --ignored --exclude-standard` lists. An ignored
+same set `git ls-files --others --ignored --exclude-standard` lists, in the brain and in each initialised submodule in it. An ignored
 asset exists on one clone only, so it is not described, embedded or searchable
 anywhere. One that becomes ignored drops out of the index on the next run.
 Ignored **markdown is still indexed**, so gitignored local notes stay

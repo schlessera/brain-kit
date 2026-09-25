@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { chunkContextKey, forgetCachedEnrichment, indexAll, type IndexStats } from "../src/lib/indexer";
+import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
 import { loadAssetCache, loadContextCache } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -1535,6 +1535,41 @@ describe("assets git ignores are not indexed (#433)", () => {
     expect(Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"]).exitCode).not.toBe(0);
     await runIndex(root, withEnrichment());
     expect(await indexedPaths(root)).toContain("hidden/photo.png");
+  });
+
+  // Git lists ignored paths sorted, so each case is the only ignored one: its
+  // U+FEFF opens the output, where a default decoder drops it as a BOM.
+  test("a leading U+FEFF in an ignored file name is part of the name", () => {
+    const file = gitCorpus({ "\uFEFFphoto.png": FAKE_PNG, "photo.png": FAKE_PNG }, "/\uFEFFphoto.png\n");
+    const ignoredFile = gitIgnoredMatcher(file);
+    expect([ignoredFile("\uFEFFphoto.png"), ignoredFile("photo.png")]).toEqual([true, false]);
+  });
+
+  test("a leading U+FEFF in an ignored directory name is part of the name", () => {
+    const dir = gitCorpus({ "\uFEFFmedia/a.png": FAKE_PNG, "media/a.png": FAKE_PNG }, "/\uFEFFmedia/\n");
+    const ignoredDir = gitIgnoredMatcher(dir);
+    expect([ignoredDir("\uFEFFmedia/a.png"), ignoredDir("media/a.png")]).toEqual([true, false]);
+  });
+
+  test("assets a submodule ignores are left out too", () => {
+    const git = (cwd: string, ...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", cwd, "-c", "protocol.file.allow=always", ...args], { stderr: "pipe" });
+      expect(r.exitCode).toBe(0);
+    };
+    const identity = ["-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false"];
+    const sub = makeCorpus({ ".gitignore": "hidden.png\n", "README.txt": "photo archive\n" });
+    git(sub, "init", "-q");
+    git(sub, "add", "-A");
+    git(sub, ...identity, "commit", "-qm", "sub");
+
+    const root = gitCorpus({ "notes/alpha.md": md("Alpha", "alpha content") }, "");
+    git(root, "submodule", "add", "-q", sub, "vendor/photos");
+    writeFileSync(join(root, "vendor/photos/hidden.png"), FAKE_PNG);
+    writeFileSync(join(root, "vendor/photos/kept.png"), Buffer.concat([FAKE_PNG, Buffer.from([0x02])]));
+
+    const ignored = gitIgnoredMatcher(root);
+    expect([ignored("vendor/photos/hidden.png"), ignored("vendor/photos/kept.png")]).toEqual([true, false]);
+    expect(getAssetFiles(root, taxonomy).map((a) => a.path)).toEqual(["vendor/photos/kept.png"]);
   });
 
   test("the matcher answers for files, for everything under an ignored directory, and nothing else", () => {
