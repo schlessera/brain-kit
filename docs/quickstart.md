@@ -1,6 +1,6 @@
 # Quickstart
 
-> **Requires Bun ≥ 1.3 — npm/npx will not warn you (npm ignores `engines.bun`);
+> **Requires Bun ≥ 1.3.5 — npm/npx will not warn you (npm ignores `engines.bun`);
 > install from https://bun.sh.**
 
 From nothing to a working, searchable brain in three shell commands and one
@@ -32,7 +32,10 @@ bun run setup
 ```
 
 The explicit setup step configures the git hooks path, syncs skills into your
-agent's discovery location, and installs the `brain` command. It does not build
+agent's discovery location, and installs the `brain` command as a symlink in
+`~/.local/bin` (or `$XDG_BIN_HOME`). Setup does not add that directory to your
+`PATH`; if `brain` is not found afterwards, add it to your shell profile, or run
+`bun run brain …` from the repository instead. Setup does not build
 the search index — nothing has been indexed yet, and a search before the first
 `brain index` answers `Database not found. Run \`brain index\` first.` So index
 once, and the CLI works with no API keys and no further setup:
