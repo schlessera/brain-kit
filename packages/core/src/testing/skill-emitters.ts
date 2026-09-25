@@ -3,9 +3,9 @@
  * in docs/extending/skill-emitters.md and on the interface in ../lib/seams.ts:
  *
  *   1. `agent` is a string
- *   2. `emit` returns `{ written, removed }` synchronously, as repo-relative
- *      paths; everything it reports written exists afterwards (a link
- *      resolves), everything it reports removed does not
+ *   2. every `emit` returns `{ written, removed }` synchronously, as
+ *      repo-relative paths; everything it reports written exists afterwards
+ *      (a link resolves), everything it reports removed does not
  *   3. every skill it is given is reachable from the emitted layout: a
  *      written path names it, or a written file mentions it (a written
  *      directory counts through the paths and files inside it)
@@ -15,6 +15,9 @@
  *      place: every skill is still reachable from what was emitted
  *   6. the canonical home, `.agents/skills/`, is read, never written: no
  *      emitted path lies inside it and every SKILL.md there is unchanged
+ *
+ * Cases 2 and 6 hold after EVERY emission, so they run the whole lifecycle —
+ * first emit, unchanged re-emit, a dropped skill — and check each result.
  *
  * The suite builds a scratch repository with two skills in the canonical home
  * and drives the emitter against it. No agent is run and nothing leaves the
@@ -95,6 +98,26 @@ function reaches(root: string, rel: string, skill: string): boolean {
   return readdirSync(abs).some((entry) => reaches(root, join(rel, entry), skill));
 }
 
+/** True when `rel` lies inside `.agents/skills/` — the directory, not a sibling of it. */
+function inCanonicalHome(rel: string): boolean {
+  const parts = normalize(rel).split(/[\\/]/).filter((p) => p !== "" && p !== ".");
+  return parts[0] === ".agents" && parts[1] === "skills";
+}
+
+/** First emit, unchanged re-emit, then BETA dropped: each result, labelled. */
+function lifecycle(
+  emitter: SkillEmitter,
+  { root, skills }: ScratchRepo,
+  after: (step: string, result: { written: string[]; removed: string[] }) => void
+): void {
+  const steps: [string, SkillManifest[]][] = [
+    ["first emit", skills],
+    ["unchanged re-emit", skills],
+    ["BETA dropped", skills.filter((s) => s.name !== BETA)],
+  ];
+  for (const [step, list] of steps) after(step, emitter.emit(list, root));
+}
+
 function withRepo(fn: (repo: ScratchRepo) => void): void {
   const repo = scratchRepo();
   try {
@@ -117,15 +140,30 @@ export function runSkillEmitterContract(
     });
 
     test("emit reports repo-relative paths: written ones exist, removed ones do not", () => {
-      withRepo(({ root, skills }) => {
-        const result = harness.emitter().emit(skills, root);
-        expect(Array.isArray(result?.written) && Array.isArray(result?.removed)).toBe(true);
-        expect(result.written.length).toBeGreaterThan(0);
-
-        const reported = [...result.written, ...result.removed];
-        expect(reported.filter((rel) => !isRepoRelative(rel))).toEqual([]);
-        expect(result.written.filter((rel) => !existsSync(join(root, rel)))).toEqual([]);
-        expect(result.removed.filter((rel) => existsSync(join(root, rel)))).toEqual([]);
+      withRepo((repo) => {
+        const { root, skills } = repo;
+        const first = harness.emitter().emit(skills, root);
+        expect(Array.isArray(first?.written) && Array.isArray(first?.removed)).toBe(true);
+        expect(first.written.length).toBeGreaterThan(0);
+      });
+      withRepo((repo) => {
+        const problems: string[] = [];
+        lifecycle(harness.emitter(), repo, (step, result) => {
+          if (!Array.isArray(result?.written) || !Array.isArray(result?.removed)) {
+            problems.push(`${step}: not { written: string[], removed: string[] }`);
+            return;
+          }
+          for (const rel of [...result.written, ...result.removed]) {
+            if (!isRepoRelative(rel)) problems.push(`${step}: not repo-relative: ${rel}`);
+          }
+          for (const rel of result.written) {
+            if (!existsSync(join(repo.root, rel))) problems.push(`${step}: written but missing: ${rel}`);
+          }
+          for (const rel of result.removed) {
+            if (existsSync(join(repo.root, rel))) problems.push(`${step}: removed but present: ${rel}`);
+          }
+        });
+        expect(problems).toEqual([]);
       });
     });
 
@@ -177,15 +215,22 @@ export function runSkillEmitterContract(
     });
 
     test("the canonical home is read, never written", () => {
-      withRepo(({ root, skills, skillFile }) => {
-        const before = skills.map((s) => readFileSync(skillFile(s.name), "utf8"));
-        const { written, removed } = harness.emitter().emit(skills, root);
-
-        const inHome = [...written, ...removed].filter((rel) =>
-          normalize(rel).split(/[\\/]/).slice(0, 2).join("/").startsWith(".agents/skills")
-        );
-        expect(inHome).toEqual([]);
-        expect(skills.map((s) => readFileSync(skillFile(s.name), "utf8"))).toEqual(before);
+      withRepo((repo) => {
+        const { skills, skillFile } = repo;
+        const snapshot = () =>
+          skills.map((s) => `${s.name}: ${existsSync(skillFile(s.name)) ? readFileSync(skillFile(s.name), "utf8") : "(gone)"}`);
+        const before = snapshot();
+        const problems: string[] = [];
+        lifecycle(harness.emitter(), repo, (step, { written, removed }) => {
+          for (const rel of [...written, ...removed].filter(inCanonicalHome)) {
+            problems.push(`${step}: reported inside .agents/skills: ${rel}`);
+          }
+          const now = snapshot();
+          now.forEach((entry, i) => {
+            if (entry !== before[i]) problems.push(`${step}: changed ${skills[i].name}/SKILL.md`);
+          });
+        });
+        expect(problems).toEqual([]);
       });
     });
   });

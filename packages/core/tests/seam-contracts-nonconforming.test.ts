@@ -414,6 +414,58 @@ describe("SkillEmitter contract suite", () => {
     expect(result.failed).toEqual(["re-emitting an unchanged list removes nothing and keeps the layout"]);
   });
 
+  test("an emitter that corrupts a SKILL.md on an unchanged re-emit fails the canonical-home case", async () => {
+    const corrupting = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      let last = -1;
+      return {
+        agent: "fake",
+        emit(skills, repoRoot) {
+          const unchanged = skills.length === last;
+          last = skills.length;
+          if (unchanged) writeFileSync(join(skills[0].dir, "SKILL.md"), "overwritten\n");
+          return inner.emit(skills, repoRoot);
+        },
+      };
+    };
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "corrupting", emitter: corrupting }, p)
+    );
+    expect(result.failed).toEqual(["the canonical home is read, never written"]);
+  });
+
+  test("an emitter that reports an absolute path when it prunes fails the paths case", async () => {
+    const absolute = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      return {
+        agent: "fake",
+        emit(skills, repoRoot) {
+          const { written, removed } = inner.emit(skills, repoRoot);
+          return { written, removed: removed.map((rel) => join(repoRoot, rel)) };
+        },
+      };
+    };
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "absolute", emitter: absolute }, p)
+    );
+    expect(result.failed).toEqual(["emit reports repo-relative paths: written ones exist, removed ones do not"]);
+  });
+
+  test("an emitter writing beside the canonical home, in .agents/skills-index.md, passes every case", async () => {
+    const sibling = (): SkillEmitter => ({
+      agent: "fake-index",
+      emit(skills, repoRoot) {
+        const rel = ".agents/skills-index.md";
+        writeFileSync(join(repoRoot, rel), skills.map((s) => `- ${s.name}\n`).join(""));
+        return { written: [rel], removed: [] };
+      },
+    });
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "sibling", emitter: sibling }, p)
+    );
+    expect(result).toEqual({ ran: 6, failed: [] });
+  });
+
   test("an emitter that never prunes fails the dropped-skill case", async () => {
     const result = await failingCases((p) =>
       runSkillEmitterContract({ name: "hoarder", emitter: () => fileEmitter({ prune: false }) }, p)
