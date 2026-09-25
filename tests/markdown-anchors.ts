@@ -25,9 +25,11 @@ const MARKDOWN = unified().use(remarkParse).use(remarkGfm);
 
 /**
  * A YAML front-matter block, which GitHub renders as a table. Left in, its
- * closing `---` reads as a setext underline and invents a heading.
+ * closing `---` reads as a setext underline and invents a heading. It opens
+ * on the file's first line and closes on the next `---` line, which may be
+ * the very next one or the last line of the file.
  */
-const FRONT_MATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
+const FRONT_MATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/;
 
 function parse(body: string): Root {
   return MARKDOWN.parse(body.replace(FRONT_MATTER, ""));
@@ -39,18 +41,36 @@ function walk(node: Nodes, visit: (node: Nodes) => void): void {
 }
 
 /**
- * The destination of every inline link, image and link reference definition.
- * A reference-style link (`[x][ref]`) is covered by its definition. Code spans,
- * fenced and indented code, and HTML are never links, so nothing inside them
- * is returned.
+ * The destination of every link and image as GitHub renders it, plus every
+ * link reference definition that nothing uses. A reference (`[x][ref]`,
+ * `[ref]`) takes the first definition of its label, as GFM does; a later
+ * duplicate never renders, so it is not returned. An unused definition does
+ * not render either, but it is returned on purpose: it is still a line in
+ * the doc naming a target, and the next edit that uses it inherits the break.
+ * Code spans, fenced and indented code, and HTML are never links, so nothing
+ * inside them is returned.
  */
 export function markdownLinks(body: string): string[] {
-  const urls: string[] = [];
-  walk(parse(body), (node) => {
-    if (node.type === "link" || node.type === "image" || node.type === "definition") {
-      urls.push(node.url);
+  const tree = parse(body);
+  const definitions = new Map<string, string>();
+  walk(tree, (node) => {
+    if (node.type === "definition" && !definitions.has(node.identifier)) {
+      definitions.set(node.identifier, node.url);
     }
   });
+  const urls: string[] = [];
+  const used = new Set<string>();
+  walk(tree, (node) => {
+    if (node.type === "link" || node.type === "image") urls.push(node.url);
+    if (node.type === "linkReference" || node.type === "imageReference") {
+      const url = definitions.get(node.identifier);
+      if (url !== undefined) {
+        urls.push(url);
+        used.add(node.identifier);
+      }
+    }
+  });
+  for (const [identifier, url] of definitions) if (!used.has(identifier)) urls.push(url);
   return urls;
 }
 

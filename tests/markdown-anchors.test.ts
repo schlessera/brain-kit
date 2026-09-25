@@ -18,6 +18,19 @@ describe("markdownLinks", () => {
     expect(markdownLinks("[x][ref]\n\n[ref]: #by-reference\n")).toEqual(["#by-reference"]);
   });
 
+  test("a reference resolves to the first definition of its label, as GFM renders it", () => {
+    const body = "[x][ref] and ![y][Ref]\n\n[ref]: #first\n[REF]: #shadowed\n";
+    expect(markdownLinks(body)).toEqual(["#first", "#first"]);
+  });
+
+  test("an unused definition is still checked, and a reference with no definition is text", () => {
+    expect(markdownLinks("[missing][nowhere]\n\n[unused]: #unused\n")).toEqual(["#unused"]);
+  });
+
+  test("front matter holds no links, and the parse resumes right after it", () => {
+    expect(markdownLinks("---\n---\n\n[a](#a)\n\n---\n\n[b](#b)\n")).toEqual(["#a", "#b"]);
+  });
+
   test("returns nothing from inside code", () => {
     const body = [
       "~~~",
@@ -52,6 +65,10 @@ describe("splitLink", () => {
     expect(splitLink("docs/a%20b.md#caf%C3%A9")).toEqual({ path: "docs/a b.md", fragment: "café" });
     expect(splitLink("#same-file")).toEqual({ path: "", fragment: "same-file" });
     expect(splitLink("README.md")).toEqual({ path: "README.md", fragment: null });
+  });
+
+  test("a second # belongs to the fragment", () => {
+    expect(splitLink("README.md#part#suffix")).toEqual({ path: "README.md", fragment: "part#suffix" });
   });
 
   test("a malformed escape is a diagnostic, not a throw", () => {
@@ -152,6 +169,21 @@ describe("markdownAnchors: which headings count", () => {
 
   test("front matter does not become a heading", () => {
     expect(anchors("---\ntitle: Front\n---\n\n# Body\n")).toEqual(["body"]);
+  });
+
+  test("front matter that ends the file does not become a heading", () => {
+    expect(anchors("---\ntitle: Front\n---")).toEqual([]);
+  });
+
+  test("an empty front-matter block ends at its own closing line, not at a later rule", () => {
+    expect(anchors("---\n---\n\n# Visible\n\n---\n\n# After the rule\n")).toEqual([
+      "visible",
+      "after-the-rule",
+    ]);
+  });
+
+  test("a rule later in the file is not front matter", () => {
+    expect(anchors("# Top\n\n---\ntitle: Kept\n---\n")).toEqual(["top", "title-kept"]);
   });
 });
 
