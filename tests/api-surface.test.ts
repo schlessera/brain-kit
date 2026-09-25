@@ -103,11 +103,11 @@ export class Client {
 }
 `;
 
-  function signatures(bodyType: string, internal: string): string {
+  /** The signature section for `Seam` in `seam.ts`, over these files. */
+  function generate(files: Record<string, string>): string {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "api-report-")));
     try {
-      writeFileSync(join(dir, "seam.ts"), seam);
-      writeFileSync(join(dir, "client.ts"), client(bodyType, internal));
+      for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text);
       return seamSignatures([{ file: join(dir, "seam.ts"), names: ["Seam"] }], dir)
         .join("\n")
         .replaceAll(dir, "<dir>");
@@ -115,6 +115,9 @@ export class Client {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+
+  const signatures = (bodyType: string, internal: string) =>
+    generate({ "seam.ts": seam, "client.ts": client(bodyType, internal) });
 
   test("a type reached through an inline import is recorded, and a retype of it shows", () => {
     const baseline = signatures("string", "n: number");
@@ -128,5 +131,99 @@ export class Client {
     expect(baseline).toContain("  Client (");
     expect(baseline).not.toContain("InternalState");
     expect(signatures("string", "n: string")).toBe(baseline);
+  });
+
+  // What the report cannot see, it refuses. Each case below is a surface
+  // whose type could change while its printed signature stayed the same.
+  const reachedClass = (member: string) => ({
+    "seam.ts": `import type { Client } from "./client";
+export interface Seam {
+  client: Client;
+}
+`,
+    "client.ts": `export class Client {
+${member}
+}
+`,
+  });
+
+  test.each([
+    ["an initialized property", `  value = "x";`, "client.ts:2 Client: property `value` has no type annotation"],
+    ["an inferred method return", `  get() { return 1; }`, "client.ts:2 Client: `get` has no return type annotation"],
+    ["an inferred getter", `  get size() { return 1; }`, "client.ts:2 Client: `size` has no return type annotation"],
+    ["a default parameter", `  get(n = 1): number { return n; }`, "client.ts:2 Client: parameter `n` has no type annotation"],
+    ["a constructor parameter property", `  constructor(public limit = 1) {}`, "client.ts:2 Client: parameter `limit` has no type annotation"],
+  ])("a seam-reachable class with %s is refused", (_, member, message) => {
+    expect(() => generate(reachedClass(member))).toThrow(message);
+  });
+
+  test("a seam-reachable function with an inferred return is refused", () => {
+    const files = {
+      "seam.ts": `import type { make } from "./make";
+export interface Seam {
+  make: typeof make;
+}
+`,
+      "make.ts": `export function make(n: number) {
+  return n;
+}
+`,
+    };
+    expect(() => generate(files)).toThrow("make.ts:1 make: `make` has no return type annotation");
+  });
+
+  test("an unannotated constant whose inferred type names a repo type is refused", () => {
+    const page = (body: string) => `export interface Page {
+  body: ${body};
+}
+function makePage(): Page {
+  return null!;
+}
+export const page = makePage();
+export const pages = [makePage()];
+`;
+    const seam = (query: string) => `import type { page, pages } from "./page";
+export interface Seam {
+  value: typeof ${query};
+}
+`;
+    expect(() => generate({ "seam.ts": seam("page"), "page.ts": page("string") })).toThrow(
+      "page.ts:7 page: no type annotation, and its inferred type names Page"
+    );
+    expect(() => generate({ "seam.ts": seam("pages"), "page.ts": page("string") })).toThrow(
+      "page.ts:8 pages: no type annotation, and its inferred type names Page"
+    );
+  });
+
+  test("an unannotated constant of purely structural type is recorded in full", () => {
+    // What BLOCK_SCHEMA relies on: nothing named is hidden behind its type.
+    const out = generate({
+      "seam.ts": `import type { shape } from "./shape";
+export interface Seam {
+  value: typeof shape;
+}
+`,
+      "shape.ts": `export const shape = { kind: "a" as const, n: 1 };
+`,
+    });
+    expect(out).toContain('kind: "a";');
+  });
+
+  test.each([
+    ["an inline import of a whole module", `import("./client")`],
+    ["a namespace import", `typeof client`],
+  ])("a module-valued type (%s) is refused", (_, type) => {
+    const files = {
+      "seam.ts": `import * as client from "./client";
+export interface Seam {
+  client: ${type === "typeof client" ? type : `typeof ${type}`};
+}
+`,
+      "client.ts": `export interface Page {
+  body: string;
+}
+`,
+    };
+    expect(() => generate(files)).toThrow("is a whole module");
   });
 });

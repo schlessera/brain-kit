@@ -246,6 +246,98 @@ function referencedSymbols(checker: ts.TypeChecker, surface: ts.Node): ts.Symbol
   return found;
 }
 
+/**
+ * The report records what is WRITTEN, so it refuses a seam-reachable surface
+ * where the type a caller sees is not written down. An inferred member type
+ * would print as a bare `value;` and hide a retype, and a module-valued type
+ * (`typeof import("x")`, `typeof ns`) names a whole module the traversal does
+ * not follow. Each would pass the signature test while the surface moved.
+ * Returns one line per problem, naming the declaration and its file:line.
+ */
+function unseeable(checker: ts.TypeChecker, decl: Declaration, surface: ts.Node): string[] {
+  const problems: string[] = [];
+  const where = (node: ts.Node) => {
+    const original = ts.getOriginalNode(node);
+    const at = original.pos >= 0 ? original : decl;
+    const source = decl.getSourceFile();
+    const { line } = source.getLineAndCharacterOfPosition(at.getStart(source));
+    return `${relative(ROOT, source.fileName)}:${line + 1}`;
+  };
+  const name = decl.name!.getText();
+  const refuse = (node: ts.Node, what: string) =>
+    problems.push(`${where(node)} ${name}: ${what}`);
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isParameter(node) && !node.type) {
+      refuse(node, `parameter \`${node.name.getText()}\` has no type annotation`);
+    } else if (
+      (ts.isMethodDeclaration(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node)) &&
+      !node.type
+    ) {
+      refuse(node, `\`${node.name?.getText() ?? "function"}\` has no return type annotation`);
+    } else if (ts.isPropertyDeclaration(node) && !node.type) {
+      refuse(node, `property \`${node.name.getText()}\` has no type annotation`);
+    } else if (ts.isImportTypeNode(node) && !node.qualifier) {
+      refuse(node, `\`${node.getText()}\` is a whole module; name the export it uses instead`);
+    } else if (ts.isTypeQueryNode(node)) {
+      let symbol = checker.getSymbolAtLocation(
+        ts.isQualifiedName(node.exprName) ? node.exprName.right : node.exprName
+      );
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+      if (symbol && symbol.flags & ts.SymbolFlags.Module) {
+        refuse(node, `\`typeof ${node.exprName.getText()}\` is a whole module; name the export it uses instead`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(surface);
+  return problems;
+}
+
+/**
+ * The repo's own named declarations an inferred type reaches: through alias
+ * and type arguments, unions and intersections, and the members of anonymous
+ * object types. A named type declared outside the repo (a zod schema class,
+ * `Promise`) is followed only through its type arguments.
+ */
+function ownNamedTypesIn(checker: ts.TypeChecker, type: ts.Type, within: string): Declaration[] {
+  const found = new Set<Declaration>();
+  const visited = new Set<ts.Type>();
+  const isOwn = (d: ts.Declaration) =>
+    d.getSourceFile().fileName.startsWith(within + "/") &&
+    !d.getSourceFile().fileName.includes("/node_modules/");
+  const visit = (t: ts.Type): void => {
+    if (visited.has(t)) return;
+    visited.add(t);
+    let named = false;
+    for (const symbol of [t.aliasSymbol, t.getSymbol()]) {
+      for (const d of symbol?.declarations ?? []) {
+        if (isRecordable(d) && isOwn(d)) found.add(d);
+        if (isRecordable(d)) named = true;
+      }
+    }
+    t.aliasTypeArguments?.forEach(visit);
+    if (t.isUnionOrIntersection()) t.types.forEach(visit);
+    if (t.flags & ts.TypeFlags.Object) {
+      const object = t as ts.ObjectType;
+      if (object.objectFlags & ts.ObjectFlags.Reference) {
+        checker.getTypeArguments(t as ts.TypeReference).forEach(visit);
+      }
+      if (!named) {
+        for (const prop of checker.getPropertiesOfType(t)) visit(checker.getTypeOfSymbol(prop));
+        for (const sig of [...t.getCallSignatures(), ...t.getConstructSignatures()]) {
+          for (const param of sig.getParameters()) visit(checker.getTypeOfSymbol(param));
+          visit(sig.getReturnType());
+        }
+      }
+    }
+  };
+  visit(type);
+  return [...found];
+}
+
 const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
 
 /** The declaration as a signature: its public surface, comments dropped and
@@ -287,12 +379,36 @@ function signatureLines(
       enqueue(decls);
     }
   }
+  const problems: string[] = [];
   for (let i = 0; i < queue.length; i++) {
-    const { node, walk } = publicSurface(checker, queue[i]);
-    if (!walk) continue;
+    const decl = queue[i];
+    const { node, walk } = publicSurface(checker, decl);
+    if (!walk) {
+      // An unannotated constant prints its inferred type in full, which is
+      // fine until that type names one of this repo's declarations: the
+      // printed name would hide a retype of it. Refuse rather than follow.
+      const named = ownNamedTypesIn(checker, checker.getTypeAtLocation(decl), within);
+      if (named.length > 0) {
+        const at = decl.getSourceFile().getLineAndCharacterOfPosition(decl.getStart()).line + 1;
+        problems.push(
+          `${relative(ROOT, decl.getSourceFile().fileName)}:${at} ${decl.name!.getText()}: ` +
+            `no type annotation, and its inferred type names ` +
+            named.map((d) => d.name!.getText()).join(", ")
+        );
+      }
+      continue;
+    }
+    problems.push(...unseeable(checker, decl, node));
     for (const symbol of referencedSymbols(checker, node)) {
       enqueue(ownDeclarations(checker, symbol, within));
     }
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      "api-report cannot record these seam-reachable types, so a change to them " +
+        "would pass unseen. Write the type down:\n  " +
+        problems.join("\n  ")
+    );
   }
 
   const blocks = [...seen].map((decl) => {
