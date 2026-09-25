@@ -135,6 +135,11 @@ jobs:
             if [ "$package" = core ]; then
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
+              # Codex reads a skill's manual-only policy from beside its SKILL.md.
+              grep -q "^package/skills/sync/agents/openai\.yaml$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = module-speaking ]; then
+              grep -q "^package/skills/new-submission/agents/openai\.yaml$" <<< "$TARBALL_CONTENTS"
             fi
             if [ "$package" = ui-server ]; then
               grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
