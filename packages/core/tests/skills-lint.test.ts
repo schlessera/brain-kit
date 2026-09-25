@@ -321,6 +321,36 @@ describe("manual-only-without-flag — a description that says manual-only", () 
     });
   }
 
+  // Review round 1: none of these makes the skill manual-only, and following
+  // the suggested fix would stop a model from ever invoking it.
+  for (const description of [
+    'Explains the phrase "manual invocation only" in skill documentation.',
+    "Explains the \u201cmanual-only\u201d label in skill docs.",
+    "Documents `never invoke automatically` markers.",
+    'Explains labels such as "Deploy. Manual-only." in skill docs.',
+    "Documents markers such as `Deploy. Never invoke automatically.` in skill docs.",
+    "Manage files automatically; delete files only when the user explicitly requests deletion.",
+    "Not manual-only; use automatically.",
+    "This skill is not manual-only.",
+    "Tells authors when to mark a skill manual invocation only.",
+    "Runs on a schedule and must never invoke automatically any paid API.",
+  ]) {
+    test(`not a policy about the skill: ${description}`, () => {
+      expect(found(mkSkill("deploy", { name: "deploy", description }))).toEqual([]);
+    });
+  }
+
+  for (const description of [
+    "Deploys the site (manual-only).",
+    "Deploys the site, manual invocation only.",
+    "This skill is manual-only.",
+    "Deploys the site - do not run it automatically.",
+  ]) {
+    test(`a policy clause anywhere in the description: ${description}`, () => {
+      expect(found(mkSkill("deploy", { name: "deploy", description }))).toHaveLength(1);
+    });
+  }
+
   test("a description that only mentions manual steps is not judged", () => {
     const s = mkSkill("deploy", { name: "deploy", description: "Use when a deploy needs manual steps." });
     expect(found(s)).toEqual([]);

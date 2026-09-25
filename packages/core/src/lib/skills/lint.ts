@@ -34,16 +34,34 @@ export interface LintFinding {
 }
 
 /**
- * Description phrases that say a skill must run only when the user asks for
- * it. Deliberately short: a description that says so in other words is not
- * judged.
+ * Statements that make a skill manual-only. Each must open a clause of the
+ * description, so it is a statement about the skill: "Not manual-only",
+ * "delete files only when the user explicitly requests it" and a phrase in
+ * quotes are not. Deliberately short: a description that says so in other
+ * words is not judged.
  */
-const MANUAL_ONLY_PHRASES = [
-  /\bmanual[- ]invocation only\b/i,
-  /\bmanual[- ]only\b/i,
-  /\bonly when the user explicitly\b/i,
-  /\b(?:never|do not|don't) invoke (?:it |this skill )?automatically\b/i,
+const MANUAL_ONLY_STATEMENTS = [
+  /^(?:this skill is )?(?:for )?manual[- ]invocation only\b/i,
+  /^(?:this skill is )?manual[- ]only\b/i,
+  /^(?:use|run|invoke)(?: this skill| it)? only when the user explicitly\b/i,
+  /^(?:never|do not|don't) (?:invoke|run|trigger)(?: it| this skill)? automatically\b/i,
 ];
+
+/**
+ * The manual-only statement in `description`, or null. Quoted and code text
+ * is dropped first, then each clause is tested from its start.
+ */
+function manualOnlyStatement(description: string): string | null {
+  const unquoted = description.replace(/"[^"]*"|\u201c[^\u201d]*\u201d|`[^`]*`/g, " ");
+  for (const clause of unquoted.split(/[.;:!?()\n\u2014\u2013]|,\s|\s-\s/)) {
+    const text = clause.trim();
+    for (const re of MANUAL_ONLY_STATEMENTS) {
+      const m = text.match(re);
+      if (m) return m[0];
+    }
+  }
+  return null;
+}
 
 const CLAUDE_ONLY_TOOLS = ["AskUserQuestion", "TodoWrite", "EnterPlanMode"];
 const CLAUDE_SPECIFIC_KEYS = ["allowed-tools", "disable-model-invocation"];
@@ -114,7 +132,7 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
 
   // Rule: a description that says the skill is manual-only still loads into
   // every Claude Code session unless the flag keeps it out → warning.
-  const manualPhrase = MANUAL_ONLY_PHRASES.map((re) => description?.match(re)?.[0]).find(Boolean);
+  const manualPhrase = description ? manualOnlyStatement(description) : null;
   if (manualPhrase && frontmatter["disable-model-invocation"] !== true) {
     add(
       "manual-only-without-flag",
