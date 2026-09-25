@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D46, dated, with the alternatives that were rejected
+way they are. D1 through D47, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -3454,3 +3454,143 @@ backgrounds, that the PDF is A4, and that a no-block answer renders to a PNG
 byte-identical to the old path. `Blocks/In print` renders every block under
 the accessibility gate in both story projects, and four print baselines cover
 it in the pinned image.
+
+## 2026-09-25 — D47: `show_block`'s schema can lose a tenth through `definitions`, not half, and nothing ships until a keyed run says the API and the model accept it
+
+**Question.** D44 put the bridge tools in every prompt and priced `show_block`
+at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:324-336`).
+#155 asked where those characters go, whether a shared-definition form is
+reachable through the path the schema actually takes, and what a reduction
+would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
+no live turn was made, so every token figure below is an estimate and says so.
+
+**The instrument.** `bun scripts/attribute-show-block-schema.ts` lists the
+tools `createBrainUiMcpServer` registers over an in-memory MCP client — the
+serialisation `measure-show-block.ts --tokens` prices — and splits each variant
+of the `block` union into three parts that always sum to it: **prose** (every
+`description`, measured as the variant's length minus its length with every
+description removed), **repeated structure** (the outermost subtrees, with
+descriptions removed, that also occur elsewhere in the union and are longer
+than a reference to them would be), and **irreducible** shape. Tokens are
+estimated at 0.429 per prose character and 0.404 per other character, rates
+fitted by least squares to D44's five counted rows against the schemas the
+server registered at D44's commit; the fit reproduces each counted row to
+within 22 tokens. `tests/attribute-show-block-schema.test.ts` pins the
+counting rules.
+
+**The attribution on `main` today.** The schema is 10,734 characters, 10,610 of
+them the union; the tool description the model also reads is another 2,309.
+The last column is the prose that restates `SHOW_BLOCK_DESCRIPTION`, classified
+by hand from `--prose`. It is 21 descriptions, among them "Three fit a phone;
+four only on a wide screen", "Omit when there is no comparison", "Right-align
+numbers", the `bars` tone's "class of work" sentence (word for word), the
+`steps` variant legend, "Reserved for the one event still happening", "What is
+coming, grouped by day", and "pre-formatted" on four value fields.
+
+| variant | chars | prose | repeated structure | irreducible | ≈ tokens | prose that restates the description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `comparison` | 1704 | 866 | 184 | 654 | 710 | 296 |
+| `receipt` | 1173 | 625 | 277 | 271 | 490 | 100 |
+| `contact` | 1108 | 523 | 197 | 388 | 461 | 0 |
+| `trend` | 991 | 555 | 80 | 356 | 414 | 269 |
+| `stats` | 983 | 559 | 92 | 332 | 411 | 148 |
+| `table` | 887 | 242 | 80 | 565 | 364 | 37 |
+| `schedule` | 838 | 280 | 80 | 478 | 346 | 48 |
+| `quote` | 761 | 454 | 0 | 307 | 319 | 48 |
+| `steps` | 753 | 319 | 0 | 434 | 312 | 186 |
+| `bars` | 747 | 331 | 80 | 336 | 310 | 331 |
+| `timeline` | 653 | 224 | 80 | 349 | 269 | 101 |
+| **all 11** | **10,598** | **4978** | **1150** | **4470** | **≈ 4406** | **1564** |
+
+Three shapes make up all the repeated structure: the `tone` enum (six sites,
+80 characters each), the `valueTone` enum (five sites, 92 each) and the
+`{k, v, tone}` fact row `receipt` and `contact` share (two sites, 197 each).
+Among the prose, three descriptions repeat verbatim: the `valueTone` doc five
+times, the `tone` doc five times and the `icon` doc three times — 1,447
+characters, more than a quarter of the union's prose, spent saying the same
+thing again.
+
+The filing's figures — 11,452 characters, of which the `oneOf` was 11,319 —
+do not reproduce. Listing the tools at D44's own commit (`2efd725e`, Agent SDK
+0.3.278) gives 10,653, and so does `z.toJSONSchema` with `io: "input"` at every
+earlier revision of `blocks.ts`; `io: "output"` gives 11,407. The token fit
+above uses the figure that commit's code produces.
+
+**Is `$defs` / `$ref` reachable? Yes, by one route.** The Agent SDK bundles its
+own MCP server, whose `tools/list` handler converts a tool's Zod shape with
+`toJSONSchema(schema, { target: "draft-7", io: "input" })` and nothing else.
+So Zod's `reused: "ref"` — the option that would share every repeated schema
+automatically — cannot be passed; it was measured anyway by calling Zod
+directly, and it makes the schema **larger**, 12,848 characters, because it
+references every reused instance down to the bare strings and wraps each
+reference in `allOf`. The route that works is Zod's registry: a schema that
+carries `.meta({ id })` in `globalThis.__zod_globalRegistry` is always
+extracted, whatever `reused` says, and the SDK's bundled Zod reads the same
+global registry as the tree's. Given ids to three shapes — `valueTone` and
+`tone` each with their description folded in, and `icon` —
+
+```ts
+const valueToneField = valueTone.describe(valueToneDoc).meta({ id: "valueTone" });
+const toneField = tone.describe(toneDoc).meta({ id: "tone" });
+// ...each `valueTone.optional().describe(valueToneDoc)` becomes `valueToneField.optional()`,
+// each `tone.optional().describe(toneDoc)` becomes `toneField.optional()`,
+// and `icon` gains `.meta({ id: "icon" })`.
+```
+
+— the schema the server registers goes from 10,734 characters to **9,493**,
+with a three-entry `definitions` table and thirteen
+`{"allOf":[{"$ref":"#/definitions/<id>"}]}` sites. An id is metadata, not a
+check, so nothing a variant accepts should move; #336 asks for the round-trip
+test that proves it. The script's own estimate of
+what sharing could take out is 1,235; the patch realises 1,241. Giving the
+enums ids without folding their descriptions in saves only 255, because the
+description then stays at every site.
+
+**Would the API accept it? Documented, not demonstrated.** The platform docs'
+JSON Schema limits for strict tool use list `$ref` and `definitions` as
+supported, and a non-strict tool is held to less than that. The Claude Code
+binary the SDK ships (0.3.280) marks a tool strict only when the tool says
+`strict: true`, which `show_block` does not, and nothing found in its
+tool-definition path rewrites references. One trap is worth recording: the
+same limits list "`allOf` with `$ref`" as unsupported under strict tool use,
+and that is precisely the form Zod's draft-7 output takes. It does not apply
+today; it would the day anyone makes `show_block` strict. The pi backend is a
+second serialisation: it converts through `toolInputJsonSchema`
+(`toolInputJsonSchema`, `packages/ui-sdk/src/tool-contracts/contract.ts:101-109`),
+which uses Zod's default
+draft-2020-12 target, so the same ids would put `$defs` into every schema pi
+sends to its providers. And registry ids are process-global, so an id any
+other schema in the process also uses collides.
+
+**What it would do to D44.** ≈ 500 tokens (1,241 characters at the structure
+rate) is about a tenth of `show_block`'s 5270 and 7% of the 7335, not the half
+at which #155 thought D44's arithmetic might change sign. Against D44's
+always-loaded brief arm, which billed 26,694 input tokens per round-trip, it is
+1.9% of the input. That bounds its effect on the 6% from above: even if a
+turn's whole bill scaled with its input, the loaded arm would fall by at most
+1.9%, taking the gap to no less than about 4% — and the real move is smaller,
+because the tools block is the front of the cache prefix and is mostly billed
+as a cache read, and because the deferred arm's search turns carry the same
+schema and would shed the same tokens. Dropping the 1,564 characters of
+restated prose as well would add ≈ 670 tokens under the same bound. **D44 is
+not moved by either. What the reduction buys is context, not bill.**
+
+**Decision. Nothing ships from #155.** The reduction is real and reachable,
+but a keyless spike cannot show that the API accepts the `definitions` form
+on both backends, and neither the shared definitions nor the missing prose can
+be shown not to move the call rate or the rate of calls that parse — the only
+things D43 and D44 measured that the reader sees. A change to what the model
+reads on every turn goes out with its A/B, as D44's did. #336 holds the
+keyed work: price the patch with `--tokens`, send it once per backend, and A/B
+it in the loaded configuration. D44's 5270 stands until that entry supersedes
+it.
+
+**Rejected.** *Zod's `reused: "ref"`:* unreachable through the SDK's path, and
+a fifth larger when forced. *Sharing the `{k, v, tone}` fact row:* 197 characters
+at two sites, where `receipt`'s copy carries two descriptions `contact`'s
+does not, so there is nothing identical left to share once the descriptions
+are counted. *Moving `blocks.ts` to plain JSON Schema to escape Zod's `allOf`
+wrapper:* the SDK's `tool()` takes a Zod shape, and one source of truth for the
+schema, the parser and the renderer's types is worth more than eleven
+characters per reference.
