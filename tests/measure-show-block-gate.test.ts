@@ -240,7 +240,12 @@ describe("the brain-escape rule", () => {
         brain
       )
     ).toBe(false);
-    // And an awk program, whose regex is delimited by slashes.
+  });
+
+  test("a regex delimited by bare slashes counts as an escape, by design", () => {
+    // The scan interprets no quoting, so it cannot tell an awk regex from a
+    // path. It errs toward excluding the turn. The one recorded #137 turn
+    // with this awk program also ran `find /`.
     expect(
       escapesBrain(
         [
@@ -251,7 +256,40 @@ describe("the brain-escape rule", () => {
         ],
         brain
       )
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  test("no quoting, comment or heredoc hides a path after it", () => {
+    // Each of these read /etc/hostname and was missed by a rule that parsed
+    // the shell's quoting.
+    const leaks = [
+      'echo "$(cat /etc/hostname)"',
+      'echo "`cat /etc/hostname`"',
+      "sh <<'EOF'\n# don't skip this read\ncat /etc/hostname\nEOF",
+      "# don't skip this read\ncat /etc/hostname",
+      "bash -lc 'cat /etc/hostname'",
+      "echo 'cat /etc/hostname' | sh",
+      "printf '%s\\n' 'cat /etc/hostname' | xargs -I CMD sh -c CMD",
+    ];
+    for (const command of leaks) expect(escapesBrain([{ command }], brain)).toBe(true);
+  });
+
+  test("a path after a redirection is its own path", () => {
+    // With the brain at /usr, the command itself is inside it; what it reads
+    // is not.
+    expect(escapesBrain([{ command: "/usr/bin/cat</etc/hostname" }], "/usr")).toBe(true);
+    expect(escapesBrain([{ command: `${brain}/script>/etc/x` }], brain)).toBe(true);
+  });
+
+  test("a path field is taken whole, whitespace included", () => {
+    expect(escapesBrain([{ path: `${brain}/a b/../../private.md` }], brain)).toBe(true);
+    expect(escapesBrain([{ file_path: `${brain}/a b/notes.md` }], brain)).toBe(false);
+  });
+
+  test("an attached short option's value is a path", () => {
+    expect(escapesBrain([{ command: "env -C/etc cat hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "env -C /etc cat hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `env -C${brain} cat notes/a.md` }], brain)).toBe(false);
   });
 
   test("reads the script handed to sh -c", () => {

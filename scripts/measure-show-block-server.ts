@@ -158,29 +158,29 @@ interface RunRecord {
  * for, not a sandbox. It is here to drop turns that answered about the wrong
  * brain, not to confine anything.
  *
+ * It is a deliberately conservative text scan: it prefers excluding a clean
+ * turn to counting a leaking one. A path field (`PATH_KEYS`) is one path.
+ * Every other string is scanned raw, and every `/` or `~` that could start a
+ * path is a candidate. No quote, comment, heredoc or substitution is
+ * interpreted, because a shell parser that gets one of them wrong hides the
+ * rest of the command, and a miss is a silently wrong rate. The comparison
+ * is by directory boundary after normalisation, so `/x/brain-backup` is not
+ * `/x/brain` and `/x/brain/a,b/../../y` leaves it.
+ *
+ * What it over-counts: a `/` that is not a path — an awk or sed regex, a
+ * markdown link target, a lone `/` in prose, a binary called by its absolute
+ * path. Such a turn is EXCLUDED, and `--report` prints how many were, so an
+ * over-eager rule shows up as a shrunken denominator rather than as a wrong
+ * rate. `DEVICE_PATHS` is let through, because models redirect to
+ * `/dev/null` constantly and none of those reads anything outside the brain.
+ *
  * What it does not see: a relative escape (`cd ..`, `cat ../private.md`,
- * `$HOME/x`), which only a shell that tracked the working directory across a
- * command could judge; a path inside a quoted program other than a `-c`
- * script (an awk program, a sed script), which is read as one word so that
- * its regexes are not read as paths; and a path that only appears in a
- * tool's OUTPUT.
- * `DEVICE_PATHS` is let through, because models redirect to `/dev/null`
- * constantly and none of those reads anything outside the brain.
+ * `$HOME/x`), which only a shell that tracked the working directory could
+ * judge, and a path that only appears in a tool's OUTPUT.
  *
- * The comparison is by directory boundary after normalisation, because a
- * plain prefix test puts `/x/brain-backup` inside `/x/brain` and lets
- * `/x/brain/../private` back out. It compares the whole path, punctuation
- * and all, so `/x/brain/a,b/../../y` leaves and `/x/brain(1)` is itself.
- * Its failure mode is deliberately the loud one: a word that starts with `/`
- * but is not a path — a sed address, an unquoted regex, a lone `/` in prose,
- * a binary called by its absolute path — counts as an escape, so the turn is
- * EXCLUDED and `--report` prints how many were. An over-eager rule shows up
- * as a shrunken denominator rather than as a wrong rate.
- *
- * It reads each string in the tool arguments as a shell command, so
- * whitespace after the brain has to mean "the next shell argument" — which is
- * why `assertMeasurableBrainPath` refuses a brain whose own path contains
- * any. Without that precondition `<brain> copy/notes.md` and
+ * Whitespace ends a path in free text, which is why
+ * `assertMeasurableBrainPath` refuses a brain whose own path contains any.
+ * Without that precondition `<brain> copy/notes.md` and
  * `find <brain> -type f` are the same string with opposite answers.
  */
 /**
@@ -199,116 +199,90 @@ export function assertMeasurableBrainPath(brainPath: string): void {
   }
 }
 
-/** Where an unquoted shell word ends: whitespace or a control operator. */
-const WORD_BREAK = /[\s;&|<>()`]/;
+/**
+ * Argument keys whose value is one path, taken whole: whitespace, brackets
+ * and all, so `<brain>(1)/a.md` is the brain and `<brain>/a b/../../x`
+ * leaves it.
+ */
+const PATH_KEYS = new Set(["file_path", "path", "notebook_path"]);
 
 /**
- * The words of a shell command, after quote removal — enough of the shell's
- * own rules that a path is read whole and a regex is not read as one.
- * Punctuation inside a word stays in it, so `"<brain>/a,b/../../x"` is one
- * path and its traversal is seen, and `<brain>(1)` in quotes is the brain.
- * Quoting decides what a word is: `'^\.\/\.git'` is a word that starts with
- * `^`, not a path that starts at the escaped `/`. Each word says whether
- * any of it was quoted, so a script handed to `sh -c` can be read in turn.
+ * What may come right before a path in free text: nothing, or a character
+ * that cannot be part of a name before it. `\` is not on it, so the escaped
+ * slash of a regex like `'^\.\/\.git'` starts nothing.
  */
-function shellWords(text: string): { word: string; quoted: boolean }[] {
-  const words: { word: string; quoted: boolean }[] = [];
-  let word = "";
-  let quoted = false;
-  let open = false;
-  const end = () => {
-    if (open) words.push({ word, quoted });
-    word = "";
-    quoted = false;
-    open = false;
-  };
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === "\\") {
-      // A backslash-newline is a line continuation and vanishes; any other
-      // escaped character is literal.
-      if (text[i + 1] === "\n") i++;
-      else if (i + 1 < text.length) {
-        word += text[++i];
-        open = true;
-      }
-    } else if (c === "'") {
-      const close = text.indexOf("'", i + 1);
-      const stop = close === -1 ? text.length : close;
-      word += text.slice(i + 1, stop);
-      quoted = open = true;
-      i = stop;
-    } else if (c === '"') {
-      quoted = open = true;
-      for (i++; i < text.length && text[i] !== '"'; i++) {
-        // Inside double quotes a backslash escapes only these; elsewhere it
-        // is itself.
-        if (text[i] === "\\" && '$`"\\\n'.includes(text[i + 1] ?? "")) i++;
-        word += text[i];
-      }
-    } else if (WORD_BREAK.test(c)) {
-      end();
-    } else {
-      word += c;
-      open = true;
-    }
-  }
-  end();
-  return words;
-}
+const PATH_START = /[\s"'`(=:,;|&<>${[]/;
+
+/**
+ * What ends a path in free text: whitespace, a quote, a backtick, or a shell
+ * operator. A shell operator also starts the next path, so
+ * `cmd</etc/hostname` is read as two.
+ */
+const PATH_END = /[\s"'`;|&<>]/;
 
 /** Device paths a turn may name without leaving the brain. */
 const DEVICE_PATHS = new Set(["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"]);
 
-function argumentStrings(value: unknown, into: string[] = []): string[] {
-  if (typeof value === "string") into.push(value);
-  else if (Array.isArray(value)) for (const v of value) argumentStrings(v, into);
-  else if (value && typeof value === "object")
-    for (const v of Object.values(value)) argumentStrings(v, into);
-  return into;
+/**
+ * The candidate paths in a string of free text — a shell command, a
+ * pattern, a description. No quote, comment or heredoc is interpreted, so
+ * none of them can hide the text after it.
+ */
+function textPaths(text: string): string[] {
+  const paths: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c !== "/" && c !== "~") continue;
+    const before = text[i - 1];
+    const starts =
+      before === undefined ||
+      PATH_START.test(before) ||
+      // An attached short option's value: `env -C/etc`, `tar -C/x`.
+      /(?:^|\s)-[A-Za-z]$/.test(text.slice(Math.max(0, i - 3), i));
+    if (!starts) continue;
+    // The `//` of a URL scheme is not the root.
+    if (c === "/" && before === ":" && text[i + 1] === "/") continue;
+    // `~` is a home directory alone, before `/`, or before a user name, and
+    // nothing else — `~5 files` is not a path.
+    if (c === "~" && /^[^\s/A-Za-z_;|&<>"'`)]/.test(text.slice(i + 1, i + 2))) continue;
+    let end = i + 1;
+    let depth = 0;
+    for (; end < text.length; end++) {
+      const d = text[end];
+      if (PATH_END.test(d)) break;
+      // A `)` ends the path unless it closes a `(` inside it, so
+      // `$(cat /etc/x)` ends at `x` and `<brain>(1)/a.md` is one name.
+      if (d === "(") depth++;
+      else if (d === ")" && depth-- === 0) break;
+    }
+    paths.push(text.slice(i, end));
+  }
+  return paths;
 }
 
-/**
- * The paths a tool argument names. A value with no whitespace that starts
- * like a path — a `file_path`, a Grep `path` — is one path, taken whole.
- * Anything else is read as a shell command, and a path is a word that starts
- * with `/` or `~`, or the value of a `NAME=` or `--flag=` word.
- */
-function argumentPaths(text: string, into: string[] = []): string[] {
-  if (/^[/~]/.test(text) && !/\s/.test(text)) {
-    into.push(text);
-    return into;
-  }
-  let previous = "";
-  for (const { word, quoted } of shellWords(text)) {
-    // `sh -c '<script>'` runs its quoted script, so read that as a command
-    // too. Any other word is taken whole: an awk program or a sed script is
-    // not read inside, where a `/` is a regex delimiter rather than a path.
-    if (previous === "-c" && quoted) argumentPaths(word, into);
-    else {
-      const path = /^[/~]/.test(word) ? word : /^-{0,2}[\w-]+=([/~].*)$/s.exec(word)?.[1];
-      if (path !== undefined) into.push(path);
-    }
-    previous = word;
-  }
+function argumentPaths(value: unknown, key: string | null, into: string[] = []): string[] {
+  if (typeof value === "string") {
+    if (key !== null && PATH_KEYS.has(key) && /^[/~]/.test(value)) into.push(value);
+    else into.push(...textPaths(value));
+  } else if (Array.isArray(value)) for (const v of value) argumentPaths(v, key, into);
+  else if (value && typeof value === "object")
+    for (const [k, v] of Object.entries(value)) argumentPaths(v, k, into);
   return into;
 }
 
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
   const home = brainPath.startsWith("~");
   const brain = home ? posix.normalize(brainPath) : resolve(brainPath);
-  for (const text of argumentStrings(inputs)) {
-    for (const path of argumentPaths(text)) {
-      // A `~` path cannot be resolved against this process's home, which is
-      // not the agent's, so it is only inside a brain that is itself named
-      // from `~`.
-      const tilde = path.startsWith("~");
-      if (tilde && !home) return true;
-      const full = tilde ? posix.normalize(path) : resolve(path);
-      if (!tilde && DEVICE_PATHS.has(full)) continue;
-      if (full === brain || full.startsWith(`${brain}/`)) continue;
-      return true;
-    }
+  for (const path of argumentPaths(inputs, null)) {
+    // A `~` path cannot be resolved against this process's home, which is
+    // not the agent's, so it is only inside a brain that is itself named
+    // from `~`.
+    const tilde = path.startsWith("~");
+    if (tilde && !home) return true;
+    const full = tilde ? posix.normalize(path) : resolve(path);
+    if (!tilde && DEVICE_PATHS.has(full)) continue;
+    if (full === brain || full.startsWith(`${brain}/`)) continue;
+    return true;
   }
   return false;
 }
