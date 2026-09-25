@@ -3,11 +3,20 @@ import { resolve } from "path";
 import matter from "gray-matter";
 
 import type { BrainContext } from "../../lib/context.js";
-import { findStale, loadAuditDocs } from "../../lib/auditor.js";
+import {
+  findBudgetOverruns,
+  findOverdueReviews,
+  findPastDates,
+  findStale,
+  isoDay,
+  loadAuditDocs,
+  type AuditDoc,
+} from "../../lib/auditor.js";
+import type { Taxonomy } from "../../lib/taxonomy.js";
 import { openDatabase } from "../../lib/db.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import type { CoreCommand } from "../types.js";
-import { parseArgs, today } from "../io.js";
+import { parseArgs } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
@@ -15,10 +24,65 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split("T")[0];
 }
 
+/** Milliseconds per day. */
+const MS_PER_DAY = 86_400_000;
+
 /**
- * Assemble the structured briefing data. Mechanical (no LLM): current focus,
- * focus-linked documents, upcoming deadlines, overdue reviews, recently active
- * primary docs, silently-modified files, and stale documents.
+ * `value` as an inline code span on one line, so a path or a frontmatter
+ * value can neither open markdown or HTML nor break the warning across
+ * lines. The fence is one backtick longer than any run inside.
+ */
+function literal(value: string): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longest + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+/** Whether `value` is a real calendar day written `YYYY-MM-DD`. */
+function isDay(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
+}
+
+/**
+ * One warning line per `brain audit` finding about the focus document: an
+ * overdue review, a blown token budget, past-dated lines. They come from the
+ * audit's own checks, so the briefing and `brain audit` cannot disagree.
+ * Every interpolated value is rendered through `literal`.
+ */
+function focusWarnings(docs: AuditDoc[], taxonomy: Taxonomy, focusRel: string, now: number): string[] {
+  const focus = docs.find((d) => d.path === focusRel);
+  if (!focus) return [];
+  const warnings: string[] = [];
+  const todayStr = isoDay(now);
+  const path = literal(focusRel);
+
+  for (const { due } of findOverdueReviews(docs, taxonomy, now).filter((r) => r.doc.path === focusRel)) {
+    if (isDay(due)) {
+      const days = Math.round((Date.parse(todayStr) - Date.parse(due)) / MS_PER_DAY);
+      warnings.push(`> **Warning:** ${path} is ${days} day(s) overdue for review (due ${due}); the priorities below may be stale.`);
+    } else {
+      warnings.push(`> **Warning:** ${path} is overdue for review (its due date ${literal(due)} is not a YYYY-MM-DD day); the priorities below may be stale.`);
+    }
+  }
+  for (const { tokens, maxTokens } of findBudgetOverruns(docs, taxonomy).filter((o) => o.doc.path === focusRel)) {
+    warnings.push(`> **Warning:** ${path} is ~${tokens} tokens, over its ${maxTokens}-token budget.`);
+  }
+  if (focus.status !== "archived" && taxonomy.canonicalPolicy.currentFocus) {
+    const past = findPastDates(focus.content, todayStr).length;
+    if (past > 0) {
+      warnings.push(`> **Warning:** ${path} has ${past} line(s) naming a past date; \`brain audit\` lists them.`);
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Assemble the structured briefing data. Mechanical (no LLM): warnings about
+ * the focus document, current focus, focus-linked documents, upcoming
+ * deadlines, overdue reviews, recently active primary docs, silently-modified
+ * files, and stale documents.
  *
  * Ported from the reference brain's generateBriefing (brain-cli.ts:328-433).
  * The one genericization: the current-focus document and its link graph are
@@ -33,18 +97,28 @@ export function generateBriefing(brain: BrainContext, limit = 15): string {
   }
   const db = openDatabase(brain.dbPath, { readonly: true });
   const lines: string[] = [];
-  const todayStr = today();
-  const focusRel = brain.taxonomy.canonicalPath("currentFocus");
+  const now = new Date();
+  const todayStr = isoDay(now.getTime());
+  // One identity for the focus document: the indexed spelling, and only while
+  // the file is there. Warnings, the section and its links all follow it.
+  const canonicalFocus = brain.taxonomy.canonicalPath("currentFocus");
+  const focusRel = canonicalFocus && existsSync(resolve(brain.root, canonicalFocus)) ? canonicalFocus : null;
 
   try {
+    const docs = loadAuditDocs(db);
+
+    // 0. Warnings about the focus document, ahead of it, so stale priorities
+    // are not read as current.
+    if (focusRel) {
+      const warnings = focusWarnings(docs, brain.taxonomy, focusRel, now.getTime());
+      if (warnings.length > 0) lines.push(...warnings, "");
+    }
+
     // 1. Current focus (verbatim, without frontmatter)
     if (focusRel) {
-      const focusPath = resolve(brain.root, focusRel);
-      if (existsSync(focusPath)) {
-        const { content } = matter(readFileSync(focusPath, "utf-8"));
-        lines.push("## Current Focus\n");
-        lines.push(content.trim());
-      }
+      const { content } = matter(readFileSync(resolve(brain.root, focusRel), "utf-8"));
+      lines.push("## Current Focus\n");
+      lines.push(content.trim());
     }
 
     // 2. Focus-linked documents (wiki-links from the current-focus doc)
@@ -127,7 +201,7 @@ export function generateBriefing(brain: BrainContext, limit = 15): string {
 
     // 7. Stale documents, by the taxonomy's thresholds: findStale is the
     // definition `brain audit` and `brain stats` share. Most overdue first.
-    const stale = findStale(loadAuditDocs(db), brain.taxonomy, Date.now()).sort(
+    const stale = findStale(docs, brain.taxonomy, now.getTime()).sort(
       (a, b) => b.ageDays - b.threshold - (a.ageDays - a.threshold) || b.ageDays - a.ageDays
     );
     if (stale.length > 0) {
