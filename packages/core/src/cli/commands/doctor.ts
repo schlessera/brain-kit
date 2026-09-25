@@ -25,6 +25,7 @@ import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, pack
 import { isToolLeftover } from "../../lib/tool-leftovers.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
+import { builtFtsTokenizer, ftsTokenizer } from "../../lib/search-language.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
 import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
 
@@ -549,6 +550,39 @@ async function checkSqliteVecMac(): Promise<Check> {
 }
 
 /**
+ * `search.language` and the full-text index agree: the index was built with
+ * the tokenizer the configured language names. A mismatch is repaired by the
+ * next `brain index`, which rebuilds the table.
+ */
+function checkSearchLanguage(cli: CliContext): Check {
+  const language = cli.brain.taxonomy.searchLanguage;
+  const wanted = ftsTokenizer(language);
+  if (!existsSync(cli.brain.dbPath)) {
+    return { id: "search-language", status: "pass", detail: `search.language "${language}"; no index yet` };
+  }
+  let built: string | null = null;
+  try {
+    const db = new Database(cli.brain.dbPath, { readonly: true });
+    try {
+      built = builtFtsTokenizer(db);
+    } finally {
+      db.close();
+    }
+  } catch (e) {
+    return { id: "search-language", status: "warn", detail: `could not read the index: ${(e as Error).message}` };
+  }
+  if (built === wanted) {
+    return { id: "search-language", status: "pass", detail: `search.language "${language}", index tokenizer ${wanted}` };
+  }
+  return {
+    id: "search-language",
+    status: "warn",
+    detail: `search.language "${language}" wants tokenizer ${wanted}, the index was built with ${built ?? "no full-text table"}`,
+    fix: "run `brain index`, which rebuilds the full-text index",
+  };
+}
+
+/**
  * The scratch area must be gitignored before anything writes there (#310),
  * or a render could land in the brain's history. Fixable: `--fix` adds the
  * line to `.gitignore`.
@@ -678,6 +712,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["git-storage", () => checkGitStorage(root)],
     ["tracked-leftovers", () => checkTrackedLeftovers(root)],
     ["scratch", () => checkScratch(root)],
+    ["search-language", () => checkSearchLanguage(cli)],
     ["cache-merge", () => checkCacheMerge(root)],
     ["sqlite-vec-macos", () => checkSqliteVecMac()],
   ];
