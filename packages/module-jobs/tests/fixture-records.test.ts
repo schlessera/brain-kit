@@ -18,6 +18,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { serializeCaptureRecord } from "../scripts/capture-record.js";
+
 const FIXTURES = join(import.meta.dir, "fixtures");
 const BOARDS = join(FIXTURES, "boards");
 
@@ -284,6 +286,14 @@ describe("capture records", () => {
           expect(capture.excerpt_bytes).toBe(bytes.byteLength);
           expect(capture.excerpt_sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
         }
+      });
+
+      test("the record is committed in the form --seal writes", () => {
+        // Otherwise the next `--seal` over this root rewrites a file nobody
+        // meant to touch: `reporting/` once carried `\u2014` escapes that a
+        // reseal turned into literal em dashes (#237).
+        const committed = readFileSync(join(FIXTURES, board, "capture.json"), "utf-8");
+        expect(serializeCaptureRecord(JSON.parse(committed))).toBe(committed);
       });
 
       test("every committed fixture is recorded", () => {
