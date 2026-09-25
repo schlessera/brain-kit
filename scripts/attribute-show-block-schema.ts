@@ -207,54 +207,98 @@ export function attribute(variants: readonly Json[]): {
 }
 
 /**
- * `root` with every outermost repeated subschema of its union moved into a
- * `definitions` table and referenced in Zod's draft-7 form — descriptions
- * included, because a shared definition carries its description with it. A
- * shape is shared only when sharing it makes the schema shorter.
+ * `root` with repeated subschemas of its union moved into a `definitions`
+ * table and referenced in Zod's draft-7 form — descriptions included, because
+ * a shared definition carries its description with it.
+ *
+ * Which shapes to share is decided by measuring, not by arithmetic: a shape is
+ * added only if the whole serialised schema, table and all, gets shorter, and
+ * a shape is dropped again if inlining it would be shorter — which is what
+ * happens to a nested shape once an outer one has absorbed most of its sites.
+ * So the result is never longer than `root`, and no single definition can be
+ * inlined to make it shorter.
  */
 export function shareDefinitions(root: Json): JsonObject {
-  const variants = variantsOf(root);
-  const refLength = (id: string) =>
-    JSON.stringify({ allOf: [{ $ref: `#/definitions/${id}` }] }).length;
-  const candidates = repeatedShapes(variants);
-  const shared = new Map<string, string>();
-  for (const [shape, count] of candidates) {
-    const id = `s${shared.size}`;
-    // Each site becomes a reference; one copy moves into the table under its
-    // key, with a comma between entries.
-    const after = count * refLength(id) + `"${id}":`.length + shape.length + 1;
-    if (after < count * shape.length) shared.set(shape, id);
+  if (!isObject(root)) throw new Error("shareDefinitions needs a schema object.");
+  const candidates = [...repeatedShapes(variantsOf(root))].sort(
+    (a, b) => (b[1] - 1) * b[0].length - (a[1] - 1) * a[0].length
+  );
+  let chosen: string[] = [];
+  let best = root;
+  for (const [shape] of candidates) {
+    const trial = buildShared(root, [...chosen, shape]);
+    if (JSON.stringify(trial).length < JSON.stringify(best).length) {
+      chosen = [...chosen, shape];
+      best = trial;
+    }
   }
-  const replace = (schema: Json): Json => {
+  // Prune: an earlier choice can stop paying once a later, outer one takes
+  // over its sites. Repeat until no single removal helps.
+  for (let pruned = true; pruned; ) {
+    pruned = false;
+    for (const shape of chosen) {
+      const trial = buildShared(root, chosen.filter((other) => other !== shape));
+      if (JSON.stringify(trial).length <= JSON.stringify(best).length) {
+        chosen = chosen.filter((other) => other !== shape);
+        best = trial;
+        pruned = true;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * `root` with every outermost occurrence of each shape in `shapes` replaced by
+ * a reference, the definitions themselves included, and a table holding only
+ * the definitions something still references.
+ */
+function buildShared(root: JsonObject, shapes: readonly string[]): JsonObject {
+  const ids = new Map(shapes.map((shape, index) => [shape, `s${index}`]));
+  const replace = (schema: Json, isTop: boolean): Json => {
     if (!isObject(schema)) return schema;
-    const serialised = JSON.stringify(schema);
-    const id = shared.get(serialised);
+    const id = isTop ? undefined : ids.get(JSON.stringify(schema));
     if (id !== undefined) return { allOf: [{ $ref: `#/definitions/${id}` }] };
     const out: JsonObject = { ...schema };
     if (isObject(schema.properties)) {
       out.properties = Object.fromEntries(
-        Object.entries(schema.properties).map(([key, value]) => [key, replace(value)])
+        Object.entries(schema.properties).map(([key, value]) => [key, replace(value, false)])
       );
     }
     if (schema.items !== undefined) {
-      out.items = Array.isArray(schema.items) ? schema.items.map(replace) : replace(schema.items);
+      out.items = Array.isArray(schema.items)
+        ? schema.items.map((item) => replace(item, false))
+        : replace(schema.items, false);
     }
-    if (isObject(schema.additionalProperties)) out.additionalProperties = replace(schema.additionalProperties);
+    if (isObject(schema.additionalProperties)) {
+      out.additionalProperties = replace(schema.additionalProperties, false);
+    }
     for (const key of ["anyOf", "oneOf", "allOf"]) {
       const members = schema[key];
-      if (Array.isArray(members)) out[key] = members.map(replace);
+      if (Array.isArray(members)) out[key] = members.map((member) => replace(member, false));
     }
     return out;
   };
-  const transformed = replace(root) as JsonObject;
-  // Sharing a shape can hide a shorter repeat nested in it, so only the
-  // shapes the transformed tree still references go in the table.
-  const used = new Set(JSON.stringify(transformed).match(/#\/definitions\/s\d+/g) ?? []);
+  const transformed = replace(root, true) as JsonObject;
+  const bodies = new Map(
+    [...ids].map(([shape, id]) => [id, replace(JSON.parse(shape) as Json, true)])
+  );
+  // Only what is reachable from the tree, through other definitions too.
+  const used = new Set<string>();
+  const visit = (node: Json) => {
+    for (const match of JSON.stringify(node).match(/#\/definitions\/s\d+/g) ?? []) {
+      const id = match.slice("#/definitions/".length);
+      if (used.has(id)) continue;
+      used.add(id);
+      visit(bodies.get(id)!);
+    }
+  };
+  visit(transformed);
+  if (used.size === 0) return transformed;
   const definitions: JsonObject = {};
-  for (const [shape, id] of shared) {
-    if (used.has(`#/definitions/${id}`)) definitions[id] = JSON.parse(shape) as Json;
-  }
-  return Object.keys(definitions).length > 0 ? { ...transformed, definitions } : transformed;
+  for (const [id, body] of bodies) if (used.has(id)) definitions[id] = body;
+  return { ...transformed, definitions };
 }
 
 /** `schema` with every `#/definitions/<id>` reference replaced by its target. */
@@ -389,7 +433,7 @@ async function main(): Promise<void> {
         return `| \`${preview.replaceAll("|", "\\|")}\` | ${count} | ${shape.length} |`;
       }),
     "",
-    `Moving every repeated subschema, descriptions included, into a \`definitions\` table and referencing it the way Zod's draft-7 output does takes the schema from ${schemaChars} to ${JSON.stringify(shared).length} characters: **${saving}** fewer (≈ ${range(saving)} tokens). That is a transform of the listed JSON, checked by dereferencing it back to the original, with two-character ids; what Zod emits for a chosen set of ids is the number to quote.`,
+    `Moving the repeated subschemas that pay for themselves, descriptions included, into a \`definitions\` table and referencing them the way Zod's draft-7 output does takes the schema from ${schemaChars} to ${JSON.stringify(shared).length} characters: **${saving}** fewer (≈ ${range(saving)} tokens). That is a transform of the listed JSON, checked by dereferencing it back to the original, with two-character ids; what Zod emits for a chosen set of ids is the number to quote.`,
     "",
     "## Calibration",
     "",

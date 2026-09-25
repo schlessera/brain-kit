@@ -47,6 +47,17 @@ function union(...variants: Json[]): JsonObject {
 
 const len = (value: unknown) => JSON.stringify(value).length;
 
+/** `shared` with one definition put back at every site that references it. */
+function inlineOne(shared: JsonObject, id: string): JsonObject {
+  const definitions = { ...(shared.definitions as JsonObject) };
+  const body = JSON.stringify(definitions[id]);
+  delete definitions[id];
+  const ref = JSON.stringify({ allOf: [{ $ref: `#/definitions/${id}` }] });
+  const rest = { ...shared, definitions } as JsonObject;
+  if (Object.keys(definitions).length === 0) delete rest.definitions;
+  return JSON.parse(JSON.stringify(rest).replaceAll(ref, body)) as JsonObject;
+}
+
 describe("prose", () => {
   test("is every description, key and quotes included, and nothing else", () => {
     const [row] = attribute([variant("a", { label: { type: "string", description: "xy" } })]).rows;
@@ -150,6 +161,29 @@ describe("sharing through definitions", () => {
     expect(sharingSaving(schema)).toBe(0);
   });
 
+  test("does not share when the table would cost more than the two copies save", () => {
+    // Two 85-character schemas: a reference each plus the table outweigh one copy.
+    const tone = { type: "string", description: "x".repeat(51) };
+    expect(len(tone)).toBe(85);
+    const schema = union(variant("a", { tone }), variant("b", { tone }));
+    expect(shareDefinitions(schema)).toEqual(schema);
+    expect(sharingSaving(schema)).toBe(0);
+  });
+
+  test("drops a nested definition that an outer one has left with too few sites", () => {
+    const child = { type: "string", description: "y".repeat(46) };
+    const parent = { type: "object", properties: { c: child, x: { type: "number" } } };
+    const schema = union(variant("a", { p: parent }), variant("b", { p: parent }), variant("c", { c: child }));
+    const shared = shareDefinitions(schema);
+    expect(sharingSaving(schema)).toBeGreaterThan(0);
+    expect(dereference(shared)).toEqual(schema);
+    const definitions = (shared.definitions ?? {}) as JsonObject;
+    expect(Object.keys(definitions).length).toBeGreaterThan(0);
+    for (const id of Object.keys(definitions)) {
+      expect(len(inlineOne(shared, id))).toBeGreaterThan(len(shared));
+    }
+  });
+
   test("does not share an enum array that repeats under different descriptions", () => {
     const schema = union(
       ...["a", "b", "c", "d"].map((kind) =>
@@ -174,10 +208,27 @@ describe("the calibration", () => {
     for (const row of rows) expect(Math.abs(row.residual)).toBeLessThanOrEqual(23);
   });
 
-  test("the range is the leave-one-out spread, and it is not empty", () => {
+  test("the range is the full fit and every leave-one-out refit, worked out independently", () => {
+    // Closed-form slope, written separately from fitLine's centred sums.
+    const slopeOf = (rows: readonly { description: number; schema: number; tokens: number }[]) => {
+      const n = rows.length;
+      const xs = rows.map((row) => row.description + row.schema);
+      const ys = rows.map((row) => row.tokens);
+      const sx = xs.reduce((a, b) => a + b, 0);
+      const sy = ys.reduce((a, b) => a + b, 0);
+      const sxy = xs.reduce((sum, x, i) => sum + x * ys[i]!, 0);
+      const sxx = xs.reduce((sum, x) => sum + x * x, 0);
+      return (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    };
+    const folds = CALIBRATION.map((_, skip) => slopeOf(CALIBRATION.filter((__, i) => i !== skip)));
+    const all = [slopeOf(CALIBRATION), ...folds];
     const { slope, low, high } = calibrate();
-    expect(low).toBeLessThan(slope);
-    expect(high).toBeGreaterThanOrEqual(slope);
+    expect(slope).toBeCloseTo(slopeOf(CALIBRATION), 12);
+    expect(low).toBeCloseTo(Math.min(...all), 12);
+    expect(high).toBeCloseTo(Math.max(...all), 12);
+    // The endpoints D47 quotes: without show_block, and without query_activity.
+    expect(low).toBeCloseTo(0.3899329744, 9);
+    expect(high).toBeCloseTo(0.4170873939, 9);
   });
 });
 
@@ -195,5 +246,8 @@ describe("the shipped schema", () => {
     const shared = shareDefinitions(tool!.inputSchema);
     expect(JSON.stringify(shared)).toContain("#/definitions/");
     expect(dereference(shared)).toEqual(tool!.inputSchema);
+    for (const id of Object.keys(shared.definitions as JsonObject)) {
+      expect(len(inlineOne(shared, id))).toBeGreaterThan(len(shared));
+    }
   });
 });
