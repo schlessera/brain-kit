@@ -5,11 +5,14 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, symlinkSync } from "fs";
+import { Database } from "bun:sqlite";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { maintainCommand } from "../src/cli/commands/maintain";
+import { initContext } from "../src/lib/context";
 import { expectBlobsIntact, git, initRepo, looseCount, reflogs, refs, writeLooseBlobs } from "./git-fixture";
 
 const temps: string[] = [];
@@ -120,4 +123,123 @@ test("a machine without git skips the step with the reason and still runs the re
   expect(step?.result).toStartWith("skipped — git could not be run");
   expect(steps.map((s) => s.step)).toEqual(["index", "vectors", "audit", "tags", "git", "scratch"]);
   expect(code).toBe(0);
+});
+
+/**
+ * An empty brain with local modules whose hygiene checks each return one
+ * warning, throw an Error, or throw a non-Error value. The core audit of an
+ * empty brain finds nothing, so every counted issue comes from the modules.
+ */
+type Mode = "warn" | "throw" | "throw-null" | "throw-undefined";
+function brainWithHygiene(...modes: Mode[]): string {
+  const root = makeTempBrain({ empty: true });
+  temps.push(root);
+  const entries: string[] = [];
+  modes.forEach((mode, i) => {
+    const name = `hygiene-${i}`;
+    mkdirSync(join(root, "modules", name), { recursive: true });
+    writeFileSync(
+      join(root, "modules", name, "module.ts"),
+      `import { defineModule } from "@schlessera/brain";
+import { z } from "zod";
+export default defineModule({
+  name: "${name}",
+  configSchema: z.object({ mode: z.enum(["warn", "throw", "throw-null", "throw-undefined"]) }).strict(),
+  setup: (config) => ({
+    hygieneChecks: [
+      async () => {
+        if (config.mode === "throw") throw new Error("ledger unreadable");
+        if (config.mode === "throw-null") throw null;
+        if (config.mode === "throw-undefined") throw undefined;
+        return [{ path: "ledger.md", severity: "warning", category: "stale-block", message: "generated block is stale" }];
+      },
+    ],
+  }),
+});
+`
+    );
+    writeFileSync(join(root, "modules", name, "package.json"), JSON.stringify({ name }));
+    entries.push(`"./modules/${name}": { mode: "${mode}" }`);
+  });
+  writeFileSync(
+    join(root, "brain.config.ts"),
+    `import { defineConfig } from "@schlessera/brain";
+export default defineConfig({ modules: { ${entries.join(", ")} } });
+`
+  );
+  return root;
+}
+
+async function auditCounts(root: string) {
+  const { stdout, stderr, code } = await runCli(root, ["audit", "--json"]);
+  expect(code, stderr).toBe(0);
+  return JSON.parse(stdout) as { issues: { category: string; message: string }[]; errors: number; warnings: number; infos: number };
+}
+
+test("the audit step counts a module hygiene warning, the same number brain audit reports", async () => {
+  const root = brainWithHygiene("warn");
+  const { code, steps } = await maintain(root);
+  expect(code).toBe(0);
+  const audited = await auditCounts(root);
+  expect(audited.warnings).toBe(1);
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+});
+
+test("a throwing module check is one module-hygiene warning in both commands, and neither crashes", async () => {
+  const root = brainWithHygiene("throw");
+  const { code, steps } = await maintain(root);
+  expect(code).toBe(0);
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+
+  const audited = await auditCounts(root);
+  expect(audited.warnings).toBe(1);
+  expect(audited.issues.map((i) => i.category)).toEqual(["module-hygiene"]);
+  expect(audited.issues[0].message).toBe('hygiene check from module "hygiene-0" failed: ledger unreadable');
+});
+
+test("a module check throwing null or undefined does not stop the next module's check", async () => {
+  const root = brainWithHygiene("throw-null", "throw-undefined", "warn");
+  const { code, steps } = await maintain(root);
+  expect(code).toBe(0);
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 3 warning(s), 0 info(s)");
+
+  const audited = await auditCounts(root);
+  expect(audited.issues.map((i) => i.message)).toEqual([
+    'hygiene check from module "hygiene-0" failed: null',
+    'hygiene check from module "hygiene-1" failed: undefined',
+    "generated block is stale",
+  ]);
+});
+
+test("a failed index step closes its database handle", async () => {
+  const root = tempBrain();
+  const brain = await initContext({ root });
+  // Every handle openDatabase returns runs a statement first, and bun's
+  // close() may defer releasing the file, so the handles are tracked through
+  // the prototype: run() marks a handle opened, close() marks it closed.
+  const opened = new Set<Database>();
+  const closed = new Set<Database>();
+  const { run, close } = Database.prototype;
+  Database.prototype.run = function (this: Database, ...args: Parameters<typeof run>) {
+    opened.add(this);
+    return run.apply(this, args);
+  } as typeof run;
+  Database.prototype.close = function (this: Database, ...args: Parameters<typeof close>) {
+    closed.add(this);
+    return close.apply(this, args);
+  } as typeof close;
+  // A taxonomy that throws on first use makes indexAll reject after the
+  // database is open.
+  const taxonomy = new Proxy({}, { get: () => { throw new Error("taxonomy unavailable"); } });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await maintainCommand.run(["--no-git"], { brain: { ...brain, taxonomy }, json: true } as never);
+  } finally {
+    console.log = log;
+    Database.prototype.run = run;
+    Database.prototype.close = close;
+  }
+  expect(opened.size).toBeGreaterThan(0);
+  expect([...opened].filter((db) => !closed.has(db))).toHaveLength(0);
 });

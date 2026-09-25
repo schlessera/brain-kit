@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 
+import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
 import type { Severity, Taxonomy } from "./taxonomy.js";
 
@@ -349,5 +350,34 @@ export function audit(
     });
   }
 
+  return issues;
+}
+
+/**
+ * The core audit plus every enabled module's hygiene checks, each run against
+ * its own module's config. A check that throws becomes one `module-hygiene`
+ * warning instead of failing the audit. `brain audit` and `brain maintain`
+ * both count issues through this, so their numbers agree.
+ */
+export async function auditWithModules(
+  db: Database,
+  brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
+  opts: AuditOptions = {}
+): Promise<AuditIssue[]> {
+  const issues = audit(db, brain.taxonomy, opts);
+  for (const mod of brain.modules) {
+    for (const check of mod.manifest.hygieneChecks ?? []) {
+      try {
+        issues.push(...(await check({ db, root: brain.root, config: mod.config })));
+      } catch (e) {
+        issues.push({
+          path: "(module)",
+          severity: "warning",
+          category: "module-hygiene",
+          message: `hygiene check from module "${mod.manifest.name}" failed: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+    }
+  }
   return issues;
 }

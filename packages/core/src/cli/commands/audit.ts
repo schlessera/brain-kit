@@ -1,5 +1,5 @@
 import type { AuditIssue } from "../../lib/types.js";
-import { audit } from "../../lib/auditor.js";
+import { auditWithModules } from "../../lib/auditor.js";
 import type { CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs } from "../io.js";
 
@@ -71,24 +71,7 @@ export const auditCommand: CoreCommand = {
     const { flags } = parseArgs(args);
     const db = openReadonlyDb(cli.brain);
     try {
-      const issues = audit(db, cli.brain.taxonomy);
-
-      // Append module hygiene checks (each module runs against its own config).
-      for (const mod of cli.brain.modules) {
-        for (const check of mod.manifest.hygieneChecks ?? []) {
-          try {
-            const extra = await check({ db, root: cli.brain.root, config: mod.config });
-            issues.push(...extra);
-          } catch (e) {
-            issues.push({
-              path: "(module)",
-              severity: "warning",
-              category: "module-hygiene",
-              message: `hygiene check from module "${mod.manifest.name}" failed: ${(e as Error).message}`,
-            });
-          }
-        }
-      }
+      const issues = await auditWithModules(db, cli.brain);
 
       if (flags.fix === true) {
         const fixes = await suggestFixes(issues, cli);
