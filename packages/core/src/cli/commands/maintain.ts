@@ -4,27 +4,34 @@ import { audit } from "../../lib/auditor.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
+import { GitUnavailableError, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
 import type { CoreCommand } from "../types.js";
-import { emit, embeddingDims } from "../io.js";
+import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 
 Runs, in order: incremental index (+embeddings when a key is configured), a
 vector-table compaction when fewer than half its slots are live (the same step
 as \`brain index --compact\`), an audit snapshot, a tag report (counts only;
-see \`brain tags\`), then a prune of the scratch area (files older than 7 days,
-then the oldest until under 1 GB). Exits 2 if any step failed; the tag report
-never fails the run. Module cron jobs are separate (advisory manifest entries
-consumed by the container entrypoint).
+see \`brain tags\`), a git packing pass when the brain is a git work tree (git's
+non-destructive loose-objects, incremental-repack and pack-refs tasks), then a
+prune of the scratch area (files older than 7 days, then the oldest until
+under 1 GB). Exits 2 if any step failed; the tag report never fails the run.
+Module cron jobs are separate (advisory manifest entries consumed by the
+container entrypoint).
+
+  --no-git                Skip the git packing step
 
 The hosting container runs this daily. A brain with no chat server has no
 other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
-  summary: "Run routine maintenance: incremental index, vector compaction, audit snapshot, tag report, scratch prune",
+  summary: "Run routine maintenance: incremental index, vector compaction, audit snapshot, tag report, git packing, scratch prune",
   helpBlock: HELP,
-  async run(_args, cli): Promise<number> {
+  async run(args, cli): Promise<number> {
+    const { args: pos, flags } = parseArgs(args);
+    if (pos.length > 0) throw new UsageError(`brain maintain takes no positional arguments (got "${pos[0]}")`);
     const report: Array<{ step: string; result: string }> = [];
     const dims = embeddingDims(cli.embeddings);
 
@@ -98,7 +105,27 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "tags", result: `skipped — ${(e as Error).message}` });
     }
 
-    // 5. Scratch prune. Writes into scratch prune as they go; this is the
+    // 5. Git packing. Loose objects pile up in a content repo because git's
+    // automatic gc counts objects, not bytes; see lib/git-storage.ts. A brain
+    // on a machine without git has no repository to pack, so a missing binary
+    // skips; git refusing a repository it found fails.
+    if (flags["no-git"] === true) {
+      report.push({ step: "git", result: "skipped — --no-git" });
+    } else {
+      try {
+        if (!isGitWorkTree(cli.brain.root)) {
+          report.push({ step: "git", result: "skipped — not a git repository" });
+        } else {
+          const { packed } = packRepository(cli.brain.root);
+          report.push({ step: "git", result: `ok — packed ${packed} loose object(s)` });
+        }
+      } catch (e) {
+        const message = (e as Error).message;
+        report.push({ step: "git", result: e instanceof GitUnavailableError ? `skipped — ${message}` : `FAILED — ${message}` });
+      }
+    }
+
+    // 6. Scratch prune. Writes into scratch prune as they go; this is the
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);
