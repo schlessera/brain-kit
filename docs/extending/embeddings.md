@@ -79,6 +79,32 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
 
 3. **(Optional) publish** it as `brain-embeddings-<vendor>` for others to import.
 
+## Test it against the contract
+
+`@schlessera/brain/testing` exports `runEmbeddingProviderContract`, the suite
+the built-in `gemini` provider runs in `packages/core/tests/seam-contracts.test.ts`.
+It asserts what this page promises: every vector `embed`, `embedQuery`,
+`embedImage` and `embedPdf` returns is `dimensions` wide; `embedQuery` works
+with or without `opts`, and an already-aborted signal makes it reject or still
+answer, never hang; an absent multimodal method leaves the description
+embeddable through `embed`. Give it a provider wired to a fake runtime, never
+a live vendor, and your test runner's primitives:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { runEmbeddingProviderContract } from "@schlessera/brain/testing";
+import { myEmbeddings } from "./my-embeddings";
+
+runEmbeddingProviderContract(
+  { name: "mine", provider: () => myEmbeddings({ model: "nomic-embed-text" }) },
+  { describe, expect, test }
+);
+```
+
+If your provider forwards `opts.signal`, also pass `hanging()`: a provider
+whose runtime never answers until the request is cancelled. The suite then
+asserts that an abort rejects the pending query.
+
 ## Capability and degradation notes
 
 - **No embedder / no key** → search runs full-text-only. `brain search --json`

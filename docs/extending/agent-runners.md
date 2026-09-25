@@ -79,6 +79,33 @@ pass a custom runner.
 3. **(Optional) publish** as `brain-agent-<vendor>` (or use any `id` string,
    e.g. `"omp"`, when you pass a value).
 
+## Test it against the contract
+
+`@schlessera/brain/testing` exports `runAgentRunnerContract`, the suite the
+four built-in runners run against stand-in CLIs in
+`packages/core/tests/agent-runner-contracts.test.ts`. It asserts that
+`capabilities.streaming` agrees with whether `runStreaming` exists, that
+`run` executes in `cwd` on the prompt and resolves to the agent's final text,
+that `timeoutMs` is honoured, and that `runStreaming` surfaces tool activity.
+Give it two runners wired to a fake agent — one that uses a tool and then
+answers with its working directory and the prompt
+(`` `${process.cwd()}\n${prompt}` ``), and one that never finishes:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { runAgentRunnerContract } from "@schlessera/brain/testing";
+
+runAgentRunnerContract(
+  { name: "mine", echoing: () => myRunner(echoingAgent), hanging: () => myRunner(hangingAgent) },
+  { describe, expect, test }
+);
+```
+
+A runner that spawns its CLI by name resolves it against the `PATH` the test
+process started with, so point the runner at the stand-in directly, or start
+the test process with a `PATH` that holds only stand-ins, as the built-ins'
+test does.
+
 ## Capability and degradation notes
 
 - **`capabilities.streaming: false`** → callers that want progress fall back to a

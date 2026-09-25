@@ -81,6 +81,30 @@ fall back from a vision model to a text-only one if you rely on vision).
 
 3. **(Optional) publish** as `brain-completions-<vendor>`.
 
+## Test it against the contract
+
+`@schlessera/brain/testing` exports `runCompletionProviderContract`, the suite
+`gemini-flash` and `anthropic-haiku` run in
+`packages/core/tests/seam-contracts.test.ts`. It asserts that `complete`
+resolves to the model's answer with or without `system`, `maxTokens` and
+`parts`, and that `capabilities.vision` is honest about what core does with
+it: with `false`, an asset description never sends the asset and falls back
+to its title. Give it a provider whose fake model answers with the text it is
+handed:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { runCompletionProviderContract } from "@schlessera/brain/testing";
+
+runCompletionProviderContract(
+  { name: "mine", answering: (text) => myCompletions({ fetch: fakeVendorAnswering(text) }) },
+  { describe, expect, test }
+);
+```
+
+`fakeVendorAnswering` stands for however your provider reaches its vendor in
+a test: an injected `fetch`, a local stub server. The suite never needs a key.
+
 ## Capability and degradation notes
 
 - **`capabilities.vision: false`** → enrichment degrades to **title-only asset
