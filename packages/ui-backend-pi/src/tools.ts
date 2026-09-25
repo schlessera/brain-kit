@@ -595,9 +595,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     name: "brain_archive",
     label: "Archive brain document",
     description:
-      "Archive a brain document: sets status to archived, moves projects/active/ files " +
-      "to projects/archive/, and reindexes. Requires user approval (an archived document " +
-      "drops out of search and briefings). Use dry_run to preview.",
+      "Archive a brain document: sets status to archived, sets a primary or unset relevance " +
+      "to historical, moves projects/active/ files to projects/archive/, and reindexes. " +
+      "Requires user approval (an archived document drops out of search and briefings). " +
+      "Use dry_run to preview.",
     parameters: Type.Object({
       path: Type.String({ description: "Repo-relative document path." }),
       dry_run: Type.Optional(Type.Boolean({ description: "Preview without changing anything." })),

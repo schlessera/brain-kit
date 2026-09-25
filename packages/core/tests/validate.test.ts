@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -83,5 +84,57 @@ describe("validate", () => {
     const warnings = validate(root, taxonomy).filter((i) => i.level === "warning");
     expect(warnings.some((w) => w.message.includes("Ambiguous wiki-link: [[research]]"))).toBe(true);
     expect(warnings.some((w) => w.message.includes("Unresolved wiki-link: [[nonexistent]]"))).toBe(true);
+  });
+});
+
+describe("an archived document that still claims primary relevance", () => {
+  const brains: string[] = [];
+  afterAll(() => { for (const dir of brains) cleanup(dir); });
+
+  const ADDED = "projects/archive/pine-shelf.md";
+  const MESSAGE = "status: archived contradicts relevance: primary; set relevance: historical";
+
+  async function validateJson(addArchivedPrimary: boolean) {
+    // A temp copy, so the pinned corpus counts in stats.test.ts stay put.
+    const root = makeTempBrain();
+    brains.push(root);
+    if (addArchivedPrimary) {
+      writeFileSync(join(root, ADDED), doc({
+        type: "project",
+        title: '"Pine Shelf (archived)"',
+        created: "2025-01-10",
+        updated: "2025-03-01",
+        tags: "[project, woodworking]",
+        status: "archived",
+        relevance: "primary",
+        summary: '"A finished pine shelf"',
+      }));
+    }
+    const res = await runCli(root, ["validate", "--json"]);
+    return JSON.parse(res.stdout) as { ok: boolean; issues: { file: string; level: string; message: string }[]; errors: number; warnings: number };
+  }
+
+  test("yields exactly one warning naming both fields and the fix", async () => {
+    const report = await validateJson(true);
+    const flagged = report.issues.filter((i) => i.message.includes("status: archived"));
+    expect(flagged).toEqual([{ file: ADDED, level: "warning", message: MESSAGE }]);
+    expect(MESSAGE).toContain("relevance: primary");
+    expect(MESSAGE).toContain("relevance: historical");
+  });
+
+  test("the corpus's archived historical document yields none", async () => {
+    const report = await validateJson(true);
+    expect(report.issues.filter((i) => i.file === "projects/archive/one-old-build.md" && i.message === MESSAGE)).toEqual([]);
+  });
+
+  test("the --json report is unchanged apart from the new finding", async () => {
+    const before = await validateJson(false);
+    const after = await validateJson(true);
+    expect(Object.keys(after).sort()).toEqual(["errors", "issues", "ok", "warnings"]);
+    expect(after.issues.filter((i) => i.file !== ADDED)).toEqual(before.issues);
+    expect(after.issues.filter((i) => i.file === ADDED)).toEqual([{ file: ADDED, level: "warning", message: MESSAGE }]);
+    expect(after.warnings).toBe(before.warnings + 1);
+    expect(after.errors).toBe(before.errors);
+    expect(after.ok).toBe(before.ok);
   });
 });

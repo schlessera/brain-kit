@@ -613,6 +613,11 @@ Rules a consumer may rely on:
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);
   `deadline` / `next_review` are ISO dates queried by briefing features.
+- `brain archive` / `brain_archive` set `status: archived` and bump `updated`.
+  Since 0.38.0 they also set `relevance: historical` when relevance is
+  `primary` or missing, and leave an explicit `secondary` or `historical`
+  alone (additive). `brain validate` warns on `status: archived` with
+  `relevance: primary`.
 - The configured inbox dir (default `notes/`) with `status: active` =
   unprocessed inbox (capture targets this).
 - Committed sidecars `.context-cache.jsonl` / `.asset-cache.jsonl`:

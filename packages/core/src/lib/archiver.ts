@@ -34,7 +34,8 @@ function today(): string {
 }
 
 /**
- * Archive a document: set status archived, bump updated, move
+ * Archive a document: set status archived, demote a primary or unset
+ * relevance to historical, bump updated, move
  * projects/active/ files to projects/archive/, and reindex.
  * With dryRun, reports what would happen without touching anything.
  */
@@ -78,6 +79,12 @@ export async function archiveDocument(
   const raw = readFileSync(fullPath, "utf-8");
   const parsed = matter(raw);
   parsed.data.status = "archived";
+  // An archived doc claiming primary would still take the primary search boost
+  // whenever archived docs are included. An explicit secondary or historical
+  // is the author's call and stays.
+  if (!parsed.data.relevance || parsed.data.relevance === "primary") {
+    parsed.data.relevance = "historical";
+  }
   parsed.data.updated = today();
   const output = stringifyDocument(parsed.content, parsed.data);
   if (archiveFullPath) {
