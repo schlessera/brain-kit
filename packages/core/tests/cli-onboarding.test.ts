@@ -614,7 +614,7 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
   expect(checks.map((c) => c.id)).toEqual([
     "runtime", "git-hooks", "symlinks", "shadowed-commands", "instructions-weight", "config", "db",
     "embeddings", "mcp", "deps", "version", "privacy",
-    "eval-baseline", "git-storage", "tracked-leftovers", "scratch",
+    "eval-baseline", "git-storage", "tracked-leftovers", "tracked-media", "scratch",
     "search-language", "cache-merge", "sqlite-vec-macos",
   ]);
 });

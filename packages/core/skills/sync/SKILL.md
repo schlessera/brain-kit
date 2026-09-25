@@ -56,6 +56,13 @@ Outputs `STATUS\tCLASS\tPATH` for every changed/untracked file. Handle each clas
 - **DERIVED** — leave it alone. These are the sidecar caches; the Phase 5 reindex rewrites them
   and `post-sync` commits them itself. Committing one here just banks a stale copy that the
   reindex immediately supersedes, and `pull` merges a local change to one itself.
+- **MEDIA** / **LARGE** — a binary (image, PDF, audio, video, office file) or any file over
+  `media.maxTrackedBytes`, with its size in bytes as the fourth column. Git keeps every version
+  forever, so **ask the user before tracking it** and name the size. Offer three answers:
+  track it (small final media a note uses), ignore it (iterations, renders, exports — add a
+  `media.ignore` glob in `brain.config.ts` or a `.gitignore` line so the question does not come
+  back), or keep it with Git LFS (large masters that must travel with the brain). Never commit
+  one unasked. A `media.track` glob records a standing "track".
 - **UNKNOWN** — read the file. Generated output / test fixture / temp data → treat as ARTIFACT;
   otherwise TRACK.
 

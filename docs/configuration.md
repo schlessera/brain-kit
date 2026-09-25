@@ -548,6 +548,25 @@ The hook passes `--on-commit` to `brain index`, and the CLI makes the decision.
 A brain whose hooks were installed before 0.38.0 needs `brain setup` to pick up
 the new hook.
 
+## `media`
+
+How `brain sync assess` treats binaries and big files, and where `brain
+doctor`'s `tracked-media` check draws its line. See [media.md](media.md).
+
+| Key               | Type       | Default          | Means                                                                            |
+| ----------------- | ---------- | ---------------- | -------------------------------------------------------------------------------- |
+| `maxTrackedBytes` | `number`   | `5242880` (5 MiB) | A file over this is `LARGE` in `sync assess`, and a `tracked-media` warning in `brain doctor` |
+| `track`           | `string[]` | `[]`             | Globs that are always `TRACK`                                                    |
+| `ignore`          | `string[]` | `[]`             | Globs that are always `ARTIFACT`                                                 |
+
+`sync assess` applies `ignore`, then `track`, before any other class except
+`SENSITIVE`, which always comes first. A glob's `*` matches any run of
+characters, and a glob with no `/` also matches the file name alone.
+
+```ts
+media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
+```
+
 ## `modules`
 
 Enables workflow modules. A key is either an npm package name

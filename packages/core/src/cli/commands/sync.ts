@@ -2,12 +2,13 @@ import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.
 import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
 import { matchesAnyPattern, TOOL_LEFTOVER_PATTERNS } from "../../lib/tool-leftovers.js";
+import { isMediaPath, mediaPolicy, mediaPolicyClass, type MediaPolicy } from "../../lib/media.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
@@ -15,7 +16,8 @@ const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 With no verb, delegates the full workflow to the coding agent (/sync skill).
 Mechanical verbs (structured output for the skill to drive):
 
-  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|UNKNOWN)
+  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|MEDIA|LARGE|UNKNOWN;
+               MEDIA and LARGE carry their size in bytes)
   group        Group tracked changes by taxonomy domain
   pull         Fetch origin/main and fast-forward or merge
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
@@ -121,11 +123,33 @@ function currentBranch(root: string): string {
 
 interface AssessedFile {
   status: string;
-  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "UNKNOWN";
+  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "MEDIA" | "LARGE" | "UNKNOWN";
   path: string;
+  /** Size on disk, for MEDIA and LARGE only. */
+  bytes?: number;
 }
 
-function assess(root: string): AssessedFile[] {
+/** Size of `file` under `root`, or null when it is gone (a deletion) or not a regular file. */
+function sizeOf(root: string, file: string): number | null {
+  try {
+    const stat = statSync(resolve(root, file));
+    return stat.isFile() ? stat.size : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Classes, first match wins:
+ * - SENSITIVE: a secret-shaped name, whatever the media policy says.
+ * - `media.ignore` → ARTIFACT, `media.track` → TRACK.
+ * - ARTIFACT: tool leftovers and generated output.
+ * - DERIVED: the sidecar caches.
+ * - LARGE: anything over `media.maxTrackedBytes`.
+ * - MEDIA: an image, PDF, audio, video or office file.
+ * - TRACK: text, or UNKNOWN.
+ */
+function assess(root: string, media: MediaPolicy): AssessedFile[] {
   const files: AssessedFile[] = [];
   for (const { xy, file } of porcelainRecords(root)) {
 
@@ -142,15 +166,22 @@ function assess(root: string): AssessedFile[] {
     if (git(root, ["check-ignore", "-q", "--", file]).code === 0) continue;
 
     let klass: AssessedFile["class"];
+    let bytes: number | null = null;
+    const policy = mediaPolicyClass(file, media);
     if (matchesAnyPattern(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
+    else if (policy) klass = policy;
     else if (matchesAnyPattern(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
     // Committed on purpose, but post-sync commits them after its reindex —
     // taking them here too would just commit a stale copy and duplicate work.
     else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
+    else if ((bytes = sizeOf(root, file)) !== null && bytes > media.maxTrackedBytes) klass = "LARGE";
+    else if (bytes !== null && isMediaPath(file)) klass = "MEDIA";
     else if (isTrackable(file)) klass = "TRACK";
     else klass = "UNKNOWN";
 
-    files.push({ status, class: klass, path: file });
+    files.push(
+      klass === "MEDIA" || klass === "LARGE" ? { status, class: klass, path: file, bytes: bytes! } : { status, class: klass, path: file }
+    );
   }
   return files;
 }
@@ -384,10 +415,12 @@ export const syncCommand: CoreCommand = {
       case "assess": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const files = assess(root);
+        const files = assess(root, mediaPolicy(cli.brain.config));
         emit(cli.json, { branch: "main", files }, () => {
           console.log("# sync assess — file classification");
-          for (const f of files) console.log(`${f.status}\t${f.class}\t${f.path}`);
+          for (const f of files) {
+            console.log(`${f.status}\t${f.class}\t${f.path}${f.bytes === undefined ? "" : `\t${f.bytes}`}`);
+          }
           if (files.length === 0) console.log("# No local changes");
         });
         return 0;
@@ -396,7 +429,7 @@ export const syncCommand: CoreCommand = {
       case "group": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const groups = assess(root)
+        const groups = assess(root, mediaPolicy(cli.brain.config))
           .filter((f) => f.class === "TRACK")
           .map((f) => ({ domain: domainFor(f.path, cli.brain.taxonomy), status: f.status, path: f.path }))
           .sort((a, b) => a.domain.localeCompare(b.domain) || a.path.localeCompare(b.path));

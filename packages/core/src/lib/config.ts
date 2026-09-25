@@ -317,6 +317,21 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * What `brain sync assess` and `brain doctor` treat as media, and how big a
+     * tracked file may get. Missing keys fall back to DEFAULT_MEDIA_POLICY.
+     */
+    media: z
+      .object({
+        /** A file over this many bytes is LARGE in `sync assess`, and a warning in `brain doctor`. */
+        maxTrackedBytes: z.number().int().positive().optional(),
+        /** Globs that are always TRACK in `sync assess` (`*` matches any run; a glob without `/` matches the file name). */
+        track: z.array(z.string().min(1)).optional(),
+        /** Globs that are always ARTIFACT in `sync assess`. */
+        ignore: z.array(z.string().min(1)).optional(),
+      })
+      .strict()
+      .optional(),
     /** What the installed git hooks do beyond their free default. */
     hooks: z
       .object({

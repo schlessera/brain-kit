@@ -48,6 +48,7 @@ plain-language explanation, consent, and re-verification — not re-implementing
 | version | core package outside `brain.config` compat range | none — explain the upgrade |
 | privacy | **git remote exists and is PUBLIC** | none — **loud warning, never auto-fix** |
 | tracked-leftovers | committed tool leftovers (`.DS_Store`, `*:Zone.Identifier`, editor swap files, LaTeX `*.aux` and friends) | none automatic: show the `git rm --cached` command from `fix`, and run it only with the user's consent |
+| tracked-media | a tracked file over `media.maxTrackedBytes` (and, always, the five largest tracked binaries) | none automatic: explain that git keeps every version, and offer a `media.ignore` glob, Git LFS, or a higher limit (docs/media.md) |
 
 ## Rules
 
