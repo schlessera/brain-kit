@@ -4,11 +4,12 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { editDistance, findRedundantTags, findVariantGroups, tagKey } from "../src/lib/tags";
 import type { TagReport, VariantGroup } from "../src/lib/tags";
+import type { TagApplyReport } from "../src/lib/tags-apply";
 import type { TagsConfig } from "../src/lib/config";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
@@ -213,5 +214,161 @@ describe("normalization", () => {
     expect(
       findRedundantTags([{ path: "projects/garden/plan.md", type: "project", tags: ["garden", "plan", "soil"] }])
     ).toEqual([{ path: "projects/garden/plan.md", tag: "garden", repeats: "directory" }]);
+  });
+});
+
+describe("brain tags --apply", () => {
+  const read = (root: string, rel: string) => readFileSync(join(root, rel), "utf-8");
+  async function apply(root: string, ...flags: string[]): Promise<TagApplyReport> {
+    const { stdout, stderr, code } = await runCli(root, ["tags", "--apply", ...flags, "--json"]);
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+    return JSON.parse(stdout);
+  }
+  const git = (root: string, ...args: string[]) =>
+    Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+
+  // Two byte-identical documents: gray-matter's cache hands both the same
+  // parsed object (#142), so a rewrite through parsed data migrates only one.
+  const TWIN = "---\ntitle: Twin\ntype: note\ntags: [trails, hiking]\n---\n\nbody\n";
+
+  test("byte-identical documents both migrate, and every other document keeps its own tags", async () => {
+    const root = makeBrain({ aliases: { trails: "trail" } }, {
+      "notes/one.md": TWIN,
+      "notes/two.md": TWIN,
+      "notes/other.md": note(["trails", "astronomy"]),
+    });
+    const out = await apply(root);
+    expect(out.files).toEqual([
+      { path: "notes/one.md", from: ["trails", "hiking"], to: ["trail", "hiking"] },
+      { path: "notes/other.md", from: ["trails", "astronomy"], to: ["trail", "astronomy"] },
+      { path: "notes/two.md", from: ["trails", "hiking"], to: ["trail", "hiking"] },
+    ]);
+    const migrated = TWIN.replace("[trails, hiking]", "[trail, hiking]");
+    expect(read(root, "notes/one.md")).toBe(migrated);
+    expect(read(root, "notes/two.md")).toBe(migrated);
+    expect(read(root, "notes/other.md")).toBe(note(["trail", "astronomy"]));
+  });
+
+  test("a block list with comments comes out byte-identical except the tag entries", async () => {
+    const before = [
+      "---",
+      "# Owner's note: keep this line",
+      'title: "Quoted title"  # an inline comment',
+      "type: note",
+      "updated: 2026-01-05",
+      "tags:",
+      "  # trail work",
+      "  - trails   # renamed",
+      "  - 'hiking'",
+      "  - trail",
+      "  - wood_working",
+      "aliases: [one,two]",
+      "---",
+      "",
+      "tags: [trails] in the body stays",
+      "",
+    ].join("\n");
+    const root = makeBrain({ aliases: { trails: "trail", wood_working: "woodworking" } }, { "notes/block.md": before });
+    const out = await apply(root);
+    expect(out.files).toEqual([
+      { path: "notes/block.md", from: ["trails", "hiking", "trail", "wood_working"], to: ["trail", "hiking", "woodworking"] },
+    ]);
+    // trails became trail, the later duplicate trail line went, wood_working was renamed.
+    expect(read(root, "notes/block.md")).toBe(
+      before.replace("  - trails   # renamed", "  - trail   # renamed").replace("  - trail\n", "").replace("  - wood_working", "  - woodworking")
+    );
+  });
+
+  test("flow sequences keep their quoting and separator, and a new tag is quoted when YAML would retype it", async () => {
+    const root = makeBrain({ aliases: { old: "2026", legacy: "kept" } }, {
+      "notes/flow.md": '---\ntitle: T\ntype: note\ntags: ["legacy",old,\'x y\'] # trailing\n---\n',
+    });
+    await apply(root);
+    expect(read(root, "notes/flow.md")).toBe('---\ntitle: T\ntype: note\ntags: [kept,"2026",\'x y\'] # trailing\n---\n');
+  });
+
+  test("updated is unchanged, and briefing does not list the file as silently modified", async () => {
+    const root = makeBrain({ aliases: { trails: "trail" } }, {
+      "notes/dated.md": "---\ntitle: Dated\ntype: note\ncreated: 2026-01-05\nupdated: 2026-01-05\ntags: [trails]\n---\n\nbody\n",
+    });
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    await apply(root);
+    expect(read(root, "notes/dated.md")).toContain("updated: 2026-01-05\n");
+    const { stdout } = await runCli(root, ["briefing"]);
+    // The file's mtime is today, past its 2026-01-05 `updated`: without the
+    // accepted baseline it would be listed.
+    expect(stdout).not.toContain("## Silently Modified");
+    const { stdout: tagsAfter } = await runCli(root, ["search", "--tag", "trail", "--json"]);
+    expect(JSON.parse(tagsAfter).results.map((r: { path: string }) => r.path)).toEqual(["notes/dated.md"]);
+  });
+
+  test("--dry-run reports the changes and leaves git status clean", async () => {
+    const root = makeBrain({ aliases: { trails: "trail" } });
+    git(root, "init", "-q");
+    git(root, "add", "-A");
+    git(root, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.com", "commit", "-qm", "fixture");
+    const out = await apply(root, "--dry-run");
+    expect(out.files).toEqual([{ path: "notes/b.md", from: ["trails", "hiking"], to: ["trail", "hiking"] }]);
+    expect(git(root, "status", "--porcelain")).toBe("");
+  });
+
+  test("a second run is a no-op", async () => {
+    const root = makeBrain({ aliases: { trails: "trail" } });
+    expect((await apply(root)).files).toHaveLength(1);
+    expect(await apply(root)).toEqual({ files: [], skipped: [] });
+  });
+
+  test("variant groups apply when their canonical is in the vocabulary, or all of them with --groups", async () => {
+    const vocabulary = { vocabulary: ["trail", "hiking", "astronomy"] };
+    const inVocabulary = await apply(makeBrain(vocabulary), "--dry-run");
+    expect(inVocabulary.files.map((f) => [f.path, f.to])).toEqual([["notes/b.md", ["trail", "hiking"]]]);
+    const all = await apply(makeBrain(vocabulary), "--dry-run", "--groups");
+    expect(all.files.map((f) => [f.path, f.to])).toEqual([
+      ["notes/b.md", ["trail", "hiking"]],
+      ["notes/d.md", ["woodworking", "astronomy"]],
+    ]);
+  });
+
+  test("--redundant removes a tag that repeats the type, and an emptied list becomes []", async () => {
+    const root = makeBrain({}, { "notes/e.md": note(["note", "astronomy"]), "notes/only.md": "---\ntitle: O\ntype: note\ntags:\n  - note\n---\n" });
+    const out = await apply(root, "--redundant");
+    expect(out.files.map((f) => [f.path, f.to])).toEqual([["notes/e.md", ["astronomy"]], ["notes/only.md", []]]);
+    expect(read(root, "notes/e.md")).toBe(note(["astronomy"]));
+    expect(read(root, "notes/only.md")).toBe("---\ntitle: O\ntype: note\ntags: []\n---\n");
+  });
+
+  test("--only limits the migration to one old tag", async () => {
+    const root = makeBrain({ aliases: { trails: "trail", "wood-working": "woodworking" } });
+    const out = await apply(root, "--only", "wood-working");
+    expect(out.files.map((f) => f.path)).toEqual(["notes/d.md"]);
+    expect(read(root, "notes/b.md")).toBe(CORPUS["notes/b.md"]);
+  });
+
+  test("a file whose frontmatter does not parse, or whose tags span lines, is skipped and not rewritten", async () => {
+    const broken = "---\ntitle: [unclosed\ntags: [trails]\n---\n";
+    const multiline = "---\ntitle: M\ntype: note\ntags: [trails,\n  hiking]\n---\n";
+    const root = makeBrain({ aliases: { trails: "trail" } }, { "notes/broken.md": broken, "notes/multi.md": multiline });
+    const out = await apply(root);
+    expect(out.files).toEqual([]);
+    expect(out.skipped).toEqual([
+      { path: "notes/broken.md", reason: "frontmatter does not parse" },
+      { path: "notes/multi.md", reason: "the tags flow sequence spans more than one line" },
+    ]);
+    expect(read(root, "notes/broken.md")).toBe(broken);
+    expect(read(root, "notes/multi.md")).toBe(multiline);
+  });
+
+  test("CRLF files keep their line endings", async () => {
+    const crlf = "---\r\ntitle: C\r\ntype: note\r\ntags:\r\n  - trails\r\n  - hiking\r\n---\r\nbody\r\n";
+    const root = makeBrain({ aliases: { trails: "trail" } }, { "notes/crlf.md": crlf });
+    await apply(root);
+    expect(read(root, "notes/crlf.md")).toBe(crlf.replace("- trails", "- trail"));
+  });
+
+  test("the rewrite flags are refused without --apply", async () => {
+    const { code, stderr } = await runCli(makeBrain(), ["tags", "--dry-run"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("--dry-run only applies with --apply");
   });
 });

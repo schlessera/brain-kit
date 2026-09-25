@@ -50,6 +50,7 @@ export const BOOLEAN_FLAGS = new Set([
   "upcoming",
   "no-git",
   "strict",
+  "apply", "groups", "redundant",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -58,7 +59,7 @@ export const VALUE_FLAGS = new Set([
   "max-tokens", "section", "title", "tags", "stamp", "path", "root", "name",
   "out", "include", "exclude",
   "center", "depth", "direction", "stale-days", "community",
-  "format", "as", "width", "allow-host",
+  "format", "as", "width", "allow-host", "only",
   "forget-cache",
   "set", "k",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
