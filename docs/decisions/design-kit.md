@@ -3711,7 +3711,7 @@ fifth `trend` turn and run 2's fourth each looked for git history. Both ran
 `find / -maxdepth 3 -iname "*.git" -type d` and got back repositories
 elsewhere on the host. The saved `escapedBrain` flag is `false` on both,
 because the rule (`export function escapesBrain`,
-`scripts/measure-show-block-server.ts:229`) looked only for `~/` and `/home/`
+`scripts/measure-show-block-server.ts:297`) looked only for `~/` and `/home/`
 paths when these turns ran. A bare `/` never matched that pattern. This brain
 lived under `/tmp`, so a path elsewhere outside `/home` would not have matched
 either. #360 closed the gap. So the
