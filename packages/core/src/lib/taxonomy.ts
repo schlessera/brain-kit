@@ -14,6 +14,7 @@ import type {
   AssetTitleRule,
   BrainConfig,
   PropagationRule,
+  TagsConfig,
   TypeSpec,
 } from "./config.js";
 import {
@@ -87,6 +88,8 @@ export class Taxonomy {
    * taxonomy, and null means "fall back to the default entry files".
    */
   readonly graphRoot: string | null;
+  /** `taxonomy.tags` from brain.config, or null when the block is absent. */
+  readonly tags: TagsConfig | null;
 
   private readonly classifierRules: ClassifierRule[];
   /** [prefix, type] sorted longest-prefix-first. */
@@ -105,6 +108,7 @@ export class Taxonomy {
     exclude: { dirs: string[]; files: string[]; segments: string[] };
     defaultStaleness: StalenessVerdict;
     graphRoot?: string | null;
+    tags?: TagsConfig | null;
   }) {
     this.types = args.types;
     this.dirAnchors = args.dirAnchors;
@@ -115,6 +119,7 @@ export class Taxonomy {
     this.exclude = args.exclude;
     this.defaultStaleness = args.defaultStaleness;
     this.graphRoot = args.graphRoot ?? null;
+    this.tags = args.tags ?? null;
 
     this.prefixIndex = Object.entries(this.types)
       .flatMap(([type, spec]) => spec.prefixes.map((p): [string, string] => [p, type]))
@@ -399,5 +404,6 @@ export function buildTaxonomy(opts: {
     exclude,
     defaultStaleness: user?.taxonomy?.defaultStaleness ?? DEFAULT_STALENESS,
     graphRoot: user?.graph?.root ?? null,
+    tags: user?.taxonomy?.tags ?? null,
   });
 }

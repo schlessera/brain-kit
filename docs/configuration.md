@@ -185,6 +185,46 @@ taxonomy: { defaultStaleness: { days: 180, severity: "info" } }
 
 Default: `{ days: 180, severity: "info" }`.
 
+### `taxonomy.tags`
+
+The tag vocabulary you mean to use, and how strictly to hold the corpus to it.
+[`brain tags`](cli.md#index--quality) reads it to report variants and drift, and
+`brain validate` warns against it. Nothing rewrites a document's tags. Every key
+is optional, and without the block both commands still work: `brain tags`
+reports variant groups and redundant tags, and `brain validate` checks only a
+tag's format.
+
+```ts
+taxonomy: {
+  tags: {
+    vocabulary: ["astronomy", "hiking", "woodworking"],
+    aliases: { "wood-working": "woodworking", scope: "telescope" },
+    redundant: "warn",
+    inflection: "en",
+  },
+}
+```
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `vocabulary` | `string[]` | none | The tags you mean to use. It makes one of them the proposed canonical tag of a variant group. `brain tags` lists the tags outside it with their use counts, and `brain validate` warns on each one. |
+| `aliases` | `Record<string, string>` | none | Old tag → canonical tag. `brain tags` lists the documents that still carry an old tag, and `brain validate` warns with "use `<canonical>`". A tag cannot alias itself. |
+| `redundant` | `"warn" \| "off"` | `"warn"` | Report tags equal to the document's `type` or to a directory of its path. They add no information the path does not already carry. |
+| `inflection` | `"en" \| "off"` | `"en"` | Group English singular/plural pairs (`trail`/`trails`, `story`/`stories`). Set `"off"` for a vocabulary in another language. |
+
+Every entry is a tag the way `brain validate` wants it: lowercase, no spaces.
+
+Two tags form a **variant group** when they reduce to the same key: lowercase,
+`-` and `_` stripped, and (with `inflection: "en"`) a simple English singular
+(`-ies` to `-y`, `-es` after `s`/`x`/`z`/`ch`/`sh`, then `-s`, keeping a stem of
+at least three letters). Keys also join when they are a small spelling distance
+apart: at most one edit for 5-7 characters, at most two for 8 or more, where
+swapping two neighbouring letters is one edit. Distance never joins keys
+containing digits (`q1-2026`/`q2-2026`). It also never joins a key to one that
+merely extends it (`trade`/`trader`), because an ending is inflection's call.
+The proposed canonical tag is a `vocabulary` member when the group has one,
+otherwise the most-used tag, then the shorter, then the first alphabetically.
+
 ## `exclude`
 
 Paths the indexer ignores. Your entries are **added to** the built-in defaults,
