@@ -22,7 +22,7 @@ import { queueAssetsMissingVectors } from "./assets.js";
 import { loadContextCache } from "./caches.js";
 import { generateChunkContexts, type EmbeddableChunk } from "./contexts.js";
 import type { AssetEmbedTask, IndexRun } from "./types.js";
-import { createVectorWriter, dropVectorsForDocuments, prepareVectorStore } from "./vectors.js";
+import { createVectorWriter, dropVectorsForDocuments, embeddingTextKey, prepareVectorStore } from "./vectors.js";
 
 /** Texts per provider call. */
 const BATCH_SIZE = 50;
@@ -42,18 +42,14 @@ function chunksNeedingVectors(run: IndexRun, after: number, through: number): Em
 }
 
 /** Generate contexts and vectors for one bounded page at a time. */
-async function embedMarkdownChunks(
-  run: IndexRun,
-  provider: EmbeddingProvider,
-  docIdsNeedingEmbedding: number[]
-): Promise<void> {
-  dropVectorsForDocuments(run.db, docIdsNeedingEmbedding);
+async function embedMarkdownChunks(run: IndexRun, provider: EmbeddingProvider): Promise<void> {
   const writeVectors = createVectorWriter(run, provider);
   // A finite high-water mark prevents an active editor from extending this run
   // forever. Failed chunks are passed by the cursor and retried NEXT run.
   const { last } = run.db.query("SELECT COALESCE(MAX(id), 0) AS last FROM chunks").get() as { last: number };
   let after = 0;
   let skipped = 0;
+  let reusedTotal = 0;
   let cache: Map<string, string> | undefined;
   while (after < last) {
     const chunks = chunksNeedingVectors(run, after, last);
@@ -61,7 +57,24 @@ async function embedMarkdownChunks(
     after = chunks[chunks.length - 1].id;
     cache ??= loadContextCache(run.root);
     const failedContext = await generateChunkContexts(run, chunks, cache);
-    const embeddable = chunks.filter((c) => !failedContext.has(c.id));
+    let embeddable = chunks.filter((c) => !failedContext.has(c.id));
+    // A `--force` rebuild's carried vectors answer for any chunk whose
+    // embedding text did not change: no provider call for those.
+    const carried = run.carriedVectors;
+    if (carried && carried.size > 0) {
+      const reused: Array<{ chunkId: number; content: string; embedding: Float32Array }> = [];
+      embeddable = embeddable.filter((c) => {
+        const vector = carried.get(embeddingTextKey(c.title, c.heading, c.content, c.context));
+        if (!vector) return true;
+        reused.push({ chunkId: c.id, content: c.content, embedding: vector });
+        return false;
+      });
+      if (reused.length > 0) {
+        const written = writeVectors(reused);
+        run.stats.embeddings += written;
+        reusedTotal += written;
+      }
+    }
     const batches: Array<{ texts: string[]; chunks: EmbeddableChunk[] }> = [];
     for (let i = 0; i < embeddable.length; i += BATCH_SIZE) {
       const slice = embeddable.slice(i, i + BATCH_SIZE);
@@ -92,6 +105,7 @@ async function embedMarkdownChunks(
     }
   }
   run.report(`  Embedded ${run.stats.embeddings} text chunks`);
+  if (reusedTotal > 0) run.report(`  Reused ${reusedTotal} vectors whose embedding text did not change`);
   if (skipped > 0) {
     run.warn(`  ${skipped} batch(es) skipped on errors — rerun with --embeddings to backfill`);
   }
@@ -171,7 +185,6 @@ async function embedAssets(
  */
 export async function runEmbeddingPhase(
   run: IndexRun,
-  docIdsNeedingEmbedding: number[],
   assetQueue: AssetEmbedTask[],
   assetsOnDisk: Set<string>
 ): Promise<boolean> {
@@ -181,7 +194,7 @@ export async function runEmbeddingPhase(
   if (!(await prepareVectorStore(run, provider))) return true;
 
   run.report("Generating embeddings...");
-  await embedMarkdownChunks(run, provider, docIdsNeedingEmbedding);
+  await embedMarkdownChunks(run, provider);
 
   assetQueue.push(...queueAssetsMissingVectors(run, assetQueue, assetsOnDisk));
   await embedAssets(run, provider, assetQueue);

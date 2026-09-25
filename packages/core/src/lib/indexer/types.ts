@@ -70,6 +70,12 @@ export interface IndexRun {
    *  stable regardless of how long the run took. */
   now: string;
   stats: IndexStats;
+  /**
+   * Markdown vectors a `--force` run held on to before wiping, by a hash of
+   * the text they were embedded from. Set only when the configured provider
+   * is the one that produced them; see `vectors.ts`.
+   */
+  carriedVectors?: Map<string, Float32Array>;
   /** Progress line, suppressed by `quiet`. */
   report(message: string): void;
   /** Warning line on stderr, including in quiet/JSON mode. */
@@ -123,8 +129,3 @@ export interface AssetEmbedTask {
   docType: string;
 }
 
-/** What the markdown persist phase produced for the phases downstream. */
-export interface PersistResult {
-  /** Document ids whose chunks were (re)written and so need embedding. */
-  docIdsNeedingEmbedding: number[];
-}

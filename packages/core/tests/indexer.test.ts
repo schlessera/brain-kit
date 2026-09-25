@@ -1238,3 +1238,112 @@ describe("the WAL after an index run (#423)", () => {
     }
   });
 });
+
+describe("an unchanged chunk keeps its vector (#417)", () => {
+  /** The working fake provider, recording every text it is asked to embed. */
+  function countingProvider(id = "fake:v1"): { provider: EmbeddingProvider; embedded: string[] } {
+    const embedded: string[] = [];
+    const base = makeProvider("ok", id);
+    return {
+      embedded,
+      provider: {
+        ...base,
+        async embed(texts) {
+          embedded.push(...texts);
+          return base.embed(texts);
+        },
+      },
+    };
+  }
+
+  const THREE = ["zeppelin", "blimp", "dirigible"];
+  const doc = mdSections("Airships", THREE);
+  /** The same document with the blimp section's text changed. */
+  const edited = doc.replace("blimp ".repeat(120).trim(), `${"blimp ".repeat(119)}airship`);
+
+  async function chunkIds(root: string): Promise<Record<string, number>> {
+    const db = await openRead(root);
+    const rows = db.prepare("SELECT id, heading FROM chunks ORDER BY chunk_index").all() as { id: number; heading: string }[];
+    db.close();
+    return Object.fromEntries(rows.map((r) => [r.heading, r.id]));
+  }
+
+  async function vectorCount(root: string): Promise<number> {
+    const db = await openRead(root);
+    const { n } = db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number };
+    db.close();
+    return n;
+  }
+
+  test.if(vecAvailable)("editing one of three sections embeds that section alone", async () => {
+    expect(edited).not.toBe(doc);
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    const before = await chunkIds(root);
+    expect(Object.keys(before)).toEqual(["About zeppelin", "About blimp", "About dirigible"]);
+    expect(await vectorCount(root)).toBe(3);
+
+    writeFileSync(join(root, "notes/airships.md"), edited);
+    const counting = countingProvider();
+    const stats = await runIndex(root, { embeddings: true, provider: counting.provider, enrichment: makeEnrichment() });
+
+    expect(counting.embedded.length).toBe(1);
+    expect(counting.embedded[0]).toContain("airship");
+    expect(stats.updated).toBe(1);
+    expect(stats.embeddings).toBe(1);
+    const after = await chunkIds(root);
+    expect(after["About zeppelin"]).toBe(before["About zeppelin"]);
+    expect(after["About dirigible"]).toBe(before["About dirigible"]);
+    expect(after["About blimp"]).not.toBe(before["About blimp"]);
+    expect(await vectorCount(root)).toBe(3);
+  });
+
+  test.if(vecAvailable)("an edit that archives a document updates its kept vectors' filter columns", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    writeFileSync(join(root, "notes/airships.md"), doc.replace("type: note", "type: note\nstatus: archived"));
+    const counting = countingProvider();
+    await runIndex(root, { embeddings: true, provider: counting.provider, enrichment: makeEnrichment() });
+
+    expect(counting.embedded).toEqual([]);
+    const db = await openRead(root);
+    const flags = db.prepare("SELECT is_archived FROM vec_chunks ORDER BY chunk_id").all();
+    db.close();
+    expect(flags).toEqual([{ is_archived: 1 }, { is_archived: 1 }, { is_archived: 1 }]);
+  });
+
+  test.if(vecAvailable)("--force with the same provider reuses every unchanged vector", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    const counting = countingProvider();
+    const stats = await runIndex(root, {
+      embeddings: true,
+      force: true,
+      provider: counting.provider,
+      enrichment: makeEnrichment(),
+    });
+
+    expect(counting.embedded).toEqual([]);
+    expect(stats.embeddings).toBe(3); // written back from the carried vectors
+    expect(await vectorCount(root)).toBe(3);
+  });
+
+  test.if(vecAvailable)("--force with a different provider re-embeds everything", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    const counting = countingProvider("fake:other");
+    const stats = await runIndex(root, {
+      embeddings: true,
+      force: true,
+      provider: counting.provider,
+      enrichment: makeEnrichment(),
+    });
+
+    expect(counting.embedded.length).toBe(3);
+    expect(stats.embeddings).toBe(3);
+  });
+
+  test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
+});

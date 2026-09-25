@@ -6,6 +6,7 @@
  * write together in a short immediate transaction.
  */
 import type { Database } from "bun:sqlite";
+import { createHash } from "crypto";
 
 import {
   embeddingIdentityMatches,
@@ -14,6 +15,7 @@ import {
   migrateVecSchema,
   setMeta,
 } from "../db.js";
+import { chunkTextForEmbedding } from "../chunker.js";
 import type { EmbeddingProvider } from "../seams.js";
 import type { IndexRun } from "./types.js";
 
@@ -46,6 +48,50 @@ export function dropMarkdownVectors(db: Database): void {
   } catch {
     // vec_chunks may not exist yet
   }
+}
+
+/** The key a carried vector is found by: a hash of the exact text it was embedded from. */
+export function embeddingTextKey(title: string, heading: string, content: string, context: string | null): string {
+  return createHash("sha256").update(chunkTextForEmbedding(title, heading, content, context)).digest("hex");
+}
+
+/**
+ * Hold on to the markdown vectors a `--force` rebuild is about to drop.
+ *
+ * The rebuild re-chunks every document with new ids, but most chunks come out
+ * with the same text and, through the context cache, the same context. Their
+ * vectors are reused by the embedding phase instead of paid for again. Kept in
+ * memory for the run only: no second copy of any vector is stored.
+ *
+ * Only when the configured provider produced the stored vectors, at its
+ * dimensions. A different provider means a different vector space, and
+ * `--force` is then exactly the full re-embed it asks for.
+ */
+export function carryMarkdownVectors(db: Database, provider: EmbeddingProvider): Map<string, Float32Array> {
+  const carried = new Map<string, Float32Array>();
+  if (!hasVecSupport(db)) return carried;
+  if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), provider.id)) return carried;
+  if (getMeta(db, "embedding_dimensions") !== String(provider.dimensions)) return carried;
+  let rows: Array<{ title: string; heading: string; content: string; context: string | null; embedding: Uint8Array }>;
+  try {
+    rows = db
+      .prepare(
+        `SELECT d.title, c.heading, c.content, c.context, v.embedding
+         FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
+         JOIN documents d ON d.id = c.document_id
+         WHERE d.asset_type = 'markdown'`
+      )
+      .all() as typeof rows;
+  } catch {
+    return carried; // vec_chunks may not exist yet
+  }
+  for (const row of rows) {
+    // Copied out: the blob's offset need not be 4-byte aligned.
+    const vector = new Float32Array(new Uint8Array(row.embedding).buffer);
+    if (vector.length !== provider.dimensions) continue;
+    carried.set(embeddingTextKey(row.title, row.heading, row.content, row.context), vector);
+  }
+  return carried;
 }
 
 /**
