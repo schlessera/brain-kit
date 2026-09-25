@@ -128,6 +128,51 @@ describe("brain_search", () => {
     expect(first).toHaveProperty("title");
     expect(first).toHaveProperty("type");
   });
+
+  // An agent judges whether a hit is current from these fields, so they are
+  // asserted by value on a document that sets every one of them.
+  test("carries updated, status, summary and deadline on each result", async () => {
+    const res = await client.callTool({
+      name: "brain_search",
+      arguments: { query: "bookshelf", mode: "fts", limit: 10 },
+    });
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as { results: Array<Record<string, unknown>> };
+    expect(sc.results.length).toBeGreaterThan(0);
+    for (const r of sc.results) {
+      expect(r.updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+    const status = sc.results.find((r) => r.path === "projects/active/bookshelf/status.md");
+    expect(status).toBeDefined();
+    expect(status!.summary).toBe("Latest session log and next action for the bookshelf build");
+    expect(status!.status).toBe("active");
+    expect(status!.deadline).toBe("2026-08-15");
+  });
+
+});
+
+// The MCP spec asks a tool with structured content to repeat it as JSON text.
+// That copy is compact: two-space indents cost tokens on every call.
+describe("text copy of structured results", () => {
+  const calls: Array<[string, Record<string, unknown>]> = [
+    ["brain_search", { query: "bookshelf", mode: "fts", limit: 5 }],
+    ["brain_list", { type: "project", limit: 5 }],
+    ["brain_graph", { path: "me/identity.md" }],
+  ];
+  for (const [name, args] of calls) {
+    test(`${name} text is compact JSON equal to structuredContent`, async () => {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError).toBeFalsy();
+      // A non-empty payload makes the newline check cover more than the
+      // envelope's own punctuation: results and documents carry prose.
+      const sc = res.structuredContent as Record<string, unknown[]>;
+      expect(Object.values(sc).some((v) => Array.isArray(v) && v.length > 0)).toBe(true);
+      const [first] = res.content as Array<{ type: string; text: string }>;
+      expect(first.type).toBe("text");
+      expect(first.text).not.toContain("\n");
+      expect(JSON.parse(first.text)).toEqual(sc);
+    });
+  }
 });
 
 describe("brain_list", () => {

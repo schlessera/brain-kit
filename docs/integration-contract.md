@@ -64,11 +64,13 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
-`status`, `relevance`, plus ranking metadata. Treat unknown fields as
-additive; never rely on field order.
+`status`, `relevance`, `updated` (`YYYY-MM-DD`), `summary` (string or
+`null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0), plus ranking
+metadata. Treat unknown fields as additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
-`updated` (strings); `summary` (string or `null`); `tags` (the document's tags
+`updated` (strings); `summary` (string or `null`); `deadline` (`YYYY-MM-DD`,
+or `null` when the frontmatter sets none; additive in 0.38.0); `tags` (the document's tags
 joined with `", "`, or `null` when it has none — a string, not an array);
 `score` (always `0`, since a filter has nothing to rank) and `snippet` (always
 `""`).
@@ -253,12 +255,17 @@ Tool names and input schemas are stable:
 
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
-| `brain_search` | readOnly | `{ results, warnings }` |
+| `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0 |
 | `brain_context` | readOnly | `{ context, warnings }` |
 | `brain_read` | readOnly | none — the file text, verbatim, is the first `content` block |
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], warnings }` |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+
+`brain_search`, `brain_list` and `brain_graph` repeat their structuredContent
+as the first `content` block, and the write tools return their result object
+there. Both are compact JSON, with no indentation or line breaks (since
+0.38.0). `brain_context`'s first block is the context text itself.
 
 The input schemas, as `tools/list` reports them, are pinned in
 [`packages/core/tests/mcp-input-schemas.json`](../packages/core/tests/mcp-input-schemas.json)

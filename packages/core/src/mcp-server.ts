@@ -160,6 +160,10 @@ export async function startMcpServer(
     title: z.string(),
     type: z.string(),
     relevance: z.string().nullish(),
+    status: z.string().nullish(),
+    summary: z.string().nullish(),
+    updated: z.string().nullish(),
+    deadline: z.string().nullish(),
     tags: z.string().nullish(),
     score: z.number().nullish(),
     snippet: z.string().nullish(),
@@ -214,6 +218,10 @@ export async function startMcpServer(
             title: r.title,
             type: r.type,
             relevance: r.relevance,
+            status: r.status,
+            summary: r.summary,
+            updated: r.updated,
+            deadline: r.deadline ?? null,
             tags: r.tags,
             score: r.score,
             snippet: r.snippet,
@@ -222,7 +230,7 @@ export async function startMcpServer(
         };
 
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
           structuredContent: structured,
         };
       } catch (e) {
@@ -361,7 +369,7 @@ export async function startMcpServer(
         };
 
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
           structuredContent: structured,
         };
       } catch (e) {
@@ -470,7 +478,7 @@ export async function startMcpServer(
         const structured = { edges: uniqueEdges, warnings };
 
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
           structuredContent: structured,
         };
       } catch (e) {
@@ -513,7 +521,7 @@ export async function startMcpServer(
           { root: brain.root, taxonomy: brain.taxonomy }
         );
 
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (e) {
         return errorResult(e);
       }
@@ -586,7 +594,7 @@ export async function startMcpServer(
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ path: params.path, updated: parsed.data.updated, changes }, null, 2),
+            text: JSON.stringify({ path: params.path, updated: parsed.data.updated, changes }),
           }],
         };
       } catch (e) {
@@ -620,7 +628,7 @@ export async function startMcpServer(
             ? undefined
             : (d) => indexAll(d, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true }),
         });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
       } catch (e) {
         return errorResult(e);
       }

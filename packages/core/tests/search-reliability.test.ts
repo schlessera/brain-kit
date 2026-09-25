@@ -156,6 +156,22 @@ test("an invalid now is refused rather than scoring every result NaN", async () 
   ).rejects.toThrow("now must be a valid Date");
 });
 
+test("every lane returns the document's deadline", async () => {
+  addDoc(1, 1, 0);
+  addDoc(2, 1, 0.2);
+  db.run("UPDATE documents SET deadline = '2026-02-01' WHERE id = 1");
+  const lanes = [
+    { query: "topic", mode: "fts" as const },
+    { query: "topic", mode: "vector" as const },
+    { type: "note" },
+  ];
+  for (const opts of lanes) {
+    const { results } = await hybridSearch(db, opts, { embeddings: provider });
+    // Both documents share an `updated` date, so the filter lane's order is not pinned.
+    expect(results.map(r => [r.path, r.deadline]).sort()).toEqual([["notes/1.md", "2026-02-01"], ["notes/2.md", null]]);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The full-text lane over fixtures/corpus (#400)
 // ---------------------------------------------------------------------------
