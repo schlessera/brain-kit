@@ -73,7 +73,7 @@ number from a broken run would be read as a real result.
 | Refused when | Why |
 | --- | --- |
 | the set is missing or has no queries | there is nothing to measure |
-| an expected path does not exist in the brain, or leads out of it | a typo, or a moved or deleted document, would score as a permanent miss |
+| an expected path does not exist in the brain, leads out of it, or is not a regular file | a typo, or a moved or deleted document, would score as a permanent miss, and a directory is never a search result |
 | an expected path exists but is not in the index | an excluded directory, or a file without `title`/`type`, can never be found |
 | the index is older than the markdown | a document changed, appeared or went away since the last `brain index`, so the run would score yesterday's brain. Run `brain index` and try again. An indexed file that cannot be read refuses too, since its freshness cannot be checked |
 | a requested lane degraded | `--mode vector` or `--mode hybrid` with no embedding provider, a model mismatch, a timeout. The run never scores the full-text fallback under the vector lane's name |

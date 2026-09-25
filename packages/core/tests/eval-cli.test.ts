@@ -4,8 +4,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { Database } from "bun:sqlite";
 import { basename, join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -131,7 +132,40 @@ describe("validity gates exit 2 with no score", () => {
     const { code, stdout, stderr } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
     expect(code).toBe(2);
     expect(stdout).toBe("");
+    // The not-indexed gate would also refuse this path, so the assertion is
+    // on the missing-on-disk diagnostic itself.
+    expect(stderr).toContain("1 expected path(s) do not exist in the brain");
     expect(stderr).toContain("knee: health/no-such-note.md");
+  });
+
+  // Assets are indexed only on an embedding run, so the rows are staged
+  // directly; the freshness gate checks markdown only, so nothing else
+  // would notice an asset that is now a directory.
+  test("an indexed expected asset that is now a directory, or a link to one", async () => {
+    const db = new Database(join(root, "brain.db"));
+    try {
+      for (const path of ["studies/star-chart.pdf", "studies/star-link.pdf"]) {
+        db.run(
+          "INSERT INTO documents(path,title,type,status,created,updated,content,asset_type,indexed_at) VALUES (?,?,?,?,?,?,?,?,?)",
+          [path, "Star chart", "study", "active", "2026-07-01", "2026-07-01", "", "application/pdf", "2026-07-01"]
+        );
+      }
+    } finally {
+      db.close();
+    }
+    // The fixture's real PDF, replaced by a directory of the same name.
+    rmSync(join(root, "studies", "star-chart.pdf"));
+    mkdirSync(join(root, "studies", "star-chart.pdf"));
+    symlinkSync(join(root, "studies", "astronomy"), join(root, "studies", "star-link.pdf"));
+
+    for (const path of ["studies/star-chart.pdf", "studies/star-link.pdf"]) {
+      const set = writeSet("not-a-file.jsonl", [TOP1[0], { ...TOP1[1], expected: [path] }]);
+      const { code, stdout, stderr } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
+      expect(stderr).toContain("are not regular files");
+      expect(stderr).toContain(`knee: ${path}`);
+      expect(code).toBe(2);
+      expect(stdout).toBe("");
+    }
   });
 
   // The outside file is real, so without containment the path would exist

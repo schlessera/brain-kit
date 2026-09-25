@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { existsSync, readFileSync, realpathSync } from "fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "fs";
 import matter from "gray-matter";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
@@ -104,12 +104,15 @@ function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): v
   const indexed = db.prepare("SELECT 1 FROM documents WHERE path = ?");
   const outside: string[] = [];
   const missing: string[] = [];
+  const notFiles: string[] = [];
   const unindexed: string[] = [];
   for (const query of queries) {
     for (const path of query.expected) {
       const full = safeResolve(root, path);
       if (!full) outside.push(`${query.id}: ${path}`);
       else if (!existsSync(full)) missing.push(`${query.id}: ${path}`);
+      // `full` is canonical, so a symlink has already been followed here.
+      else if (!statSync(full).isFile()) notFiles.push(`${query.id}: ${path}`);
       else if (!indexed.get(path)) unindexed.push(`${query.id}: ${path}`);
     }
   }
@@ -118,6 +121,9 @@ function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): v
   }
   if (missing.length > 0) {
     throw new EvalRefused(`${missing.length} expected path(s) do not exist in the brain`, missing);
+  }
+  if (notFiles.length > 0) {
+    throw new EvalRefused(`${notFiles.length} expected path(s) are not regular files`, notFiles);
   }
   if (unindexed.length > 0) {
     throw new EvalRefused(
