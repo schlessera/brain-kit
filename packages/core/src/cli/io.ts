@@ -61,7 +61,7 @@ export const VALUE_FLAGS = new Set([
   "center", "depth", "direction", "stale-days", "community",
   "format", "as", "width", "allow-host", "only",
   "forget-cache",
-  "set", "k",
+  "set", "k", "now",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
 ]);
 

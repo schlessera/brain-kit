@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aggregate, ContaminationScanner, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery } from "../src/lib/retrieval-eval";
+import { aggregate, ContaminationScanner, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery, selectPaths } from "../src/lib/retrieval-eval";
 import type { SearchResult } from "../src/lib/types";
 
 const line = (value: object) => JSON.stringify(value);
@@ -27,10 +27,23 @@ describe("parseEvalSet", () => {
     expect(set.queries).toHaveLength(1);
   });
 
-  test("a header key this version does not evaluate is refused, not ignored", () => {
-    expect(() => parseEvalSet([line({ now: "2026-07-12" }), line(query)].join("\n"))).toThrow(
-      /line 1: header key "now" is not supported/
-    );
+  test("the header pins now; an unknown header key or a bad date is refused, not ignored", () => {
+    expect(parseEvalSet([line({ now: "2026-07-12" }), line(query)].join("\n")).header).toEqual({ now: "2026-07-12" });
+    expect(() => parseEvalSet([line({ today: "2026-07-12" }), line(query)].join("\n"))).toThrow(/^line 1: header: /);
+    expect(() => parseEvalSet([line({ now: "2026-02-30x" }), line(query)].join("\n"))).toThrow(/^line 1: header: now: /);
+    expect(() => parseEvalSet([line({ now: "yesterday" }), line(query)].join("\n"))).toThrow(/^line 1: header: now: /);
+  });
+
+  test("a query gives expected or a selector, never both or neither", () => {
+    const select = { field: "deadline", after: "now", order: "asc" as const, take: 1 };
+    expect(parseEvalSet(line({ id: "s", q: "due next", class: "time", expect: { select } })).queries[0].expect).toEqual({ select });
+    const { expected: _drop, ...bare } = query;
+    expect(() => parseEvalSet(line(bare))).toThrow(/exactly one of "expected" and "expect"/);
+    expect(() => parseEvalSet(line({ ...query, expect: { select } }))).toThrow(/exactly one of "expected" and "expect"/);
+    expect(() => parseEvalSet(line({ ...bare, expect: { select: { ...select, before: "now" } } }))).toThrow(/after or before, not both/);
+    expect(() => parseEvalSet(line({ ...bare, expect: { select: { ...select, take: 0 } } }))).toThrow(/^line 1: /);
+    expect(() => parseEvalSet(line({ ...query, stale: [] }))).toThrow(/^line 1: stale: /);
+    expect(() => parseEvalSet(line({ ...query, class: "no-answer", expected: [], stale: ["a.md"] }))).toThrow(/no current answer/);
   });
 
   test("a header-shaped object after the first line is a malformed query", () => {
@@ -152,5 +165,52 @@ describe("ContaminationScanner", () => {
   test("a query with regex characters is matched literally", () => {
     expect(scan([q("re", "what is (a+b)* in c++ code")], "what is (a+b)* in c++ code")).toHaveLength(1);
     expect(scan([q("re", "what is (a+b)* in c++ code")], "what is aab in c code")).toEqual([]);
+  });
+});
+
+describe("current_first", () => {
+  const ks = [1, 3, 10];
+  const stale = (expected: string[], staleList: string[], ...paths: string[]) =>
+    scoreQuery("fts", { ...query, expected, stale: staleList }, results(...paths), ks).current_first;
+
+  test("true when the current path ranks above every stale one", () => {
+    expect(stale(["now.md"], ["old.md"], "now.md", "old.md")).toBe(true);
+  });
+
+  test("false when a stale path ranks above it, or it is absent while a stale path is in the top k", () => {
+    expect(stale(["now.md"], ["old.md"], "old.md", "now.md")).toBe(false);
+    expect(stale(["now.md"], ["old.md"], "x.md", "old.md")).toBe(false);
+  });
+
+  test("true when no stale path is in the top max(k), wherever the current one is", () => {
+    const deep = Array.from({ length: 10 }, (_, i) => `d${i}.md`);
+    expect(stale(["now.md"], ["old.md"], ...deep, "old.md")).toBe(true);
+    expect(stale(["now.md"], ["old.md"], "x.md")).toBe(true);
+  });
+});
+
+describe("selectPaths", () => {
+  const now = new Date("2026-07-12T00:00:00Z");
+  const docs = [
+    { path: "b.md", data: { type: "project", deadline: new Date("2026-08-15T00:00:00Z") } },
+    { path: "a.md", data: { type: "project", deadline: "2026-08-15" } },
+    { path: "c.md", data: { type: "project", deadline: "2026-06-01" } },
+    { path: "d.md", data: { type: "note", deadline: "2026-09-01" } },
+    { path: "e.md", data: { type: "project", deadline: "someday" } },
+    { path: "f.md", data: { type: "project" } },
+  ];
+
+  test("after now, soonest first, ties by path; unreadable or missing dates are never selected", () => {
+    expect(selectPaths({ field: "deadline", after: "now", order: "asc", take: 5 }, docs, now)).toEqual(["a.md", "b.md", "d.md"]);
+  });
+
+  test("type narrows, before bounds, desc reverses, take cuts", () => {
+    expect(selectPaths({ type: "project", field: "deadline", after: "now", order: "asc", take: 5 }, docs, now)).toEqual(["a.md", "b.md"]);
+    expect(selectPaths({ field: "deadline", before: "now", order: "desc", take: 5 }, docs, now)).toEqual(["c.md"]);
+    expect(selectPaths({ field: "deadline", before: "2026-12-31", order: "desc", take: 2 }, docs, now)).toEqual(["d.md", "a.md"]);
+  });
+
+  test("the bound is strict: a date equal to now is not after it", () => {
+    expect(selectPaths({ field: "deadline", after: "2026-08-15", order: "asc", take: 5 }, docs, now)).toEqual(["d.md"]);
   });
 });

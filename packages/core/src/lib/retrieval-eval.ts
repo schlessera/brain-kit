@@ -25,44 +25,77 @@ export const MRR_CUTOFF = 10;
 
 export type EvalMode = "fts" | "vector" | "hybrid";
 
+/** A calendar date or a full ISO timestamp that `Date` can read. */
+const isoDateSchema: z.ZodType<string> = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2})?)?$/, "an ISO date (YYYY-MM-DD) or timestamp")
+  .refine((v) => !Number.isNaN(Date.parse(v)), "not a real date");
+
+/**
+ * A time-relative answer: the documents whose frontmatter date `field` lies
+ * after (or before) a bound, in `order`, first `take`. `"now"` is the run's
+ * pinned now.
+ */
+const selectSchema = z
+  .object({
+    type: z.string().min(1).optional(),
+    field: z.string().min(1),
+    after: z.union([z.literal("now"), isoDateSchema]).optional(),
+    before: z.union([z.literal("now"), isoDateSchema]).optional(),
+    order: z.enum(["asc", "desc"]),
+    take: z.number().int().positive(),
+  })
+  .strict()
+  .refine((s) => s.after === undefined || s.before === undefined, "give after or before, not both");
+
+export type Selector = z.infer<typeof selectSchema>;
+
+/** Whether `value` is a date the set format accepts (as for the header's `now`). */
+export function parseEvalDate(value: string): boolean {
+  return isoDateSchema.safeParse(value).success;
+}
+
 const querySchema = z
   .object({
     id: z.string().min(1),
     q: z.string().trim().min(1),
     class: z.string().min(1),
-    expected: z.array(z.string().min(1)),
+    expected: z.array(z.string().min(1)).optional(),
+    expect: z.object({ select: selectSchema }).strict().optional(),
+    stale: z.array(z.string().min(1)).min(1).optional(),
     lang: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((query, ctx) => {
-    if (query.expected.length === 0 && query.class !== NO_ANSWER_CLASS) {
-      ctx.addIssue({
-        code: "custom",
-        message: `an empty "expected" requires class "${NO_ANSWER_CLASS}"`,
-      });
+    const issue = (message: string) => ctx.addIssue({ code: "custom", message });
+    if ((query.expected === undefined) === (query.expect === undefined)) {
+      issue('give exactly one of "expected" and "expect"');
+      return;
     }
-    if (query.expected.length > 0 && query.class === NO_ANSWER_CLASS) {
-      ctx.addIssue({
-        code: "custom",
-        message: `a "${NO_ANSWER_CLASS}" query must have an empty "expected"`,
-      });
+    if (query.class === NO_ANSWER_CLASS) {
+      if (query.expect) issue(`a "${NO_ANSWER_CLASS}" query cannot select its answers`);
+      else if (query.expected!.length > 0) issue(`a "${NO_ANSWER_CLASS}" query must have an empty "expected"`);
+      if (query.stale) issue(`a "${NO_ANSWER_CLASS}" query has no current answer for "stale" to rank below`);
+    } else if (query.expected?.length === 0) {
+      issue(`an empty "expected" requires class "${NO_ANSWER_CLASS}"`);
     }
   });
 
+/** A query as written in the set: `expected` or a selector that resolves to it. */
 export type EvalQuery = z.infer<typeof querySchema>;
 
-/**
- * Header keys this version understands. The header line is reserved for
- * date-relative sets (`now`), which this version does not evaluate yet, so a
- * header naming any key is refused rather than silently ignored.
- */
-const KNOWN_HEADER_KEYS: readonly string[] = [];
+/** A query whose selector, if any, has been resolved for this run. */
+export type ResolvedQuery = EvalQuery & { expected: string[] };
+
+const headerSchema = z.object({ now: isoDateSchema.optional() }).strict();
+
+export type SetHeader = z.infer<typeof headerSchema>;
 
 /** A malformed set: a usage error that names the line. */
 export class EvalSetError extends Error {}
 
 export interface ParsedSet {
-  header: Record<string, unknown> | null;
+  header: SetHeader | null;
   queries: EvalQuery[];
 }
 
@@ -77,7 +110,7 @@ function describeIssues(error: z.ZodError): string {
  * is a header when it is an object with neither `id` nor `q`.
  */
 export function parseEvalSet(text: string): ParsedSet {
-  let header: Record<string, unknown> | null = null;
+  let header: SetHeader | null = null;
   const queries: EvalQuery[] = [];
   const seen = new Map<string, number>();
   let first = true;
@@ -101,13 +134,11 @@ export function parseEvalSet(text: string): ParsedSet {
     const isFirst = first;
     first = false;
     if (isFirst && !("id" in value) && !("q" in value)) {
-      const unknown = Object.keys(value).filter((k) => !KNOWN_HEADER_KEYS.includes(k));
-      if (unknown.length > 0) {
-        throw new EvalSetError(
-          `line ${lineNo}: header key ${unknown.map((k) => `"${k}"`).join(", ")} is not supported by this version of brain eval`
-        );
+      const parsedHeader = headerSchema.safeParse(value);
+      if (!parsedHeader.success) {
+        throw new EvalSetError(`line ${lineNo}: header: ${describeIssues(parsedHeader.error)}`);
       }
-      header = value as Record<string, unknown>;
+      header = parsedHeader.data;
       continue;
     }
 
@@ -167,12 +198,18 @@ export interface QueryOutcome {
   top1_score: number | null;
   /** The top max(k) result paths, in rank order. */
   top: string[];
+  /**
+   * For a query with `stale` paths: whether the first expected path ranks
+   * above every stale one, or no stale path is in the top max(k). Null when
+   * the query names no stale paths.
+   */
+  current_first: boolean | null;
 }
 
 /** Score one query's ranked results against its judgments. */
 export function scoreQuery(
   mode: EvalMode,
-  query: EvalQuery,
+  query: ResolvedQuery,
   results: SearchResult[],
   ks: number[]
 ): QueryOutcome {
@@ -182,6 +219,14 @@ export function scoreQuery(
   const answerable = query.expected.length > 0;
   const hitAt: Record<string, boolean> = {};
   for (const k of ks) hitAt[String(k)] = rank !== null && rank <= k;
+
+  let currentFirst: boolean | null = null;
+  if (query.stale) {
+    const stale = new Set(query.stale);
+    const staleIndex = results.findIndex((r) => stale.has(r.path));
+    const staleRank = staleIndex === -1 ? null : staleIndex + 1;
+    currentFirst = staleRank === null || staleRank > Math.max(...ks) || (rank !== null && rank < staleRank);
+  }
 
   return {
     mode,
@@ -194,6 +239,7 @@ export function scoreQuery(
     rr: answerable ? (rank !== null && rank <= MRR_CUTOFF ? 1 / rank : 0) : null,
     top1_score: results.length > 0 ? results[0].score : null,
     top: results.slice(0, Math.max(...ks)).map((r) => r.path),
+    current_first: currentFirst,
   };
 }
 
@@ -209,6 +255,8 @@ export interface ScoreRow {
   oracle: number | null;
   /** Median top-1 score of these queries; null when none returned a result. */
   top1_score_median: number | null;
+  /** Share of this row's queries with `stale` paths that rank the current one first; null when none has any. */
+  current_first: number | null;
 }
 
 function mean(values: number[]): number {
@@ -225,8 +273,12 @@ function median(values: number[]): number | null {
 function row(mode: EvalMode, cls: string | null, outcomes: QueryOutcome[], ks: number[]): ScoreRow {
   const top1 = median(outcomes.flatMap((o) => (o.top1_score === null ? [] : [o.top1_score])));
   if (cls === NO_ANSWER_CLASS) {
-    return { mode, class: cls, n: outcomes.length, hit_at: null, mrr_at_10: null, oracle: null, top1_score_median: top1 };
+    return {
+      mode, class: cls, n: outcomes.length, hit_at: null, mrr_at_10: null, oracle: null,
+      top1_score_median: top1, current_first: null,
+    };
   }
+  const judged = outcomes.flatMap((o) => (o.current_first === null ? [] : [o.current_first ? 1 : 0]));
   const hitAt: Record<string, number> = {};
   for (const k of ks) hitAt[String(k)] = mean(outcomes.map((o) => (o.hit_at![String(k)] ? 1 : 0)));
   return {
@@ -237,6 +289,7 @@ function row(mode: EvalMode, cls: string | null, outcomes: QueryOutcome[], ks: n
     mrr_at_10: mean(outcomes.map((o) => o.rr!)),
     oracle: mean(outcomes.map((o) => (o.rank !== null ? 1 : 0))),
     top1_score_median: top1,
+    current_first: judged.length > 0 ? mean(judged) : null,
   };
 }
 
@@ -316,4 +369,41 @@ export class ContaminationScanner {
   warnings(): string[] {
     return [...this.found];
   }
+}
+
+/** A markdown document's frontmatter, for resolving selectors. */
+export interface FrontmatterDocument {
+  path: string;
+  data: Record<string, unknown>;
+}
+
+/** A frontmatter date as epoch ms: a YAML date (gray-matter gives a Date) or an ISO string. */
+function dateValue(value: unknown): number | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime();
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The paths a selector picks at `now`: documents (of `type`, when given)
+ * whose `field` is a date strictly after / before the bound, ordered by that
+ * date (ties by path), first `take`. A document without a readable date in
+ * `field` is never selected.
+ */
+export function selectPaths(select: Selector, documents: FrontmatterDocument[], now: Date): string[] {
+  const bound = (b: string) => (b === "now" ? now.getTime() : Date.parse(b));
+  const after = select.after === undefined ? null : bound(select.after);
+  const before = select.before === undefined ? null : bound(select.before);
+  const candidates = documents.flatMap((doc) => {
+    if (select.type !== undefined && doc.data.type !== select.type) return [];
+    const at = dateValue(doc.data[select.field]);
+    if (at === null) return [];
+    if (after !== null && !(at > after)) return [];
+    if (before !== null && !(at < before)) return [];
+    return [{ path: doc.path, at }];
+  });
+  const sign = select.order === "asc" ? 1 : -1;
+  candidates.sort((a, b) => sign * (a.at - b.at) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return candidates.slice(0, select.take).map((c) => c.path);
 }

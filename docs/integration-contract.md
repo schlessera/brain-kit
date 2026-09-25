@@ -123,7 +123,9 @@ Added in 0.38.0. The query-set format and how to read the numbers are in
     "rerank": "heuristic",
     "k": [1, 3, 10],
     "pool": 20,                  // results fetched per query: max(20, k)
-    "now": "2026-07-12T09:00:00.000Z" // the instant recency was measured from
+    "now": "2026-07-12T09:00:00.000Z" // the instant recency and selectors were
+                                 // measured from: the set header's now, else
+                                 // --now, else the wall clock
   },
   "rows": [
     // Per mode: one overall row over the answerable queries (class null),
@@ -132,10 +134,15 @@ Added in 0.38.0. The query-set format and how to read the numbers are in
       "hit_at": { "1": 0.73, "3": 0.88, "10": 0.96 },  // keyed by each k
       "mrr_at_10": 0.81,
       "oracle": 0.96,            // share with an expected path in the pool
-      "top1_score_median": 3.84 },
-    // A no-answer class is never scored: hit_at, mrr_at_10 and oracle are null.
+      "top1_score_median": 3.84,
+      "current_first": 0.5 },    // share of the row's queries with `stale` paths
+                                 // that rank the current one first; null when
+                                 // none has any (additive in 0.38.0)
+    // A no-answer class is never scored: hit_at, mrr_at_10, oracle and
+    // current_first are null.
     { "mode": "fts", "class": "no-answer", "n": 1,
-      "hit_at": null, "mrr_at_10": null, "oracle": null, "top1_score_median": 1.37 }
+      "hit_at": null, "mrr_at_10": null, "oracle": null, "top1_score_median": 1.37,
+      "current_first": null }
   ],
   "per_query": [
     { "mode": "fts", "id": "dob", "class": "alias", "q": "the Dobsonian",
@@ -144,26 +151,38 @@ Added in 0.38.0. The query-set format and how to read the numbers are in
       "hit_at": { "1": false, "3": true, "10": true },  // null for no-answer
       "rr": 0.5,                 // 1/rank, 0 below rank 10; null for no-answer
       "top1_score": 4.02,        // null when the search returned nothing
-      "top": ["studies/astronomy/overview.md", "studies/telescope-setup.md"] }  // up to max(k) paths
+      "top": ["studies/astronomy/overview.md", "studies/telescope-setup.md"],  // up to max(k) paths
+      "current_first": null }    // with `stale`: the first expected path ranks above
+                                 // every stale one, or no stale path is in the top
+                                 // max(k); null without `stale` (additive in 0.38.0)
   ],
   "warnings": []                 // findings that do not refuse the run
 }
 ```
 
-Every `row` carries the same seven keys and every `per_query` entry the same
-ten; a consumer must treat an unknown additional key as additive. `hit_at`
+Every `row` carries the same eight keys and every `per_query` entry the same
+eleven; a consumer must treat an unknown additional key as additive. `hit_at`
 keys are the `--k` values as strings. A query set of only `no-answer` queries
 has no overall row.
 
 The command refuses, exiting `2` with the reason on stderr and nothing on
-stdout or in `--out`, when the set is missing or empty, an expected path is
-outside the brain (symlinks followed), not a file, or not in the index, the
-index is older than the markdown on disk or an indexed file cannot be read to
-tell, or a requested lane degraded (any `warnings` from the search, such as
-`--mode vector` with no embedding provider). Usage errors exit `1`: a malformed
-set line (named by number), a value option given no value, a `--k` cutoff above
-1000, and an `--out` outside the brain, which is refused before any search
-runs. `--set` and `--out` resolve against the brain root.
+stdout or in `--out`, when the set is missing or empty, an expected or `stale`
+path is outside the brain (symlinks followed), not a file, or not in the index,
+a selector selects no document, the index is older than the markdown on disk or
+an indexed file cannot be read to tell, or a requested lane degraded (any
+`warnings` from the search, such as `--mode vector` with no embedding
+provider). Usage errors exit `1`: a malformed set line (named by number), a
+value option given no value, a `--k` cutoff above 1000, an `--now` that is not
+an ISO date, and an `--out` outside the brain, which is refused before any
+search runs. `--set` and `--out` resolve against the brain root.
+
+The query-set format (additive in 0.38.0): the optional first-line header
+takes `now` (an ISO date or timestamp), and no other key. A query gives either
+`expected` or `expect.select`, a selector `{ type?, field, after? | before?,
+order, take }` over frontmatter dates, whose resolved paths are printed as that
+query's `expected` in `per_query`. An optional `stale` list of paths feeds
+`current_first`. When the header sets `now` and `--now` differs, the header
+wins and `warnings` says the flag was ignored.
 
 `warnings` names each indexed document that contains the set's queries, as
 `contamination: <path> contains the text of <n> of the set's queries (<ids>)`,
