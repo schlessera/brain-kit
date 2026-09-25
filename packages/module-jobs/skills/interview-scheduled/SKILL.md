@@ -9,8 +9,19 @@ A booked interview touches four places. Doing three of them leaves the summary
 layer lying about where things stand, which is exactly when a date gets missed.
 This skill does all four in one pass.
 
-The opportunity directory is whatever `opportunitiesDir` is set to in the jobs
-module config (default `career/opportunities/`).
+Find the opportunity directory before anything else, the way
+`brain jobs scaffold` does:
+
+1. Run `brain config check --json`. If it reports `"valid": false`, stop and
+   point the user at `brain validate`. Otherwise read
+   `taxonomy.types.opportunity.dir`, and use it when it is a string.
+2. When it is `null`, the taxonomy leaves the directory to the module. Run
+   `brain config get modules.@schlessera/brain-module-jobs`. If that prints
+   `null`, the jobs module is not enabled: stop, there is nowhere to write.
+   Otherwise use its `opportunitiesDir`, which is `career/opportunities` by
+   default when the block does not set it.
+
+Every path below writes the directory you resolved as `{opportunities}`.
 
 ## Prompts
 
@@ -24,11 +35,11 @@ Ask for anything missing before writing.
 
 ## Actions
 
-1. **Locate the opportunity** at `career/opportunities/{company-slug}/`.
+1. **Locate the opportunity** at `{opportunities}/{company-slug}/`.
    If it does not exist, stop and suggest `/research-opportunity` first — this
    skill records interviews for tracked opportunities, it does not create them.
 
-2. **Update `career/opportunities/{company-slug}/status.md`**
+2. **Update `{opportunities}/{company-slug}/status.md`**
    - Add a Timeline entry: today's date, the round, the interview date and time
      with timezone, the interviewer.
    - Set the Overview **Status** to `interviewing`.
@@ -36,7 +47,7 @@ Ask for anything missing before writing.
    - Set frontmatter `deadline:` to the interview date.
    - Bump `updated`.
 
-3. **Update the pipeline index** (`career/opportunities/_index.md`)
+3. **Update the pipeline index** (`{opportunities}/_index.md`)
    - Put the concrete date in the row's Status, e.g.
      `interviewing — {round} Tue 7 Jul 15:30 CEST ({interviewer})`.
    - Update the row's Updated column and the file's frontmatter `updated`.
@@ -50,7 +61,7 @@ Ask for anything missing before writing.
      than letting the focus doc grow.
    - Bump `updated`.
 
-5. **Create or update `career/opportunities/{company-slug}/interview-prep.md`**
+5. **Create or update `{opportunities}/{company-slug}/interview-prep.md`**
    - If it exists: update the call details, set `deadline:` to the interview
      date, bump `updated`.
    - If not, create it:
@@ -79,16 +90,16 @@ Ask for anything missing before writing.
 ## References
 
 ### Files to read
-- `career/opportunities/{company-slug}/status.md` — current state, timeline,
+- `{opportunities}/{company-slug}/status.md` — current state, timeline,
   contacts
-- `career/opportunities/{company-slug}/research.md` — prep source material, if
+- `{opportunities}/{company-slug}/research.md` — prep source material, if
   it exists
 
 ### Files to write or modify
-- Modify: `career/opportunities/{company-slug}/status.md`
-- Modify: `career/opportunities/_index.md`
+- Modify: `{opportunities}/{company-slug}/status.md`
+- Modify: `{opportunities}/_index.md`
 - Modify: the canonical current-focus document
-- Create or modify: `career/opportunities/{company-slug}/interview-prep.md`
+- Create or modify: `{opportunities}/{company-slug}/interview-prep.md`
 
 ### Workflow position
 - **Before**: `/research-opportunity` — the opportunity must already be tracked
