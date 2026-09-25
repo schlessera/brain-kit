@@ -377,10 +377,10 @@ const LOOSE_OBJECTS_WARN_BYTES = 100 * 1024 * 1024;
  * command is shown as text and never run, not even by `--fix`.
  */
 function checkGitStorage(root: string): Check {
-  if (!isGitWorkTree(root)) return { id: "git-storage", status: "pass", detail: "not a git repository" };
   let loose;
   let backups: string[];
   try {
+    if (!isGitWorkTree(root)) return { id: "git-storage", status: "pass", detail: "not a git repository" };
     loose = looseObjects(root);
     backups = originalRefs(root);
   } catch (e) {

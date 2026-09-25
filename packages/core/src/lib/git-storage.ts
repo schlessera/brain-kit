@@ -11,8 +11,16 @@
 
 export class GitStorageError extends Error {}
 
+/** The git binary could not be started at all (not installed, not on PATH). */
+export class GitUnavailableError extends GitStorageError {}
+
 function git(root: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
-  const proc = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+  let proc;
+  try {
+    proc = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+  } catch (e) {
+    throw new GitUnavailableError(`git could not be run: ${(e as Error).message}`);
+  }
   return {
     ok: proc.exitCode === 0,
     stdout: new TextDecoder().decode(proc.stdout).trim(),
@@ -24,10 +32,17 @@ function firstLine(text: string, fallback: string): string {
   return text.split("\n").find((line) => line.trim() !== "")?.trim() ?? fallback;
 }
 
-/** Whether `root` is inside a git work tree. */
+/**
+ * Whether `root` is inside a git work tree. Only git's own "not a git
+ * repository" answer means no: any other failure (dubious ownership, a
+ * broken config, a missing binary) throws with git's message, so a repository
+ * git refuses to read is never mistaken for none.
+ */
 export function isGitWorkTree(root: string): boolean {
   const out = git(root, ["rev-parse", "--is-inside-work-tree"]);
-  return out.ok && out.stdout === "true";
+  if (out.ok) return out.stdout === "true";
+  if (/not a git repository/i.test(out.stderr)) return false;
+  throw new GitStorageError(firstLine(out.stderr, "git rev-parse failed"));
 }
 
 export interface LooseObjects {

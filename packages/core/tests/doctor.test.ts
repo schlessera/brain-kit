@@ -10,7 +10,7 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
-import { git, initRepo, refs } from "./git-fixture";
+import { expectBlobsIntact, git, initRepo, looseCount, reflogs, refs, writeLooseBlobs } from "./git-fixture";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -39,7 +39,10 @@ async function gitStorage(root: string, ...flags: string[]) {
 test("a planted refs/original backup warns, names the ref, and shows the removal as text", async () => {
   const root = tempBrain();
   initRepo(root);
+  const blobs = writeLooseBlobs(root, 5);
   const before = refs(root);
+  const logsBefore = reflogs(root);
+  expect(logsBefore.length).toBeGreaterThan(0);
   expect(before.some((r) => r.startsWith("refs/original/refs/heads/main "))).toBe(true);
 
   const check = await gitStorage(root);
@@ -49,9 +52,24 @@ test("a planted refs/original backup warns, names the ref, and shows the removal
   expect(check.fix).toContain("cannot be undone");
   expect(refs(root)).toEqual(before);
 
-  // --fix repairs what it can; this is not one of them.
+  // --fix repairs what it can; this is not one of them. Read-only means no
+  // object packed, pruned or lost either, and no reflog entry expired.
   await gitStorage(root, "--fix");
   expect(refs(root)).toEqual(before);
+  expect(reflogs(root)).toEqual(logsBefore);
+  expect(looseCount(root)).toBe(5);
+  expectBlobsIntact(root, blobs);
+});
+
+// Git runs but refuses the repository (a broken core.bare here; dubious
+// ownership fails the same way): a warning with git's message, never a pass.
+test("a repository git cannot read warns with git's message instead of passing", async () => {
+  const root = tempBrain();
+  initRepo(root);
+  git(root, "config", "core.bare", "maybe");
+  const check = await gitStorage(root);
+  expect(check.status).toBe("warn");
+  expect(check.detail).toBe("could not read git storage: fatal: bad boolean config value 'maybe' for 'core.bare'");
 });
 
 test("a repository with no backup ref and few loose objects passes", async () => {

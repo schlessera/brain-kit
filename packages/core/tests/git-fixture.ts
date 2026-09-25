@@ -42,13 +42,32 @@ export function initRepo(root: string, opts: { backup?: boolean } = {}): void {
   expect(looseCount(root)).toBe(0);
 }
 
-/** Write `n` distinct loose blobs. */
-export function writeLooseBlobs(root: string, n: number): void {
+/** Write `n` distinct loose blobs; returns each one's object id and content. */
+export function writeLooseBlobs(root: string, n: number): { oid: string; content: string }[] {
+  const blobs: { oid: string; content: string }[] = [];
   for (let i = 0; i < n; i++) {
+    const content = `loose blob ${i}\n`;
     const proc = Bun.spawnSync(["git", "-C", root, "hash-object", "-w", "--stdin"], {
-      stdin: new TextEncoder().encode(`loose blob ${i}\n`),
+      stdin: new TextEncoder().encode(content),
       stdout: "pipe",
     });
     expect(proc.exitCode).toBe(0);
+    blobs.push({ oid: new TextDecoder().decode(proc.stdout).trim(), content });
   }
+  return blobs;
+}
+
+/** Assert every blob is still in the object store with its exact content. */
+export function expectBlobsIntact(root: string, blobs: { oid: string; content: string }[]): void {
+  expect(blobs.length).toBeGreaterThan(0);
+  for (const { oid, content } of blobs) {
+    const proc = Bun.spawnSync(["git", "-C", root, "cat-file", "blob", oid], { stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode, `blob ${oid} is gone: ${new TextDecoder().decode(proc.stderr)}`).toBe(0);
+    expect(new TextDecoder().decode(proc.stdout)).toBe(content);
+  }
+}
+
+/** Every reflog entry of every ref, so a test can show none was expired. */
+export function reflogs(root: string): string[] {
+  return git(root, "reflog", "show", "--all", "--format=%gd %H %gs").split("\n").filter(Boolean).sort();
 }

@@ -51,9 +51,10 @@ export interface CliResult {
   code: number;
 }
 
-export async function runCli(root: string, args: string[]): Promise<CliResult> {
+/** Run the real bin keyless; `env` overrides individual variables (e.g. PATH). */
+export async function runCli(root: string, args: string[], env: Record<string, string> = {}): Promise<CliResult> {
   const proc = Bun.spawn(["bun", BRAIN_BIN, ...args], {
-    env: keylessEnv(root),
+    env: { ...keylessEnv(root), ...env },
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
