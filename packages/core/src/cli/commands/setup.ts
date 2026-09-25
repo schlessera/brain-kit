@@ -20,7 +20,7 @@ export const setupCommand: CoreCommand = {
 
     // 1. Git hooks — copied into .githooks/ + core.hooksPath set.
     const hooks = installGitHooks(root);
-    if (!hooks.installed) warnings.push("not a git repository — skipped git hooks");
+    if (!hooks.installed) warnings.push(`${hooks.skipped ?? "not a git repository"} — skipped git hooks`);
     result.hooksPath = hooks.hooksPath;
     result.hooks = hooks.hooks;
 

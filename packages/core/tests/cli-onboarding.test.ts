@@ -7,11 +7,14 @@ import { afterEach, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -573,4 +576,43 @@ test("the brain-init skill branches on initialized, not on the config file exist
   );
   expect(skill).toContain("config.initialized");
   expect(skill).toContain("never on `config.exists`");
+});
+
+/** A PATH holding only `bun`: no git, no sh, nothing else. */
+function bunOnlyPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), "brain-bun-only-"));
+  temps.push(dir);
+  symlinkSync(process.execPath, join(dir, "bun"));
+  return dir;
+}
+
+test("doctor without git on PATH still prints every check, with git-hooks naming the missing binary", async () => {
+  const root = tempBrain();
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], { PATH: bunOnlyPath() });
+  expect(code, stderr).toBe(0);
+  const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
+  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
+  expect(byId["git-hooks"]).toMatchObject({ status: "warn", detail: "git is not installed or not on PATH" });
+  expect(byId["runtime"]?.status).toBe("pass");
+  expect(byId["config"]?.status).toBe("pass");
+  expect(byId["db"]).toBeDefined();
+  expect(byId["privacy"]?.detail).toContain("git is not installed");
+  expect(byId["scratch"]?.detail).toContain("git is not installed");
+  // Every check answered for itself; none fell back to the crash guard.
+  expect(checks.filter((c) => c.detail.startsWith("the check itself failed"))).toEqual([]);
+  expect(checks.map((c) => c.id)).toEqual([
+    "runtime", "git-hooks", "symlinks", "shadowed-commands", "instructions-weight", "config", "db",
+    "embeddings", "mcp", "deps", "version", "privacy", "git-storage", "scratch", "cache-merge", "sqlite-vec-macos",
+  ]);
+});
+
+test("doctor --fix and brain setup without git on PATH finish and say why hooks were skipped", async () => {
+  const root = tempBrain();
+  const env = { PATH: bunOnlyPath() };
+  const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
+  expect(fix.code, fix.stderr).toBe(0);
+  expect(JSON.parse(fix.stdout).fixesApplied).not.toContain("git-hooks");
+  const setup = await runCli(root, ["setup", "--json"], env);
+  expect(setup.code, setup.stderr).toBe(0);
+  expect(JSON.parse(setup.stdout).warnings).toContain("git is not installed or not on PATH — skipped git hooks");
 });
