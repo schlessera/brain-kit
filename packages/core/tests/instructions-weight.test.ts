@@ -28,7 +28,7 @@ describe("claudeImports ignores @ inside code", () => {
     ["an email address", "mail me@example.org", []],
     ["home and absolute paths", "@~/x.md\n@/etc/x.md", []],
     ["a single-backtick span", "use `@a.md` then @b.md", ["b.md"]],
-    ["a double-backtick span holding a backtick", "``@a.md ` still code`` @b.md", ["b.md"]],
+    ["a double-backtick span holding a backtick", "`` @a.md ` still code`` @b.md", ["b.md"]],
     ["a double-backtick span not closed by a single backtick", "``code ` @a.md`` @b.md", ["b.md"]],
     ["an unmatched backtick, which is literal", "a ` then @b.md", ["b.md"]],
     ["a backtick fence", "```\n@a.md\n```\n@b.md", ["b.md"]],
@@ -42,7 +42,7 @@ describe("claudeImports ignores @ inside code", () => {
     ["a fence inside a blockquote", "> ~~~\n> @a.md\n> ~~~\n\n@b.md", ["b.md"]],
     ["a fence inside a list item, indented past three spaces", "- item\n\n    ~~~\n    @a.md\n    ~~~\n\n@b.md", ["b.md"]],
     ["an indented code block", "Prose.\n\n    @a.md\n\n@b.md", ["b.md"]],
-    ["a one-line triple-backtick span, then an import", "```@a.md```\n\n@b.md", ["b.md"]],
+    ["a one-line triple-backtick span, then an import", "``` @a.md ```\n\n@b.md", ["b.md"]],
   ];
   for (const [name, text, want] of cases) {
     test(name, () => {
