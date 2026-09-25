@@ -3740,7 +3740,7 @@ behind tool search rather than in the prompt as schemas.
 
 | | Claude backend (this run) | pi (#50) |
 | --- | --- | --- |
-| in the prompt as schemas | 13 CLI tools (`Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Task`, `Skill`, `ToolSearch`, `ListAgents`, `ReportFindings`, `ScheduleWakeup`, `Workflow`) plus the five bridge tools, `show_block` among them: 18 | pi's curated surface: `read_file`, `grep`, `bash`, the file writers, the eight `brain_*` tools, and the bridge tools with `show_block` |
+| in the prompt as schemas | 13 CLI tools (`Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Agent` (`Task` in `init.tools`), `Skill`, `ToolSearch`, `ListAgents`, `ReportFindings`, `ScheduleWakeup`, `Workflow`) plus the five bridge tools, `show_block` among them: 18 | pi's curated surface: `read_file`, `grep`, `bash`, the file writers, the eight `brain_*` tools, and the bridge tools with `show_block` |
 | behind tool search, by name only | **all eight `mcp__brain__*` tools**, plus 16 CLI tools (`WebFetch`, `WebSearch`, `NotebookEdit`, the cron, plan-mode, worktree and messaging tools and others) | nothing; pi cannot defer a registered tool |
 | called, across the counted turns | `Bash` 103, `Read` 72, `show_block` 40, `Grep` 28, `Glob` 5, `ToolSearch` 5, `brain_search` 3, `brain_list` 3 | `bash`, `show_block`, `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph` |
 
