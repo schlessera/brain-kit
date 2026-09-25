@@ -219,9 +219,13 @@ Two tags form a **variant group** when they reduce to the same key: lowercase,
 (`-ies` to `-y`, `-es` after `s`/`x`/`z`/`ch`/`sh`, then `-s`, keeping a stem of
 at least three letters). Keys also join when they are a small spelling distance
 apart: at most one edit for 5-7 characters, at most two for 8 or more, where
-swapping two neighbouring letters is one edit. Distance never joins keys
-containing digits (`q1-2026`/`q2-2026`). It also never joins a key to one that
-merely extends it (`trade`/`trader`), because an ending is inflection's call.
+swapping two neighbouring letters is one edit. Lengths and edits count
+characters, whatever the script. Distance never joins keys containing digits in
+any script (`q1-2026`/`q2-2026`). It also never joins a key to one that merely
+extends it (`trade`/`trader`), because an ending is inflection's call. Every
+member of a group is within reach of every other, so a third tag cannot chain
+two that the rules keep apart: `tradre` does not put `trade` and `trader` in one
+group.
 The proposed canonical tag is a `vocabulary` member when the group has one,
 otherwise the most-used tag, then the shorter, then the first alphabetically.
 

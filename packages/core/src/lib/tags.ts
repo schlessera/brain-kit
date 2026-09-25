@@ -74,14 +74,26 @@ export function collectTaggedDocuments(root: string, taxonomy: Taxonomy): Tagged
 
 const MIN_STEM = 3;
 
-/** A simple English singular, applied only when the stem stays MIN_STEM or longer. */
+/**
+ * Length in characters (code points), not UTF-16 units: a tag of three
+ * supplementary-plane characters is three long, like any other.
+ */
+function charLength(s: string): number {
+  return Array.from(s).length;
+}
+
+/**
+ * A simple English singular, applied only when the stem stays MIN_STEM or
+ * longer. The suffixes are ASCII, so slicing them off by UTF-16 unit is exact.
+ */
 function singular(word: string): string {
-  if (word.endsWith("ies") && word.length - 3 >= MIN_STEM) return word.slice(0, -3) + "y";
+  const length = charLength(word);
+  if (word.endsWith("ies") && length - 3 >= MIN_STEM) return word.slice(0, -3) + "y";
   if (word.endsWith("es")) {
     const stem = word.slice(0, -2);
-    if (stem.length >= MIN_STEM && /(s|x|z|ch|sh)$/.test(stem)) return stem;
+    if (length - 2 >= MIN_STEM && /(s|x|z|ch|sh)$/.test(stem)) return stem;
   }
-  if (word.endsWith("s") && !word.endsWith("ss") && word.length - 1 >= MIN_STEM) return word.slice(0, -1);
+  if (word.endsWith("s") && !word.endsWith("ss") && length - 1 >= MIN_STEM) return word.slice(0, -1);
   return word;
 }
 
@@ -91,8 +103,10 @@ export function tagKey(tag: string, inflection: "en" | "off" = "en"): string {
   return inflection === "en" ? singular(key) : key;
 }
 
-/** Damerau-Levenshtein distance (optimal string alignment). */
-export function editDistance(a: string, b: string): number {
+/** Damerau-Levenshtein distance (optimal string alignment), over code points. */
+export function editDistance(left: string, right: string): number {
+  const a = Array.from(left);
+  const b = Array.from(right);
   const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
     Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
   );
@@ -118,17 +132,31 @@ export function editDistance(a: string, b: string): number {
  * join is the inflection rule's call, and `inflection: "off"` must hold.
  */
 function allowedDistance(a: string, b: string): number {
-  if (/\d/.test(a) || /\d/.test(b)) return 0;
+  if (/\p{Nd}/u.test(a) || /\p{Nd}/u.test(b)) return 0;
   if (a.startsWith(b) || b.startsWith(a)) return 0;
-  const len = Math.min(a.length, b.length);
+  const len = Math.min(charLength(a), charLength(b));
   return len >= 8 ? 2 : len >= 5 ? 1 : 0;
 }
 
-function byUse(a: { tag: string; count: number }, b: { tag: string; count: number }): number {
-  return b.count - a.count || a.tag.length - b.tag.length || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0);
+/** The edit distance between two keys when it is within the allowed bound, else null. */
+function withinDistance(a: string, b: string): number | null {
+  const max = allowedDistance(a, b);
+  if (max === 0 || Math.abs(charLength(a) - charLength(b)) > max) return null;
+  const distance = editDistance(a, b);
+  return distance <= max ? distance : null;
 }
 
-/** Group tags that normalize to the same key, or to keys within the allowed distance. */
+function byUse(a: { tag: string; count: number }, b: { tag: string; count: number }): number {
+  return b.count - a.count || charLength(a.tag) - charLength(b.tag) || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0);
+}
+
+/**
+ * Group tags that normalize to the same key, or to keys within the allowed
+ * distance. Two keys join only when every key of one group is within the
+ * distance of every key of the other (complete linkage), so a middle tag
+ * cannot chain two tags the rules keep apart: `trade`, `tradre` and `trader`
+ * do not make `trade` and `trader` one group.
+ */
 export function findVariantGroups(counts: Map<string, number>, config: TagsConfig | null): VariantGroup[] {
   const inflection = config?.inflection ?? "en";
   const vocabulary = new Set(config?.vocabulary ?? []);
@@ -139,29 +167,42 @@ export function findVariantGroups(counts: Map<string, number>, config: TagsConfi
     const key = tagKey(tag, inflection);
     byKey.set(key, [...(byKey.get(key) ?? []), tag]);
   }
-  const keys = [...byKey.keys()];
-  const parent = keys.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const keys = [...byKey.keys()].sort();
+  const near = new Set<string>();
+  const edges: { i: number; j: number; distance: number }[] = [];
   for (let i = 0; i < keys.length; i++) {
     for (let j = i + 1; j < keys.length; j++) {
-      const max = allowedDistance(keys[i], keys[j]);
-      if (max === 0 || Math.abs(keys[i].length - keys[j].length) > max) continue;
-      if (editDistance(keys[i], keys[j]) <= max) parent[find(i)] = find(j);
+      const distance = withinDistance(keys[i], keys[j]);
+      if (distance === null) continue;
+      near.add(`${i},${j}`);
+      edges.push({ i, j, distance });
     }
   }
+  const compatible = (i: number, j: number) => near.has(i < j ? `${i},${j}` : `${j},${i}`);
 
-  const components = new Map<number, string[]>();
-  keys.forEach((key, i) => {
-    const root = find(i);
-    components.set(root, [...(components.get(root) ?? []), ...byKey.get(key)!]);
-  });
+  // Closest pairs first, then key order, so the result does not depend on
+  // the order tags were read in.
+  edges.sort((x, y) => x.distance - y.distance || x.i - y.i || x.j - y.j);
+  const clusterOf = keys.map((_, i) => i);
+  const members = new Map<number, number[]>(keys.map((_, i) => [i, [i]]));
+  for (const { i, j } of edges) {
+    const [ci, cj] = [clusterOf[i], clusterOf[j]];
+    if (ci === cj) continue;
+    const left = members.get(ci)!;
+    const right = members.get(cj)!;
+    if (!left.every((a) => right.every((b) => compatible(a, b)))) continue;
+    for (const k of right) clusterOf[k] = ci;
+    left.push(...right);
+    members.delete(cj);
+  }
 
   const groups: VariantGroup[] = [];
-  for (const tags of components.values()) {
+  for (const cluster of members.values()) {
+    const tags = cluster.flatMap((i) => byKey.get(keys[i])!);
     if (tags.length < 2) continue;
-    const members = tags.map((tag) => ({ tag, count: counts.get(tag)! })).sort(byUse);
-    const preferred = members.filter((m) => vocabulary.has(m.tag));
-    groups.push({ canonical: (preferred[0] ?? members[0]).tag, members });
+    const ranked = tags.map((tag) => ({ tag, count: counts.get(tag)! })).sort(byUse);
+    const preferred = ranked.filter((m) => vocabulary.has(m.tag));
+    groups.push({ canonical: (preferred[0] ?? ranked[0]).tag, members: ranked });
   }
   const total = (g: VariantGroup) => g.members.reduce((sum, m) => sum + m.count, 0);
   return groups.sort((a, b) => total(b) - total(a) || (a.canonical < b.canonical ? -1 : 1));

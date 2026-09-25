@@ -8,7 +8,8 @@ import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { editDistance, findRedundantTags, findVariantGroups, tagKey } from "../src/lib/tags";
-import type { TagReport } from "../src/lib/tags";
+import type { TagReport, VariantGroup } from "../src/lib/tags";
+import type { TagsConfig } from "../src/lib/config";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const brains: string[] = [];
@@ -138,11 +139,59 @@ describe("normalization", () => {
     expect(groups("bike", "bake")).toEqual([]); // under 5 chars: exact keys only
     expect(groups("trade", "trader")).toEqual([]); // an ending is inflection's call, not a typo
     expect(groups("q1-2026", "q2-2026")).toEqual([]);
+    expect(groups("mountain", "muontian")).toEqual([["mountain", "muontian"]]); // 8+ chars: exactly 2 edits
+    expect(groups("mountain", "muontina")).toEqual([]); // 8+ chars: 3 edits
+  });
+
+  test("a middle tag never chains two tags the rules keep apart", () => {
+    const together = (groups: VariantGroup[], a: string, b: string) =>
+      groups.some((g) => g.members.some((m) => m.tag === a) && g.members.some((m) => m.tag === b));
+    const run = (tags: string[], config: TagsConfig | null = null) =>
+      findVariantGroups(new Map(tags.map((t) => [t, 1])), config);
+
+    // tradre is one edit from each; trade/trader is an ending, never a typo.
+    const trade = run(["trade", "tradre", "trader"]);
+    expect(trade.length).toBeGreaterThan(0);
+    expect(together(trade, "trade", "trader")).toBe(false);
+
+    // With inflection off, a misspelt plural must not rejoin trail and trails.
+    const trail = run(["trail", "traisl", "trails"], { inflection: "off" });
+    expect(trail.length).toBeGreaterThan(0);
+    expect(together(trail, "trail", "trails")).toBe(false);
+
+    // A distance chain: each neighbour is one edit apart, the ends two.
+    const chain = run(["recipe", "recipy", "racipy"]);
+    expect(chain.length).toBeGreaterThan(0);
+    expect(together(chain, "recipe", "racipy")).toBe(false);
+  });
+
+  test("lengths count characters, not UTF-16 units", () => {
+    const groups = (...tags: string[]) =>
+      findVariantGroups(new Map(tags.map((t) => [t, 1])), null).map((g) => g.members.map((m) => m.tag).sort());
+    // Three supplementary-plane characters: under 5, so no distance matching.
+    expect(groups("\u{20000}\u{20001}\u{20002}", "\u{20000}\u{20001}\u{20003}")).toEqual([]);
+    // Five of them, one substitution apart: inside the 5-7 band.
+    expect(groups("\u{20000}\u{20001}\u{20002}\u{20004}\u{20005}", "\u{20000}\u{20001}\u{20003}\u{20004}\u{20005}")).toHaveLength(1);
+    // One character replaced by one character is one edit, surrogate pair or not.
+    expect(editDistance("a\u{20000}", "ab")).toBe(1);
+    // The singular's minimum stem counts characters too: two, plus an s, is too short.
+    expect(tagKey("\u{20000}\u{20001}s")).toBe("\u{20000}\u{20001}s");
+  });
+
+  test("digits in any script keep tags apart", () => {
+    const groups = (...tags: string[]) => findVariantGroups(new Map(tags.map((t) => [t, 1])), null);
+    expect(groups("\uFF11\uFF12\uFF13\uFF14\uFF15", "\uFF11\uFF12\uFF13\uFF14\uFF16")).toEqual([]); // fullwidth
+    expect(groups("\u0661\u0662\u0663\u0664\u0665", "\u0661\u0662\u0663\u0664\u0666")).toEqual([]); // Arabic-Indic
   });
 
   test("canonical ties break on the shorter tag, then alphabetically", () => {
     const [group] = findVariantGroups(new Map([["wood-working", 1], ["woodworking", 1]]), null);
     expect(group.canonical).toBe("woodworking");
+    // Same count, same length, same key, inserted in reverse alphabetical
+    // order, so neither insertion nor key order can pick the winner.
+    const [tie] = findVariantGroups(new Map([["wood_work", 1], ["wood-work", 1]]), null);
+    expect(tie.members.map((m) => m.tag)).toEqual(["wood-work", "wood_work"]);
+    expect(tie.canonical).toBe("wood-work");
   });
 
   test("a tag equal to a directory of the document's path is redundant", () => {
