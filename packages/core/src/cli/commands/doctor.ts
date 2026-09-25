@@ -14,6 +14,8 @@ import {
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
+import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
+import { measureInstructions } from "../../lib/instructions-weight.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
@@ -190,6 +192,46 @@ function checkShadowedCommands(cli: CliContext): Check {
     detail: `${shadowed.length} command file(s) shadowed by a skill of the same name: ${shadowed.join(", ")}`,
     fix: "delete or rename each file; the skill runs, not the command",
   };
+}
+
+/**
+ * What every session pays for before any work starts (see
+ * lib/instructions-weight.ts), against `instructions.maxTokens`. Anything that
+ * could not be measured makes the total a lower bound, so it warns even under
+ * the limit.
+ */
+function checkInstructionsWeight(cli: CliContext): Check {
+  const limit = cli.brain.config?.instructions?.maxTokens ?? DEFAULT_INSTRUCTIONS_MAX_TOKENS;
+  let measured: ReturnType<typeof measureInstructions>;
+  try {
+    measured = measureInstructions(cli.brain.root, cli.brain.modules);
+  } catch (e) {
+    return { id: "instructions-weight", status: "warn", detail: `could not measure: ${(e as Error).message}` };
+  }
+  const { contributors, notes, problems } = measured;
+
+  const total = contributors.reduce((sum, c) => sum + c.tokens, 0);
+  const all = contributors.map((c) => `${c.name} ${c.tokens}`).join(", ") || "nothing";
+  const over = total > limit;
+  const lead = over
+    ? `~${total} tokens always loaded, over the ${limit} limit; largest: ${[...contributors]
+        .sort((a, b) => b.tokens - a.tokens || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+        .slice(0, 3)
+        .map((c) => `${c.name} (${c.tokens})`)
+        .join(", ")}. All: ${all}`
+    : `~${total} tokens always loaded (limit ${limit}): ${all}`;
+  const tail = [
+    ...(problems.length > 0 ? [`not measured, so the total is a lower bound: ${problems.join("; ")}`] : []),
+    ...notes,
+  ];
+  const detail = [lead, ...tail].join(". ");
+
+  if (!over && problems.length === 0) return { id: "instructions-weight", status: "pass", detail };
+  const fixes = [
+    ...(problems.length > 0 ? ["fix or remove the imports and skills that could not be read"] : []),
+    ...(over ? ["trim the largest files, move rules a session rarely needs into a skill, or raise `instructions.maxTokens` in brain.config"] : []),
+  ];
+  return { id: "instructions-weight", status: "warn", detail, fix: fixes.join("; ") };
 }
 
 function checkConfig(cli: CliContext): Check {
@@ -471,6 +513,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkGitHooks(root),
     checkSymlinks(root),
     checkShadowedCommands(cli),
+    checkInstructionsWeight(cli),
     checkConfig(cli),
     checkDb(cli),
     await checkEmbeddings(cli),
