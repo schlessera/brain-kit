@@ -12,7 +12,7 @@ import {
   aggregate,
   EVAL_SCHEMA_VERSION,
   EvalSetError,
-  findContamination,
+  ContaminationScanner,
   parseEvalSet,
   parseKs,
   poolSize,
@@ -145,7 +145,7 @@ function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): v
  * the run too; an unreadable file the index does not hold is one the indexer
  * skips as well.
  */
-function checkIndexFresh(brain: BrainContext, db: Database): void {
+function checkIndexFresh(brain: BrainContext, db: Database, scanner: ContaminationScanner): void {
   const rows = db
     .prepare("SELECT path, content_hash FROM documents WHERE asset_type = 'markdown'")
     .all() as { path: string; content_hash: string | null }[];
@@ -169,6 +169,9 @@ function checkIndexFresh(brain: BrainContext, db: Database): void {
       if (hashes.get(path) !== createHash("sha256").update(raw).digest("hex")) {
         stale.push(`${path}: changed since it was indexed`);
       }
+      // The contamination scan reads these same bytes, so it sees exactly
+      // what the index holds, and an unreadable file has already refused.
+      scanner.scan(path, raw);
       continue;
     }
     try {
@@ -188,25 +191,6 @@ function checkIndexFresh(brain: BrainContext, db: Database): void {
       stale
     );
   }
-}
-
-/**
- * Indexed markdown that quotes the set's queries grades the eval against
- * itself. Read from disk: the freshness gate has already shown the index
- * describes these files.
- */
-function checkContamination(root: string, db: Database, queries: EvalQuery[]): string[] {
-  const paths = db
-    .prepare("SELECT path FROM documents WHERE asset_type = 'markdown' ORDER BY path")
-    .all() as { path: string }[];
-  const documents = paths.flatMap(({ path }) => {
-    try {
-      return [{ path, text: readFileSync(join(root, path), "utf-8") }];
-    } catch {
-      return [];
-    }
-  });
-  return findContamination(queries, documents);
 }
 
 async function runMode(
@@ -334,8 +318,9 @@ export const evalCommand: CoreCommand = {
       const { queries, sha256 } = loadSet(setPath, root);
       db = openReadonlyDb(cli.brain);
       checkExpectedPaths(root, db, queries);
-      checkIndexFresh(cli.brain, db);
-      const warnings = checkContamination(root, db, queries);
+      const scanner = new ContaminationScanner(queries);
+      checkIndexFresh(cli.brain, db, scanner);
+      const warnings = scanner.warnings();
       if (warnings.length > 0 && flags.strict === true) {
         throw new EvalRefused(`${warnings.length} indexed document(s) contain the set's queries (--strict)`, warnings);
       }

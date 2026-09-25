@@ -270,27 +270,50 @@ function normalizeText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Documents that quote the set's queries, which makes them answer their own
- * questions: a query set measures search only if search cannot see it. The
- * match is exact after lowercasing and collapsing whitespace. A document is
- * reported when it contains one query of CONTAMINATION_MIN_WORDS words or
- * more, or CONTAMINATION_MIN_QUERIES queries of any length. Returns one
- * warning per document, in the order given.
+ * Finds documents that quote the set's queries, which makes them answer their
+ * own questions: a query set measures search only if search cannot see it.
+ * A query matches as whole words after lowercasing and collapsing whitespace,
+ * so "cat" does not match "concatenate". A document is reported when it
+ * contains one query of CONTAMINATION_MIN_WORDS words or more, or
+ * CONTAMINATION_MIN_QUERIES queries of any length.
+ *
+ * The queries are compiled once. `scan` takes one document at a time and
+ * keeps only its finding, so a caller can feed documents as it reads them
+ * without holding the corpus.
  */
-export function findContamination(queries: EvalQuery[], documents: { path: string; text: string }[]): string[] {
-  const needles = queries.map((q) => {
-    const text = normalizeText(q.q);
-    return { id: q.id, text, long: text.split(" ").length >= CONTAMINATION_MIN_WORDS };
-  });
-  const warnings: string[] = [];
-  for (const doc of documents) {
-    const haystack = normalizeText(doc.text);
-    const found = needles.filter((n) => haystack.includes(n.text));
-    if (found.length >= CONTAMINATION_MIN_QUERIES || found.some((n) => n.long)) {
-      const ids = found.map((n) => n.id).join(", ");
-      warnings.push(`contamination: ${doc.path} contains the text of ${found.length} of the set's queries (${ids})`);
+export class ContaminationScanner {
+  private readonly needles: { id: string; pattern: RegExp; long: boolean }[];
+  private readonly found: string[] = [];
+
+  constructor(queries: EvalQuery[]) {
+    this.needles = queries.map((q) => {
+      const text = normalizeText(q.q);
+      return {
+        id: q.id,
+        // Word boundaries that hold for any script: no letter, digit or
+        // underscore may touch the match on either side.
+        pattern: new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(text)}(?![\\p{L}\\p{N}_])`, "u"),
+        long: text.split(" ").length >= CONTAMINATION_MIN_WORDS,
+      };
+    });
+  }
+
+  scan(path: string, text: string): void {
+    const haystack = normalizeText(text);
+    const hits = this.needles.filter((n) => n.pattern.test(haystack));
+    if (hits.length >= CONTAMINATION_MIN_QUERIES || hits.some((n) => n.long)) {
+      const ids = hits.map((n) => n.id).join(", ");
+      this.found.push(`contamination: ${path} contains the text of ${hits.length} of the set's queries (${ids})`);
     }
   }
-  return warnings;
+
+  /** One warning per contaminated document, in the order scanned. */
+  warnings(): string[] {
+    return [...this.found];
+  }
 }

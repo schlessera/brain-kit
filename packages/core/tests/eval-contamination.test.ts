@@ -5,7 +5,7 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -86,4 +86,22 @@ test("the same note inside evals/ is not indexed, so it cannot contaminate", asy
   const { code, out } = await evalRun(root);
   expect(code).toBe(0);
   expect(out.warnings).toEqual([]);
+});
+
+// The scan reads the same bytes as the freshness check, so a document it
+// cannot read refuses the run by name instead of dropping out of the scan.
+test.skipIf(process.getuid?.() === 0)("an indexed note that cannot be read refuses the run, even without --strict", async () => {
+  const root = await brainWith({ "notes/eval-notes.md": QUOTING });
+  const path = join(root, "notes", "eval-notes.md");
+  chmodSync(path, 0o000);
+  try {
+    for (const flags of [[], ["--strict"]]) {
+      const { code, stdout, stderr } = await evalRun(root, ...flags);
+      expect(stderr).toContain("notes/eval-notes.md: cannot be read to check it against the index");
+      expect(code).toBe(2);
+      expect(stdout).toBe("");
+    }
+  } finally {
+    chmodSync(path, 0o644);
+  }
 });

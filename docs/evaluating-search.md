@@ -62,7 +62,8 @@ repeats an `id` is a usage error (exit `1`) that names the line number.
   `--out`, and any notes about them are safe there. Elsewhere, `brain eval`
   checks every indexed document before scoring. A document that contains one
   of the set's queries of four or more words, or three of its queries of any
-  length (case and spacing ignored), is named in `warnings`. `--strict` turns
+  length, is named in `warnings`. A query matches as whole words, ignoring case
+and spacing, so "cat" never matches "concatenate". `--strict` turns
   that into a refusal (exit `2`).
 - **Twenty to fifty queries is enough to start.** Each query moves hit@1 by
   1/n. With 25 queries one query is 4 points, so read a small change as a
