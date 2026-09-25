@@ -40,15 +40,33 @@ import type { EmbeddingProvider } from "./lib/seams.js";
 import { packageVersion } from "./package-version.js";
 
 // Server-side result caps — agents can ask for less, never more.
-const MAX_SEARCH_LIMIT = 50;
+export const MAX_SEARCH_LIMIT = 50;
+export const MAX_LIST_LIMIT = 100;
+export const MAX_GRAPH_DEPTH = 5;
 
 /** A date input: a real calendar date written `YYYY-MM-DD`. */
 const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date written YYYY-MM-DD")
   .refine(isIsoDate, "is not a calendar date");
-const MAX_LIST_LIMIT = 100;
-const MAX_GRAPH_DEPTH = 5;
+
+/**
+ * The server's `instructions`, which clients put into the agent's context:
+ * what the brain is for and which tool answers which need. Named after
+ * `profile.name` when the config sets it.
+ */
+export function serverInstructions(profileName?: string): string {
+  const owner = profileName?.trim() || "the person it belongs to";
+  return (
+    `This brain is the source of truth for facts about ${owner}: identity, current focus, ` +
+    `projects, notes and their history. Check it before answering from memory, and prefer ` +
+    `these tools to grepping its files. Use brain_search to find documents on a topic and ` +
+    `brain_context for a briefing on one within a token budget. Use brain_read to read one ` +
+    `document and brain_graph to follow its wiki-links. Record new information with brain_add ` +
+    `and change a document with brain_update. Never edit brain.db: it is a disposable index ` +
+    `rebuilt from the markdown files.`
+  );
+}
 
 export async function startMcpServer(
   brainContext?: BrainContext,
@@ -158,7 +176,10 @@ export async function startMcpServer(
 
   const typeList = brain.taxonomy.validTypes().join(", ");
 
-  const server = new McpServer({ name: "brain", version: packageVersion() });
+  const server = new McpServer(
+    { name: "brain", version: packageVersion() },
+    { instructions: serverInstructions(brain.config?.profile?.name) }
+  );
 
   // ------------------------------------------------------------------------
   // 1. brain_search
@@ -181,7 +202,7 @@ export async function startMcpServer(
     "brain_search",
     {
       description:
-        "Search the brain knowledge base using hybrid FTS5 + vector search. Returns documents matching a query with optional filters for type, tag, relevance, and search mode.",
+        `Search the brain knowledge base using hybrid FTS5 + vector search. Returns documents matching a query with optional filters for type, tag, relevance, and search mode. \`limit\` defaults to 10 and returns at most ${MAX_SEARCH_LIMIT} results; a larger value is capped.`,
       inputSchema: {
         query: z.string().describe("Search query"),
         type: z.string().optional().describe(`Filter by document type (${typeList})`),
@@ -265,7 +286,7 @@ export async function startMcpServer(
     "brain_context",
     {
       description:
-        "Assemble a token-limited context block about a topic from the brain, including identity and current focus sections. Useful for getting a comprehensive summary for a given topic.",
+        "Assemble a token-limited context block about a topic from the brain, including identity and current focus sections. Useful for getting a comprehensive summary for a given topic. `max_tokens` defaults to 4000, estimated at about four characters per token. Identity and current focus come first and are cut short to fit; search-result snippets follow, each included whole or left out, until the budget is spent.",
       inputSchema: {
         query: z.string().describe("Topic to assemble context for"),
         max_tokens: z.number().default(4000).describe("Token budget for the assembled context"),
@@ -360,7 +381,7 @@ export async function startMcpServer(
     "brain_list",
     {
       description:
-        "List documents in the brain knowledge base with optional filters for type, tag, status, and relevance. Returns metadata (path, title, type, relevance, status, tags) for matching documents.",
+        `List documents in the brain knowledge base with optional filters for type, tag, status, and relevance. Returns metadata (path, title, type, relevance, status, tags) for matching documents, newest first. \`limit\` defaults to 20 and returns at most ${MAX_LIST_LIMIT} documents; a larger value is capped.`,
       inputSchema: {
         type: z.string().optional().describe("Filter by document type"),
         tag: z.string().optional().describe("Filter by tag"),
@@ -431,7 +452,7 @@ export async function startMcpServer(
     "brain_graph",
     {
       description:
-        "Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]], and nodes (path, title, type, summary, updated) for every document an edge touches.",
+        `Traverse the wiki-link graph from a starting document. Returns edges (source, target, resolved) showing how documents are connected via [[wiki-links]], and nodes (path, title, type, summary, updated) for every document an edge touches. \`depth\` defaults to 1 hop and is capped at ${MAX_GRAPH_DEPTH}.`,
       inputSchema: {
         path: z.string().describe("Starting document path"),
         depth: z.number().default(1).describe("How many hops to traverse"),
@@ -470,7 +491,7 @@ export async function startMcpServer(
     "brain_add",
     {
       description:
-        "Add new content to the brain knowledge base. Content is classified, given frontmatter, and written to the appropriate directory. Returns the action taken and the file path.",
+        "Add new content to the brain knowledge base. Content is classified, given frontmatter, and written to the appropriate directory. Returns the action taken and the file path. Classification is rule-based, with no model call: content titled exactly like an existing document of an append-match type is appended to it, otherwise the brain's classifier hints pick the type, otherwise it lands in the inbox type. Pass `type` to choose it yourself.",
       inputSchema: {
         content: z.string().describe("Content to add"),
         type: z.string().optional().describe(`Document type (${typeList}). Defaults to auto-classification.`),

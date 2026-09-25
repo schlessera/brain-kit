@@ -22,6 +22,15 @@ fallback:
 claude mcp add brain -- bun packages/core/src/mcp-server.ts
 ```
 
+## Instructions
+
+At `initialize` the server sends a short paragraph of `instructions`, which
+clients such as Claude Code put into the agent's context. It tells the agent
+that the brain is the source of truth for facts about its owner (named from
+`profile.name` in `brain.config`), which tool to use to search, brief, read and
+follow links, and to write through `brain_add` and `brain_update` rather than
+touching `brain.db`.
+
 ## Tools
 
 | Tool | Kind | structuredContent |

@@ -14,6 +14,7 @@ import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { packageVersion } from "../src/package-version";
+import { MAX_GRAPH_DEPTH, MAX_LIST_LIMIT, MAX_SEARCH_LIMIT } from "../src/mcp-server";
 
 let root: string;
 let client: Client;
@@ -72,6 +73,49 @@ test("lists all 8 brain_* tools", async () => {
 
 test("reports the installed core package version as serverInfo.version", () => {
   expect(client.getServerVersion()?.version).toBe(packageVersion());
+});
+
+describe("server instructions", () => {
+  test("name the tools an agent should reach for, and the brain's owner", () => {
+    const instructions = client.getInstructions();
+    expect(instructions).toBeString();
+    for (const tool of ["brain_search", "brain_context", "brain_read"]) {
+      expect(instructions).toContain(tool);
+    }
+    // The fixture config sets profile.name.
+    expect(instructions).toContain("Alex Example");
+  });
+
+  test("name no one when the config sets no profile name", async () => {
+    const bare = makeTempBrain({ empty: true });
+    const transport = new StdioClientTransport({ command: "bun", args: [BRAIN_BIN, "mcp"], env: keylessEnv(bare) });
+    const other = new Client({ name: "mcp-contract-test-bare", version: "1.0.0" });
+    try {
+      await other.connect(transport);
+      const instructions = other.getInstructions();
+      expect(instructions).toContain("brain_search");
+      expect(instructions).toContain("the person it belongs to");
+      expect(instructions).not.toContain("Alex Example");
+    } finally {
+      await other.close();
+      cleanup(bare);
+    }
+  });
+});
+
+// Built from the constants, so a cap that changes without its description
+// turns this red.
+test("read tool descriptions state their defaults and caps", async () => {
+  const { tools } = await client.listTools();
+  const description = (name: string) => tools.find((t) => t.name === name)?.description ?? "";
+  expect(description("brain_search")).toContain(`at most ${MAX_SEARCH_LIMIT} results`);
+  expect(description("brain_search")).toContain("defaults to 10");
+  expect(description("brain_list")).toContain(`at most ${MAX_LIST_LIMIT} documents`);
+  expect(description("brain_list")).toContain("defaults to 20");
+  expect(description("brain_graph")).toContain(`capped at ${MAX_GRAPH_DEPTH}`);
+  expect(description("brain_graph")).toContain("defaults to 1 hop");
+  expect(description("brain_context")).toContain("defaults to 4000");
+  expect(description("brain_add")).toContain("rule-based, with no model call");
 });
 
 test("read tools carry the readOnly annotation", async () => {

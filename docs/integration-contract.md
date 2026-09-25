@@ -358,6 +358,19 @@ as the first `content` block, and the write tools return their result object
 there. Both are compact JSON, with no indentation or line breaks (since
 0.38.0). `brain_context`'s first block is the context text itself.
 
+The server sends `instructions` at `initialize` (additive in 0.38.0). They
+are descriptive, not frozen: the wording may change in any release, so a
+client may show them to an agent but must not parse them. Today they say the
+brain is the source of truth for facts about its owner, named from
+`profile.name` when the config sets it and otherwise "the person it belongs
+to". They point to `brain_search`, `brain_context`, `brain_read` and
+`brain_graph` for reading, and `brain_add` and `brain_update` for writing, and
+say that `brain.db` is never edited (`serverInstructions`,
+`packages/core/src/mcp-server.ts`). Tool descriptions are descriptive in the
+same way. The read tools' descriptions state their defaults and the server
+caps: `brain_search` `limit` at 50, `brain_list` `limit` at 100, and
+`brain_graph` `depth` at 5.
+
 The input schemas, as `tools/list` reports them, are pinned in
 [`packages/core/tests/mcp-input-schemas.json`](../packages/core/tests/mcp-input-schemas.json)
 with descriptions left out; `mcp-contract.test.ts` fails when a tool's schema
