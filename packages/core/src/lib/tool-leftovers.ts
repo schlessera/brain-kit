@@ -26,10 +26,11 @@ export const TOOL_LEFTOVER_PATTERNS = [
   "*.fdb_latexmk",
 ] as const;
 
+/** `*` is any run of characters, a newline included: git allows one in a file name. */
 function globToRegex(pattern: string): RegExp {
   const body = pattern
     .split(/(\*)/)
-    .map((p) => (p === "*" ? ".*" : p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")))
+    .map((p) => (p === "*" ? "[\\s\\S]*" : p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")))
     .join("");
   return new RegExp(`^${body}$`);
 }

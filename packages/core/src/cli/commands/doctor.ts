@@ -583,7 +583,9 @@ function checkTrackedLeftovers(root: string): Check {
     id: "tracked-leftovers",
     status: "warn",
     detail: `${leftovers.length} committed tool leftover(s): ${shown.join(", ")}${more}`,
-    fix: `untrack them (the files stay on disk), then commit: git rm --cached -- ${shown.map(shellWord).join(" ")}`,
+    // --literal-pathspecs: a file named `:(exclude)cv.aux` or `*.aux` is that
+    // file, not a pathspec that selects others.
+    fix: `untrack them (the files stay on disk), then commit: git --literal-pathspecs rm --cached -- ${shown.map(shellWord).join(" ")}`,
   };
 }
 

@@ -41,7 +41,8 @@ describe("sync exact paths", () => {
     const root = makeTempBrain();
     try {
       expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
-      const leftovers = ["photo.jpg:Zone.Identifier", "cv.aux", "cv.synctex.gz", "notes/draft.md~"];
+      // Review round 1: a newline in the name is still matched.
+      const leftovers = ["photo.jpg:Zone.Identifier", "cv.aux", "cv.synctex.gz", "notes/draft.md~", "line\nbreak.aux", "line\nbreak.jpg:Zone.Identifier"];
       mkdirSync(join(root, "notes"), { recursive: true });
       for (const path of leftovers) writeFileSync(join(root, path), "x");
       const result = await runCli(root, ["sync", "assess", "--json"]);

@@ -42,10 +42,48 @@ test("a committed cv.aux warns and shows the untracking command", async () => {
   const check = await leftoversCheck(repo({ "cv.aux": "\\relax\n", "my cv.out": "x" }));
   expect(check.status).toBe("warn");
   expect(check.detail).toBe("2 committed tool leftover(s): cv.aux, my cv.out");
-  expect(check.fix).toBe("untrack them (the files stay on disk), then commit: git rm --cached -- cv.aux 'my cv.out'");
+  expect(check.fix).toBe(
+    "untrack them (the files stay on disk), then commit: git --literal-pathspecs rm --cached -- cv.aux 'my cv.out'"
+  );
 });
 
 test("a clean repository passes", async () => {
   const check = await leftoversCheck(repo({ "cv.md": "# CV\n" }));
   expect(check).toMatchObject({ status: "pass", detail: "no committed tool leftovers" });
+});
+
+/** Tracked paths in `root`. */
+function tracked(root: string): string[] {
+  return new TextDecoder()
+    .decode(Bun.spawnSync(["git", "-C", root, "ls-files", "-z"]).stdout)
+    .split("\0")
+    .filter(Boolean);
+}
+
+/** Run the check's `fix` command in `root` and return what is tracked afterwards. */
+async function runFix(root: string): Promise<string[]> {
+  const check = await leftoversCheck(root);
+  expect(check.status).toBe("warn");
+  const command = check.fix!.slice(check.fix!.indexOf("then commit: ") + "then commit: ".length);
+  const run = Bun.spawnSync(["sh", "-c", command], { cwd: root });
+  expect(run.exitCode, new TextDecoder().decode(run.stderr)).toBe(0);
+  return tracked(root);
+}
+
+// Review round 1: file names that are pathspec magic, a glob, or hold a newline.
+test("a leftover named like pathspec magic untracks only itself", async () => {
+  const root = repo({ "README.md": "# Readme\n", ":(exclude)cv.aux": "x" });
+  const before = tracked(root);
+  expect(before).toContain(":(exclude)cv.aux");
+  expect(before.length).toBeGreaterThan(10);
+  expect(await runFix(root)).toEqual(before.filter((p) => p !== ":(exclude)cv.aux"));
+});
+
+test("leftovers named as a glob or holding a newline are found and untracked, and nothing else", async () => {
+  const names = ["*.aux", "line\nbreak.aux", "line\nbreak.jpg:Zone.Identifier"];
+  const root = repo({ "README.md": "# Readme\n", ...Object.fromEntries(names.map((n) => [n, "x"])) });
+  const before = tracked(root);
+  expect(before).toEqual(expect.arrayContaining(names));
+  expect((await leftoversCheck(root)).detail).toStartWith("3 committed tool leftover(s): ");
+  expect(await runFix(root)).toEqual(before.filter((p) => !names.includes(p)));
 });
