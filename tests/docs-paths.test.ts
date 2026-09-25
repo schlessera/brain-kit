@@ -22,6 +22,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { dirname, join, normalize, relative, resolve } from "path";
+import { markdownAnchors } from "./markdown-anchors";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -116,6 +117,23 @@ const citationFiles = files.filter(
   (file) => !file.split("/").some((segment) => CITATION_EXEMPT_DIRS.has(segment)),
 );
 
+/**
+ * `[text](target#fragment)`, with an optional title. Either part may be empty:
+ * `[x](#heading)` is a same-file link.
+ */
+const markdownLink = /\[[^\]]*\]\(([^)\s#]*)(?:#([^)\s]*))?(?:\s+"[^"]*")?\)/g;
+
+const anchorCache = new Map<string, Set<string>>();
+/** Heading slugs and explicit anchors, lowercased as GitHub matches them. */
+function anchorsOf(path: string): Set<string> {
+  let anchors = anchorCache.get(path);
+  if (!anchors) {
+    anchors = new Set([...markdownAnchors(readFileSync(path, "utf8"))].map((a) => a.toLowerCase()));
+    anchorCache.set(path, anchors);
+  }
+  return anchors;
+}
+
 describe("documentation paths", () => {
   test("there are docs to check", () => {
     expect(files.length).toBeGreaterThan(10);
@@ -125,11 +143,31 @@ describe("documentation paths", () => {
     const broken: string[] = [];
     for (const file of files) {
       const body = withoutCode(readFileSync(join(ROOT, file), "utf8"));
-      for (const match of body.matchAll(/\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)/g)) {
+      for (const match of body.matchAll(markdownLink)) {
         const target = match[1];
-        if (/^(https?:|mailto:|data:|#)/.test(target)) continue;
+        if (target === "" || /^(https?:|mailto:|data:)/.test(target)) continue;
         const resolved = normalize(join(ROOT, dirname(file), target));
         if (!existsSync(resolved)) broken.push(`${file} -> ${target}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  test("every #fragment on a relative markdown link names a heading in its target", () => {
+    // A renamed heading breaks every link into it and leaves the file part
+    // resolving, so the test above stays green. Fragments into other file
+    // kinds (`#L10` on source) and on external links are not checked.
+    const broken: string[] = [];
+    for (const file of files) {
+      const body = withoutCode(readFileSync(join(ROOT, file), "utf8"));
+      for (const match of body.matchAll(markdownLink)) {
+        const [, target, fragment] = match;
+        if (!fragment || /^(https?:|mailto:|data:)/.test(target)) continue;
+        const resolved = target === "" ? join(ROOT, file) : normalize(join(ROOT, dirname(file), target));
+        if (!resolved.endsWith(".md") || !existsSync(resolved)) continue;
+        if (!anchorsOf(resolved).has(decodeURIComponent(fragment).toLowerCase())) {
+          broken.push(`${file} -> ${target}#${fragment}`);
+        }
       }
     }
     expect(broken).toEqual([]);
