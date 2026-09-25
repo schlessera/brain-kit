@@ -164,8 +164,12 @@ runSkillEmitterContract(
   module lint`) flags agent-specific assumptions: it errors on missing
   `name`/`description`, warns when a skill body references Claude-only tools
   outside an `<!-- agent:claude -->` fenced section, and notes claude-specific
-  frontmatter keys that other agents ignore. Write skills to the lint and they
-  emit cleanly everywhere.
+  frontmatter keys that other agents ignore. It also warns when a description
+  says the skill is manual-only ("manual invocation only", "only when the user
+  explicitly", "never invoke automatically") but the frontmatter lacks
+  `disable-model-invocation: true`. Without the flag, the description loads
+  into every Claude Code session. Write skills to the lint and they emit
+  cleanly everywhere.
 - **Block emitters are additive.** The codex and gemini emitters manage only a
   fenced block in `AGENTS.md` / `GEMINI.md`; everything you write around that
   block is preserved byte for byte across syncs. The codex emitter refuses to

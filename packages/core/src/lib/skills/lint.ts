@@ -10,6 +10,7 @@
  * | `requires:` present (not a specification field)              | warning  |
  * | allowed-tools / disable-model-invocation present            | info     |
  * | disable-model-invocation disagrees with agents/openai.yaml  | warning  |
+ * | description says manual-only, no disable-model-invocation   | warning  |
  * | absolute path in body                                       | warning  |
  *
  * SkillManifest carries no body, so the body-based rules re-read the skill's
@@ -20,6 +21,7 @@ import { existsSync, readFileSync } from "fs";
 import { basename, join } from "path";
 import matter from "gray-matter";
 
+import { estimateTokens } from "../context-assembler.js";
 import type { SkillManifest } from "../seams.js";
 
 export type LintSeverity = "error" | "warning" | "info";
@@ -30,6 +32,18 @@ export interface LintFinding {
   severity: LintSeverity;
   message: string;
 }
+
+/**
+ * Description phrases that say a skill must run only when the user asks for
+ * it. Deliberately short: a description that says so in other words is not
+ * judged.
+ */
+const MANUAL_ONLY_PHRASES = [
+  /\bmanual[- ]invocation only\b/i,
+  /\bmanual[- ]only\b/i,
+  /\bonly when the user explicitly\b/i,
+  /\b(?:never|do not|don't) invoke (?:it |this skill )?automatically\b/i,
+];
 
 const CLAUDE_ONLY_TOOLS = ["AskUserQuestion", "TodoWrite", "EnterPlanMode"];
 const CLAUDE_SPECIFIC_KEYS = ["allowed-tools", "disable-model-invocation"];
@@ -97,6 +111,17 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
   // frontmatter, so the two must say the same thing → warning.
   const mismatch = manualOnlyMismatch(skill.dir, frontmatter["disable-model-invocation"] === true);
   if (mismatch) add("manual-only-policy", "warning", mismatch);
+
+  // Rule: a description that says the skill is manual-only still loads into
+  // every Claude Code session unless the flag keeps it out → warning.
+  const manualPhrase = MANUAL_ONLY_PHRASES.map((re) => description?.match(re)?.[0]).find(Boolean);
+  if (manualPhrase && frontmatter["disable-model-invocation"] !== true) {
+    add(
+      "manual-only-without-flag",
+      "warning",
+      `description says "${manualPhrase}" but the frontmatter lacks \`disable-model-invocation: true\`, so its ~${estimateTokens(description)} tokens load into every Claude Code session; add the flag (and agents/openai.yaml, see manual-only-policy)`
+    );
+  }
 
   // Rule: Claude-only tool references (outside an <!-- agent:claude --> section) → error.
   const bodyOutsideClaude = stripClaudeSections(body);

@@ -287,3 +287,42 @@ describe("manual-only-policy — disable-model-invocation vs agents/openai.yaml"
     expect(policy(neither)).toEqual([]);
   });
 });
+
+describe("manual-only-without-flag — a description that says manual-only", () => {
+  const found = (s: SkillManifest) => lintSkills([s]).filter((f) => f.rule === "manual-only-without-flag");
+  const description = "Deploys the site. MANUAL INVOCATION ONLY: run it when the user asks.";
+
+  test("without disable-model-invocation → warning naming the cost and the fix", () => {
+    const s = mkSkill("deploy", { name: "deploy", description });
+    const hits = found(s);
+    expect(hits.map((f) => f.severity)).toEqual(["warning"]);
+    expect(hits[0].message).toContain('"MANUAL INVOCATION ONLY"');
+    expect(hits[0].message).toContain(`~${Math.ceil(description.length / 4)} tokens`);
+    expect(hits[0].message).toContain("disable-model-invocation: true");
+  });
+
+  test("with the flag → no finding", () => {
+    const s = mkSkill("deploy", {
+      name: "deploy",
+      description,
+      extraFm: { "disable-model-invocation": true },
+    });
+    expect(found(s)).toEqual([]);
+  });
+
+  for (const phrase of [
+    "Manual-only.",
+    "Use only when the user explicitly asks for a deploy.",
+    "Never invoke automatically.",
+    "Do not invoke this skill automatically.",
+  ]) {
+    test(`"${phrase}" is recognised`, () => {
+      expect(found(mkSkill("deploy", { name: "deploy", description: `Deploys the site. ${phrase}` }))).toHaveLength(1);
+    });
+  }
+
+  test("a description that only mentions manual steps is not judged", () => {
+    const s = mkSkill("deploy", { name: "deploy", description: "Use when a deploy needs manual steps." });
+    expect(found(s)).toEqual([]);
+  });
+});
