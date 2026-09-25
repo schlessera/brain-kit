@@ -10,6 +10,7 @@ import { readFileSync, realpathSync, statSync } from "fs";
 import { isAbsolute, relative, resolve, sep } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
+import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import { discoverSkills } from "./skills/discover.js";
 
@@ -23,74 +24,15 @@ export interface InstructionsWeight {
 }
 
 /**
- * `markdown` with every code region blanked: fenced blocks (backtick or tilde,
- * three or more, closed only by a run of the same character at least as long,
- * or running to the end when never closed) and inline code spans (a backtick
- * run closed by the next run of exactly the same length; an unmatched run is
- * literal text). Line structure is kept.
- */
-export function stripMarkdownCode(markdown: string): string {
-  const lines: string[] = [];
-  let fence: { char: string; length: number } | null = null;
-  for (const line of markdown.split("\n")) {
-    if (fence) {
-      const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (close && close[1][0] === fence.char && close[1].length >= fence.length) fence = null;
-      lines.push("");
-      continue;
-    }
-    const open = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      fence = { char: open[1][0], length: open[1].length };
-      lines.push("");
-      continue;
-    }
-    lines.push(line);
-  }
-  const prose = lines.join("\n");
-
-  let out = "";
-  let i = 0;
-  while (i < prose.length) {
-    if (prose[i] !== "`") {
-      out += prose[i++];
-      continue;
-    }
-    let n = 0;
-    while (prose[i + n] === "`") n++;
-    let close = -1;
-    for (let j = i + n; j < prose.length; ) {
-      if (prose[j] !== "`") {
-        j++;
-        continue;
-      }
-      let m = 0;
-      while (prose[j + m] === "`") m++;
-      if (m === n) {
-        close = j;
-        break;
-      }
-      j += m;
-    }
-    if (close === -1) {
-      out += prose.slice(i, i + n);
-      i += n;
-    } else {
-      out += prose.slice(i, close + n).replace(/[^\n]/g, " ");
-      i = close + n;
-    }
-  }
-  return out;
-}
-
-/**
- * `@path` imports in a CLAUDE.md, as Claude Code reads them: outside code,
- * after whitespace or at a line start. Home and absolute imports are left
- * out; they live outside the brain.
+ * `@path` imports in a CLAUDE.md, as Claude Code reads them: outside code (as
+ * the GFM parse finds it, see markdown-code.ts), after whitespace or at a line
+ * start. Home and absolute imports are left out; they live outside the brain.
  */
 export function claudeImports(text: string): string[] {
+  const code = codeRanges(text);
   const found: string[] = [];
-  for (const m of stripMarkdownCode(text).matchAll(/(?:^|\s)@(\S+)/g)) {
+  for (const m of text.matchAll(/(?:^|\s)@(\S+)/g)) {
+    if (inRanges(code, m.index! + m[0].length - m[1].length - 1)) continue;
     const path = m[1];
     if (path.startsWith("~") || isAbsolute(path)) continue;
     found.push(path);

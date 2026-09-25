@@ -3,11 +3,8 @@ import { Glob } from "bun";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
-
 import { estimateTokens } from "./context-assembler.js";
+import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
 import type { Severity, Taxonomy } from "./taxonomy.js";
@@ -241,34 +238,6 @@ export interface PastDate {
 
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
 
-/*
- * The slice of mdast this reads, typed structurally (see document-parts.ts
- * for why not through `@types/mdast`).
- */
-interface MdNode {
-  type: string;
-  position?: { start: { offset?: number }; end: { offset?: number } };
-  children?: MdNode[];
-}
-
-const markdown = unified().use(remarkParse).use(remarkGfm);
-
-/** `[start, end)` offsets of every code block and inline code span, as a GFM parser reads them. */
-function codeRanges(text: string): [number, number][] {
-  const ranges: [number, number][] = [];
-  const walk = (node: MdNode) => {
-    if (node.type === "code" || node.type === "inlineCode") {
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      if (start !== undefined && end !== undefined) ranges.push([start, end]);
-      return;
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(markdown.parse(text) as MdNode);
-  return ranges;
-}
-
 /**
  * Lines of `text` naming a calendar date (`YYYY-MM-DD`) before `today`,
  * outside code: fenced and indented blocks and inline spans, wherever GFM
@@ -279,7 +248,7 @@ function codeRanges(text: string): [number, number][] {
  */
 export function findPastDates(text: string, today: string): PastDate[] {
   const code = codeRanges(text);
-  const inCode = (offset: number) => code.some(([start, end]) => offset >= start && offset < end);
+  const inCode = (offset: number) => inRanges(code, offset);
   const found: PastDate[] = [];
   let lineStart = 0;
   text.split("\n").forEach((line, i) => {
