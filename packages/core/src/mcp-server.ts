@@ -18,7 +18,6 @@ import { z } from "zod";
 import { readFileSync, writeFileSync, existsSync, statSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
-import matter from "gray-matter";
 
 import { readEnvVar } from "./config/env.js";
 import { initContext } from "./lib/context.js";
@@ -31,7 +30,8 @@ import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
 import { archiveDocument } from "./lib/archiver.js";
 import { indexAll } from "./lib/indexer.js";
-import { stringifyDocument } from "./lib/frontmatter.js";
+import { updateDocument } from "./lib/frontmatter-edit.js";
+import type { FrontmatterValue } from "./lib/frontmatter-edit.js";
 import { safeResolve } from "./lib/safe-path.js";
 import { resolveEmbeddingProvider } from "./lib/registry.js";
 import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
@@ -573,43 +573,39 @@ export async function startMcpServer(
           return errorResult(new Error(`not an existing markdown document: ${params.path}`));
         }
 
-        const parsed = matter(readFileSync(fullPath, "utf-8"));
+        const raw = readFileSync(fullPath, "utf-8");
+        const updates: Record<string, FrontmatterValue> = {};
         const changes: string[] = [];
 
-        if (params.summary !== undefined) { parsed.data.summary = params.summary; changes.push("summary"); }
-        if (params.status !== undefined) { parsed.data.status = params.status; changes.push("status"); }
-        if (params.relevance !== undefined) { parsed.data.relevance = params.relevance; changes.push("relevance"); }
+        if (params.summary !== undefined) { updates.summary = params.summary; changes.push("summary"); }
+        if (params.status !== undefined) { updates.status = params.status; changes.push("status"); }
+        if (params.relevance !== undefined) { updates.relevance = params.relevance; changes.push("relevance"); }
         if (params.tags !== undefined) {
-          parsed.data.tags = params.tags.split(",").map((t) => t.trim()).filter(Boolean);
+          updates.tags = params.tags.split(",").map((t) => t.trim()).filter(Boolean);
           changes.push("tags");
         }
         if (params.deadline !== undefined) {
-          if (params.deadline === "") delete parsed.data.deadline;
-          else parsed.data.deadline = params.deadline;
+          updates.deadline = params.deadline === "" ? null : params.deadline;
           changes.push("deadline");
         }
         if (params.next_review !== undefined) {
-          if (params.next_review === "") delete parsed.data.next_review;
-          else parsed.data.next_review = params.next_review;
+          updates.next_review = params.next_review === "" ? null : params.next_review;
           changes.push("next_review");
         }
-
-        let content = parsed.content;
-        if (params.append_content) {
-          content = content.replace(/\n*$/, "\n\n") + params.append_content.trim() + "\n";
-          changes.push("content");
-        }
+        if (params.append_content) changes.push("content");
 
         if (changes.length === 0) return errorResult(new Error("no changes specified"));
 
-        parsed.data.updated = new Date().toISOString().split("T")[0];
-        writeFileSync(fullPath, stringifyDocument(content, parsed.data), "utf-8");
+        const updated = new Date().toISOString().split("T")[0];
+        updates.updated = updated;
+        // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
+        writeFileSync(fullPath, updateDocument(raw, updates, params.append_content || undefined), "utf-8");
         await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true });
 
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ path: params.path, updated: parsed.data.updated, changes }),
+            text: JSON.stringify({ path: params.path, updated, changes }),
           }],
         };
       } catch (e) {

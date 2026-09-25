@@ -16,7 +16,6 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import { readEnvVar } from "./config/env.js";
 
-import matter from "gray-matter";
 
 import {
   archiveDocument,
@@ -29,10 +28,11 @@ import {
   openDatabase,
   resolveEmbeddingProvider,
   safeResolve,
-  stringifyDocument,
+  updateDocument,
   type ArchiveResult,
   type BrainContext,
   type EmbeddingProvider,
+  type FrontmatterValue,
   type SearchOptions,
   type SearchResponse,
   type IngestInput,
@@ -344,46 +344,42 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         throw new Error(`Not an existing markdown document: ${input.path}`);
       }
 
-      const parsed = matter(readFileSync(fullPath, "utf-8"));
+      const raw = readFileSync(fullPath, "utf-8");
+      const updates: Record<string, FrontmatterValue> = {};
       const changes: string[] = [];
 
       if (input.summary !== undefined) {
-        parsed.data.summary = input.summary;
+        updates.summary = input.summary;
         changes.push("summary");
       }
       if (input.status !== undefined) {
-        parsed.data.status = input.status;
+        updates.status = input.status;
         changes.push("status");
       }
       if (input.relevance !== undefined) {
-        parsed.data.relevance = input.relevance;
+        updates.relevance = input.relevance;
         changes.push("relevance");
       }
       if (input.tags !== undefined) {
-        parsed.data.tags = input.tags;
+        updates.tags = input.tags;
         changes.push("tags");
       }
       if (input.deadline !== undefined) {
-        if (input.deadline === "") delete parsed.data.deadline;
-        else parsed.data.deadline = input.deadline;
+        updates.deadline = input.deadline === "" ? null : input.deadline;
         changes.push("deadline");
       }
       if (input.nextReview !== undefined) {
-        if (input.nextReview === "") delete parsed.data.next_review;
-        else parsed.data.next_review = input.nextReview;
+        updates.next_review = input.nextReview === "" ? null : input.nextReview;
         changes.push("next_review");
       }
-
-      let content = parsed.content;
-      if (input.appendContent) {
-        content = content.replace(/\n*$/, "\n\n") + input.appendContent.trim() + "\n";
-        changes.push("content");
-      }
+      if (input.appendContent) changes.push("content");
 
       if (changes.length === 0) throw new Error("No changes specified.");
 
-      parsed.data.updated = new Date().toISOString().split("T")[0];
-      writeFileSync(fullPath, stringifyDocument(content, parsed.data), "utf-8");
+      const updated = new Date().toISOString().split("T")[0];
+      updates.updated = updated;
+      // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
+      writeFileSync(fullPath, updateDocument(raw, updates, input.appendContent || undefined), "utf-8");
 
       const db = openDatabase(c.dbPath);
       try {
@@ -391,7 +387,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       } finally {
         db.close();
       }
-      return { path: input.path, updated: parsed.data.updated as string, changes };
+      return { path: input.path, updated, changes };
     },
 
     async archive(relPath: string, dryRun = false): Promise<ArchiveResult> {

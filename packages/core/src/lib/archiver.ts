@@ -5,7 +5,7 @@ import matter from "gray-matter";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./models.js";
-import { stringifyDocument } from "./frontmatter.js";
+import { updateDocument } from "./frontmatter-edit.js";
 import { safeResolve } from "./safe-path.js";
 
 export interface ArchiveResult {
@@ -77,16 +77,17 @@ export async function archiveDocument(
   }
 
   const raw = readFileSync(fullPath, "utf-8");
-  const parsed = matter(raw);
-  parsed.data.status = "archived";
+  const parsed = matter(raw, {});
+  const updates: Record<string, string> = { status: "archived" };
   // An archived doc claiming primary would still take the primary search boost
   // whenever archived docs are included. An explicit secondary or historical
   // is the author's call and stays.
   if (!parsed.data.relevance || parsed.data.relevance === "primary") {
-    parsed.data.relevance = "historical";
+    updates.relevance = "historical";
   }
-  parsed.data.updated = today();
-  const output = stringifyDocument(parsed.content, parsed.data);
+  updates.updated = today();
+  // Only these keys change; the rest of the file keeps its bytes (#449).
+  const output = updateDocument(raw, updates);
   if (archiveFullPath) {
     mkdirSync(dirname(archiveFullPath), { recursive: true });
     // Publish a complete file with an atomic no-clobber link. Unlike rename,

@@ -40,6 +40,7 @@ export "." (./src/index.ts)
   type EmbeddingProvider
   type Enrichment
   type EnvVarSpec
+  type FrontmatterValue
   type HygieneContext
   type IndexOptions
   type IndexStats
@@ -109,6 +110,7 @@ export "." (./src/index.ts)
   defineModule
   defineSkillEmitter
   discoverSkills
+  editFrontmatter
   ensureScratch
   exportOkfBundle
   extractWikiLinks
@@ -156,6 +158,7 @@ export "." (./src/index.ts)
   storedVectorWidth
   stringifyDocument
   syncSkills
+  updateDocument
   validate
   writeFileSafely
   writeScratchFile
