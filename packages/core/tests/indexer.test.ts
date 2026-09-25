@@ -1182,6 +1182,35 @@ describe("the WAL after an index run (#423)", () => {
     }
   });
 
+  test.if(vecAvailable)("a run that fails after committing markdown still truncates the WAL, and rethrows its own error", async () => {
+    const root = bulkyCorpus();
+    const dbPath = join(root, "brain.db");
+    const idle = openDatabase(dbPath);
+    const db = openDatabase(dbPath, { embeddingDimensions: DIM });
+    try {
+      await migrateVecSchema(db, DIM);
+      db.run("PRAGMA busy_timeout=1234");
+      // The embedding phase reads the provider's id after markdown is
+      // persisted; this one fails there, as a broken provider would.
+      const provider = {
+        ...makeProvider(),
+        get id(): string {
+          throw new Error("injected failure after the markdown commit");
+        },
+      } as EmbeddingProvider;
+      await expect(
+        indexAll(db, { root, taxonomy, quiet: true, embeddings: true, provider })
+      ).rejects.toThrow("injected failure after the markdown commit");
+
+      expect((idle.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n).toBe(120);
+      expect(walBytes(root)).toBe(0);
+      expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 1234 });
+    } finally {
+      db.close();
+      idle.close();
+    }
+  });
+
   test("a reader holding a transaction open makes the checkpoint busy, not the run", async () => {
     const root = bulkyCorpus();
     await runIndex(root);
@@ -1199,7 +1228,7 @@ describe("the WAL after an index run (#423)", () => {
       expect(stats.updated).toBe(1);
       expect(Date.now() - started).toBeLessThan(4000); // did not wait out the busy timeout
       expect(logged.filter((line) => line.includes("WAL checkpoint"))).toEqual([
-        "WAL checkpoint busy: another connection is reading; the WAL is left for a later run",
+        "WAL checkpoint busy: another connection holds a lock; the WAL is left for a later run",
       ]);
       expect(walBytes(root)).toBeGreaterThan(0);
     } finally {

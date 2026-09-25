@@ -121,24 +121,32 @@ function saveSidecarCaches(run: IndexRun): void {
  * Fold the WAL back into `brain.db` and truncate it to zero bytes.
  *
  * An index run is the largest writer core has, and without this the WAL keeps
- * its size until every connection closes. Best-effort: a connection holding a
- * read transaction open (another process mid-query) makes the checkpoint
- * busy, and waiting out the 5 s busy timeout for it would stall every hook
- * run. The run reports it and moves on; the next run, or SQLite's own
- * checkpoints under `journal_size_limit`, catch up.
+ * its size until every connection closes. It runs whether the run finished or
+ * threw: a run that failed in its asset or embedding phase has still committed
+ * its markdown. Best-effort, and it never throws, so it cannot replace the
+ * error of a run that failed. Another connection holding a read transaction,
+ * the write lock or a checkpoint of its own makes it busy, and waiting out the
+ * 5 s busy timeout for that would stall every hook run. The run reports it and
+ * moves on; the next run, or SQLite's own checkpoints under
+ * `journal_size_limit`, catch up.
  */
 function checkpointWal(run: IndexRun): void {
-  const { timeout } = run.db.prepare("PRAGMA busy_timeout").get() as { timeout: number };
+  let timeout: number | undefined;
   try {
+    timeout = (run.db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
     run.db.run("PRAGMA busy_timeout=0");
     const result = run.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number } | null;
     if (result?.busy) {
-      run.report("WAL checkpoint busy: another connection is reading; the WAL is left for a later run");
+      run.report("WAL checkpoint busy: another connection holds a lock; the WAL is left for a later run");
     }
   } catch (e) {
     run.report(`WAL checkpoint skipped: ${(e as Error).message}`);
   } finally {
-    run.db.run(`PRAGMA busy_timeout=${timeout}`);
+    try {
+      if (timeout !== undefined) run.db.run(`PRAGMA busy_timeout=${timeout}`);
+    } catch (e) {
+      run.warn(`  Could not restore the busy timeout: ${(e as Error).message}`);
+    }
   }
 }
 
@@ -157,6 +165,15 @@ export async function indexAll(db: Database, options: IndexOptions): Promise<Ind
 
 async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats> {
   const run = createRun(db, options);
+  try {
+    return await runPipeline(run, options);
+  } finally {
+    // --- checkpoint -------------------------------------------------------
+    checkpointWal(run);
+  }
+}
+
+async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexStats> {
 
   // --- scan ---------------------------------------------------------------
   const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
@@ -217,9 +234,6 @@ async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats
 
   // --- graph --------------------------------------------------------------
   if (options.graph !== false) precomputeGraph(run);
-
-  // --- checkpoint ---------------------------------------------------------
-  checkpointWal(run);
 
   return run.stats;
 }
