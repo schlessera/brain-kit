@@ -8,10 +8,11 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import matter from "gray-matter";
+import { fromMarkdown } from "mdast-util-from-markdown";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
@@ -66,6 +67,13 @@ describe("over fixtures/corpus", () => {
   test("a budget with more material than room is mostly used", async () => {
     // Floor, not target: greedy fill leaves only what no remaining hit fits.
     expect(estimateTokens(await assemble(BROAD, 2000))).toBeGreaterThan(1600);
+  });
+
+  test("includes current focus whole when it fits", async () => {
+    const focus = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8")).content.trim();
+    // The premise: more than the 800 characters main kept.
+    expect(focus.length).toBeGreaterThan(800);
+    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${focus}`);
   });
 
   test("carries no FTS5 highlight markers", async () => {
@@ -134,13 +142,51 @@ describe("over a hand-built index", () => {
     expect(out).toContain("(notes/small.md)");
   });
 
-  test("a heading inside a hit body cannot open a section", async () => {
-    addDoc("notes/headed.md", "Headed", "## Beacon Heading\nbeacon notes follow here.");
-    const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
-    expect(out).toContain("(notes/headed.md)");
-    expect(out).toContain("Beacon Heading");
-    const headings = out.split("\n").filter((line) => /^#{1,6} /.test(line));
-    expect(headings.every((line) => line.startsWith("### ") && line.includes("(notes/"))).toBe(true);
+  test("hit bodies are contained: the parsed output has only the hit headings as blocks", async () => {
+    // Each body starts, or FTS cuts it into, a Markdown block: a setext
+    // heading, an unclosed fence, an unclosed HTML comment, a quote, a list.
+    addDoc("notes/setext.md", "Setext", "beacon setext\n===\nmore text");
+    addDoc("notes/fence.md", "Fence", "beacon fence\n```\nconst x = 1;");
+    addDoc("notes/comment.md", "Comment", "<!-- beacon comment that never closes");
+    addDoc("notes/quote.md", "Quote", "> beacon quoted line");
+    addDoc("notes/list.md", "List", "- beacon listed item\n- second");
+    addDoc("notes/after.md", "After", "beacon plain words after the others");
+    const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 2000, includeIdentity: false, includeCurrentFocus: false });
+    const tree = fromMarkdown(out);
+    // Every hit, the last one included, keeps its own depth-3 heading, and
+    // nothing else in the output is a block other than a paragraph.
+    const depths = tree.children.filter((node) => node.type === "heading").map((h) => (h as { depth: number }).depth);
+    expect(depths).toEqual([3, 3, 3, 3, 3, 3]);
+    expect(tree.children.map((node) => node.type).filter((t) => t !== "heading" && t !== "paragraph")).toEqual([]);
+    expect(out).toContain("(notes/after.md)");
+  });
+
+  test("a multiline title stays on its header line", async () => {
+    addDoc("notes/forged.md", "First zephyr\n## Forged section", "zephyr words");
+    const out = await assembleContext(db, ctx, { query: "zephyr", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
+    const depths = fromMarkdown(out).children.filter((node) => node.type === "heading").map((h) => (h as { depth: number }).depth);
+    expect(depths).toEqual([3]);
+    expect(out.split("\n")[0]).toBe("### First zephyr ## Forged section (notes/forged.md) · updated 2026-01-01 · active");
+  });
+
+  test("a multiline summary stays on its header line", async () => {
+    addDoc("notes/sumline.md", "Sumline", "quasar words", "line one\n\n# not a heading");
+    const out = await assembleContext(db, ctx, { query: "quasar", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
+    expect(out.split("\n")[0]).toBe("### Sumline (notes/sumline.md) · updated 2026-01-01 · active — line one # not a heading");
+  });
+
+  test("the separator between sections is paid for, at an exact budget boundary", async () => {
+    // Two hits whose sections are exactly 400 characters (100 tokens) each.
+    // At a budget of 200, both fit only if the "\n\n" between them is free.
+    const section = (title: string, path: string) => `### ${title} (${path}) · updated 2026-01-01 · active\nnadir alpha`;
+    const pad = (path: string) => "T".repeat(400 - section("", path).length);
+    addDoc("notes/edge-1.md", pad("notes/edge-1.md"), "nadir alpha");
+    addDoc("notes/edge-2.md", pad("notes/edge-2.md"), "nadir alpha");
+    expect(section(pad("notes/edge-1.md"), "notes/edge-1.md")).toHaveLength(400);
+
+    const out = await assembleContext(db, ctx, { query: "nadir", maxTokens: 200, includeIdentity: false, includeCurrentFocus: false });
+    expect(out).toContain("(notes/edge-");
+    expect(estimateTokens(out)).toBeLessThanOrEqual(200);
   });
 
   test("each hit's header is one line: title, path, updated date, status and summary", async () => {
@@ -149,5 +195,30 @@ describe("over a hand-built index", () => {
     expect(out.split("\n")).toContain(
       "### Summarised (notes/summarised.md) · updated 2026-01-01 · active — Where the harbour ferry leaves from"
     );
+  });
+
+  describe("identity cut at a block boundary", () => {
+    const LONG = "word ".repeat(400).trim();
+    const cases: [string, string][] = [
+      ["a CRLF blank line", `Short complete sentence.\r\n\r\n${LONG}`],
+      ["a whitespace-only blank line", `Short complete sentence.\n   \n${LONG}`],
+      ["a heading with no blank line before it", `Short complete sentence.\n## Next\n${LONG}`],
+    ];
+    for (const [name, body] of cases) {
+      test(`recognises ${name}`, async () => {
+        mkdirSync(join(dir, "me"), { recursive: true });
+        writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${body}\n`);
+        const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
+        expect(out).toBe("## Identity\nShort complete sentence.\n\n(truncated — brain read me/identity.md)");
+      });
+    }
+
+    test("never cuts inside a fenced block", async () => {
+      // A blank line inside the fence would fit as a cut, and leave it open.
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\nIntro.\n\n` + "```\ncode\n\n" + `${LONG}\n` + "```\n");
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
+      expect(out).toBe("## Identity\nIntro.\n\n(truncated — brain read me/identity.md)");
+    });
   });
 });

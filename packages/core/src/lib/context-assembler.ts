@@ -33,40 +33,67 @@ const BUDGET_FLOOR = 20;
 
 const SEPARATOR = "\n\n";
 
+/** An ATX heading line, or a fence line (``` / ~~~), as CommonMark reads them. */
+const HEADING_LINE = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
+
 /**
- * Cut `body` at the last paragraph or section boundary that keeps
- * `heading + body + marker` within `budget` tokens. Returns null when not even
- * the heading and the marker fit. A body with no boundary that fits is left
- * out, never cut mid-sentence.
+ * Cut `body` at the last block boundary that keeps `heading + body + marker`
+ * within `budget` tokens. A boundary is a blank line (whitespace-only counts)
+ * or the start of a heading, never a point inside a fenced block. A line of
+ * only whitespace is blank, which covers the `\r` of a CRLF blank line. Returns
+ * null when not even the heading and the marker fit; a body with no boundary
+ * that fits is left out, never cut mid-sentence.
  */
 function truncateAtBoundary(heading: string, body: string, marker: string, budget: number): string | null {
   const shell = `${heading}\n${marker}`;
   if (estimateTokens(shell) > budget) return null;
-  const paragraphs = body.split(/\n{2,}/);
+  const lines = body.split("\n");
+  // cuts[k]: keeping lines[0..k) ends on a block boundary.
+  const cuts: number[] = [];
+  let inFence = false;
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k]!;
+    if (!inFence && k > 0 && (line.trim() === "" || HEADING_LINE.test(line))) cuts.push(k);
+    if (FENCE_LINE.test(line)) inFence = !inFence;
+  }
   let kept = "";
-  for (const paragraph of paragraphs) {
-    const next = kept ? `${kept}\n\n${paragraph}` : paragraph;
-    if (estimateTokens(`${heading}\n${next}\n\n${marker}`) > budget) break;
-    kept = next;
+  for (const cut of cuts) {
+    const text = lines.slice(0, cut).join("\n").trimEnd();
+    if (!text) continue;
+    if (estimateTokens(`${heading}\n${text}\n\n${marker}`) > budget) break;
+    kept = text;
   }
   return kept ? `${heading}\n${kept}\n\n${marker}` : shell;
 }
 
-/** A search hit's body: no FTS5 highlight markers, and no line that could
- * open a section of the assembled output. */
-function cleanSnippet(snippet: string): string {
-  return snippet
-    .replace(/>>>|<<</g, "")
-    .replace(/^[ \t]*#{1,6}[ \t]+(.+)$/gm, "**$1**")
-    .trim();
+/**
+ * Text as one line of inline content: whitespace runs become single spaces
+ * and every `<` is escaped, so no HTML block or comment can start.
+ */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/</g, "\\<");
 }
 
+/**
+ * A search hit's body as contained plain text: one line, no FTS5 highlight
+ * markers, and a leading character that would start a heading, quote, list,
+ * thematic break, fence or table escaped.
+ */
+function cleanSnippet(snippet: string): string {
+  return oneLine(snippet.replace(/>>>|<<</g, ""))
+    .replace(/^(\d+)([.)])/, "$1\\$2")
+    .replace(/^([#>+\-*_=|`~])/, "\\$1");
+}
+
+/** A hit's one-line header. Every field is flattened to one line, so a
+ * multiline title or summary cannot open a section of its own. */
 function hitHeader(result: SearchResult): string {
-  const facts = [`(${result.path})`];
-  if (result.updated) facts.push(`updated ${result.updated.slice(0, 10)}`);
-  if (result.status) facts.push(result.status);
-  const summary = result.summary ? ` — ${result.summary.replace(/\s+/g, " ").trim()}` : "";
-  return `### ${result.title} ${facts.join(" · ")}${summary}`;
+  const facts = [`(${oneLine(result.path)})`];
+  if (result.updated) facts.push(`updated ${oneLine(result.updated.slice(0, 10))}`);
+  if (result.status) facts.push(oneLine(result.status));
+  const summary = result.summary ? ` — ${oneLine(result.summary)}` : "";
+  return `### ${oneLine(result.title)} ${facts.join(" · ")}${summary}`;
 }
 
 /**
