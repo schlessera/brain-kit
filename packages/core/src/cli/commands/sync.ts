@@ -85,6 +85,15 @@ function porcelainRecords(root: string): { xy: string; file: string }[] {
   return entries;
 }
 
+/**
+ * The paths the index holds unmerged, once each. `-z` for the same reason as
+ * `porcelainRecords`: without it git quotes and escapes a non-ASCII or unusual
+ * path (`core.quotePath`), and the quoted form names no file `git show` can find.
+ */
+function unmergedPaths(root: string): string[] {
+  return git(root, ["diff", "--name-only", "-z", "--diff-filter=U"], true).stdout.split("\0").filter(Boolean);
+}
+
 function globToRegex(pattern: string): RegExp {
   const body = pattern
     .split(/(\*)/)
@@ -415,8 +424,11 @@ export const syncCommand: CoreCommand = {
         // and post-sync pushes caches, so the other clone's commit usually does.
         // Set it aside for the merge and union it back after.
         // A merge already in progress owns the caches' index stages; setting
-        // them aside would erase a cache conflict before it is resolved.
-        const alreadyMerging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+        // them aside would erase a cache conflict before it is resolved. A
+        // squash merge leaves its stages without a MERGE_HEAD.
+        const alreadyMerging =
+          git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0 ||
+          git(root, ["ls-files", "--unmerged"]).stdout !== "";
         const aside =
           remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
 
@@ -429,14 +441,20 @@ export const syncCommand: CoreCommand = {
         } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
           status = "merged";
         } else {
-          status = "conflicted";
-          conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
+          // Classify on what the failed merge left in the index, not on
+          // MERGE_HEAD: a squash merge (branch.main.mergeOptions) stops on
+          // conflicts without one, and a merge left unfinished before this pull
+          // keeps one with nothing to resolve. Unmerged paths are Phase 4's
+          // work; none means git refused, which is only to report.
+          conflicts = unmergedPaths(root);
+          status = conflicts.length > 0 ? "conflicted" : "merge-failed";
         }
 
         // No merge started (git refused before touching the tree): put the
         // caches back as they were. Otherwise union them, which also resolves
         // a cache conflict, so Phase 4 never sees one.
-        const merging = git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+        const merging =
+          conflicts.length > 0 || git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
         const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
         const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
         if (status === "fast-forwarded" || status === "merged" || merging) {
@@ -444,7 +462,9 @@ export const syncCommand: CoreCommand = {
           if (cacheConflicts.length > 0) {
             git(root, ["add", "--", ...cacheConflicts]);
             conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
-            if (conflicts.length === 0 && git(root, ["commit", "--no-edit"]).code === 0) status = "merged";
+            if (conflicts.length === 0) {
+              status = git(root, ["commit", "--no-edit"]).code === 0 ? "merged" : "merge-failed";
+            }
           }
         } else {
           putDerivedCachesBack(root, aside);
@@ -461,7 +481,7 @@ export const syncCommand: CoreCommand = {
       }
 
       case "conflicts": {
-        const paths = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
+        const paths = unmergedPaths(root);
         const files = paths.map((file) => ({
           file,
           base: git(root, ["show", `:1:${file}`]).stdout || "(no base version)",
