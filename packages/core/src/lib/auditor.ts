@@ -23,6 +23,12 @@ export interface AuditOptions {
    * without it, the line in the document body (after the frontmatter).
    */
   root?: string;
+  /**
+   * Documents to leave out of every check, as if they were not indexed.
+   * `brain hygiene reconcile` leaves out its own log, so writing the log
+   * cannot change what the next run detects.
+   */
+  exclude?: (path: string) => boolean;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -491,7 +497,8 @@ export function audit(
   const issues: AuditIssue[] = [];
   const now = (opts.now ?? new Date()).getTime();
 
-  const docs = loadAuditDocs(db);
+  const exclude = opts.exclude;
+  const docs = exclude ? loadAuditDocs(db).filter((d) => !exclude(d.path)) : loadAuditDocs(db);
 
   // ---------------------------------------------------------------
   // 1. Staleness checks
@@ -616,13 +623,22 @@ export function audit(
   // 2d. Tag vocabulary noise — one aggregate issue, not one per tag
   // ---------------------------------------------------------------
   try {
-    const tagRows = db
+    // Without `exclude`, every tagged document counts, as it always has.
+    const counted = exclude ? new Set(docs.map((d) => d.id)) : null;
+    const tagUses = db
       .prepare(
-        `SELECT t.name, COUNT(dt.document_id) AS n
-         FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
-         GROUP BY t.id`
+        `SELECT t.id, t.name, dt.document_id AS doc
+         FROM tags t JOIN document_tags dt ON dt.tag_id = t.id`
       )
-      .all() as { name: string; n: number }[];
+      .all() as { id: number; name: string; doc: number }[];
+    const byTag = new Map<number, { name: string; n: number }>();
+    for (const use of tagUses) {
+      if (counted && !counted.has(use.doc)) continue;
+      const row = byTag.get(use.id) ?? { name: use.name, n: 0 };
+      row.n++;
+      byTag.set(use.id, row);
+    }
+    const tagRows = [...byTag.values()];
     const singletons = tagRows.filter((r) => r.n === 1);
     if (tagRows.length > 0 && singletons.length / tagRows.length > 0.4) {
       const sample = singletons.slice(0, 8).map((r) => r.name).join(", ");

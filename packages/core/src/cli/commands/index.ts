@@ -35,6 +35,7 @@ import { mcpCommand } from "./mcp.js";
 import { okfCommand } from "./okf.js";
 import { evalCommand } from "./eval.js";
 import { tagsCommand } from "./tags.js";
+import { hygieneCommand } from "./hygiene.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
@@ -66,6 +67,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   okf: okfCommand,
   eval: evalCommand,
   tags: tagsCommand,
+  hygiene: hygieneCommand,
 };
 
 export { generateBriefing } from "./briefing.js";

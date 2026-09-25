@@ -61,7 +61,7 @@ export const VALUE_FLAGS = new Set([
   "max-tokens", "limit-reviews", "section", "title", "tags", "stamp", "path", "root", "name",
   "out", "include", "exclude",
   "center", "depth", "direction", "stale-days", "community",
-  "format", "as", "width", "allow-host", "only",
+  "format", "as", "width", "allow-host", "extra", "state", "only",
   "forget-cache",
   "set", "k", "now", "budgets",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
