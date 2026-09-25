@@ -703,7 +703,7 @@ describe("the commands", () => {
     utimesSync(old, t, t);
     const res = await runCli(brain, ["maintain", "--json"]);
     const steps = JSON.parse(res.stdout) as { step: string; result: string }[];
-    expect(steps.map((s) => s.step)).toEqual(["index", "audit", "scratch"]);
+    expect(steps.map((s) => s.step)).toEqual(["index", "audit", "tags", "scratch"]);
     expect(steps.at(-1)!.result).toContain("removed 1 file(s)");
     expect(existsSync(old)).toBe(false);
   });

@@ -107,6 +107,30 @@ export const assetTitleRuleSchema = z.union([
 
 export type AssetTitleRule = z.infer<typeof assetTitleRuleSchema>;
 
+/** A tag as `brain validate` wants it: lowercase, no spaces. */
+const tagNameSchema = z
+  .string()
+  .min(1)
+  .refine((t) => t === t.toLowerCase() && !/\s/.test(t), "a tag is lowercase with no spaces");
+
+const tagsConfigSchema = z
+  .object({
+    /** The tags the owner means to use. When set, `brain tags` and `brain validate` report the others. */
+    vocabulary: z.array(tagNameSchema).optional(),
+    /** Old tag → canonical tag. */
+    aliases: z
+      .record(tagNameSchema, tagNameSchema)
+      .refine((a) => Object.entries(a).every(([from, to]) => from !== to), "an alias cannot map a tag to itself")
+      .optional(),
+    /** Report tags that repeat the document's type or a directory of its path. */
+    redundant: z.enum(["warn", "off"]).optional(),
+    /** Group English singular/plural pairs; "off" for a non-English vocabulary. */
+    inflection: z.enum(["en", "off"]).optional(),
+  })
+  .strict();
+
+export type TagsConfig = z.infer<typeof tagsConfigSchema>;
+
 const taxonomyConfigSchema = z
   .object({
     types: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), typeSpecSchema).optional(),
@@ -122,6 +146,8 @@ const taxonomyConfigSchema = z
       .object({ days: z.number().int().positive(), severity: severitySchema })
       .strict()
       .optional(),
+    /** Tag vocabulary and hygiene rules for `brain tags` and `brain validate`. */
+    tags: tagsConfigSchema.optional(),
   })
   .strict();
 

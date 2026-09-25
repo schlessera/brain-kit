@@ -138,3 +138,36 @@ describe("an archived document that still claims primary relevance", () => {
     expect(after.ok).toBe(before.ok);
   });
 });
+
+describe("validate against taxonomy.tags", () => {
+  const withTags = (tags: object) =>
+    buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: { tags } }) });
+  const tagged = () =>
+    makeCorpus({
+      "notes/a.md": doc({ type: "note", title: "A", tags: "[talks, hiking]" }),
+    });
+  // Whole issues, severity included: a vocabulary finding is a warning, and
+  // an error would fail `brain validate` on an otherwise valid brain.
+  const tagWarnings = (issues: { message: string }[]) =>
+    issues.filter((i) => i.message.includes("taxonomy.tags"));
+  const warning = (message: string) => ({ file: "notes/a.md", level: "warning", message });
+
+  test("warns on a tag that is an aliases key and names the canonical tag", () => {
+    const issues = validate(tagged(), withTags({ aliases: { talks: "talk" } }));
+    expect(tagWarnings(issues)).toEqual([warning('Tag "talks" is an alias in taxonomy.tags — use "talk"')]);
+  });
+
+  test("warns on a tag outside the vocabulary, once per tag, and not twice for an alias key", () => {
+    const issues = validate(tagged(), withTags({ vocabulary: ["talk"], aliases: { talks: "talk" } }));
+    expect(tagWarnings(issues)).toEqual([
+      warning('Tag "talks" is an alias in taxonomy.tags — use "talk"'),
+      warning('Tag "hiking" is not in taxonomy.tags.vocabulary'),
+    ]);
+  });
+
+  test("stays silent about tags when taxonomy.tags is absent", () => {
+    const issues = validate(tagged(), taxonomy);
+    expect(tagWarnings(issues)).toEqual([]);
+    expect(issues.filter((i) => i.message.includes('"talks"'))).toEqual([]);
+  });
+});

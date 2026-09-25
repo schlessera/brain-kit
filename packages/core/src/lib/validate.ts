@@ -36,6 +36,8 @@ export interface ValidationIssue {
 export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const files = getMarkdownFiles(root, taxonomy);
+  const tagAliases = taxonomy.tags?.aliases;
+  const vocabulary = taxonomy.tags?.vocabulary ? new Set(taxonomy.tags.vocabulary) : null;
 
   // Build the same maps the indexer uses, so validation and resolution agree
   const fileMap = new Map<string, string>();
@@ -157,7 +159,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
       });
     }
 
-    // Tag format validation
+    // Tag format validation, then the configured vocabulary (taxonomy.tags)
     if (Array.isArray(data.tags)) {
       for (const tag of data.tags) {
         if (typeof tag !== "string" || tag !== tag.toLowerCase() || tag.includes(" ")) {
@@ -165,6 +167,20 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
             file: filePath,
             level: "warning",
             message: `Tag "${tag}" should be lowercase and hyphenated (no spaces)`,
+          });
+        }
+        const name = String(tag);
+        if (tagAliases && Object.hasOwn(tagAliases, name)) {
+          issues.push({
+            file: filePath,
+            level: "warning",
+            message: `Tag "${name}" is an alias in taxonomy.tags — use "${tagAliases[name]}"`,
+          });
+        } else if (vocabulary && !vocabulary.has(name)) {
+          issues.push({
+            file: filePath,
+            level: "warning",
+            message: `Tag "${name}" is not in taxonomy.tags.vocabulary`,
           });
         }
       }

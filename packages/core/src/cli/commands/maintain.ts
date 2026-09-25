@@ -2,22 +2,26 @@ import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.
 import { indexAll } from "../../lib/indexer.js";
 import { audit } from "../../lib/auditor.js";
 import { pruneScratch } from "../../lib/scratch.js";
+import { tagReport } from "../../lib/tags.js";
+import { summarizeTagReport } from "./tags.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 
 Runs, in order: incremental index (+embeddings when a key is configured), an
-audit snapshot, then a prune of the scratch area (files older than 7 days, then
-the oldest until under 1 GB). Exits 2 if any step failed. Module cron jobs are separate
-(advisory manifest entries consumed by the container entrypoint).
+audit snapshot, a tag report (counts only; see \`brain tags\`), then a prune of
+the scratch area (files older than 7 days, then the oldest until under 1 GB).
+Exits 2 if any step failed; the tag report never fails the run. Module cron
+jobs are separate (advisory manifest entries consumed by the container
+entrypoint).
 
 The hosting container runs this daily. A brain with no chat server has no
 other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
-  summary: "Run routine maintenance: incremental index, audit snapshot, scratch prune",
+  summary: "Run routine maintenance: incremental index, audit snapshot, tag report, scratch prune",
   helpBlock: HELP,
   async run(_args, cli): Promise<number> {
     const report: Array<{ step: string; result: string }> = [];
@@ -59,7 +63,15 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "audit", result: `FAILED — ${(e as Error).message}` });
     }
 
-    // 3. Scratch prune. Writes into scratch prune as they go; this is the
+    // 3. Tag report, counts only. Read-only, and never a failed step: a
+    // tidy-up hint must not turn a cron run red.
+    try {
+      report.push({ step: "tags", result: summarizeTagReport(tagReport(cli.brain.root, cli.brain.taxonomy)) });
+    } catch (e) {
+      report.push({ step: "tags", result: `skipped — ${(e as Error).message}` });
+    }
+
+    // 4. Scratch prune. Writes into scratch prune as they go; this is the
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);
