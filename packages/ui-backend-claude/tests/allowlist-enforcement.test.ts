@@ -7,24 +7,26 @@
  * A turn that declares `enforceAllowedTools` withholds that grant while KEEPING
  * the rewrite, and the call falls through to the ordinary permission path.
  *
- * The runtime precedence modelled by `runToolCall` below is not invented: it
- * was measured for #124 with a real `query()`, and is re-measured against the
- * runtime `MEASURED_RUNTIME` names by scripts/measure-claude-runtime.ts, which
- * shows that
+ * The runtime precedence modelled by `runToolCall` (./helpers/run-tool-call.ts)
+ * is not invented: it was measured for #124 with a real `query()`, and is
+ * re-measured against the runtime `MEASURED_RUNTIME` names by
+ * scripts/measure-claude-runtime.ts, which shows that
  * (a) a hook's `allow` skips `canUseTool`, (b) a hook's `updatedInput` applies
  * with no decision attached, (c) `canUseTool` then receives the REWRITTEN
  * input, (d) the runtime approves some calls on its own before the callback —
  * `echo hi` runs with an EMPTY allowedTools — and (e) a hook's `ask` overrides
  * (d) and forces the callback while leaving (b) intact. Without (b) this fix
  * would have had to choose between the rewrite and the decision; without (e)
- * it would not hold at all.
+ * it would not hold at all. The matching hooks run in parallel on the
+ * original input, and the rewrite that finishes last is the one that runs;
+ * the first describe block below holds the helper to that (#231).
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
+import type { HookCallback, Options, query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   BackendBridge,
   PermissionDecision,
@@ -33,83 +35,7 @@ import type {
 import { resetRtkProbe } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
-
-/** What one tool call did, as the runtime would have resolved it. */
-interface ToolCallOutcome {
-  /** Did the tool actually run? */
-  executed: boolean;
-  /** The input it would have run with (rewrites applied). */
-  input: Record<string, unknown>;
-  /** Was a permission decision taken, rather than skipped? */
-  decided: boolean;
-}
-
-/**
- * Drive one tool call through the runtime's precedence as measured: every
- * matching PreToolUse hook fires and their outputs combine (a `deny` blocks,
- * an `allow` executes and skips the callback, an `ask` forces the callback,
- * `updatedInput` applies under any of them), then the turn's `allowedTools`
- * and the runtime's own auto-approval, then `canUseTool` on whatever input
- * survived the hooks.
- *
- * `runtimeAutoApproves` stands in for the permission opinions the runtime
- * holds before the callback is reached — its safe-command classifier, a
- * built-in tool's own check, an allow rule in the project settings. Modelling
- * it is the point: without it a test would "prove" enforcement by assuming the
- * very fallthrough that does not always happen.
- */
-async function runToolCall(
-  options: Options,
-  toolName: string,
-  input: Record<string, unknown>,
-  toolUseId: string,
-  runtimeAutoApproves = false
-): Promise<ToolCallOutcome> {
-  let current = input;
-  let asked = false;
-  for (const group of options.hooks?.PreToolUse ?? []) {
-    if (group.matcher && !new RegExp(group.matcher).test(toolName)) continue;
-    for (const hook of group.hooks) {
-      const output = (await hook(
-        {
-          hook_event_name: "PreToolUse",
-          tool_name: toolName,
-          tool_input: current,
-          tool_use_id: toolUseId,
-        } as never,
-        toolUseId,
-        { signal: new AbortController().signal }
-      )) as {
-        hookSpecificOutput?: {
-          permissionDecision?: string;
-          updatedInput?: Record<string, unknown>;
-        };
-      };
-      const out = output?.hookSpecificOutput;
-      if (out?.updatedInput) current = out.updatedInput;
-      if (out?.permissionDecision === "deny") {
-        return { executed: false, input: current, decided: true };
-      }
-      if (out?.permissionDecision === "allow") {
-        return { executed: true, input: current, decided: false };
-      }
-      // An "ask" does NOT short-circuit: a later hook's rewrite still applies
-      // and is what the callback then sees.
-      if (out?.permissionDecision === "ask") asked = true;
-    }
-  }
-  if (!asked && ((options.allowedTools ?? []).includes(toolName) || runtimeAutoApproves)) {
-    return { executed: true, input: current, decided: false };
-  }
-  const decision = (await options.canUseTool!(toolName, current, {
-    signal: new AbortController().signal,
-    toolUseID: toolUseId,
-  } as never)) as PermissionDecision;
-  if (decision.behavior === "allow") {
-    return { executed: true, input: decision.updatedInput ?? current, decided: true };
-  }
-  return { executed: false, input: current, decided: true };
-}
+import { runToolCall } from "./helpers/run-tool-call";
 
 interface Harness {
   options: Options;
@@ -205,6 +131,88 @@ function withFakeRtk(behaviour: "rewrites" | "declines" = "rewrites"): () => voi
 const WITHOUT_SHELL_OR_AGENT = ["Read", "Grep", "Glob"];
 const WITH_SHELL_AND_AGENT = ["Read", "Grep", "Glob", "Bash", "Agent"];
 const BACKGROUND_AGENT_CALL = { description: "fan out", prompt: "look", run_in_background: true };
+
+/** A PreToolUse hook that records the input it was handed, then answers. */
+function recordingHook(
+  seen: Record<string, unknown>[],
+  answer: Record<string, unknown>,
+  delayMs = 0
+): HookCallback {
+  return async (hookInput) => {
+    seen.push((hookInput as { tool_input: Record<string, unknown> }).tool_input);
+    if (delayMs > 0) await Bun.sleep(delayMs);
+    return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", ...answer } };
+  };
+}
+
+function bashHooks(hooks: HookCallback[], allowedTools: string[] = ["Bash"]): Options {
+  return { allowedTools, hooks: { PreToolUse: [{ matcher: "Bash", hooks }] } };
+}
+
+describe("the harness runs PreToolUse hooks the way the runtime does", () => {
+  test("parallel rewrites each see the original input, and the one that finishes last runs", async () => {
+    const slowSaw: Record<string, unknown>[] = [];
+    const fastSaw: Record<string, unknown>[] = [];
+    // Registered first, finishes second: registration order must not decide.
+    const slow = recordingHook(slowSaw, { updatedInput: { command: "slow rewrite" } }, 25);
+    const fast = recordingHook(fastSaw, { updatedInput: { command: "fast rewrite" } });
+
+    const outcome = await runToolCall(
+      bashHooks([slow, fast]),
+      "Bash",
+      { command: "git status" },
+      "harness-race"
+    );
+
+    expect(slowSaw).toEqual([{ command: "git status" }]);
+    expect(fastSaw).toEqual([{ command: "git status" }]);
+    expect(outcome.executed).toBe(true);
+    expect(outcome.input).toEqual({ command: "slow rewrite" });
+  });
+
+  test("a hook registered after one that answers allow still runs", async () => {
+    const laterSaw: Record<string, unknown>[] = [];
+    const outcome = await runToolCall(
+      bashHooks([recordingHook([], { permissionDecision: "allow" }), recordingHook(laterSaw, {})], []),
+      "Bash",
+      { command: "git status" },
+      "harness-allow-then-record"
+    );
+
+    expect(laterSaw).toEqual([{ command: "git status" }]);
+    expect(outcome.executed).toBe(true);
+    expect(outcome.decided).toBe(false);
+  });
+
+  test("a deny from a hook registered after an allow still blocks", async () => {
+    const outcome = await runToolCall(
+      bashHooks([
+        recordingHook([], { permissionDecision: "allow" }),
+        recordingHook([], { permissionDecision: "deny", permissionDecisionReason: "no" }),
+      ]),
+      "Bash",
+      { command: "git status" },
+      "harness-allow-then-deny"
+    );
+
+    expect(outcome.executed).toBe(false);
+    expect(outcome.message).toBe("no");
+  });
+
+  test("allow from one hook and ask from another is refused as unmeasured", async () => {
+    await expect(
+      runToolCall(
+        bashHooks([
+          recordingHook([], { permissionDecision: "allow" }),
+          recordingHook([], { permissionDecision: "ask" }),
+        ]),
+        "Bash",
+        { command: "git status" },
+        "harness-allow-and-ask"
+      )
+    ).rejects.toThrow("unmeasured");
+  });
+});
 
 describe("an enforced allowlist and the rtk rewrite", () => {
   let restorePath: (() => void) | null = null;
