@@ -1,6 +1,9 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
+import { readFileSync } from "fs";
+import { join } from "path";
 
+import { estimateTokens } from "./context-assembler.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
 import type { Severity, Taxonomy } from "./taxonomy.js";
@@ -11,6 +14,11 @@ const MS_PER_DAY = 86_400_000;
 export interface AuditOptions {
   /** Wall clock to measure ages against — injected for deterministic tests. */
   now?: Date;
+  /**
+   * The brain root. With it, a `past-date` issue names the line in the file;
+   * without it, the line in the document body (after the frontmatter).
+   */
+  root?: string;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -22,6 +30,8 @@ export interface AuditDoc {
   status: string;
   relevance: string;
   updated: string;
+  /** `next_review` from the frontmatter as `YYYY-MM-DD`, or null. */
+  next_review: string | null;
   content: string;
 }
 
@@ -33,7 +43,7 @@ export interface AuditDoc {
 export function loadAuditDocs(db: Database): AuditDoc[] {
   return db
     .prepare(
-      `SELECT id, path, title, type, status, relevance, updated, content
+      `SELECT id, path, title, type, status, relevance, updated, next_review, content
        FROM documents
        WHERE asset_type = 'markdown'
        ORDER BY path`
@@ -143,6 +153,128 @@ export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy):
     }
   }
   return orphans;
+}
+
+/** The calendar day at `now` (epoch ms), as the `YYYY-MM-DD` frontmatter dates use. */
+export function isoDay(now: number): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+/** The canonical document for `key`, when it is set, indexed and not archived. */
+function canonicalDoc(docs: AuditDoc[], taxonomy: Taxonomy, key: string): AuditDoc | null {
+  const path = taxonomy.canonicalPath(key);
+  const doc = path ? docs.find((d) => d.path === path) : undefined;
+  return doc && doc.status !== "archived" ? doc : null;
+}
+
+export interface BudgetOverrun {
+  doc: AuditDoc;
+  key: string;
+  tokens: number;
+  maxTokens: number;
+}
+
+/**
+ * Canonical documents over their `canonicalPolicy` token budget, estimated
+ * over the body the way `brain context` estimates what it loads.
+ */
+export function findBudgetOverruns(docs: AuditDoc[], taxonomy: Taxonomy): BudgetOverrun[] {
+  const over: BudgetOverrun[] = [];
+  for (const [key, { maxTokens }] of Object.entries(taxonomy.canonicalPolicy)) {
+    if (maxTokens === undefined) continue;
+    const doc = canonicalDoc(docs, taxonomy, key);
+    if (!doc) continue;
+    const tokens = estimateTokens(doc.content);
+    if (tokens > maxTokens) over.push({ doc, key, tokens, maxTokens });
+  }
+  return over;
+}
+
+export interface OverdueReview {
+  doc: AuditDoc;
+  /** The day the review was due. */
+  due: string;
+  /** `next_review` from the frontmatter, or the canonical policy's `reviewDays`. */
+  source: "next_review" | "reviewDays";
+}
+
+/**
+ * Documents due for review before `now`: any non-archived document whose
+ * `next_review` has passed, and any canonical document with a `reviewDays`
+ * cadence whose `updated` is older than that and that sets no future
+ * `next_review`. One entry per document.
+ */
+export function findOverdueReviews(docs: AuditDoc[], taxonomy: Taxonomy, now: number): OverdueReview[] {
+  const today = isoDay(now);
+  const overdue = new Map<string, OverdueReview>();
+  for (const doc of docs) {
+    if (doc.status === "archived" || !doc.next_review) continue;
+    if (doc.next_review < today) overdue.set(doc.path, { doc, due: doc.next_review, source: "next_review" });
+  }
+  for (const [key, { reviewDays }] of Object.entries(taxonomy.canonicalPolicy)) {
+    if (reviewDays === undefined) continue;
+    const doc = canonicalDoc(docs, taxonomy, key);
+    if (!doc || overdue.has(doc.path) || (doc.next_review && doc.next_review >= today)) continue;
+    const updated = new Date(doc.updated).getTime();
+    if (Number.isNaN(updated)) continue;
+    const due = isoDay(updated + reviewDays * MS_PER_DAY);
+    if (due < today) overdue.set(doc.path, { doc, due, source: "reviewDays" });
+  }
+  return [...overdue.values()];
+}
+
+export interface PastDate {
+  /** 1-based line number in `text`. */
+  line: number;
+  /** The earliest ISO date on the line. */
+  date: string;
+  text: string;
+}
+
+const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Lines of `text` naming a calendar date (`YYYY-MM-DD`) before `today`,
+ * outside fenced code. Whether the date is wrong is a judgement this does not
+ * make: a past date in a focus document is usually a finished item or a
+ * missed deadline, and either way worth a look.
+ */
+export function findPastDates(text: string, today: string): PastDate[] {
+  const found: PastDate[] = [];
+  let fence: { char: string; length: number } | null = null;
+  text.split("\n").forEach((line, i) => {
+    const run = line.match(FENCE)?.[1];
+    if (fence) {
+      if (run && run[0] === fence.char && run.length >= fence.length && line.trim() === run) fence = null;
+      return;
+    }
+    if (run) {
+      fence = { char: run[0], length: run.length };
+      return;
+    }
+    const dates = [...line.matchAll(ISO_DATE)]
+      .filter(([, y, m, d]) => {
+        const date = new Date(`${y}-${m}-${d}T00:00:00Z`);
+        return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(`${y}-${m}-${d}`);
+      })
+      .map((m) => m[0])
+      .sort();
+    if (dates.length > 0 && dates[0] < today) found.push({ line: i + 1, date: dates[0], text: line.trim() });
+  });
+  return found;
+}
+
+/** Lines in the file before the body starts, when the file on disk still ends with the indexed body. */
+function bodyLineOffset(root: string | undefined, doc: AuditDoc): number | null {
+  if (!root) return null;
+  try {
+    const file = readFileSync(join(root, doc.path), "utf8");
+    if (!file.endsWith(doc.content)) return null;
+    return file.slice(0, file.length - doc.content.length).split("\n").length - 1;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -350,6 +482,55 @@ export function audit(
     });
   }
 
+  // ---------------------------------------------------------------
+  // 6. Canonical budgets — the always-read documents stay short
+  // ---------------------------------------------------------------
+  for (const { doc, key, tokens, maxTokens } of findBudgetOverruns(docs, taxonomy)) {
+    issues.push({
+      path: doc.path,
+      severity: "warning",
+      category: "budget",
+      message: `~${tokens} tokens, over the ${maxTokens}-token budget for canonical "${key}"`,
+      suggestion: `Move finished or reference material out of ${doc.path}, or raise taxonomy.canonicalPolicy.${key}.maxTokens`,
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // 7. Overdue reviews — next_review passed, or a canonical cadence lapsed
+  // ---------------------------------------------------------------
+  for (const { doc, due, source } of findOverdueReviews(docs, taxonomy, now)) {
+    issues.push({
+      path: doc.path,
+      severity: "warning",
+      category: "review-overdue",
+      message:
+        source === "next_review"
+          ? `next_review ${due} has passed`
+          : `Review was due ${due} (reviewDays cadence; last updated ${doc.updated})`,
+      suggestion: `Review ${doc.path}, then update it or move next_review forward`,
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // 8. Past dates — in the canonical documents that carry a policy
+  // ---------------------------------------------------------------
+  const today = isoDay(now);
+  for (const key of Object.keys(taxonomy.canonicalPolicy)) {
+    const doc = canonicalDoc(docs, taxonomy, key);
+    if (!doc) continue;
+    const offset = bodyLineOffset(opts.root, doc);
+    for (const { line, date, text } of findPastDates(doc.content, today)) {
+      const where = offset === null ? `Body line ${line}` : `Line ${line + offset}`;
+      issues.push({
+        path: doc.path,
+        severity: "warning",
+        category: "past-date",
+        message: `${where} names ${date}, before today (${today}): ${text}`,
+        suggestion: "Finish, reschedule or remove the item if that date has passed",
+      });
+    }
+  }
+
   return issues;
 }
 
@@ -357,14 +538,15 @@ export function audit(
  * The core audit plus every enabled module's hygiene checks, each run against
  * its own module's config. A check that throws becomes one `module-hygiene`
  * warning instead of failing the audit. `brain audit` and `brain maintain`
- * both count issues through this, so their numbers agree.
+ * both count issues through this, so their numbers agree. The brain's root
+ * reaches the core audit (`AuditOptions.root`) unless `opts` sets another.
  */
 export async function auditWithModules(
   db: Database,
   brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
   opts: AuditOptions = {}
 ): Promise<AuditIssue[]> {
-  const issues = audit(db, brain.taxonomy, opts);
+  const issues = audit(db, brain.taxonomy, { root: brain.root, ...opts });
   for (const mod of brain.modules) {
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {

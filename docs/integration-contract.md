@@ -90,7 +90,14 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 `"warning"`, `"info"`; `category`, a string naming the check; `message`; and
 `suggestion`, a string present only when the check has one. Core categories are
 `staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
-`verify`, `type-mismatch` and `orphan`. Modules add their own, and a failing
+`verify`, `type-mismatch`, `orphan`, and, added in 0.38.0 additively,
+`budget`, `review-overdue` and `past-date`. `budget` is a canonical document
+over its `taxonomy.canonicalPolicy.<key>.maxTokens`. `review-overdue` is a
+passed `next_review`, or a lapsed `canonicalPolicy.<key>.reviewDays` cadence.
+`past-date` is a line in a canonical document with a policy that names an
+earlier `YYYY-MM-DD` day, with the line number in `message`. All three are
+`warning`. `taxonomy.canonicalPolicy` is an optional `brain.config` key,
+defaulting to `{ currentFocus: { maxTokens: 1000 } }`. Modules add their own, and a failing
 module check reports as `module-hygiene` with `path: "(module)"`, so treat the
 set as open.
 
