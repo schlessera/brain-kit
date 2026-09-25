@@ -17,6 +17,7 @@
  *   embeddings contexts then vectors, for chunks and assets alike
  *   caches     bank descriptions and contexts, then prune what is unreachable
  *   graph      derived tables, which read the links persist just wrote
+ *   checkpoint truncate the WAL the run grew, when no reader is in the way
  *
  * Phases degrade rather than throw. A run with no embedding provider, no
  * enrichment, or no sqlite-vec still produces a correct index — it just
@@ -116,6 +117,39 @@ function saveSidecarCaches(run: IndexRun): void {
   }
 }
 
+/**
+ * Fold the WAL back into `brain.db` and truncate it to zero bytes.
+ *
+ * An index run is the largest writer core has, and without this the WAL keeps
+ * its size until every connection closes. It runs whether the run finished or
+ * threw: a run that failed in its asset or embedding phase has still committed
+ * its markdown. Best-effort, and it never throws, so it cannot replace the
+ * error of a run that failed. Another connection holding a read transaction,
+ * the write lock or a checkpoint of its own makes it busy, and waiting out the
+ * 5 s busy timeout for that would stall every hook run. The run reports it and
+ * moves on; the next run, or SQLite's own checkpoints under
+ * `journal_size_limit`, catch up.
+ */
+function checkpointWal(run: IndexRun): void {
+  let timeout: number | undefined;
+  try {
+    timeout = (run.db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
+    run.db.run("PRAGMA busy_timeout=0");
+    const result = run.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number } | null;
+    if (result?.busy) {
+      run.report("WAL checkpoint busy: another connection holds a lock; the WAL is left for a later run");
+    }
+  } catch (e) {
+    run.report(`WAL checkpoint skipped: ${(e as Error).message}`);
+  } finally {
+    try {
+      if (timeout !== undefined) run.db.run(`PRAGMA busy_timeout=${timeout}`);
+    } catch (e) {
+      run.warn(`  Could not restore the busy timeout: ${(e as Error).message}`);
+    }
+  }
+}
+
 /** Incrementally index all markdown files (and assets) into the database. */
 export async function indexAll(db: Database, options: IndexOptions): Promise<IndexStats> {
   // Claim before even the force wipe or asset descriptions. Plain FTS index
@@ -131,6 +165,15 @@ export async function indexAll(db: Database, options: IndexOptions): Promise<Ind
 
 async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats> {
   const run = createRun(db, options);
+  try {
+    return await runPipeline(run, options);
+  } finally {
+    // --- checkpoint -------------------------------------------------------
+    checkpointWal(run);
+  }
+}
+
+async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexStats> {
 
   // --- scan ---------------------------------------------------------------
   const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
