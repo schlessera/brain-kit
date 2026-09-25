@@ -22,15 +22,22 @@ const SCHEMA_SNAPSHOT = join(import.meta.dir, "mcp-input-schemas.json");
 /**
  * An input schema as the contract pins it: names, types, enums, defaults and
  * `required`. Descriptions are prose, and some interpolate the brain's own
- * taxonomy, so they are dropped.
+ * taxonomy, so the `description` annotation is dropped from every schema
+ * node. A `properties` map is not a schema node: its keys are input names,
+ * and an input called `description` must stay.
  */
-function withoutDescriptions(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutDescriptions);
-  if (!value || typeof value !== "object") return value;
+function withoutDescriptions(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withoutDescriptions);
+  if (!schema || typeof schema !== "object") return schema;
   return Object.fromEntries(
-    Object.entries(value)
+    Object.entries(schema)
       .filter(([key]) => key !== "description")
-      .map(([key, v]) => [key, withoutDescriptions(v)])
+      .map(([key, v]) => [
+        key,
+        key === "properties" && v && typeof v === "object" && !Array.isArray(v)
+          ? Object.fromEntries(Object.entries(v).map(([name, s]) => [name, withoutDescriptions(s)]))
+          : withoutDescriptions(v),
+      ])
   );
 }
 
