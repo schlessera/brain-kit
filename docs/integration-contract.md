@@ -573,7 +573,11 @@ Rules a consumer may rely on:
 
 These nine seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
-own `@experimental` tag, and so do the types a seam is made of.
+own `@experimental` tag. So do eight of the types they are made of:
+`BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
+`SpeechSession`, `AsrClientOptions`, `AdapterResult` and `ScrapeContext`.
+Whether the other types in a seam's signature belong in the frozen set is open
+in [#343](https://github.com/schlessera/brain-kit/issues/343).
 [extending/README.md](extending/README.md#the-seams) says what each one swaps.
 
 | Interface | Imported from |

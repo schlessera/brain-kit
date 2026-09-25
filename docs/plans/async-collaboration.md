@@ -1128,7 +1128,8 @@ Actions list
 
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (`StartTurnRequest` is conversation-shaped
-  and exposes no headless/persistence/tool-policy mode — `backend.ts:172-200`)
+  and exposes no headless/persistence/tool-policy mode — `StartTurnRequest`,
+  `backend.ts:296-366`)
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (generalize the hardcoded

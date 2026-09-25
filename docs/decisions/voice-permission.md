@@ -36,7 +36,7 @@ looking at a card: the transcript copy in
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
-`docs/decisions/design-kit.md:1799`). A spoken conversation has no card, so
+`docs/decisions/design-kit.md:1805`). A spoken conversation has no card, so
 either the model speaks the request and waits, or voice runs under a posture
 that needs no interactive approval, or voice is read-only.
 
@@ -486,10 +486,10 @@ record's own reason.** `docs/plans/async-collaboration.md`, under U15, specifies
 *"Tool **availability** control (`tools`), not `allowedTools` — an allowlisted
 tool is auto-allowed and never reaches `canUseTool` (`backend.ts:703-709`), so
 removing a tool from the allowlist does not remove the tool"*
-(`Tool **availability** control`, `docs/plans/async-collaboration.md:1176-1178`),
+(`Tool **availability** control`, `docs/plans/async-collaboration.md:1177-1179`),
 and it names the pi implementation as the check on the Claude one: a filtered
 `ToolDefinition[]`, *"no SDK allowlist exists, therefore no auto-allow bypass
-exists to defeat"* (`pi is the easy case`, `:1188-1191`).
+exists to defeat"* (`pi is the easy case`, `:1189-1192`).
 That plan is epic #51's design record. It was written before #141 and #154
 measured the runtime paths described below, and
 those measurements make its reason stronger, not weaker: a tool that was never

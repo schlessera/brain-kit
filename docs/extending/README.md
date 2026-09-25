@@ -59,8 +59,9 @@ search runs full-text-only. Degraded modes are reported through the existing
 
 ### Stability
 
-Every seam is marked `@experimental` until 1.0, on its own declaration and on
-the types it is made of. Breaking changes to a seam are
+Every seam is marked `@experimental` until 1.0 on its own declaration, as are
+some of the types it is made of; the integration contract lists which. Breaking
+changes to a seam are
 announced in the CHANGELOG; a change to the stable contract requires a
 `CONTRACT:` commit prefix, and a breaking one a maintainer ruling first (a major
 version bump from 1.0). See [integration-contract.md](../integration-contract.md).
@@ -106,12 +107,15 @@ The first four live in core. The self-hosted chat UI adds four in
   `packages/ui-sdk/src/client/renderers.ts`.
 
 `@schlessera/brain-scrape` adds one more, `SiteAdapter`, for modules that fetch
-from the web. It clears the second-implementation bar by a distance — eleven
-sites already implement it — and it exists because the alternative was
-observed: without a seam that is actually load-bearing, `module-jobs` grew a
-SECOND scraper with its own site registry and its own browser client, and
-implemented one site through both. `needsBrowser` on the adapter is the only
-thing that decides how it is served. Contract:
+from the web. It exists because the alternative was observed: without a
+shared seam, `module-jobs` grew a SECOND scraper with its own site registry and
+its own browser client, and implemented one site through both. No production
+adapter implements `SiteAdapter` yet. `module-jobs`' ten boards implement that
+module's own `ScraperAdapter`
+(`ScraperAdapter`, `packages/module-jobs/src/types.ts:147-170`), which takes
+the package's `ScrapeContext` through `bind` rather than through `scrape`, and
+they do not run through `runAdapters`. `needsBrowser` on the
+adapter is the only thing that decides how it is served. Contract:
 `packages/scrape/src/adapter/types.ts`.
 
 Note the split: **modules** contribute content-domain things (types, skills, CLI
