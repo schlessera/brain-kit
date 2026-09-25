@@ -4,8 +4,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
@@ -19,6 +20,8 @@ const TOP1: Query[] = [
 ];
 
 let root: string;
+// A directory beside the brain, holding real files a path could escape to.
+let outside: string;
 
 function writeSet(name: string, lines: object[]): string {
   const path = join(root, "evals", name);
@@ -35,9 +38,14 @@ beforeAll(async () => {
   root = makeTempBrain();
   expect((await runCli(root, ["index", "--json"])).code).toBe(0);
   mkdirSync(join(root, "evals"));
+  outside = mkdtempSync(join(tmpdir(), "brain-eval-outside-"));
+  writeFileSync(join(outside, "outside.md"), "---\ntitle: Outside\ntype: note\n---\n\nknee injury\n");
 });
 
-afterAll(() => cleanup(root));
+afterAll(() => {
+  cleanup(root);
+  cleanup(outside);
+});
 
 describe("scores", () => {
   test("three known top-1 hits score hit@1 = 1.0", async () => {
@@ -90,6 +98,13 @@ describe("scores", () => {
     expect(query.top1_score).toBeGreaterThan(0);
   });
 
+  test("a relative --out is relative to the brain root", async () => {
+    const set = writeSet("rel.jsonl", TOP1);
+    const { code, out } = await evalJson(["--set", set, "--out", "evals/runs/relative.json"]);
+    expect(code).toBe(0);
+    expect(JSON.parse(readFileSync(join(root, "evals", "runs", "relative.json"), "utf-8"))).toEqual(out);
+  });
+
   test("--out writes the same envelope that --json prints", async () => {
     const set = writeSet("out.jsonl", TOP1);
     const outPath = join(root, "evals", "runs", "latest.json");
@@ -119,11 +134,27 @@ describe("validity gates exit 2 with no score", () => {
     expect(stderr).toContain("knee: health/no-such-note.md");
   });
 
-  test("an expected path outside the brain root", async () => {
-    const set = writeSet("escape.jsonl", [{ ...TOP1[0], expected: ["../outside.md"] }]);
-    const { code, stdout } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
+  // The outside file is real, so without containment the path would exist
+  // and a later gate (not indexed) would refuse with another message.
+  test("an expected path that escapes the brain root by ..", async () => {
+    const escape = `../${basename(outside)}/outside.md`;
+    expect(existsSync(join(root, escape))).toBe(true);
+    const set = writeSet("escape.jsonl", [TOP1[0], { ...TOP1[1], expected: [escape] }]);
+    const { code, stdout, stderr } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
     expect(code).toBe(2);
     expect(stdout).toBe("");
+    expect(stderr).toContain("resolve outside the brain root");
+    expect(stderr).toContain(`knee: ${escape}`);
+  });
+
+  test("an expected path that escapes the brain root through a symlink", async () => {
+    symlinkSync(join(outside, "outside.md"), join(root, "notes", "linked-out.md"));
+    const set = writeSet("escape-link.jsonl", [TOP1[0], { ...TOP1[1], expected: ["notes/linked-out.md"] }]);
+    const { code, stdout, stderr } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("resolve outside the brain root");
+    expect(stderr).toContain("knee: notes/linked-out.md");
   });
 
   test("an expected path that exists but is not indexed", async () => {
@@ -172,6 +203,58 @@ describe("validity gates exit 2 with no score", () => {
   });
 });
 
+describe("--out stays inside the brain", () => {
+  const refusedOut = async (out: string) => {
+    const set = writeSet("out-escape.jsonl", TOP1);
+    return runCli(root, ["eval", "--mode", "fts", "--json", "--set", set, "--out", out]);
+  };
+
+  test("an absolute path outside the brain is refused before anything is written", async () => {
+    const target = join(outside, "abs.json");
+    const { code, stdout, stderr } = await refusedOut(target);
+    expect(code).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(existsSync(target)).toBe(false);
+  });
+
+  // --mode vector with no provider would refuse (exit 2) after searching;
+  // the out-path check answers first, before any search runs.
+  test("the out path is checked before the run, not only at the write", async () => {
+    const set = writeSet("out-first.jsonl", TOP1);
+    const { code, stderr } = await runCli(root, [
+      "eval", "--mode", "vector", "--json", "--set", set, "--out", join(outside, "first.json"),
+    ]);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(code).toBe(1);
+  });
+
+  test("a .. traversal out of the brain is refused", async () => {
+    const { code, stderr } = await refusedOut(`../${basename(outside)}/traversal.json`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(existsSync(join(outside, "traversal.json"))).toBe(false);
+  });
+
+  test("a symlinked directory inside the brain does not redirect the write", async () => {
+    symlinkSync(outside, join(root, "evals", "linked-dir"));
+    const { code, stderr } = await refusedOut("evals/linked-dir/through-dir.json");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(existsSync(join(outside, "through-dir.json"))).toBe(false);
+  });
+
+  test("a symlinked file inside the brain does not redirect the write", async () => {
+    const target = join(outside, "through-file.json");
+    writeFileSync(target, "untouched");
+    symlinkSync(target, join(root, "evals", "linked-file.json"));
+    const { code, stderr } = await refusedOut("evals/linked-file.json");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(readFileSync(target, "utf-8")).toBe("untouched");
+  });
+});
+
 describe("usage errors exit 1", () => {
   test("a malformed line names its line number", async () => {
     const set = join(root, "evals", "malformed.jsonl");
@@ -183,9 +266,32 @@ describe("usage errors exit 1", () => {
     expect(stderr).toContain("expected");
   });
 
-  test("an unknown --mode", async () => {
-    const { code } = await runCli(root, ["eval", "--mode", "semantic", "--json"]);
-    expect(code).toBe(1);
+  test("an unknown --mode, including an inherited property name", async () => {
+    for (const mode of ["semantic", "toString", "constructor", "__proto__"]) {
+      const { code, stderr } = await runCli(root, ["eval", "--mode", mode, "--json"]);
+      expect(code).toBe(1);
+      expect(stderr).toContain("--mode must be one of");
+    }
+  });
+
+  test("a value option given no value is refused, not defaulted", async () => {
+    const set = writeSet("bare.jsonl", TOP1);
+    for (const flag of ["--k", "--mode", "--rerank", "--out", "--set"]) {
+      const { code, stdout, stderr } = await runCli(root, ["eval", "--set", set, "--mode", "fts", flag, "--json"]);
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain(`${flag} requires a value`);
+    }
+  });
+
+  test("a cutoff past the supported bound is refused before searching", async () => {
+    const set = writeSet("big-k.jsonl", TOP1);
+    for (const k of ["1001", "9007199254740993", "9".repeat(400)]) {
+      const { code, stdout, stderr } = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--k", k, "--json"]);
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("--k cutoffs go up to 1000");
+    }
   });
 });
 
@@ -211,5 +317,19 @@ describe("a stale index", () => {
 
     expect((await runCli(stale, ["index", "--json"])).code).toBe(0);
     expect((await runCli(stale, ["eval", "--mode", "fts", "--json"])).code).toBe(0);
+  });
+
+  // Root reads through any mode, so the file cannot be made unreadable there.
+  test.skipIf(process.getuid?.() === 0)("an indexed file that cannot be read is refused, naming it", async () => {
+    const path = join(stale, "health", "sleep-tracking.md");
+    chmodSync(path, 0o000);
+    try {
+      const refused = await runCli(stale, ["eval", "--mode", "fts", "--json"]);
+      expect(refused.code).toBe(2);
+      expect(refused.stdout).toBe("");
+      expect(refused.stderr).toContain("health/sleep-tracking.md: cannot be read to check it against the index");
+    } finally {
+      chmodSync(path, 0o644);
+    }
   });
 });

@@ -18,7 +18,7 @@ brain eval --mode all --out evals/run.json
 ## The query set
 
 The default set is `evals/retrieval.jsonl` at the brain root; `--set <file>`
-points at another. It is JSON Lines: one JSON object per line, one query per
+points at another (a relative path is relative to the brain root). It is JSON Lines: one JSON object per line, one query per
 object, with its right answers inline.
 
 ```jsonl
@@ -73,9 +73,9 @@ number from a broken run would be read as a real result.
 | Refused when | Why |
 | --- | --- |
 | the set is missing or has no queries | there is nothing to measure |
-| an expected path does not exist in the brain | a typo, or a moved or deleted document, would score as a permanent miss |
+| an expected path does not exist in the brain, or leads out of it | a typo, or a moved or deleted document, would score as a permanent miss |
 | an expected path exists but is not in the index | an excluded directory, or a file without `title`/`type`, can never be found |
-| the index is older than the markdown | a document changed, appeared or went away since the last `brain index`, so the run would score yesterday's brain. Run `brain index` and try again |
+| the index is older than the markdown | a document changed, appeared or went away since the last `brain index`, so the run would score yesterday's brain. Run `brain index` and try again. An indexed file that cannot be read refuses too, since its freshness cannot be checked |
 | a requested lane degraded | `--mode vector` or `--mode hybrid` with no embedding provider, a model mismatch, a timeout. The run never scores the full-text fallback under the vector lane's name |
 
 ## Reading the result
@@ -96,7 +96,8 @@ class. `n` is the number of queries behind the row.
 
 - **hit@k** is the share of queries with an expected path among the first k
   results. It is not recall: a query with three expected paths scores a hit
-  when any one of them is in the top k. `--k 1,3,10` is the default.
+  when any one of them is in the top k. `--k 1,3,10` is the default; a cutoff
+  can be at most 1000.
 - **MRR@10** is the mean of 1/rank of the first expected path, counting 0 when
   it is below rank 10. It rewards rank 2 over rank 9, which hit@k cannot.
 - **oracle** is the share of queries with an expected path anywhere in the
@@ -131,7 +132,9 @@ hybrid scores are fusion values in the hundredths.
 
 `--json` prints the envelope described in the
 [integration contract](integration-contract.md#brain-eval---json); `--out <file>`
-also writes it to a file. Without `--out` nothing is written. The `meta` block
+also writes it to a file, which must be inside the brain: a path that leads
+out, directly or through a symlink, is refused before the run starts. Without
+`--out` nothing is written. The `meta` block
 records what the run measured: the installed version (and the source directory
 when it runs from a checkout), the set file and its SHA-256, the number of
 indexed documents, the embedding model when a vector lane ran, the modes, the

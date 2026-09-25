@@ -126,7 +126,10 @@ export function parseEvalSet(text: string): ParsedSet {
   return { header, queries };
 }
 
-/** Parse `--k 1,3,10` into sorted, distinct positive integers. */
+/** The largest cutoff `--k` accepts; the pool, and so each search, grows with it. */
+export const MAX_K = 1000;
+
+/** Parse `--k 1,3,10` into sorted, distinct positive integers up to MAX_K. */
 export function parseKs(raw: string): number[] {
   const ks = raw.split(",").map((part) => part.trim());
   const values = new Set<number>();
@@ -134,7 +137,11 @@ export function parseKs(raw: string): number[] {
     if (!/^[1-9]\d*$/.test(k)) {
       throw new EvalSetError(`--k takes positive integers separated by commas, got "${raw}"`);
     }
-    values.add(Number(k));
+    const value = Number(k);
+    if (!Number.isSafeInteger(value) || value > MAX_K) {
+      throw new EvalSetError(`--k cutoffs go up to ${MAX_K}, got ${k.length > 12 ? `${k.slice(0, 12)}…` : k}`);
+    }
+    values.add(value);
   }
   return [...values].sort((a, b) => a - b);
 }

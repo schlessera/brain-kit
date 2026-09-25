@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aggregate, EvalSetError, parseEvalSet, parseKs, poolSize, scoreQuery } from "../src/lib/retrieval-eval";
+import { aggregate, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery } from "../src/lib/retrieval-eval";
 import type { SearchResult } from "../src/lib/types";
 
 const line = (value: object) => JSON.stringify(value);
@@ -61,6 +61,13 @@ describe("parseKs and poolSize", () => {
   test("sorted, distinct positive integers", () => {
     expect(parseKs("10, 1,3,1")).toEqual([1, 3, 10]);
     for (const bad of ["0", "1,,3", "a", "1.5", "-1"]) expect(() => parseKs(bad)).toThrow(EvalSetError);
+  });
+
+  test("a cutoff above MAX_K, unsafe or infinite is refused, not rounded", () => {
+    expect(parseKs(String(MAX_K))).toEqual([MAX_K]);
+    for (const bad of [String(MAX_K + 1), "9007199254740993", "9".repeat(400)]) {
+      expect(() => parseKs(bad)).toThrow(`--k cutoffs go up to ${MAX_K}`);
+    }
   });
 
   test("the pool is at least the search default and never smaller than the largest k", () => {

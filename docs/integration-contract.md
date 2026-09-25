@@ -144,11 +144,14 @@ keys are the `--k` values as strings. A query set of only `no-answer` queries
 has no overall row.
 
 The command refuses, exiting `2` with the reason on stderr and nothing on
-stdout or in `--out`, when the set is missing or empty, an expected path is not
-a file in the brain or not in the index, the index is older than the markdown
-on disk, or a requested lane degraded (any `warnings` from the search, such as
-`--mode vector` with no embedding provider). A malformed set line is a usage
-error (exit `1`) naming the line.
+stdout or in `--out`, when the set is missing or empty, an expected path is
+outside the brain (symlinks followed), not a file, or not in the index, the
+index is older than the markdown on disk or an indexed file cannot be read to
+tell, or a requested lane degraded (any `warnings` from the search, such as
+`--mode vector` with no embedding provider). Usage errors exit `1`: a malformed
+set line (named by number), a value option given no value, a `--k` cutoff above
+1000, and an `--out` outside the brain, which is refused before any search
+runs. `--set` and `--out` resolve against the brain root.
 
 #### `brain index` counters
 

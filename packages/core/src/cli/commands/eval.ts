@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import matter from "gray-matter";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";
 import { loadVecSupport } from "../../lib/db.js";
@@ -18,7 +18,8 @@ import {
   scoreQuery,
 } from "../../lib/retrieval-eval.js";
 import type { EvalMode, EvalQuery, QueryOutcome, ScoreRow } from "../../lib/retrieval-eval.js";
-import { safeResolve } from "../../lib/safe-path.js";
+import { resolveWritable, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
+import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch.js";
 import { hybridSearch } from "../../lib/search-engine.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { packageRoot, packageVersion } from "../../package-version.js";
@@ -30,11 +31,13 @@ const DOCS_POINTER =
 
 const HELP = `brain eval — score a retrieval query set against this brain's index
 
-  --set <file>            JSONL query set (default: evals/retrieval.jsonl under the brain root)
+  --set <file>            JSONL query set (default: evals/retrieval.jsonl)
   --mode <mode>           fts|vector|hybrid|all (default: hybrid)
   --rerank <mode>         none|heuristic (default: the search default)
   --k <list>              hit@k cutoffs, comma-separated (default: 1,3,10)
-  --out <file>            Also write the JSON result to <file>
+  --out <file>            Also write the JSON result to <file>, inside the brain
+
+Relative paths are relative to the brain root.
 
 Exit codes: 0 scored · 1 usage error or malformed set · 2 refused (a validity
 gate failed: missing or empty set, an expected path not on disk or not indexed,
@@ -43,7 +46,7 @@ the index older than the markdown, a requested search lane degraded).
 --json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" }
 Set format and how to read the numbers: docs/evaluating-search.md`;
 
-const MODES: Record<string, EvalMode[]> = {
+const MODES: Readonly<Record<string, EvalMode[]>> = {
   fts: ["fts"],
   vector: ["vector"],
   hybrid: ["hybrid"],
@@ -92,17 +95,26 @@ function loadSet(path: string, root: string): { queries: EvalQuery[]; sha256: st
   return { queries: parsed.queries, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
-/** Every expected path must be a file inside the brain that the index holds. */
+/**
+ * Every expected path must be a file inside the brain that the index holds.
+ * Containment is symlink-aware (`safeResolve`): a link inside the brain that
+ * points out of it is outside.
+ */
 function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): void {
   const indexed = db.prepare("SELECT 1 FROM documents WHERE path = ?");
+  const outside: string[] = [];
   const missing: string[] = [];
   const unindexed: string[] = [];
   for (const query of queries) {
     for (const path of query.expected) {
       const full = safeResolve(root, path);
-      if (!full || !existsSync(full)) missing.push(`${query.id}: ${path}`);
+      if (!full) outside.push(`${query.id}: ${path}`);
+      else if (!existsSync(full)) missing.push(`${query.id}: ${path}`);
       else if (!indexed.get(path)) unindexed.push(`${query.id}: ${path}`);
     }
+  }
+  if (outside.length > 0) {
+    throw new EvalRefused(`${outside.length} expected path(s) resolve outside the brain root`, outside);
   }
   if (missing.length > 0) {
     throw new EvalRefused(`${missing.length} expected path(s) do not exist in the brain`, missing);
@@ -119,7 +131,10 @@ function checkExpectedPaths(root: string, db: Database, queries: EvalQuery[]): v
  * The index must describe the markdown on disk, or the run scores yesterday's
  * brain. Compares content hashes the way the indexer does
  * (`parseMarkdownFiles`, packages/core/src/lib/indexer/parse.ts), so a file
- * the indexer would skip (no title/type) is not reported as unindexed.
+ * the indexer would skip (no title/type) is not reported as unindexed. An
+ * indexed file that cannot be read cannot be shown to be fresh, so it refuses
+ * the run too; an unreadable file the index does not hold is one the indexer
+ * skips as well.
  */
 function checkIndexFresh(brain: BrainContext, db: Database): void {
   const rows = db
@@ -129,11 +144,16 @@ function checkIndexFresh(brain: BrainContext, db: Database): void {
   const stale: string[] = [];
 
   const onDisk = getMarkdownFiles(brain.root, brain.taxonomy);
+  const present = new Set(onDisk);
   for (const path of onDisk) {
     let raw: string;
     try {
       raw = readFileSync(join(brain.root, path), "utf-8");
-    } catch {
+    } catch (e) {
+      if (!hashes.has(path)) continue;
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") present.delete(path); // gone since the scan: reported below
+      else stale.push(`${path}: cannot be read to check it against the index (${code ?? (e as Error).message})`);
       continue;
     }
     if (hashes.has(path)) {
@@ -149,7 +169,6 @@ function checkIndexFresh(brain: BrainContext, db: Database): void {
       /* invalid frontmatter: the indexer skips it too */
     }
   }
-  const present = new Set(onDisk);
   for (const path of hashes.keys()) {
     if (!present.has(path)) stale.push(`${path}: deleted since it was indexed`);
   }
@@ -220,6 +239,24 @@ function printHuman(rows: ScoreRow[], perQuery: QueryOutcome[], ks: number[], me
   }
 }
 
+/**
+ * Write `--out` the way `render --out` does: re-resolve the directory, never
+ * write through a link, and hold a target in the scratch area to its rules.
+ * A refusal by design is a usage error; a filesystem failure stays internal.
+ */
+function writeOut(root: string, outRel: string, data: string): void {
+  const parent = resolveWritable(root, dirname(outRel));
+  if (!parent) throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+  const target = join(parent, basename(outRel));
+  try {
+    if (isInScratch(root, outRel) || isInScratch(root, target)) writeScratchFile(root, outRel, data, { replace: true });
+    else writeFileSafely(target, data);
+  } catch (error) {
+    if (isWriteRefusal(error)) throw new UsageError((error as Error).message);
+    throw error;
+  }
+}
+
 export const evalCommand: CoreCommand = {
   summary: "Score a retrieval query set against this brain's index",
   helpBlock: HELP,
@@ -227,9 +264,15 @@ export const evalCommand: CoreCommand = {
     const { args: pos, flags } = parseArgs(args);
     if (pos.length > 0) throw new UsageError(`brain eval takes no positional arguments (got "${pos[0]}")`);
 
+    for (const name of ["set", "out", "mode", "rerank", "k"]) {
+      if (flags[name] === true) throw new UsageError(`--${name} requires a value`);
+    }
+
     const modeFlag = typeof flags.mode === "string" ? flags.mode : "hybrid";
+    if (!Object.hasOwn(MODES, modeFlag)) {
+      throw new UsageError(`--mode must be one of fts, vector, hybrid, all (got "${modeFlag}")`);
+    }
     const modes = MODES[modeFlag];
-    if (!modes) throw new UsageError(`--mode must be one of fts, vector, hybrid, all (got "${modeFlag}")`);
     const rerankFlag = typeof flags.rerank === "string" ? flags.rerank : getDefaultRerankerMode();
     if (rerankFlag !== "none" && rerankFlag !== "heuristic") {
       throw new UsageError(`--rerank must be none or heuristic (got "${rerankFlag}")`);
@@ -240,14 +283,15 @@ export const evalCommand: CoreCommand = {
     } catch (e) {
       throw new UsageError((e as Error).message);
     }
-    for (const name of ["set", "out"]) {
-      if (flags[name] === true) throw new UsageError(`--${name} takes a file path`);
-    }
 
     const root = cli.brain.root;
-    const setPath =
-      typeof flags.set === "string" ? resolve(flags.set) : join(root, "evals", "retrieval.jsonl");
-    const outPath = typeof flags.out === "string" ? resolve(flags.out) : undefined;
+    const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
+    // Everything the CLI writes stays inside the brain (integration contract,
+    // "Containment"): checked before any search runs, and again at the write.
+    const outRel = typeof flags.out === "string" ? flags.out : undefined;
+    if (outRel !== undefined && !resolveWritable(root, outRel)) {
+      throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+    }
 
     let db: Database | undefined;
     try {
@@ -287,10 +331,7 @@ export const evalCommand: CoreCommand = {
       };
       const envelope = { schema_version: EVAL_SCHEMA_VERSION, meta, rows, per_query: perQuery, warnings: [] as string[] };
 
-      if (outPath) {
-        mkdirSync(dirname(outPath), { recursive: true });
-        writeFileSync(outPath, JSON.stringify(envelope, null, 2) + "\n");
-      }
+      if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
       emit(cli.json, envelope, () => printHuman(rows, perQuery, ks, meta));
       return 0;
     } catch (e) {
