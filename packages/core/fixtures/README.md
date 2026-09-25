@@ -126,7 +126,9 @@ they are tiny and deterministic.
 
 ## Full inventory
 
-29 files: 25 markdown + `brain.config.ts` + 3 binary assets.
+29 files: 25 markdown + `brain.config.ts` + 3 binary assets. `evals/retrieval.jsonl`
+is a 30th file on disk, but `evals/` is excluded from the index by default, so
+nothing that counts corpus files counts it.
 
 | Path | type | Roles |
 |------|------|-------|

@@ -1,0 +1,3 @@
+{"id": "telescope-setup", "q": "telescope setup", "class": "exact", "expected": ["studies/telescope-setup.md"]}
+{"id": "knee-injury", "q": "knee injury", "class": "exact", "expected": ["health/knee-injury.md"]}
+{"id": "sleep-tracking", "q": "sleep tracking", "class": "exact", "expected": ["health/sleep-tracking.md"]}
