@@ -19,7 +19,11 @@
 import type { BrowserSession } from "../browser/session.js";
 import type { FetchOptions, ScrapeClient } from "../fetch/http.js";
 
-/** What every adapter is handed. Constructed once per run by the caller. */
+/**
+ * What every adapter is handed. Constructed once per run by the caller.
+ *
+ * @experimental Part of the `SiteAdapter` seam.
+ */
 export interface ScrapeContext {
   /** Polite HTTP: robots.txt, per-host rate limiting, retries. */
   http: ScrapeClient;
@@ -47,7 +51,11 @@ export interface AdapterRunOptions {
   fetch?: FetchOptions;
 }
 
-/** What one adapter produced. */
+/**
+ * What one adapter produced.
+ *
+ * @experimental Part of the `SiteAdapter` seam.
+ */
 export interface AdapterResult<T> {
   items: T[];
   /** Marker to hand back next run. Omit when the site has no ordering. */
@@ -62,6 +70,8 @@ export interface AdapterResult<T> {
  * `id` is what configuration and CLI flags name. `needsBrowser` decides which
  * half of the context is populated; `needsProxy` is advisory, letting a runner
  * skip an adapter it cannot serve rather than watch it fail.
+ *
+ * @experimental Extension seam; may change before 1.0.
  */
 export interface SiteAdapter<T> {
   readonly id: string;

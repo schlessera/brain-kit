@@ -22,7 +22,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 
 | Consumer | Surfaces used |
 |----------|---------------|
-| brain-ui (`packages/ui-server/src/brain/client.ts`) | CLI `--json` commands, brain.db reads (voice keyterms), file paths |
+| brain-ui (`packages/ui-server/src/brain/client.ts`, `packages/ui-server/src/graph/reader.ts`) | CLI `--json` commands, brain.db reads (voice keyterms; the `links` and `graph_*` tables for the knowledge graph), file paths |
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
@@ -132,7 +132,7 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
   "report": {
     "sources": [
       {
-        "source": "remoteineurope",
+        "source": "weworkremotely",
         // One of exactly four values. A consumer branches on this, not on the
         // count, and must tolerate an unknown fifth rather than assuming.
         //
@@ -169,7 +169,7 @@ both reported `jobs_found: 0` with an empty `errors`, and that is what
         "jobs_enriched": 0,
         "enrichment_failed": 0,
         "enrichment_truncated": 0,
-        "errors": ["Remote in Europe https://remoteineurope.com/: parsed 0 jobs from a page that does not say it is empty — selector drift, a challenge page, or markup that is not this board's"],
+        "errors": ["We Work Remotely https://weworkremotely.com/remote-jobs.rss: parsed 0 jobs from a page that does not say it is empty — selector drift, a challenge page, or markup that is not this board's"],
         "duration_ms": 4213
       }
     ],
@@ -571,9 +571,29 @@ Rules a consumer may rely on:
 
 ## Extension interfaces
 
-`EmbeddingProvider`, `CompletionProvider`, `AgentRunner`, `SkillEmitter`
-(core) and the ui-sdk interfaces are `@experimental` until 1.0: breaking
-changes are minor-version events, announced in the CHANGELOG.
+These nine seams are `@experimental` until 1.0: breaking changes are
+minor-version events, announced in the CHANGELOG. Each declaration carries its
+own `@experimental` tag. So do eight of the types they are made of:
+`BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
+`SpeechSession`, `AsrClientOptions`, `AdapterResult` and `ScrapeContext`.
+Whether the other types in a seam's signature belong in the frozen set is open
+in [#343](https://github.com/schlessera/brain-kit/issues/343).
+[extending/README.md](extending/README.md#the-seams) says what each one swaps.
+
+| Interface | Imported from |
+|-----------|---------------|
+| `EmbeddingProvider` | `@schlessera/brain` |
+| `CompletionProvider` | `@schlessera/brain` |
+| `AgentRunner` | `@schlessera/brain` |
+| `SkillEmitter` | `@schlessera/brain` |
+| `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
+| `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
+| `AsrClient` | `@schlessera/brain-ui-sdk/client` |
+| `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
+| `SiteAdapter` | `@schlessera/brain-scrape` |
+
+`tests/seam-list.test.ts` fails when this table, the one in
+extending/README.md and the tags in the source disagree.
 
 Module manifests are two-phase: `defineModule({ name, configSchema?, setup })`,
 where `setup(validatedConfig)` returns the contribution. The contribution is

@@ -80,7 +80,7 @@ function sameSite(a: string, b: string): boolean {
  * adds up to.
  *
  * It exists so the judgement "is zero rows a zero or a failure?" is made in
- * ONE place for eleven boards, rather than eleven times by omission. An
+ * ONE place for every board, rather than once per board by omission. An
  * adapter reports each page it read and each one it could not reach; the
  * ledger derives the errors a silent page deserves and the `SourceStatus` the
  * run gets, and `BaseAdapter.makeResult` will not build a result without one.

@@ -243,7 +243,7 @@ Stated before the requirements because five of them derive from it.
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   conversation-shaped and exposes no headless, persistence, or tool-policy mode
-  (`packages/ui-sdk/src/server/backend.ts:178-206`); Claude creates an SDK session, emits
+  (`StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:296-366`); Claude creates an SDK session, emits
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
   origin, and prompt configuration; drive it with a synthetic bridge; and generalize the

@@ -48,6 +48,7 @@ import type {
   SessionHistoryMessage,
 } from "../protocol.js";
 
+/** @experimental Part of the `AgentBackend` seam. */
 export interface BackendCapabilities {
   /** Can continue an existing session (startTurn with sessionId). */
   resume: boolean;
@@ -119,6 +120,8 @@ export interface LocationFix {
  *
  * Optional members signal host capability: a backend only registers its
  * ask-user / location tooling when the corresponding method is present.
+ *
+ * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
   emit(msg: ServerMessage): void;
@@ -289,6 +292,7 @@ export function subscriptionAuthAction(errorClass: string): SubscriptionAuthActi
   return errorClass === "subscription_required" ? "check_config" : "relogin";
 }
 
+/** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
   prompt: string;
   attachments?: ChatImageAttachment[];
@@ -368,6 +372,11 @@ export interface FollowUpRequest {
   attachments?: ChatImageAttachment[];
 }
 
+/**
+ * The runtime that drives a chat session. A `BackendModule` constructs one.
+ *
+ * @experimental Extension seam; may change before 1.0.
+ */
 export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;

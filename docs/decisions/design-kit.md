@@ -317,6 +317,12 @@ scraper with its own site registry and its own browser client, and implemented
 one site twice. The rule's real target is speculative abstraction, and it argues
 just as hard *for* an interface that is carrying real weight.
 
+**Corrected 2026-09-25.** `SiteAdapter` carries less weight than this says. No
+production adapter implements it: `module-jobs`' ten boards implement that
+module's own `ScraperAdapter` (`ScraperAdapter`,
+`packages/module-jobs/src/types.ts:147-170`) and do not run through
+`runAdapters`. The seam is exported and documented, not yet load-bearing.
+
 **D14 — the test we apply from here.** Not "is this new?" but: does this
 interface exist so a *third party* can substitute an implementation? If yes it
 is a seam, needs the second-implementation-within-a-year bar, and belongs in
@@ -403,7 +409,7 @@ fresh-process import of `src/index.ts` with `window`/`localStorage` absent and
 reset → register → resolve (**null**). `registered` in
 `components/chat/renderers/index.ts:10` is never cleared by
 `resetToolRenderers()` (`resetToolRenderers`,
-`ui-sdk/src/client/renderers.ts:178`). The existing
+`ui-sdk/src/client/renderers.ts:184`). The existing
 `registration-on-mount.test.tsx` sidesteps it by running in separate Bun child
 processes — an isolation workaround, not a test of recovery. Fix this in S1.
 
