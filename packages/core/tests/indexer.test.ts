@@ -14,10 +14,12 @@ import {
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { chunkContextKey, forgetCachedEnrichment, indexAll, type IndexStats } from "../src/lib/indexer";
+import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
 import { loadAssetCache, loadContextCache } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
+import { collectStats } from "../src/lib/stats";
+import { gitIgnoredMatcher } from "../src/lib/git-ignore";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import type { Enrichment } from "../src/lib/enrichment";
 // sqlite-vec is optional in some environments — vector-dependent tests skip
@@ -1447,4 +1449,137 @@ describe("chunk contexts get the document's summary (#427)", () => {
   });
 
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
+});
+
+describe("assets git ignores are not indexed (#433)", () => {
+  /** A corpus in its own git work tree, with `ignore` as its .gitignore. */
+  function gitCorpus(files: Record<string, string | Buffer>, ignore: string): string {
+    const root = makeCorpus({ ...files, ".gitignore": ignore });
+    const init = Bun.spawnSync(["git", "init", "-q", root]);
+    expect(init.exitCode).toBe(0);
+    return root;
+  }
+
+  function countingDescriber(): { enrichment: Enrichment; described: string[] } {
+    const described: string[] = [];
+    const base = makeEnrichment();
+    return {
+      described,
+      enrichment: {
+        ...base,
+        async describeAsset(buffer, mimeType, context) {
+          described.push(context);
+          return base.describeAsset(buffer, mimeType, context);
+        },
+      },
+    };
+  }
+
+  async function indexedPaths(root: string): Promise<string[]> {
+    const db = await openRead(root);
+    const rows = db.prepare("SELECT path FROM documents ORDER BY path").all() as { path: string }[];
+    db.close();
+    return rows.map((r) => r.path);
+  }
+
+  const FILES = {
+    "notes/alpha.md": md("Alpha", "alpha content"),
+    "assets/logo.png": FAKE_PNG,
+    // Other bytes than the logo's: identical bytes would share one vision
+    // call (#408) and hide a call made for this one.
+    "hidden/photo.png": Buffer.concat([FAKE_PNG, Buffer.from([0x01])]),
+    "hidden/local.md": md("Local", "a local-only note"),
+  };
+
+  test("an ignored PNG is neither indexed nor described; ignored markdown still is", async () => {
+    const root = gitCorpus(FILES, "hidden/\n");
+    const counting = countingDescriber();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+
+    expect(counting.described).toEqual(["assets: logo"]);
+    expect(await indexedPaths(root)).toEqual(["assets/logo.png", "hidden/local.md", "notes/alpha.md"]);
+  });
+
+  test("an indexed PNG that becomes ignored is removed on the next run", async () => {
+    const root = gitCorpus(FILES, "");
+    await runIndex(root, withEnrichment());
+    expect(await indexedPaths(root)).toContain("hidden/photo.png");
+
+    writeFileSync(join(root, ".gitignore"), "*.png\n!assets/*.png\n");
+    const stats = await runIndex(root);
+    expect(stats.deleted).toBe(1);
+    expect(await indexedPaths(root)).toEqual(["assets/logo.png", "hidden/local.md", "notes/alpha.md"]);
+  });
+
+  test("brain stats leaves the ignored PNG out of the corpus, as the index does", async () => {
+    const root = gitCorpus(FILES, "hidden/\n");
+    await runIndex(root);
+    const corpus = async () => {
+      const db = openDatabase(join(root, "brain.db"));
+      try {
+        return (await collectStats(db, { root, dbPath: join(root, "brain.db"), taxonomy, config: null })).size.corpus;
+      } finally {
+        db.close();
+      }
+    };
+    const withIgnored = await corpus();
+    // The same tree without the ignored PNG on disk at all.
+    unlinkSync(join(root, "hidden/photo.png"));
+    const without = await corpus();
+    expect(withIgnored).toEqual(without);
+    expect(withIgnored!.files).toBe(3); // alpha.md, logo.png and local.md: ignored markdown still counts
+  });
+
+  test("outside a git work tree the PNG is indexed as before", async () => {
+    const root = makeCorpus(FILES);
+    expect(Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"]).exitCode).not.toBe(0);
+    await runIndex(root, withEnrichment());
+    expect(await indexedPaths(root)).toContain("hidden/photo.png");
+  });
+
+  // Git lists ignored paths sorted, so each case is the only ignored one: its
+  // U+FEFF opens the output, where a default decoder drops it as a BOM.
+  test("a leading U+FEFF in an ignored file name is part of the name", () => {
+    const file = gitCorpus({ "\uFEFFphoto.png": FAKE_PNG, "photo.png": FAKE_PNG }, "/\uFEFFphoto.png\n");
+    const ignoredFile = gitIgnoredMatcher(file);
+    expect([ignoredFile("\uFEFFphoto.png"), ignoredFile("photo.png")]).toEqual([true, false]);
+  });
+
+  test("a leading U+FEFF in an ignored directory name is part of the name", () => {
+    const dir = gitCorpus({ "\uFEFFmedia/a.png": FAKE_PNG, "media/a.png": FAKE_PNG }, "/\uFEFFmedia/\n");
+    const ignoredDir = gitIgnoredMatcher(dir);
+    expect([ignoredDir("\uFEFFmedia/a.png"), ignoredDir("media/a.png")]).toEqual([true, false]);
+  });
+
+  test("assets a submodule ignores are left out too", () => {
+    const git = (cwd: string, ...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", cwd, "-c", "protocol.file.allow=always", ...args], { stderr: "pipe" });
+      expect(r.exitCode).toBe(0);
+    };
+    const identity = ["-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false"];
+    const sub = makeCorpus({ ".gitignore": "hidden.png\n", "README.txt": "photo archive\n" });
+    git(sub, "init", "-q");
+    git(sub, "add", "-A");
+    git(sub, ...identity, "commit", "-qm", "sub");
+
+    const root = gitCorpus({ "notes/alpha.md": md("Alpha", "alpha content") }, "");
+    git(root, "submodule", "add", "-q", sub, "vendor/photos");
+    writeFileSync(join(root, "vendor/photos/hidden.png"), FAKE_PNG);
+    writeFileSync(join(root, "vendor/photos/kept.png"), Buffer.concat([FAKE_PNG, Buffer.from([0x02])]));
+
+    const ignored = gitIgnoredMatcher(root);
+    expect([ignored("vendor/photos/hidden.png"), ignored("vendor/photos/kept.png")]).toEqual([true, false]);
+    expect(getAssetFiles(root, taxonomy).map((a) => a.path)).toEqual(["vendor/photos/kept.png"]);
+  });
+
+  test("the matcher answers for files, for everything under an ignored directory, and nothing else", () => {
+    const root = gitCorpus(
+      { "a/b/c.png": FAKE_PNG, "a/keep.png": FAKE_PNG, "x.png": FAKE_PNG, "y.png": FAKE_PNG },
+      "a/b/\nx.png\n"
+    );
+    const ignored = gitIgnoredMatcher(root);
+    expect(["a/b/c.png", "a/b/deeper/d.png", "x.png", "a/keep.png", "y.png", "a/bb/c.png"].map(ignored)).toEqual([
+      true, true, true, false, false, false,
+    ]);
+  });
 });

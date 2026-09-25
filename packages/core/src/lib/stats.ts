@@ -15,6 +15,7 @@ import { join, relative } from "path";
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
 import { loadVecSupport, vecTableExists } from "./db.js";
+import { gitIgnoredMatcher, isAssetPath } from "./git-ignore.js";
 import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
 
@@ -145,6 +146,10 @@ function tableCounts(db: Database): Record<string, number> {
  * cannot: `node_modules` is never walked, and a `workspaces/` the user cannot
  * read cannot raise EACCES from inside a directory nobody asked about.
  *
+ * An asset git ignores is left out, as the indexer leaves it out, through the
+ * same `gitIgnoredMatcher`; an ignored markdown file, like any other ignored
+ * non-asset file, is still counted.
+ *
  * Null, not a smaller number, when a directory that *was* wanted could not be
  * read: a corpus size short by an unknown amount is worse than no figure.
  */
@@ -157,6 +162,8 @@ function corpusSize(
   const indexFiles = new Set([dbRel, `${dbRel}-wal`, `${dbRel}-shm`, `${dbRel}-journal`]);
   let bytes = 0;
   let files = 0;
+  // The index leaves out assets git ignores; so does this count (#433).
+  const ignored = gitIgnoredMatcher(root);
 
   const walk = (rel: string): boolean => {
     let entries;
@@ -186,6 +193,7 @@ function corpusSize(
       if (!entry.isFile()) continue;
       if (indexFiles.has(path)) continue;
       if (taxonomy.isExcludedPath(path)) continue;
+      if (isAssetPath(path) && ignored(path)) continue;
       try {
         bytes += statSync(join(root, path)).size;
         files += 1;
