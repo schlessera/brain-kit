@@ -5,6 +5,7 @@ import matter from "gray-matter";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";
+import type { Taxonomy } from "../../lib/taxonomy.js";
 import { loadVecSupport } from "../../lib/db.js";
 import { getMarkdownFiles } from "../../lib/indexer.js";
 import { getDefaultRerankerMode } from "../../lib/reranker.js";
@@ -258,14 +259,17 @@ async function runMode(
   mode: EvalMode,
   queries: ResolvedQuery[],
   opts: { rerank: "none" | "heuristic"; ks: number[]; pool: number; now: Date },
-  embeddings: EmbeddingProvider | undefined
+  deps: { embeddings: EmbeddingProvider | undefined; taxonomy: Taxonomy }
 ): Promise<QueryOutcome[]> {
   const outcomes: QueryOutcome[] = [];
   for (const query of queries) {
     const { results, warnings } = await hybridSearch(
       db,
       { query: query.q, mode, rerank: opts.rerank, limit: opts.pool, now: opts.now },
-      { embeddings }
+      // The brain's taxonomy, as `brain search` passes it: the reranker's
+      // recency half-lives come from its types, so without it the run would
+      // score a ranking no user sees.
+      deps
     );
     // Any warning means the lane did not run as requested, and scoring the
     // fallback under the requested mode's name would misreport it.
@@ -398,7 +402,7 @@ export const evalCommand: CoreCommand = {
       const perQuery: QueryOutcome[] = [];
       const rows: ScoreRow[] = [];
       for (const mode of modes) {
-        const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, cli.embeddings);
+        const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
         perQuery.push(...outcomes);
         rows.push(...aggregate(mode, outcomes, ks));
       }
