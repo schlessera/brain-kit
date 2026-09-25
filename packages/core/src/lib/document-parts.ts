@@ -1,3 +1,9 @@
+import { toString as mdastToString } from "mdast-util-to-string";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
+import { caseFold } from "./case-fold.js";
 import { estimateTokens } from "./chunker.js";
 
 /**
@@ -6,13 +12,12 @@ import { estimateTokens } from "./chunker.js";
  * Shared by `brain read` and the `brain_read` MCP tool so both answer the same
  * way.
  *
- * Headings follow CommonMark's block rules for the cases a brain document
- * uses, without a markdown parser dependency: ATX headings (`#` … `######`,
- * up to three spaces of indent, optional closing `#`s) and setext headings (a
- * paragraph underlined with `===` or `---`), never inside a fenced or indented
- * code block. A list or blockquote line cannot open a setext heading. A
- * section runs from its heading to the next heading of the same or a higher
- * level.
+ * The body is parsed as GFM (remark-parse and remark-gfm, the parser ui-sdk
+ * uses), so a heading is whatever CommonMark says it is: ATX or setext, and
+ * never inside code, HTML, a table, a list or a blockquote. Only top-level
+ * headings open sections. A section runs from the start of its heading's line
+ * to the next top-level heading of the same or a higher level, and is cut
+ * from the source by offset, so it comes back byte for byte.
  */
 
 interface DocumentHeading {
@@ -24,9 +29,10 @@ interface DocumentHeading {
 
 export interface ReadPartOptions {
   /**
-   * Heading of the section to return. Matched on visible text (inline
-   * emphasis, code and link markup stripped) under Unicode full case folding;
-   * when two headings match, the first one wins.
+   * Heading of the section to return, compared with each heading's visible
+   * text (see `visibleText`) under Unicode canonical caseless matching. The
+   * query is taken literally, not parsed as markdown. When two headings match,
+   * the first one wins.
    */
   section?: string;
   /**
@@ -43,147 +49,97 @@ export interface ReadPartOptions {
 /** An unknown section. The message names every heading the document has. */
 export class SectionNotFoundError extends Error {}
 
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+/*
+ * The slice of mdast this reads, typed structurally rather than through
+ * `@types/mdast`, as ui-sdk's classification/detect.ts does: a type-only
+ * import would still put a bare `mdast` specifier in a published source file.
+ */
+interface MdNode {
+  type: string;
+  depth?: number;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MdNode[];
+}
 
-const BLANK = /^[ \t]*$/;
-/** Four spaces or a tab: indented code, or a paragraph's continuation. */
-const INDENTED = /^(?: {4}|\t| {0,3}\t)/;
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
-const ATX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/;
-const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
-const THEMATIC_BREAK = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/;
-/** A blockquote or list item marker: its lines cannot open a setext heading. */
-const CONTAINER = /^ {0,3}(?:>|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$))/;
+const parser = unified().use(remarkParse).use(remarkGfm);
+
+/**
+ * Length of the frontmatter block, by the rule gray-matter applies when core
+ * reads a document: the file opens with `---` not followed by a fourth `-`,
+ * and the block runs to the first `\n---` (to the end of the file if there is
+ * none), plus one line ending after it.
+ */
+export function frontmatterLength(text: string): number {
+  if (!text.startsWith("---") || text.charAt(3) === "-") return 0;
+  const close = text.indexOf("\n---", 3);
+  if (close === -1) return text.length;
+  let end = close + 4;
+  if (text[end] === "\r") end++;
+  if (text[end] === "\n") end++;
+  return end;
+}
 
 interface LocatedHeading {
   level: number;
-  /** Visible heading text, markup stripped. */
   text: string;
-  /** First line of the heading in the body: the `#` line, or a setext paragraph's first line. */
-  line: number;
+  /** Offset in the body where the heading's first line starts. */
+  start: number;
 }
 
-function locateHeadings(lines: string[]): LocatedHeading[] {
+/** The start of the line holding `offset`, so indentation before a heading is kept. */
+function lineStart(body: string, offset: number): number {
+  let i = offset;
+  while (i > 0 && body[i - 1] !== "\n" && body[i - 1] !== "\r") i--;
+  return i;
+}
+
+function locateHeadings(body: string): LocatedHeading[] {
+  const root = parser.parse(body) as MdNode;
   const headings: LocatedHeading[] = [];
-  let fence: { char: string; length: number } | null = null;
-  // First line of the open paragraph, if any: a setext underline turns it into a heading.
-  let paragraph: number | null = null;
-  // Inside a list item or blockquote, until the next blank line.
-  let container = false;
-
-  lines.forEach((raw, i) => {
-    const line = raw.replace(/\r$/, "");
-
-    if (fence) {
-      const close = line.match(FENCE_CLOSE);
-      if (close && close[1][0] === fence.char && close[1].length >= fence.length) fence = null;
-      return;
-    }
-    if (BLANK.test(line)) {
-      paragraph = null;
-      container = false;
-      return;
-    }
-    if (INDENTED.test(line)) {
-      // Continues an open paragraph or container; otherwise indented code.
-      return;
-    }
-
-    const open = line.match(FENCE_OPEN);
-    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      fence = { char: open[1][0], length: open[1].length };
-      paragraph = null;
-      return;
-    }
-
-    const atx = line.match(ATX);
-    if (atx) {
-      const content = (atx[2] ?? "").trim().replace(/(?:^|[ \t]+)#+$/, "").trim();
-      headings.push({ level: atx[1].length, text: visibleText(content), line: i });
-      paragraph = null;
-      container = false;
-      return;
-    }
-
-    const underline = line.match(SETEXT_UNDERLINE);
-    if (underline && paragraph !== null) {
-      const content = lines.slice(paragraph, i).map((l) => l.replace(/\r$/, "").trim()).join(" ");
-      headings.push({ level: underline[1][0] === "=" ? 1 : 2, text: visibleText(content), line: paragraph });
-      paragraph = null;
-      return;
-    }
-
-    if (THEMATIC_BREAK.test(line)) {
-      paragraph = null;
-      container = false;
-      return;
-    }
-    if (CONTAINER.test(line)) {
-      paragraph = null;
-      container = true;
-      return;
-    }
-    if (paragraph === null && !container) paragraph = i;
-  });
+  for (const node of root.children ?? []) {
+    const offset = node.position?.start.offset;
+    if (node.type !== "heading" || offset === undefined) continue;
+    headings.push({ level: node.depth ?? 1, text: visibleText(node), start: lineStart(body, offset) });
+  }
   return headings;
 }
 
 /**
- * Heading text as a reader sees it: code spans kept literally, and emphasis,
- * strikethrough, links, wiki-links, images, inline HTML and backslash escapes
- * reduced to their text.
+ * A heading as a reader sees it: the parser has already resolved emphasis,
+ * code spans, links, entities and escapes, and `mdast-util-to-string` keeps
+ * the text and image alt text while dropping raw HTML. Brain wiki-links,
+ * which plain GFM leaves as text, read as their label: `[[path|label]]` as
+ * `label`, `[[path]]` as `path`. Whitespace runs collapse to one space.
  */
-function visibleText(markdown: string): string {
-  const code: string[] = [];
-  let text = markdown.replace(/(`+)(.+?)\1(?!`)/g, (_, _ticks, span: string) => {
-    code.push(span.trim());
-    return `\uE000${code.length - 1}\uE001`;
-  });
-  text = text
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+function visibleText(heading: MdNode): string {
+  return mdastToString(heading, { includeHtml: false })
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1")
-    .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
-    .replace(/<\/?[A-Za-z][^>]*>/g, "")
-    // Delimiter runs only where they can open or close emphasis, so the `_`
-    // in snake_case and a spaced ` * ` survive.
-    .replace(/(^|[^\\\w])(\*{1,3}|_{1,3}|~~)(?=\S)/g, "$1")
-    .replace(/([^\s\\])(\*{1,3}|_{1,3}|~~)(?=$|[^\w])/g, "$1")
-    .replace(/\\([!-/:-@[-`{-~])/g, "$1");
-  text = text.replace(/\uE000(\d+)\uE001/g, (_, n: string) => code[Number(n)]);
-  return text.replace(/\s+/g, " ").trim();
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-/**
- * Unicode full case folding, approximated by the full case mappings: upper
- * then lower maps `ß` and `SS` alike to `ss`, and `σ` and `ς` alike to the
- * sigma their position in the word calls for. NFC first, so composed and
- * decomposed accents compare equal.
- */
-function fold(text: string): string {
-  return text.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC");
+function matchKey(text: string): string {
+  return caseFold(text.replace(/\s+/g, " ").trim());
 }
 
-/** Index of the line after the section opened by headings[i]. */
-function sectionEnd(headings: LocatedHeading[], i: number, lineCount: number): number {
+/** Offset in the body after the section opened by headings[i]. */
+function sectionEnd(headings: LocatedHeading[], i: number, bodyLength: number): number {
   const next = headings.slice(i + 1).find((h) => h.level <= headings[i].level);
-  return next ? next.line : lineCount;
+  return next ? next.start : bodyLength;
 }
 
 export function readDocumentPart(text: string, opts: ReadPartOptions): string {
   if (opts.section === undefined && opts.maxTokens === undefined) return text;
 
-  const frontmatter = text.match(FRONTMATTER)?.[0] ?? "";
-  let lines = text.slice(frontmatter.length).split("\n");
-  let headings = locateHeadings(lines);
+  const frontmatter = text.slice(0, frontmatterLength(text));
+  let body = text.slice(frontmatter.length);
+  let headings = locateHeadings(body);
   let result = text;
 
   if (opts.section !== undefined) {
-    const wanted = fold(visibleText(opts.section.replace(/^\s*#+\s*/, "")));
-    const i = headings.findIndex((h) => fold(h.text) === wanted);
+    const wanted = matchKey(opts.section);
+    const i = headings.findIndex((h) => matchKey(h.text) === wanted);
     if (i === -1) {
       const available = headings.map((h) => `"${h.text}"`).join(", ");
       throw new SectionNotFoundError(
@@ -191,10 +147,9 @@ export function readDocumentPart(text: string, opts: ReadPartOptions): string {
           (available ? `available headings: ${available}` : "the document has no headings")
       );
     }
-    lines = lines.slice(headings[i].line, sectionEnd(headings, i, lines.length));
-    while (lines.length > 1 && lines[lines.length - 1].trim() === "") lines.pop();
-    headings = locateHeadings(lines);
-    result = lines.join("\n") + "\n";
+    body = body.slice(headings[i].start, sectionEnd(headings, i, body.length));
+    headings = locateHeadings(body);
+    result = body;
   }
 
   const total = estimateTokens(result);
@@ -203,7 +158,7 @@ export function readDocumentPart(text: string, opts: ReadPartOptions): string {
   const outline: DocumentHeading[] = headings.map((h, i) => ({
     level: h.level,
     text: h.text,
-    tokens: estimateTokens(lines.slice(h.line, sectionEnd(headings, i, lines.length)).join("\n")),
+    tokens: estimateTokens(body.slice(h.start, sectionEnd(headings, i, body.length))),
   }));
   const scope = opts.section === undefined ? "This document" : `The section "${opts.section}"`;
   const note =

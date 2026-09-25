@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { readDocumentPart, SectionNotFoundError } from "../src/lib/document-parts";
+import matter from "gray-matter";
+
+import { frontmatterLength, readDocumentPart, SectionNotFoundError } from "../src/lib/document-parts";
 
 const hint = 'section: "<heading>"';
 
@@ -141,7 +143,8 @@ describe("headings", () => {
 
   test("a setext heading is a section, from its text to the next heading", () => {
     const doc = "Title\n=====\n\nintro\n\nAlpha\n-----\nalpha body\n\nBeta\n----\nbeta body\n";
-    expect(section(doc, "alpha")).toBe("Alpha\n-----\nalpha body\n");
+    // Cut by offset: the blank line before the next heading comes with it.
+    expect(section(doc, "alpha")).toBe("Alpha\n-----\nalpha body\n\n");
     expect(section(doc, "title")).toBe(doc);
   });
 
@@ -181,7 +184,24 @@ describe("headings", () => {
   });
 
   test("the outline and the unknown-section error show visible text", () => {
-    expect(() => section("## **Alpha**\n", "Gamma")).toThrow('available headings: "Alpha"');
+    const doc = "## **Alpha** &amp; `b*c*`\n\n" + "x".repeat(200) + "\n";
+    expect(() => section(doc, "Gamma")).toThrow('available headings: "Alpha & b*c*"');
+    const outline = readDocumentPart(doc, { maxTokens: 10, sectionHint: hint });
+    expect(outline).toMatch(/^- ## Alpha & b\*c\* \(~\d+ tokens\)$/m);
+    expect(outline).not.toContain("**Alpha**");
+  });
+
+  test("a heading's name is its parsed inline text, and the query is taken literally", () => {
+    expect(section("## foo*bar*baz\nx\n", "foobarbaz")).toBe("## foo*bar*baz\nx\n");
+    expect(section("## A &amp; B\nx\n", "A & B")).toBe("## A &amp; B\nx\n");
+    expect(section("## `*foo*`\nx\n", "*foo*")).toBe("## `*foo*`\nx\n");
+    // A query spelled as markdown is not parsed again.
+    expect(() => section("## Alpha\nx\n", "**Alpha**")).toThrow(SectionNotFoundError);
+  });
+
+  test("unequal letters stay unequal under folding: dotless ı is not I", () => {
+    expect(section("## I\nfirst\n## ı\nsecond\n", "ı")).toBe("## ı\nsecond\n");
+    expect(section("## I\nfirst\n## ı\nsecond\n", "i")).toBe("## I\nfirst\n");
   });
 
   test("case is folded in full: ß matches SS, and final and medial sigma match", () => {
@@ -198,5 +218,71 @@ describe("headings", () => {
 
   test("when two headings match, the first is returned", () => {
     expect(section("## Alpha\nfirst\n## Alpha\nsecond\n", "alpha")).toBe("## Alpha\nfirst\n");
+  });
+});
+
+describe("blocks the parser keeps headings out of", () => {
+  test("a fence inside a list item hides the heading-like line it holds", () => {
+    const doc = "## A\n- ```\n  ## Fake\n  ```\n## B\nb\n";
+    expect(section(doc, "A")).toBe("## A\n- ```\n  ## Fake\n  ```\n");
+    expect(section(doc, "B")).toBe("## B\nb\n");
+  });
+
+  test("a setext heading after a list-contained fence is still a heading", () => {
+    const doc = "- ```\n  code\n  ```\n\nTitle\n-----\nbody\n";
+    expect(section(doc, "Title")).toBe("Title\n-----\nbody\n");
+  });
+
+  for (const [name, block] of [
+    ["an HTML comment", "<!--\n## Fake\n-->"],
+    ["a <pre> block", "<pre>\n## Fake\n</pre>"],
+    ["a <div> block", "<div>\n## Fake\n</div>"],
+    ["a comment holding a setext underline", "<!--\nFake\n---\n-->"],
+  ]) {
+    test(`${name} is not a section boundary`, () => {
+      // A <div> block ends only at a blank line, so every case leaves one.
+      const doc = `## A\n${block}\n\nafter\n## B\nb\n`;
+      expect(section(doc, "A")).toBe(`## A\n${block}\n\nafter\n`);
+      expect(() => section(doc, "Fake")).toThrow('available headings: "A", "B"');
+    });
+  }
+
+  test("a table followed by a thematic break is not a setext heading", () => {
+    const doc = "## A\n| H |\n| --- |\n| row |\n---\n## B\nb\n";
+    expect(section(doc, "A")).toBe("## A\n| H |\n| --- |\n| row |\n---\n");
+  });
+
+  test("a heading inside a blockquote or list item does not open a section", () => {
+    expect(() => section("> ## Quoted\n\n## B\n", "Quoted")).toThrow('available headings: "B"');
+    expect(() => section("- ## Listed\n\n## B\n", "Listed")).toThrow('available headings: "B"');
+  });
+});
+
+describe("frontmatter and line endings", () => {
+  test("an empty frontmatter block ends at its closing ---", () => {
+    const doc = "---\n---\n## A\nbody\n\n---\n## B\nb\n";
+    expect(section(doc, "A")).toBe("## A\nbody\n\n---\n");
+    const outline = readDocumentPart(doc, { maxTokens: 1, sectionHint: hint });
+    expect(outline.startsWith("---\n---\n\n[")).toBe(true);
+    expect(outline).not.toContain("body");
+  });
+
+  test("the frontmatter span is the one gray-matter reads", () => {
+    for (const doc of [
+      "---\n---\n## A\n",
+      "---\ntitle: T\n---\n## A\n",
+      "---\r\ntitle: T\r\n---\r\n## A\r\n",
+      "----\nnot frontmatter\n",
+      "---\nunterminated\n",
+      "## no frontmatter\n",
+    ]) {
+      const body = matter(doc).content;
+      expect({ doc, body: doc.slice(frontmatterLength(doc)) }).toEqual({ doc, body });
+    }
+  });
+
+  test("CR-only and CRLF documents have headings too, cut byte for byte", () => {
+    expect(section("## A\rx\r## B\ry\r", "A")).toBe("## A\rx\r");
+    expect(section("## A\r\nx\r\n## B\r\ny\r\n", "B")).toBe("## B\r\ny\r\n");
   });
 });

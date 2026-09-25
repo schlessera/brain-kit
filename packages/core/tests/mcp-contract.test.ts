@@ -238,7 +238,7 @@ describe("brain_read", () => {
     const headings = file.split("\n").filter((l) => l.startsWith("## "));
     expect(headings.length).toBeGreaterThan(1);
     expect(headings).toEqual(["## Current Identity", "## How to Work With Alex"]);
-    expect(first.text).toContain("- ## Current Identity (~205 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(first.text).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
     expect(first.text).toContain('section: "<heading>"');
     expect(first.text).not.toContain("park ranger** at a mid-sized");
     expect(first.text).not.toContain("Prefer concrete");

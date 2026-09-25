@@ -102,7 +102,7 @@ describe("read", () => {
   test("--max-tokens over the file's size prints the outline, not the body", async () => {
     const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "50"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("- ## Current Identity (~205 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(stdout).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
     expect(stdout).toContain('--section "<heading>"');
     expect(stdout).not.toContain("Prefer concrete");
   });
