@@ -3353,6 +3353,10 @@ The third is open — in the probe turn no brain MCP tool came up at all,
 where pi had four, and a control whose roster is missing them is not
 comparable.
 
+_Resolved on 2026-09-25, in "measured: the Claude backend at server level,
+beside pi (#137)" below. The brain tools were present but deferred, and the
+remaining leak was the CLI's ancestor walk, not the config directory._
+
 ## 2026-09-22 — the composer follows soft wrap
 
 "`Composer` is net-new work, and it is finished" recorded a trade: height from
@@ -3638,3 +3642,159 @@ are counted. *Moving `blocks.ts` to plain JSON Schema to escape Zod's `allOf`
 wrapper:* the SDK's `tool()` takes a Zod shape, and one source of truth for the
 schema, the parser and the renderer's types is worth more than eleven
 characters per reference.
+
+## 2026-09-25 — measured: the Claude backend at server level, beside pi (#137)
+
+**Question.** pi drew a block on 52 of 60 turns (87%, the record above). The
+Claude backend drew one on 76–77% in D43 and D44, and that residue had three
+possible explanations: the layer, the tool roster, or the backend. None of the
+three had been measured. D43 and D44 drive the Agent SDK directly. pi was
+measured through the whole server. So no backend had been measured at both
+layers, and the Claude arm had never run where its brain tools could appear.
+
+**Method.** `scripts/measure-show-block-server.ts --backend claude --model
+claude-sonnet-5`, at pi's counts: prompts 0–3 at six reps and 4–7 at two, run
+twice. That is 64 turns, run on 2026-09-25 from 01:44:55Z to 02:12:48Z. It is
+the shipping configuration, with the bridge server always loaded (D44) and the
+brief in the prompt. Claude Code 2.1.280 ran under
+`@anthropic-ai/claude-agent-sdk` 0.3.280. The brain was a copy of
+`packages/core/fixtures/corpus/`. It was not a git repository and was indexed
+with `brain index` before the first turn. D43's counting rules and the harness's
+escape rule carry over unchanged. **Every one of the 64 turns completed, and
+none was excluded.**
+
+The environment presences the harness recorded, identical on all four run
+files: `CLAUDE_CODE_OAUTH_TOKEN` set. `TYPESAFE_API_KEY`, `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_API_KEY`, `CLAUDE_CODE_PATH` and `PI_CODING_AGENT_DIR` were unset.
+So these turns billed the subscription, where pi's billed an API key. The
+classification pass was off throughout. None of that can move what the model
+does during a turn.
+
+**Isolation, and what it took.** #50 abandoned this control twice. Three smoke
+turns found three more leaks, each shown in the CLI's own session transcript
+and each closed before the measured runs:
+
+- **The brain has to live outside the operator's home directory, not only
+  outside a checkout.** `settingSources: ["project"]`,
+  `packages/ui-backend-claude/src/sdk-options.ts:113`, makes the CLI walk up
+  from the cwd, and at every ancestor it reads `.claude/CLAUDE.md`,
+  `.claude/skills/` and `.claude/agents/`. A brain anywhere under a home
+  directory therefore loads `~/.claude/CLAUDE.md` as *project* instructions,
+  together with that user's skills and agents. An empty `CLAUDE_CONFIG_DIR`
+  does not stop this, because the walk never consults it. This is the leak
+  #50 put down to the config directory. The brain ran from a path under
+  `/tmp` with no `.claude` ancestor.
+- **A copied login is not a deployment's credential.** With a copied
+  `.credentials.json` in the empty config directory, the CLI fetched the
+  account profile. It then put the account's email address into the context,
+  and the model quoted it back when asked whose brain this was. It also
+  connected the account's claude.ai connectors, so mail, calendar and drive
+  tools joined the deferred roster. Passing the same subscription's access
+  token as `CLAUDE_CODE_OAUTH_TOKEN`, the variable a deployment sets, removed
+  both. `apiKeySource` was `none` on every turn, and the server's own
+  subscription gate admitted each one. **Deviation, recorded:** this is a
+  login token passed through the variable meant for a `claude setup-token`
+  token, not a setup token itself.
+- **Auto-memory reads outside the brain.** The CLI's memory prompt sent the
+  model to read its memory directory under `CLAUDE_CONFIG_DIR`, and the
+  escape rule correctly dropped that turn. **Deviation, recorded:** the brain
+  copy's own `.claude/settings.json` sets `autoMemoryEnabled: false`. The
+  same file sets `enableAllProjectMcpServers: true` for the brain's
+  `.mcp.json`. Both are brain-repo settings the backend already loads, not
+  changes to the backend. pi has no memory feature, so this narrows a
+  difference rather than adding one.
+
+The per-turn roster was read from each turn's stream-json `init` message. The
+CLI was launched through `BRAIN_UI_EXEC_WRAPPER`, and the wrapper copied its
+stdout to a file and changed nothing else. The roster was then joined to the
+CLI's session transcript by session id. A full audit of the 64 transcripts
+found no tool argument naming a path outside the brain, no instruction file,
+no user skill or agent, and no account email. Skills and agents were only the
+CLI's built-ins. Every contact answer named Alex Example, and every
+schedule answer reasoned about the corpus's own dates.
+
+**The roster each turn saw**, identical on all 64:
+
+| | Claude backend (this run) | pi (#50) |
+| --- | --- | --- |
+| in the prompt | 29 CLI built-ins (`Bash`, `Read`, `Grep`, `Glob`, `Edit`, `Write`, `Task`, `Skill`, `ToolSearch` and 20 more) plus the five bridge tools, `show_block` among them | pi's curated surface: `read_file`, `grep`, `bash`, the file writers, the eight `brain_*` tools, and the bridge tools with `show_block` |
+| behind tool search | **all eight `mcp__brain__*` tools**, plus 16 CLI tools | nothing; pi cannot defer a registered tool |
+| called, across all turns | `Bash` 116, `Read` 72, `show_block` 42, `Grep` 28, `Glob` 5, `ToolSearch` 5, `brain_search` 3, `brain_list` 3 | `bash`, `show_block`, `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph` |
+
+**The brain MCP tools are in the Claude roster, but deferred.** The brain's
+`.mcp.json` registers a stdio server without `alwaysLoad`, so the CLI lists its
+eight tools by name only, behind `ToolSearch`. This is the configuration every
+brain made from the template ships, not a harness artefact. The model loaded
+them in 5 of 64 turns and called one in 3. It read the brain with `Bash` and
+`Read` instead. D43 found the same mechanism for `show_block`. Here it applies
+to the tools that read the brain.
+
+**The rate, on one axis.** Each cell counts turns that drew at least one
+accepted block. Right kind is scored against the kind the brief prescribes.
+
+| prompt | expected kind | Claude, run 1 | Claude, run 2 | Claude, pooled | pi, pooled |
+| --- | --- | --- | --- | --- | --- |
+| `compare-short` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 |
+| `compare-long` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 |
+| `trend` | `trend` | 6/6 | 6/6 | **12/12**, right 12 | 8/8, right 8 |
+| `contact` | `contact` | 0/6 | 0/6 | **0/12** | 5/12, right 5 |
+| `steps` | `steps` | 2/2 | 1/2 | **3/4**, right 3 | 4/4, right 4 |
+| `schedule` | `schedule` | 2/2 | 0/2 | **2/4**, right 0 (`timeline` ×2) | 4/4, right 0 (`timeline` ×4) |
+| `quote` | `quote` | 0/2 | 0/2 | **0/4** | 3/4, right 3 |
+| project summary | — | 0/2 | 1/2 | **1/4** (`receipt`) | 4/4 |
+| overall | | 22/32 | 20/32 | **42/64 (66%)** | **52/60 (87%)** |
+
+Right kind is 39 of 41 scorable turns on Claude and 44 of 48 on pi. Both
+backends make the same kind error: they draw `timeline` where the brief
+prescribes `schedule`. Neither backend typed a markdown table on any turn,
+and the handler rejected no Claude call. pi's four excluded turns were all
+`trend`, which Claude drew on every turn. Counted the way pi's run was, with
+eight `trend` turns, Claude reads 38/60 (63%).
+
+**The gap is wider than it looked, and it is not a flat rate.** Measured at
+the same layer on the same prompts, it is 87% against 66%, not 76–77%. The
+whole gap sits in five prompts, and all five are answered by reading the
+brain: `contact`, `quote`, the project summary, `steps` and `schedule`. On the
+three prompts where both backends draw every time, the two are identical at
+36 of 36 against 32 of 32. On `contact` and `quote` the Claude backend drew
+nothing in 16 turns. It typed the answer instead, with the quote as a markdown
+blockquote all four times, which is the classification pass's candidate
+rather than the tool's.
+
+**The three candidates.**
+
+1. **The layer is ruled out.** The SDK harness and this one share three
+   prompts verbatim: `compare-short`, `compare-long` and `contact`. With the
+   tools loaded, the SDK harness drew on 6/6, 6/6 and 1/6 of them (D43's
+   per-prompt table, both arms), and #148 reports `contact` at 0/3 in both of
+   D44's arms. This run drew on 12/12, 12/12 and 0/12. The per-prompt pattern
+   is the same at both layers, including the `contact` miss, and a declined
+   `quote` leaves a blockquote at both layers too. What moved between the SDK
+   harness's 76–77% and this run's 66% is the prompt mix: this harness weighs
+   `contact` at 12 turns in 64 and adds four brain-reading prompts that the
+   SDK harness does not have. That is not a layer effect.
+2. **The roster is still open, and it is now the leading suspect.** The two
+   backends differ in exactly the way that could matter on the prompts where
+   they diverge. On pi the brain tools are in the prompt and get called. On
+   the Claude backend they are deferred and almost never loaded, and about 34
+   tools stand beside `show_block` in the prompt against pi's curated set.
+   This run cannot separate that from candidate 3, because the roster and the
+   backend changed together.
+3. **The backend itself is still open** for the same reason, and remains
+   whatever is left once the roster is equalised.
+
+The measurement that separates 2 from 3 is one configuration change on the
+brain side: `alwaysLoad: true` on the brain's own stdio server in `.mcp.json`,
+which puts the eight `brain_*` tools in the Claude prompt the way pi has them.
+The server-level harness can run it unchanged. It is #358, filed as its own
+issue rather than folded into this one. A behind-tool-search `show_block` cell
+was not needed: the always-loaded result did not depend on it.
+
+**What this does not say.** Sixteen turns at two reps per prompt on prompts
+4–7 are thin. The `steps`, `schedule` and summary cells can move by a turn in
+either direction on a re-run, as `schedule`'s 2/2 against 0/2 already shows.
+The `contact` and `quote` cells are the firm ones: 0 of 16 on Claude against 8
+of 16 on pi. `contact` as its own question belongs to #119. The two backends
+also billed differently, the subscription here and an API key on pi. No
+mechanism is known by which billing reaches what the model decides, but the
+two runs were not identical in that respect.

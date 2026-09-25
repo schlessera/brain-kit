@@ -24,7 +24,11 @@
 // The agent's cwd is the brain, and a brain nested in the worktree lets the
 // model walk up into the repo and answer about brain-kit instead of the
 // corpus — measured on 2026-09-22, two pi answers cited `bun:sqlite` and
-// `Bun.Glob` from AGENTS.md. The agent's shell is not confined to the brain
+// `Bun.Glob` from AGENTS.md. On `--backend claude` it has to live outside
+// the operator's home directory as well: the CLI walks up from the cwd and
+// reads `.claude/CLAUDE.md`, skills and agents at every ancestor, so a brain
+// under `~` loads that user's own instructions as project context, whatever
+// `CLAUDE_CONFIG_DIR` says (#137). The agent's shell is not confined to the brain
 // either; the deployment container is that boundary, so a turn measured on a
 // developer host can still wander, and `--report` says how many did.
 //
