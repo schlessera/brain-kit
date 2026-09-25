@@ -38,7 +38,7 @@ async function evalJson(args: string[]) {
 beforeAll(async () => {
   root = makeTempBrain();
   expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-  mkdirSync(join(root, "evals"));
+  mkdirSync(join(root, "evals"), { recursive: true });
   outside = mkdtempSync(join(tmpdir(), "brain-eval-outside-"));
   writeFileSync(join(outside, "outside.md"), "---\ntitle: Outside\ntype: note\n---\n\nknee injury\n");
 });
@@ -334,7 +334,7 @@ describe("a stale index", () => {
   beforeAll(async () => {
     stale = makeTempBrain();
     expect((await runCli(stale, ["index", "--json"])).code).toBe(0);
-    mkdirSync(join(stale, "evals"));
+    mkdirSync(join(stale, "evals"), { recursive: true });
     writeFileSync(join(stale, "evals", "retrieval.jsonl"), TOP1.map((q) => JSON.stringify(q)).join("\n"));
   });
   afterAll(() => cleanup(stale));

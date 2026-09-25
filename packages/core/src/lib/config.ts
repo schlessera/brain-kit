@@ -301,7 +301,9 @@ export const DEFAULT_EXCLUDE = {
   // SCRATCH_DIR: the scratch area is never content (#310). The dot already
   // hides it from the markdown glob; the entry keeps every `isExcludedPath`
   // caller (MCP listing, stats, OKF export) agreeing on it too.
-  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR],
+  // evals: a retrieval query set measures search only if search cannot see
+  // it, and a note beside the set quoting its queries would answer them.
+  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md"],
   segments: [] as string[],
 };

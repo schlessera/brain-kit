@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aggregate, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery } from "../src/lib/retrieval-eval";
+import { aggregate, ContaminationScanner, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery } from "../src/lib/retrieval-eval";
 import type { SearchResult } from "../src/lib/types";
 
 const line = (value: object) => JSON.stringify(value);
@@ -114,5 +114,43 @@ describe("scoreQuery and aggregate", () => {
     const outcome = scoreQuery("fts", { ...query, class: "no-answer", expected: [] }, [], ks);
     expect(outcome.top1_score).toBeNull();
     expect(aggregate("fts", [outcome], ks).map((r) => r.class)).toEqual(["no-answer"]);
+  });
+});
+
+describe("ContaminationScanner", () => {
+  const q = (id: string, text: string) => ({ ...query, id, q: text });
+  const scan = (queries: ReturnType<typeof q>[], ...docs: string[]) => {
+    const scanner = new ContaminationScanner(queries);
+    docs.forEach((text, i) => scanner.scan(`d${i}.md`, text));
+    return scanner.warnings();
+  };
+
+  test("matches whole words only, never inside a longer word", () => {
+    const short = [q("cat", "cat"), q("dog", "dog"), q("owl", "owl")];
+    expect(scan(short, "concatenate dogmatic owlet")).toEqual([]);
+    expect(scan(short, "A cat, a dog (and) an owl.")).toEqual([
+      "contamination: d0.md contains the text of 3 of the set's queries (cat, dog, owl)",
+    ]);
+    const long = [q("scope", "how is the telescope")];
+    expect(scan(long, "Somehow is the telescoped mirror aligned")).toEqual([]);
+    expect(scan(long, "So: HOW is the\n  telescope?")).toEqual([
+      "contamination: d0.md contains the text of 1 of the set's queries (scope)",
+    ]);
+  });
+
+  test("four words is enough on its own; three words is not", () => {
+    expect(scan([q("four", "when is the deadline")], "notes: when is the deadline")).toHaveLength(1);
+    expect(scan([q("three", "the next deadline")], "notes: the next deadline")).toEqual([]);
+  });
+
+  test("three queries of any length are enough; two are not", () => {
+    const set = [q("a", "knee"), q("b", "sleep"), q("c", "trail")];
+    expect(scan(set, "knee and sleep")).toEqual([]);
+    expect(scan(set, "knee, sleep, trail")).toHaveLength(1);
+  });
+
+  test("a query with regex characters is matched literally", () => {
+    expect(scan([q("re", "what is (a+b)* in c++ code")], "what is (a+b)* in c++ code")).toHaveLength(1);
+    expect(scan([q("re", "what is (a+b)* in c++ code")], "what is aab in c code")).toEqual([]);
   });
 });
