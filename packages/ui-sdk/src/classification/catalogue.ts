@@ -147,6 +147,24 @@ function validated(block: unknown, confidence: number): Classified | null {
 const NUMERIC = /^[-+−]?\s?[$€£]?\s?\d[\d,.\s]*(?:%|[a-zA-Z]{0,3})?$/;
 const isNumeric = (value: string): boolean => value.trim() !== "" && NUMERIC.test(value.trim());
 
+/**
+ * A choice question's options: the sentinel first, then one per distinct,
+ * non-empty name in order. The names come from model output, so the map is
+ * built from entries — `in` would also see `constructor` and the rest of
+ * Object.prototype, and assigning `__proto__` sets a prototype, not a key.
+ */
+function namedOptions(
+  sentinel: [string, string],
+  names: Iterable<string>,
+  describe: (name: string) => string
+): Record<string, string> {
+  const options = new Map([sentinel]);
+  for (const name of names) {
+    if (name && !options.has(name)) options.set(name, describe(name));
+  }
+  return Object.fromEntries(options);
+}
+
 // ---------------------------------------------------------------------------
 // The rows
 // ---------------------------------------------------------------------------
@@ -179,17 +197,15 @@ const table: CatalogueRow<TableCandidate> = {
   questions(candidate) {
     const perComparison: Record<string, ClassificationQuestion> = {};
     if (candidate.headers.length - 1 <= COMPARISON_OPTIONS_MAX) {
-      const headerOptions: Record<string, string> = { none: "No column is presented as the recommended one." };
-      for (const header of candidate.headers.slice(1)) {
-        if (header && !(header in headerOptions)) {
-          headerOptions[header] = `The column "${header}" is the option the text recommends.`;
-        }
-      }
       perComparison.recommended = {
         threshold: CONFIDENCE.tone,
         type: "choice",
         instructions: `In \`${candidate.id}\`, does the text single out one column as recommended or preferred? Answer only from what is written.`,
-        criteria: headerOptions,
+        criteria: namedOptions(
+          ["none", "No column is presented as the recommended one."],
+          candidate.headers.slice(1),
+          (header) => `The column "${header}" is the option the text recommends.`
+        ),
       };
     }
     return {
@@ -437,22 +453,15 @@ const kvRun: CatalogueRow<KeyValueRunCandidate> = {
       // the same move the table's `recommended` question makes over its
       // headers. A contact needs a label, and a label the text does not carry
       // is one the surface would be inventing.
-      const subjectOptions: Record<string, string> = {
-        [NO_SUBJECT]: "No line names it: the lines are facts about something the run does not name.",
-      };
-      for (const row of candidate.rows) {
-        // `in` would also see `toString` and the rest of Object.prototype, and
-        // a key the run really has would then go unoffered while the transform
-        // below still accepted it. The keys come from model output.
-        if (row.k && !Object.prototype.hasOwnProperty.call(subjectOptions, row.k)) {
-          subjectOptions[row.k] = `The line "${row.k}" holds the name.`;
-        }
-      }
       perCard.subject = {
         threshold: CONFIDENCE.swap,
         type: "choice",
         instructions: `If \`${candidate.id}\` describes one person, company or project, which line holds its name?`,
-        criteria: subjectOptions,
+        criteria: namedOptions(
+          [NO_SUBJECT, "No line names it: the lines are facts about something the run does not name."],
+          candidate.rows.map((row) => row.k),
+          (key) => `The line "${key}" holds the name.`
+        ),
       };
       perCard.contact_kind = {
         threshold: CONFIDENCE.swap,
