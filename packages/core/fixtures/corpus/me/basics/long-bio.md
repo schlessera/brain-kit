@@ -11,7 +11,7 @@ derived_from: FACTS.md
 last_derived: 2026-06-10
 ---
 
-Alex Example has been a park ranger at Cedar Hollow Wilderness Preserve since 2019,
+Alex Example has been a park ranger at Cedar Hollow Wilderness Preserve since 2018,
 after four seasons on the trail crew that first brought Alex to the Pacific
 Northwest. The day job spans trail stewardship, visitor safety, and the seasonal
 wildlife surveys that anchor the preserve's conservation reporting. Alex is a

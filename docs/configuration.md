@@ -165,6 +165,38 @@ taxonomy: {
 | `derivatives` | `string` (glob)                  | Glob for documents that derive from the source.    |
 | `severity`    | `"error" \| "warning" \| "info"` | Optional finding severity.                          |
 
+### `taxonomy.facts`
+
+Declares facts that documents restate, so `brain audit` can catch a copy that
+drifted. The value lives in the source document's `facts:` frontmatter map; the
+config says where that is and how the fact is phrased elsewhere.
+
+```ts
+taxonomy: {
+  facts: {
+    ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger at .{0,80}? since (\\d{4})"] },
+  },
+}
+```
+
+```yaml
+# me/basics/FACTS.md
+facts: { ranger_since: 2019 }
+```
+
+| Key        | Type       | Meaning                                                                                  |
+| ---------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `source`   | `string`   | Exact path of the document whose `facts:` frontmatter holds the canonical value.          |
+| `patterns` | `string[]` | Regular expressions, matched case-insensitively, each with exactly one capture group: the value. |
+
+Every non-archived markdown document other than the source is scanned outside
+its code. A captured value that differs from the canonical one (compared after
+trimming, and as numbers when both are numbers) is a `fact-drift` warning, once
+per document per fact. A document that is right to state an old value, such as
+a retrospective, lists the key under `facts_ignore: [ranger_since]`. A pattern
+that does not compile, or that has other than one capture group, fails config
+load with a message naming the fact. Drift is reported, never rewritten.
+
 ### `taxonomy.assetTitleRules`
 
 Human titles for binary assets (images, PDFs) based on where they live. Two

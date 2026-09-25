@@ -15,6 +15,7 @@ import { posix } from "path";
 import type {
   AssetTitleRule,
   BrainConfig,
+  FactRule,
   PropagationRule,
   TagsConfig,
   TypeSpec,
@@ -90,6 +91,8 @@ export class Taxonomy {
   /** Resolved `taxonomy.canonicalPolicy`: defaults merged field by field, `null` dropped. */
   readonly canonicalPolicy: Record<string, CanonicalPolicy>;
   readonly propagation: PropagationRule[];
+  /** `taxonomy.facts` from brain.config: keyed facts `brain audit` checks for drift. */
+  readonly facts: Record<string, FactRule>;
   readonly assetTitleRules: AssetTitleRule[];
   readonly exclude: { dirs: string[]; files: string[]; segments: string[] };
   readonly defaultStaleness: StalenessVerdict;
@@ -115,6 +118,7 @@ export class Taxonomy {
     canonical: Record<string, string>;
     canonicalPolicy?: Record<string, CanonicalPolicy>;
     propagation: PropagationRule[];
+    facts?: Record<string, FactRule>;
     assetTitleRules: AssetTitleRule[];
     classifierRules: ClassifierRule[];
     exclude: { dirs: string[]; files: string[]; segments: string[] };
@@ -127,6 +131,7 @@ export class Taxonomy {
     this.canonical = args.canonical;
     this.canonicalPolicy = args.canonicalPolicy ?? {};
     this.propagation = args.propagation;
+    this.facts = args.facts ?? {};
     this.assetTitleRules = args.assetTitleRules;
     this.classifierRules = args.classifierRules;
     this.exclude = args.exclude;
@@ -430,6 +435,7 @@ export function buildTaxonomy(opts: {
     canonical,
     canonicalPolicy,
     propagation,
+    facts: user?.taxonomy?.facts ?? {},
     assetTitleRules,
     classifierRules,
     exclude,

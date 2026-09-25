@@ -91,7 +91,14 @@ Use `taxonomy.canonical` (e.g. `identity`, `currentFocus`) as the canonical anch
 `taxonomy.propagation` (source → derivative globs) for derivation drift. **If a canonical entry is
 unset, skip that check** — a fresh brain may declare none, and that is normal, not an error.
 
-For each configured canonical file:
+**Keyed facts are checked by the CLI.** For every fact in `taxonomy.facts`, `brain audit --json`
+already reports each document that restates it with another value, as a `fact-drift` issue
+(`message: "<key>: found <x>, canonical <y>"`). Take those issues as they are: log each one, do not
+re-derive them, and do not rewrite the text. A historical piece that is right to state an old value
+lists the key under `facts_ignore:` in its frontmatter.
+
+The judgment pass below is only for canonical files whose frontmatter has **no** `facts:` map.
+For each such file:
 1. Extract short structured anchor facts: dates (`YYYY-MM-DD` or `Month YYYY`), role/title strings,
    named statuses, employer/organization names.
 2. Search secondary files (all `.md` outside the inbox, archived content, and `context/hygiene/`)

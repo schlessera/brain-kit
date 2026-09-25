@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 import { readFileSync } from "fs";
+import matter from "gray-matter";
 import { join } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
@@ -278,6 +279,98 @@ function bodyLineOffset(root: string | undefined, doc: AuditDoc): number | null 
   }
 }
 
+export interface FactDrift {
+  doc: AuditDoc;
+  key: string;
+  found: string;
+  canonical: string;
+  source: string;
+}
+
+/** A frontmatter scalar as text: a YAML date back to `YYYY-MM-DD`, anything else trimmed. */
+function factText(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
+  return null;
+}
+
+/** Equal after trimming; as numbers when both parse as numbers. */
+function sameFact(a: string, b: string): boolean {
+  const x = a.trim();
+  const y = b.trim();
+  if (x !== "" && y !== "" && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) return Number(x) === Number(y);
+  return x === y;
+}
+
+/** A document's frontmatter, read from disk; {} when it cannot be read. */
+function frontmatterOf(root: string, path: string): Record<string, unknown> {
+  try {
+    return matter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Restatements of a keyed fact that disagree with its canonical value.
+ *
+ * `taxonomy.facts` names, per key, the canonical document and the patterns
+ * that find the value restated in prose. The value is the source's `facts:`
+ * frontmatter entry. Every other non-archived markdown document is scanned
+ * outside its code, and one that states another value is reported once per
+ * fact, with the first value found. A document lists the facts it states on
+ * purpose as they were (a historical piece) under `facts_ignore:`.
+ *
+ * Frontmatter is not in the index, so it is read from the files: without
+ * `root` there is nothing to compare against, and nothing is reported.
+ */
+export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string | undefined): FactDrift[] {
+  const drift: FactDrift[] = [];
+  const keys = Object.keys(taxonomy.facts);
+  if (!root || keys.length === 0) return drift;
+
+  const ignored = new Map<string, Set<string>>();
+  const ignoresOf = (doc: AuditDoc): Set<string> => {
+    let set = ignored.get(doc.path);
+    if (!set) {
+      const raw = frontmatterOf(root, doc.path).facts_ignore;
+      set = new Set(Array.isArray(raw) ? raw.map(String) : typeof raw === "string" ? [raw] : []);
+      ignored.set(doc.path, set);
+    }
+    return set;
+  };
+  const code = new Map<string, [number, number][]>();
+
+  for (const key of keys) {
+    const rule = taxonomy.facts[key];
+    const facts = frontmatterOf(root, rule.source).facts;
+    const canonical =
+      facts && typeof facts === "object" && !Array.isArray(facts) ? factText((facts as Record<string, unknown>)[key]) : null;
+    if (canonical === null) continue;
+    const patterns = rule.patterns.map((p) => new RegExp(p, "gi"));
+
+    for (const doc of docs) {
+      if (doc.path === rule.source || doc.status === "archived" || ignoresOf(doc).has(key)) continue;
+      let ranges = code.get(doc.path);
+      if (!ranges) code.set(doc.path, (ranges = codeRanges(doc.content)));
+      let found: string | null = null;
+      for (const pattern of patterns) {
+        for (const match of doc.content.matchAll(pattern)) {
+          if (inRanges(ranges, match.index ?? 0)) continue;
+          const value = match[1]?.trim();
+          if (value && !sameFact(value, canonical)) {
+            found = value;
+            break;
+          }
+        }
+        if (found !== null) break;
+      }
+      if (found !== null) drift.push({ doc, key, found, canonical, source: rule.source });
+    }
+  }
+  return drift;
+}
+
 /**
  * Run all audit checks against the indexed database.
  *
@@ -530,6 +623,19 @@ export function audit(
         suggestion: "Finish, reschedule or remove the item if that date has passed",
       });
     }
+  }
+
+  // ---------------------------------------------------------------
+  // 9. Fact drift — a keyed fact restated with another value
+  // ---------------------------------------------------------------
+  for (const { doc, key, found, canonical, source } of findFactDrift(docs, taxonomy, opts.root)) {
+    issues.push({
+      path: doc.path,
+      severity: "warning",
+      category: "fact-drift",
+      message: `${key}: found ${found}, canonical ${canonical}`,
+      suggestion: `Update it to match ${source}, or add ${key} to facts_ignore if it is right as a record of the past`,
+    });
   }
 
   return issues;

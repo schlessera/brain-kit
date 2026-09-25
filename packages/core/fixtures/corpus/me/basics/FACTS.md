@@ -7,6 +7,7 @@ tags: [identity, facts, source-of-truth]
 status: active
 relevance: primary
 summary: "Single source of truth for Alex Example's biographical facts — derivation base for all bios"
+facts: { ranger_since: 2019 }
 ---
 
 Canonical facts. The bios under `me/basics/` are derived from this file and must

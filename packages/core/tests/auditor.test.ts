@@ -1,10 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
 
 import { audit } from "../src/lib/auditor";
 import { openDatabase } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { brainConfigSchema } from "../src/lib/config";
+
+const roots: string[] = [];
+afterAll(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+});
 
 // Injected wall clock — every age in these tests is measured against it.
 const NOW = new Date("2026-07-01T00:00:00Z");
@@ -217,5 +225,98 @@ describe("audit orphan", () => {
     const orphans = categories(audit(db, taxonomy, { now: NOW }), "orphan");
     expect(orphans.map((o) => o.path)).toEqual(["notes/lonely.md"]);
     db.close();
+  });
+});
+
+describe("audit fact-drift (#392)", () => {
+  const factTaxonomy = buildTaxonomy({
+    user: brainConfigSchema.parse({
+      taxonomy: {
+        facts: {
+          ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d{4})"] },
+          trail_seasons: { source: "me/basics/FACTS.md", patterns: ["(\\w+) seasons on the trail crew"] },
+          loop_miles: { source: "me/basics/FACTS.md", patterns: ["loop of (\\d+(?:\\.\\d+)?) miles"] },
+        },
+      },
+    }),
+  });
+
+  /** Documents on disk (frontmatter + body) and in the index (body only), as the indexer leaves them. */
+  function brain(docs: Array<{ path: string; frontmatter?: string; body: string; status?: string }>): { root: string; db: Database } {
+    const root = mkdtempSync(join(tmpdir(), "brain-fact-drift-"));
+    roots.push(root);
+    const db = freshDb();
+    for (const doc of docs) {
+      mkdirSync(dirname(join(root, doc.path)), { recursive: true });
+      writeFileSync(join(root, doc.path), `---\ntype: identity\ntitle: T\n${doc.frontmatter ?? ""}---\n${doc.body}`);
+      insertDoc(db, { path: doc.path, type: "identity", updated: "2026-06-01", content: doc.body, status: doc.status });
+    }
+    return { root, db };
+  }
+  const SOURCE = {
+    path: "me/basics/FACTS.md",
+    frontmatter: "facts: { ranger_since: 2019, trail_seasons: four, loop_miles: 12.5 }\n",
+    // The source states another value in its own prose; it is never reported.
+    body: "Once a ranger since 2017 in the old notes.\n",
+  };
+
+  test("a drifted restatement is one issue; a matching one, the source and an archived piece are none", () => {
+    const { root, db } = brain([
+      SOURCE,
+      { path: "me/basics/long-bio.md", body: "Alex has been a ranger since 2018, after four seasons on the trail crew.\n" },
+      { path: "me/basics/short-bio.md", body: "A ranger since 2019.\n" },
+      { path: "me/basics/old-bio.md", body: "A ranger since 2016.\n", status: "archived" },
+    ]);
+    const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
+    expect(drift.map((i) => i.path)).toEqual(["me/basics/long-bio.md"]);
+    expect(drift[0]).toMatchObject({
+      severity: "warning",
+      message: "ranger_since: found 2018, canonical 2019",
+    });
+    expect(drift[0].suggestion).toContain("me/basics/FACTS.md");
+    db.close();
+  });
+
+  test("facts_ignore suppresses exactly that key on exactly that document", () => {
+    const drifted = "A ranger since 2018, after three seasons on the trail crew.\n";
+    const { root, db } = brain([
+      SOURCE,
+      { path: "journal/2020-retrospective.md", frontmatter: "facts_ignore: [ranger_since]\n", body: drifted },
+      { path: "me/basics/long-bio.md", body: drifted },
+    ]);
+    const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
+    expect(drift.map((i) => `${i.path} ${i.message}`).sort()).toEqual([
+      "journal/2020-retrospective.md trail_seasons: found three, canonical four",
+      "me/basics/long-bio.md ranger_since: found 2018, canonical 2019",
+      "me/basics/long-bio.md trail_seasons: found three, canonical four",
+    ]);
+    db.close();
+  });
+
+  test("numbers compare as numbers, and a value inside code is not a restatement", () => {
+    const { root, db } = brain([
+      SOURCE,
+      {
+        path: "me/basics/short-bio.md",
+        body: "A ranger since 2019, who walks a loop of 12.50 miles — see `ranger since 2010` in the example.\n\n```\nranger since 2011\n```\n",
+      },
+    ]);
+    expect(categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift")).toEqual([]);
+    db.close();
+  });
+
+  test("a pattern without exactly one capture group fails config load, naming the key", () => {
+    for (const patterns of [["ranger since \\d{4}"], ["(ranger) since (\\d{4})"]]) {
+      const parsed = brainConfigSchema.safeParse({
+        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns } } },
+      });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error!.issues.map((i) => i.message).join("\n")).toContain('fact "ranger_since"');
+    }
+    expect(
+      brainConfigSchema.safeParse({
+        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (?:about )?(\\d{4})"] } } },
+      }).success
+    ).toBe(true);
   });
 });

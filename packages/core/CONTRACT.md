@@ -31,6 +31,15 @@ Optional fields: `summary` (one line, used in search), `aliases` (inline
 array — extra wiki-link names), `deadline` / `next_review` (bare ISO dates,
 surfaced by `brain briefing`).
 
+Facts, for documents that restate the same facts (bios, fact sheets):
+- `facts` — on the canonical document a `taxonomy.facts` entry names as its
+  `source`: a map of scalar values, `facts: { ranger_since: 2019 }`. The
+  config says how each key is restated in prose, and `brain audit` reports a
+  document that states another value as `fact-drift`.
+- `facts_ignore` — on any other document: an inline list of fact keys it
+  restates on purpose as they once were (a retrospective), `[ranger_since]`.
+  `brain audit` skips exactly those keys on exactly that document.
+
 Rules:
 - Always bump `updated` when editing content. Mechanical/format-only edits may
   skip it, then run `brain accept-mtime` to baseline silent-edit detection.

@@ -49,6 +49,12 @@ export default defineConfig({
       { source: "me/basics/FACTS.md", derivatives: "me/basics/*.md" },
     ],
 
+    facts: {
+      // FACTS.md holds the value (`facts: { ranger_since: 2019 }`); a bio that
+      // restates another year is fact-drift. long-bio.md drifted on purpose.
+      ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger at .{0,80}? since (\\d{4})"] },
+    },
+
     assetTitleRules: [
       // photos under projects/ are titled "Build Photo: <filename>".
       { prefix: "projects/", label: "Build Photo" },
