@@ -160,6 +160,57 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ command: `cd ${home}; ls` }], home)).toBe(false);
   });
 
+  test("flags a search from the filesystem root, which names no home path", () => {
+    // What #137's two `trend` turns ran. A bare `/` is outside every brain.
+    expect(
+      escapesBrain([{ command: 'find / -maxdepth 3 -iname "*.git" -type d' }], brain)
+    ).toBe(true);
+    expect(escapesBrain([{ command: "ls /" }], brain)).toBe(true);
+  });
+
+  test("flags an absolute path outside /home", () => {
+    expect(escapesBrain([{ command: "cat /etc/hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ file_path: "/etc/hostname" }], brain)).toBe(true);
+  });
+
+  test("a brain under /tmp is judged by its own boundary, not by /home", () => {
+    // Where #137 had to put the brain. Its siblings and its parent are
+    // outside it; its own files are not.
+    expect(escapesBrain([{ path: "/tmp/measure/other/a.md" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "ls /tmp/measure" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `grep -rn trend ${brain}/notes` }], brain)).toBe(false);
+  });
+
+  test("flags a path that starts a continuation line", () => {
+    // Serialised as JSON, the newline is the two characters `\n`, so the
+    // path would follow an `n` and not look like the start of one.
+    expect(escapesBrain([{ command: "cat \\\n/etc/hostname" }], brain)).toBe(true);
+  });
+
+  test("flags a bare tilde, which is the home directory", () => {
+    expect(escapesBrain([{ command: "cd ~ && ls" }], brain)).toBe(true);
+  });
+
+  test("the device allowlist lets /dev/null, /dev/stdin, /dev/stdout and /dev/stderr through", () => {
+    // DEVICE_PATHS: models redirect to these constantly, and none of them
+    // reads anything outside the brain.
+    expect(
+      escapesBrain([{ command: `grep -rl trend ${brain} 2>/dev/null | head` }], brain)
+    ).toBe(false);
+    expect(escapesBrain([{ command: `cat ${brain}/a.md > /dev/stdout` }], brain)).toBe(false);
+    expect(escapesBrain([{ command: `cat /dev/stdin; echo x >/dev/stderr` }], brain)).toBe(false);
+    // The allowlist is exact: the rest of /dev is not on it.
+    expect(escapesBrain([{ command: "ls /dev" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "cat /dev/null/../../etc/passwd" }], brain)).toBe(true);
+  });
+
+  test("a slash inside a word, a URL or a relative path is not an absolute path", () => {
+    expect(escapesBrain([{ command: `ls ${brain}/notes/2026/09` }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "cat notes/a.md" }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "curl https://example.com/a/b" }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "sed 's/and/or/' notes/a.md" }], brain)).toBe(false);
+  });
+
   test("reads every argument, not only the first", () => {
     expect(
       escapesBrain([{ path: `${brain}/a.md` }, { command: "ls /home/someone" }], brain)

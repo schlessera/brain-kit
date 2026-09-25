@@ -41,7 +41,7 @@
 // disabled and `--report` prints only the deterministic candidate yield,
 // which is the half that depends on the backend.
 
-import { resolve } from "node:path";
+import { posix, resolve } from "node:path";
 
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -142,7 +142,7 @@ interface RunRecord {
   errors: string[];
   wallMs: number;
   /**
-   * True when a tool argument named a home-directory path outside the brain —
+   * True when a tool argument named an absolute path outside the brain —
    * the agent's shell left the corpus, so the answer is about something else
    * and the turn is not a measurement of this brain.
    */
@@ -152,21 +152,27 @@ interface RunRecord {
 }
 
 /**
- * A `/home/...` or `~/...` path in a tool argument, outside the brain. A
- * heuristic over what the model asked for, not a sandbox: it catches the
- * observed failure — the shell reaching a home directory — and does not see
- * a relative escape or a path that only appears in a tool's OUTPUT. It is
- * here to drop turns that answered about the wrong brain, not to confine
- * anything.
+ * An absolute or `~` path in a tool argument that is not the brain or inside
+ * it — a bare `/`, `/etc/hostname`, a sibling of the brain, a home directory,
+ * wherever the brain itself lives. A heuristic over what the model asked
+ * for, not a sandbox. It is here to drop turns that answered about the wrong
+ * brain, not to confine anything.
+ *
+ * What it does not see: a relative escape (`cd ..`, `cat ../private.md`,
+ * `$HOME/x`), which only a shell that tracked the working directory across a
+ * command could judge, and a path that only appears in a tool's OUTPUT.
+ * `DEVICE_PATHS` is let through, because models redirect to `/dev/null`
+ * constantly and none of those reads anything outside the brain.
  *
  * The comparison is by directory boundary after normalisation, because a
- * plain prefix test puts `/home/x/brain-backup` inside `/home/x/brain` and
- * lets `/home/x/brain/../private` back out. It stays a heuristic, and its
- * failure mode is deliberately the loud one: a turn wrongly judged to have
- * escaped is EXCLUDED, and `--report` prints how many were, so an over-eager
- * rule shows up as a shrunken denominator rather than as a wrong rate.
+ * plain prefix test puts `/x/brain-backup` inside `/x/brain` and lets
+ * `/x/brain/../private` back out. Its failure mode is deliberately the loud
+ * one: a `/` that starts a shell argument but is not a path — a sed address,
+ * a regex, a lone `/` in prose — counts as an escape, so the turn is
+ * EXCLUDED and `--report` prints how many were. An over-eager rule shows up
+ * as a shrunken denominator rather than as a wrong rate.
  *
- * It reads a serialised blob of tool arguments, not a parsed command line, so
+ * It reads the strings in the tool arguments, not a parsed command line, so
  * whitespace after the brain has to mean "the next shell argument" — which is
  * why `assertMeasurableBrainPath` refuses a brain whose own path contains
  * any. Without that precondition `<brain> copy/notes.md` and
@@ -189,41 +195,52 @@ export function assertMeasurableBrainPath(brainPath: string): void {
 }
 
 /**
- * Where a path can end in a serialised tool argument: a separator, a quote,
- * whitespace, or shell punctuation. Stated as the delimiters rather than as
- * the name characters, because a name allowlist has to enumerate every
- * character a filename may hold — an ASCII one read `/home/x/brainé` as
- * `/home/x/brain` followed by a boundary, and so as the brain itself.
+ * Where a path can end in a tool argument: whitespace, a quote, or shell
+ * punctuation. Stated as the delimiters rather than as the name characters,
+ * because a name allowlist has to enumerate every character a filename may
+ * hold — an ASCII one read `/home/x/brainé` as `/home/x/brain` followed by a
+ * boundary, and so as the brain itself. A shell separator ends the path as
+ * surely as a space does, or `cd <brain>/..; ls` resolves `..;` as a
+ * directory name and the traversal slips through.
  */
-const PATH_BOUNDARY = /[\s"'`\\,;:)\]}&|<>=]/;
+const PATH_BOUNDARY = "\\s\"'`\\\\,;:()[\\]{}&|<>=";
+
+/**
+ * A path starts at the beginning of a string or after a boundary, and runs to
+ * the next one. `:` is not a start, so the `//` of a URL is not read as the
+ * root.
+ */
+const PATH_TOKEN = new RegExp(
+  `(?:^|(?<=[${PATH_BOUNDARY.replace(":", "")}]))(?:\\/|~(?=\\/|[${PATH_BOUNDARY}]|$))[^${PATH_BOUNDARY}]*`,
+  "g"
+);
+
+/** Device paths a turn may name without leaving the brain. */
+const DEVICE_PATHS = new Set(["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"]);
+
+function argumentStrings(value: unknown, into: string[] = []): string[] {
+  if (typeof value === "string") into.push(value);
+  else if (Array.isArray(value)) for (const v of value) argumentStrings(v, into);
+  else if (value && typeof value === "object")
+    for (const v of Object.values(value)) argumentStrings(v, into);
+  return into;
+}
 
 export function escapesBrain(inputs: unknown[], brainPath: string): boolean {
-  const brain = brainPath.startsWith("~") ? brainPath : resolve(brainPath);
-  const text = JSON.stringify(inputs);
-  for (const match of text.matchAll(/(?:~|\/home)\//g)) {
-    const at = match.index;
-    // Anchored against the brain STRING rather than a path parsed out of the
-    // blob, so a brain whose name carries a space or a non-ASCII character is
-    // still recognised as itself.
-    if (text.startsWith(brain, at)) {
-      const rest = text.slice(at + brain.length);
-      const next = rest[0];
-      // The brain's name has to end here: a character that could continue it
-      // means this is a sibling, not the brain — `/home/x/brain-backup` is
-      // not `/home/x/brain`.
-      if (next === undefined || next === "/" || PATH_BOUNDARY.test(next)) {
-        // Anything but a separator means the path IS the brain, quoted or
-        // followed by another shell argument.
-        if (next !== "/") continue;
-        // A shell separator ends the path as surely as a space does, or
-        // `cd <brain>/..; ls` resolves `..;` as a directory name and the
-        // traversal slips through.
-        const tail = /^[^"'`\s\\;&|<>()]*/.exec(rest)?.[0] ?? "";
-        const full = resolve(brain + tail);
-        if (full === brain || full.startsWith(`${brain}/`)) continue;
-      }
+  const home = brainPath.startsWith("~");
+  const brain = home ? posix.normalize(brainPath) : resolve(brainPath);
+  for (const text of argumentStrings(inputs)) {
+    for (const [token] of text.matchAll(PATH_TOKEN)) {
+      // A `~` path cannot be resolved against this process's home, which is
+      // not the agent's, so it is only inside a brain that is itself named
+      // from `~`.
+      const tilde = token.startsWith("~");
+      if (tilde && !home) return true;
+      const full = tilde ? posix.normalize(token) : resolve(token);
+      if (!tilde && DEVICE_PATHS.has(full)) continue;
+      if (full === brain || full.startsWith(`${brain}/`)) continue;
+      return true;
     }
-    return true;
   }
   return false;
 }
@@ -513,11 +530,14 @@ async function runOnce(
     wallMs,
     // Every tool call, not just the visible ones: a subagent that reads
     // outside the brain feeds what it found into the answer the reader sees.
+    // Except the block tool's own: it touches no file, and its payload is
+    // prose, where a lone `/` would read as the root and drop exactly the
+    // turns that drew a block.
     escapedBrain: escapesBrain(
       frames
         .filter(
           (f): f is Extract<ServerMessage, { type: "tool_use_complete" }> =>
-            f.type === "tool_use_complete"
+            f.type === "tool_use_complete" && f.toolName !== blockTool
         )
         .map((c) => c.input),
       brainPath
