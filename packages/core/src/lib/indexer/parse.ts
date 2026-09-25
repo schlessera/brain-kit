@@ -20,6 +20,7 @@ import { readFileSync, statSync } from "fs";
 import matter from "gray-matter";
 import { resolve } from "path";
 
+import { CHUNKER_VERSION } from "../chunker.js";
 import type { ExistingDoc, IndexRun, ParsedFile, ParseResult } from "./types.js";
 
 /** Why a file was skipped, in the words the user sees. */
@@ -81,7 +82,12 @@ export function parseMarkdownFiles(
 
     const existing = existingDocs.get(filePath);
     const isNew = !existing;
-    const isChanged = !isNew && existing!.content_hash !== hash;
+    // Another chunker's chunks count as a change: an older one, one from
+    // before versions were recorded (NULL), or a newer one after a rollback.
+    // The file is re-chunked once. A file skipped above keeps its old version
+    // and is retried next run.
+    const isChanged =
+      !isNew && (existing!.content_hash !== hash || existing!.chunker_version !== CHUNKER_VERSION);
 
     if (!run.force && !isNew && !isChanged) {
       run.stats.unchanged++;

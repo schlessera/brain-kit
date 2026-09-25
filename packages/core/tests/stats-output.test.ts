@@ -119,7 +119,7 @@ describe("formatStats over fixtures/corpus", () => {
         "    historical: 1",
         "  Tags: 43",
         "  Links: 37 (2 broken)",
-        "  Chunks: 27",
+        "  Chunks: 25",
         "",
       ].join("\n")
     );

@@ -22,7 +22,7 @@ import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 import { embedTempBrain, loadVec, VEC_DIMENSIONS } from "./vec-fixture";
 
 /** Vectors the fixture corpus yields: one per chunk, its three assets included. */
-const CORPUS_VECTORS = 30;
+const CORPUS_VECTORS = 28;
 
 interface Stats {
   chunks: number;

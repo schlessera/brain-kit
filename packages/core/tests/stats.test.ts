@@ -102,7 +102,7 @@ describe("collectStats over fixtures/corpus", () => {
     expect(stats.tags).toBe(43);
     expect(stats.links).toBe(37);
     expect(stats.brokenLinks).toBe(2);
-    expect(stats.chunks).toBe(27);
+    expect(stats.chunks).toBe(25);
     expect(stats.byType.health).toBe(3);
     expect(stats.byStatus.archived).toBe(1);
     expect(stats.byRelevance.primary).toBe(16);
@@ -140,7 +140,7 @@ describe("collectStats over fixtures/corpus", () => {
     expect(size.db.bytes).toBeGreaterThan(0);
     expect(size.db.tables.documents).toBe(25);
     expect(size.db.tables.links).toBe(37);
-    expect(size.db.tables.chunks).toBe(27);
+    expect(size.db.tables.chunks).toBe(25);
     // FTS5 and vec0 shadow tables are internals, not row counts anyone asked
     // for.
     expect(size.db.tables).not.toHaveProperty("documents_fts_data");

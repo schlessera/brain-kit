@@ -14,7 +14,7 @@
  */
 import type { Database } from "bun:sqlite";
 
-import { chunkDocument } from "../chunker.js";
+import { CHUNKER_VERSION, chunkDocument } from "../chunker.js";
 import { chunkContextKey } from "./caches.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
 import type { ExistingDoc, IndexRun, ParseResult } from "./types.js";
@@ -41,8 +41,8 @@ function prepareStatements(db: Database) {
     // is still passed explicitly from the existing row, the silent-edit
     // baseline this write must not reset.
     insertDoc: db.prepare(`INSERT INTO documents
-      (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, file_mtime, deadline, next_review, accepted_mtime, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, file_mtime, deadline, next_review, accepted_mtime, indexed_at, chunker_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET
         title = excluded.title, type = excluded.type, status = excluded.status,
         relevance = excluded.relevance, summary = excluded.summary,
@@ -50,7 +50,8 @@ function prepareStatements(db: Database) {
         content = excluded.content, content_hash = excluded.content_hash,
         asset_type = excluded.asset_type, file_mtime = excluded.file_mtime,
         deadline = excluded.deadline, next_review = excluded.next_review,
-        accepted_mtime = excluded.accepted_mtime, indexed_at = excluded.indexed_at`),
+        accepted_mtime = excluded.accepted_mtime, indexed_at = excluded.indexed_at,
+        chunker_version = excluded.chunker_version`),
     insertTag: db.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?)"),
     getTagId: db.prepare("SELECT id FROM tags WHERE name = ?"),
     insertDocTag: db.prepare(
@@ -143,7 +144,8 @@ function writeDocument(
     deadline,
     nextReview,
     existing?.accepted_mtime ?? null,
-    run.now
+    run.now,
+    CHUNKER_VERSION
   );
 
   const docRow = st.getDocId.get(path) as { id: number } | null;
