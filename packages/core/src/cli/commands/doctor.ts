@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
-import { isAbsolute, join, resolve } from "path";
+import { isAbsolute, join, resolve, sep } from "path";
 
 import { readEnvVar, resolveEnv } from "../../config/env.js";
 import {
@@ -14,7 +14,7 @@ import {
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
-import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
+import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
@@ -127,6 +127,37 @@ function checkSymlinks(root: string): Check {
     return { id: "symlinks", status: "warn", detail: `${broken.length} stale/broken symlink(s): ${broken.slice(0, 3).join(", ")}`, fix: "run `brain skills sync`" };
   }
   return { id: "symlinks", status: "pass", detail: "no broken symlinks" };
+}
+
+/**
+ * `.claude/commands/<name>.md` files that a skill of the same name shadows.
+ * Claude Code runs the skill, so the command file is dead but still looks
+ * authoritative to whoever edits it. A command in a subdirectory is named
+ * `<dir>:<name>` (`frontend/component.md` is `/frontend:component`), so only
+ * a skill with that full name shadows it.
+ */
+function checkShadowedCommands(cli: CliContext): Check {
+  const root = cli.brain.root;
+  const commandsDir = join(root, ".claude", "commands");
+  if (!existsSync(commandsDir)) {
+    return { id: "shadowed-commands", status: "pass", detail: "no .claude/commands directory" };
+  }
+  const skills = new Set(discoverSkills({ root, modules: cli.brain.modules }).skills.map((s) => s.name));
+  const shadowed: string[] = [];
+  for (const rel of new Bun.Glob("**/*.md").scanSync({ cwd: commandsDir })) {
+    const name = rel.replace(/\.md$/, "").split(/[\\/]/).join(":");
+    if (skills.has(name)) shadowed.push(`.claude/commands/${rel.split(sep).join("/")}`);
+  }
+  if (shadowed.length === 0) {
+    return { id: "shadowed-commands", status: "pass", detail: "no command file shares a name with a skill" };
+  }
+  shadowed.sort();
+  return {
+    id: "shadowed-commands",
+    status: "warn",
+    detail: `${shadowed.length} command file(s) shadowed by a skill of the same name: ${shadowed.join(", ")}`,
+    fix: "delete or rename each file; the skill runs, not the command",
+  };
 }
 
 function checkConfig(cli: CliContext): Check {
@@ -368,6 +399,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkRuntime(),
     checkGitHooks(root),
     checkSymlinks(root),
+    checkShadowedCommands(cli),
     checkConfig(cli),
     checkDb(cli),
     await checkEmbeddings(cli),
