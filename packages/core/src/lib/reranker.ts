@@ -1,10 +1,14 @@
 import { resolveEnv } from "../config/env.js";
+import { buildTaxonomy, type Taxonomy } from "./taxonomy.js";
 import type { SearchResult } from "./types.js";
 
 export interface RerankerConfig {
   mode: "none" | "heuristic";
   /** The moment recency is measured from. Defaults to the wall clock. */
   now?: Date;
+  /** The brain's types, which carry the recency half-lives. Defaults to the
+   * core types alone. */
+  taxonomy?: Taxonomy;
 }
 
 // Multiplicative boosts: they preserve their relative effect regardless of the
@@ -20,26 +24,10 @@ const TITLE_MATCH_FACTOR = 0.25; // up to ×1.25 when every query term hits the 
 const ASSET_FACTOR = 1.3;
 const DRAFT_FACTOR = 0.9; // drafts are unfinished — slight deboost vs active docs
 
-// Recency decay half-lives in days, by document type. A doc loses half its
-// recency credit per half-life; the decay multiplies the score between
-// RECENCY_FLOOR (infinitely old) and 1.0 (updated today). Volatile types decay
-// fast; durable knowledge barely decays.
-const HALF_LIFE_DAYS: Record<string, number> = {
-  context: 30,
-  travel: 60,
-  note: 60,
-  conference: 90,
-  career: 180,
-  project: 180,
-  talk: 365,
-  network: 365,
-  index: 365,
-  strategy: 365,
-  infrastructure: 545,
-  opinion: 730,
-  expertise: 730,
-  identity: 1095,
-};
+// A doc loses half its recency credit per half-life; the decay multiplies the
+// score between RECENCY_FLOOR (infinitely old) and 1.0 (updated today). The
+// half-lives come from the type specs (`halfLifeDays`, else `staleDays`), so
+// they follow whatever taxonomy the brain configures.
 const DEFAULT_HALF_LIFE_DAYS = 365;
 const RECENCY_FLOOR = 0.7;
 const MS_PER_DAY = 86_400_000;
@@ -78,6 +66,23 @@ function titleMatchFactor(title: string, queryTerms: string[]): number {
   return 1 + TITLE_MATCH_FACTOR * (matchCount / queryTerms.length);
 }
 
+let coreTaxonomy: Taxonomy | undefined;
+
+/**
+ * Recency half-life in days for every type in a taxonomy: the type's
+ * `halfLifeDays`, else its `staleDays`, else 365. Without a taxonomy, the core
+ * types alone.
+ */
+export function halfLifeTable(taxonomy?: Taxonomy): Record<string, number> {
+  taxonomy ??= coreTaxonomy ??= buildTaxonomy({});
+  return Object.fromEntries(
+    Object.entries(taxonomy.types).map(([type, spec]) => [
+      type,
+      spec.halfLifeDays ?? spec.staleDays ?? DEFAULT_HALF_LIFE_DAYS,
+    ])
+  );
+}
+
 /**
  * Recency factor — exponential decay on the document's `updated` date with a
  * type-specific half-life, floored so old-but-relevant docs still surface.
@@ -85,14 +90,15 @@ function titleMatchFactor(title: string, queryTerms: string[]): number {
 export function recencyFactor(
   type: string,
   updated: string | undefined,
-  now: number = Date.now()
+  now: number = Date.now(),
+  halfLives: Record<string, number> = halfLifeTable()
 ): number {
   if (!updated) return 1;
   const updatedMs = new Date(updated).getTime();
   if (Number.isNaN(updatedMs)) return 1;
 
   const ageDays = Math.max(0, (now - updatedMs) / MS_PER_DAY);
-  const halfLife = HALF_LIFE_DAYS[type] ?? DEFAULT_HALF_LIFE_DAYS;
+  const halfLife = halfLives[type] ?? DEFAULT_HALF_LIFE_DAYS;
   const decay = Math.pow(0.5, ageDays / halfLife);
   return RECENCY_FLOOR + (1 - RECENCY_FLOOR) * decay;
 }
@@ -104,7 +110,8 @@ export function recencyFactor(
 function heuristicRerank(
   query: string,
   candidates: SearchResult[],
-  now: number
+  now: number,
+  halfLives: Record<string, number>
 ): SearchResult[] {
   const queryTerms = query
     .toLowerCase()
@@ -117,7 +124,7 @@ function heuristicRerank(
     const factor =
       (RELEVANCE_FACTOR[result.relevance] ?? 1) *
       titleMatchFactor(result.title, queryTerms) *
-      recencyFactor(result.type, result.updated, now) *
+      recencyFactor(result.type, result.updated, now, halfLives) *
       (result.status === "draft" ? DRAFT_FACTOR : 1) *
       (visualIntent && isAssetResult(result.path) ? ASSET_FACTOR : 1);
 
@@ -144,5 +151,5 @@ export function rerank(
     return candidates;
   }
 
-  return heuristicRerank(query, candidates, now);
+  return heuristicRerank(query, candidates, now, halfLifeTable(config.taxonomy));
 }

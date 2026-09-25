@@ -574,7 +574,7 @@ subscription authenticates.
    (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
-   (`completions: z`, `packages/core/src/lib/config.ts:167-172`), and the registry
+   (`completions: z`, `packages/core/src/lib/config.ts:172-177`), and the registry
    builds the provider with no options
    (`"anthropic-haiku": () => anthropicCompletions()`, `packages/core/src/lib/registry.ts:40`).
    A supported route to name that key is part of the work. Tracked in #253.

@@ -55,6 +55,11 @@ export const typeSpecSchema = z
     staleDays: z.number().int().positive().optional(),
     /** Severity of staleness findings (default "warning" when staleDays is set). */
     staleSeverity: severitySchema.optional(),
+    /**
+     * Search recency half-life in days: a doc of this type loses half its
+     * recency boost per half-life. Defaults to `staleDays`, else 365.
+     */
+    halfLifeDays: z.number().int().positive().optional(),
     /** This type's dir is the capture inbox (`brain add` default target). */
     inbox: z.boolean().optional(),
     /** Exempt from the orphan (no wiki-links) audit check. */
@@ -248,10 +253,10 @@ export function defineConfig(config: BrainConfig): BrainConfig {
 
 /** Types every brain has, regardless of configuration. */
 export const CORE_TYPES: Record<string, TypeSpec> = {
-  identity: { dir: "me" },
-  context: { dir: "context", staleDays: 30, staleSeverity: "warning", orphanExempt: true },
-  note: { dir: "notes", inbox: true },
-  index: { dir: null, orphanExempt: true },
+  identity: { dir: "me", halfLifeDays: 1095 },
+  context: { dir: "context", staleDays: 30, staleSeverity: "warning", orphanExempt: true, halfLifeDays: 30 },
+  note: { dir: "notes", inbox: true, halfLifeDays: 60 },
+  index: { dir: null, orphanExempt: true, halfLifeDays: 365 },
 };
 
 export const DEFAULT_EXCLUDE = {
