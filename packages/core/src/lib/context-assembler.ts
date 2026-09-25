@@ -19,6 +19,9 @@ export interface AssembleOptions {
   /** When given, the search's warnings (a degraded lane, for example) are
    * appended to it, so a caller can report them beside the text. */
   warnings?: string[];
+  /** The moment search measures recency from; defaults to the wall clock.
+   * `brain eval --context` pins it so a run is reproducible. */
+  now?: Date;
 }
 
 /**
@@ -208,7 +211,7 @@ export async function assembleContext(
   if (opts.query && budget > BUDGET_FLOOR) {
     const { results, warnings } = await hybridSearch(
       db,
-      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP) },
+      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now },
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
     opts.warnings?.push(...warnings);

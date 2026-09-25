@@ -79,6 +79,8 @@ const querySchema = z
     expect: z.object({ select: selectSchema }).strict().optional(),
     stale: z.array(z.string().min(1)).min(1).optional(),
     lang: z.string().min(1).optional(),
+    /** Text the context eval looks for in the assembled output instead of an expected path. */
+    answer: z.string().trim().min(1).optional(),
   })
   .strict()
   .superRefine((query, ctx) => {
@@ -91,6 +93,7 @@ const querySchema = z
       if (query.expect) issue(`a "${NO_ANSWER_CLASS}" query cannot select its answers`);
       else if (query.expected!.length > 0) issue(`a "${NO_ANSWER_CLASS}" query must have an empty "expected"`);
       if (query.stale) issue(`a "${NO_ANSWER_CLASS}" query has no current answer for "stale" to rank below`);
+      if (query.answer !== undefined) issue(`a "${NO_ANSWER_CLASS}" query has no "answer" to look for`);
     } else if (query.expected?.length === 0) {
       issue(`an empty "expected" requires class "${NO_ANSWER_CLASS}"`);
     }
@@ -439,4 +442,100 @@ export function selectPaths(select: Selector, documents: FrontmatterDocument[], 
   const sign = select.order === "asc" ? 1 : -1;
   candidates.sort((a, b) => sign * (a.at - b.at) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return candidates.slice(0, select.take).map((c) => c.path);
+}
+
+/** The largest `--budgets` value accepted, in tokens. */
+export const MAX_BUDGET = 1_000_000;
+
+/** Parse `--budgets 1000,4000,8000` into sorted, distinct positive integers up to MAX_BUDGET. */
+export function parseBudgets(raw: string): number[] {
+  const values = new Set<number>();
+  for (const part of raw.split(",").map((p) => p.trim())) {
+    if (!/^[1-9]\d*$/.test(part)) {
+      throw new EvalSetError(`--budgets takes positive integers separated by commas, got "${raw}"`);
+    }
+    const value = Number(part);
+    if (!Number.isSafeInteger(value) || value > MAX_BUDGET) {
+      throw new EvalSetError(`--budgets values go up to ${MAX_BUDGET}, got ${part.length > 12 ? `${part.slice(0, 12)}…` : part}`);
+    }
+    values.add(value);
+  }
+  return [...values].sort((a, b) => a - b);
+}
+
+/** What `brain context` put in its output, counted from the assembler's own headings. */
+export interface ContextSections {
+  identity: number;
+  focus: number;
+  /** `### … (<path>)` search-result sections. */
+  results: number;
+  /** 1 when the `### Related` neighbour list is present. */
+  related: number;
+}
+
+const RELATED_HEADING_LINE = "### Related";
+
+/** A search-hit heading as the assembler writes it: `### <title> (<path>)`, then ` · …` facts or ` — ` summary. */
+const RESULT_HEADING = /^### .*? \(([^()\s]+)\)(?: · | — |$)/;
+
+/**
+ * The paths of the search-result sections in assembled context, in order. A
+ * `###` line inside an identity or focus body is not a hit: only a heading
+ * naming a path the index holds counts.
+ */
+export function resultPaths(output: string, indexed: ReadonlySet<string>): string[] {
+  const paths: string[] = [];
+  for (const line of output.split("\n")) {
+    if (line === RELATED_HEADING_LINE) continue;
+    const path = RESULT_HEADING.exec(line)?.[1];
+    if (path !== undefined && indexed.has(path)) paths.push(path);
+  }
+  return paths;
+}
+
+/** Count the assembled context's sections by their headings. */
+export function contextSections(output: string, indexed: ReadonlySet<string>): ContextSections {
+  const lines = output.split("\n");
+  return {
+    identity: lines.filter((l) => l === "## Identity").length,
+    focus: lines.filter((l) => l === "## Current Focus").length,
+    results: resultPaths(output, indexed).length,
+    related: lines.filter((l) => l === RELATED_HEADING_LINE).length,
+  };
+}
+
+/**
+ * Whether the assembled context carries a query's answer. With `answer`, the
+ * text itself must appear (case and whitespace ignored). Otherwise an expected
+ * path must head a search-result section, `### Title (<path>) …`, the
+ * assembler's own format, or be the canonical document an included
+ * `## Identity` / `## Current Focus` section was read from (those sections do
+ * not print their path). A path in the `### Related` list is not an answer:
+ * only its summary line is there.
+ */
+export function answerPresent(
+  output: string,
+  query: { expected: string[]; answer?: string },
+  canonical: { identity: string | null; focus: string | null },
+  indexed: ReadonlySet<string>
+): boolean {
+  if (query.answer !== undefined) {
+    const squash = (t: string) => t.toLowerCase().replace(/\s+/g, " ");
+    return squash(output).includes(squash(query.answer).trim());
+  }
+  const sections = contextSections(output, indexed);
+  const hits = new Set(resultPaths(output, indexed));
+  return query.expected.some(
+    (path) =>
+      hits.has(path) ||
+      (sections.identity > 0 && path === canonical.identity) ||
+      (sections.focus > 0 && path === canonical.focus)
+  );
+}
+
+/** Nearest-rank percentile (p in 0..100) of a non-empty list. */
+export function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
+  return sorted[rank - 1];
 }

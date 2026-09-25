@@ -204,6 +204,38 @@ answers; a query matches as whole words, ignoring case and collapsing
 whitespace, in the same bytes the freshness check read. With `--strict`, such
 a document refuses the run (exit `2`) instead (additive in 0.38.0).
 
+With `--context [--budgets 1000,4000,8000]` the envelope gains a `context`
+block (additive in 0.38.0); every other key is unchanged. Each query runs
+through the assembler `brain context` uses, at each budget, with the run's
+`now`:
+
+```jsonc
+"context": {
+  "budgets": [1000, 4000, 8000],
+  "rows": [                       // one per budget
+    { "budget": 1000,
+      "n": 26,                    // answerable queries, the denominator below
+      "answer_present": 0.81,     // null when n is 0
+      "budget_used": { "median": 0.97, "p10": 0.9, "p90": 0.99 } }  // nearest-rank, all queries
+  ],
+  "per_query": [                  // one per query and budget
+    { "budget": 1000, "id": "dob", "class": "alias",
+      "answer_present": true,     // null for a no-answer query
+      "budget_used": 0.97,        // the assembler's estimateTokens(output) / budget
+      "sections": { "identity": 1, "focus": 1, "results": 5, "related": 1 } }
+  ]
+}
+```
+
+`answer_present` is true when an expected path heads a search-result section
+(`### Title (<path>) …`), or is the canonical document an included
+`## Identity` or `## Current Focus` section was read from. A `### Related` line
+does not count. A query's optional `answer` string makes it look for that text
+instead, ignoring case and whitespace; a `no-answer` query may not carry one.
+`--budgets` without `--context` is a usage error. Search warnings from the
+assembler (a keyless brain has no vector lane) are reported once each in
+`warnings`, prefixed `context: `, and never refuse the run.
+
 #### `brain index` counters
 
 Each counter describes this run, not the index as a whole, and they do not

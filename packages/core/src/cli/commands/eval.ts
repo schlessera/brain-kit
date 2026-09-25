@@ -12,10 +12,15 @@ import { getDefaultRerankerMode } from "../../lib/reranker.js";
 import {
   aggregate,
   EVAL_SCHEMA_VERSION,
+  NO_ANSWER_CLASS,
   EvalSetError,
   ContaminationScanner,
   parseEvalSet,
   parseKs,
+  parseBudgets,
+  answerPresent,
+  contextSections,
+  percentile,
   poolSize,
   scoreQuery,
   parseEvalDate,
@@ -35,6 +40,8 @@ import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch
 import { hybridSearch } from "../../lib/search-engine.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { packageRoot, packageVersion } from "../../package-version.js";
+import { assembleContext, estimateTokens } from "../../lib/context-assembler.js";
+import type { ContextSections } from "../../lib/retrieval-eval.js";
 import type { CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
@@ -51,6 +58,10 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
   --strict                Refuse (exit 2) when an indexed document quotes the set's queries
   --now <ISO date>        The moment the run measures from, when the set's header
                           does not pin one (default: the wall clock)
+  --context               Also run each query through \`brain context\` at each budget
+                          and report whether the answer is in it (the "context" block)
+  --budgets <list>        Context budgets in tokens, comma-separated
+                          (default: 1000,4000,8000; needs --context)
 
 Relative paths are relative to the brain root.
 
@@ -60,7 +71,8 @@ not indexed, a selector that selects nothing, the index older than the
 markdown, a requested search lane degraded; with --strict, an indexed
 document that contains the set's queries).
 
---json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" }
+--json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" },
+plus "context": { "budgets", "rows", "per_query" } with --context
 Set format and how to read the numbers: docs/evaluating-search.md`;
 
 const MODES: Readonly<Record<string, EvalMode[]>> = {
@@ -284,6 +296,94 @@ async function runMode(
   return outcomes;
 }
 
+interface ContextOutcome {
+  budget: number;
+  id: string;
+  class: string;
+  /** Null for a no-answer query, which has no answer to find. */
+  answer_present: boolean | null;
+  /** estimateTokens(output) / budget, the assembler's own estimate. */
+  budget_used: number;
+  sections: ContextSections;
+}
+
+interface ContextRow {
+  budget: number;
+  /** Answerable queries: the denominator of answer_present. */
+  n: number;
+  answer_present: number | null;
+  budget_used: { median: number; p10: number; p90: number };
+}
+
+/**
+ * Run every query through the assembler `brain context` uses, at each budget.
+ * Its search degrades the way `brain context` does (no vector lane without a
+ * provider), so its warnings are reported once each, never refused: this
+ * measures what an agent is actually handed.
+ */
+async function runContext(
+  db: Database,
+  brain: BrainContext,
+  queries: ResolvedQuery[],
+  budgets: number[],
+  now: Date,
+  embeddings: EmbeddingProvider | undefined,
+  warnings: string[]
+): Promise<{ budgets: number[]; rows: ContextRow[]; per_query: ContextOutcome[] }> {
+  const canonical = {
+    identity: brain.taxonomy.canonicalPath("identity"),
+    focus: brain.taxonomy.canonicalPath("currentFocus"),
+  };
+  const indexed = new Set((db.prepare("SELECT path FROM documents").all() as { path: string }[]).map((r) => r.path));
+  const searchWarnings = new Set<string>();
+  const perQuery: ContextOutcome[] = [];
+  const rows: ContextRow[] = [];
+  for (const budget of budgets) {
+    const outcomes: ContextOutcome[] = [];
+    for (const query of queries) {
+      const found: string[] = [];
+      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found });
+      found.forEach((w) => searchWarnings.add(w));
+      outcomes.push({
+        budget,
+        id: query.id,
+        class: query.class,
+        answer_present: query.class === NO_ANSWER_CLASS ? null : answerPresent(output, query, canonical, indexed),
+        budget_used: estimateTokens(output) / budget,
+        sections: contextSections(output, indexed),
+      });
+    }
+    const answerable = outcomes.flatMap((o) => (o.answer_present === null ? [] : [o.answer_present ? 1 : 0]));
+    const used = outcomes.map((o) => o.budget_used);
+    rows.push({
+      budget,
+      n: answerable.length,
+      answer_present: answerable.length > 0 ? answerable.reduce((a, b) => a + b, 0) / answerable.length : null,
+      budget_used: { median: percentile(used, 50), p10: percentile(used, 10), p90: percentile(used, 90) },
+    });
+    perQuery.push(...outcomes);
+  }
+  for (const w of searchWarnings) warnings.push(`context: ${w}`);
+  return { budgets, rows, per_query: perQuery };
+}
+
+function printContext(context: { rows: ContextRow[] }): void {
+  console.log("\nContext (brain context at each budget):");
+  const header = ["budget", "n", "answer present", "used p10", "used median", "used p90"];
+  const table = context.rows.map((r) => [
+    String(r.budget),
+    String(r.n),
+    pct(r.answer_present),
+    pct(r.budget_used.p10),
+    pct(r.budget_used.median),
+    pct(r.budget_used.p90),
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
+  const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+  console.log(line(header));
+  for (const row of table) console.log(line(row));
+}
+
 function pct(value: number | null): string {
   return value === null ? "-" : `${(value * 100).toFixed(1)}%`;
 }
@@ -349,7 +449,7 @@ export const evalCommand: CoreCommand = {
     const { args: pos, flags } = parseArgs(args);
     if (pos.length > 0) throw new UsageError(`brain eval takes no positional arguments (got "${pos[0]}")`);
 
-    for (const name of ["set", "out", "mode", "rerank", "k", "now"]) {
+    for (const name of ["set", "out", "mode", "rerank", "k", "now", "budgets"]) {
       if (flags[name] === true) throw new UsageError(`--${name} requires a value`);
     }
 
@@ -367,6 +467,17 @@ export const evalCommand: CoreCommand = {
       ks = parseKs(typeof flags.k === "string" ? flags.k : "1,3,10");
     } catch (e) {
       throw new UsageError((e as Error).message);
+    }
+    if (flags.budgets !== undefined && flags.context !== true) {
+      throw new UsageError("--budgets needs --context");
+    }
+    let budgets: number[] = [];
+    if (flags.context === true) {
+      try {
+        budgets = parseBudgets(typeof flags.budgets === "string" ? flags.budgets : "1000,4000,8000");
+      } catch (e) {
+        throw new UsageError((e as Error).message);
+      }
     }
     const nowFlag = typeof flags.now === "string" ? flags.now : undefined;
     if (nowFlag !== undefined && !parseEvalDate(nowFlag)) {
@@ -396,7 +507,9 @@ export const evalCommand: CoreCommand = {
         throw new EvalRefused(`${contamination.length} indexed document(s) contain the set's queries (--strict)`, contamination);
       }
       const warnings = [...nowWarnings, ...contamination];
-      if (modes.some((m) => m !== "fts")) await loadVecSupport(db);
+      // `brain context` always loads the extension; the context eval must
+      // see the same search it does.
+      if (modes.some((m) => m !== "fts") || budgets.length > 0) await loadVecSupport(db);
 
       const pool = poolSize(ks);
       const perQuery: QueryOutcome[] = [];
@@ -425,10 +538,22 @@ export const evalCommand: CoreCommand = {
         pool,
         now: now.toISOString(),
       };
-      const envelope = { schema_version: EVAL_SCHEMA_VERSION, meta, rows, per_query: perQuery, warnings };
+      const context =
+        budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings) : undefined;
+      const envelope = {
+        schema_version: EVAL_SCHEMA_VERSION,
+        meta,
+        rows,
+        per_query: perQuery,
+        warnings,
+        ...(context ? { context } : {}),
+      };
 
       if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
-      emit(cli.json, envelope, () => printHuman(rows, perQuery, ks, meta, warnings));
+      emit(cli.json, envelope, () => {
+        printHuman(rows, perQuery, ks, meta, warnings);
+        if (context) printContext(context);
+      });
       return 0;
     } catch (e) {
       if (!(e instanceof EvalRefused)) throw e;
