@@ -102,9 +102,13 @@ function readMarkdownContent(root: string, relativePath: string): { body: string
   try {
     const fullPath = resolve(root, relativePath);
     const raw = readFileSync(fullPath, "utf-8");
-    const { content, data } = matter(raw);
-    const summary = typeof data.summary === "string" && data.summary.trim() ? oneLine(data.summary) : null;
-    return { body: content.trim(), summary };
+    // Options bypass gray-matter's cache (#142).
+    const { content, data } = matter(raw, {});
+    // The summary opens a line of the output, so it must not open a block.
+    const summary = typeof data.summary === "string" && data.summary.trim() ? blockSafe(data.summary) : null;
+    // Leading blank lines and trailing whitespace go; the first line's
+    // indentation stays, since it can make that line indented code.
+    return { body: content.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd(), summary };
   } catch {
     return null;
   }
@@ -122,8 +126,8 @@ function splitSections(body: string): { lead: string; sections: string[] } {
     .map((block) => block.start);
   const bounds = [...starts, body.length];
   return {
-    lead: body.slice(0, starts[0] ?? body.length).trim(),
-    sections: starts.map((start, i) => body.slice(start, bounds[i + 1]).trim()),
+    lead: body.slice(0, starts[0] ?? body.length).trimEnd(),
+    sections: starts.map((start, i) => body.slice(start, bounds[i + 1]).trimEnd()),
   };
 }
 
@@ -156,13 +160,12 @@ export async function assembleContext(
     return true;
   };
 
-  // Fixed sections: whole when they fit, else cut at a paragraph boundary with
-  // a pointer to the full file, else skipped. A small budget is never exceeded
-  // before search results are considered.
-  // A document that does not fit leads with its hot part (#381): its
-  // `summary` and the lead before its first `#`/`##` heading, then its
-  // sections whole, in order, while they fit. A lead that does not fit on its
-  // own is cut at a block boundary.
+  // Identity and focus (#381): the `summary` first, then the whole body when
+  // it fits. Otherwise the lead (the text before the first top-level `##`
+  // heading), then the `##` sections whole, in order, while they fit, then a
+  // pointer to the file. Only a lead that does not fit on its own is cut, after
+  // its last whole block that fits. A small budget is never exceeded before
+  // search results are considered.
   const pushCanonical = (heading: string, path: string | null): void => {
     const doc = path ? readMarkdownContent(ctx.root, path) : null;
     if (!path || !doc) return;

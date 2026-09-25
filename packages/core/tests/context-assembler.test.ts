@@ -421,6 +421,33 @@ describe("over a hand-built index", () => {
       expect(await identity(doc("", "HOT SUMMARY"), 400)).toBe("## Identity\nHOT SUMMARY");
     });
 
+    const blockTypes = (out: string) =>
+      fromMarkdown(out).children.map((node) => node.type === "heading" ? `h${(node as { depth: number }).depth}` : node.type);
+
+    test("a summary that looks like a fence opens no block, when the document fits whole", async () => {
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "context/current-focus.md"), "---\ntype: context\n---\nCurrent priority.\n");
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), doc("Intro.", "~~~"));
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 400 });
+      // Identity (summary, body), then focus: nothing swallowed by a code block.
+      expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "h2", "paragraph"]);
+      expect(out).toContain("Current priority.");
+    });
+
+    test("a summary that looks like a fence opens no block, when the document is cut", async () => {
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "context/current-focus.md"), "---\ntype: context\n---\nCurrent priority.\n");
+      const out = await identity(doc(`Intro.\n\n${LONG}\n\n## History\n\n${LONG}`, "~~~"), 100);
+      expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
+      expect(out.endsWith(MARKER)).toBe(true);
+    });
+
+    test("indented code at the start of the body stays code, and the lead after it is kept", async () => {
+      const out = await identity(doc(`    ## code\n    example\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n    ## code\n    example\n\nCurrent ranger.\n\n${MARKER}`);
+    });
+
     test("with no lead, sections are taken whole or not at all", async () => {
       const history = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: a short old line.`).join("\n\n")}`;
       const out = await identity(doc(`${history}\n\n## Later\n\n${LONG}`), 100);
