@@ -25,9 +25,11 @@ export class BuiltInAdapter extends BrowserAdapter {
 
   /**
    * Runs INSIDE the page — closes over nothing, references nothing from this
-   * module. The company name is found by scanning the card's visible lines for
-   * the first one that is not the title and not obvious chrome; the site has
-   * no stable company selector.
+   * module. Every card is a `div[data-id="job-card"]` and names its company in
+   * an `a[data-id="company-title"]` (#320). The card is found by that
+   * attribute, not by class: the title anchor's own class is
+   * `card-alias-after-overlay`, so a class-based `closest()` stops at the
+   * anchor and never sees the company.
    *
    * The description comes from the page's own structured data: its `@graph`
    * holds an `ItemList` whose entries carry a URL and a description for every
@@ -82,26 +84,11 @@ export class BuiltInAdapter extends BrowserAdapter {
       const title = link.textContent?.trim();
       if (!title || title.length < 5 || title.length > 200) continue;
 
-      const card =
-        link.closest('[class*="job"], [class*="card"], article, li') ||
-        link.parentElement?.parentElement?.parentElement;
-      const lines = ((card as HTMLElement | null | undefined)?.innerText || "")
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean);
-
-      let company = "";
-      for (const line of lines) {
-        if (line === title) continue;
-        if (
-          line.length > 2 &&
-          line.length < 60 &&
-          !line.match(/^(Remote|Hybrid|Apply|View|Save|Easy|\$|Posted|\d+ )/i)
-        ) {
-          company = line;
-          break;
-        }
-      }
+      const company =
+        link
+          .closest('[data-id="job-card"]')
+          ?.querySelector('a[data-id="company-title"]')
+          ?.textContent?.trim() || "";
 
       const absolute = href.startsWith("http") ? href : `https://builtin.com${href}`;
       jobs.push({
