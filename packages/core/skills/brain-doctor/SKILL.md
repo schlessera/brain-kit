@@ -47,6 +47,7 @@ plain-language explanation, consent, and re-verification — not re-implementing
 | deps | node_modules missing / lockfile drift | `bun install` |
 | version | core package outside `brain.config` compat range | none — explain the upgrade |
 | privacy | **git remote exists and is PUBLIC** | none — **loud warning, never auto-fix** |
+| tracked-leftovers | committed tool leftovers (`.DS_Store`, `*:Zone.Identifier`, editor swap files, LaTeX `*.aux` and friends) | none automatic: show the `git rm --cached` command from `fix`, and run it only with the user's consent |
 
 ## Rules
 
