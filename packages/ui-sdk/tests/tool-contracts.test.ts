@@ -112,6 +112,10 @@ describe("show_block", () => {
     for (const kind of BLOCK_KINDS) expect(description).toContain(`${kind}:`);
     expect(description).toContain("at most one column recommended");
     expect(description).toContain("no arithmetic");
+    // The Receipt value budget, measured by ui-kit's browser suite
+    // (`tests/visual/receipt-value-budget.visual.tsx`), so a value the model
+    // judges is written to fit.
+    expect(description).toContain("a toned value fits one phone line at 25 characters");
   });
 
   test("the eleven kinds, in brief order", () => {
