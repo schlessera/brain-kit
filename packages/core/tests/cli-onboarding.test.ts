@@ -263,7 +263,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:245-284`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:307-346`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).

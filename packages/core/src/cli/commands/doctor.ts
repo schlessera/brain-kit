@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
-import { isAbsolute, join, resolve } from "path";
+import { isAbsolute, join, resolve, sep } from "path";
 
 import { readEnvVar, resolveEnv } from "../../config/env.js";
 import {
@@ -14,7 +14,7 @@ import {
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
 import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
-import { syncSkills, installBinLinks } from "../../lib/skills/index.js";
+import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
@@ -55,6 +55,15 @@ function cmpSemver(a: number[], b: number[]): number {
   return 0;
 }
 
+/** Whether `path` is a directory now; false when it is missing or vanishes mid-check. */
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // --- individual checks -----------------------------------------------------
 
 function checkRuntime(): Check {
@@ -72,7 +81,7 @@ function checkGitHooks(root: string): Check {
   const hooksPath = gitConfig(root, "core.hooksPath");
   if (!hooksPath) return { id: "git-hooks", status: "fail", detail: "core.hooksPath is not set", fix: "run `brain setup`" };
   const resolvedHooksPath = resolve(root, hooksPath);
-  if (!existsSync(resolvedHooksPath) || !statSync(resolvedHooksPath).isDirectory()) {
+  if (!isDirectory(resolvedHooksPath)) {
     return {
       id: "git-hooks",
       status: "fail",
@@ -113,20 +122,73 @@ function checkSymlinks(root: string): Check {
     /* not linked at all — not broken, just absent */
   }
   const skillsDir = join(root, ".claude", "skills");
+  let entries: string[] = [];
+  let unreadable: string | undefined;
   if (existsSync(skillsDir)) {
-    for (const entry of readdirSync(skillsDir)) {
-      const p = join(skillsDir, entry);
-      try {
-        if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(`.claude/skills/${entry}`);
-      } catch {
-        /* ignore */
-      }
+    try {
+      entries = readdirSync(skillsDir);
+    } catch (e) {
+      unreadable = `could not read .claude/skills: ${(e as Error).message}`;
     }
+  }
+  for (const entry of entries) {
+    const p = join(skillsDir, entry);
+    try {
+      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(`.claude/skills/${entry}`);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (unreadable) {
+    const also = broken.length > 0 ? `; also broken: ${broken.join(", ")}` : "";
+    return { id: "symlinks", status: "warn", detail: unreadable + also, fix: "make .claude/skills a readable directory, then run `brain skills sync`" };
   }
   if (broken.length > 0) {
     return { id: "symlinks", status: "warn", detail: `${broken.length} stale/broken symlink(s): ${broken.slice(0, 3).join(", ")}`, fix: "run `brain skills sync`" };
   }
   return { id: "symlinks", status: "pass", detail: "no broken symlinks" };
+}
+
+/**
+ * `.claude/commands/<name>.md` files that a skill of the same name shadows.
+ * Claude Code runs the skill, so the command file is dead but still looks
+ * authoritative to whoever edits it. A command in a subdirectory is named
+ * `<dir>:<name>` (`frontend/component.md` is `/frontend:component`), so only
+ * a skill with that full name shadows it.
+ */
+function checkShadowedCommands(cli: CliContext): Check {
+  const root = cli.brain.root;
+  const commandsDir = join(root, ".claude", "commands");
+  if (!existsSync(commandsDir)) {
+    return { id: "shadowed-commands", status: "pass", detail: "no .claude/commands directory" };
+  }
+  const unreadable = (reason: string): Check => ({
+    id: "shadowed-commands",
+    status: "warn",
+    detail: `could not read .claude/commands: ${reason}`,
+    fix: "make .claude/commands a readable directory, or remove it",
+  });
+  if (!isDirectory(commandsDir)) return unreadable("it is not a directory");
+  const shadowed: string[] = [];
+  try {
+    const skills = new Set(discoverSkills({ root, modules: cli.brain.modules }).skills.map((s) => s.name));
+    for (const rel of new Bun.Glob("**/*.md").scanSync({ cwd: commandsDir })) {
+      const name = rel.replace(/\.md$/, "").split(/[\\/]/).join(":");
+      if (skills.has(name)) shadowed.push(`.claude/commands/${rel.split(sep).join("/")}`);
+    }
+  } catch (e) {
+    return unreadable((e as Error).message);
+  }
+  if (shadowed.length === 0) {
+    return { id: "shadowed-commands", status: "pass", detail: "no command file shares a name with a skill" };
+  }
+  shadowed.sort();
+  return {
+    id: "shadowed-commands",
+    status: "warn",
+    detail: `${shadowed.length} command file(s) shadowed by a skill of the same name: ${shadowed.join(", ")}`,
+    fix: "delete or rename each file; the skill runs, not the command",
+  };
 }
 
 function checkConfig(cli: CliContext): Check {
@@ -368,6 +430,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     checkRuntime(),
     checkGitHooks(root),
     checkSymlinks(root),
+    checkShadowedCommands(cli),
     checkConfig(cli),
     checkDb(cli),
     await checkEmbeddings(cli),
@@ -406,10 +469,16 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("symlinks")) {
-    const { emitters } = resolveEmitters(cli.brain);
-    syncSkills({ root, modules: cli.brain.modules }, { emitters });
-    installBinLinks(root);
-    applied.push("symlinks");
+    // A `.claude/skills` that is not a directory makes the sync throw; the
+    // check already said what to do, so record it and keep going.
+    try {
+      const { emitters } = resolveEmitters(cli.brain);
+      syncSkills({ root, modules: cli.brain.modules }, { emitters });
+      installBinLinks(root);
+      applied.push("symlinks");
+    } catch (e) {
+      console.error(`doctor --fix: symlinks fix failed: ${e instanceof Error ? e.message : e}`);
+    }
   }
   if (failing.has("deps")) {
     Bun.spawnSync(["bun", "install"], { cwd: root });

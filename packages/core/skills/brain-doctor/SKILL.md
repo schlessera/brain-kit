@@ -38,6 +38,7 @@ plain-language explanation, consent, and re-verification — not re-implementing
 | runtime | bun missing / too old | none — explain how to install; stop if blocking |
 | git-hooks | `core.hooksPath` not set | `brain setup` |
 | symlinks | `~/.local/bin/brain` or `.claude/skills/*` broken/stale | `brain skills sync` |
+| shadowed-commands | a `.claude/commands/<name>.md` file with the same name as a skill; the skill runs, so the file is dead | none automatic — ask, then delete or rename each listed file |
 | config | `brain.config` missing / invalid vs schema | none — point to `/brain-init` |
 | db | brain.db missing, schema mismatch, or stale vs file mtimes | `brain index` (add `--force` on schema mismatch) |
 | embeddings | model mismatch / missing coverage / no API key | `brain index --embeddings` (a missing key needs the user) |
