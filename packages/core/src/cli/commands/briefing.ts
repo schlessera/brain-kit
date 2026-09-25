@@ -3,6 +3,7 @@ import { resolve } from "path";
 import matter from "gray-matter";
 
 import type { BrainContext } from "../../lib/context.js";
+import { findStale, loadAuditDocs } from "../../lib/auditor.js";
 import { openDatabase } from "../../lib/db.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import type { CoreCommand } from "../types.js";
@@ -14,14 +15,10 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split("T")[0];
 }
 
-function daysBetween(a: string, b: string): number {
-  return Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
-}
-
 /**
  * Assemble the structured briefing data. Mechanical (no LLM): current focus,
  * focus-linked documents, upcoming deadlines, overdue reviews, recently active
- * primary docs, silently-modified files, and stale context.
+ * primary docs, silently-modified files, and stale documents.
  *
  * Ported from the reference brain's generateBriefing (brain-cli.ts:328-433).
  * The one genericization: the current-focus document and its link graph are
@@ -128,20 +125,15 @@ export function generateBriefing(brain: BrainContext, limit = 15): string {
       }
     }
 
-    // 7. Stale context files (>30 days since frontmatter update)
-    const staleDate = addDays(todayStr, -30);
-    const stale = db
-      .prepare(
-        `SELECT updated, path, title FROM documents
-         WHERE type = 'context' AND updated < ? AND status != 'archived'
-         ORDER BY updated ASC`
-      )
-      .all(staleDate) as any[];
+    // 7. Stale documents, by the taxonomy's thresholds: findStale is the
+    // definition `brain audit` and `brain stats` share. Most overdue first.
+    const stale = findStale(loadAuditDocs(db), brain.taxonomy, Date.now()).sort(
+      (a, b) => b.ageDays - b.threshold - (a.ageDays - a.threshold) || b.ageDays - a.ageDays
+    );
     if (stale.length > 0) {
-      lines.push("\n## Stale Context\n");
-      for (const r of stale) {
-        const daysAgo = daysBetween(r.updated, todayStr);
-        lines.push(`- ${r.updated} (${daysAgo}d ago) | ${r.path} | ${r.title}`);
+      lines.push("\n## Stale Documents\n");
+      for (const { doc, ageDays } of stale) {
+        lines.push(`- ${doc.updated} (${ageDays}d ago) | ${doc.path} | ${doc.title}`);
       }
     }
   } finally {
