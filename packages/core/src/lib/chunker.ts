@@ -59,6 +59,11 @@ function headingText(source: string): string {
   return source.split("\n").slice(0, -1).map((line) => line.trim()).join(" ").trim();
 }
 
+/** The line ending a document uses: CRLF when it has one, else LF. Joins keep it. */
+function eolOf(text: string): string {
+  return text.includes("\r\n") ? "\r\n" : "\n";
+}
+
 /**
  * Drop the blank lines around a slice, and its trailing whitespace, but not
  * the indentation of its first line: four leading spaces are what make an
@@ -111,7 +116,12 @@ function codeRanges(node: MdNode, base: number, ranges: Array<[number, number]>)
 }
 
 /**
- * A block's lines, as the units it may be cut into, except that the lines of
+ * A block's lines, as the units it may be cut into. Lines end in LF or CRLF
+ * (the CR stays on its line). A file with bare-CR line endings, which the
+ * parser also accepts, is not cut at lines: a known limit, rare outside very
+ * old Mac files.
+ *
+ * The units are the block's lines, except that the lines of
  * a code block (at any depth, a fence inside a list item included) stay
  * together as one unit.
  */
@@ -152,13 +162,14 @@ function lineUnits(block: string, node: MdNode, base: number): string[] {
 function splitTable(block: string, node: MdNode, base: number): string[] {
   const rows = node.children ?? [];
   const headerEnd = rows.length > 1 ? startOf(rows[1]) - base : block.length;
-  const header = block.slice(startOf(rows[0] ?? node) - base, headerEnd).trimEnd();
+  const eol = eolOf(block);
+  const header = block.slice(startOf(rows[0] ?? node) - base, headerEnd).replace(/(?:\r?\n)+$/, "");
   const headerLine = header.split("\n")[0];
   if (estimateTokens(header) > MAX_TOKENS && estimateTokens(headerLine) <= MAX_TOKENS) {
     return splitLines(block, node, base);
   }
   if (rows.length < 2) return [block];
-  const fits = (lines: string[]) => estimateTokens(lines.join("\n")) <= MAX_TOKENS;
+  const fits = (lines: string[]) => estimateTokens(lines.join(eol)) <= MAX_TOKENS;
   const pieces: string[] = [];
   let current: string[] | null = null;
   let headerShown = false;
@@ -168,7 +179,7 @@ function splitTable(block: string, node: MdNode, base: number): string[] {
       current.push(text);
       continue;
     }
-    if (current) pieces.push(current.join("\n"));
+    if (current) pieces.push(current.join(eol));
     if (fits([header, text])) {
       current = [header, text];
       headerShown = true;
@@ -179,7 +190,7 @@ function splitTable(block: string, node: MdNode, base: number): string[] {
       current = null;
     }
   }
-  if (current) pieces.push(current.join("\n"));
+  if (current) pieces.push(current.join(eol));
   return pieces;
 }
 
@@ -214,19 +225,20 @@ function splitLines(block: string, node: MdNode, base: number): string[] {
 function packBlocks(content: string): string[] {
   const pieces: string[] = [];
   let current: string[] = [];
-  const size = (parts: string[]) => estimateTokens(parts.join("\n\n"));
+  const gap = eolOf(content).repeat(2);
+  const size = (parts: string[]) => estimateTokens(parts.join(gap));
   for (const node of topLevel(content)) {
     const block = content.slice(startOf(node), endOf(node));
     const parts = estimateTokens(block) > MAX_TOKENS ? splitBlock(block, node, startOf(node)) : [block];
     for (const part of parts) {
       if (current.length > 0 && size([...current, part]) > MAX_TOKENS) {
-        pieces.push(current.join("\n\n"));
+        pieces.push(current.join(gap));
         current = [];
       }
       current.push(part);
     }
   }
-  if (current.length > 0) pieces.push(current.join("\n\n"));
+  if (current.length > 0) pieces.push(current.join(gap));
   return pieces;
 }
 

@@ -33,9 +33,17 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   const stats = await runCli(root, ["stats", "--json"]);
   expect(stats.stderr).not.toContain("no such column");
   expect(stats.code).toBe(0);
+  const figures = JSON.parse(stats.stdout) as { documents: number; chunks: number; size: { db: { tables: Record<string, number> } } };
+  expect(figures.documents).toBeGreaterThan(0);
+  expect(figures.chunks).toBeGreaterThan(0);
+  expect(figures.size.db.tables.documents).toBe(figures.documents);
 
+  // Doctor reads it too, and says what is wrong: the schema is behind.
   const doctor = await runCli(root, ["doctor", "--json"]);
+  expect(doctor.code).toBe(0);
   expect(doctor.stdout + doctor.stderr).not.toContain("no such column");
+  const checks = (JSON.parse(doctor.stdout) as { checks: Array<{ id: string; status: string; detail: string }> }).checks;
+  expect(checks.find((c) => c.id === "db")).toMatchObject({ status: "warn", detail: "schema_version 9 < 10" });
 
   // Still schema 9: nothing above migrated it.
   const check = new Database(join(root, "brain.db"), { readonly: true });

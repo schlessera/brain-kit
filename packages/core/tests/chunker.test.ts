@@ -315,3 +315,45 @@ describe("section boundaries follow CommonMark fences (#461)", () => {
     expect(headings(content)).toEqual(["First", "Second"]);
   });
 });
+
+describe("CRLF line endings (#426 review round 3)", () => {
+  const crlf = (text: string) => text.replace(/\n/g, "\r\n");
+  const within = (chunks: Array<{ token_estimate: number }>) => chunks.every((c) => c.token_estimate <= MAX_TOKENS);
+
+  test("lines, HTML and a table stay within the bound", () => {
+    const lines = ["## Lines", "", ...Array.from({ length: 1200 }, () => "abc")].join("\n");
+    const html = ["## HTML", "", "<div>", ...Array.from({ length: 1000 }, () => "<p>abc</p>"), "</div>"].join("\n");
+    const table = ["## Registry", "", "| Id | Name |", "| --- | --- |", ...Array.from({ length: 300 }, (_, i) => `| ${i} | station ${i} |`)].join("\n");
+    for (const content of [lines, html, table].map(crlf)) {
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(within(chunks)).toBe(true);
+    }
+  });
+
+  test("a wide header whose separator tips it over is cut at lines", () => {
+    const content = crlf(["## Wide", "", `| ${"h".repeat(3990)} |`, "| ----------- |", "| row |"].join("\n"));
+    expect(within(chunkDocument({ title: "T", documentId: 1, content }))).toBe(true);
+  });
+
+  test("table pieces repeat the header rows, CRLF kept", () => {
+    const table = ["| Id | Name |", "| --- | --- |", ...Array.from({ length: 300 }, (_, i) => `| ${i} | station ${i} |`)].join("\n");
+    const chunks = chunkDocument({ title: "T", documentId: 1, content: crlf(`## Registry\n\n${table}`) });
+    for (const chunk of chunks) expect(chunk.content.split("\n").slice(0, 2)).toEqual(["| Id | Name |\r", "| --- | --- |\r"]);
+  });
+
+  test("blocks packed into one piece are joined with CRLF", () => {
+    const paragraphs = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} ${"word ".repeat(100).trim()}`).join("\n\n");
+    const chunks = chunkDocument({ title: "T", documentId: 1, content: crlf(`## Notes\n\n${paragraphs}`) });
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.some((c) => c.content.includes("\r\n\r\n"))).toBe(true);
+    for (const chunk of chunks) expect(chunk.content.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
+  test("ATX and setext headings are read the same", () => {
+    const body = "word ".repeat(150).trim();
+    const content = crlf(["## First", "", body, "", "Second", "------", "", body, "", "### Third", "", body].join("\n"));
+    const headings = chunkDocument({ title: "T", documentId: 1, content }).map((c) => c.heading);
+    expect(headings).toEqual(["First", "Second"]);
+  });
+});
