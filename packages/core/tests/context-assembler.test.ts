@@ -300,4 +300,38 @@ describe("over a hand-built index", () => {
       expect(out).toBe("## Identity\nIntro.\n\n(truncated — brain read me/identity.md)");
     });
   });
+
+  test("neighbour titles and summaries cannot open a block of their own", async () => {
+    // A hit whose directory index and linked documents carry block syntax
+    // at the start of their titles, and multiline titles and summaries.
+    addDoc("orbit/hub.md", "Hub", "orbit orbit orbit");
+    addDoc("orbit/_index.md", "# Index heading", "directory notes", "first line\n\n# not a heading");
+    const linkedDocs: [string, string, string | null][] = [
+      ["orbit/fence.md", "```fenced title", null],
+      ["orbit/quote.md", "> quoted title", "a summary"],
+      ["orbit/list.md", "- listed title", null],
+      ["orbit/multi.md", "First line\n## Forged section", "one\n\n> two"],
+    ];
+    for (const [path, title, summary] of linkedDocs) addDoc(path, title, "unrelated words", summary);
+    const hubId = (db.prepare("SELECT id FROM documents WHERE path = 'orbit/hub.md'").get() as { id: number }).id;
+    for (const [path] of linkedDocs) {
+      const target = db.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
+      db.run("INSERT INTO links(source_id, target, target_id) VALUES (?,?,?)", [hubId, path, target.id]);
+    }
+
+    const out = await assembleContext(db, ctx, { query: "orbit", maxTokens: 2000, includeIdentity: false, includeCurrentFocus: false });
+    const related = out.split("### Related\n")[1]!;
+    // The premise: the directory index and all four linked docs are offered.
+    for (const path of ["orbit/_index.md", ...linkedDocs.map(([p]) => p)]) expect(related).toContain(`(${path})`);
+    const tree = fromMarkdown(out);
+    // Only the hit heading and "### Related" are headings; the related lines
+    // form one list whose five items are each a single paragraph.
+    const headings = tree.children.filter((node) => node.type === "heading").map((h) => (h as { depth: number }).depth);
+    expect(headings).toEqual([3, 3]);
+    const list = tree.children.at(-1) as { type: string; children: { children: { type: string }[] }[] };
+    expect(list.type).toBe("list");
+    expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
+      Array.from({ length: 5 }, () => ["paragraph"])
+    );
+  });
 });

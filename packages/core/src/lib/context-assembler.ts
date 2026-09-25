@@ -81,7 +81,16 @@ function oneLine(text: string): string {
  * thematic break, fence or table escaped.
  */
 function cleanSnippet(snippet: string): string {
-  return oneLine(snippet.replace(/>>>|<<</g, ""))
+  return blockSafe(snippet.replace(/>>>|<<</g, ""));
+}
+
+/**
+ * `oneLine`, with a leading character that would start a heading, quote,
+ * list, thematic break, fence or table escaped: for text that opens a line or
+ * a list item.
+ */
+function blockSafe(text: string): string {
+  return oneLine(text)
     .replace(/^(\d+)([.)])/, "$1\\$2")
     .replace(/^([#>+\-*_=|`~])/, "\\$1");
 }
@@ -212,9 +221,11 @@ interface NeighbourDoc {
 const TOP_HITS_FOR_NEIGHBOURS = 3;
 const RELATED_HEADING = "### Related";
 
+/** A neighbour as one list item: the title opens the item, so it is made
+ * block-safe; path and summary follow inline, flattened to one line. */
 function neighbourLine(doc: NeighbourDoc): string {
   const summary = doc.summary ? ` — ${oneLine(doc.summary)}` : "";
-  return `- ${oneLine(doc.title)} (${oneLine(doc.path)})${summary}`;
+  return `- ${blockSafe(doc.title)} (${oneLine(doc.path)})${summary}`;
 }
 
 /**
