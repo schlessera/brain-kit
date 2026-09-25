@@ -9,6 +9,7 @@ import type { Database } from "bun:sqlite";
 import { statSync } from "fs";
 import { resolve } from "path";
 
+import { gitIgnoredMatcher } from "../git-ignore.js";
 import { ASSET_EXTENSIONS } from "../types.js";
 import type { Asset } from "../types.js";
 import type { Taxonomy } from "../taxonomy.js";
@@ -36,9 +37,16 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * Scan `root` for image and PDF assets, excluding configured dirs. Asset
- * type and title come from the taxonomy resolver (typeForPath / assetTitleFor),
- * which replaces the reference brain's inferAssetType/deriveAssetTitle tables.
+ * Scan `root` for image and PDF assets, excluding configured dirs and
+ * whatever git ignores. Asset type and title come from the taxonomy resolver
+ * (typeForPath / assetTitleFor), which replaces the reference brain's
+ * inferAssetType/deriveAssetTitle tables.
+ *
+ * An ignored asset exists on this clone only, so indexing it would pay a
+ * vision call and an embedding for something the other clones never see, and
+ * make their search results differ. One that becomes ignored drops out of
+ * this scan, and the deletion sweep removes it like a deleted file. Markdown
+ * is not filtered this way: gitignored local notes stay searchable.
  */
 export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   // Include both lowercase and uppercase extensions (.jpg and .JPG, etc.)
@@ -47,6 +55,7 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   const pattern = `**/*.{${allExts.join(",")}}`;
   const glob = new Glob(pattern);
   const assets: Asset[] = [];
+  const ignored = gitIgnoredMatcher(root);
 
   for (const path of glob.scanSync({ cwd: root })) {
     // The path as it is on disk, the way the markdown scan, the stats corpus
@@ -54,6 +63,7 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
     // extension below is case-folded. Lowercasing here made `dirs: ["drafts"]`
     // take the assets out of `Drafts/` while keeping its notes (#234).
     if (taxonomy.isExcludedPath(path)) continue;
+    if (ignored(path)) continue;
 
     // Skip Zone.Identifier files (Windows WSL metadata)
     if (path.includes(":Zone.Identifier")) continue;

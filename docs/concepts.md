@@ -25,6 +25,10 @@ Practical consequences:
   not need a data migration — `brain index --force` regenerates everything.
 - **Your data outlives the tool.** The files are plain markdown; they are
   readable, greppable, and portable with or without brain-kit.
+- **What git ignores, the index ignores, for assets only.** An image or PDF
+  that git ignores lives on one clone, so it is not described, embedded or
+  searchable. Gitignored markdown is still indexed. See
+  [configuration.md](configuration.md#exclude).
 
 The database schema, chunking, and ranking pipeline are deliberately *not*
 extensible for this reason — they are an implementation detail of a disposable

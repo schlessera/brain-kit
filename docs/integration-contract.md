@@ -215,7 +215,11 @@ partition one another:
   documents, plus one per asset indexed.
 - `embeddings` — vectors written this run, text chunks and assets together.
 - `assets` — images and PDFs (re)indexed this run. Assets are only indexed
-  on an `--embeddings` run, so it is `0` otherwise.
+  on an `--embeddings` run, so it is `0` otherwise. Since 0.38.0 an asset git
+  ignores is never indexed, so it is not counted here, and one that becomes
+  ignored is removed and counted in `deleted`, like a deleted file. Ignored
+  markdown is still indexed. `brain stats` `size.corpus` leaves ignored assets
+  out by the same rule.
 - `graphMs` / `graphNodes` — the graph rebuild's wall time and node count.
   Both are `0` when this run did not rebuild the graph: either nothing it
   depends on changed and the previous tables were reused, or the rebuild
