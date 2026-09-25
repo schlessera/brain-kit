@@ -198,14 +198,17 @@ export default defineConfig({
       expect(stdout).toBe("stub agent ran /sync\n");
       expect(() => JSON.parse(stdout)).toThrow();
 
-      // Pins today's behaviour, which the contract row records: an output
-      // flag in first position is read as the verb. #353 fixes it, and
-      // changes this assertion and the row together.
+      // An output flag is not a verb: it still takes the agent path and
+      // still prints the agent's text, whatever mode it asks for.
       for (const flag of ["--json", "--human"]) {
         const flagged = await runCli(brain, ["sync", flag]);
-        expect(flagged.code).toBe(1);
-        expect(flagged.stderr).toContain(`Unknown sync verb: ${flag}`);
+        expect(flagged.code).toBe(0);
+        expect(flagged.stdout).toBe("stub agent ran /sync\n");
       }
+
+      const unknown = await runCli(brain, ["sync", "--not-a-flag"]);
+      expect(unknown.code).toBe(1);
+      expect(unknown.stderr).toContain("Unknown flag: --not-a-flag");
     } finally {
       cleanup(brain);
     }
