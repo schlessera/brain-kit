@@ -251,7 +251,7 @@ describe("detectCandidates", () => {
     expect(quoted("> [https://ithaca.example/](https://ithaca.example/)**mailto:eurybates@ithaca.example**")).toBe(
       "https://ithaca.example/eurybates@ithaca.example"
     );
-    // (A hard break still joins the words either side, which is #240.)
+    // (A hard break reads as a space, so the address keeps its own word.)
     expect(quoted("> Write to\\\n> mailto:eurybates@ithaca.example")).not.toContain("mailto:");
     // A bullet list of key lines reads its values the same way.
     const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
