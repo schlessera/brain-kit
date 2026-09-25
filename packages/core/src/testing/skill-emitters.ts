@@ -10,14 +10,16 @@
  *      written path names it, or a written file mentions it (a written
  *      directory counts through the paths and files inside it)
  *   4. a skill dropped from the list leaves the layout: no emitted path still
- *      names it and no emitted file still mentions it
+ *      names it and no emitted file still mentions it — down to an empty
+ *      list, after which no skill is reachable at all
  *   5. re-emitting an unchanged list removes nothing and leaves the layout in
  *      place: every skill is still reachable from what was emitted
  *   6. the canonical home, `.agents/skills/`, is read, never written: no
  *      emitted path lies inside it and every SKILL.md there is unchanged
  *
  * Cases 2 and 6 hold after EVERY emission, so they run the whole lifecycle —
- * first emit, unchanged re-emit, a dropped skill — and check each result.
+ * first emit, unchanged re-emit, a dropped skill, an empty list — and check
+ * each result.
  *
  * The suite builds a scratch repository with two skills in the canonical home
  * and drives the emitter against it. No agent is run and nothing leaves the
@@ -104,7 +106,7 @@ function inCanonicalHome(rel: string): boolean {
   return parts[0] === ".agents" && parts[1] === "skills";
 }
 
-/** First emit, unchanged re-emit, then BETA dropped: each result, labelled. */
+/** First emit, unchanged re-emit, BETA dropped, then none: each result, labelled. */
 function lifecycle(
   emitter: SkillEmitter,
   { root, skills }: ScratchRepo,
@@ -114,6 +116,7 @@ function lifecycle(
     ["first emit", skills],
     ["unchanged re-emit", skills],
     ["BETA dropped", skills.filter((s) => s.name !== BETA)],
+    ["every skill dropped", []],
   ];
   for (const [step, list] of steps) after(step, emitter.emit(list, root));
 }
@@ -195,6 +198,13 @@ export function runSkillEmitterContract(
         expect(emitted.some((rel) => existsSync(join(root, rel)) && reaches(root, rel, ALPHA))).toBe(
           true
         );
+
+        // Down to nothing: an empty list is a list, not a reason to skip.
+        const third = emitter.emit([], root);
+        expect(third.removed.filter((rel) => existsSync(join(root, rel)))).toEqual([]);
+        const everything = [...new Set([...emitted, ...third.written])];
+        const left = [ALPHA, BETA].filter((name) => everything.some((rel) => reaches(root, rel, name)));
+        expect(left).toEqual([]);
       });
     });
 

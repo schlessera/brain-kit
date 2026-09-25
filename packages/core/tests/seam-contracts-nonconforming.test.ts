@@ -466,6 +466,23 @@ describe("SkillEmitter contract suite", () => {
     expect(result).toEqual({ ran: 6, failed: [] });
   });
 
+  test("an emitter that returns early on an empty list fails the dropped-skill case", async () => {
+    const skipsEmpty = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      return {
+        agent: "fake",
+        emit(skills, repoRoot) {
+          if (!skills.length) return { written: [], removed: [] };
+          return inner.emit(skills, repoRoot);
+        },
+      };
+    };
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "skips-empty", emitter: skipsEmpty }, p)
+    );
+    expect(result.failed).toEqual(["a skill dropped from the list leaves the layout"]);
+  });
+
   test("an emitter that never prunes fails the dropped-skill case", async () => {
     const result = await failingCases((p) =>
       runSkillEmitterContract({ name: "hoarder", emitter: () => fileEmitter({ prune: false }) }, p)
