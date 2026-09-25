@@ -9,10 +9,19 @@ A booked interview touches four places. Doing three of them leaves the summary
 layer lying about where things stand, which is exactly when a date gets missed.
 This skill does all four in one pass.
 
-Find the opportunity directory before anything else. Run
-`brain config check --json` and read `taxonomy.types.opportunity.dir`: it is
-the jobs module's `opportunitiesDir`, which is `career/opportunities` by
-default. Every path below writes it as `{opportunities}`.
+Find the opportunity directory before anything else, the way
+`brain jobs scaffold` does:
+
+1. Run `brain config check --json`. If it reports `"valid": false`, stop and
+   point the user at `brain validate`. Otherwise read
+   `taxonomy.types.opportunity.dir`, and use it when it is a string.
+2. When it is `null`, the taxonomy leaves the directory to the module. Run
+   `brain config get modules.@schlessera/brain-module-jobs`. If that prints
+   `null`, the jobs module is not enabled: stop, there is nowhere to write.
+   Otherwise use its `opportunitiesDir`, which is `career/opportunities` by
+   default when the block does not set it.
+
+Every path below writes the directory you resolved as `{opportunities}`.
 
 ## Prompts
 
