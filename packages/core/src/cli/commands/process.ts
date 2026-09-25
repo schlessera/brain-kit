@@ -5,10 +5,10 @@ import { Glob } from "bun";
 import matter from "gray-matter";
 
 import type { CompletionProvider } from "../../lib/seams.js";
-import { hybridSearch } from "../../lib/search-engine.js";
+import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";
 import { safeResolve } from "../../lib/safe-path.js";
 import { openDatabase } from "../../lib/db.js";
-import type { CoreCommand, CliContext } from "../types.js";
+import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain process <path> — assimilate a note into proper brain content
@@ -52,9 +52,9 @@ function extractJSON<T>(text: string): T | null {
   return null;
 }
 
-async function searchRelated(query: string, db: Database, embeddings: CliContext["embeddings"]): Promise<string> {
+async function searchRelated(query: string, db: Database, deps: SearchDeps): Promise<string> {
   try {
-    const { results } = await hybridSearch(db, { query, limit: 5 }, { embeddings });
+    const { results } = await hybridSearch(db, { query, limit: 5 }, deps);
     return results
       .map((r) => `- [${r.type}] ${r.title} (${r.path}): ${r.snippet || r.summary || ""}`)
       .join("\n");
@@ -68,7 +68,7 @@ async function processNote(
   notePath: string,
   db: Database,
   completions: CompletionProvider,
-  embeddings: CliContext["embeddings"],
+  search: SearchDeps,
   keepNote: boolean
 ): Promise<ProcessResult> {
   // notePath is caller/scan-supplied — canonicalize + contain before reading
@@ -79,7 +79,7 @@ async function processNote(
   const { data, content } = matter(raw);
 
   const searchQuery = (data.title || "") + " " + content.slice(0, 200).replace(/\n/g, " ");
-  const relatedContent = await searchRelated(searchQuery.trim(), db, embeddings);
+  const relatedContent = await searchRelated(searchQuery.trim(), db, search);
 
   const prompt = `I have a note in a file-first knowledge base that needs to be processed. Determine the best action.
 
@@ -158,7 +158,7 @@ export const processCommand: CoreCommand = {
         const results: Array<{ path: string; result: ProcessResult }> = [];
         for (const notePath of noteFiles) {
           if (!cli.json) console.log(`Processing: ${notePath}...`);
-          const result = await processNote(cli.brain.root, notePath, db, cli.completions, cli.embeddings, keepNote);
+          const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
           results.push({ path: notePath, result });
           if (!cli.json) {
             console.log(`  Action: ${result.action} — ${result.reasoning}`);
@@ -179,7 +179,7 @@ export const processCommand: CoreCommand = {
         throw new UsageError(`File not found: ${notePath}`);
       }
 
-      const result = await processNote(cli.brain.root, notePath, db, cli.completions, cli.embeddings, keepNote);
+      const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
       emit(cli.json, result, () => {
         console.log(`Action: ${result.action}`);
         console.log(`Reasoning: ${result.reasoning}`);

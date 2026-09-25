@@ -52,7 +52,7 @@ export const searchCommand: CoreCommand = {
         );
       }
 
-      const { results, warnings } = await hybridSearch(db, opts, { embeddings: cli.embeddings });
+      const { results, warnings } = await hybridSearch(db, opts, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
 
       emit(cli.json, { results, warnings }, () => {
         for (const warning of warnings) console.log(`Warning: ${warning}`);

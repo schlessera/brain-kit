@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 
 import type { SearchResult, SearchOptions } from "./types.js";
 import type { EmbeddingProvider } from "./seams.js";
+import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 
@@ -18,6 +19,9 @@ export interface SearchResponse {
  */
 export interface SearchDeps {
   embeddings?: EmbeddingProvider;
+  /** The brain's types, for the reranker's recency half-lives. Defaults to
+   * the core types alone. */
+  taxonomy?: Taxonomy;
   /** Interactive vector budget; must finish before the UI CLI deadline. */
   queryTimeoutMs?: number;
 }
@@ -451,7 +455,7 @@ export async function hybridSearch(
   // positive (hit@1 0.370 → 0.481), so it stays for fts/hybrid.
   const rerankMode = opts.rerank ?? getDefaultRerankerMode();
   if (rerankMode !== "none" && mode !== "vector" && candidates.length > 1) {
-    candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now });
+    candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
 
   return { results: candidates.slice(0, limit), warnings };

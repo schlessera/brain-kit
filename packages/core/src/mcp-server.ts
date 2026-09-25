@@ -203,7 +203,7 @@ export async function startMcpServer(
           limit: Math.min(Math.max(1, params.limit), MAX_SEARCH_LIMIT),
         };
 
-        const { results, warnings } = await hybridSearch(db, opts, { embeddings });
+        const { results, warnings } = await hybridSearch(db, opts, { embeddings, taxonomy: brain.taxonomy });
         const stale = indexStalenessWarning();
         if (stale) warnings.push(stale);
         if (configWarning) warnings.unshift(configWarning);

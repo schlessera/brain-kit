@@ -94,7 +94,7 @@ export async function assembleContext(
     const { results } = await hybridSearch(
       db,
       { query: opts.query, limit: 10 },
-      { embeddings: opts.embeddings }
+      { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
 
     for (const result of results) {
