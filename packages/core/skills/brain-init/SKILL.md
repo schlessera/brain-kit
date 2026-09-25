@@ -100,8 +100,9 @@ After showing a summary of what will be written, generate:
   empty registry table.
 - **`me/identity.md`** seeded from Stage 1. Its **lead**, the text before the first `##`
   heading, holds the self-description and the facts card (only the facts they gave). Longer
-  material goes into `##` sections after it. `brain context` reads the lead first and adds
-  sections whole while they fit, so the lead is what an agent always sees.
+  material goes into `##` sections after it. `brain context` puts the summary and the lead
+  first and adds sections whole while they fit, so within its token budget the lead is what an
+  agent sees first.
 - **The current-focus document** (the `currentFocus` canonical, `context/current-focus.md` by
   default) with a lead listing the top priorities and the next dated items from Stage 1, and
   room for `##` sections below.

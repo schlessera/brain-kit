@@ -107,6 +107,33 @@ function locateHeadings(body: string): LocatedHeading[] {
   return headings;
 }
 
+/** One top-level block of a markdown body: its node type, a heading's level, and its source span. */
+export interface TopLevelBlock {
+  type: string;
+  depth?: number;
+  /** Offset where the block's first line starts. */
+  start: number;
+  /** Offset just after the block's last character. */
+  end: number;
+}
+
+/**
+ * The body's top-level blocks as GFM parses them (the same parser as the
+ * section reader), so a fence, a list or a setext heading is one block with
+ * its real extent, whatever its fence length or indentation.
+ */
+export function topLevelBlocks(body: string): TopLevelBlock[] {
+  const root = parser.parse(body) as MdNode;
+  const blocks: TopLevelBlock[] = [];
+  for (const node of root.children ?? []) {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) continue;
+    blocks.push({ type: node.type, depth: node.depth, start: lineStart(body, start), end });
+  }
+  return blocks;
+}
+
 /**
  * A heading as a reader sees it: the parser has already resolved emphasis,
  * code spans, links, entities and escapes, and `mdast-util-to-string` keeps

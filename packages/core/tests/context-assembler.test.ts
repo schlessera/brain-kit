@@ -70,10 +70,12 @@ describe("over fixtures/corpus", () => {
   });
 
   test("includes current focus whole when it fits", async () => {
-    const focus = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8")).content.trim();
+    const { content, data } = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8"));
+    const focus = content.trim();
     // The premise: more than the 800 characters main kept.
     expect(focus.length).toBeGreaterThan(800);
-    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${focus}`);
+    // Summary first, then the body whole.
+    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${data.summary}\n\n${focus}`);
   });
 
   test("carries no FTS5 highlight markers", async () => {
@@ -368,6 +370,61 @@ describe("over a hand-built index", () => {
       const budget = estimateTokens(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
       const out = await assembleContext(db, ctx, { query: "", maxTokens: budget, includeCurrentFocus: false });
       expect(out).toBe(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
+    });
+  });
+
+  describe("identity split by parsed structure", () => {
+    const MARKER = "(truncated — brain read me/identity.md)";
+    const LONG = `${"long words of old history ".repeat(60).trim()}.`;
+    const identity = async (text: string, maxTokens: number) => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), text);
+      return assembleContext(db, ctx, { query: "", maxTokens, includeCurrentFocus: false });
+    };
+    const doc = (body: string, summary?: string) =>
+      `---\ntype: identity\n${summary ? `summary: "${summary}"\n` : ""}---\n${body}\n`;
+
+    test("a four-backtick fence holding ~~~ and a ## line is one block, never left open", async () => {
+      const out = await identity(doc(`Intro.\n\n${"````"}\n~~~\n## inside code\n${"````"}\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      const tree = fromMarkdown(out);
+      const last = tree.children.at(-1) as { type: string; children?: { value?: string }[] };
+      expect(last.type).toBe("paragraph");
+      expect(last.children?.[0]?.value).toBe(MARKER);
+      expect(out).toContain("## inside code\n````");
+    });
+
+    test("a ## line indented inside a list does not start a section", async () => {
+      const lead = "Intro.\n\n- an item\n  ## not a section\n\nMore lead.";
+      const out = await identity(doc(`${lead}\n\n## Real\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n${lead}\n\n${MARKER}`);
+    });
+
+    test("a setext ## heading starts a section, so none of it is taken partially", async () => {
+      const out = await identity(doc(`Intro.\n\nHistory\n-------\n\n${"A short old paragraph. ".repeat(3)}\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\nIntro.\n\n${MARKER}`);
+    });
+
+    test("a # heading stays in the lead, so an overflowing lead is cut after it", async () => {
+      const out = await identity(doc(`Intro.\n\n# Roles\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\nIntro.\n\n# Roles\n\nCurrent ranger.\n\n${MARKER}`);
+    });
+
+    test("the summary leads at every budget", async () => {
+      const text = doc(`Intro.\n\n${"word ".repeat(80).trim()}`, "HOT SUMMARY");
+      for (const budget of [40, 400, 4000]) {
+        const out = await identity(text, budget);
+        expect({ budget, lead: out.split("\n")[1] }).toEqual({ budget, lead: "HOT SUMMARY" });
+      }
+    });
+
+    test("a document with only a summary still contributes it", async () => {
+      expect(await identity(doc("", "HOT SUMMARY"), 400)).toBe("## Identity\nHOT SUMMARY");
+    });
+
+    test("with no lead, sections are taken whole or not at all", async () => {
+      const history = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: a short old line.`).join("\n\n")}`;
+      const out = await identity(doc(`${history}\n\n## Later\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n${MARKER}`);
     });
   });
 });

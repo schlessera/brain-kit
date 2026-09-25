@@ -5,6 +5,7 @@ import matter from "gray-matter";
 
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";
+import { topLevelBlocks } from "./document-parts.js";
 import { hybridSearch } from "./search-engine.js";
 import type { SearchResult } from "./types.js";
 
@@ -36,34 +37,19 @@ const BUDGET_FLOOR = 20;
 
 const SEPARATOR = "\n\n";
 
-/** An ATX heading line, or a fence line (``` / ~~~), as CommonMark reads them. */
-const HEADING_LINE = /^ {0,3}#{1,6}(?:[ \t]|$)/;
-const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
-
 /**
- * Cut `body` at the last block boundary that keeps `heading + body + marker`
- * within `budget` tokens. A boundary is a blank line (whitespace-only counts)
- * or the start of a heading, never a point inside a fenced block. A line of
- * only whitespace is blank, which covers the `\r` of a CRLF blank line. Returns
- * null when not even the heading and the marker fit; a body with no boundary
- * that fits is left out, never cut mid-sentence.
+ * Cut `body` after the last top-level block (as GFM parses it: a paragraph,
+ * a list, a fence, a heading) that keeps `heading + body + marker` within
+ * `budget` tokens, so a cut never falls inside a block. Returns null when not
+ * even the heading and the marker fit; a body whose first block does not fit
+ * is left out, never cut mid-sentence.
  */
 function truncateAtBoundary(heading: string, body: string, marker: string, budget: number): string | null {
   const shell = `${heading}\n${marker}`;
   if (estimateTokens(shell) > budget) return null;
-  const lines = body.split("\n");
-  // cuts[k]: keeping lines[0..k) ends on a block boundary.
-  const cuts: number[] = [];
-  let inFence = false;
-  for (let k = 0; k < lines.length; k++) {
-    const line = lines[k]!;
-    if (!inFence && k > 0 && (line.trim() === "" || HEADING_LINE.test(line))) cuts.push(k);
-    if (FENCE_LINE.test(line)) inFence = !inFence;
-  }
   let kept = "";
-  for (const cut of cuts) {
-    const text = lines.slice(0, cut).join("\n").trimEnd();
-    if (!text) continue;
+  for (const block of topLevelBlocks(body)) {
+    const text = body.slice(0, block.end).trimEnd();
     if (estimateTokens(`${heading}\n${text}\n\n${marker}`) > budget) break;
     kept = text;
   }
@@ -124,26 +110,20 @@ function readMarkdownContent(root: string, relativePath: string): { body: string
   }
 }
 
-/** A `#` or `##` heading line: what ends a document's lead and starts a section. */
-const SECTION_LINE = /^ {0,3}#{1,2}(?:[ \t]|$)/;
-
 /**
- * Split a body into its lead (everything before the first `#`/`##` heading)
- * and its sections (each heading with the text up to the next one). A heading
- * inside a fenced block does not split.
+ * Split a body into its lead (everything before its first top-level `##`
+ * heading, setext included) and its sections (each such heading with the
+ * source up to the next). Only parsed top-level headings count, so a `##`
+ * line inside a fence, a list or a quote does not split.
  */
 function splitSections(body: string): { lead: string; sections: string[] } {
-  const lines = body.split("\n");
-  const starts: number[] = [];
-  let inFence = false;
-  for (let k = 0; k < lines.length; k++) {
-    if (!inFence && SECTION_LINE.test(lines[k]!)) starts.push(k);
-    if (FENCE_LINE.test(lines[k]!)) inFence = !inFence;
-  }
-  const bounds = [...starts, lines.length];
+  const starts = topLevelBlocks(body)
+    .filter((block) => block.type === "heading" && block.depth === 2)
+    .map((block) => block.start);
+  const bounds = [...starts, body.length];
   return {
-    lead: lines.slice(0, starts[0] ?? lines.length).join("\n").trim(),
-    sections: starts.map((start, i) => lines.slice(start, bounds[i + 1]).join("\n").trim()),
+    lead: body.slice(0, starts[0] ?? body.length).trim(),
+    sections: starts.map((start, i) => body.slice(start, bounds[i + 1]).trim()),
   };
 }
 
@@ -185,28 +165,33 @@ export async function assembleContext(
   // own is cut at a block boundary.
   const pushCanonical = (heading: string, path: string | null): void => {
     const doc = path ? readMarkdownContent(ctx.root, path) : null;
-    if (!path || !doc || !doc.body) return;
-    if (push(`${heading}\n${doc.body}`)) {
+    if (!path || !doc) return;
+    // The summary leads whether or not the rest fits.
+    const whole = [doc.summary, doc.body].filter((part) => !!part).join("\n\n");
+    if (!whole) return;
+    if (push(`${heading}\n${whole}`)) {
       included.add(path);
       return;
     }
     const marker = `(truncated — brain read ${path})`;
     const room = budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0);
     const { lead, sections } = splitSections(doc.body);
-    const hot = [doc.summary, lead].filter((part): part is string => !!part && part !== "").join("\n\n");
-    const fits = (blocks: string[]) => estimateTokens(`${heading}\n${blocks.join("\n\n")}\n\n${marker}`) <= room;
-    if (!hot || !fits([hot])) {
-      const cut = truncateAtBoundary(heading, hot || doc.body, marker, room);
+    const hot = [doc.summary, lead].filter((part) => !!part).join("\n\n");
+    const fits = (blocks: string[]) => estimateTokens(`${heading}\n${[...blocks, marker].join("\n\n")}`) <= room;
+    // Only a lead that overflows on its own is cut at a block boundary.
+    if (hot && !fits([hot])) {
+      const cut = truncateAtBoundary(heading, hot, marker, room);
       if (cut && push(cut)) included.add(path);
       return;
     }
-    const kept = [hot];
+    const kept = hot ? [hot] : [];
     for (const section of sections) {
       if (!fits([...kept, section])) break;
       kept.push(section);
     }
-    if (push(`${heading}\n${kept.join("\n\n")}\n\n${marker}`)) included.add(path);
+    if (push(`${heading}\n${[...kept, marker].join("\n\n")}`)) included.add(path);
   };
+
 
   if (opts.includeIdentity !== false) {
     pushCanonical("## Identity", ctx.taxonomy.canonicalPath("identity"));
