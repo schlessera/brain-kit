@@ -128,6 +128,21 @@ describe("normalization", () => {
   test("editDistance counts a transposition as one edit", () => {
     expect(editDistance("recieve", "receive")).toBe(1);
     expect(editDistance("kitten", "sitting")).toBe(3);
+    expect(editDistance("", "abc")).toBe(3);
+    expect(editDistance("abc", "abc")).toBe(0);
+  });
+
+  // Optimal string alignment forbids editing a transposed pair again and
+  // gives 3 here; the unrestricted distance the rule names gives 2.
+  test("editDistance is unrestricted: a transposition followed by an insertion is two edits", () => {
+    for (const [a, b] of [["abcdefca", "abcdefabc"], ["woodworkca", "woodworkabc"], ["ca", "abc"]]) {
+      expect(editDistance(a, b)).toBe(2);
+      expect(editDistance(b, a)).toBe(2);
+    }
+    const groups = (...tags: string[]) =>
+      findVariantGroups(new Map(tags.map((t) => [t, 1])), null).map((g) => g.members.map((m) => m.tag).sort());
+    expect(groups("abcdefca", "abcdefabc")).toEqual([["abcdefabc", "abcdefca"]]);
+    expect(groups("woodworkabc", "woodworkca")).toEqual([["woodworkabc", "woodworkca"]]);
   });
 
   test("distance groups by length band, and never across digits", () => {

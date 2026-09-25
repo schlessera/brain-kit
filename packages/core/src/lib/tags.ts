@@ -103,23 +103,47 @@ export function tagKey(tag: string, inflection: "en" | "off" = "en"): string {
   return inflection === "en" ? singular(key) : key;
 }
 
-/** Damerau-Levenshtein distance (optimal string alignment), over code points. */
+/**
+ * Damerau-Levenshtein distance over code points: insertions, deletions,
+ * substitutions and transpositions of adjacent characters, each one edit.
+ * This is the unrestricted form (Lowrance-Wagner), not optimal string
+ * alignment: an edit may touch a transposed pair again, so
+ * `abcdefca` → `abcdefac` → `abcdefabc` is two edits, where OSA says three.
+ */
 export function editDistance(left: string, right: string): number {
   const a = Array.from(left);
   const b = Array.from(right);
-  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-      }
-    }
+  const max = a.length + b.length;
+  // Row/column 0 hold `max` as a sentinel; the real table starts at 1.
+  const d: number[][] = Array.from({ length: a.length + 2 }, () => new Array<number>(b.length + 2).fill(0));
+  d[0][0] = max;
+  for (let i = 0; i <= a.length; i++) {
+    d[i + 1][0] = max;
+    d[i + 1][1] = i;
   }
-  return d[a.length][b.length];
+  for (let j = 0; j <= b.length; j++) {
+    d[0][j + 1] = max;
+    d[1][j + 1] = j;
+  }
+  // The last row in which each character of `a` was seen.
+  const lastRow = new Map<string, number>();
+  for (let i = 1; i <= a.length; i++) {
+    let lastMatchCol = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const k = lastRow.get(b[j - 1]) ?? 0;
+      const l = lastMatchCol;
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      if (cost === 0) lastMatchCol = j;
+      d[i + 1][j + 1] = Math.min(
+        d[i][j] + cost, // substitution (or match)
+        d[i + 1][j] + 1, // insertion
+        d[i][j + 1] + 1, // deletion
+        d[k][l] + (i - k - 1) + 1 + (j - l - 1) // transposition, with the edits between
+      );
+    }
+    lastRow.set(a[i - 1], i);
+  }
+  return d[a.length + 1][b.length + 1];
 }
 
 /**
