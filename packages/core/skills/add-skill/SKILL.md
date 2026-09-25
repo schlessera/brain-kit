@@ -63,7 +63,7 @@ Ask (use the ask-user picker where the answer is one of a few options):
 2. Write to `.agents/skills/<name>/SKILL.md` (create the directory; add any
    helper files beside it).
 3. Run `brain skills sync` — this links the skill into every agent
-   integration dir and updates the AGENTS.md index.
+   integration dir.
 4. Run `brain skills lint` and fix anything it reports.
 
 ## 4. Verify and hand off

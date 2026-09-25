@@ -10,6 +10,7 @@
  * | `requires:` present (not a specification field)              | warning  |
  * | allowed-tools / disable-model-invocation present            | info     |
  * | disable-model-invocation disagrees with agents/openai.yaml  | warning  |
+ * | description says manual-only, no disable-model-invocation   | warning  |
  * | absolute path in body                                       | warning  |
  *
  * SkillManifest carries no body, so the body-based rules re-read the skill's
@@ -20,6 +21,7 @@ import { existsSync, readFileSync } from "fs";
 import { basename, join } from "path";
 import matter from "gray-matter";
 
+import { estimateTokens } from "../context-assembler.js";
 import type { SkillManifest } from "../seams.js";
 
 export type LintSeverity = "error" | "warning" | "info";
@@ -29,6 +31,36 @@ export interface LintFinding {
   rule: string;
   severity: LintSeverity;
   message: string;
+}
+
+/**
+ * Statements that make a skill manual-only. Each must open a clause of the
+ * description, so it is a statement about the skill: "Not manual-only",
+ * "delete files only when the user explicitly requests it" and a phrase in
+ * quotes are not. Deliberately short: a description that says so in other
+ * words is not judged.
+ */
+const MANUAL_ONLY_STATEMENTS = [
+  /^(?:this skill is )?(?:for )?manual[- ]invocation only\b/i,
+  /^(?:this skill is )?manual[- ]only\b/i,
+  /^(?:use|run|invoke)(?: this skill| it)? only when the user explicitly\b/i,
+  /^(?:never|do not|don't) (?:invoke|run|trigger)(?: it| this skill)? automatically\b/i,
+];
+
+/**
+ * The manual-only statement in `description`, or null. Quoted and code text
+ * is dropped first, then each clause is tested from its start.
+ */
+function manualOnlyStatement(description: string): string | null {
+  const unquoted = description.replace(/"[^"]*"|\u201c[^\u201d]*\u201d|`[^`]*`/g, " ");
+  for (const clause of unquoted.split(/[.;:!?()\n\u2014\u2013]|,\s|\s-\s/)) {
+    const text = clause.trim();
+    for (const re of MANUAL_ONLY_STATEMENTS) {
+      const m = text.match(re);
+      if (m) return m[0];
+    }
+  }
+  return null;
 }
 
 const CLAUDE_ONLY_TOOLS = ["AskUserQuestion", "TodoWrite", "EnterPlanMode"];
@@ -97,6 +129,17 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
   // frontmatter, so the two must say the same thing → warning.
   const mismatch = manualOnlyMismatch(skill.dir, frontmatter["disable-model-invocation"] === true);
   if (mismatch) add("manual-only-policy", "warning", mismatch);
+
+  // Rule: a description that says the skill is manual-only still loads into
+  // every Claude Code session unless the flag keeps it out → warning.
+  const manualPhrase = description ? manualOnlyStatement(description) : null;
+  if (manualPhrase && frontmatter["disable-model-invocation"] !== true) {
+    add(
+      "manual-only-without-flag",
+      "warning",
+      `description says "${manualPhrase}" but the frontmatter lacks \`disable-model-invocation: true\`, so its ~${estimateTokens(description)} tokens load into every Claude Code session; add the flag (and agents/openai.yaml, see manual-only-policy)`
+    );
+  }
 
   // Rule: Claude-only tool references (outside an <!-- agent:claude --> section) → error.
   const bodyOutsideClaude = stripClaudeSections(body);
