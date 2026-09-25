@@ -12,12 +12,16 @@
  */
 
 import matter from "gray-matter";
-import { readFileSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
+import { chmodSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 import { frontmatterLength } from "./document-parts.js";
-import { getMarkdownFiles } from "./indexer.js";
-import { findRedundantTags, tagReport } from "./tags.js";
+import { getMarkdownFiles, indexAll } from "./indexer.js";
+import type { Database } from "bun:sqlite";
+
+import type { TagsConfig } from "./config.js";
+import { collectTaggedDocuments, findRedundantTags, findVariantGroups } from "./tags.js";
 import type { Taxonomy } from "./taxonomy.js";
 
 export interface TagApplyOptions {
@@ -28,39 +32,90 @@ export interface TagApplyOptions {
   /** Only change this old tag. */
   only?: string;
   dryRun?: boolean;
+  /** Test seam: runs after a file's rewrite is planned and before it is committed. */
+  beforeCommit?: (path: string) => void;
 }
 
 export interface TagApplyReport {
   files: { path: string; from: string[]; to: string[] }[];
+  /** Files left alone, with why. A reason starting `failed:` is an error, not a decision. */
   skipped: { path: string; reason: string }[];
 }
 
+/** What the CLI needs beyond the report: the exact bytes each write produced. */
+export interface TagApplyResult {
+  report: TagApplyReport;
+  /** sha256 of each file's rewritten text, keyed by path. */
+  written: Map<string, string>;
+  /** True when a file could not be read or written. */
+  failed: boolean;
+}
+
+/** The content hash the indexer stores for a file (`content_hash`). */
+export function contentHash(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+export interface RenamePlan {
+  /** Old tag → canonical tag, already resolved to the end of its chain. */
+  renames: Map<string, string>;
+  /** Tags whose alias chain loops, with the loop spelled out. Files carrying one are skipped. */
+  cycles: Map<string, string>;
+}
+
 /**
- * Old tag → canonical tag: every `aliases` entry, then every variant group
- * whose canonical is a vocabulary member (every group with `groups`). An
- * alias chain (`a → b`, `b → c`) resolves to its end; a cycle keeps the tag.
+ * One stable plan from the tags in use.
+ *
+ * Explicit `aliases` come first and resolve to the end of their chain; a
+ * chain that loops (`a → b → c → b`) is a cycle, and every tag on it is left
+ * alone and reported. Variant groups then add inferred renames, only for
+ * groups whose canonical is a vocabulary member (every group with `groups`),
+ * and never for a tag the aliases name: an alias key is already planned, and
+ * an alias target is a canonical tag the owner chose, which inference must
+ * not rename away. Groups are recomputed over the tags as the plan leaves
+ * them until nothing more joins, so running the plan's result again plans
+ * nothing.
  */
-export function planRenames(root: string, taxonomy: Taxonomy, groups: boolean): Map<string, string> {
-  const config = taxonomy.tags;
-  const renames = new Map<string, string>(Object.entries(config?.aliases ?? {}));
+export function planRenames(counts: Map<string, number>, config: TagsConfig | null, groups: boolean): RenamePlan {
+  const aliases = new Map<string, string>(Object.entries(config?.aliases ?? {}));
+  const aliasTargets = new Set(aliases.values());
   const vocabulary = new Set(config?.vocabulary ?? []);
-  for (const group of tagReport(root, taxonomy).variantGroups) {
-    if (!groups && !vocabulary.has(group.canonical)) continue;
-    for (const { tag } of group.members) {
-      if (tag !== group.canonical && !renames.has(tag)) renames.set(tag, group.canonical);
+  const renames = new Map<string, string>();
+  const cycles = new Map<string, string>();
+
+  for (const from of aliases.keys()) {
+    const path = [from];
+    let to = from;
+    while (aliases.has(to)) {
+      to = aliases.get(to)!;
+      path.push(to);
+      if (path.indexOf(to) < path.length - 1) break;
     }
+    if (path.indexOf(to) < path.length - 1) cycles.set(from, path.join(" → "));
+    else if (to !== from) renames.set(from, to);
   }
-  const resolved = new Map<string, string>();
-  for (const from of renames.keys()) {
-    const seen = new Set([from]);
-    let to = renames.get(from)!;
-    while (renames.has(to) && !seen.has(to)) {
-      seen.add(to);
-      to = renames.get(to)!;
+
+  for (let round = 0; round <= counts.size; round++) {
+    const projected = new Map<string, number>();
+    for (const [tag, count] of counts) {
+      const to = renames.get(tag) ?? tag;
+      projected.set(to, (projected.get(to) ?? 0) + count);
     }
-    if (to !== from) resolved.set(from, to);
+    let changed = false;
+    for (const group of findVariantGroups(projected, config)) {
+      if (!groups && !vocabulary.has(group.canonical)) continue;
+      if (cycles.has(group.canonical)) continue;
+      for (const { tag } of group.members) {
+        if (tag === group.canonical || aliases.has(tag) || aliasTargets.has(tag) || cycles.has(tag)) continue;
+        if (renames.has(tag)) continue;
+        renames.set(tag, group.canonical);
+        for (const [from, to] of renames) if (to === tag) renames.set(from, group.canonical);
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
-  return resolved;
+  return { renames, cycles };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,14 +251,40 @@ function locateTags(block: string): Located | null {
   return { kind: "block", items, keyEnd };
 }
 
+/** Per entry: the tag it becomes, or null to drop it. Or a reason to leave the file alone. */
+export type EntryPlan = (tags: string[]) => (string | null)[] | { skip: string };
+
+/** Byte ranges to cut from a flow sequence so the entries at `drop` go, gaps of the others untouched. */
+function flowCuts(items: Token[], drop: boolean[]): [number, number][] {
+  const cuts: [number, number][] = [];
+  let i = 0;
+  while (i < items.length) {
+    if (!drop[i]) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j + 1 < items.length && drop[j + 1]) j++;
+    // A run of dropped entries: cut up to the next entry, or back to the
+    // previous one when the run ends the list.
+    if (j + 1 < items.length) cuts.push([items[i].start, items[j + 1].start]);
+    else if (i > 0) cuts.push([items[i - 1].end, items[j].end]);
+    i = j + 1;
+  }
+  return cuts;
+}
+
 /**
- * Rewrite the `tags:` entries of one document so they read `rename(tag)`,
- * dropping `drop(tag)` ones and later duplicates. Returns the new text, or a
- * reason the file is left alone.
+ * Rewrite the `tags:` entries of one document as `plan` decides, on the raw
+ * text. A renamed entry's scalar is replaced in place; a dropped flow entry
+ * goes with the separator after it (before it, at the end of the list); a
+ * dropped block entry's line goes, but a comment on it stays behind as a
+ * comment line. Everything else keeps its bytes. Returns the new text, null
+ * when nothing changes, or a reason the file is left alone.
  */
 export function rewriteTags(
   text: string,
-  plan: (tags: string[]) => string[]
+  plan: EntryPlan
 ): { text: string; from: string[]; to: string[] } | { skip: string } | null {
   let data: Record<string, unknown>;
   try {
@@ -215,8 +296,10 @@ export function rewriteTags(
   }
   if (!Array.isArray(data.tags) || data.tags.length === 0) return null;
   const from = data.tags.map((t) => String(t));
-  const to = plan(from);
-  if (to.length === from.length && to.every((t, i) => t === from[i])) return null;
+  const entries = plan(from);
+  if (!Array.isArray(entries)) return entries;
+  if (entries.every((e, i) => e === from[i])) return null;
+  const to = entries.filter((e): e is string => e !== null);
 
   const bounds = frontmatterBounds(text);
   if (!bounds) return { skip: "no frontmatter block around the tags" };
@@ -230,42 +313,43 @@ export function rewriteTags(
     return { skip: "the tags entries do not read back as the parsed tags" };
   }
 
-  // Each original entry becomes its renamed tag once, in first-seen order.
-  const next = plan(from);
-  const kept = new Set<string>();
-  const keep: (string | null)[] = from.map((tag) => {
-    const renamed = plan([tag])[0];
-    if (renamed === undefined || kept.has(renamed) || !next.includes(renamed)) return null;
-    kept.add(renamed);
-    return renamed;
-  });
-
-  let rewritten: string;
+  // Edits as [start, end, replacement] in block offsets, applied from the end.
+  const edits: [number, number, string][] = [];
+  const drop = entries.map((e) => e === null);
   if (located.kind === "flow") {
-    const separator = /,[ \t]+/.test(block.slice(located.open, located.close)) ? ", " : ",";
-    const entries = located.items
-      .map((token, i) => (keep[i] === null ? null : keep[i] === from[i] ? block.slice(token.start, token.end) : yamlScalar(keep[i]!)))
-      .filter((e): e is string => e !== null);
-    rewritten = block.slice(0, located.open + 1) + entries.join(separator) + block.slice(located.close);
-  } else {
-    let out = "";
-    let at = 0;
-    located.items.forEach((item, i) => {
-      out += block.slice(at, item.lineStart);
-      if (keep[i] !== null) {
-        const token = keep[i] === from[i] ? block.slice(item.token.start, item.token.end) : yamlScalar(keep[i]!);
-        out += block.slice(item.lineStart, item.token.start) + token + block.slice(item.token.end, item.lineEnd);
-      }
-      at = keep[i] === null ? Math.min(item.lineEnd + 1, block.length) : item.lineEnd;
-    });
-    out += block.slice(at);
-    if (keep.every((k) => k === null)) {
-      // An empty block list would read as null; say [] on the key line instead.
-      const keyLine = /^tags[ \t]*:/m.exec(out)!;
-      const colon = keyLine.index + keyLine[0].length;
-      out = out.slice(0, colon) + " []" + out.slice(colon);
+    if (drop.every(Boolean)) {
+      edits.push([located.open + 1, located.close, ""]);
+    } else {
+      for (const [a, b] of flowCuts(located.items, drop)) edits.push([a, b, ""]);
+      located.items.forEach((token, i) => {
+        if (!drop[i] && entries[i] !== from[i]) edits.push([token.start, token.end, yamlScalar(entries[i]!)]);
+      });
     }
-    rewritten = out;
+  } else {
+    located.items.forEach((item, i) => {
+      if (drop[i]) {
+        const rest = block.slice(item.token.end, item.lineEnd);
+        const comment = rest.indexOf("#");
+        if (comment === -1) {
+          edits.push([item.lineStart, Math.min(item.lineEnd + 1, block.length), ""]);
+        } else {
+          // Keep the entry's comment as a comment line at the entry's indent.
+          const indent = /^[ \t]*/.exec(block.slice(item.lineStart))![0];
+          edits.push([item.lineStart, item.token.end + comment, indent]);
+        }
+      } else if (entries[i] !== from[i]) {
+        edits.push([item.token.start, item.token.end, yamlScalar(entries[i]!)]);
+      }
+    });
+    if (drop.every(Boolean)) {
+      // An empty block list would read as null; say [] on the key line instead.
+      const keyLine = /^tags[ \t]*:/m.exec(block)!;
+      edits.push([keyLine.index + keyLine[0].length, keyLine.index + keyLine[0].length, " []"]);
+    }
+  }
+  let rewritten = block;
+  for (const [a, b, replacement] of edits.sort((x, y) => y[0] - x[0] || y[1] - x[1])) {
+    rewritten = rewritten.slice(0, a) + replacement + rewritten.slice(b);
   }
 
   const result = text.slice(0, bounds.start) + rewritten + text.slice(bounds.end);
@@ -282,39 +366,118 @@ export function rewriteTags(
   return { text: result, from, to };
 }
 
-/** Plan and (unless dry-run) write every document's tag migration. */
-export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApplyOptions): TagApplyReport {
-  const renames = planRenames(root, taxonomy, opts.groups ?? false);
-  const report: TagApplyReport = { files: [], skipped: [] };
+/**
+ * Replace a file with `text` only if it still holds exactly the bytes read
+ * before: through a temporary file renamed into place, so a reader never
+ * sees half a file. Returns false when the file changed in the meantime.
+ */
+function commitIfUnchanged(fullPath: string, expectedHash: string, text: string): boolean {
+  if (contentHash(readFileSync(fullPath, "utf-8")) !== expectedHash) return false;
+  const temp = `${fullPath}.brain-tags-${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, text, "utf-8");
+    chmodSync(temp, statSync(fullPath).mode);
+    renameSync(temp, fullPath);
+  } catch (e) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // Nothing was left behind.
+    }
+    throw e;
+  }
+  return true;
+}
+
+/**
+ * Plan and (unless dry-run) write every document's tag migration. A file that
+ * cannot be read or written is reported and the run goes on, so the files
+ * already rewritten still get indexed and accepted by the caller.
+ */
+export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApplyOptions): TagApplyResult {
+  const counts = new Map<string, number>();
+  for (const doc of collectTaggedDocuments(root, taxonomy)) {
+    for (const tag of doc.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+  const { renames, cycles } = planRenames(counts, taxonomy.tags, opts.groups ?? false);
+  const result: TagApplyResult = { report: { files: [], skipped: [] }, written: new Map(), failed: false };
+  const { report } = result;
 
   for (const path of getMarkdownFiles(root, taxonomy).sort()) {
     const fullPath = resolve(root, path);
-    const text = readFileSync(fullPath, "utf-8");
-    let type: string | null = null;
     try {
-      const data = matter(text, {}).data;
-      type = typeof data.type === "string" ? data.type : null;
-    } catch {
-      // rewriteTags reports it as skipped.
-    }
-    const plan = (tags: string[]): string[] => {
-      const out: string[] = [];
-      for (const tag of tags) {
-        const applies = opts.only === undefined || tag === opts.only;
-        const next = applies ? (renames.get(tag) ?? tag) : tag;
-        if (applies && opts.redundant && findRedundantTags([{ path, type, tags: [next] }]).length > 0) continue;
-        if (!out.includes(next)) out.push(next);
+      const text = readFileSync(fullPath, "utf-8");
+      let type: string | null = null;
+      try {
+        const data = matter(text, {}).data;
+        type = typeof data.type === "string" ? data.type : null;
+      } catch {
+        // rewriteTags reports it as skipped.
       }
-      return out;
-    };
-    const outcome = rewriteTags(text, plan);
-    if (outcome === null) continue;
-    if ("skip" in outcome) {
-      report.skipped.push({ path, reason: outcome.skip });
-      continue;
+      const plan: EntryPlan = (tags) => {
+        const applies = (tag: string) => opts.only === undefined || tag === opts.only;
+        const cycle = tags.find((tag) => applies(tag) && cycles.has(tag));
+        if (cycle !== undefined) return { skip: `tag alias cycle: ${cycles.get(cycle)}` };
+        const entries = tags.map((tag): string | null => {
+          if (!applies(tag)) return tag;
+          const next = renames.get(tag) ?? tag;
+          if (opts.redundant && findRedundantTags([{ path, type, tags: [next] }]).length > 0) return null;
+          return next;
+        });
+        // Merge only what the plan produced: a renamed entry that meets its
+        // canonical keeps the first of them. Unrelated duplicates stay.
+        const produced = new Set(entries.filter((e, i): e is string => e !== null && e !== tags[i]));
+        const seen = new Set<string>();
+        return entries.map((e) => {
+          if (e === null || !produced.has(e)) return e;
+          if (seen.has(e)) return null;
+          seen.add(e);
+          return e;
+        });
+      };
+      const outcome = rewriteTags(text, plan);
+      if (outcome === null) continue;
+      if ("skip" in outcome) {
+        report.skipped.push({ path, reason: outcome.skip });
+        continue;
+      }
+      if (!opts.dryRun) {
+        opts.beforeCommit?.(path);
+        if (!commitIfUnchanged(fullPath, contentHash(text), outcome.text)) {
+          report.skipped.push({ path, reason: "changed during apply" });
+          continue;
+        }
+        result.written.set(path, contentHash(outcome.text));
+      }
+      report.files.push({ path, from: outcome.from, to: outcome.to });
+    } catch (e) {
+      result.failed = true;
+      report.skipped.push({ path, reason: `failed: ${(e as Error).message}` });
     }
-    if (!opts.dryRun) writeFileSync(fullPath, outcome.text, "utf-8");
-    report.files.push({ path, from: outcome.from, to: outcome.to });
   }
-  return report;
+  return result;
+}
+
+/**
+ * Reindex, then accept the new mtime of each rewritten file whose indexed
+ * content is exactly the bytes the rewrite wrote. A file edited since is not
+ * accepted, so silent-edit detection still sees that edit; each one is
+ * returned as a warning. Throws when reindexing fails.
+ */
+export async function indexAndAccept(
+  db: Database,
+  root: string,
+  taxonomy: Taxonomy,
+  written: Map<string, string>
+): Promise<string[]> {
+  await indexAll(db, { root, taxonomy, force: false, quiet: true });
+  const accept = db.prepare(
+    "UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND content_hash = ? AND file_mtime IS NOT NULL"
+  );
+  const warnings: string[] = [];
+  for (const [path, hash] of written) {
+    if (accept.run(path, hash).changes === 1) continue;
+    warnings.push(`${path} changed after its tags were rewritten; its mtime was not accepted`);
+  }
+  return warnings;
 }

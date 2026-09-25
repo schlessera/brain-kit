@@ -215,7 +215,9 @@ The tag vocabulary you mean to use, and how strictly to hold the corpus to it.
 [`brain tags`](cli.md#index--quality) reads it to report variants and drift, and
 `brain validate` warns against it. Only `brain tags --apply` rewrites a
 document's tags: it applies every `aliases` entry and every variant group whose
-canonical tag is in `vocabulary`, editing just the tag entries. Every key
+canonical tag is in `vocabulary`, editing just the tag entries. An alias
+always wins over a variant group: an alias target is never renamed by a
+group, and an alias chain that loops is reported and left alone. Every key
 is optional, and without the block both commands still work: `brain tags`
 reports variant groups and redundant tags, and `brain validate` checks only a
 tag's format.

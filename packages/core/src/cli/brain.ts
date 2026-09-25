@@ -68,6 +68,12 @@ const MUTATING_SUBCOMMAND: Record<string, string> = {
   graph: "compute",
 };
 
+// Commands that write only under a flag: `brain tags` reports, and rewrites
+// frontmatter only with --apply and no --dry-run.
+const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
+  tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
+};
+
 /** Env var holding the API key for a named built-in completion provider. */
 const COMPLETION_KEY_ENV: Record<string, string> = {
   "gemini-flash": "GEMINI_API_KEY",
@@ -212,7 +218,8 @@ async function main(): Promise<number> {
   // No config found at all → refuse anything that writes.
   const mutatingSub = MUTATING_SUBCOMMAND[command];
   const mutates =
-    MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub);
+    (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
+    (MUTATING_WITH_FLAGS[command]?.(argv.slice(1)) ?? false);
   if (brain.configPath === null && mutates) {
     console.error(
       `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +

@@ -1,8 +1,7 @@
 import { openDatabase } from "../../lib/db.js";
-import { indexAll } from "../../lib/indexer.js";
 import { tagReport } from "../../lib/tags.js";
 import type { TagReport } from "../../lib/tags.js";
-import { applyTagChanges } from "../../lib/tags-apply.js";
+import { applyTagChanges, indexAndAccept } from "../../lib/tags-apply.js";
 import type { TagApplyReport } from "../../lib/tags-apply.js";
 import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
@@ -33,7 +32,12 @@ as silently modified.
   --only <old>            Only change this one old tag
   --dry-run               Report what would change and write nothing
 
---json envelope: { "files": [{ "path", "from", "to" }], "skipped": [{ "path", "reason" }] }`;
+A file edited while the command runs is skipped ("changed during apply"). A
+file that cannot be read or written is reported with a reason starting
+"failed:", the files already rewritten are still indexed and accepted, and
+the command exits 2.
+
+--json envelope: { "files": [{ "path", "from", "to" }], "skipped": [{ "path", "reason" }], "warnings": string[] }`;
 
 /** The one-line count summary `brain maintain` prints for its tags step. */
 export function summarizeTagReport(report: TagReport): string {
@@ -73,7 +77,7 @@ function printHuman(report: TagReport): void {
   }
 }
 
-function printApply(report: TagApplyReport, dryRun: boolean): void {
+function printApply(report: TagApplyReport & { warnings: string[] }, dryRun: boolean): void {
   const verb = dryRun ? "Would rewrite" : "Rewrote";
   console.log(`${verb} tags in ${report.files.length} file(s).`);
   for (const f of report.files) console.log(`  ${f.path}: [${f.from.join(", ")}] → [${f.to.join(", ")}]`);
@@ -81,6 +85,7 @@ function printApply(report: TagApplyReport, dryRun: boolean): void {
     console.log(`\nSkipped ${report.skipped.length} file(s):`);
     for (const s of report.skipped) console.log(`  ${s.path}: ${s.reason}`);
   }
+  for (const w of report.warnings) console.log(`Warning: ${w}`);
 }
 
 export const tagsCommand: CoreCommand = {
@@ -93,28 +98,35 @@ export const tagsCommand: CoreCommand = {
     if (flags.apply === true) {
       if (flags.only === true) throw new UsageError("--only needs a tag");
       const dryRun = flags["dry-run"] === true;
-      const applied = applyTagChanges(cli.brain.root, cli.brain.taxonomy, {
+      const { report, written, failed } = applyTagChanges(cli.brain.root, cli.brain.taxonomy, {
         groups: flags.groups === true,
         redundant: flags.redundant === true,
         only: typeof flags.only === "string" ? flags.only : undefined,
         dryRun,
       });
-      if (!dryRun && applied.files.length > 0) {
+      const warnings: string[] = [];
+      let indexFailed = false;
+      if (written.size > 0) {
         // A tag rename is mechanical: `updated` stays, the index picks up the
-        // new tags, and the new mtimes are accepted (packages/core/CONTRACT.md).
+        // new tags, and the new mtimes are accepted (packages/core/CONTRACT.md),
+        // but only where the index read back exactly the bytes the rewrite
+        // wrote. A file edited since is left for silent-edit detection.
         const db = openDatabase(cli.brain.dbPath);
         try {
-          await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-          const accept = db.prepare(
-            "UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND file_mtime IS NOT NULL"
+          warnings.push(...(await indexAndAccept(db, cli.brain.root, cli.brain.taxonomy, written)));
+        } catch (e) {
+          indexFailed = true;
+          warnings.push(
+            `reindexing the rewritten files failed (${(e as Error).message}); ` +
+              "run `brain index`, then `brain accept-mtime <path>` for each rewritten file"
           );
-          for (const f of applied.files) accept.run(f.path);
         } finally {
           db.close();
         }
       }
-      emit(cli.json, applied, () => printApply(applied, dryRun));
-      return 0;
+      const out = { ...report, warnings };
+      emit(cli.json, out, () => printApply(out, dryRun));
+      return failed || indexFailed ? 2 : 0;
     }
     for (const flag of ["dry-run", "only", "groups", "redundant"]) {
       if (flags[flag] !== undefined) throw new UsageError(`--${flag} only applies with --apply`);
