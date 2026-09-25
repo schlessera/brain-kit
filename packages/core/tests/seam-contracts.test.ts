@@ -4,8 +4,9 @@
  * provider runs.
  *
  * Keyless and offline. The vendor SDKs and the Messages API are driven
- * through a stand-in `fetch` that answers only the two vendor hosts and
- * passes anything else through; it is installed for this file alone and
+ * through a stand-in `fetch` that answers the two vendor hosts and refuses
+ * every other request, with the Gemini SDK's routing variables cleared so it
+ * cannot be pointed elsewhere; it is installed for this file alone and
  * restored after. The agent runners are in agent-runner-contracts.test.ts:
  * they spawn their CLIs by name, which needs a `PATH` set before the process
  * starts.
@@ -73,18 +74,34 @@ async function anthropic(url: URL): Promise<Response> {
 }
 
 const realFetch = globalThis.fetch;
-const savedGoogleKey = process.env.GOOGLE_API_KEY;
+
+/**
+ * Every variable the installed Gemini SDK reads besides the key it is handed:
+ * a base-URL override would route its requests past the stand-in, Vertex mode
+ * to another host, and GOOGLE_API_KEY only draws a warning. Cleared for this
+ * file, restored after.
+ */
+const GEMINI_SDK_ENV = [
+  "GOOGLE_API_KEY",
+  "GOOGLE_GEMINI_BASE_URL",
+  "GOOGLE_VERTEX_BASE_URL",
+  "GOOGLE_GENAI_USE_VERTEXAI",
+  "GOOGLE_GENAI_USE_ENTERPRISE",
+  "GOOGLE_CLOUD_PROJECT",
+  "GOOGLE_CLOUD_LOCATION",
+];
+const savedEnv = Object.fromEntries(GEMINI_SDK_ENV.map((name) => [name, process.env[name]]));
 
 beforeAll(() => {
   process.env[KEY_ENV] = "contract-test-key";
-  // The Gemini SDK warns when this is also set; it never wins over apiKey.
-  delete process.env.GOOGLE_API_KEY;
+  for (const name of GEMINI_SDK_ENV) delete process.env[name];
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (url.host === "generativelanguage.googleapis.com") return gemini(url, init);
       if (url.host === "api.anthropic.com") return anthropic(url);
-      return realFetch(input, init);
+      // Nothing in this file may reach a network.
+      throw new Error(`seam-contracts.test.ts refused a request to ${url.origin}`);
     },
     { preconnect: realFetch.preconnect }
   ) as typeof fetch;
@@ -93,7 +110,9 @@ beforeAll(() => {
 afterAll(() => {
   globalThis.fetch = realFetch;
   delete process.env[KEY_ENV];
-  if (savedGoogleKey !== undefined) process.env.GOOGLE_API_KEY = savedGoogleKey;
+  for (const [name, value] of Object.entries(savedEnv)) {
+    if (value !== undefined) process.env[name] = value;
+  }
 });
 
 // ---------------------------------------------------------------------------

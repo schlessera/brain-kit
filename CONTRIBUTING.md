@@ -83,17 +83,24 @@ needs an API key or the network.
    `brain-backend-claude` / `brain-render-puppeteer` / `brain-module-jobs`
    precedent).
 
-   Only agent backends have a reusable contract suite:
-   `runBackendContract` from `@schlessera/brain-ui-sdk/testing`, which both
-   first-party backends run
+   Five seams ship a reusable contract suite, which every first-party
+   provider of that seam runs. Agent backends have `runBackendContract` from
+   `@schlessera/brain-ui-sdk/testing`
    ([agent-backends.md](docs/extending/agent-backends.md#naming-and-stability)).
-   No other seam ships one, so for the rest, drive your real provider code
-   with scripted inputs, no API key and no network. An HTTP provider gets a
-   stubbed `fetch` or vendor SDK transport, as
-   `packages/core/tests/gemini-query.test.ts` does. An agent runner gets a
-   fake executable on `PATH` that prints a scripted reply. A skill emitter
-   writes into a temporary repository, as
-   `packages/core/tests/skills-claude-emitter.test.ts` does. A speech
+   The four core seams have theirs in `@schlessera/brain/testing`:
+   `runEmbeddingProviderContract`
+   ([embeddings.md](docs/extending/embeddings.md#test-it-against-the-contract)),
+   `runCompletionProviderContract`
+   ([completions.md](docs/extending/completions.md#test-it-against-the-contract)),
+   `runAgentRunnerContract`
+   ([agent-runners.md](docs/extending/agent-runners.md#test-it-against-the-contract))
+   and `runSkillEmitterContract`
+   ([skill-emitters.md](docs/extending/skill-emitters.md#test-it-against-the-contract)).
+   Hand the suite your real provider, driven with scripted inputs, no API key
+   and no network: an HTTP provider over a stubbed `fetch` or vendor SDK
+   transport, an agent runner over a fake executable, a skill emitter in the
+   temporary repository the suite builds. The seams without a suite get the
+   same kind of test, written by hand. A speech
    provider's `createSession` is called with fixed keyterms, against a stubbed
    token endpoint if it mints one, asserting the `url`, `token` and `expiresAt`
    it returns.

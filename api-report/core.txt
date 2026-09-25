@@ -166,6 +166,7 @@ export "./testing" (./src/testing/index.ts)
   type ContractTestPrimitives
   type EmbeddingProviderContractHarness
   type SkillEmitterContractHarness
+  TOOL_EVENT_SEEN_FILE
   runAgentRunnerContract
   runCompletionProviderContract
   runEmbeddingProviderContract

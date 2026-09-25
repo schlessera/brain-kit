@@ -12,7 +12,7 @@
  *   4. a skill dropped from the list leaves the layout: no emitted path still
  *      names it and no emitted file still mentions it
  *   5. re-emitting an unchanged list removes nothing and leaves the layout in
- *      place
+ *      place: every skill is still reachable from what was emitted
  *   6. the canonical home, `.agents/skills/`, is read, never written: no
  *      emitted path lies inside it and every SKILL.md there is unchanged
  *
@@ -78,17 +78,18 @@ function isRepoRelative(rel: string): boolean {
 }
 
 /**
- * Does the emitted path `rel` name `skill`, or does the file there mention it?
+ * Does the emitted path `rel` exist and name `skill`, or does the file there
+ * mention it?
  * A directory reaches it through anything inside it. A link to a directory
  * (the claude and pi layouts) names the skill itself, so it is never walked
  * into the canonical home it points at.
  */
 function reaches(root: string, rel: string, skill: string): boolean {
+  const abs = join(root, rel);
+  if (!existsSync(abs)) return false;
   if (rel.split(/[\\/]/).some((segment) => basename(segment, extname(segment)) === skill)) {
     return true;
   }
-  const abs = join(root, rel);
-  if (!existsSync(abs)) return false;
   if (statSync(abs).isFile()) return readFileSync(abs, "utf8").includes(skill);
   if (lstatSync(abs).isSymbolicLink()) return false;
   return readdirSync(abs).some((entry) => reaches(root, join(rel, entry), skill));
@@ -167,6 +168,11 @@ export function runSkillEmitterContract(
 
         expect(second.removed).toEqual([]);
         expect(first.written.filter((rel) => !existsSync(join(root, rel)))).toEqual([]);
+        const emitted = [...new Set([...first.written, ...second.written])];
+        const lost = skills
+          .map((s) => s.name)
+          .filter((name) => !emitted.some((rel) => reaches(root, rel, name)));
+        expect(lost).toEqual([]);
       });
     });
 

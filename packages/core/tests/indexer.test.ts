@@ -692,6 +692,55 @@ describe("provider failure semantics (fake provider)", () => {
     }
   );
 
+  test.if(vecAvailable)(
+    "a provider without embedImage or embedPdf embeds each asset's description through embed()",
+    async () => {
+      // The EmbeddingProvider contract's degradation promise, on core's side
+      // (#342): the published suite can only check that such a provider's
+      // embed() yields a vector for a description; this checks that core sends it one.
+      const root = makeCorpus({
+        "notes/alpha.md": md("Alpha", "alpha content"),
+        "assets/logo.png": FAKE_PNG,
+        "assets/itinerary.pdf": "%PDF-1.4\n%%EOF\n",
+      });
+      const { embedImage: _image, embedPdf: _pdf, ...textOnly } = makeProvider("ok");
+      const calls: string[][] = [];
+      const provider: EmbeddingProvider = {
+        ...textOnly,
+        async embed(texts) {
+          calls.push(texts);
+          return textOnly.embed(texts);
+        },
+      };
+
+      const stats = await runIndex(root, {
+        embeddings: true,
+        provider,
+        enrichment: makeEnrichment("ok"),
+      });
+      expect(stats.assets).toBe(2);
+
+      const descriptions = [
+        "Fake description of assets: itinerary",
+        "Fake description of assets: logo",
+      ];
+      const alone = calls.filter((texts) => texts.length === 1).map(([text]) => text);
+      expect(descriptions.filter((d) => !alone.includes(d))).toEqual([]);
+
+      const db = await openRead(root);
+      const assetVectors = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM vec_chunks v
+             JOIN chunks c ON c.id = v.chunk_id
+             JOIN documents d ON d.id = c.document_id
+            WHERE d.asset_type != 'markdown'`
+        )
+        .get() as { n: number };
+      db.close();
+      expect(assetVectors.n).toBe(2);
+    }
+  );
+
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
 });
 

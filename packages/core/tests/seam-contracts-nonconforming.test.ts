@@ -18,6 +18,7 @@ import {
   runCompletionProviderContract,
   runEmbeddingProviderContract,
   runSkillEmitterContract,
+  TOOL_EVENT_SEEN_FILE,
   type ContractTestPrimitives,
 } from "@schlessera/brain/testing";
 
@@ -89,7 +90,7 @@ describe("EmbeddingProvider contract suite", () => {
         p
       )
     );
-    expect(result).toEqual({ ran: 8, failed: [] });
+    expect(result).toEqual({ ran: 9, failed: [] });
   });
 
   test("a conforming provider without multimodal methods passes every case", async () => {
@@ -121,28 +122,33 @@ describe("EmbeddingProvider contract suite", () => {
         p
       )
     );
-    expect(result.failed).toEqual(["a forwarded signal rejects the pending embedQuery once it aborts"]);
+    expect(result.failed).toEqual([
+      "a forwarded signal rejects the pending embedQuery promptly, early or late",
+    ]);
   }, 15_000);
 
-  test("a query that rejects on its own, not on the abort, fails the cancellation case", async () => {
-    const result = await failingCases((p) =>
-      runEmbeddingProviderContract(
-        {
-          name: "impatient",
-          provider: () => embeddings(),
-          hanging: () =>
-            embeddings({
-              embedQuery: () =>
-                new Promise<Float32Array>((_, reject) =>
-                  setTimeout(() => reject(new Error("gave up")), 40)
-                ),
-            }),
-        },
-        p
-      )
-    );
-    expect(result.failed).toEqual(["a forwarded signal rejects the pending embedQuery once it aborts"]);
-  });
+  /** A query that ignores its signal and rejects on a clock of its own. */
+  const rejectsAfter = (ms: number) => () =>
+    embeddings({
+      embedQuery: () =>
+        new Promise<Float32Array>((_, reject) => setTimeout(() => reject(new Error("gave up")), ms)),
+    });
+
+  for (const [ms, failing] of [
+    [40, "a query whose signal stays live keeps waiting on its runtime"],
+    [300, "a query whose signal stays live keeps waiting on its runtime"],
+    [1_500, "a forwarded signal rejects the pending embedQuery promptly, early or late"],
+  ] as const) {
+    test(`a query that rejects on its own at ${ms}ms, not on the abort, fails a cancellation case`, async () => {
+      const result = await failingCases((p) =>
+        runEmbeddingProviderContract(
+          { name: "impatient", provider: () => embeddings(), hanging: rejectsAfter(ms) },
+          p
+        )
+      );
+      expect(result.failed).toEqual([failing]);
+    }, 15_000);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -201,16 +207,43 @@ describe("CompletionProvider contract suite", () => {
 // AgentRunner
 // ---------------------------------------------------------------------------
 
+/** The fake agent's go-ahead: resolves once the suite has seen the tool event. */
+async function toolEventSeen(cwd: string): Promise<void> {
+  for (let i = 0; i < 150; i++) {
+    if (existsSync(join(cwd, TOOL_EVENT_SEEN_FILE))) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error("the tool event never reached the caller");
+}
+
 const echoRunner = (overrides: Partial<AgentRunner> = {}): AgentRunner => ({
   id: "fake",
   capabilities: { streaming: true, skills: false },
-  run: async (prompt, { cwd }) => `${cwd}\n${prompt}`,
+  run: async (prompt, { cwd }) => {
+    await toolEventSeen(cwd);
+    return `${cwd}\n${prompt}`;
+  },
   runStreaming: async (prompt, { cwd, onEvent }) => {
     onEvent({ kind: "tool", label: "Read: notes/voyages.md" });
+    await toolEventSeen(cwd);
     return `${cwd}\n${prompt}`;
   },
   ...overrides,
 });
+
+/** Holds the agent's events back and delivers them all once it has finished. */
+const bufferingRunner = (): AgentRunner =>
+  echoRunner({
+    runStreaming: async (prompt, { cwd, onEvent }) => {
+      const held = [{ kind: "tool" as const, label: "Read: notes/voyages.md" }];
+      try {
+        await toolEventSeen(cwd);
+      } finally {
+        for (const event of held) onEvent(event);
+      }
+      return `${cwd}\n${prompt}`;
+    },
+  });
 
 const timingOut = (): AgentRunner =>
   echoRunner({
@@ -272,18 +305,31 @@ describe("AgentRunner contract suite", () => {
     ]);
   }, 20_000);
 
-  test("a runner on a fixed deadline of its own fails the longer-deadline case", async () => {
-    const fixed = (): AgentRunner =>
-      echoRunner({
-        run: () => new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 600)),
-      });
+  for (const [ms, failing] of [
+    [600, "run honours timeoutMs: a longer deadline keeps the run going past the shorter one"],
+    [1_200, "run honours timeoutMs: a longer deadline keeps the run going past the shorter one"],
+    [3_000, "run honours timeoutMs: a run that never finishes rejects once its deadline passes"],
+  ] as const) {
+    test(`a runner on a fixed ${ms}ms deadline of its own fails a timeout case`, async () => {
+      const fixed = (): AgentRunner =>
+        echoRunner({
+          run: () => new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms)),
+        });
+      const result = await failingCases((p) =>
+        runAgentRunnerContract({ name: "fixed", echoing: () => echoRunner(), hanging: fixed }, p)
+      );
+      expect(result.failed).toEqual([failing]);
+    }, 20_000);
+  }
+
+  test("a runner that holds tool events back until the end fails the streaming case", async () => {
     const result = await failingCases((p) =>
-      runAgentRunnerContract({ name: "fixed", echoing: () => echoRunner(), hanging: fixed }, p)
+      runAgentRunnerContract({ name: "buffering", echoing: bufferingRunner, hanging: timingOut }, p)
     );
     expect(result.failed).toEqual([
-      "run honours timeoutMs: a longer deadline keeps the run going past the shorter one",
+      "runStreaming, when present, resolves to the final text and surfaces tool activity as it happens",
     ]);
-  });
+  }, 20_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -343,6 +389,29 @@ describe("SkillEmitter contract suite", () => {
       runSkillEmitterContract({ name: "directory", emitter: directory }, p)
     );
     expect(result).toEqual({ ran: 6, failed: [] });
+  });
+
+  test("an emitter that empties its directory on an unchanged re-emit fails the re-emit case", async () => {
+    const destructive = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      let last = -1;
+      return {
+        agent: "fake-dir",
+        emit(skills, repoRoot) {
+          const unchanged = skills.length === last;
+          last = skills.length;
+          const { removed } = inner.emit(skills, repoRoot);
+          if (unchanged) {
+            for (const entry of readdirSync(join(repoRoot, ".fake"))) rmSync(join(repoRoot, ".fake", entry));
+          }
+          return { written: [".fake"], removed };
+        },
+      };
+    };
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "destructive", emitter: destructive }, p)
+    );
+    expect(result.failed).toEqual(["re-emitting an unchanged list removes nothing and keeps the layout"]);
   });
 
   test("an emitter that never prunes fails the dropped-skill case", async () => {

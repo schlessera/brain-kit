@@ -10,8 +10,9 @@
  *      (a one-argument `embedQuery` stays compatible)
  *   4. `embedQuery` honours or tolerates `opts.signal`: an already-aborted
  *      signal either rejects or still yields a valid vector, and never hangs;
- *      a provider that forwards the signal is still waiting on its runtime
- *      until the signal aborts, and rejects promptly once it does
+ *      a provider that forwards the signal keeps waiting on its runtime while
+ *      the signal stays live, and rejects promptly once it aborts, whenever
+ *      that is
  *   5. `embedImage` / `embedPdf` are methods or absent; present, each returns
  *      a `dimensions`-wide vector; absent, core embeds the text description
  *      through `embed` instead, which must then yield one
@@ -46,8 +47,16 @@ export interface EmbeddingProviderContractHarness {
  * `--timeout 30000` all the same, as this repository does.
  */
 const SETTLE_MS = 2_000;
-/** How long a request must stay pending before the suite cancels it. */
-const PENDING_MS = 200;
+/** How long a query whose signal never aborts must stay pending. */
+const UNCANCELLED_MS = 1_000;
+/** When the suite aborts a pending query: once early, once late. */
+const ABORT_AFTER_MS = [50, 700] as const;
+/**
+ * How soon after its abort a query must reject. Each abort's window ends
+ * before the next opens, and the late one opens after UNCANCELLED_MS, so a
+ * query that rejects on a clock of its own misses at least one of them.
+ */
+const REJECT_WITHIN_MS = 400;
 
 /** What a vector looks like, in a shape `toEqual` can compare legibly. */
 function shape(vector: unknown): { float32: boolean; width: number | null } {
@@ -107,16 +116,29 @@ export function runEmbeddingProviderContract(
     });
 
     if (harness.hanging) {
-      test("a forwarded signal rejects the pending embedQuery once it aborts", async () => {
+      test("a query whose signal stays live keeps waiting on its runtime", async () => {
         const provider = harness.hanging!();
         const controller = new AbortController();
         const query = provider.embedQuery("a search query", { signal: controller.signal });
+        // Rejecting without an abort is a failure of its own, not cancellation.
+        expect((await settleWithin(query, UNCANCELLED_MS)).state).toBe("pending");
+        // Not awaited: whether the abort is honoured is the next case's question.
+        query.catch(() => {});
+        controller.abort(new Error("test over"));
+      });
 
-        // Still waiting on the runtime: a rejection that comes without the
-        // abort is a failure, not cancellation.
-        expect((await settleWithin(query, PENDING_MS)).state).toBe("pending");
-        controller.abort(new Error("search deadline"));
-        expect((await settleWithin(query, SETTLE_MS)).state).toBe("rejected");
+      test("a forwarded signal rejects the pending embedQuery promptly, early or late", async () => {
+        const outcomes: string[] = [];
+        for (const after of ABORT_AFTER_MS) {
+          const provider = harness.hanging!();
+          const controller = new AbortController();
+          const query = provider.embedQuery("a search query", { signal: controller.signal });
+          const before = await settleWithin(query, after);
+          controller.abort(new Error("search deadline"));
+          const outcome = before.state === "pending" ? await settleWithin(query, REJECT_WITHIN_MS) : before;
+          outcomes.push(`abort at ${after}ms: ${outcome.state}`);
+        }
+        expect(outcomes).toEqual(ABORT_AFTER_MS.map((after) => `abort at ${after}ms: rejected`));
       });
     }
 

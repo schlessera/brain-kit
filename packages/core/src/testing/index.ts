@@ -21,5 +21,9 @@ export {
   runCompletionProviderContract,
   type CompletionProviderContractHarness,
 } from "./completions.js";
-export { runAgentRunnerContract, type AgentRunnerContractHarness } from "./agent-runners.js";
+export {
+  runAgentRunnerContract,
+  TOOL_EVENT_SEEN_FILE,
+  type AgentRunnerContractHarness,
+} from "./agent-runners.js";
 export { runSkillEmitterContract, type SkillEmitterContractHarness } from "./skill-emitters.js";

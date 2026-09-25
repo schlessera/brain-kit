@@ -15,6 +15,8 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { TOOL_EVENT_SEEN_FILE } from "@schlessera/brain/testing";
+
 import { AGENT_RUNNERS } from "../src/lib/registry";
 
 const binDir = mkdtempSync(join(tmpdir(), "brain-runner-contract-bin-"));
@@ -32,15 +34,30 @@ function writeBin(name: string, source: string): string {
 
 const hangs = `(await import("node:fs")).readFileSync(${JSON.stringify(modeFile)}, "utf8") === "hang"`;
 
+/** Resolves once the suite has created the go-ahead file; exits 1 after 10s. */
+const toolEventSeen = `async function toolEventSeen() {
+  const { existsSync } = await import("node:fs");
+  for (let i = 0; i < 500; i++) {
+    if (existsSync(${JSON.stringify(TOOL_EVENT_SEEN_FILE)})) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  process.exit(1);
+}`;
+
 // codex, gemini and pi take the prompt as their last argument.
 const argvAgent = `
+${toolEventSeen}
 if (${hangs}) setTimeout(() => process.exit(1), 30_000);
-else process.stdout.write(process.cwd() + "\\n" + process.argv.at(-1) + "\\n");
+else {
+  await toolEventSeen();
+  process.stdout.write(process.cwd() + "\\n" + process.argv.at(-1) + "\\n");
+}
 `;
 
 // claude speaks stream-json: answer the handshake as a subscription account,
-// then use one tool, say something, and answer the prompt.
+// then use one tool, wait for the go-ahead, say something, and answer.
 const claudeAgent = `
+${toolEventSeen}
 const hang = ${hangs};
 const out = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
 let buffer = "";
@@ -60,6 +77,7 @@ for await (const chunk of process.stdin) {
     } else if (event.type === "user") {
       if (hang) { setTimeout(() => process.exit(1), 30_000); continue; }
       out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "notes/voyages.md" } }] } });
+      await toolEventSeen();
       out({ type: "assistant", message: { content: [{ type: "text", text: "Reading the notes." }] } });
       out({ type: "result", subtype: "success", result: process.cwd() + "\\n" + event.message.content });
     }
