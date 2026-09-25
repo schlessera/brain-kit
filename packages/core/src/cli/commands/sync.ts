@@ -233,8 +233,11 @@ function putDerivedCachesBack(root: string, aside: Map<string, CacheAside>): voi
 }
 
 /**
- * Union each cache's entries into one sorted file, first copy of a key wins:
- * what this clone set aside, then the merge's result. For a conflicted cache
+ * Union each cache's entries into one sorted file: what this clone set aside,
+ * and the merge's result. A key both carry keeps its first line in sorted
+ * order, the rule every sidecar reader applies, so two clones that generated
+ * different text for one key settle on the same line instead of each keeping
+ * its own and committing it back on every sync. For a conflicted cache
  * the result is read from the two sides' index stages, not the working file,
  * whose conflict rendering can carry the ancestor's stale lines (diff3). An
  * entry only this clone has may belong to a chunk the merge re-chunks, and the
@@ -255,16 +258,20 @@ function unionDerivedCaches(
       sources.push(readFileSync(path, "utf-8"));
     }
     const byKey = new Map<string, string>();
-    for (const line of sources.join("\n").split("\n")) {
-      if (!line.trim()) continue;
+    const all = sources.join("\n").split("\n").filter((line) => line.trim());
+    all.sort();
+    for (const line of all) {
+      // Only a line a reader would accept may compete for its key. A line
+      // with no string value can sort first and would win, then every
+      // reader rejects it and the key is lost.
       try {
-        const { k } = JSON.parse(line) as { k?: unknown };
-        if (typeof k === "string" && !byKey.has(k)) byKey.set(k, line);
+        const { k, v } = JSON.parse(line) as { k?: unknown; v?: unknown };
+        if (typeof k === "string" && k && typeof v === "string" && !byKey.has(k)) byKey.set(k, line);
       } catch {
         // skip malformed line
       }
     }
-    const lines = [...byKey.values()].sort();
+    const lines = [...byKey.values()]; // already in sorted order
     writeFileSync(path, lines.length ? lines.join("\n") + "\n" : "", "utf-8");
   }
 }

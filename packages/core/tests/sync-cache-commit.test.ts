@@ -9,10 +9,13 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commitDerivedCaches } from "../src/cli/commands/sync.js";
+import { chunkContextKey } from "../src/lib/indexer.js";
+import { saveContextCache } from "../src/lib/indexer/caches.js";
 import { makeTempBrain, runCli } from "./cli-harness";
 
 const CACHE = ".context-cache.jsonl";
@@ -237,19 +240,47 @@ describe("sync pull with a locally rewritten cache", () => {
     expect(git(root, "show", `:${CACHE}`)).toBe(staged.trim());
   });
 
-  test("this clone's value wins a key the committed cache also has", async () => {
-    const { root, remote } = brainWithRemote();
-    writeFileSync(join(root, CACHE), '{"k":"key","v":"committed"}\n');
-    git(root, "commit", "-qam", "Refresh derived index caches");
-    git(root, "push", "-q", "origin", "main");
-    pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
-    const ours = '{"k":"key","v":"regenerated here"}\n';
-    writeFileSync(join(root, CACHE), ours);
+  // Local-first used to decide this key, so two clones that generated
+  // different text each kept their own and committed it back on every sync.
+  // The first line in sorted order is the rule every reader applies (#408).
+  for (const [committed, local] of [["alpha", "beta"], ["beta", "alpha"]] as const) {
+    test(`a key both copies have keeps its first line in sorted order (committed ${committed}, local ${local})`, async () => {
+      const { root, remote } = brainWithRemote();
+      writeFileSync(join(root, CACHE), `{"k":"key","v":"${committed}"}\n`);
+      git(root, "commit", "-qam", "Refresh derived index caches");
+      git(root, "push", "-q", "origin", "main");
+      pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+      writeFileSync(join(root, CACHE), `{"k":"key","v":"${local}"}\n`);
 
-    const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
-    expect(body.status).toBe("fast-forwarded");
-    expect(await Bun.file(join(root, CACHE)).text()).toBe(ours);
-  });
+      const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+      expect(body.status).toBe("fast-forwarded");
+      expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"key","v":"alpha"}\n');
+    });
+  }
+
+  // `{"k":"key", "v":null}` sorts before the valid line (a space sorts before
+  // a quote). If it competed for the key it would win, and every reader
+  // rejects it, so the key would be lost.
+  for (const file of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+    for (const invalidSide of ["committed", "local"] as const) {
+      test(`a line no reader accepts never wins its key (${file}, invalid ${invalidSide})`, async () => {
+        const { root, remote } = brainWithRemote();
+        const valid = '{"k":"key","v":"good"}';
+        const invalid = '{"k":"key", "v":null}';
+        expect([valid, invalid].sort()[0]).toBe(invalid);
+        writeFileSync(join(root, file), `${invalidSide === "committed" ? invalid : valid}\n`);
+        git(root, "add", file);
+        git(root, "commit", "-qm", "Refresh derived index caches");
+        git(root, "push", "-q", "origin", "main");
+        pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+        writeFileSync(join(root, file), `${invalidSide === "committed" ? valid : invalid}\n`);
+
+        const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+        expect(body.status).toBe("fast-forwarded");
+        expect(await Bun.file(join(root, file)).text()).toBe(`${valid}\n`);
+      });
+    }
+  }
 
   test("a diff3 cache conflict resolves from the two sides, not the ancestor", async () => {
     const { root, remote } = brainWithRemote();
@@ -445,4 +476,72 @@ describe("sync pull when the merge does not finish", () => {
     expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
     expect(body.status).toBe("merged");
   });
+});
+
+describe("two clones that generated different text for one key (#408)", () => {
+  /** A clone of `remote` that can run the CLI, with brain.db kept out of git. */
+  function cloneBrain(remote: string): string {
+    const root = join(remote, "..", "clone-b");
+    Bun.spawnSync(["git", "clone", "-q", remote, root]);
+    git(root, "config", "user.name", "Alex Example");
+    git(root, "config", "user.email", "alex@example.test");
+    git(root, "config", "commit.gpgsign", "false");
+    writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\nbrain.db*\n");
+    symlinkSync(join(import.meta.dir, "..", "..", "..", "node_modules"), join(root, "node_modules"));
+    return root;
+  }
+
+  /** Index `root`, give the chunk under `key` this clone's context, and bank it the way an embeddings run does. */
+  async function generate(root: string, value: string, key?: string): Promise<string> {
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const db = new Database(join(root, "brain.db"));
+    try {
+      const chunks = db
+        .prepare(
+          `SELECT c.id, c.heading, c.content, d.title FROM chunks c JOIN documents d ON d.id = c.document_id
+           WHERE d.asset_type = 'markdown' ORDER BY d.path, c.chunk_index`
+        )
+        .all() as { id: number; heading: string; content: string; title: string }[];
+      const chunk = key
+        ? chunks.find((c) => chunkContextKey(c.title, c.heading, c.content) === key)
+        : chunks[0];
+      expect(chunk).toBeDefined();
+      db.prepare("UPDATE chunks SET context = ? WHERE id = ?").run(value, chunk!.id);
+      saveContextCache(db, root);
+      return chunkContextKey(chunk!.title, chunk!.heading, chunk!.content);
+    } finally {
+      db.close();
+    }
+  }
+
+  test("end with byte-identical caches and one cache commit between them", async () => {
+    const { root: a, remote } = brainWithRemote();
+    writeFileSync(join(a, ".git", "info", "exclude"), "node_modules\nbrain.db*\n");
+    const b = cloneBrain(remote);
+
+    // Both clones generate a context for the same chunk before either syncs.
+    const key = await generate(a, "alpha from clone A");
+    await generate(b, "beta from clone B", key);
+    expect(readFileSync(join(b, CACHE), "utf-8")).toContain("beta from clone B");
+
+    const postA = JSON.parse((await runCli(a, ["sync", "post-sync", "--json"])).stdout);
+    expect(postA.cacheCommit).toBe(`committed + pushed (${CACHE})`);
+
+    const pulled = JSON.parse((await runCli(b, ["sync", "pull", "--json"])).stdout);
+    expect(pulled.status).toBe("fast-forwarded");
+    // B's database still holds its own text; its next embeddings run banks it.
+    await generate(b, "beta from clone B", key);
+    const postB = JSON.parse((await runCli(b, ["sync", "post-sync", "--json"])).stdout);
+    expect(postB.cacheCommit).toBe("clean");
+
+    const again = JSON.parse((await runCli(a, ["sync", "pull", "--json"])).stdout);
+    expect(again.status).toBe("synced");
+    const cacheA = readFileSync(join(a, CACHE), "utf-8");
+    expect(readFileSync(join(b, CACHE), "utf-8")).toBe(cacheA);
+    expect(cacheA).toBe(`${JSON.stringify({ k: key, v: "alpha from clone A" })}\n`);
+    expect(git(a, "log", "--format=%s", "origin/main", "--", CACHE).split("\n")).toEqual([
+      "Refresh derived index caches",
+      "fixture",
+    ]);
+  }, 120_000);
 });

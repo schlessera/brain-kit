@@ -218,11 +218,24 @@ of truth:
 - `.context-cache.jsonl` — generated chunk contexts.
 - `.asset-cache.jsonl` — generated descriptions of binary assets.
 
-Both are content-hash-keyed `{k, v}` JSONL, rebuilt from `brain.db` after an
+Both are content-hash-keyed `{k, v}` JSONL, appended from `brain.db` after an
 embeddings run. They are **machine-managed**: never hand-edit them; on a git
 conflict they union-merge. Templates ship them **empty**. Because they are keyed
 by content hash, they survive provider switches — only the entries whose inputs
 changed are recomputed.
+
+An embeddings run only adds the keys a file lacks. A value already committed
+stays, even when this clone's database generated different text for the same
+key, so two clones syncing with no content change leave the files untouched. A
+key that appears twice resolves to its first line in sorted order, the same on
+every clone, and `brain sync pull` applies the same rule when it unions this
+clone's lines with the merged file. An asset description is reused for the same
+bytes under any title, and is kept while any indexed asset still has those bytes.
+
+To discard a bad entry, run `brain index --forget-cache <path>`: it removes that
+document's or asset's lines and resets it in `brain.db` (together with any other
+document or asset that shares those keys or bytes), so the next
+`brain index --embeddings` generates it again.
 
 ## See also
 

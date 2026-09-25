@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -13,7 +14,8 @@ import {
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { indexAll, type IndexStats } from "../src/lib/indexer";
+import { chunkContextKey, forgetCachedEnrichment, indexAll, type IndexStats } from "../src/lib/indexer";
+import { loadAssetCache, loadContextCache } from "../src/lib/indexer/caches";
 import { openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import type { EmbeddingProvider } from "../src/lib/seams";
@@ -21,6 +23,7 @@ import type { Enrichment } from "../src/lib/enrichment";
 // sqlite-vec is optional in some environments — vector-dependent tests skip
 // gracefully when the extension cannot load. One probe, in vec-fixture.ts.
 import { vecAvailable } from "./vec-fixture";
+import { makeTempBrain, runCli } from "./cli-harness";
 
 // In-process integration tests for the incremental indexer. The port takes
 // `root` + `taxonomy` as parameters (the reference brain used module-level
@@ -158,6 +161,52 @@ function readJsonl(path: string): Array<{ k: string; v: string }> {
 
 function readAssetCache(root: string): Array<{ k: string; v: string }> {
   return readJsonl(join(root, ".asset-cache.jsonl"));
+}
+
+function readContextCache(root: string): Array<{ k: string; v: string }> {
+  return readJsonl(join(root, ".context-cache.jsonl"));
+}
+
+/**
+ * A document whose sections are each big enough to stay a chunk of their own,
+ * so an enrichment run generates a context per chunk instead of reusing the
+ * summary of a single-chunk document.
+ */
+function mdSections(title: string, words: string[]): string {
+  const sections = words.flatMap((word) => [`## About ${word}`, "", `${word} `.repeat(120).trim(), ""]);
+  return ["---", "type: note", `title: ${title}`, 'created: "2026-01-01"', 'updated: "2026-01-02"', "---", "", ...sections].join("\n");
+}
+
+/** The fake enrichment, counting its vision calls. */
+function countingEnrichment(): { enrichment: Enrichment; described: string[]; contexts: string[] } {
+  const described: string[] = [];
+  const contexts: string[] = [];
+  const base = makeEnrichment("ok");
+  return {
+    described,
+    contexts,
+    enrichment: {
+      async describeAsset(buffer, mimeType, context) {
+        described.push(context);
+        return base.describeAsset(buffer, mimeType, context);
+      },
+      async generateChunkContext(docTitle, docText, chunkHeading, chunkText) {
+        contexts.push(chunkHeading);
+        return base.generateChunkContext(docTitle, docText, chunkHeading, chunkText);
+      },
+    },
+  };
+}
+
+/** An embeddings run with the working fakes. */
+function withEnrichment(): IndexRun {
+  return { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() };
+}
+
+/** Every line of a sidecar, raw. */
+function sidecarLines(root: string, file: string): string[] {
+  const path = join(root, file);
+  return existsSync(path) ? readFileSync(path, "utf-8").split("\n").filter(Boolean) : [];
 }
 
 describe("incremental indexing (default mode)", () => {
@@ -788,7 +837,7 @@ describe("sidecar cache pruning", () => {
 
   test("a run with nothing to prune leaves the file byte-identical", async () => {
     // content-hygiene relies on a no-op index producing no git diff.
-    const root = makeCorpus({ "note.md": md("Note", "Body text.") });
+    const root = makeCorpus({ "note.md": mdSections("Note", ["zeppelin", "blimp"]) });
     await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
 
     const cachePath = join(root, ".context-cache.jsonl");
@@ -804,5 +853,292 @@ describe("sidecar cache pruning", () => {
     writeFileSync(cachePath, "not json at all\n");
     await runIndex(root);
     expect(readFileSync(cachePath, "utf-8")).toContain("not json at all");
+  });
+});
+
+describe("sidecar caches are appended, never rebuilt (#408)", () => {
+  test("a committed value survives a run whose database generated another", async () => {
+    const root = makeCorpus({ "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]) });
+    await runIndex(root, withEnrichment());
+    const generated = readContextCache(root);
+    expect(generated.length).toBe(2);
+    const key = generated[0].k;
+
+    // Another clone generated "A" for this key and committed it. This clone's
+    // database still holds its own text for the same chunk.
+    const committed = generated.map((e) => (e.k === key ? { k: key, v: "A" } : e));
+    writeFileSync(
+      join(root, ".context-cache.jsonl"),
+      committed.map((e) => JSON.stringify(e)).join("\n") + "\n"
+    );
+    const db = await openRead(root);
+    const stored = db.prepare("SELECT context FROM chunks WHERE context = ?").get(generated[0].v);
+    db.close();
+    expect(stored).not.toBeNull();
+
+    await runIndex(root, withEnrichment());
+
+    const lines = readContextCache(root).filter((e) => e.k === key);
+    expect(lines).toEqual([{ k: key, v: "A" }]);
+  });
+
+  test("an embeddings run with nothing new leaves both files byte-identical and unwritten", async () => {
+    const root = makeCorpus({
+      "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]),
+      "assets/logo.png": FAKE_PNG,
+    });
+    await runIndex(root, withEnrichment());
+
+    const files = [".context-cache.jsonl", ".asset-cache.jsonl"].map((f) => join(root, f));
+    const past = new Date("2026-01-01T00:00:00Z");
+    const before = files.map((f) => {
+      utimesSync(f, past, past);
+      return { bytes: readFileSync(f, "utf-8"), mtime: statSync(f).mtimeMs };
+    });
+    expect(before.every((b) => b.bytes.trim() !== "")).toBe(true);
+
+    await runIndex(root, withEnrichment());
+
+    const after = files.map((f) => ({ bytes: readFileSync(f, "utf-8"), mtime: statSync(f).mtimeMs }));
+    expect(after).toEqual(before);
+  });
+
+  test.if(vecAvailable)("an embeddings run refused for a provider mismatch removes no line", async () => {
+    const root = makeCorpus({
+      "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]),
+      "assets/logo.png": FAKE_PNG,
+    });
+    await runIndex(root, { embeddings: true, provider: makeProvider("ok", "fake:A"), enrichment: makeEnrichment() });
+
+    // Another clone indexed a document this one has not generated contexts
+    // for yet, and committed its lines.
+    const doc = mdSections("Railways", ["locomotive", "tender"]);
+    const other = makeCorpus({ "notes/railways.md": doc });
+    await runIndex(other, withEnrichment());
+    const theirs = sidecarLines(other, ".context-cache.jsonl");
+    expect(theirs.length).toBe(2);
+    const ours = sidecarLines(root, ".context-cache.jsonl");
+    writeFileSync(join(root, ".context-cache.jsonl"), [...ours, ...theirs].sort().join("\n") + "\n");
+    writeFileSync(join(root, "notes/railways.md"), doc);
+    const before = {
+      contexts: sidecarLines(root, ".context-cache.jsonl"),
+      assets: sidecarLines(root, ".asset-cache.jsonl"),
+    };
+    expect(before.assets.length).toBe(1);
+
+    const refused = await runIndex(root, {
+      embeddings: true,
+      provider: makeProvider("ok", "fake:B"),
+      enrichment: makeEnrichment(),
+    });
+    expect(refused.embeddings).toBe(0);
+
+    expect(sidecarLines(root, ".context-cache.jsonl")).toEqual(before.contexts);
+    expect(sidecarLines(root, ".asset-cache.jsonl")).toEqual(before.assets);
+  });
+
+  test("byte-identical assets under two titles in one run are described once", async () => {
+    const root = makeCorpus({
+      "assets/logo.png": FAKE_PNG,
+      "assets/logo-copy.png": FAKE_PNG,
+    });
+    const counting = countingEnrichment();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+
+    expect(counting.described.length).toBe(1);
+    const db = await openRead(root);
+    const rows = db
+      .prepare("SELECT content FROM documents WHERE asset_type != 'markdown' ORDER BY path")
+      .all() as { content: string }[];
+    db.close();
+    expect(rows.map((r) => r.content)).toEqual([
+      `Fake description of ${counting.described[0]}`,
+      `Fake description of ${counting.described[0]}`,
+    ]);
+  });
+
+  test("a second copy of an asset is described from the first one's cache entry", async () => {
+    const root = makeCorpus({ "assets/logo.png": FAKE_PNG });
+    const counting = countingEnrichment();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+    expect(counting.described).toEqual(["assets: logo"]);
+
+    writeFileSync(join(root, "assets/emblem.png"), FAKE_PNG);
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+
+    expect(counting.described).toEqual(["assets: logo"]);
+    const db = await openRead(root);
+    const emblem = db.prepare("SELECT content FROM documents WHERE path = 'assets/emblem.png'").get() as {
+      content: string;
+    };
+    db.close();
+    expect(emblem.content).toBe("Fake description of assets: logo");
+  });
+
+  test("an asset whose title rule changed keeps its description", async () => {
+    const root = makeCorpus({ "assets/logo.png": FAKE_PNG });
+    await runIndex(root, withEnrichment());
+    const [entry] = readAssetCache(root);
+    const hash = entry.k.slice(0, entry.k.indexOf(":"));
+
+    // The same bytes, titled by another version's rule.
+    const renamed = { k: `${hash}:Logo (old rule)`, v: "Described under the old rule" };
+    writeFileSync(join(root, ".asset-cache.jsonl"), JSON.stringify(renamed) + "\n");
+    await runIndex(root);
+
+    expect(readAssetCache(root)).toEqual([renamed]);
+  });
+
+  test("a key that appears twice loads as its first line in sorted order, whichever line comes first in the file", () => {
+    const root = makeCorpus({});
+    const contextKey = "0".repeat(64);
+    const assetKey = `${"f".repeat(64)}:T`;
+    const loaders = [
+      { file: ".context-cache.jsonl", key: contextKey, load: loadContextCache },
+      { file: ".asset-cache.jsonl", key: assetKey, load: loadAssetCache },
+    ];
+    const orders = [
+      ["Z", "A"],
+      ["A", "Z"],
+    ];
+    const loaded: string[] = [];
+    for (const { file, key, load } of loaders) {
+      for (const order of orders) {
+        writeFileSync(join(root, file), order.map((v) => JSON.stringify({ k: key, v })).join("\n") + "\n");
+        loaded.push(`${file} ${order.join("")}: ${load(root).get(key)}`);
+      }
+    }
+    expect(loaded).toEqual([
+      ".context-cache.jsonl ZA: A",
+      ".context-cache.jsonl AZ: A",
+      ".asset-cache.jsonl ZA: A",
+      ".asset-cache.jsonl AZ: A",
+    ]);
+  });
+
+  test("a write collapses a duplicated key to its first line in sorted order", async () => {
+    const root = makeCorpus({ "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]) });
+    await runIndex(root, withEnrichment());
+    const [first, second] = readContextCache(root);
+
+    // A union merge left two lines for one key, "Z" before "A" in file order,
+    // and lost the other key, so the next run has one to add and must write.
+    const key = first.k;
+    writeFileSync(
+      join(root, ".context-cache.jsonl"),
+      [JSON.stringify({ k: key, v: "Z" }), JSON.stringify({ k: key, v: "A" })].join("\n") + "\n"
+    );
+
+    await runIndex(root, withEnrichment());
+    expect(readContextCache(root)).toEqual([{ k: key, v: "A" }, second].sort((a, b) => (a.k < b.k ? -1 : 1)));
+  });
+});
+
+describe("brain index --forget-cache (#408)", () => {
+  test("removes exactly one document's lines, reports the count, and the next run regenerates them", async () => {
+    const root = makeTempBrain();
+    fixtures.push(root);
+    const doc = "notes/airships-forget.md";
+    writeFileSync(join(root, doc), mdSections("Airships", ["zeppelin", "blimp", "dirigible"]));
+    await runIndex(root, withEnrichment());
+
+    const db = await openRead(root);
+    const chunks = db
+      .prepare(
+        "SELECT c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ?"
+      )
+      .all(doc) as { heading: string; content: string }[];
+    db.close();
+    expect(chunks.length).toBe(3);
+    const ours = new Set(chunks.map((c) => chunkContextKey("Airships", c.heading, c.content)));
+    const before = readContextCache(root);
+    expect(before.filter((e) => ours.has(e.k)).length).toBe(3);
+    expect(before.filter((e) => !ours.has(e.k)).length).toBeGreaterThan(0);
+
+    const result = await runCli(root, ["index", "--forget-cache", doc, "--json"]);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ path: doc, forgotten: 3 });
+    const after = readContextCache(root);
+    expect(after).toEqual(before.filter((e) => !ours.has(e.k)));
+
+    const counting = countingEnrichment();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+    expect(counting.contexts.sort()).toEqual(["About blimp", "About dirigible", "About zeppelin"]);
+    expect(readContextCache(root)).toEqual(before);
+  }, 60_000);
+
+  test("an unindexed path is a usage error", async () => {
+    const root = makeTempBrain();
+    fixtures.push(root);
+    const result = await runCli(root, ["index", "--forget-cache", "notes/nowhere.md", "--json"]);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("No indexed document found at: notes/nowhere.md");
+  });
+
+  test("forgetting a document also resets another document whose chunks share its keys", async () => {
+    // A context key is title + heading + text, with no path in it.
+    const twin = mdSections("Airships", ["zeppelin", "blimp"]);
+    const root = makeCorpus({ "notes/airships.md": twin, "me/airships.md": twin });
+    await runIndex(root, withEnrichment());
+    expect(readContextCache(root).map((e) => e.v).sort()).toEqual(["Context for About blimp", "Context for About zeppelin"]);
+
+    const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const withContext = db
+      .prepare("SELECT d.path FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.context IS NOT NULL ORDER BY d.path")
+      .all();
+    expect(withContext).toEqual([
+      { path: "me/airships.md" },
+      { path: "me/airships.md" },
+      { path: "notes/airships.md" },
+      { path: "notes/airships.md" },
+    ]);
+    expect(await forgetCachedEnrichment(db, root, "notes/airships.md")).toBe(2);
+    const stale = db
+      .prepare("SELECT d.path, c.context FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.context IS NOT NULL")
+      .all();
+    db.close();
+    expect(stale).toEqual([]);
+
+    const fresh: Enrichment = {
+      ...makeEnrichment(),
+      async generateChunkContext(_docTitle, _docText, chunkHeading) {
+        return `Regenerated for ${chunkHeading}`;
+      },
+    };
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: fresh });
+    expect(readContextCache(root).map((e) => e.v).sort()).toEqual([
+      "Regenerated for About blimp",
+      "Regenerated for About zeppelin",
+    ]);
+  });
+
+  test("forgetting an asset resets every copy of its bytes and the next run describes them once", async () => {
+    const root = makeCorpus({
+      "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]),
+      "assets/logo.png": FAKE_PNG,
+      "assets/emblem.png": FAKE_PNG,
+    });
+    await runIndex(root, withEnrichment());
+    const contexts = sidecarLines(root, ".context-cache.jsonl");
+    expect(readAssetCache(root).length).toBe(2);
+
+    const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const forgotten = await forgetCachedEnrichment(db, root, "assets/logo.png");
+    const rows = db
+      .prepare("SELECT path, content FROM documents WHERE asset_type != 'markdown' ORDER BY path")
+      .all();
+    db.close();
+    expect(forgotten).toBe(2);
+    expect(readAssetCache(root)).toEqual([]);
+    expect(sidecarLines(root, ".context-cache.jsonl")).toEqual(contexts);
+    expect(rows).toEqual([
+      { path: "assets/emblem.png", content: "[Image: assets/emblem.png]" },
+      { path: "assets/logo.png", content: "[Image: assets/logo.png]" },
+    ]);
+
+    const counting = countingEnrichment();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+    expect(counting.described.length).toBe(1);
+    expect(readAssetCache(root).length).toBe(2);
   });
 });

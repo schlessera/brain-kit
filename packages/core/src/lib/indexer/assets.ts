@@ -18,14 +18,14 @@ import { readFileSync, statSync } from "fs";
 import { resolve } from "path";
 
 import type { Asset, DocumentType } from "../types.js";
-import { assetCacheKey, loadAssetCache } from "./caches.js";
+import { assetDescriptionLookup, loadAssetCache } from "./caches.js";
 import type { AssetEmbedTask, AssetTask, ExistingDoc, IndexRun } from "./types.js";
 
 /** How many vision calls are in flight at once. */
 const DESCRIBE_CONCURRENCY = 10;
 
 /** The text an asset carries until a real description replaces it. */
-function placeholderFor(asset: Pick<Asset, "path" | "mimeType">): string {
+export function placeholderFor(asset: Pick<Asset, "path" | "mimeType">): string {
   const kind = asset.mimeType.startsWith("image/") ? "Image" : "PDF";
   return `[${kind}: ${asset.path}]`;
 }
@@ -220,6 +220,10 @@ function makeFinisher(run: IndexRun, st: Statements, embedQueue: AssetEmbedTask[
 /**
  * Describe the queued assets, cache first, vision model second.
  *
+ * The cache answers for the same bytes under any title, and the vision model
+ * is asked once per distinct content hash: byte-identical assets committed
+ * under two names share one description rather than paying for two.
+ *
  * A description that fails is left on its placeholder on purpose — see the
  * module header. Failures are reported, never thrown.
  */
@@ -232,10 +236,10 @@ async function describeAssets(
   if (tasks.length === 0) return;
 
   const finishBatch = makeFinisher(run, st, embedQueue);
-  const cache = loadAssetCache(run.root);
+  const lookup = assetDescriptionLookup(loadAssetCache(run.root));
   const cacheHits: Array<[AssetTask, string]> = [];
   const needsDescription = tasks.filter((task) => {
-    const cached = cache.get(assetCacheKey(task.hash, task.asset.title));
+    const cached = lookup(task.hash, task.asset.title);
     if (cached === undefined) return true;
     cacheHits.push([task, cached]);
     return false;
@@ -255,11 +259,19 @@ async function describeAssets(
     return;
   }
 
+  const byHash = new Map<string, AssetTask[]>();
+  for (const task of needsDescription) {
+    const same = byHash.get(task.hash);
+    if (same) same.push(task);
+    else byHash.set(task.hash, [task]);
+  }
+  const groups = [...byHash.values()];
+
   const enrichment = run.enrichment;
-  for (let i = 0; i < needsDescription.length; i += DESCRIBE_CONCURRENCY) {
-    const batch = needsDescription.slice(i, i + DESCRIBE_CONCURRENCY);
+  for (let i = 0; i < groups.length; i += DESCRIBE_CONCURRENCY) {
+    const batch = groups.slice(i, i + DESCRIBE_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(async ({ asset, raw }) => {
+      batch.map(async ([{ asset, raw }]) => {
         const buffer =
           raw ?? Buffer.from(await Bun.file(resolve(run.root, asset.path)).arrayBuffer());
         return enrichment.describeAsset(buffer, asset.mimeType, asset.title);
@@ -268,15 +280,16 @@ async function describeAssets(
 
     const done: Array<[AssetTask, string]> = [];
     for (let j = 0; j < results.length; j++) {
-      const task = batch[j];
       const result = results[j];
-      if (result.status === "fulfilled") {
-        done.push([task, result.value]);
-        run.report(`  Described: ${task.asset.path}`);
-      } else {
-        run.warn(
-          `  SKIP description: ${task.asset.path} — ${(result.reason as Error)?.message || result.reason}`
-        );
+      for (const task of batch[j]) {
+        if (result.status === "fulfilled") {
+          done.push([task, result.value]);
+          run.report(`  Described: ${task.asset.path}`);
+        } else {
+          run.warn(
+            `  SKIP description: ${task.asset.path} — ${(result.reason as Error)?.message || result.reason}`
+          );
+        }
       }
     }
     if (done.length > 0) finishBatch.immediate(done);

@@ -102,8 +102,10 @@ function precomputeGraph(run: IndexRun): void {
  * Write the sidecar caches back out.
  *
  * Unconditional at the end of an embeddings run, including one that refused to
- * embed: it mirrors the database, so this also bootstraps the caches on a run
- * where nothing changed, and banks any asset descriptions produced above.
+ * embed: it appends what the database has and the files lack, so this also
+ * bootstraps the caches on a run where nothing changed, and banks any asset
+ * descriptions produced above. It never removes or rewrites a line, so a run
+ * with nothing new leaves both files untouched.
  */
 function saveSidecarCaches(run: IndexRun): void {
   try {
