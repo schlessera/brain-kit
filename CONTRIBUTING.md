@@ -142,16 +142,21 @@ its title or labels change. A PR whose diff touches
 `docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`
 and carry the `contract` label. A PR titled `CONTRACT:` or labelled `contract`
 must touch the doc. PRs are squash-merged, so the title becomes the commit
-subject that an audit searches for. If the gate fails, either fix the title and
-label, or move the doc edit out of a PR that is not a contract change.
+subject that an audit searches for. "Touches" means the PR's own diff, from
+where its branch left the base to its head commit. If the gate fails, either
+fix the title and label, or move the doc edit out of a PR that is not a
+contract change.
 
 **The API report** (`api-report/*.txt`, written by `scripts/api-report.ts`,
 checked by `tests/api-surface.test.ts`) records every exported name per export
 subpath. For the seams in [`docs/extending/README.md`](docs/extending/README.md#the-seams)
-it also records each declaration's signature, together with every type
-declared in this repo that the declaration references, directly or through
-another such type. The `SEAMS` list at the top of the script names the seams.
-Adding or removing an export fails `… matches the current exports`. Retyping a
+it also records each declaration's signature: its public surface, without
+comments, bodies, default values or private members. The same goes for every
+type declared in this repo that such a surface names, whether by reference,
+by inline `import("…")` or through `typeof`, directly or through another
+recorded type. A type used only by a private member is not recorded. An
+unannotated constant is recorded by the type it infers to. The `SEAMS` list at
+the top of the script names the seams. Adding or removing an export fails `… matches the current exports`. Retyping a
 seam member, or a member of any type it is made of, fails `… matches the
 current seam signatures`, and the failure shows the changed line.
 
@@ -161,8 +166,9 @@ changed line in a signature section is a change to a seam. Whether it breaks
 one is decided by
 [`docs/decisions/contract-versioning.md`](docs/decisions/contract-versioning.md);
 a break needs the ruling and the changeset the contract doc's header describes.
-When the set of frozen declarations grows, add the names to `SEAMS` and
-regenerate.
+Nothing else needs updating: the test checks every `SEAMS` entry by shape, not
+by its current signature. When the set of frozen declarations grows, add the
+names to `SEAMS` and regenerate.
 
 ## Releasing
 
