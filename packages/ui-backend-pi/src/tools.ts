@@ -555,7 +555,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     label: "Brain link graph",
     description:
       "Traverse the wiki-link graph from a starting document. Returns edges " +
-      "(source, target, resolved) showing how documents are connected via [[wiki-links]].",
+      "(source, target, resolved) showing how documents are connected via [[wiki-links]], " +
+      "and nodes (path, title, type, summary, updated) for every document an edge touches.",
     parameters: Type.Object({
       path: Type.String({ description: "Starting document path." }),
       depth: Type.Optional(Type.Number({ description: "How many hops to traverse (default 1)." })),
@@ -573,8 +574,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         params.direction === "outgoing" || params.direction === "incoming"
           ? params.direction
           : "both";
-      const edges = await brain.graph({ path: params.path, depth: params.depth, direction });
-      return textResult(clip(JSON.stringify({ edges }, null, 2)), { count: edges.length });
+      const { edges, nodes } = await brain.graph({ path: params.path, depth: params.depth, direction });
+      return textResult(clip(JSON.stringify({ edges, nodes }, null, 2)), { count: edges.length });
     },
   } satisfies ToolDefinition;
 
