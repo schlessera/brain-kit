@@ -1,4 +1,4 @@
-import { compactVectors, forgetCachedEnrichment, indexAll, readVectorSlots } from "../../lib/indexer.js";
+import { compactVectors, EmbeddingRunActiveError, forgetCachedEnrichment, indexAll, readVectorSlots } from "../../lib/indexer.js";
 import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -8,6 +8,9 @@ const HELP = `brain index — update the search index (incremental by default)
   --force                 Full rebuild instead of incremental update
   --embeddings            Generate vector embeddings (requires an API key)
   --incremental           Accepted as a no-op (backward compat)
+  --on-commit             Run as the post-commit hook does: adds the
+                          embeddings pass only when the config sets
+                          hooks.embedOnCommit and a provider is configured
   --forget-cache <path>   Discard the cached contexts or description of one
                           document or asset, so the next --embeddings run
                           generates them again. Runs no index pass.
@@ -69,7 +72,12 @@ export const indexCommand: CoreCommand = {
       // Incremental is the default; --force does a full rebuild. --incremental
       // is accepted as a no-op for backward compatibility (hooks pass it).
       const force = flags.force === true;
-      const embeddings = flags.embeddings === true;
+      // The post-commit hook passes --on-commit and nothing else: whether a
+      // commit pays for embeddings is the brain's decision, made here, not in
+      // the shell hook. Without a provider it stays the free keyword pass.
+      const embedOnCommit =
+        flags["on-commit"] === true && cli.brain.config?.hooks?.embedOnCommit === true && !!cli.embeddings;
+      const embeddings = flags.embeddings === true || embedOnCommit;
 
       if (!cli.json) {
         console.log(force ? "Rebuilding full index..." : "Running incremental index...");
@@ -86,15 +94,27 @@ export const indexCommand: CoreCommand = {
         }
       }
 
-      const stats = await indexAll(db, {
-        root: cli.brain.root,
-        taxonomy: cli.brain.taxonomy,
-        force,
-        quiet: cli.json,
-        embeddings,
-        provider: embeddings ? cli.embeddings : undefined,
-        enrichment: embeddings ? cli.enrichment : undefined,
-      });
+      const run = (withEmbeddings: boolean) =>
+        indexAll(db, {
+          root: cli.brain.root,
+          taxonomy: cli.brain.taxonomy,
+          force,
+          quiet: cli.json,
+          embeddings: withEmbeddings,
+          provider: withEmbeddings ? cli.embeddings : undefined,
+          enrichment: withEmbeddings ? cli.enrichment : undefined,
+        });
+      let stats: Awaited<ReturnType<typeof run>>;
+      try {
+        stats = await run(embeddings);
+      } catch (error) {
+        // Two quick commits: the first commit's hook is still embedding. This
+        // one must still make its changes findable by keyword; the embeddings
+        // it skips are picked up by the next run, which embeds every chunk
+        // without a vector. An explicit --embeddings still reports the clash.
+        if (!(error instanceof EmbeddingRunActiveError) || flags.embeddings === true) throw error;
+        stats = await run(false);
+      }
 
       emit(cli.json, stats, () => {
         console.log(`\nIndexing complete:`);

@@ -10,8 +10,16 @@ const memoryLocks = new WeakSet<Database>();
  * while the provider is away. Never unlink the sidecar: waiters must keep
  * addressing the same inode. It contains no authoritative state.
  */
+/** Another embeddings run holds the lock on this database. */
+export class EmbeddingRunActiveError extends Error {
+  constructor() {
+    super("An embedding index run is already active; retry when it finishes");
+    this.name = "EmbeddingRunActiveError";
+  }
+}
+
 export function acquireEmbeddingLock(db: Database): () => void {
-  const busy = () => new Error("An embedding index run is already active; retry when it finishes");
+  const busy = () => new EmbeddingRunActiveError();
   let lock: Database | undefined;
   if (!db.filename || db.filename === ":memory:") {
     if (memoryLocks.has(db)) throw busy();

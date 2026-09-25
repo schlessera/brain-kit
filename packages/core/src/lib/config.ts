@@ -258,6 +258,21 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
+    /** What the installed git hooks do beyond their free default. */
+    hooks: z
+      .object({
+        /**
+         * The post-commit hook also runs the embeddings pass, in the
+         * background, when an embedding provider is configured: paid calls
+         * for every chunk without a vector (on the first commit after opting
+         * in, the whole backlog, not only the changed chunks), plus chunk
+         * contexts and asset descriptions when completions are set up. Off by
+         * default, so a commit never bills unless the brain opts in.
+         */
+        embedOnCommit: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     /**
      * The always-loaded instruction weight `brain doctor` checks: CLAUDE.md
      * with its `@` imports, AGENTS.md, and model-invocable skill descriptions.

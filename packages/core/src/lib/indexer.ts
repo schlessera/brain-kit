@@ -7,6 +7,7 @@
  * regardless of how the phases are arranged behind it.
  */
 export { indexAll } from "./indexer/run.js";
+export { EmbeddingRunActiveError } from "./indexer/embedding-lock.js";
 export { getMarkdownFiles, getAssetFiles } from "./indexer/scan.js";
 export { extractWikiLinks, resolveWikiLink, resolveAlias } from "./indexer/links.js";
 export { chunkContextKey } from "./indexer/caches.js";

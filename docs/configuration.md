@@ -434,6 +434,46 @@ instructions: { maxTokens: 6000 }
 The default leaves the shipped contract (about 900 tokens) and a generous
 personal overlay well under the limit.
 
+## `hooks`
+
+What the installed git hooks do beyond their free default.
+
+| Key             | Type      | Default | Meaning                                                                                                   |
+| --------------- | --------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| `embedOnCommit` | `boolean` | `false` | The post-commit hook also embeds what the commit changed, when an embedding provider is configured.       |
+
+The post-commit hook always refreshes the keyword index in the background, so an
+edit is findable by keyword at once. With `embedOnCommit` on, the same
+background run also embeds the chunks the commit changed, so vector and hybrid
+search see the edit without waiting for `brain maintain` or `brain sync`. That
+is a **paid** call on every commit that changes a chunk. It covers the
+embeddings, plus chunk contexts and asset descriptions when completions are
+configured. Chunks whose text did not change keep their vectors. The hook never
+commits the sidecar cache lines the run adds; `brain sync` does. Without an
+embedding provider the option does nothing.
+
+**The first commit after opting in pays for the backlog.** An embeddings run
+embeds every chunk that has no vector, not only the ones the commit changed.
+On a brain that was indexed without vectors, or that has chunks a failed run
+left behind, that is all of them. It also covers chunk contexts, and the
+descriptions of any images and PDFs not yet described, when completions are
+configured. A run that fails (a rate limit, a quota) leaves those chunks
+without vectors, and the next commit tries them again. To pay for the backlog
+at a time you choose, run `brain index --embeddings` once before turning the
+option on.
+
+If a commit lands while an earlier commit's run is still embedding, its run
+still refreshes the keyword index and skips only the embeddings. The next run
+embeds what it skipped.
+
+```ts
+hooks: { embedOnCommit: true }
+```
+
+The hook passes `--on-commit` to `brain index`, and the CLI makes the decision.
+A brain whose hooks were installed before 0.38.0 needs `brain setup` to pick up
+the new hook.
+
 ## `modules`
 
 Enables workflow modules. A key is either an npm package name
