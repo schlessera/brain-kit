@@ -261,9 +261,12 @@ function unionDerivedCaches(
     const all = sources.join("\n").split("\n").filter((line) => line.trim());
     all.sort();
     for (const line of all) {
+      // Only a line a reader would accept may compete for its key. A line
+      // with no string value can sort first and would win, then every
+      // reader rejects it and the key is lost.
       try {
-        const { k } = JSON.parse(line) as { k?: unknown };
-        if (typeof k === "string" && !byKey.has(k)) byKey.set(k, line);
+        const { k, v } = JSON.parse(line) as { k?: unknown; v?: unknown };
+        if (typeof k === "string" && k && typeof v === "string" && !byKey.has(k)) byKey.set(k, line);
       } catch {
         // skip malformed line
       }

@@ -258,6 +258,30 @@ describe("sync pull with a locally rewritten cache", () => {
     });
   }
 
+  // `{"k":"key", "v":null}` sorts before the valid line (a space sorts before
+  // a quote). If it competed for the key it would win, and every reader
+  // rejects it, so the key would be lost.
+  for (const file of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+    for (const invalidSide of ["committed", "local"] as const) {
+      test(`a line no reader accepts never wins its key (${file}, invalid ${invalidSide})`, async () => {
+        const { root, remote } = brainWithRemote();
+        const valid = '{"k":"key","v":"good"}';
+        const invalid = '{"k":"key", "v":null}';
+        expect([valid, invalid].sort()[0]).toBe(invalid);
+        writeFileSync(join(root, file), `${invalidSide === "committed" ? invalid : valid}\n`);
+        git(root, "add", file);
+        git(root, "commit", "-qm", "Refresh derived index caches");
+        git(root, "push", "-q", "origin", "main");
+        pushFromOtherClone(remote, { "elsewhere.md": "# Elsewhere\n" });
+        writeFileSync(join(root, file), `${invalidSide === "committed" ? valid : invalid}\n`);
+
+        const body = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+        expect(body.status).toBe("fast-forwarded");
+        expect(await Bun.file(join(root, file)).text()).toBe(`${valid}\n`);
+      });
+    }
+  }
+
   test("a diff3 cache conflict resolves from the two sides, not the ancestor", async () => {
     const { root, remote } = brainWithRemote();
     git(root, "config", "merge.conflictStyle", "diff3");
