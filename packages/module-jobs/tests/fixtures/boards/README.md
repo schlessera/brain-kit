@@ -107,8 +107,8 @@ here.
 
 What the committed slices DO support is every per-card claim below, and
 `tests/board-fixtures.test.ts` asserts each of them by running the real page
-extractor over the slice: builtin's card yields no company, nodesk's card
-yields no company, dice's card yields a relative href. Those are the facts the
+extractor over the slice: builtin's card yielded no company and nodesk's card
+yielded no company (both read since #320), dice's card yields a relative href. Those are the facts the
 repairs in #34-#37 are tested against. The page-level counts are context for
 how often each one bites.
 
@@ -121,19 +121,22 @@ how often each one bites.
   `src/types.ts` records that it needs the site's permission. Fixture:
   `remotive/robots.txt`.
 - **`builtin`** — the browser path works (August's "parser matched nothing" is
-  closed), but the company is never extracted. `src/adapters/builtin.ts:86`
-  calls `link.closest('[class*="job"], [class*="card"], …')` and the anchor's
-  own class is `card-alias-after-overlay`, so `closest()` returns the anchor
-  itself and the card text it scans is just the title. The company has a stable
-  selector, `a[data-id="company-title"]`, contradicting the comment at `:26`.
+  closed), but the company was never extracted. The extractor called
+  `link.closest('[class*="job"], [class*="card"], …')` and the anchor's own
+  class is `card-alias-after-overlay`, so `closest()` returned the anchor
+  itself and the card text it scanned was just the title. The company has a
+  stable selector, `a[data-id="company-title"]`, contradicting the comment the
+  extractor then carried; since #320 it reads that selector inside the
+  card's `div[data-id="job-card"]`.
   The same page also carries an `@graph` whose `ItemList` holds a name, a url
   and a **description** for every job on it — 19 descriptions the adapter
   throws away by reading the DOM instead. No `hiringOrganization`, so the
   company still has to come from the card.
   Fixtures: `builtin/rendered-card.html`, `builtin/listing-jsonld.html`.
-- **`nodesk`** — the company is the `<h3>` under the title, but
-  `src/adapters/nodesk.ts:59` looks for `a[href*="/remote-companies/"]`, and
-  an Algolia hit card does not have one. Replaying the extractor against the
+- **`nodesk`** — the company is the `<h3>` under the title, but the
+  extractor looked for `a[href*="/remote-companies/"]`, and an Algolia hit
+  card does not have one; since #320 it reads the `h3` inside the hit card and
+  no longer walks up out of it. Replaying the extractor against the
   captured page gives 39 of 103 cards no company at all. The slug filter the
   extractor used then also admitted category pages
   (`blockchain-cryptocurrency-jobs`, `full-time-remote`) as jobs; since #277 it
