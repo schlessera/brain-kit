@@ -32,7 +32,9 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 - Output mode: JSON when stdout is not a TTY; force with `--json` / `--human`.
 - Exit codes: `0` success · `1` usage error · `2` internal failure
   (`maintain` exits `2` if any step failed; `scratch clean|prune` exits `2`
-  when a file could not be removed, with the JSON report still printed).
+  when a file could not be removed, with the JSON report still printed;
+  `eval` exits `2` when a validity gate refuses the run, with nothing on
+  stdout).
 - Boolean flags never consume the following argument.
 - End-of-options: a bare `--` stops flag parsing, and every later argument is
   positional verbatim. Output-mode and help flags after it are positional too
@@ -62,6 +64,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
 | `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively. **Breaking in 0.37.0:** `embeddings` is retyped from `number` to `number \| null` — `null` when a vector table exists but could not be counted, `0` when there is none. It also changed value: it reports the real vector count on an embedded brain, where before it read `0` on every brain. Every other earlier field keeps its name and type |
+| `brain eval [--set <file>] [--mode fts\|vector\|hybrid\|all] --json` | `{ "schema_version", "meta", "rows", "per_query", "warnings" }` — retrieval scores for a query set against this brain's index (additive in 0.38.0). See [`brain eval --json`](#brain-eval---json). Exit `2`, with nothing on stdout, when a validity gate refuses the run |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
@@ -86,6 +89,69 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 `verify`, `type-mismatch` and `orphan`. Modules add their own, and a failing
 module check reports as `module-hygiene` with `path: "(module)"`, so treat the
 set as open.
+
+#### `brain eval --json`
+
+Added in 0.38.0. The query-set format and how to read the numbers are in
+[evaluating-search.md](evaluating-search.md).
+
+```jsonc
+{
+  "schema_version": 1,           // bumped when a field below changes meaning
+  "meta": {
+    "version": "0.38.0",         // the installed @schlessera/brain
+    "source": null,              // the core package's directory when it runs
+                                 // from a checkout; null when installed
+    "set": "evals/retrieval.jsonl", // brain-relative when inside the root
+    "set_sha256": "1dcc…",       // of the set file's bytes
+    "queries": 27,
+    "documents": 25,             // rows in the index, assets included
+    "embedding_model": null,     // the provider id when a vector lane ran
+    "modes": ["fts"],            // --mode all → ["fts", "vector", "hybrid"]
+    "rerank": "heuristic",
+    "k": [1, 3, 10],
+    "pool": 20,                  // results fetched per query: max(20, k)
+    "now": "2026-07-12T09:00:00.000Z" // the instant recency was measured from
+  },
+  "rows": [
+    // Per mode: one overall row over the answerable queries (class null),
+    // then one row per class in the set's first-seen order.
+    { "mode": "fts", "class": null, "n": 26,
+      "hit_at": { "1": 0.73, "3": 0.88, "10": 0.96 },  // keyed by each k
+      "mrr_at_10": 0.81,
+      "oracle": 0.96,            // share with an expected path in the pool
+      "top1_score_median": 3.84 },
+    // A no-answer class is never scored: hit_at, mrr_at_10 and oracle are null.
+    { "mode": "fts", "class": "no-answer", "n": 1,
+      "hit_at": null, "mrr_at_10": null, "oracle": null, "top1_score_median": 1.37 }
+  ],
+  "per_query": [
+    { "mode": "fts", "id": "dob", "class": "alias", "q": "the Dobsonian",
+      "expected": ["studies/telescope-setup.md"],
+      "rank": 2,                 // of the first expected path in the pool; null when absent
+      "hit_at": { "1": false, "3": true, "10": true },  // null for no-answer
+      "rr": 0.5,                 // 1/rank, 0 below rank 10; null for no-answer
+      "top1_score": 4.02,        // null when the search returned nothing
+      "top": ["studies/astronomy/overview.md", "studies/telescope-setup.md"] }  // up to max(k) paths
+  ],
+  "warnings": []                 // findings that do not refuse the run
+}
+```
+
+Every `row` carries the same seven keys and every `per_query` entry the same
+ten; a consumer must treat an unknown additional key as additive. `hit_at`
+keys are the `--k` values as strings. A query set of only `no-answer` queries
+has no overall row.
+
+The command refuses, exiting `2` with the reason on stderr and nothing on
+stdout or in `--out`, when the set is missing or empty, an expected path is
+outside the brain (symlinks followed), not a file, or not in the index, the
+index is older than the markdown on disk or an indexed file cannot be read to
+tell, or a requested lane degraded (any `warnings` from the search, such as
+`--mode vector` with no embedding provider). Usage errors exit `1`: a malformed
+set line (named by number), a value option given no value, a `--k` cutoff above
+1000, and an `--out` outside the brain, which is refused before any search
+runs. `--set` and `--out` resolve against the brain root.
 
 #### `brain index` counters
 
