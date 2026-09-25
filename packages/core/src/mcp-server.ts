@@ -26,6 +26,7 @@ import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
+import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
 import { archiveDocument } from "./lib/archiver.js";
 import { indexAll } from "./lib/indexer.js";
@@ -308,9 +309,19 @@ export async function startMcpServer(
     "brain_read",
     {
       description:
-        "Read a specific document from the brain knowledge base by its relative path. Returns the full file contents including frontmatter.",
+        "Read a specific document from the brain knowledge base by its relative path. By default returns the whole file, frontmatter included, however long it is. Pass `section` to get one section by its heading, or `max_tokens` to get the frontmatter and an outline of headings with their token counts instead of a file larger than that.",
       inputSchema: {
         path: z.string().describe('Relative path to the document (e.g., "me/identity.md")'),
+        section: z
+          .string()
+          .optional()
+          .describe("Heading text of one section to return, from its heading to the next heading of the same or higher level"),
+        max_tokens: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("When the result would be larger than this, return the frontmatter and an outline instead"),
       },
       annotations: { readOnlyHint: true },
     },
@@ -319,7 +330,11 @@ export async function startMcpServer(
         const fullPath = safeResolve(brain.root, params.path);
         if (!fullPath) return errorResult(new Error("path escapes the brain root directory"));
 
-        const content = readFileSync(fullPath, "utf-8");
+        const content = readDocumentPart(readFileSync(fullPath, "utf-8"), {
+          section: params.section,
+          maxTokens: params.max_tokens,
+          sectionHint: 'section: "<heading>"',
+        });
         const stale = indexStalenessWarning();
         return { content: textContent(content, toolWarnings(stale)) };
       } catch (e) {

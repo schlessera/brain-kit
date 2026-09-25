@@ -84,6 +84,44 @@ describe("search", () => {
   });
 });
 
+describe("read", () => {
+  test("prints the whole file with no flag", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md"]);
+    expect(code).toBe(0);
+    expect(stdout).toBe(readFileSync(join(root, "me/identity.md"), "utf-8") + "\n");
+  });
+
+  test("--section prints that section and no other", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--section", "How to Work With Alex"]);
+    expect(code).toBe(0);
+    expect(stdout.startsWith("## How to Work With Alex\n")).toBe(true);
+    expect(stdout).toContain("Prefer concrete, checklist-shaped guidance");
+    expect(stdout).not.toContain("## Current Identity");
+  });
+
+  test("--max-tokens over the file's size prints the outline, not the body", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "50"]);
+    expect(code).toBe(0);
+    expect(stdout).toMatch(/^- ## Current Identity \(~\d+ tokens\)$/m);
+    expect(stdout).toMatch(/^- ## How to Work With Alex \(~\d+ tokens\)$/m);
+    expect(stdout).toContain('--section "<heading>"');
+    expect(stdout).not.toContain("Prefer concrete");
+  });
+
+  test("an unknown --section is a usage error naming the available headings", async () => {
+    const { stderr, code } = await runCli(root, ["read", "me/identity.md", "--section", "No Such Heading"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain('available headings: "Current Identity", "How to Work With Alex"');
+  });
+
+  test("--max-tokens must be a positive integer", async () => {
+    for (const bad of ["0", "-3", "1.5", "many"]) {
+      const { code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", bad]);
+      expect(code).toBe(1);
+    }
+  });
+});
+
 describe("audit", () => {
   test("returns the { issues, errors, warnings, infos } envelope", async () => {
     const { stdout, code } = await runCli(root, ["audit", "--json"]);
