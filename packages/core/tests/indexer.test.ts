@@ -1312,6 +1312,77 @@ describe("an unchanged chunk keeps its vector (#417)", () => {
     expect(flags).toEqual([{ is_archived: 1 }, { is_archived: 1 }, { is_archived: 1 }]);
   });
 
+  test.if(vecAvailable)("a title-only edit re-embeds every chunk, incrementally and under --force", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+    const before = await chunkIds(root);
+
+    // The title is part of every chunk's embedding text.
+    writeFileSync(join(root, "notes/airships.md"), doc.replace("title: Airships", "title: Lighter than air"));
+    const incremental = countingProvider();
+    await runIndex(root, { embeddings: true, provider: incremental.provider, enrichment: makeEnrichment() });
+    expect(incremental.embedded.length).toBe(3);
+    expect(incremental.embedded.every((text) => text.startsWith("[Lighter than air]"))).toBe(true);
+    const after = await chunkIds(root);
+    for (const heading of Object.keys(before)) expect(after[heading]).not.toBe(before[heading]);
+
+    // A later --force carries only vectors embedded under the current title.
+    const forced = countingProvider();
+    await runIndex(root, { embeddings: true, force: true, provider: forced.provider, enrichment: makeEnrichment() });
+    expect(forced.embedded).toEqual([]);
+  });
+
+  test.if(vecAvailable)("an edit indexed while sqlite-vec was unavailable has its vectors' filters repaired later", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    await runIndex(root, withEnrichment());
+
+    // Archived and retyped, text unchanged, indexed on a connection that
+    // never loaded the extension: the kept vectors cannot be touched then.
+    writeFileSync(
+      join(root, "notes/airships.md"),
+      doc.replace("type: note", "type: context\nstatus: archived")
+    );
+    const bare = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const stats = await indexAll(bare, { root, taxonomy, quiet: true });
+    bare.close();
+    expect(stats.updated).toBe(1);
+
+    const filters = async () => {
+      const db = await openRead(root);
+      const rows = db.prepare("SELECT is_archived, doc_type FROM vec_chunks ORDER BY chunk_id").all();
+      db.close();
+      return rows;
+    };
+    const stale = { is_archived: 0, doc_type: "note" };
+    expect(await filters()).toEqual([stale, stale, stale]);
+
+    // The next run that can load it, embeddings or not, repairs them.
+    await runIndex(root);
+    const fresh = { is_archived: 1, doc_type: "context" };
+    expect(await filters()).toEqual([fresh, fresh, fresh]);
+  });
+
+  test.if(vecAvailable)("a brain with the extension loaded and no vector table indexes an edit", async () => {
+    const root = makeCorpus({ "notes/airships.md": doc });
+    const index = async () => {
+      const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+      try {
+        const { load } = await import("sqlite-vec");
+        load(db);
+        return await indexAll(db, { root, taxonomy, quiet: true });
+      } finally {
+        db.close();
+      }
+    };
+    expect((await index()).added).toBe(1);
+    writeFileSync(join(root, "notes/airships.md"), edited.replace("type: note", "type: note\nstatus: archived"));
+    expect((await index()).updated).toBe(1);
+    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE name = 'vec_chunks'").get();
+    db.close();
+    expect(table).toBeNull();
+  });
+
   test.if(vecAvailable)("--force with the same provider reuses every unchanged vector", async () => {
     const root = makeCorpus({ "notes/airships.md": doc });
     await runIndex(root, withEnrichment());

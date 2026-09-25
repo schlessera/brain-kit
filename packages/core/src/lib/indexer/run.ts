@@ -34,7 +34,7 @@ import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
 import { getAssetFiles, getMarkdownFiles, loadExistingDocs } from "./scan.js";
 import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats } from "./types.js";
-import { carryMarkdownVectors, dropMarkdownVectors, dropOrphanedVectors } from "./vectors.js";
+import { carryMarkdownVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
 
 function emptyStats(): IndexStats {
   return {
@@ -205,6 +205,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   );
 
   dropOrphanedVectors(run.db);
+  syncVectorFilters(run.db);
 
   run.report(
     `Indexed: ${run.stats.added} added, ${run.stats.updated} updated, ` +

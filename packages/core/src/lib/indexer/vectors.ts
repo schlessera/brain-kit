@@ -14,6 +14,7 @@ import {
   hasVecSupport,
   migrateVecSchema,
   setMeta,
+  vecTableExists,
 } from "../db.js";
 import { chunkTextForEmbedding } from "../chunker.js";
 import type { EmbeddingProvider } from "../seams.js";
@@ -108,6 +109,40 @@ export function dropOrphanedVectors(db: Database): void {
     db.run("DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)");
   } catch {
     // vec_chunks may not exist
+  }
+}
+
+/**
+ * Bring every stored vector's filter columns in line with its document.
+ *
+ * `is_archived` and `doc_type` are copied into `vec_chunks` so KNN can filter
+ * before ranking. A vector now outlives edits to its document (persist keeps
+ * the rows of unchanged chunks), so an edit that archives a document or
+ * changes its type leaves them stale. Doing it here, idempotently and on
+ * every run, also repairs vectors kept while sqlite-vec was unavailable and
+ * this could not run. Returns how many vectors were updated.
+ */
+export function syncVectorFilters(db: Database): number {
+  if (!hasVecSupport(db) || !vecTableExists(db)) return 0;
+  try {
+    const stale = db
+      .prepare(
+        `SELECT v.chunk_id, CASE WHEN d.status = 'archived' THEN 1 ELSE 0 END AS archived, d.type
+         FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
+         JOIN documents d ON d.id = c.document_id
+         WHERE v.is_archived IS NOT (CASE WHEN d.status = 'archived' THEN 1 ELSE 0 END)
+            OR v.doc_type IS NOT d.type`
+      )
+      .all() as { chunk_id: number; archived: number; type: string }[];
+    if (stale.length === 0) return 0;
+    const update = db.prepare("UPDATE vec_chunks SET is_archived = ?, doc_type = ? WHERE chunk_id = ?");
+    db.transaction(() => {
+      for (const row of stale) update.run(row.archived, row.type, row.chunk_id);
+    }).immediate();
+    return stale.length;
+  } catch {
+    // a vector table without the filter columns (pre-v2): nothing to sync
+    return 0;
   }
 }
 

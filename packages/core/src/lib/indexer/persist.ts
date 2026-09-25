@@ -15,7 +15,6 @@
 import type { Database } from "bun:sqlite";
 
 import { chunkDocument } from "../chunker.js";
-import { hasVecSupport } from "../db.js";
 import { chunkContextKey } from "./caches.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
 import type { ExistingDoc, IndexRun, ParseResult } from "./types.js";
@@ -58,6 +57,7 @@ function prepareStatements(db: Database) {
       "INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)"
     ),
     getDocId: db.prepare("SELECT id FROM documents WHERE path = ?"),
+    getTitle: db.prepare("SELECT title FROM documents WHERE id = ?"),
     deleteFts: db.prepare("DELETE FROM documents_fts WHERE rowid = ?"),
     deleteChunks: db.prepare("DELETE FROM chunks WHERE document_id = ?"),
     deleteTags: db.prepare("DELETE FROM document_tags WHERE document_id = ?"),
@@ -109,6 +109,11 @@ function writeDocument(
   existing: ExistingDoc | undefined
 ): number | null {
   const { path, data, content, hash, mtime, isChanged } = file;
+  // The title the old chunks were embedded under, read before the upsert
+  // overwrites it.
+  const previousTitle = existing
+    ? (st.getTitle.get(existing.id) as { title: string } | null)?.title
+    : undefined;
 
   // An updated file's old rows go first, except its chunks, which are
   // matched below. On a force rebuild everything was already dropped, so this
@@ -164,40 +169,29 @@ function writeDocument(
   // embedded from. A match keeps its row, so its id, its context and its
   // vector stay; only its position moves. Editing one section then pays for
   // that section's vector alone. The title is part of the match because it is
-  // part of the embedding text (`chunkTextForEmbedding`); the key is the one
-  // the context cache already uses.
+  // part of the embedding text (`chunkTextForEmbedding`): an old chunk is
+  // keyed by the title it was embedded under, so a renamed document matches
+  // nothing and is embedded afresh. The key is the one the context cache uses.
   const reusable = new Map<string, number[]>();
   for (const old of st.oldChunks.all(docRow.id) as { id: number; heading: string; content: string }[]) {
-    const key = chunkContextKey(title, old.heading, old.content);
+    const key = chunkContextKey(previousTitle ?? title, old.heading, old.content);
     const ids = reusable.get(key);
     if (ids) ids.push(old.id);
     else reusable.set(key, [old.id]);
   }
-  const kept: number[] = [];
   for (const chunk of chunks) {
     const id = reusable.get(chunkContextKey(title, chunk.heading, chunk.content))?.shift();
     if (id !== undefined) {
       st.moveChunk.run(chunk.chunk_index, chunk.token_estimate, id);
-      kept.push(id);
     } else {
       st.insertChunk.run(chunk.document_id, chunk.chunk_index, chunk.heading, chunk.content, chunk.token_estimate);
     }
     run.stats.chunks++;
   }
-  // What is left matched nothing. Its vectors go with the orphan sweep.
+  // What is left matched nothing. Its vectors go with the orphan sweep. A
+  // kept vector's filter columns are brought up to date by
+  // `syncVectorFilters` after this phase.
   for (const ids of reusable.values()) for (const id of ids) st.deleteChunk.run(id);
-
-  // A kept vector carries the document's archive flag and type for filtered
-  // KNN; an edit can change either without changing the chunk's text.
-  if (kept.length > 0 && hasVecSupport(run.db)) {
-    const archived = String(data.status || "active") === "archived" ? 1 : 0;
-    const refresh = run.db.prepare("UPDATE vec_chunks SET is_archived = ?, doc_type = ? WHERE chunk_id = ?");
-    try {
-      for (const id of kept) refresh.run(archived, String(data.type), id);
-    } catch {
-      // vec_chunks may not exist yet
-    }
-  }
 
   return docRow.id;
 }
