@@ -25,9 +25,14 @@ export type Source = (typeof ALL_SOURCES)[number];
 export const DISABLED_BY_DEFAULT = {
   nodesk: "client-rendered; needs a browser",
   dice: "client-rendered; needs a browser",
-  simplyhired: "Cloudflare 403 or empty responses",
-  jobgether: "Cloudflare 403 or empty responses",
-  builtin: "Cloudflare 403 or empty responses",
+  builtin: "client-rendered; needs a browser",
+  // The 403s #33 measured were rate limiting: the same URL answered 200
+  // fifteen minutes later.
+  simplyhired:
+    "intermittent 403s (rate limiting) from the measured vantage point; see tests/fixtures/boards/README.md",
+  // The API answers cleanly since #35; the limit is politeness, not a block.
+  jobgether:
+    "robots.txt disallows its API's query-string paging, so a run gets one page; see docs/decisions/scraping-politeness.md",
   // robots.txt disallows /api/*, and /api/remote-jobs is the only path the
   // adapter fetches, so every request is refused before it is sent. Enabling
   // it changes nothing without the site's permission: the adapter stays for
