@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { detectCandidates } from "../src/classification/index";
+import { kvReadSteps } from "../src/classification/detect";
 
 // The deterministic half of D42: what the text plainly contains, with the
 // span it occupies. Samples are in the Odysseus world.
@@ -236,6 +237,28 @@ describe("detectCandidates", () => {
     expect(values("Crew: **600\nShips: 12**")).toEqual(["600", "12"]);
     expect(values("Crew *count: 600*\nShips: 12")).toEqual(["600", "12"]);
     expect(values("- Crew *count: 600*\n- Ships: 12")).toEqual(["600", "12"]);
+  });
+
+  test("reading a run's values takes work in step with the run, not its square", () => {
+    const steps = (rows: number, bullet: string) => {
+      const text = Array.from(
+        { length: rows },
+        (_, i) => `${bullet}**Key:** https://ithaca.example/${i} **600** &amp; more`
+      ).join("\n");
+      kvReadSteps.count = 0;
+      const [run] = detectCandidates(text);
+      if (run?.kind !== "kv_run") throw new Error("expected kv_run");
+      expect(run.rows).toHaveLength(rows);
+      expect(run.rows[rows - 1]!.v).toBe(`https://ithaca.example/${rows - 1} 600 & more`);
+      return kvReadSteps.count;
+    };
+    for (const bullet of ["", "- "]) {
+      const small = steps(100, bullet);
+      expect(small).toBeGreaterThan(0);
+      // Four times the rows: linear work is four times the steps, a pass over
+      // every leaf or address per row is sixteen.
+      expect(steps(400, bullet) / small).toBeLessThan(5);
+    }
   });
 
   test("one key line is prose, not a run", () => {
