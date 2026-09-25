@@ -1,0 +1,215 @@
+{
+  "brain_add": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "tags": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "content"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_archive": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "dry_run": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_context": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "max_tokens": {
+        "default": 4000,
+        "type": "number"
+      },
+      "include_identity": {
+        "default": true,
+        "type": "boolean"
+      },
+      "include_current_focus": {
+        "default": true,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_graph": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "depth": {
+        "default": 1,
+        "type": "number"
+      },
+      "direction": {
+        "default": "both",
+        "type": "string",
+        "enum": [
+          "outgoing",
+          "incoming",
+          "both"
+        ]
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_list": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string"
+      },
+      "tag": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "relevance": {
+        "type": "string"
+      },
+      "limit": {
+        "default": 20,
+        "type": "number"
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_read": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_search": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string"
+      },
+      "tag": {
+        "type": "string"
+      },
+      "relevance": {
+        "type": "string"
+      },
+      "mode": {
+        "default": "hybrid",
+        "type": "string",
+        "enum": [
+          "fts",
+          "vector",
+          "hybrid"
+        ]
+      },
+      "rerank": {
+        "default": "heuristic",
+        "type": "string",
+        "enum": [
+          "none",
+          "heuristic"
+        ]
+      },
+      "include_archived": {
+        "default": false,
+        "type": "boolean"
+      },
+      "assets_only": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 10,
+        "type": "number"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "brain_update": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived",
+          "draft"
+        ]
+      },
+      "relevance": {
+        "type": "string",
+        "enum": [
+          "primary",
+          "secondary",
+          "historical"
+        ]
+      },
+      "tags": {
+        "type": "string"
+      },
+      "deadline": {
+        "type": "string"
+      },
+      "next_review": {
+        "type": "string"
+      },
+      "append_content": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

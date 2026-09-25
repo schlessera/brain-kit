@@ -5,8 +5,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { packageVersion } from "../src/package-version";
 
 let root: string;
 
@@ -47,17 +50,30 @@ describe("search", () => {
 });
 
 describe("audit", () => {
-  test("returns the { issues, ... } envelope", async () => {
+  test("returns the { issues, errors, warnings, infos } envelope", async () => {
     const { stdout, code } = await runCli(root, ["audit", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
     expect(Array.isArray(out.issues)).toBe(true);
-    expect(typeof out.errors).toBe("number");
-    expect(typeof out.warnings).toBe("number");
-    // Assets are excluded — no issue should point at a binary asset.
+    // The fixture corpus is dated, so it always has stale documents: an empty
+    // list would pass every per-issue check below without running one.
+    expect(out.issues.length).toBeGreaterThan(0);
     for (const issue of out.issues) {
+      expect(typeof issue.path).toBe("string");
+      expect(["error", "warning", "info"]).toContain(issue.severity);
+      expect(typeof issue.category).toBe("string");
+      expect(typeof issue.message).toBe("string");
+      if ("suggestion" in issue) expect(typeof issue.suggestion).toBe("string");
+      // Assets are excluded — no issue should point at a binary asset.
       expect(issue.path).not.toMatch(/\.(png|pdf|jpe?g)$/i);
     }
+    expect(out.issues.some((i: { suggestion?: string }) => typeof i.suggestion === "string")).toBe(true);
+
+    const count = (severity: string) =>
+      out.issues.filter((i: { severity: string }) => i.severity === severity).length;
+    expect(out.errors).toBe(count("error"));
+    expect(out.warnings).toBe(count("warning"));
+    expect(out.infos).toBe(count("info"));
   });
 });
 
@@ -66,7 +82,10 @@ describe("index", () => {
     const { stdout, code } = await runCli(root, ["index", "--json"]);
     expect(code).toBe(0);
     const stats = JSON.parse(stdout);
-    for (const field of ["total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets"]) {
+    for (const field of [
+      "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets",
+      "graphMs", "graphNodes",
+    ]) {
       expect(typeof stats[field]).toBe("number");
     }
     expect(stats.total).toBeGreaterThan(0);
@@ -79,7 +98,204 @@ describe("list", () => {
     expect(code).toBe(0);
     const results = JSON.parse(stdout);
     expect(Array.isArray(results)).toBe(true);
-    expect(results.every((r: { type: string }) => r.type === "health")).toBe(true);
+    expect(results.length).toBeGreaterThan(0);
+    for (const doc of results) {
+      expect(doc.type).toBe("health");
+      for (const field of ["path", "title", "relevance", "status", "updated", "snippet"]) {
+        expect(typeof doc[field]).toBe("string");
+      }
+      // Nullable: no summary in the frontmatter, no tags on the document.
+      for (const field of ["summary", "tags"]) {
+        expect(doc).toHaveProperty(field);
+        expect(doc[field] === null || typeof doc[field] === "string").toBe(true);
+      }
+      // A filter has no query to rank against.
+      expect(doc.score).toBe(0);
+    }
+    // Every health fixture is tagged, so this is the comma-joined form.
+    expect(results[0].tags).toContain(", ");
+  });
+});
+
+describe("add", () => {
+  test("reports the capture it wrote", async () => {
+    const brain = makeTempBrain();
+    try {
+      const { stdout, code } = await runCli(brain, [
+        "add", "--type", "note", "--title", "Contract capture", "--json", "--", "Moonrise over the ridge.",
+      ]);
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(out.action).toBe("created");
+      expect(out.path).toBe("notes/contract-capture.md");
+      expect(out.title).toBe("Contract capture");
+      expect(out.type).toBe("note");
+      expect(out.indexed).toBe(true);
+      // Present only when indexing failed after the file was written.
+      expect(out).not.toHaveProperty("indexError");
+    } finally {
+      cleanup(brain);
+    }
+  });
+});
+
+describe("sync", () => {
+  // Bare `brain sync` hands the whole workflow to the coding agent and prints
+  // its final text. A stub runner stands in so nothing real is launched.
+  test("prints the agent's text, not JSON", async () => {
+    const brain = makeTempBrain({ empty: true });
+    try {
+      writeFileSync(
+        join(brain, "brain.config.ts"),
+        `import { defineConfig } from "@schlessera/brain";
+export default defineConfig({
+  agentRunner: {
+    id: "stub",
+    capabilities: { streaming: false, skills: true },
+    async run(prompt: string) { return "stub agent ran " + prompt; },
+  },
+});
+`
+      );
+      const { stdout, code } = await runCli(brain, ["sync"]);
+      expect(code).toBe(0);
+      expect(stdout).toBe("stub agent ran /sync\n");
+      expect(() => JSON.parse(stdout)).toThrow();
+    } finally {
+      cleanup(brain);
+    }
+  });
+});
+
+describe("module list", () => {
+  test("returns the { enabled, available } payload the cron emitter reads", async () => {
+    const brain = makeTempBrain({ empty: true });
+    try {
+      mkdirSync(join(brain, "modules/stub"), { recursive: true });
+      writeFileSync(
+        join(brain, "modules/stub/module.ts"),
+        `import { defineModule } from "@schlessera/brain";
+import { z } from "zod";
+export default defineModule({
+  name: "stub",
+  configSchema: z.object({}).strict(),
+  setup: () => ({
+    taxonomy: { types: { stubnote: { dir: "stubnotes" } } },
+    commands: { stub: async () => ({ summary: "stub", async run() { return 0; } }) },
+    cron: [{ name: "stub-nightly", schedule: "0 3 * * *", command: "stub run" }],
+  }),
+});
+`
+      );
+      writeFileSync(
+        join(brain, "modules/stub/package.json"),
+        JSON.stringify({ name: "stub", description: "A stub module" })
+      );
+      writeFileSync(
+        join(brain, "package.json"),
+        JSON.stringify({ dependencies: { "@schlessera/brain-module-example": "^1.0.0" } })
+      );
+      writeFileSync(
+        join(brain, "brain.config.ts"),
+        `import { defineConfig } from "@schlessera/brain";
+export default defineConfig({ modules: { "./modules/stub": {} } });
+`
+      );
+
+      const { stdout, code } = await runCli(brain, ["module", "list", "--json"]);
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(out.enabled).toHaveLength(1);
+      const [mod] = out.enabled;
+      expect(mod.name).toBe("stub");
+      expect(mod.key).toBe("./modules/stub");
+      expect(mod.description).toBe("A stub module");
+      expect(mod.types).toEqual(["stubnote"]);
+      expect(mod.commands).toEqual(["stub"]);
+      expect(mod.cron).toEqual([{ name: "stub-nightly", schedule: "0 3 * * *", command: "stub run" }]);
+
+      // Declared in package.json, not enabled, and not installed.
+      expect(out.available).toEqual([
+        { key: "@schlessera/brain-module-example", description: null, enabled: false },
+      ]);
+    } finally {
+      cleanup(brain);
+    }
+  });
+});
+
+describe("init --check", () => {
+  test("emits the preflight object", async () => {
+    const { stdout, code } = await runCli(root, ["init", "--check", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(typeof out.bun.version).toBe("string");
+    expect(out.bun.ok).toBe(true);
+    expect(typeof out.git.repo).toBe("boolean");
+    expect(typeof out.hooksPath.set).toBe("boolean");
+    expect(out.hooksPath).toHaveProperty("value");
+    expect(out.config).toMatchObject({ exists: true, valid: true, initialized: true });
+    expect(typeof out.config.path).toBe("string");
+    expect(out.contentDirs.present.length).toBeGreaterThan(0);
+    expect(Array.isArray(out.contentDirs.missing)).toBe(true);
+    // Keyless harness: both are reported, as absent.
+    expect(out.keys).toEqual({ GEMINI_API_KEY: false, ANTHROPIC_API_KEY: false });
+  });
+});
+
+describe("graph", () => {
+  test("compute --json emits the rebuild summary", async () => {
+    const { stdout, code } = await runCli(root, ["graph", "compute", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    for (const field of ["nodes", "edges", "brokenLinks", "components", "communities", "reachable", "durationMs"]) {
+      expect(typeof out[field]).toBe("number");
+    }
+    expect(out.nodes).toBeGreaterThan(0);
+    expect(out).toHaveProperty("root");
+    expect(typeof out.layoutSkipped).toBe("boolean");
+  });
+
+  test("stats --json emits counts, the algorithm settings and communities", async () => {
+    const { stdout, code } = await runCli(root, ["graph", "stats", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(typeof out.computedAt).toBe("string");
+    for (const field of ["nodes", "edges", "brokenLinks", "components", "reachable"]) {
+      expect(typeof out[field]).toBe("number");
+    }
+    expect(out).toHaveProperty("root");
+    expect(typeof out.layoutSkipped).toBe("boolean");
+    expect(typeof out.algo).toBe("object");
+    expect(out.algo).not.toBeNull();
+    expect(out.communities.length).toBeGreaterThan(0);
+  });
+
+  test("export --json emits { nodes, edges, truncated } for the three view modes", async () => {
+    for (const args of [
+      ["--mode", "clusters"],
+      ["--mode", "discovery"],
+      ["--mode", "local", "--center", "me/identity.md"],
+    ]) {
+      const { stdout, code } = await runCli(root, ["graph", "export", ...args, "--json"]);
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(Array.isArray(out.nodes)).toBe(true);
+      expect(Array.isArray(out.edges)).toBe(true);
+      expect(typeof out.truncated).toBe("boolean");
+    }
+  });
+
+  test("export --mode maintenance --json emits the findings", async () => {
+    const { stdout, code } = await runCli(root, ["graph", "export", "--mode", "maintenance", "--json"]);
+    expect(code).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(out.staleDays).toBe(180);
+    expect(out).toHaveProperty("root");
+    for (const field of ["orphans", "unreachable", "brokenLinks", "stale"]) {
+      expect(Array.isArray(out[field])).toBe(true);
+    }
+    expect(out.orphans.length).toBeGreaterThan(0);
   });
 });
 
@@ -182,9 +398,13 @@ describe("output mode + exit codes", () => {
     expect(help.code).toBe(0);
     expect(help.stdout).toMatch(/^\s*mcp\s+Start the stdio MCP server$/m);
 
-    const version = await runCli(root, ["--version"]);
-    expect(version.code).toBe(0);
-    expect(version.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+    // The chat server parses this as SemVer and refuses to boot below its
+    // minimum, so it is the bare version and a newline, nothing else.
+    for (const flag of ["--version", "-v"]) {
+      const version = await runCli(root, [flag]);
+      expect(version.code).toBe(0);
+      expect(version.stdout).toBe(`${packageVersion()}\n`);
+    }
 
     const nestedVersion = await runCli(root, ["add", "-v"]);
     expect(nestedVersion.stdout.trim()).not.toMatch(/^\d+\.\d+\.\d+$/);
