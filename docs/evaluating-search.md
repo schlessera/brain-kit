@@ -63,12 +63,14 @@ and the answer is worked out from frontmatter at every run:
 
 | Selector key | Meaning |
 | --- | --- |
-| `field` | A frontmatter date field (`deadline`, `next_review`, `updated`, …). A document without a readable date there is never selected. |
+| `field` | A frontmatter date field (`deadline`, `next_review`, `updated`, …). A document without a readable date there, or with a day that does not exist (`2026-02-30`), is never selected. |
 | `type` | Only documents of this frontmatter `type`. Optional. |
 | `after` / `before` | `"now"` or an ISO date; the field must lie strictly after or before it. At most one, or neither. |
 | `order`, `take` | Sort by the field, `"asc"` (soonest first) or `"desc"`, and keep the first `take`. Ties sort by path. |
 
-The selector reads the markdown files the index covers, not `brain.db`. The
+The selector reads the markdown files the index covers, not `brain.db`, and
+skips any the indexer skips (no `title` or `type`): such a document can never
+be a search result, so it must not take one of the `take` slots. The
 paths it picks become that query's `expected` for the run, and `per_query`
 prints them. **A selector that selects nothing refuses the run** (exit `2`):
 the query would have no right answer to score.

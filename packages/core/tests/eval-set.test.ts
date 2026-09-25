@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aggregate, ContaminationScanner, EvalSetError, MAX_K, parseEvalSet, parseKs, poolSize, scoreQuery, selectPaths } from "../src/lib/retrieval-eval";
+import { aggregate, ContaminationScanner, EvalSetError, isCalendarDate, MAX_K, parseEvalDate, parseEvalSet, parseKs, poolSize, scoreQuery, selectPaths } from "../src/lib/retrieval-eval";
 import type { SearchResult } from "../src/lib/types";
 
 const line = (value: object) => JSON.stringify(value);
@@ -192,12 +192,12 @@ describe("current_first", () => {
 describe("selectPaths", () => {
   const now = new Date("2026-07-12T00:00:00Z");
   const docs = [
-    { path: "b.md", data: { type: "project", deadline: new Date("2026-08-15T00:00:00Z") } },
-    { path: "a.md", data: { type: "project", deadline: "2026-08-15" } },
-    { path: "c.md", data: { type: "project", deadline: "2026-06-01" } },
-    { path: "d.md", data: { type: "note", deadline: "2026-09-01" } },
-    { path: "e.md", data: { type: "project", deadline: "someday" } },
-    { path: "f.md", data: { type: "project" } },
+    { path: "b.md", data: { title: "T", type: "project", deadline: new Date("2026-08-15T00:00:00Z") } },
+    { path: "a.md", data: { title: "T", type: "project", deadline: "2026-08-15" } },
+    { path: "c.md", data: { title: "T", type: "project", deadline: "2026-06-01" } },
+    { path: "d.md", data: { title: "T", type: "note", deadline: "2026-09-01" } },
+    { path: "e.md", data: { title: "T", type: "project", deadline: "someday" } },
+    { path: "f.md", data: { title: "T", type: "project" } },
   ];
 
   test("after now, soonest first, ties by path; unreadable or missing dates are never selected", () => {
@@ -212,5 +212,49 @@ describe("selectPaths", () => {
 
   test("the bound is strict: a date equal to now is not after it", () => {
     expect(selectPaths({ field: "deadline", after: "2026-08-15", order: "asc", take: 5 }, docs, now)).toEqual(["d.md"]);
+  });
+});
+
+describe("impossible calendar dates", () => {
+  test("isCalendarDate rejects a day that does not exist, and accepts one that does", () => {
+    for (const bad of ["2026-02-30", "2026-02-29", "2026-04-31", "2026-13-01", "2026-00-10", "2026-07-32"]) {
+      expect(isCalendarDate(bad)).toBe(false);
+    }
+    for (const good of ["2028-02-29", "2026-12-31", "2026-07-12T09:00:00Z", "0050-01-01"]) {
+      expect(isCalendarDate(good)).toBe(true);
+    }
+  });
+
+  test("an impossible header now, --now value or selector bound is refused, not rolled over", () => {
+    expect(() => parseEvalSet([line({ now: "2026-02-30" }), line(query)].join("\n"))).toThrow(/^line 1: header: now: /);
+    expect(parseEvalDate("2026-04-31")).toBe(false);
+    expect(parseEvalDate("2026-04-30")).toBe(true);
+    const { expected: _drop, ...bare } = query;
+    const select = { field: "deadline", after: "2026-02-29", order: "asc" as const, take: 1 };
+    expect(() => parseEvalSet(line({ ...bare, expect: { select } }))).toThrow(/^line 1: /);
+  });
+
+  test("a document whose date does not exist is never selected, as written or as YAML rolled it", () => {
+    const now = new Date("2026-07-12T00:00:00Z");
+    const docs = [
+      // gray-matter already turned `deadline: 2026-07-32` into August 1.
+      { path: "rolled.md", data: { title: "R", type: "project", deadline: new Date("2026-08-01T00:00:00Z") }, raw: "title: R\ntype: project\ndeadline: 2026-07-32" },
+      // Date.parse rolls this string to 2026-10-01, well after now.
+      { path: "quoted.md", data: { title: "Q", type: "project", deadline: "2026-09-31" } },
+      { path: "real.md", data: { title: "Real", type: "project", deadline: new Date("2026-08-15T00:00:00Z") }, raw: "deadline: 2026-08-15" },
+    ];
+    expect(selectPaths({ field: "deadline", after: "now", order: "asc", take: 3 }, docs, now)).toEqual(["real.md"]);
+  });
+});
+
+describe("selectors see only indexable documents", () => {
+  test("a document without title or type never takes a slot", () => {
+    const now = new Date("2026-07-12T00:00:00Z");
+    const docs = [
+      { path: "draft.md", data: { deadline: "2026-07-20" } },
+      { path: "untitled.md", data: { type: "project", deadline: "2026-07-21" } },
+      { path: "status.md", data: { title: "Status", type: "project", deadline: "2026-08-15" } },
+    ];
+    expect(selectPaths({ field: "deadline", after: "now", order: "asc", take: 1 }, docs, now)).toEqual(["status.md"]);
   });
 });

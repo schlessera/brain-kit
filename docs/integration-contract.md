@@ -180,7 +180,9 @@ The query-set format (additive in 0.38.0): the optional first-line header
 takes `now` (an ISO date or timestamp), and no other key. A query gives either
 `expected` or `expect.select`, a selector `{ type?, field, after? | before?,
 order, take }` over frontmatter dates, whose resolved paths are printed as that
-query's `expected` in `per_query`. An optional `stale` list of paths feeds
+query's `expected` in `per_query`; it considers only documents the indexer
+indexes (with `title` and `type`) and real calendar dates, and a `now` or bound
+naming a day that does not exist is refused. An optional `stale` list of paths feeds
 `current_first`. When the header sets `now` and `--now` differs, the header
 wins and `warnings` says the flag was ignored.
 

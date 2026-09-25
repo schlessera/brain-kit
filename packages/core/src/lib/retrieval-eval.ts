@@ -29,7 +29,22 @@ export type EvalMode = "fts" | "vector" | "hybrid";
 const isoDateSchema: z.ZodType<string> = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2})?)?$/, "an ISO date (YYYY-MM-DD) or timestamp")
-  .refine((v) => !Number.isNaN(Date.parse(v)), "not a real date");
+  .refine((v) => isCalendarDate(v) && !Number.isNaN(Date.parse(v)), "not a real date");
+
+/**
+ * Whether the leading YYYY-MM-DD names a day that exists. `Date` rolls an
+ * impossible day over without complaint (2026-02-30 becomes March 2), which
+ * would silently move a run's now or a selector's bound, so the components
+ * must survive a round trip.
+ */
+export function isCalendarDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!m) return false;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCFullYear(year); // Date.UTC maps years 0-99 to 1900-1999
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 
 /**
  * A time-relative answer: the documents whose frontmatter date `field` lies
@@ -375,12 +390,22 @@ export class ContaminationScanner {
 export interface FrontmatterDocument {
   path: string;
   data: Record<string, unknown>;
+  /** The raw frontmatter text, to check a date YAML already turned into a `Date`. */
+  raw?: string;
 }
 
 /** A frontmatter date as epoch ms: a YAML date (gray-matter gives a Date) or an ISO string. */
-function dateValue(value: unknown): number | null {
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime();
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+function dateValue(doc: FrontmatterDocument, field: string): number | null {
+  const value = doc.data[field];
+  if (value instanceof Date) {
+    // YAML already rolled an impossible day over (`deadline: 2026-02-30` is
+    // March 2 by now), so check the scalar as written when it can be found.
+    const written = doc.raw
+      ?.match(new RegExp(`^${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*["']?(\\d{4}-\\d{2}-\\d{2})`, "m"))?.[1];
+    if (written !== undefined && !isCalendarDate(written)) return null;
+    return Number.isNaN(value.getTime()) ? null : value.getTime();
+  }
+  if (typeof value !== "string" || !isCalendarDate(value)) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
 }
@@ -388,16 +413,19 @@ function dateValue(value: unknown): number | null {
 /**
  * The paths a selector picks at `now`: documents (of `type`, when given)
  * whose `field` is a date strictly after / before the bound, ordered by that
- * date (ties by path), first `take`. A document without a readable date in
- * `field` is never selected.
+ * date (ties by path), first `take`. A document without a readable, real
+ * date in `field` is never selected, and neither is one the indexer skips
+ * (no `title` or `type`, `parseMarkdownFiles` in lib/indexer/parse.ts): it
+ * could never be a search result, so it must not take a `take` slot.
  */
 export function selectPaths(select: Selector, documents: FrontmatterDocument[], now: Date): string[] {
   const bound = (b: string) => (b === "now" ? now.getTime() : Date.parse(b));
   const after = select.after === undefined ? null : bound(select.after);
   const before = select.before === undefined ? null : bound(select.before);
   const candidates = documents.flatMap((doc) => {
+    if (!doc.data.title || !doc.data.type) return [];
     if (select.type !== undefined && doc.data.type !== select.type) return [];
-    const at = dateValue(doc.data[select.field]);
+    const at = dateValue(doc, select.field);
     if (at === null) return [];
     if (after !== null && !(at > after)) return [];
     if (before !== null && !(at < before)) return [];

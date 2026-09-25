@@ -93,10 +93,12 @@ describe("selectors", () => {
     expect(desc.out.per_query[0].expected).toEqual(["context/reading-list.md"]);
   });
 
-  test("an invalid --now is a usage error", async () => {
-    const { code, stderr } = await evalRun(writeSet("due-bad.jsonl", [DUE_NEXT]), "--now", "soon");
-    expect(code).toBe(1);
-    expect(stderr).toContain("--now takes an ISO date");
+  test("an invalid or impossible --now is a usage error", async () => {
+    for (const bad of ["soon", "2026-02-30"]) {
+      const { code, stderr } = await evalRun(writeSet("due-bad.jsonl", [DUE_NEXT]), "--now", bad);
+      expect(stderr).toContain("--now takes an ISO date");
+      expect(code).toBe(1);
+    }
   });
 });
 
@@ -164,5 +166,36 @@ describe("now reaches search", () => {
     };
     expect(await run("2026-07-12")).toBe(1);
     expect(await run("2028-07-12")).toBe(2);
+  });
+});
+
+describe("selectors over a brain with notes the indexer skips", () => {
+  // An earlier deadline on a draft the indexer skips (no title or type), and
+  // one on a note whose date does not exist and YAML rolls into range.
+  let messy: string;
+  beforeAll(async () => {
+    messy = makeTempBrain();
+    writeFileSync(join(messy, "notes", "draft.md"), "---\ndeadline: 2026-07-20\n---\n\nhalf an idea\n");
+    writeFileSync(
+      join(messy, "notes", "typo.md"),
+      "---\ntitle: Typo\ntype: note\ncreated: 2026-07-01\nupdated: 2026-07-01\ndeadline: 2026-07-32\n---\n\nbody\n"
+    );
+    expect((await runCli(messy, ["index", "--json"])).code).toBe(0);
+    mkdirSync(join(messy, "evals"), { recursive: true });
+  });
+  afterAll(() => cleanup(messy));
+
+  test("the deadline selector still resolves to the bookshelf status", async () => {
+    const set = join(messy, "evals", "due.jsonl");
+    writeFileSync(set, [{ now: "2026-07-12" }, DUE_NEXT].map((l) => JSON.stringify(l)).join("\n"));
+    const run = await runCli(messy, ["eval", "--mode", "fts", "--json", "--set", set]);
+    let out;
+    try {
+      out = JSON.parse(run.stdout);
+    } catch {
+      out = undefined;
+    }
+    expect(out?.per_query?.[0]?.expected).toEqual(["projects/active/bookshelf/status.md"]);
+    expect(run.code).toBe(0);
   });
 });

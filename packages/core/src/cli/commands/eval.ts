@@ -139,7 +139,8 @@ function resolveQueries(brain: BrainContext, queries: EvalQuery[], now: Date): R
   const load = (): FrontmatterDocument[] =>
     (documents ??= getMarkdownFiles(brain.root, brain.taxonomy).flatMap((path) => {
       try {
-        return [{ path, data: matter(readFileSync(join(brain.root, path), "utf-8")).data }];
+        const parsed = matter(readFileSync(join(brain.root, path), "utf-8"));
+        return [{ path, data: parsed.data, raw: parsed.matter }];
       } catch {
         return []; // unreadable or invalid frontmatter: the indexer skips it too
       }
