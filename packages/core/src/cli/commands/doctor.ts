@@ -81,7 +81,7 @@ function checkRuntime(): Check {
   return { id: "runtime", status: "pass", detail: `Bun ${v}` };
 }
 
-function checkGitHooks(root: string): Check {
+export function checkGitHooks(root: string, packaged = packagedHooksDir()): Check {
   if (!isGitRepo(root)) return { id: "git-hooks", status: "warn", detail: "not a git repository", fix: "run `git init`, then `brain setup`" };
   const hooksPath = gitConfig(root, "core.hooksPath");
   if (!hooksPath) return { id: "git-hooks", status: "fail", detail: "core.hooksPath is not set", fix: "run `brain setup`" };
@@ -112,7 +112,17 @@ function checkGitHooks(root: string): Check {
   }
   // Installed hooks are copies, and nothing updates a copy when the package
   // does, so compare each with the one this package ships.
-  const { missing, differing } = compareHooks(resolvedHooksPath, packagedHooksDir());
+  const { missing, differing, unverified } = compareHooks(resolvedHooksPath, packaged);
+  if (unverified.length > 0) {
+    // Without the packaged copy there is nothing to compare with, and nothing
+    // --fix could install: the package itself is incomplete.
+    return {
+      id: "git-hooks",
+      status: "fail",
+      detail: `cannot verify ${unverified.map((u) => u.name).join(", ")}: the packaged hook is missing or unreadable (${unverified.map((u) => u.reason).join("; ")})`,
+      fix: "reinstall @schlessera/brain (`bun install`), then run `brain doctor --fix`",
+    };
+  }
   if (missing.length > 0 || differing.length > 0) {
     const parts = [
       ...(differing.length > 0 ? [`differ from the packaged ones: ${differing.join(", ")}`] : []),
@@ -133,27 +143,36 @@ function checkGitHooks(root: string): Check {
 }
 
 /**
- * The packaged hooks that `installed` lacks or holds a different copy of.
- * A hook this package does not ship (a missing packaged file) is not judged.
+ * Each hook the package ships (HOOK_NAMES), against the copy in `installed`:
+ * missing there, different there, or unverifiable because the packaged copy
+ * itself cannot be read. An unreadable installed copy counts as missing,
+ * which --fix repairs by reinstalling.
  */
-function compareHooks(installed: string, packaged: string): { missing: string[]; differing: string[] } {
+function compareHooks(
+  installed: string,
+  packaged: string
+): { missing: string[]; differing: string[]; unverified: { name: string; reason: string }[] } {
   const missing: string[] = [];
   const differing: string[] = [];
-  const read = (path: string): Buffer | null => {
-    try {
-      return readFileSync(path);
-    } catch {
-      return null;
-    }
-  };
+  const unverified: { name: string; reason: string }[] = [];
   for (const name of HOOK_NAMES) {
-    const shipped = read(join(packaged, name));
-    if (!shipped) continue;
-    const copy = read(join(installed, name));
-    if (!copy) missing.push(name);
-    else if (!copy.equals(shipped)) differing.push(name);
+    let shipped: Buffer;
+    try {
+      shipped = readFileSync(join(packaged, name));
+    } catch (e) {
+      unverified.push({ name, reason: (e as NodeJS.ErrnoException).code ?? (e as Error).message });
+      continue;
+    }
+    let copy: Buffer;
+    try {
+      copy = readFileSync(join(installed, name));
+    } catch {
+      missing.push(name);
+      continue;
+    }
+    if (!copy.equals(shipped)) differing.push(name);
   }
-  return { missing, differing };
+  return { missing, differing, unverified };
 }
 
 function checkSymlinks(root: string): Check {
