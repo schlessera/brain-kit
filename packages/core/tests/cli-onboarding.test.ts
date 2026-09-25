@@ -296,31 +296,71 @@ test("doctor's mcp check does not pass when nothing registers the server", async
   expect(mcpCheck(stdout).status).not.toBe("pass");
 });
 
-test("the brain-init skill runs claude mcp add only when doctor's mcp check does not pass", () => {
-  const skill = readFileSync(
-    join(import.meta.dir, "../skills/brain-init/SKILL.md"),
-    "utf8"
-  );
+/** Stage 5's MCP step of the brain-init skill, split into what an agent acts on. */
+function brainInitMcpStep() {
+  const skill = readFileSync(join(import.meta.dir, "../skills/brain-init/SKILL.md"), "utf8");
   const stage5 = skill.slice(skill.indexOf("## Stage 5"), skill.indexOf("## Stage 6"));
-  const step = stage5.slice(stage5.indexOf("5. **MCP registration**"));
-  expect(step.length).toBeGreaterThan(0);
+  const step = stage5.slice(stage5.search(/^5\. /m));
+  const lines = step.split("\n");
+  // Top-level bullets of the step, each running until the next line at the
+  // step's own indent: another bullet or a paragraph.
+  const bullets: string[] = [];
+  lines.forEach((line, i) => {
+    if (!/^ {3}- /.test(line)) return;
+    let j = i + 1;
+    while (j < lines.length && !/^ {3}\S/.test(lines[j])) j++;
+    bullets.push(lines.slice(i, j).join("\n"));
+  });
+  return { step, bullets };
+}
 
-  // The step asks the CLI first, and every `claude mcp add` in it sits under
-  // the branch for a check that did not pass.
-  const ask = step.indexOf("brain doctor --json");
-  const passBranch = step.indexOf('**`status` is `"pass"`**');
-  const otherBranch = step.indexOf("**Any other status**");
-  const adds = [...step.matchAll(/claude mcp add/g)].map((m) => m.index!);
-  expect(ask).toBeGreaterThan(-1);
-  expect(passBranch).toBeGreaterThan(ask);
-  expect(otherBranch).toBeGreaterThan(passBranch);
-  // Before the other branch, the command appears once: where the pass branch
-  // forbids it.
-  const forbid = "Do **not** run `";
-  const forbidden = step.indexOf(forbid + "claude mcp add`", passBranch);
-  expect(forbidden).toBeGreaterThan(passBranch);
-  expect(adds.filter((i) => i < otherBranch)).toEqual([forbidden + forbid.length]);
-  expect(adds.some((i) => i > otherBranch)).toBe(true);
+/** Commands inside fenced code blocks: what an agent runs, not what prose names. */
+function fencedCommands(text: string): string[] {
+  return [...text.matchAll(/```\w*\n([\s\S]*?)```/g)].flatMap((m) =>
+    m[1].split("\n").map((l) => l.trim()).filter(Boolean)
+  );
+}
+
+test("the brain-init skill decides MCP registration on doctor's mcp check", () => {
+  const { step } = brainInitMcpStep();
+  expect(step.length).toBeGreaterThan(0);
+  expect(fencedCommands(step)).toContain("brain doctor --json");
+  // Every check id the step names is `mcp`: reading another check's status
+  // (`db`, `hooks`) would branch on something unrelated to registration.
+  const ids = [...step.matchAll(/`id` is `"([^"]+)"`/g)].map((m) => m[1]);
+  expect(ids.length).toBeGreaterThan(0);
+  expect(new Set(ids)).toEqual(new Set(["mcp"]));
+});
+
+test("the brain-init skill runs claude mcp add only when doctor's mcp check does not pass", () => {
+  const { step, bullets } = brainInitMcpStep();
+  const passIdx = bullets.findIndex((b) => b.split("\n")[0].includes('"pass"'));
+  expect(passIdx).toBeGreaterThan(-1);
+  const isAdd = (c: string) => /^claude mcp add\b/.test(c);
+  // On pass, nothing to run: the project .mcp.json already declares the server.
+  expect(fencedCommands(bullets[passIdx]).filter(isAdd)).toEqual([]);
+  // The branch after it is the non-pass one, and it carries the command.
+  const other = bullets[passIdx + 1] ?? "";
+  expect(fencedCommands(other).filter(isAdd)).toEqual([
+    "claude mcp add brain -- bun node_modules/.bin/brain mcp",
+  ]);
+  // And nowhere before the verification runs it outside that branch.
+  const beforeVerify = step.slice(0, step.search(/brain_read/));
+  expect(fencedCommands(beforeVerify).filter(isAdd)).toEqual(fencedCommands(other).filter(isAdd));
+});
+
+test("the brain-init skill re-registers at project scope when the tools do not serve this brain", () => {
+  // A pass means registered somewhere, not serving this brain: a user-scope
+  // `brain` for another brain passes too. So the step must verify against
+  // this repo's own note and fall back to registering here when that fails.
+  const { step } = brainInitMcpStep();
+  const verify = step.search(/brain_read[^\n]*`me\/identity\.md`/);
+  expect(verify).toBeGreaterThan(-1);
+  expect(step).toMatch(/restart or an approval is\s+not success/);
+  const fallback = fencedCommands(step.slice(verify)).filter((c) =>
+    /^claude mcp add --scope project brain\b/.test(c)
+  );
+  expect(fallback).toEqual(["claude mcp add --scope project brain -- bun node_modules/.bin/brain mcp"]);
 });
 
 /**

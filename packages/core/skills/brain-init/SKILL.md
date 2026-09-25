@@ -130,26 +130,51 @@ Run these in order and report each result in plain language:
    brain search "<paraphrase of their self-description>" --mode vector --json
    ```
    Point out that no shared keywords were needed — that is the embeddings working.
-5. **MCP registration** — make the `brain_*` tools available in-session. First ask the CLI
-   whether the server is already registered:
+5. **MCP registration** — make the `brain_*` tools available in-session, served from
+   **this** brain. First ask the CLI whether a `brain` server is registered anywhere:
    ```bash
    brain doctor --json
    ```
-   Read the check whose `id` is `"mcp"`.
-   - **`status` is `"pass"`** — the server is already registered (the template's `.mcp.json`
-     declares it for the project). Do **not** run `claude mcp add`: it would add a second
+   Read the entry of `checks` whose `id` is `"mcp"`. It passes when it finds a `brain`
+   server in the project's `.mcp.json`, in the top-level `mcpServers` of `~/.claude.json`
+   (user scope), or in the output of `claude mcp list`. It does not start the server or
+   check which brain it serves, so a pass means "registered", not "working here".
+   - **`status` is `"pass"`** — do **not** run `claude mcp add`: on a template brain the
+     project's `.mcp.json` already declares the server, and adding it again leaves a second
      `brain` server beside the one the repo carries. Tell the user where it is registered
-     (the check's `detail`) and go straight to the verification below.
+     (the check's `detail`) and go to the verification below.
    - **Any other status** — register it. For Claude Code:
      ```bash
      claude mcp add brain -- bun node_modules/.bin/brain mcp
      ```
      (Other agents register the `brain` MCP server through their own mechanism.)
 
-   Verify by calling `brain_search` for the user's name in-session and confirming the
-   identity hit. A server the project's `.mcp.json` declares loads when the session starts
-   and the user approves it; if the `brain_*` tools are not there yet, ask them to restart
-   the session and approve the `brain` server, then verify.
+   **Verify against this brain.** A server the project's `.mcp.json` declares loads when the
+   session starts and the user approves it. If the `brain_*` tools are not there yet, ask the
+   user to restart the session and approve the `brain` server; a restart or an approval is
+   not success on its own. Then:
+   - call `brain_search` for the user's name and confirm `me/identity.md` is among the hits;
+   - call `brain_read` on `me/identity.md` and confirm it returns the same frontmatter and
+     body as `me/identity.md` on disk in this repo, as Stage 4 wrote it (read the file to
+     compare; an index warning the tool adds is not part of the note). A hit on the name
+     alone does not prove it: a `brain` server registered for another brain can hold an
+     identity note for the same person.
+
+   **If verification fails** — the tools are still missing after the restart and approval,
+   or `brain_read` returns anything other than this repo's file — the registration doctor
+   found serves another brain or does not start. Register the server for this repo at
+   project scope, which Claude Code prefers over a user-scope `brain`:
+   - if `.mcp.json` has no `brain` entry:
+     ```bash
+     claude mcp add --scope project brain -- bun node_modules/.bin/brain mcp
+     ```
+   - if `.mcp.json` has a `brain` entry, rewrite that entry to
+     `{ "command": "bun", "args": ["node_modules/.bin/brain", "mcp"] }`.
+
+   A local-scope `brain` for this directory still wins over both; `claude mcp get brain` shows
+   which definition is live, and if it is a local-scope one pointing elsewhere, remove it with
+   the user's consent (`claude mcp remove brain --scope local`). Restart, approve, and verify
+   again. Do not move on to Stage 6 until `brain_read` returns this brain's identity note.
 
 ## Stage 6 — Handoff
 
