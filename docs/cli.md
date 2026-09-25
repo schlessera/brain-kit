@@ -52,7 +52,7 @@ hosts; `data:` URIs always render.
 
 | Command | Does | Notes |
 |---|---|---|
-| `index` ⚖ | Update the search index (incremental by default) | `--force` full rebuild; `--embeddings` runs the embedding pass; a changed embedding provider requires `--embeddings --force` (prints a cost warning, never silently re-embeds) |
+| `index` ⚖ | Update the search index (incremental by default) | `--force` full rebuild; `--embeddings` runs the embedding pass; a changed embedding provider requires `--embeddings --force` (prints a cost warning, never silently re-embeds); `--forget-cache <path>` discards one document's or asset's cached contexts or description so the next `--embeddings` run generates them again (`{path, forgotten}`) |
 | `validate` ⚖ | Config, frontmatter, wiki-link, and index-drift validation | `{ok, issues, errors, warnings}`; exit 1 on error-level issues |
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker audit | `{issues, errors, warnings, infos}`; module hygiene checks appended |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |

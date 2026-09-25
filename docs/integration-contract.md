@@ -47,6 +47,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
+| `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | no JSON. With no verb, `sync` runs the `/sync` skill through the configured coding agent and prints the agent's final text on stdout, whatever the output mode; exit `1` when no agent runner is available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` still runs the agent, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`assess`, `group`, `pull`, `conflicts`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for that skill to drive, are not part of this contract |
@@ -628,9 +629,11 @@ Rules a consumer may rely on:
 - The configured inbox dir (default `notes/`) with `status: active` =
   unprocessed inbox (capture targets this).
 - Committed sidecars `.context-cache.jsonl` / `.asset-cache.jsonl`:
-  content-hash-keyed `{k,v}` JSONL, rebuilt from the db after embeddings
-  runs — machine-managed, union-merge on conflict, never hand-edit. Templates
-  ship them empty.
+  content-hash-keyed `{k,v}` JSONL, appended from the db after embeddings
+  runs — a committed value is never overwritten, a duplicated key resolves to
+  its first line in sorted order, and a run with nothing new does not write
+  the file. Machine-managed, union-merge on conflict, never hand-edit.
+  Templates ship them empty.
 - Module data files (e.g. module-jobs' `jobs.db`) are documented by the module
   that owns them.
 - The scratch area `.brain/scratch/` (additive in 0.38.0) holds transient

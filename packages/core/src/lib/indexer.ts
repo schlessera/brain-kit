@@ -10,4 +10,5 @@ export { indexAll } from "./indexer/run.js";
 export { getMarkdownFiles, getAssetFiles } from "./indexer/scan.js";
 export { extractWikiLinks, resolveWikiLink, resolveAlias } from "./indexer/links.js";
 export { chunkContextKey } from "./indexer/caches.js";
+export { forgetCachedEnrichment } from "./indexer/forget.js";
 export type { IndexStats, IndexOptions } from "./indexer/types.js";
