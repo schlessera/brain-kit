@@ -105,6 +105,34 @@ describe("detectCandidates", () => {
     expect(detectCandidates("- Sail from Aeolia at 09:40\n- Open the bag")).toEqual([]);
   });
 
+  test("a list item holding a quote, a heading or a definition is not a candidate: the block would be lost", () => {
+    // Without the block, each list is a candidate, so the rejection below is
+    // about the block and nothing else.
+    expect(detectCandidates("1. Sail\n\n2. Return\n")[0]?.kind).toBe("ordered_list");
+    expect(detectCandidates("- 09:00 Sail\n\n- 10:00 Return\n")[0]?.kind).toBe("timed_list");
+    const blocks = ["> the Sirens sing", "## Aside", "[chart]: https://example.com/chart"];
+    for (const block of blocks) {
+      expect(detectCandidates(`1. Sail\n\n   ${block}\n\n2. Return\n`)).toEqual([]);
+      expect(detectCandidates(`- 09:00 Sail\n\n  ${block}\n\n- 10:00 Return\n`)).toEqual([]);
+    }
+  });
+
+  test("a hard break keeps the words on either side apart", () => {
+    for (const hardBreak of ["  \n", "\\\n"]) {
+      const [quote] = detectCandidates(`> Sail${hardBreak}> home\n`);
+      if (quote?.kind !== "blockquote") throw new Error("expected blockquote");
+      expect(quote.text).toBe("Sail home");
+
+      const [steps] = detectCandidates(`1. Sail${hardBreak}   home\n2. Return\n`);
+      if (steps?.kind !== "ordered_list") throw new Error("expected ordered_list");
+      expect(steps.items[0]).toEqual({ title: "Sail home" });
+
+      const [times] = detectCandidates(`- 09:00 Sail${hardBreak}  home\n- 10:00 Return\n`);
+      if (times?.kind !== "timed_list") throw new Error("expected timed_list");
+      expect(times.items[0]).toEqual({ time: "09:00", title: "Sail home" });
+    }
+  });
+
   test("a blockquote is a quote candidate, and a trailing attribution joins its span", () => {
     const text = "> Sing to me of the man, Muse.\n\n— Homer, Odyssey, Book 1\n\nThat is the opening.";
     const [quote] = detectCandidates(text);
@@ -223,7 +251,7 @@ describe("detectCandidates", () => {
     expect(quoted("> [https://ithaca.example/](https://ithaca.example/)**mailto:eurybates@ithaca.example**")).toBe(
       "https://ithaca.example/eurybates@ithaca.example"
     );
-    // (A hard break still joins the words either side, which is #240.)
+    // (A hard break reads as a space, so the address keeps its own word.)
     expect(quoted("> Write to\\\n> mailto:eurybates@ithaca.example")).not.toContain("mailto:");
     // A bullet list of key lines reads its values the same way.
     const [list] = detectCandidates("- **Name:** Odysseus\n- **Herald:** <eurybates@ithaca.example>");
