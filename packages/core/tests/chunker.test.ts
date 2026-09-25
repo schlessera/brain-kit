@@ -290,3 +290,28 @@ describe("chunkDocument's size bound, review round 2 (#426)", () => {
     expect(chunks.map((c) => c.content)).toEqual([code]);
   });
 });
+
+describe("section boundaries follow CommonMark fences (#461)", () => {
+  const body = "word ".repeat(150).trim();
+  const headings = (content: string) => chunkDocument({ title: "T", documentId: 1, content }).map((c) => c.heading);
+  /** The heading of the chunk that holds `text`: a ## line inside code stays in the section around it. */
+  const holder = (content: string, text: string) =>
+    chunkDocument({ title: "T", documentId: 1, content }).find((c) => c.content.includes(text))?.heading;
+
+  test("a four-backtick fence is not closed by a three-backtick line, so its ## line is code", () => {
+    const content = ["## First", "", body, "", "````md", "```", "## Inside", "```", "````", "", "## Second", "", body].join("\n");
+    expect(holder(content, "## Inside")).toBe("First");
+    expect(headings(content)).toEqual(["First", "Second"]);
+  });
+
+  test("a tilde fence is not closed by a marker with text after it", () => {
+    const content = ["## First", "", body, "", "~~~", "~~~more", "## Inside", "~~~", "", "## Second", "", body].join("\n");
+    expect(holder(content, "## Inside")).toBe("First");
+    expect(headings(content)).toEqual(["First", "Second"]);
+  });
+
+  test("a marker indented four spaces is indented code, and the real heading after it still counts", () => {
+    const content = ["## First", "", body, "", "    ```", "", "## Second", "", body].join("\n");
+    expect(headings(content)).toEqual(["First", "Second"]);
+  });
+});
