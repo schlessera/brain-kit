@@ -544,7 +544,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       params: { type?: string; tag?: string; status?: string; relevance?: string; limit?: number }
     ) {
       const documents = await brain.list(params);
-      return textResult(clip(JSON.stringify({ documents }, null, 2)), {
+      // Whole and compact, never byte-clipped: a clipped JSON document does
+      // not parse. MAX_LIST_LIMIT (brain-access.ts) bounds it.
+      return textResult(JSON.stringify({ documents }), {
         count: documents.length,
       });
     },
@@ -575,7 +577,10 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
           ? params.direction
           : "both";
       const { edges, nodes } = await brain.graph({ path: params.path, depth: params.depth, direction });
-      return textResult(clip(JSON.stringify({ edges, nodes }, null, 2)), { count: edges.length });
+      // Whole and compact, never byte-clipped: a clipped JSON document does
+      // not parse, and a node cut off breaks the promise that every endpoint
+      // has one. MAX_GRAPH_DEPTH (brain-access.ts) bounds the walk.
+      return textResult(JSON.stringify({ edges, nodes }), { count: edges.length });
     },
   } satisfies ToolDefinition;
 

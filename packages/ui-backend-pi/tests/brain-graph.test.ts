@@ -11,7 +11,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools, toolLockFromKeyed } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
-import { resultText } from "./helpers";
+import { makeIndexedBrain, resultText } from "./helpers";
 
 const CTX = {} as never;
 const CORE = resolve(import.meta.dir, "../../core");
@@ -42,9 +42,9 @@ type Graph = {
   nodes: Array<{ path: string; title: string; type: string; summary: string | null; updated: string | null }>;
 };
 
-async function graph(path: string): Promise<Graph> {
+async function graph(path: string, brainRoot = root): Promise<Graph> {
   const list = createBrainTools({
-    brain: createBrainAccess(root),
+    brain: createBrainAccess(brainRoot),
     turn: createTurnContext(),
     lock: toolLockFromKeyed(createKeyedLock()),
   });
@@ -93,5 +93,75 @@ describe("brain_graph wrapper", () => {
     const { edges, nodes } = await graph("context/current-focus.md");
     expect(edges).toContainEqual({ source: "context/current-focus.md", target: "does-not-exist", resolved: false });
     expect(nodes.map((n) => n.path)).not.toContain("does-not-exist");
+  });
+});
+
+const note = (title: string, body: string, summary = "") =>
+  `---\ntype: note\ntitle: ${title}\ncreated: 2026-01-01\nupdated: 2026-01-02\n` +
+  (summary ? `summary: "${summary}"\n` : "") +
+  `tags: [t]\nstatus: active\nrelevance: primary\n---\n\n${body}\n`;
+
+describe("brain_graph wrapper, review round 1", () => {
+  test("a graph larger than the tool's text clip comes back whole and parses", async () => {
+    // A hub linking 100 documents with long summaries: well past the 30,000
+    // characters other tools clip their text at.
+    const docs: Record<string, string> = {
+      "notes/hub.md": note("Hub", Array.from({ length: 100 }, (_, i) => `[[leaf-${i}]]`).join("\n")),
+    };
+    for (let i = 0; i < 100; i++) docs[`notes/leaf-${i}.md`] = note(`Leaf ${i}`, "Leaf.", "s".repeat(200));
+    const brain = await makeIndexedBrain(docs);
+    try {
+      const list = createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()),
+      });
+      const tool = list.find((t) => t.name === "brain_graph") as ToolDefinition;
+      const text = resultText(
+        await tool.execute("g", { path: "notes/hub.md", direction: "outgoing" } as never, undefined, undefined, CTX)
+      );
+      expect(text.length).toBeGreaterThan(30_000);
+      const parsed = JSON.parse(text) as Graph;
+      expect(parsed.edges).toHaveLength(100);
+      expect(parsed.nodes).toHaveLength(101);
+      expect(parsed.nodes.every((n) => n.summary === "s".repeat(200) || n.path === "notes/hub.md")).toBe(true);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
+  test("an unresolved link whose text is an indexed path is still not a node", async () => {
+    // `[[a.md]]` at the root does not resolve (the resolver matches names,
+    // not spelled-out paths), yet `a.md` is a document: only the resolution
+    // guard keeps it out of the nodes.
+    const brain = await makeIndexedBrain({ "a.md": note("A", "Alone."), "b.md": note("B", "Links [[a.md]].") });
+    try {
+      const { edges, nodes } = await graph("b.md", brain.root);
+      expect(edges).toEqual([{ source: "b.md", target: "a.md", resolved: false }]);
+      expect(nodes.map((n) => n.path)).toEqual(["b.md"]);
+    } finally {
+      brain.cleanup();
+    }
+  });
+});
+
+describe("brain_list wrapper", () => {
+  test("a listing larger than the tool's text clip comes back whole and parses", async () => {
+    const docs: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) docs[`notes/n-${i}.md`] = note(`Note ${i} ${"t".repeat(300)}`, "Body.");
+    const brain = await makeIndexedBrain(docs);
+    try {
+      const list = createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()),
+      });
+      const tool = list.find((t) => t.name === "brain_list") as ToolDefinition;
+      const text = resultText(await tool.execute("l", { limit: 100 } as never, undefined, undefined, CTX));
+      expect(text.length).toBeGreaterThan(30_000);
+      expect((JSON.parse(text) as { documents: unknown[] }).documents).toHaveLength(100);
+    } finally {
+      brain.cleanup();
+    }
   });
 });
