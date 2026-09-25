@@ -606,13 +606,44 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
   ]);
 });
 
+/** PATH with only `bun`, and a throwaway HOME and bin directory, so setup's bin links land nowhere real. */
+function noGitEnv(): Record<string, string> {
+  const home = mkdtempSync(join(tmpdir(), "brain-home-"));
+  temps.push(home);
+  return { PATH: bunOnlyPath(), HOME: home, XDG_BIN_HOME: join(home, "bin") };
+}
+
 test("doctor --fix and brain setup without git on PATH finish and say why hooks were skipped", async () => {
   const root = tempBrain();
-  const env = { PATH: bunOnlyPath() };
+  // A git repository, so the only reason to skip is the missing binary.
+  mkdirSync(join(root, ".git"));
+  const env = noGitEnv();
   const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
   expect(fix.code, fix.stderr).toBe(0);
   expect(JSON.parse(fix.stdout).fixesApplied).not.toContain("git-hooks");
   const setup = await runCli(root, ["setup", "--json"], env);
   expect(setup.code, setup.stderr).toBe(0);
   expect(JSON.parse(setup.stdout).warnings).toContain("git is not installed or not on PATH — skipped git hooks");
+  const human = await runCli(root, ["setup", "--human"], env);
+  expect(human.code, human.stderr).toBe(0);
+  expect(human.stdout).toContain("  git hooks:  skipped (git is not installed or not on PATH)");
+});
+
+// Review round 1: containment is proven through the command, not the helper.
+test("a check that throws becomes a warn, and every later check still reports", async () => {
+  const root = tempBrain();
+  writeFileSync(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } }));
+  // A file where the scratch directory's parent should be: mkdir throws ENOTDIR inside the check.
+  writeFileSync(join(root, ".brain"), "not a directory\n");
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"]);
+  expect(code, stderr).toBe(0);
+  const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
+  const scratch = checks.find((c) => c.id === "scratch");
+  expect(scratch?.status).toBe("warn");
+  expect(scratch?.detail).toStartWith("the check itself failed: ENOTDIR");
+  expect(checks.map((c) => c.id).slice(-2)).toEqual(["cache-merge", "sqlite-vec-macos"]);
+
+  const fix = await runCli(root, ["doctor", "--fix", "--json"]);
+  expect(fix.code, fix.stderr).toBe(0);
+  expect(fix.stderr).toContain("doctor --fix: scratch fix failed: ENOTDIR");
 });

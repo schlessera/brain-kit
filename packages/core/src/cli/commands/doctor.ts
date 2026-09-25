@@ -670,8 +670,10 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     try {
       if (ignoreScratch(root)) applied.push("scratch");
     } catch (e) {
-      if (!(e instanceof ScratchRedirectedError || e instanceof WriteRefusedError)) throw e;
-      console.error(`doctor --fix: scratch fix refused: ${e.message}`);
+      // Anything else (a `.brain` that is a file, say) is reported by the check
+      // too; record it and keep going rather than lose the rest of the fixes.
+      const reason = e instanceof ScratchRedirectedError || e instanceof WriteRefusedError ? "refused" : "failed";
+      console.error(`doctor --fix: scratch fix ${reason}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   if (failing.has("cache-merge")) {

@@ -44,7 +44,7 @@ export const setupCommand: CoreCommand = {
 
     emit(cli.json, result, () => {
       console.log("brain setup complete:");
-      console.log(`  git hooks:  ${hooks.installed ? `${hooks.hooks.join(", ")} (core.hooksPath=.githooks)` : "skipped (not a git repo)"}`);
+      console.log(`  git hooks:  ${hooks.installed ? `${hooks.hooks.join(", ")} (core.hooksPath=.githooks)` : `skipped (${hooks.skipped ?? "not a git repository"})`}`);
       console.log(`  skills:     ${skills.materialized.length} materialized, ${skills.pruned.length} pruned`);
       console.log(`  bin links:  ${bin.linked.length ? bin.linked.join(", ") : "none"}`);
       for (const w of warnings) console.log(`  warning: ${w}`);
