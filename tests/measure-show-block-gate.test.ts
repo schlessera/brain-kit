@@ -16,7 +16,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { SHOW_BLOCK_CONTRACT } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import {
@@ -160,10 +161,176 @@ describe("the brain-escape rule", () => {
     expect(escapesBrain([{ command: `cd ${home}; ls` }], home)).toBe(false);
   });
 
+  test("flags a search from the filesystem root, which names no home path", () => {
+    // What #137's two `trend` turns ran. A bare `/` is outside every brain.
+    expect(
+      escapesBrain([{ command: 'find / -maxdepth 3 -iname "*.git" -type d' }], brain)
+    ).toBe(true);
+    expect(escapesBrain([{ command: "ls /" }], brain)).toBe(true);
+  });
+
+  test("flags an absolute path outside /home", () => {
+    expect(escapesBrain([{ command: "cat /etc/hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ file_path: "/etc/hostname" }], brain)).toBe(true);
+  });
+
+  test("a brain under /tmp is judged by its own boundary, not by /home", () => {
+    // Where #137 had to put the brain. Its siblings and its parent are
+    // outside it; its own files are not.
+    expect(escapesBrain([{ path: "/tmp/measure/other/a.md" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "ls /tmp/measure" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `grep -rn trend ${brain}/notes` }], brain)).toBe(false);
+  });
+
+  test("flags a path that starts a continuation line", () => {
+    // Serialised as JSON, the newline is the two characters `\n`, so the
+    // path would follow an `n` and not look like the start of one.
+    expect(escapesBrain([{ command: "cat \\\n/etc/hostname" }], brain)).toBe(true);
+  });
+
+  test("flags a bare tilde, which is the home directory", () => {
+    expect(escapesBrain([{ command: "cd ~ && ls" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "cat ~root/.profile" }], brain)).toBe(true);
+  });
+
+  test("the device allowlist lets /dev/null, /dev/stdin, /dev/stdout and /dev/stderr through", () => {
+    // DEVICE_PATHS: models redirect to these constantly, and none of them
+    // reads anything outside the brain.
+    expect(
+      escapesBrain([{ command: `grep -rl trend ${brain} 2>/dev/null | head` }], brain)
+    ).toBe(false);
+    expect(escapesBrain([{ command: `cat ${brain}/a.md > /dev/stdout` }], brain)).toBe(false);
+    expect(escapesBrain([{ command: `cat /dev/stdin; echo x >/dev/stderr` }], brain)).toBe(false);
+    // The allowlist is exact: the rest of /dev is not on it.
+    expect(escapesBrain([{ command: "ls /dev" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "cat /dev/null/../../etc/passwd" }], brain)).toBe(true);
+  });
+
+  test("a slash inside a word, a URL or a relative path is not an absolute path", () => {
+    expect(escapesBrain([{ command: `ls ${brain}/notes/2026/09` }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "cat notes/a.md" }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "curl https://example.com/a/b" }], brain)).toBe(false);
+    expect(escapesBrain([{ command: "sed 's/and/or/' notes/a.md" }], brain)).toBe(false);
+  });
+
+  test("a traversal hidden behind punctuation in a path is still a traversal", () => {
+    // The whole path is compared, so a comma, colon, bracket, brace or `=`
+    // in a directory name cannot cut it short of its `..`.
+    const home = "/home/someone/brain";
+    for (const dir of ["a,b", "a:b", "a[1]", "a{1}", "a=b"]) {
+      expect(escapesBrain([{ command: `cat "${home}/${dir}/../../private.md"` }], home)).toBe(true);
+      expect(escapesBrain([{ command: `cat ${home}/${dir}/../../private.md` }], home)).toBe(true);
+      expect(escapesBrain([{ path: `${home}/${dir}/../../private.md` }], home)).toBe(true);
+    }
+  });
+
+  test("a brain whose name carries punctuation is still itself", () => {
+    const punctuated = "/home/someone/brain(1)";
+    expect(escapesBrain([{ path: `${punctuated}/notes/a.md` }], punctuated)).toBe(false);
+    expect(escapesBrain([{ command: `ls "${punctuated}/notes"` }], punctuated)).toBe(false);
+    expect(escapesBrain([{ command: `ls '${punctuated}'` }], punctuated)).toBe(false);
+  });
+
+  test("a regex with escaped slashes is not a path", () => {
+    // Recorded in #137: a turn that stayed in the brain and was excluded
+    // for this grep once a `/` could start a path anywhere.
+    expect(
+      escapesBrain(
+        [{ command: "ls && echo --- && find . -maxdepth 2 -type d | grep -v '^\\.\\/\\.git' | head -50" }],
+        brain
+      )
+    ).toBe(false);
+  });
+
+  test("a regex delimited by bare slashes counts as an escape, by design", () => {
+    // The scan interprets no quoting, so it cannot tell an awk regex from a
+    // path. It errs toward excluding the turn. The one recorded #137 turn
+    // with this awk program also ran `find /`.
+    expect(
+      escapesBrain(
+        [
+          {
+            command:
+              "git log --diff-filter=A --name-only --pretty=format:'%ad' --date=format:'%Y-%m' -- '*.md' | awk 'NF{if($0 ~ /^[0-9]{4}-[0-9]{2}$/) d=$0; else print d}' | sort | uniq -c",
+          },
+        ],
+        brain
+      )
+    ).toBe(true);
+  });
+
+  test("no quoting, comment or heredoc hides a path after it", () => {
+    // Each of these read /etc/hostname and was missed by a rule that parsed
+    // the shell's quoting.
+    const leaks = [
+      'echo "$(cat /etc/hostname)"',
+      'echo "`cat /etc/hostname`"',
+      "sh <<'EOF'\n# don't skip this read\ncat /etc/hostname\nEOF",
+      "# don't skip this read\ncat /etc/hostname",
+      "bash -lc 'cat /etc/hostname'",
+      "echo 'cat /etc/hostname' | sh",
+      "printf '%s\\n' 'cat /etc/hostname' | xargs -I CMD sh -c CMD",
+    ];
+    for (const command of leaks) expect(escapesBrain([{ command }], brain)).toBe(true);
+  });
+
+  test("a path after a redirection is its own path", () => {
+    // With the brain at /usr, the command itself is inside it; what it reads
+    // is not.
+    expect(escapesBrain([{ command: "/usr/bin/cat</etc/hostname" }], "/usr")).toBe(true);
+    expect(escapesBrain([{ command: `${brain}/script>/etc/x` }], brain)).toBe(true);
+  });
+
+  test("a path field is taken whole, whitespace included", () => {
+    expect(escapesBrain([{ path: `${brain}/a b/../../private.md` }], brain)).toBe(true);
+    expect(escapesBrain([{ file_path: `${brain}/a b/notes.md` }], brain)).toBe(false);
+  });
+
+  test("an attached short option's value is a path", () => {
+    expect(escapesBrain([{ command: "env -C/etc cat hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: "env -C /etc cat hostname" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `env -C${brain} cat notes/a.md` }], brain)).toBe(false);
+  });
+
+  test("reads the script handed to sh -c", () => {
+    expect(escapesBrain([{ command: "sh -c 'cat /etc/hostname'" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `bash -c "ls / | head"` }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `sh -c 'ls ${brain}/notes'` }], brain)).toBe(false);
+  });
+
+  test("reads the value of a NAME= or --flag= word", () => {
+    expect(escapesBrain([{ command: "grep -r x --exclude-from=/etc/hostname ." }], brain)).toBe(
+      true
+    );
+    expect(escapesBrain([{ command: "HOME=/etc ls" }], brain)).toBe(true);
+    expect(escapesBrain([{ command: `rg --glob='*.md' x ${brain}` }], brain)).toBe(false);
+  });
+
   test("reads every argument, not only the first", () => {
     expect(
       escapesBrain([{ path: `${brain}/a.md` }, { command: "ls /home/someone" }], brain)
     ).toBe(true);
+  });
+});
+
+describe("the brain-escape rule, replayed over #137's recorded turns", () => {
+  // Every non-block tool call from the 64 Claude-backend turns #137
+  // measured, from the CLI's own transcripts, with the brain's path replaced.
+  // An audit of those transcripts found exactly two turns that left the
+  // brain: both ran `find / -maxdepth 3 …` looking for git history.
+  const recorded = JSON.parse(
+    readFileSync(join(import.meta.dir, "fixtures/show-block-137-tool-calls.json"), "utf8")
+  ) as {
+    brain: string;
+    turns: { run: string; prompt: number; rep: number; calls: { input: unknown }[] }[];
+  };
+
+  test("flags exactly the two turns that searched from the root", () => {
+    expect(recorded.turns).toHaveLength(64);
+    const flagged = recorded.turns
+      .filter((t) => escapesBrain(t.calls.map((c) => c.input), recorded.brain))
+      .map((t) => `${t.run} prompt ${t.prompt} rep ${t.rep}`);
+    expect(flagged).toEqual(["a-0-3 prompt 2 rep 4", "b-0-3 prompt 2 rep 3"]);
   });
 });
 
