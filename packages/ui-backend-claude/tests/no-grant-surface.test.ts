@@ -36,74 +36,7 @@ import type {
 import { createClaudeBackend } from "../src/backend";
 import { MASK_TOOL_NAME } from "../src/mask-tool";
 import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
-
-/** What one tool call did, as the runtime would have resolved it. */
-interface ToolCallOutcome {
-  executed: boolean;
-  /** The deny message the model was handed, when it was denied. */
-  message: string | undefined;
-  /** Was a permission decision taken, rather than skipped? */
-  decided: boolean;
-}
-
-/**
- * Drive one tool call through the runtime's precedence as measured for #124:
- * every matching PreToolUse hook fires and their outputs combine (a `deny`
- * blocks, an `allow` executes and skips the callback, an `ask` forces the
- * callback), then the turn's `allowedTools` and the runtime's own
- * auto-approval, then `canUseTool`.
- *
- * `runtimeAutoApproves` stands in for the opinions the runtime holds before
- * the callback. Modelling it is the point: without it a test would "prove"
- * enforcement by assuming a fallthrough that does not always happen.
- */
-async function runToolCall(
-  options: Options,
-  toolName: string,
-  input: Record<string, unknown>,
-  toolUseId: string,
-  runtimeAutoApproves = false
-): Promise<ToolCallOutcome> {
-  let asked = false;
-  for (const group of options.hooks?.PreToolUse ?? []) {
-    if (group.matcher && !new RegExp(group.matcher).test(toolName)) continue;
-    for (const hook of group.hooks) {
-      const output = (await hook(
-        {
-          hook_event_name: "PreToolUse",
-          tool_name: toolName,
-          tool_input: input,
-          tool_use_id: toolUseId,
-        } as never,
-        toolUseId,
-        { signal: new AbortController().signal }
-      )) as {
-        hookSpecificOutput?: {
-          permissionDecision?: string;
-          permissionDecisionReason?: string;
-        };
-      };
-      const out = output?.hookSpecificOutput;
-      if (out?.permissionDecision === "deny") {
-        return { executed: false, message: out.permissionDecisionReason, decided: true };
-      }
-      if (out?.permissionDecision === "allow") {
-        return { executed: true, message: undefined, decided: false };
-      }
-      if (out?.permissionDecision === "ask") asked = true;
-    }
-  }
-  if (!asked && ((options.allowedTools ?? []).includes(toolName) || runtimeAutoApproves)) {
-    return { executed: true, message: undefined, decided: false };
-  }
-  const decision = (await options.canUseTool!(toolName, input, {
-    signal: new AbortController().signal,
-    toolUseID: toolUseId,
-  } as never)) as PermissionDecision;
-  return decision.behavior === "allow"
-    ? { executed: true, message: undefined, decided: true }
-    : { executed: false, message: decision.message, decided: true };
-}
+import { runToolCall } from "./helpers/run-tool-call";
 
 interface Harness {
   options: Options;
