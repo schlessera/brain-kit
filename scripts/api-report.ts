@@ -36,7 +36,7 @@ const REPORT_DIR = join(ROOT, "api-report");
  * another such type. Which other exports 1.0 freezes is not decided yet
  * (schlessera/brain-kit#343); widen this list when it is.
  */
-const SEAMS: Record<string, Record<string, string[]>> = {
+export const SEAMS: Record<string, Record<string, string[]>> = {
   core: { ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"] },
   scrape: { ".": ["SiteAdapter"] },
   "ui-sdk": {
@@ -140,54 +140,31 @@ function isRecordable(node: ts.Node): node is Declaration {
 }
 
 /** Declarations of a symbol that live in this repo's package sources. */
-function ownDeclarations(checker: ts.TypeChecker, symbol: ts.Symbol): Declaration[] {
+function ownDeclarations(checker: ts.TypeChecker, symbol: ts.Symbol, within: string): Declaration[] {
   let resolved = symbol;
   if (resolved.flags & ts.SymbolFlags.Alias) resolved = checker.getAliasedSymbol(resolved);
   if (resolved.flags & ts.SymbolFlags.TypeParameter) return [];
   return (resolved.declarations ?? []).filter(
     (decl): decl is Declaration =>
       isRecordable(decl) &&
-      decl.getSourceFile().fileName.startsWith(PACKAGES_DIR + "/") &&
+      decl.getSourceFile().fileName.startsWith(within + "/") &&
       !decl.getSourceFile().fileName.includes("/node_modules/")
   );
 }
 
-/** Every symbol a declaration names in a type position: type references,
- * heritage clauses, and `typeof x` queries. */
-function referencedSymbols(checker: ts.TypeChecker, decl: Declaration): ts.Symbol[] {
-  const found: ts.Symbol[] = [];
-  const visit = (node: ts.Node): void => {
-    let name: ts.Node | undefined;
-    if (ts.isTypeReferenceNode(node)) name = node.typeName;
-    else if (ts.isExpressionWithTypeArguments(node)) name = node.expression;
-    else if (ts.isTypeQueryNode(node)) name = node.exprName;
-    if (name) {
-      const symbol = checker.getSymbolAtLocation(
-        ts.isQualifiedName(name) ? name.right : ts.isPropertyAccessExpression(name) ? name.name : name
-      );
-      if (symbol) found.push(symbol);
-    }
-    // A function body or an initializer is implementation, not signature.
-    if (ts.isBlock(node)) return;
-    ts.forEachChild(node, visit);
-  };
-  if (ts.isVariableDeclaration(decl)) {
-    if (decl.type) visit(decl.type);
-  } else {
-    ts.forEachChild(decl, visit);
-  }
-  return found;
-}
-
-const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
-
-/** The declaration as a signature: comments dropped, formatting normalized,
- * bodies and private members removed. */
-function printSignature(checker: ts.TypeChecker, decl: Declaration): string {
-  const source = decl.getSourceFile();
+/**
+ * What a declaration shows its callers: the node that is printed AND walked
+ * for the types it is made of, so the two cannot disagree. Bodies, `async`,
+ * default values, property initializers and private class members are
+ * implementation and are dropped. The members kept are the source's own
+ * nodes, so the checker can still resolve the names inside them.
+ *
+ * An unannotated constant (a zod schema, say) is recorded by the type it
+ * infers to, since that is what a `typeof` reference to it means. That node
+ * is synthesized, so nothing in it is walked.
+ */
+function publicSurface(checker: ts.TypeChecker, decl: Declaration): { node: ts.Node; walk: boolean } {
   const f = ts.factory;
-  // `async` and a default value are implementation; what a caller sees is the
-  // return type and an optional parameter.
   const modifiers = (mods: readonly ts.ModifierLike[] | undefined) =>
     mods?.filter((m) => m.kind !== ts.SyntaxKind.AsyncKeyword);
   const params = (list: readonly ts.ParameterDeclaration[]) =>
@@ -200,23 +177,20 @@ function printSignature(checker: ts.TypeChecker, decl: Declaration): string {
         : p
     );
   if (ts.isFunctionDeclaration(decl)) {
-    const bare = f.updateFunctionDeclaration(
+    const node = f.updateFunctionDeclaration(
       decl, modifiers(decl.modifiers), decl.asteriskToken, decl.name, decl.typeParameters,
       params(decl.parameters), decl.type, undefined
     );
-    return printer.printNode(ts.EmitHint.Unspecified, bare, source);
+    return { node, walk: true };
   }
   if (ts.isVariableDeclaration(decl)) {
-    // An unannotated constant (a zod schema, say) is recorded by the type it
-    // infers to, since that is what a `typeof` reference to it means.
-    const type =
-      decl.type ??
-      checker.typeToTypeNode(
-        checker.getTypeAtLocation(decl),
-        decl,
-        ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.MultilineObjectLiterals
-      )!;
-    return `const ${decl.name.getText(source)}: ${printer.printNode(ts.EmitHint.Unspecified, type, source)};`;
+    if (decl.type) return { node: decl.type, walk: true };
+    const node = checker.typeToTypeNode(
+      checker.getTypeAtLocation(decl),
+      decl,
+      ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.MultilineObjectLiterals
+    )!;
+    return { node, walk: false };
   }
   if (ts.isClassDeclaration(decl)) {
     const members = decl.members
@@ -242,12 +216,45 @@ function printSignature(checker: ts.TypeChecker, decl: Declaration): string {
           return f.updatePropertyDeclaration(m, m.modifiers, m.name, m.questionToken, m.type, undefined);
         return m;
       });
-    const bare = f.updateClassDeclaration(
+    const node = f.updateClassDeclaration(
       decl, decl.modifiers, decl.name, decl.typeParameters, decl.heritageClauses, members
     );
-    return printer.printNode(ts.EmitHint.Unspecified, bare, source);
+    return { node, walk: true };
   }
-  return printer.printNode(ts.EmitHint.Unspecified, decl, source);
+  return { node: decl, walk: true };
+}
+
+/** Every symbol a public surface names in a type position: type references,
+ * inline `import("…").T` types, heritage clauses, and `typeof x` queries. */
+function referencedSymbols(checker: ts.TypeChecker, surface: ts.Node): ts.Symbol[] {
+  const found: ts.Symbol[] = [];
+  const visit = (node: ts.Node): void => {
+    let name: ts.Node | undefined;
+    if (ts.isTypeReferenceNode(node)) name = node.typeName;
+    else if (ts.isImportTypeNode(node)) name = node.qualifier;
+    else if (ts.isExpressionWithTypeArguments(node)) name = node.expression;
+    else if (ts.isTypeQueryNode(node)) name = node.exprName;
+    if (name) {
+      const symbol = checker.getSymbolAtLocation(
+        ts.isQualifiedName(name) ? name.right : ts.isPropertyAccessExpression(name) ? name.name : name
+      );
+      if (symbol) found.push(symbol);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(surface);
+  return found;
+}
+
+const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+
+/** The declaration as a signature: its public surface, comments dropped and
+ * formatting normalized. */
+function printSignature(checker: ts.TypeChecker, decl: Declaration): string {
+  const source = decl.getSourceFile();
+  const { node } = publicSurface(checker, decl);
+  const printed = printer.printNode(ts.EmitHint.Unspecified, node, source);
+  return ts.isVariableDeclaration(decl) ? `const ${decl.name.getText(source)}: ${printed};` : printed;
 }
 
 /** The signature lines of one package's seams and everything they are made
@@ -255,8 +262,8 @@ function printSignature(checker: ts.TypeChecker, decl: Declaration): string {
 function signatureLines(
   checker: ts.TypeChecker,
   program: ts.Program,
-  seams: Record<string, string[]>,
-  entries: Entry[]
+  seeds: { file: string; names: string[] }[],
+  within: string
 ): string[] {
   const seen = new Set<Declaration>();
   const queue: Declaration[] = [];
@@ -268,22 +275,23 @@ function signatureLines(
     }
   };
 
-  for (const [subpath, names] of Object.entries(seams)) {
-    const entry = entries.find((e) => e.subpath === subpath);
-    if (!entry?.file) throw new Error(`SEAMS names export "${subpath}", which has no source entry`);
-    const moduleSymbol = checker.getSymbolAtLocation(program.getSourceFile(entry.file)!)!;
-    const exports = checker.getExportsOfModule(moduleSymbol);
+  for (const { file, names } of seeds) {
+    const source = program.getSourceFile(file);
+    if (!source) throw new Error(`program did not load ${file}`);
+    const exports = checker.getExportsOfModule(checker.getSymbolAtLocation(source)!);
     for (const name of names) {
       const symbol = exports.find((s) => s.getName() === name);
-      if (!symbol) throw new Error(`SEAMS names ${name}, which "${subpath}" does not export`);
-      const decls = ownDeclarations(checker, symbol);
-      if (decls.length === 0) throw new Error(`${name} has no declaration in packages/`);
+      if (!symbol) throw new Error(`SEAMS names ${name}, which ${relative(ROOT, file)} does not export`);
+      const decls = ownDeclarations(checker, symbol, within);
+      if (decls.length === 0) throw new Error(`${name} has no declaration in ${relative(ROOT, within)}`);
       enqueue(decls);
     }
   }
   for (let i = 0; i < queue.length; i++) {
-    for (const symbol of referencedSymbols(checker, queue[i])) {
-      enqueue(ownDeclarations(checker, symbol));
+    const { node, walk } = publicSurface(checker, queue[i]);
+    if (!walk) continue;
+    for (const symbol of referencedSymbols(checker, node)) {
+      enqueue(ownDeclarations(checker, symbol, within));
     }
   }
 
@@ -297,6 +305,20 @@ function signatureLines(
   });
   blocks.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return blocks.flatMap((b) => b.lines);
+}
+
+/** The signature section for seeds in arbitrary source files, counting only
+ * declarations under `within` as this repo's own. For tests of the traversal
+ * itself; the reports go through `generateReports`. */
+export function seamSignatures(
+  seeds: { file: string; names: string[] }[],
+  within: string
+): string[] {
+  const program = ts.createProgram(
+    seeds.map((s) => s.file),
+    compilerOptions()
+  );
+  return signatureLines(program.getTypeChecker(), program, seeds, within);
 }
 
 /** Builds every package's report in one pass (one program, one lib parse). */
@@ -343,7 +365,16 @@ export function generateReports(): Map<string, string> {
       lines.push(
         "",
         SIGNATURES_HEADING,
-        ...signatureLines(checker, program, seams, allEntries.get(dir)!)
+        ...signatureLines(
+          checker,
+          program,
+          Object.entries(seams).map(([subpath, names]) => {
+            const entry = allEntries.get(dir)!.find((e) => e.subpath === subpath);
+            if (!entry?.file) throw new Error(`SEAMS names export "${subpath}", which has no source entry`);
+            return { file: entry.file, names };
+          }),
+          PACKAGES_DIR
+        )
       );
     }
     reports.set(`${dir}.txt`, lines.join("\n") + "\n");

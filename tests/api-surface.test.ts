@@ -12,9 +12,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { generateReports, SIGNATURES_HEADING } from "../scripts/api-report";
+import { generateReports, seamSignatures, SEAMS, SIGNATURES_HEADING } from "../scripts/api-report";
 
 const ROOT = resolve(import.meta.dir, "..");
 const REPORT_DIR = join(ROOT, "api-report");
@@ -58,10 +59,18 @@ describe("api surface reports", () => {
       .filter(([, content]) => sections(content).signatures !== "")
       .map(([file]) => file)
       .sort();
-    expect(withSignatures).toEqual(["core.txt", "scrape.txt", "ui-sdk.txt"]);
-    expect(sections(reports.get("scrape.txt")!).signatures).toContain(
-      "scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;"
-    );
+    expect(withSignatures).toEqual(Object.keys(SEAMS).map((dir) => `${dir}.txt`).sort());
+    // Every seam is recorded with its declaration printed under it. Checked
+    // by shape, not by content, so retyping a seam on purpose needs only the
+    // regenerated report.
+    for (const [dir, subpaths] of Object.entries(SEAMS)) {
+      const lines = sections(reports.get(`${dir}.txt`)!).signatures.split("\n");
+      for (const name of Object.values(subpaths).flat()) {
+        const at = lines.findIndex((line) => line.startsWith(`  ${name} (`));
+        expect(at, `${name} has no entry in api-report/${dir}.txt`).toBeGreaterThan(-1);
+        expect(lines[at + 1]).toMatch(new RegExp(`^    export (interface|type) ${name}\\b`));
+      }
+    }
   });
 
   test("no report survives its package", () => {
@@ -69,5 +78,55 @@ describe("api surface reports", () => {
       .filter((f) => f.endsWith(".txt"))
       .filter((f) => !reports.has(f));
     expect(stale).toEqual([]);
+  });
+});
+
+describe("seam signature traversal", () => {
+  // Fixture sources, so the traversal is tested on shapes the real seams may
+  // not use today. Declarations count as the repo's own under `dir`.
+  const seam = `export interface Seam {
+  http: import("./client").Client;
+}
+`;
+  const client = (bodyType: string, internal: string) => `interface InternalState {
+  ${internal};
+}
+export interface Page {
+  body: ${bodyType};
+}
+export class Client {
+  private scratch?: InternalState;
+  #hidden?: InternalState;
+  get(): Promise<Page> {
+    return Promise.resolve({ body: undefined as never });
+  }
+}
+`;
+
+  function signatures(bodyType: string, internal: string): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "api-report-")));
+    try {
+      writeFileSync(join(dir, "seam.ts"), seam);
+      writeFileSync(join(dir, "client.ts"), client(bodyType, internal));
+      return seamSignatures([{ file: join(dir, "seam.ts"), names: ["Seam"] }], dir)
+        .join("\n")
+        .replaceAll(dir, "<dir>");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("a type reached through an inline import is recorded, and a retype of it shows", () => {
+    const baseline = signatures("string", "n: number");
+    expect(baseline).toContain("  Page (");
+    expect(baseline).toContain("body: string;");
+    expect(signatures("number", "n: number")).not.toBe(baseline);
+  });
+
+  test("a private member's type is not part of the surface", () => {
+    const baseline = signatures("string", "n: number");
+    expect(baseline).toContain("  Client (");
+    expect(baseline).not.toContain("InternalState");
+    expect(signatures("string", "n: string")).toBe(baseline);
   });
 });
