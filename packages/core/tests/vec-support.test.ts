@@ -19,8 +19,9 @@ import {
   setMeta,
   storedVectorWidth,
 } from "../src/lib/db";
+import { compactVectors, needsCompaction, readVectorSlots } from "../src/lib/indexer";
 // Same optional-extension policy as indexer.test.ts; one shared probe.
-import { vecAvailable } from "./vec-fixture";
+import { loadVec, vecAvailable } from "./vec-fixture";
 
 const DIM = 16;
 
@@ -148,5 +149,109 @@ describe("storedVectorWidth", () => {
     setMeta(db, "embedding_dimensions", "99999");
     expect(storedVectorWidth(db, 1536)).toBe(DIM);
     db.close();
+  });
+});
+
+describe.skipIf(!vecAvailable)("readVectorSlots (#420)", () => {
+  test("a table this connection cannot read has unknown slots, never 0", async () => {
+    const dbPath = await stage();
+    // No extension on this connection. The chunk shadow table is a plain
+    // table and would answer; the figure must not come from it regardless.
+    const db = new Database(dbPath);
+    try {
+      expect(db.prepare("SELECT COUNT(*) AS n FROM vec_chunks_chunks").get()).toEqual({ n: 1 });
+      expect(readVectorSlots(db)).toEqual({ live: null, allocated: null });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a chunk table in a shape this reader does not know yields null, not a wrong number", async () => {
+    const dbPath = await stage();
+    // Stands in for a sqlite-vec upgrade that renames the column. vec0
+    // refuses the ALTER on a connection it is loaded on, so it is made on a
+    // bare one.
+    const bare = new Database(dbPath);
+    bare.run("ALTER TABLE vec_chunks_chunks RENAME COLUMN size TO slots");
+    bare.close();
+    const db = new Database(dbPath);
+    try {
+      await loadVec(db);
+      expect(db.prepare("SELECT SUM(slots) AS n FROM vec_chunks_chunks").get()).toEqual({ n: 1024 });
+      expect(readVectorSlots(db)).toEqual({ live: 1, allocated: null });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a chunk table that keeps size but renames validity also yields null", async () => {
+    const dbPath = await stage();
+    // `size` alone still answers a SUM, so only the shape check stands
+    // between this table and a figure read from a layout it does not know.
+    const bare = new Database(dbPath);
+    bare.run("ALTER TABLE vec_chunks_chunks RENAME COLUMN validity TO live_bits");
+    bare.close();
+    const db = new Database(dbPath);
+    try {
+      await loadVec(db);
+      expect(db.prepare("SELECT SUM(size) AS n FROM vec_chunks_chunks").get()).toEqual({ n: 1024 });
+      expect(readVectorSlots(db)).toEqual({ live: 1, allocated: null });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("compacting a pre-v2 table keeps its definition and its vectors, and migrates nothing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-vec-legacy-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "brain.db");
+    const db = openDatabase(dbPath, { embeddingDimensions: DIM });
+    try {
+      await loadVec(db);
+      // The shape before the v2 migration: no metadata columns.
+      db.run(`CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[${DIM}])`);
+      const insert = db.prepare("INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)");
+      for (let id = 1; id <= 3; id++) insert.run(id, new Float32Array(DIM).fill(id / 10));
+      const definition = () =>
+        db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as { sql: string };
+      const rows = () =>
+        db.prepare("SELECT chunk_id, vec_to_json(embedding) AS v FROM vec_chunks ORDER BY chunk_id").all();
+      const before = { definition: definition(), rows: rows() };
+
+      let compacted: boolean | undefined;
+      expect(() => {
+        compacted = compactVectors(db);
+      }).not.toThrow();
+      expect(compacted).toBe(true);
+
+      expect(definition()).toEqual(before.definition);
+      expect(rows()).toEqual(before.rows);
+      expect((before.rows as unknown[]).length).toBe(3);
+      expect(getMeta(db, "vec_schema")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a brain with no vector table has a known zero of each", () => {
+    const db = new Database(":memory:");
+    try {
+      expect(readVectorSlots(db)).toEqual({ live: 0, allocated: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("one mostly empty internal chunk is not worth compacting", async () => {
+    const dbPath = await stage();
+    const db = new Database(dbPath);
+    try {
+      await loadVec(db);
+      expect(needsCompaction(db)).toBe(false);
+      expect(compactVectors(db)).toBe(true); // an explicit request still runs
+      expect(readVectorSlots(db)).toEqual({ live: 1, allocated: 1024 });
+    } finally {
+      db.close();
+    }
   });
 });

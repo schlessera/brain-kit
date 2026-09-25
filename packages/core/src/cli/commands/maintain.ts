@@ -1,5 +1,5 @@
-import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
-import { indexAll } from "../../lib/indexer.js";
+import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
+import { compactVectors, indexAll, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
 import { audit } from "../../lib/auditor.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
@@ -9,19 +9,20 @@ import { emit, embeddingDims } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 
-Runs, in order: incremental index (+embeddings when a key is configured), an
-audit snapshot, a tag report (counts only; see \`brain tags\`), then a prune of
-the scratch area (files older than 7 days, then the oldest until under 1 GB).
-Exits 2 if any step failed; the tag report never fails the run. Module cron
-jobs are separate (advisory manifest entries consumed by the container
-entrypoint).
+Runs, in order: incremental index (+embeddings when a key is configured), a
+vector-table compaction when fewer than half its slots are live (the same step
+as \`brain index --compact\`), an audit snapshot, a tag report (counts only;
+see \`brain tags\`), then a prune of the scratch area (files older than 7 days,
+then the oldest until under 1 GB). Exits 2 if any step failed; the tag report
+never fails the run. Module cron jobs are separate (advisory manifest entries
+consumed by the container entrypoint).
 
 The hosting container runs this daily. A brain with no chat server has no
 other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
-  summary: "Run routine maintenance: incremental index, audit snapshot, tag report, scratch prune",
+  summary: "Run routine maintenance: incremental index, vector compaction, audit snapshot, tag report, scratch prune",
   helpBlock: HELP,
   async run(_args, cli): Promise<number> {
     const report: Array<{ step: string; result: string }> = [];
@@ -50,7 +51,33 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "index", result: `FAILED — ${(e as Error).message}` });
     }
 
-    // 2. Audit snapshot.
+    // 2. Vector compaction, only when it would reclaim something. Deleted
+    // vectors leave slots sqlite-vec never reuses; see lib/indexer/compact.ts.
+    try {
+      const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
+      try {
+        if (vecTableExists(db)) await loadVecSupport(db);
+        const before = readVectorSlots(db);
+        if (before.allocated === null) {
+          report.push({ step: "vectors", result: "skipped — vector slots could not be read" });
+        } else if (!needsCompaction(db, before)) {
+          report.push({ step: "vectors", result: `ok — ${before.live} of ${before.allocated} slots live, nothing to reclaim` });
+        } else {
+          compactVectors(db);
+          const after = readVectorSlots(db);
+          report.push({
+            step: "vectors",
+            result: `ok — compacted ${before.allocated} slots to ${after.allocated} for ${after.live} live`,
+          });
+        }
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      report.push({ step: "vectors", result: `FAILED — ${(e as Error).message}` });
+    }
+
+    // 3. Audit snapshot.
     try {
       const db = openDatabase(cli.brain.dbPath, { readonly: true });
       const issues = audit(db, cli.brain.taxonomy);
@@ -63,7 +90,7 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "audit", result: `FAILED — ${(e as Error).message}` });
     }
 
-    // 3. Tag report, counts only. Read-only, and never a failed step: a
+    // 4. Tag report, counts only. Read-only, and never a failed step: a
     // tidy-up hint must not turn a cron run red.
     try {
       report.push({ step: "tags", result: summarizeTagReport(tagReport(cli.brain.root, cli.brain.taxonomy)) });
@@ -71,7 +98,7 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "tags", result: `skipped — ${(e as Error).message}` });
     }
 
-    // 4. Scratch prune. Writes into scratch prune as they go; this is the
+    // 5. Scratch prune. Writes into scratch prune as they go; this is the
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);

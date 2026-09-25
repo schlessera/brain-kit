@@ -39,7 +39,7 @@ export const BOOLEAN_FLAGS = new Set([
   "json", "human", "help",
   "include-archived", "assets-only",
   "smart",
-  "incremental", "embeddings", "force", "quiet",
+  "incremental", "embeddings", "force", "quiet", "compact",
   "fix",
   "keep-note", "all",
   "dry-run",
