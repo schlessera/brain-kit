@@ -3647,7 +3647,7 @@ characters per reference.
 
 ## 2026-09-25 — measured: the Claude backend at server level, beside pi (#137)
 
-**Question.** pi drew a block on 52 of 60 turns (87%, the record above). The
+**Question.** pi drew a block on 52 of 60 turns (87%, "2026-09-22 — measured: pi draws the block" above). The
 Claude backend drew one on 76–77% in D43 and D44, and that residue had three
 possible explanations: the layer, the tool roster, or the backend. None of the
 three had been measured. D43 and D44 drive the Agent SDK directly. pi was
