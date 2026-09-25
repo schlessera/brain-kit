@@ -135,9 +135,11 @@ without breaking the one below it. You are never blocked waiting for a key.
 | 3    | + a `DEEPGRAM_API_KEY` (with the chat UI)| Voice capture in the self-hosted chat UI                                                                                                            |
 
 Tier 0 is genuinely useful the moment you clone — the CLI needs only Bun. Tier 1
-is what the flagship onboarding assumes; if you have no coding agent, `brain init
---default` generates a sensible default taxonomy non-interactively. Tiers 2 and 3
-are opt-in upgrades. Hosting and voice are covered in
+is what the flagship onboarding assumes. With no coding agent, you grow
+`brain.config.ts` by hand ([configuration.md](configuration.md)); `brain init
+--default` only fills in whatever of the core layout is missing — on a template
+brain that is a root `_index.md` — then indexes and validates. It adds no
+taxonomy of its own. Tiers 2 and 3 are opt-in upgrades. Hosting and voice are covered in
 [hosting/README.md](hosting/README.md).
 
 ## Troubleshooting
@@ -158,11 +160,13 @@ everything is green.
 The underlying command is `brain doctor --json`; its output is also the
 artifact to paste into a bug report — the doctor doubles as the support tool.
 
-On a keyless brain — Tier 0, the configuration you have the moment you clone —
-every check passes except one, and that one is expected:
+Run straight after `bun run setup`, before the first `brain index`, the `db`
+check fails with `brain.db is missing`; the `brain index` in section 2 fixes it.
+Once you have indexed, a keyless brain — Tier 0, the configuration you have the
+moment you clone — passes every check except one, and that one is expected:
 
 ```
-embeddings  warn  GEMINI_API_KEY not set — vector search disabled (FTS still works)
+[warn] embeddings         GEMINI_API_KEY not set — vector search disabled (FTS still works)
 ```
 
 That is the doctor reporting the tier you are on, not a problem to fix. It turns
