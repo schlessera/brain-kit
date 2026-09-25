@@ -24,7 +24,7 @@ import { readEnvVar } from "./config/env.js";
 import { initContext } from "./lib/context.js";
 import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
-import { hybridSearch, filterSearch } from "./lib/search-engine.js";
+import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
 import { ingest } from "./lib/ingestion.js";
 import { archiveDocument } from "./lib/archiver.js";
@@ -33,12 +33,18 @@ import { stringifyDocument } from "./lib/frontmatter.js";
 import { safeResolve } from "./lib/safe-path.js";
 import { resolveEmbeddingProvider } from "./lib/registry.js";
 import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
-import type { SearchOptions, DocumentType } from "./lib/types.js";
+import { SEARCH_SORTS, type SearchOptions, type DocumentType } from "./lib/types.js";
 import type { EmbeddingProvider } from "./lib/seams.js";
 import { packageVersion } from "./package-version.js";
 
 // Server-side result caps — agents can ask for less, never more.
 const MAX_SEARCH_LIMIT = 50;
+
+/** A date input: a real calendar date written `YYYY-MM-DD`. */
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date written YYYY-MM-DD")
+  .refine(isIsoDate, "is not a calendar date");
 const MAX_LIST_LIMIT = 100;
 const MAX_GRAPH_DEPTH = 5;
 
@@ -184,6 +190,12 @@ export async function startMcpServer(
         include_archived: z.boolean().default(false).describe("Include archived documents"),
         assets_only: z.boolean().default(false).describe("Only return non-markdown assets (images, PDFs)"),
         limit: z.number().default(10).describe("Max results to return"),
+        updated_since: isoDate.optional().describe("Only documents updated on or after this date (YYYY-MM-DD)"),
+        updated_before: isoDate.optional().describe("Only documents updated on or before this date (YYYY-MM-DD)"),
+        deadline_from: isoDate.optional().describe("Only documents with a deadline on or after this date (YYYY-MM-DD)"),
+        deadline_to: isoDate.optional().describe("Only documents with a deadline on or before this date (YYYY-MM-DD)"),
+        sort: z.enum(SEARCH_SORTS).optional().describe("Result order: score (the default), updated (newest first) or deadline (earliest first, undated last)"),
+        upcoming: z.boolean().default(false).describe("Same as deadline_from today and sort deadline; an explicit deadline_from or sort wins"),
       },
       outputSchema: {
         results: z.array(searchResultSchema),
@@ -205,6 +217,11 @@ export async function startMcpServer(
           includeArchived: params.include_archived,
           assetsOnly: params.assets_only,
           limit: Math.min(Math.max(1, params.limit), MAX_SEARCH_LIMIT),
+          updatedSince: params.updated_since,
+          updatedBefore: params.updated_before,
+          deadlineFrom: params.deadline_from ?? (params.upcoming ? new Date().toISOString().slice(0, 10) : undefined),
+          deadlineTo: params.deadline_to,
+          sort: params.sort ?? (params.upcoming ? "deadline" : undefined),
         };
 
         const { results, warnings } = await hybridSearch(db, opts, { embeddings, taxonomy: brain.taxonomy });

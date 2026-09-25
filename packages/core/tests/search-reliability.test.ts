@@ -6,7 +6,7 @@ import { join, resolve } from "path";
 import { initContext } from "../src/lib/context";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
-import { hybridSearch } from "../src/lib/search-engine";
+import { filterSearch, hybridSearch } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
 let db: Database;
@@ -25,10 +25,11 @@ beforeEach(async () => {
 });
 afterEach(() => db.close());
 
-function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string } = {}) {
+function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: boolean; status?: string; type?: string; updated?: string; deadline?: string } = {}) {
   const status = opts.status ?? "active";
   const type = opts.type ?? "note";
-  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01','2026-01-01','topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status]);
+  const updated = opts.updated ?? "2026-01-01";
+  db.run("INSERT INTO documents(id,path,title,type,status,created,updated,deadline,content,indexed_at) VALUES (?,?,?,?,?,'2026-01-01',?,?,'topic','2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, type, status, updated, opts.deadline ?? null]);
   db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','','topic','')", [id]);
   if (opts.tagged) {
     db.run("INSERT OR IGNORE INTO tags(id,name) VALUES (1,'wanted')");
@@ -59,6 +60,59 @@ test("widens after tag filtering and still excludes archived and other-type docu
   const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 2, tag: "wanted", type: "note" }, { embeddings: provider });
   expect(result.results.map(r => r.path)).toEqual(["notes/2.md", "notes/3.md"]);
   expect(embedCalls).toBe(1);
+});
+
+test("a post-KNN date filter widens the window to fill the limit", async () => {
+  // Doc 1 owns the nearest chunks but is too old; the two recent docs sit
+  // beyond the first KNN window.
+  addDoc(1, 20, 0, { updated: "2026-01-01" });
+  addDoc(2, 1, 0.2, { updated: "2026-03-01" });
+  addDoc(3, 1, 0.3, { updated: "2026-03-02" });
+  const ks: number[] = [];
+  const prepare = db.prepare.bind(db);
+  db.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    if (!sql.includes("FROM vec_chunks WHERE embedding MATCH")) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = ((...args: Parameters<typeof all>) => { ks.push(args[1] as number); return all(...args); }) as typeof statement.all;
+    return statement;
+  }) as typeof db.prepare;
+
+  const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 2, updatedSince: "2026-03-01" }, { embeddings: provider });
+  expect(result.results.map(r => r.path)).toEqual(["notes/2.md", "notes/3.md"]);
+  expect(embedCalls).toBe(1);
+  // A date filter is a post-filter: the first window is limit x 10, not x 3.
+  expect(ks[0]).toBe(20);
+});
+
+test("a vector-lane date sort chooses the limit by date, beyond the nearest document's chunks", async () => {
+  // Doc 1 owns the nearest chunks and the latest deadline; doc 3 is farthest
+  // and due first.
+  addDoc(1, 10, 0, { deadline: "2026-12-31" });
+  addDoc(2, 1, 0.2, { deadline: "2026-06-01" });
+  addDoc(3, 1, 0.3, { deadline: "2026-03-01" });
+  const result = await hybridSearch(db, { query: "topic", mode: "vector", limit: 1, sort: "deadline" }, { embeddings: provider });
+  expect(result.results.map(r => r.path)).toEqual(["notes/3.md"]);
+});
+
+test("a full-text date sort considers exactly the best max(limit x 20, 500) documents", async () => {
+  // 520 matches. The two weakest (longest documents) carry the two earliest
+  // deadlines: rank 501 is outside the documented pool, rank 500 inside it.
+  const insert = (id: number, content: string, deadline: string) => {
+    db.run("INSERT INTO documents(id,path,title,type,status,created,updated,deadline,content,indexed_at) VALUES (?,?,?,'note','active','2026-01-01','2026-01-01',?,?,'2026-01-01')", [id, `notes/${id}.md`, `Doc ${id}`, deadline, content]);
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,'','',?,'')", [id, content]);
+  };
+  for (let id = 1; id <= 498; id++) insert(id, "topic", "2026-12-31");
+  insert(499, `topic ${"filler ".repeat(5)}`, "2026-12-31");
+  insert(500, `topic ${"filler ".repeat(10)}`, "2026-02-01");
+  insert(501, `topic ${"filler ".repeat(20)}`, "2026-01-01");
+  for (let id = 502; id <= 520; id++) insert(id, `topic ${"filler ".repeat(40)}`, "2026-12-31");
+  const ranked = await hybridSearch(db, { query: "topic", mode: "fts", rerank: "none", limit: 520 });
+  expect(ranked.results.findIndex(r => r.path === "notes/500.md")).toBe(499);
+  expect(ranked.results.findIndex(r => r.path === "notes/501.md")).toBe(500);
+
+  const result = await hybridSearch(db, { query: "topic", mode: "fts", rerank: "none", limit: 1, sort: "deadline" });
+  expect(result.results.map(r => r.path)).toEqual(["notes/500.md"]);
 });
 
 test("stops at exhaustion when filters leave too few results", async () => {
@@ -275,4 +329,12 @@ describe("full-text lane over fixtures/corpus", () => {
       expect({ query, warnings }).toEqual({ query, warnings: [] });
     }
   });
+});
+
+test("an invalid date filter is refused rather than matching nothing", async () => {
+  addDoc(1, 1, 0);
+  await expect(
+    hybridSearch(db, { query: "topic", mode: "fts", updatedSince: "2026-13-01" })
+  ).rejects.toThrow("updatedSince must be a date written YYYY-MM-DD");
+  expect(() => filterSearch(db, { deadlineTo: "soon" })).toThrow("deadlineTo must be a date written YYYY-MM-DD");
 });

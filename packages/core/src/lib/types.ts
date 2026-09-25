@@ -77,7 +77,19 @@ export interface SearchOptions {
   /** The moment recency reranking is measured from. Defaults to the wall
    * clock; tests and `brain eval` pin it so ranking is reproducible. */
   now?: Date;
+  /** Date filters, ISO `YYYY-MM-DD`, every bound inclusive. A deadline
+   * filter excludes documents that have no deadline. */
+  updatedSince?: string;
+  updatedBefore?: string;
+  deadlineFrom?: string;
+  deadlineTo?: string;
+  /** Result order: retrieval score (default), newest `updated` first, or
+   * earliest `deadline` first with undated documents last. */
+  sort?: SearchSort;
 }
+
+export const SEARCH_SORTS = ["score", "updated", "deadline"] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
 
 export interface AuditIssue {
   path: string;
