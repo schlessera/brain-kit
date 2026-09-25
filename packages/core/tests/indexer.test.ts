@@ -1418,3 +1418,33 @@ describe("an unchanged chunk keeps its vector (#417)", () => {
 
   test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
 });
+
+describe("chunk contexts get the document's summary (#427)", () => {
+  test.if(vecAvailable)("the index passes the frontmatter summary to generateChunkContext", async () => {
+    const body = ["zeppelin", "blimp"].flatMap((word) => [`## About ${word}`, "", `${word} `.repeat(120).trim(), ""]);
+    const doc = [
+      "---",
+      "type: note",
+      "title: Airships",
+      "summary: Lighter-than-air craft, compared",
+      'created: "2026-01-01"',
+      'updated: "2026-01-02"',
+      "---",
+      "",
+      ...body,
+    ].join("\n");
+    const root = makeCorpus({ "notes/airships.md": doc });
+    const summaries: Array<string | null | undefined> = [];
+    const enrichment: Enrichment = {
+      ...makeEnrichment(),
+      async generateChunkContext(_title, _text, heading, _content, summary) {
+        summaries.push(summary);
+        return `Context for ${heading}`;
+      },
+    };
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment });
+    expect(summaries).toEqual(["Lighter-than-air craft, compared", "Lighter-than-air craft, compared"]);
+  });
+
+  test.if(!vecAvailable)("skipped — sqlite-vec unavailable in this environment", () => {});
+});
