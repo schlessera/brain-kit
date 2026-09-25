@@ -989,7 +989,34 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     expect(readAssetCache(root)).toEqual([renamed]);
   });
 
-  test("a key that appears twice resolves to its first line in sorted order, on load and on save", async () => {
+  test("a key that appears twice loads as its first line in sorted order, whichever line comes first in the file", () => {
+    const root = makeCorpus({});
+    const contextKey = "0".repeat(64);
+    const assetKey = `${"f".repeat(64)}:T`;
+    const loaders = [
+      { file: ".context-cache.jsonl", key: contextKey, load: loadContextCache },
+      { file: ".asset-cache.jsonl", key: assetKey, load: loadAssetCache },
+    ];
+    const orders = [
+      ["Z", "A"],
+      ["A", "Z"],
+    ];
+    const loaded: string[] = [];
+    for (const { file, key, load } of loaders) {
+      for (const order of orders) {
+        writeFileSync(join(root, file), order.map((v) => JSON.stringify({ k: key, v })).join("\n") + "\n");
+        loaded.push(`${file} ${order.join("")}: ${load(root).get(key)}`);
+      }
+    }
+    expect(loaded).toEqual([
+      ".context-cache.jsonl ZA: A",
+      ".context-cache.jsonl AZ: A",
+      ".asset-cache.jsonl ZA: A",
+      ".asset-cache.jsonl AZ: A",
+    ]);
+  });
+
+  test("a write collapses a duplicated key to its first line in sorted order", async () => {
     const root = makeCorpus({ "notes/airships.md": mdSections("Airships", ["zeppelin", "blimp"]) });
     await runIndex(root, withEnrichment());
     const [first, second] = readContextCache(root);
@@ -1001,17 +1028,9 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
       join(root, ".context-cache.jsonl"),
       [JSON.stringify({ k: key, v: "Z" }), JSON.stringify({ k: key, v: "A" })].join("\n") + "\n"
     );
-    expect(loadContextCache(root).get(key)).toBe("A");
 
     await runIndex(root, withEnrichment());
     expect(readContextCache(root)).toEqual([{ k: key, v: "A" }, second].sort((a, b) => (a.k < b.k ? -1 : 1)));
-
-    const assetKey = `${"f".repeat(64)}:T`;
-    writeFileSync(
-      join(root, ".asset-cache.jsonl"),
-      [JSON.stringify({ k: assetKey, v: "Z" }), JSON.stringify({ k: assetKey, v: "A" })].join("\n") + "\n"
-    );
-    expect(loadAssetCache(root).get(assetKey)).toBe("A");
   });
 });
 
@@ -1054,6 +1073,43 @@ describe("brain index --forget-cache (#408)", () => {
     const result = await runCli(root, ["index", "--forget-cache", "notes/nowhere.md", "--json"]);
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("No indexed document found at: notes/nowhere.md");
+  });
+
+  test("forgetting a document also resets another document whose chunks share its keys", async () => {
+    // A context key is title + heading + text, with no path in it.
+    const twin = mdSections("Airships", ["zeppelin", "blimp"]);
+    const root = makeCorpus({ "notes/airships.md": twin, "me/airships.md": twin });
+    await runIndex(root, withEnrichment());
+    expect(readContextCache(root).map((e) => e.v).sort()).toEqual(["Context for About blimp", "Context for About zeppelin"]);
+
+    const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const withContext = db
+      .prepare("SELECT d.path FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.context IS NOT NULL ORDER BY d.path")
+      .all();
+    expect(withContext).toEqual([
+      { path: "me/airships.md" },
+      { path: "me/airships.md" },
+      { path: "notes/airships.md" },
+      { path: "notes/airships.md" },
+    ]);
+    expect(await forgetCachedEnrichment(db, root, "notes/airships.md")).toBe(2);
+    const stale = db
+      .prepare("SELECT d.path, c.context FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.context IS NOT NULL")
+      .all();
+    db.close();
+    expect(stale).toEqual([]);
+
+    const fresh: Enrichment = {
+      ...makeEnrichment(),
+      async generateChunkContext(_docTitle, _docText, chunkHeading) {
+        return `Regenerated for ${chunkHeading}`;
+      },
+    };
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: fresh });
+    expect(readContextCache(root).map((e) => e.v).sort()).toEqual([
+      "Regenerated for About blimp",
+      "Regenerated for About zeppelin",
+    ]);
   });
 
   test("forgetting an asset resets every copy of its bytes and the next run describes them once", async () => {

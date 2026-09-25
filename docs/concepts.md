@@ -228,11 +228,13 @@ An embeddings run only adds the keys a file lacks. A value already committed
 stays, even when this clone's database generated different text for the same
 key, so two clones syncing with no content change leave the files untouched. A
 key that appears twice resolves to its first line in sorted order, the same on
-every clone. An asset description is reused for the same bytes under any title,
-and is kept while any indexed asset still has those bytes.
+every clone, and `brain sync pull` applies the same rule when it unions this
+clone's lines with the merged file. An asset description is reused for the same
+bytes under any title, and is kept while any indexed asset still has those bytes.
 
 To discard a bad entry, run `brain index --forget-cache <path>`: it removes that
-document's or asset's lines and resets it in `brain.db`, so the next
+document's or asset's lines and resets it in `brain.db` (together with any other
+document or asset that shares those keys or bytes), so the next
 `brain index --embeddings` generates it again.
 
 ## See also

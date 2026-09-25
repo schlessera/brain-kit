@@ -65,9 +65,22 @@ function forgetDocument(
     .prepare("SELECT heading, content FROM chunks WHERE document_id = ?")
     .all(doc.id) as { heading: string; content: string }[];
   const keys = new Set(chunks.map((c) => chunkContextKey(doc.title, c.heading, c.content)));
+  // A context key carries no path: another document with the same title and
+  // chunk text shares it, and its stored context would be appended straight
+  // back. Every chunk under a forgotten key is reset, not only this document's.
+  const sharing = db.prepare(
+    `SELECT c.id FROM chunks c JOIN documents d ON d.id = c.document_id
+     WHERE d.asset_type = 'markdown' AND d.title = ? AND c.heading = ? AND c.content = ?`
+  );
+  const clearContext = db.prepare("UPDATE chunks SET context = NULL WHERE id = ?");
+  const dropVector = hasVectors ? db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
   db.transaction(() => {
-    db.prepare("UPDATE chunks SET context = NULL WHERE document_id = ?").run(doc.id);
-    if (hasVectors) dropVectorsForDocuments(db, [doc.id]);
+    for (const chunk of chunks) {
+      for (const { id } of sharing.all(doc.title, chunk.heading, chunk.content) as { id: number }[]) {
+        clearContext.run(id);
+        dropVector?.run(id);
+      }
+    }
   }).immediate();
   return forgetContextEntries(root, keys);
 }
