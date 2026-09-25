@@ -324,9 +324,17 @@ describe("vector slots and compaction (#420)", () => {
         return (JSON.parse(stdout) as Array<{ step: string; result: string }>).find((r) => r.step === "vectors");
       };
 
+      const neighbours = await nearest(churned);
+      expect(neighbours.length).toBe(10);
       expect((await vectorsStep(churned))?.result).toStartWith("ok — compacted ");
       const compacted = (await slotStats(churned)).vectorSlots;
-      expect(compacted.allocated! - compacted.live!).toBeLessThan(CHUNK_SLOTS);
+      // Compaction must keep every vector: a step that emptied the table
+      // would also leave few dead slots.
+      expect(compacted.live).toBe(LIVE);
+      expect(typeof compacted.allocated).toBe("number");
+      expect(compacted.allocated! - LIVE).toBeGreaterThanOrEqual(0);
+      expect(compacted.allocated! - LIVE).toBeLessThan(CHUNK_SLOTS);
+      expect(await nearest(churned)).toEqual(neighbours);
 
       expect(await vectorsStep(fresh)).toEqual({
         step: "vectors",

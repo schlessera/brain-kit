@@ -236,9 +236,12 @@ stderr, never on stdout.
       // Live vectors against the slots sqlite-vec has allocated for them.
       // Deleted vectors leave slots it never reuses; `brain index --compact`
       // (and `brain maintain`, when fewer than half are live) reclaims them.
-      // Both are null when the vector table cannot be read — sqlite-vec will
-      // not load, or its chunk table is not in the shape this version knows —
-      // and both are 0 when there is no vector table. Additive in 0.38.0.
+      // Each is nullable on its own. `live` is null when the vector table
+      // exists and sqlite-vec will not load, so it cannot be counted.
+      // `allocated` is null then too, and also when the extension loads but
+      // its chunk table is not in the shape this version knows — so `live`
+      // can be a number while `allocated` is null. Both are 0 when there is
+      // no vector table. Additive in 0.38.0.
       "vectorSlots": { "live": 3030, "allocated": 7168 }
     },
     "freeBytes": 643825672192     // null when the platform call fails

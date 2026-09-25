@@ -57,8 +57,9 @@ export interface BrainStats {
     /**
      * brain.db plus its WAL on disk (a rebuild-cost figure — the index is
      * disposable), its row counts, and the vector table's live rows against
-     * the slots sqlite-vec has allocated for them. `allocated` is null when
-     * the extension will not load or its chunk table cannot be read.
+     * the slots sqlite-vec has allocated for them. `live` is null when the
+     * extension will not load; `allocated` is null then, and also when its
+     * chunk table is not in the shape this version knows.
      */
     db: { bytes: number | null; tables: Record<string, number>; vectorSlots: VectorSlots };
     /** Bytes available to this user on the volume holding the brain; null when it could not be read. */

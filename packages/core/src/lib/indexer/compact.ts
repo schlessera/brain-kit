@@ -109,19 +109,22 @@ export function compactVectors(db: Database): boolean {
     const { sql } = db
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'")
       .get() as { sql: string };
+    // The columns this table actually has. A pre-v2 table has no metadata
+    // columns and is still read and searched as it is; compacting it must not
+    // turn into the schema migration, which is `migrateVecSchema`'s job.
+    const columns = (db.prepare("PRAGMA table_info(vec_chunks)").all() as { name: string }[])
+      .map((c) => `"${c.name.replace(/"/g, '""')}"`)
+      .join(", ");
     // Staged through a plain temp table, in SQL, so a brain with many large
     // vectors is never held in memory at once.
     db.transaction(() => {
       db.run("DROP TABLE IF EXISTS temp.vec_chunks_compact");
-      db.run(
-        `CREATE TEMP TABLE vec_chunks_compact AS
-         SELECT chunk_id, embedding, is_archived, doc_type FROM vec_chunks`
-      );
+      db.run(`CREATE TEMP TABLE vec_chunks_compact AS SELECT ${columns} FROM vec_chunks`);
       db.run("DROP TABLE vec_chunks");
       db.run(sql);
       db.run(
-        `INSERT INTO vec_chunks(chunk_id, embedding, is_archived, doc_type)
-         SELECT chunk_id, embedding, is_archived, doc_type FROM temp.vec_chunks_compact ORDER BY chunk_id`
+        `INSERT INTO vec_chunks(${columns})
+         SELECT ${columns} FROM temp.vec_chunks_compact ORDER BY chunk_id`
       );
       db.run("DROP TABLE temp.vec_chunks_compact");
     }).immediate();

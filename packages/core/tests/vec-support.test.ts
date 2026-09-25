@@ -184,6 +184,55 @@ describe.skipIf(!vecAvailable)("readVectorSlots (#420)", () => {
     }
   });
 
+  test("a chunk table that keeps size but renames validity also yields null", async () => {
+    const dbPath = await stage();
+    // `size` alone still answers a SUM, so only the shape check stands
+    // between this table and a figure read from a layout it does not know.
+    const bare = new Database(dbPath);
+    bare.run("ALTER TABLE vec_chunks_chunks RENAME COLUMN validity TO live_bits");
+    bare.close();
+    const db = new Database(dbPath);
+    try {
+      await loadVec(db);
+      expect(db.prepare("SELECT SUM(size) AS n FROM vec_chunks_chunks").get()).toEqual({ n: 1024 });
+      expect(readVectorSlots(db)).toEqual({ live: 1, allocated: null });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("compacting a pre-v2 table keeps its definition and its vectors, and migrates nothing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-vec-legacy-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "brain.db");
+    const db = openDatabase(dbPath, { embeddingDimensions: DIM });
+    try {
+      await loadVec(db);
+      // The shape before the v2 migration: no metadata columns.
+      db.run(`CREATE VIRTUAL TABLE vec_chunks USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[${DIM}])`);
+      const insert = db.prepare("INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?, ?)");
+      for (let id = 1; id <= 3; id++) insert.run(id, new Float32Array(DIM).fill(id / 10));
+      const definition = () =>
+        db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'").get() as { sql: string };
+      const rows = () =>
+        db.prepare("SELECT chunk_id, vec_to_json(embedding) AS v FROM vec_chunks ORDER BY chunk_id").all();
+      const before = { definition: definition(), rows: rows() };
+
+      let compacted: boolean | undefined;
+      expect(() => {
+        compacted = compactVectors(db);
+      }).not.toThrow();
+      expect(compacted).toBe(true);
+
+      expect(definition()).toEqual(before.definition);
+      expect(rows()).toEqual(before.rows);
+      expect((before.rows as unknown[]).length).toBe(3);
+      expect(getMeta(db, "vec_schema")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   test("a brain with no vector table has a known zero of each", () => {
     const db = new Database(":memory:");
     try {
