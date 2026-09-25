@@ -257,6 +257,23 @@ function flattenBareAddresses(root: Node, source: string, out: Flattened[]): voi
 }
 
 /**
+ * Exposed for tests: while `counting`, every read of a flattened stretch or
+ * a leaf by position is counted, whatever code makes it, so a key-value
+ * run's reading can be shown to grow with the run and not with its square.
+ */
+export const kvReadSteps = { counting: false, count: 0 };
+
+function counted<T>(items: T[]): T[] {
+  if (!kvReadSteps.counting) return items;
+  return new Proxy(items, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) kvReadSteps.count++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+/**
  * The flattened stretches inside `span`. `flattened` is in document order, so
  * they are one run of it, found by bisection: a list reads each item's
  * stretches without passing every address in the answer.
@@ -271,21 +288,14 @@ function flattenedWithin(flattened: readonly Flattened[], span: CandidateSpan): 
   }
   let end = first;
   while (end < flattened.length && flattened[end]!.start < span.end) end++;
-  return flattened.slice(first, end).filter((flat) => flat.end <= span.end);
+  return counted(flattened.slice(first, end).filter((flat) => flat.end <= span.end));
 }
-
-/**
- * Exposed for tests: the leaves and flattened stretches a key-value run's
- * reading has stepped over. It grows with the run, not with its square.
- */
-export const kvReadSteps = { count: 0 };
 
 /** The source between `start` and `end`, with every flattened stretch read as its text. */
 function flatSource(source: string, span: CandidateSpan, flattened: readonly Flattened[]): string {
   let out = "";
   let at = span.start;
   for (const flat of flattenedWithin(flattened, span)) {
-    kvReadSteps.count++;
     out += source.slice(at, flat.start) + flat.text;
     at = flat.end;
   }
@@ -443,9 +453,7 @@ function leavesOf(node: Node, span: CandidateSpan, flattened: readonly Flattened
       const start = child.position?.start.offset;
       const end = child.position?.end.offset;
       if (typeof start !== "number" || typeof end !== "number") continue;
-      kvReadSteps.count++;
       while (next < within.length && within[next]!.end <= start) {
-        kvReadSteps.count++;
         shift += within[next]!.end - within[next]!.start - within[next]!.text.length;
         next++;
       }
@@ -456,7 +464,7 @@ function leavesOf(node: Node, span: CandidateSpan, flattened: readonly Flattened
     }
   };
   walk(node);
-  return out;
+  return counted(out);
 }
 
 /**
@@ -471,13 +479,9 @@ function textBetween(line: KvLine, source: string, from: number, to: number): st
   // Rows are read in order, so the leaves before this row are passed once;
   // a leaf running on into the next row stays for it.
   const { leaves, cursor } = line;
-  while (cursor.next < leaves.length && leaves[cursor.next]!.at + leaves[cursor.next]!.length <= from) {
-    kvReadSteps.count++;
-    cursor.next++;
-  }
+  while (cursor.next < leaves.length && leaves[cursor.next]!.at + leaves[cursor.next]!.length <= from) cursor.next++;
   let out = "";
   for (let i = cursor.next; i < leaves.length && leaves[i]!.at < to; i++) {
-    kvReadSteps.count++;
     const leaf = leaves[i]!;
     const lo = Math.max(from, leaf.at) - leaf.at;
     const hi = Math.min(to, leaf.at + leaf.length) - leaf.at;
@@ -589,7 +593,7 @@ function blockquoteCandidate(
 export function detectCandidates(text: string): Candidate[] {
   if (!text.trim()) return [];
   const root = parseMarkdown(text);
-  const flattened: Flattened[] = [];
+  const flattened = counted<Flattened>([]);
   // Document order, which `flatSource` relies on: the walk is depth-first.
   flattenBareAddresses(root, text, flattened);
   const out: Candidate[] = [];

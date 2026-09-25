@@ -246,7 +246,13 @@ describe("detectCandidates", () => {
         (_, i) => `${bullet}**Key:** https://ithaca.example/${i} **600** &amp; more`
       ).join("\n");
       kvReadSteps.count = 0;
-      const [run] = detectCandidates(text);
+      kvReadSteps.counting = true;
+      let run: ReturnType<typeof detectCandidates>[number] | undefined;
+      try {
+        [run] = detectCandidates(text);
+      } finally {
+        kvReadSteps.counting = false;
+      }
       if (run?.kind !== "kv_run") throw new Error("expected kv_run");
       expect(run.rows).toHaveLength(rows);
       expect(run.rows[rows - 1]!.v).toBe(`https://ithaca.example/${rows - 1} 600 & more`);
