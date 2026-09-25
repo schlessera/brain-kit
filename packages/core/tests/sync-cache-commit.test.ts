@@ -355,6 +355,27 @@ describe("sync pull when the merge does not finish", () => {
     expect(result.code).toBe(0);
   });
 
+  test("a conflicted non-ASCII path is listed as the file, not git's quoted form, and its sides are found", async () => {
+    const CAFE = "notes/caf\u00e9.md";
+    const { root, remote } = brainWithRemote();
+    writeFileSync(join(root, CAFE), "# Caf\u00e9\n");
+    git(root, "add", CAFE);
+    git(root, "commit", "-qm", "cafe");
+    git(root, "push", "-q", "origin", "main");
+    pushFromOtherClone(remote, { [CAFE]: "# Caf\u00e9\n\nEdited on the other clone.\n" });
+    writeFileSync(join(root, CAFE), "# Caf\u00e9\n\nEdited here.\n");
+    git(root, "commit", "-qam", "local edit");
+    git(root, "config", "core.quotePath", "true");
+
+    const pull = JSON.parse((await runCli(root, ["sync", "pull", "--json"])).stdout);
+    expect(pull.status).toBe("conflicted");
+    expect(pull.conflicts).toEqual([CAFE]);
+    const { files } = JSON.parse((await runCli(root, ["sync", "conflicts", "--json"])).stdout);
+    expect(files.map((f: { file: string }) => f.file)).toEqual([CAFE]);
+    expect(files[0].ours).toBe("# Caf\u00e9\n\nEdited here.");
+    expect(files[0].theirs).toBe("# Caf\u00e9\n\nEdited on the other clone.");
+  });
+
   test("a squash merge (branch.main.mergeOptions) that stops on a conflict is conflicted, though it leaves no MERGE_HEAD", async () => {
     const root = diverged("# Loose idea\n\nEdited here and committed.\n");
     git(root, "commit", "-qam", "local edit");

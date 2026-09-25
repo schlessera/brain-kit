@@ -85,6 +85,15 @@ function porcelainRecords(root: string): { xy: string; file: string }[] {
   return entries;
 }
 
+/**
+ * The paths the index holds unmerged, once each. `-z` for the same reason as
+ * `porcelainRecords`: without it git quotes and escapes a non-ASCII or unusual
+ * path (`core.quotePath`), and the quoted form names no file `git show` can find.
+ */
+function unmergedPaths(root: string): string[] {
+  return git(root, ["diff", "--name-only", "-z", "--diff-filter=U"], true).stdout.split("\0").filter(Boolean);
+}
+
 function globToRegex(pattern: string): RegExp {
   const body = pattern
     .split(/(\*)/)
@@ -437,7 +446,7 @@ export const syncCommand: CoreCommand = {
           // conflicts without one, and a merge left unfinished before this pull
           // keeps one with nothing to resolve. Unmerged paths are Phase 4's
           // work; none means git refused, which is only to report.
-          conflicts = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
+          conflicts = unmergedPaths(root);
           status = conflicts.length > 0 ? "conflicted" : "merge-failed";
         }
 
@@ -472,7 +481,7 @@ export const syncCommand: CoreCommand = {
       }
 
       case "conflicts": {
-        const paths = git(root, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
+        const paths = unmergedPaths(root);
         const files = paths.map((file) => ({
           file,
           base: git(root, ["show", `:1:${file}`]).stdout || "(no base version)",
