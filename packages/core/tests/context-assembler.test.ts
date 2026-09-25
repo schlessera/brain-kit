@@ -8,7 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import matter from "gray-matter";
@@ -104,6 +104,85 @@ describe("over fixtures/corpus", () => {
     expect(identity.startsWith(kept)).toBe(true);
     expect(identity.slice(kept.length).startsWith("\n\n")).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("neighbours over fixtures/corpus", () => {
+  let ctx: BrainContext;
+  let db: Database;
+  // "dadoes shiplap" matches only the bookshelf plan, so its directory index
+  // and its links reach the output only as neighbours.
+  const QUERY = "dadoes shiplap";
+  const PLAN = "projects/active/bookshelf/plan.md";
+  const INDEX_LINE = "- Bookshelf Build — Index (projects/active/bookshelf/_index.md) — Registry for the walnut-and-cedar bookshelf build — plan, status, and overview";
+
+  beforeAll(async () => {
+    const root = mkdtempSync(join(tmpdir(), "brain-context-neighbours-"));
+    temps.push(root);
+    cpSync(join(CORE_ROOT, "fixtures/corpus"), root, { recursive: true });
+    symlinkSync(resolve(CORE_ROOT, "../../node_modules"), join(root, "node_modules"));
+    // A link from the plan to the archived build, which must never be offered.
+    appendFileSync(join(root, PLAN), "\nThe earlier bench: [[one-old-build]].\n");
+    ctx = await initContext({ root });
+    db = openDatabase(ctx.dbPath);
+    await indexAll(db, { root, taxonomy: ctx.taxonomy, quiet: true });
+  });
+
+  afterAll(() => db?.close());
+
+  const assemble = (maxTokens: number) =>
+    assembleContext(db, ctx, { query: QUERY, maxTokens, includeIdentity: false, includeCurrentFocus: false });
+
+  test("with budget left, the top hit's directory index follows as a related line", async () => {
+    const out = await assemble(4000);
+    // The premise: the plan is the only search hit.
+    expect(out.split("\n").filter((line) => line.startsWith("### ") && line !== "### Related")).toHaveLength(1);
+    expect(out).toContain(`(${PLAN})`);
+    expect(out).toContain(`### Related\n${INDEX_LINE}`);
+  });
+
+  test("when the search hit uses up the budget, no neighbour is added", async () => {
+    const full = await assemble(4000);
+    const hitSection = full.split("\n\n### Related")[0]!;
+    // Room for the hit and less than the floor besides.
+    const out = await assemble(estimateTokens(hitSection) + 5);
+    expect(out).toBe(hitSection);
+    expect(out).not.toContain("### Related");
+  });
+
+  test("a budget with room for one related line gets exactly that line", async () => {
+    const full = await assemble(4000);
+    const hitSection = full.split("\n\n### Related")[0]!;
+    const oneLine = `${hitSection}\n\n### Related\n${INDEX_LINE}`;
+    expect(await assemble(estimateTokens(oneLine))).toBe(oneLine);
+  });
+
+  test("an archived neighbour is never offered", async () => {
+    // The premise: the plan links to the archived build.
+    const linked = db.prepare(
+      "SELECT d.path FROM links l JOIN documents d ON d.id = l.target_id WHERE l.source_id = (SELECT id FROM documents WHERE path = ?)"
+    ).all(PLAN) as { path: string }[];
+    expect(linked.map((r) => r.path)).toContain("projects/archive/one-old-build.md");
+    expect(await assemble(4000)).not.toContain("one-old-build.md");
+  });
+
+  test("no document appears twice", async () => {
+    const out = await assemble(4000);
+    const cited = [...out.matchAll(/\(([^()\s]+\.md)\)/g)].map((m) => m[1]!);
+    expect(cited.length).toBeGreaterThan(2);
+    expect(cited).toEqual([...new Set(cited)]);
+  });
+
+  test("no budget is exceeded with neighbours on", async () => {
+    const over: number[] = [];
+    let withRelated = 0;
+    for (let budget = 60; budget <= 1200; budget += 7) {
+      const out = await assemble(budget);
+      if (out.includes("### Related")) withRelated++;
+      if (estimateTokens(out) > budget) over.push(budget);
+    }
+    expect(withRelated).toBeGreaterThan(0);
+    expect(over).toEqual([]);
   });
 });
 
@@ -220,5 +299,39 @@ describe("over a hand-built index", () => {
       const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
       expect(out).toBe("## Identity\nIntro.\n\n(truncated — brain read me/identity.md)");
     });
+  });
+
+  test("neighbour titles and summaries cannot open a block of their own", async () => {
+    // A hit whose directory index and linked documents carry block syntax
+    // at the start of their titles, and multiline titles and summaries.
+    addDoc("orbit/hub.md", "Hub", "orbit orbit orbit");
+    addDoc("orbit/_index.md", "# Index heading", "directory notes", "first line\n\n# not a heading");
+    const linkedDocs: [string, string, string | null][] = [
+      ["orbit/fence.md", "```fenced title", null],
+      ["orbit/quote.md", "> quoted title", "a summary"],
+      ["orbit/list.md", "- listed title", null],
+      ["orbit/multi.md", "First line\n## Forged section", "one\n\n> two"],
+    ];
+    for (const [path, title, summary] of linkedDocs) addDoc(path, title, "unrelated words", summary);
+    const hubId = (db.prepare("SELECT id FROM documents WHERE path = 'orbit/hub.md'").get() as { id: number }).id;
+    for (const [path] of linkedDocs) {
+      const target = db.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
+      db.run("INSERT INTO links(source_id, target, target_id) VALUES (?,?,?)", [hubId, path, target.id]);
+    }
+
+    const out = await assembleContext(db, ctx, { query: "orbit", maxTokens: 2000, includeIdentity: false, includeCurrentFocus: false });
+    const related = out.split("### Related\n")[1]!;
+    // The premise: the directory index and all four linked docs are offered.
+    for (const path of ["orbit/_index.md", ...linkedDocs.map(([p]) => p)]) expect(related).toContain(`(${path})`);
+    const tree = fromMarkdown(out);
+    // Only the hit heading and "### Related" are headings; the related lines
+    // form one list whose five items are each a single paragraph.
+    const headings = tree.children.filter((node) => node.type === "heading").map((h) => (h as { depth: number }).depth);
+    expect(headings).toEqual([3, 3]);
+    const list = tree.children.at(-1) as { type: string; children: { children: { type: string }[] }[] };
+    expect(list.type).toBe("list");
+    expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
+      Array.from({ length: 5 }, () => ["paragraph"])
+    );
   });
 });

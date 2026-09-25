@@ -81,7 +81,16 @@ function oneLine(text: string): string {
  * thematic break, fence or table escaped.
  */
 function cleanSnippet(snippet: string): string {
-  return oneLine(snippet.replace(/>>>|<<</g, ""))
+  return blockSafe(snippet.replace(/>>>|<<</g, ""));
+}
+
+/**
+ * `oneLine`, with a leading character that would start a heading, quote,
+ * list, thematic break, fence or table escaped: for text that opens a line or
+ * a list item.
+ */
+function blockSafe(text: string): string {
+  return oneLine(text)
     .replace(/^(\d+)([.)])/, "$1\\$2")
     .replace(/^([#>+\-*_=|`~])/, "\\$1");
 }
@@ -171,14 +180,104 @@ export async function assembleContext(
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
 
+    const hits: string[] = [];
     for (const result of results) {
       if (budget < BUDGET_FLOOR) break;
       if (included.has(result.path)) continue;
       const body = cleanSnippet(result.snippet ?? "");
       const section = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
-      if (push(section)) included.add(result.path);
+      if (push(section)) {
+        included.add(result.path);
+        hits.push(result.path);
+      }
+    }
+
+    // Leftover budget goes to the top hits' neighbours: summary lines only,
+    // under their own heading so they read as related, not as search hits.
+    // Lines are added while the section still fits, so it stops on its own.
+    if (hits.length > 0) {
+      const lines: string[] = [];
+      for (const doc of neighbours(db, hits.slice(0, TOP_HITS_FOR_NEIGHBOURS), included)) {
+        const next = `${RELATED_HEADING}\n${[...lines, neighbourLine(doc)].join("\n")}`;
+        if (costOf(next) > budget) break;
+        lines.push(neighbourLine(doc));
+        included.add(doc.path);
+      }
+      if (lines.length > 0) push(`${RELATED_HEADING}\n${lines.join("\n")}`);
     }
   }
 
   return parts.join(SEPARATOR);
+}
+
+interface NeighbourDoc {
+  path: string;
+  title: string;
+  summary: string | null;
+  status: string | null;
+}
+
+/** How many of the top hits contribute neighbours. */
+const TOP_HITS_FOR_NEIGHBOURS = 3;
+const RELATED_HEADING = "### Related";
+
+/** A neighbour as one list item: the title opens the item, so it is made
+ * block-safe; path and summary follow inline, flattened to one line. */
+function neighbourLine(doc: NeighbourDoc): string {
+  const summary = doc.summary ? ` — ${oneLine(doc.summary)}` : "";
+  return `- ${blockSafe(doc.title)} (${oneLine(doc.path)})${summary}`;
+}
+
+/**
+ * The top hits' neighbours, in the order they are offered to the budget:
+ * first the nearest `_index.md` in each hit's directory or an ancestor, then
+ * the documents one link away from the hits in either direction, the ones
+ * more hits link first, then by path. A document already in `exclude` or
+ * archived is never offered, and none is offered twice.
+ */
+function neighbours(db: Database, hits: string[], exclude: Set<string>): NeighbourDoc[] {
+  const byPath = db.prepare("SELECT path, title, summary, status FROM documents WHERE path = ?");
+  const linked = db.prepare(
+    `SELECT d.path, d.title, d.summary, d.status FROM links l
+       JOIN documents d ON d.id = l.target_id
+       WHERE l.source_id = (SELECT id FROM documents WHERE path = ?1)
+     UNION
+     SELECT d.path, d.title, d.summary, d.status FROM links l
+       JOIN documents d ON d.id = l.source_id
+       WHERE l.target_id = (SELECT id FROM documents WHERE path = ?1)`
+  );
+  const seen = new Set(exclude);
+  const offered: NeighbourDoc[] = [];
+  const offer = (doc: NeighbourDoc | null | undefined): boolean => {
+    if (!doc || seen.has(doc.path) || doc.status === "archived") return false;
+    seen.add(doc.path);
+    offered.push(doc);
+    return true;
+  };
+
+  for (const hit of hits) {
+    const dirs = hit.split("/").slice(0, -1);
+    for (let depth = dirs.length; depth >= 0; depth--) {
+      const index = [...dirs.slice(0, depth), "_index.md"].join("/");
+      if (index === hit) continue;
+      const doc = byPath.get(index) as NeighbourDoc | null;
+      if (!doc) continue;
+      offer(doc);
+      break;
+    }
+  }
+
+  const counts = new Map<string, { doc: NeighbourDoc; hits: number }>();
+  for (const hit of hits) {
+    for (const doc of linked.all(hit) as NeighbourDoc[]) {
+      const entry = counts.get(doc.path);
+      if (entry) entry.hits++;
+      else counts.set(doc.path, { doc, hits: 1 });
+    }
+  }
+  const ranked = [...counts.values()].sort(
+    (a, b) => b.hits - a.hits || (a.doc.path < b.doc.path ? -1 : a.doc.path > b.doc.path ? 1 : 0)
+  );
+  for (const { doc } of ranked) offer(doc);
+  return offered;
 }
