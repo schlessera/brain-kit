@@ -78,6 +78,8 @@ export {
 } from "./lib/db.js";
 export type { SchemaOptions, VecSupport, VecUnavailableReason } from "./lib/db.js";
 export { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
+export { readDocumentPart, SectionNotFoundError } from "./lib/document-parts.js";
+export type { ReadPartOptions } from "./lib/document-parts.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 // Exported so a retrieval-quality harness can score rerank-on and rerank-off
 // orderings from one candidate list instead of re-embedding the query.
