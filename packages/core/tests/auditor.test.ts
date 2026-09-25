@@ -122,6 +122,7 @@ describe("audit generated_from", () => {
     insertDoc(db, { path: "notes/current.md", type: "note", updated: "2026-05-01", generatedFrom: "notes/old-source.md" });
     insertDoc(db, { path: "notes/scraped.md", type: "note", updated: "2026-01-01", generatedFrom: "trail-scraper" });
     insertDoc(db, { path: "notes/dangling.md", type: "note", updated: "2026-01-01", generatedFrom: "notes/gone.md" });
+    insertDoc(db, { path: "notes/outside.md", type: "note", updated: "2026-01-01", generatedFrom: "../notes/source.md" });
     return db;
   };
 
@@ -144,6 +145,19 @@ describe("audit generated_from", () => {
     expect(paths).toEqual(["notes/lagging.md"]);
     db.close();
   });
+});
+
+describe("audit generated_from paths", () => {
+  for (const written of ["notes/./source.md", "notes/../notes/source.md", "./notes/source.md"]) {
+    test(`${written} resolves to notes/source.md`, () => {
+      const db = freshDb();
+      insertDoc(db, { path: "notes/source.md", type: "note", updated: "2026-06-01" });
+      insertDoc(db, { path: "notes/lagging.md", type: "note", updated: "2026-05-01", generatedFrom: written });
+      const prop = categories(audit(db, taxonomy, { now: NOW }), "propagation");
+      expect(prop.map((i) => [i.path, i.suggestion])).toEqual([["notes/lagging.md", "Regenerate notes/lagging.md from notes/source.md"]]);
+      db.close();
+    });
+  }
 });
 
 describe("audit index-lag", () => {

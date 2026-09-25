@@ -5,6 +5,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -58,6 +59,27 @@ describe("over a temp brain", () => {
     ]);
   });
 
+  test("validate reports a cyclic generated_from and goes on to the next document", async () => {
+    // Valid YAML: an anchored list that contains itself.
+    writeFileSync(join(root, "notes/cyclic.md"), doc("Cyclic", "generated_from: &self [*self]\n"));
+    writeFileSync(join(root, "notes/untagged.md"), "---\ntype: note\ntitle: Untagged\ncreated: 2026-01-01\nupdated: 2026-06-01\n---\n\nbody\n");
+    try {
+      const { stdout, code } = await runCli(root, ["validate", "--json"]);
+      expect(code).not.toBe(2);
+      const issues = JSON.parse(stdout).issues as { file: string; level: string; message: string }[];
+      expect(issues.filter((i) => i.file === "notes/cyclic.md" && i.message.includes("generated_from"))).toEqual([{
+        file: "notes/cyclic.md",
+        level: "error",
+        message: "Invalid generated_from: a list. It must be a non-empty string: a repo-relative path or a tool name",
+      }]);
+      // The document after it was still checked.
+      expect(issues.some((i) => i.file === "notes/untagged.md")).toBe(true);
+    } finally {
+      rmSync(join(root, "notes/cyclic.md"));
+      rmSync(join(root, "notes/untagged.md"));
+    }
+  });
+
   test("validate reports a generated_from that is not a non-empty string", async () => {
     writeFileSync(join(root, "notes/bad.md"), doc("Bad", "generated_from: []\n"));
     try {
@@ -67,7 +89,7 @@ describe("over a temp brain", () => {
       expect(issues).toEqual([{
         file: "notes/bad.md",
         level: "error",
-        message: "Invalid generated_from: []. It must be a non-empty string: a repo-relative path or a tool name",
+        message: "Invalid generated_from: a list. It must be a non-empty string: a repo-relative path or a tool name",
       }]);
     } finally {
       rmSync(join(root, "notes/bad.md"));
@@ -97,5 +119,41 @@ test("opening a schema 9 database adds the column and makes the next index re-re
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a schema 9 index serves search, audit and stats read-only before anything migrates it", async () => {
+  const root = makeTempBrain({ empty: true });
+  try {
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes/lamp.md"), doc("Lantern"));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    // Put the database back the way schema 9 left it.
+    const db = openDatabase(join(root, "brain.db"));
+    db.run("ALTER TABLE documents DROP COLUMN generated_from");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '9')");
+    db.close();
+
+    const search = await runCli(root, ["search", "lantern", "--mode", "fts", "--json"]);
+    expect(search.code).toBe(0);
+    const out = JSON.parse(search.stdout);
+    expect(out.warnings).toEqual([]);
+    expect(out.results.map((r: { path: string; generatedFrom: unknown }) => [r.path, r.generatedFrom])).toEqual([["notes/lamp.md", null]]);
+    const filter = await runCli(root, ["search", "--type", "note", "--json"]);
+    expect(filter.code).toBe(0);
+    expect(JSON.parse(filter.stdout).results).toHaveLength(1);
+    expect((await runCli(root, ["audit", "--json"])).code).toBe(0);
+    expect((await runCli(root, ["stats", "--json"])).code).toBe(0);
+
+    // Nothing above migrated it.
+    const check = new Database(join(root, "brain.db"), { readonly: true });
+    try {
+      expect(check.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "9" });
+    } finally {
+      check.close();
+    }
+  } finally {
+    cleanup(root);
   }
 });

@@ -61,6 +61,22 @@ export function openDatabase(
   return db;
 }
 
+const documentColumns = new WeakMap<Database, Set<string>>();
+
+/**
+ * Whether the `documents` table has a column. A read-only connection does
+ * not migrate, so a database from an older schema lacks later columns until
+ * a writable command opens it; readers of such a column check first.
+ */
+export function hasDocumentsColumn(db: Database, name: string): boolean {
+  let columns = documentColumns.get(db);
+  if (!columns) {
+    columns = new Set((db.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name));
+    documentColumns.set(db, columns);
+  }
+  return columns.has(name);
+}
+
 /**
  * Apply schema and run migrations.
  */

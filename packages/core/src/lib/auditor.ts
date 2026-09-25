@@ -5,6 +5,7 @@ import matter from "gray-matter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
+import { hasDocumentsColumn } from "./db.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
@@ -48,7 +49,9 @@ export interface AuditDoc {
 export function loadAuditDocs(db: Database): AuditDoc[] {
   return db
     .prepare(
-      `SELECT id, path, title, type, status, relevance, updated, next_review, content, generated_from
+      // A read-only connection on a schema-9 index has no generated_from yet.
+      `SELECT id, path, title, type, status, relevance, updated, next_review, content,
+         ${hasDocumentsColumn(db, "generated_from") ? "generated_from" : "NULL AS generated_from"}
        FROM documents
        WHERE asset_type = 'markdown'
        ORDER BY path`
@@ -540,7 +543,9 @@ export function audit(
   const byPath = new Map(docs.map((d) => [d.path, d]));
   for (const doc of docs) {
     if (!doc.generated_from) continue;
-    const source = byPath.get(doc.generated_from.replace(/^\.\//, ""));
+    // A repo-relative path, normalized (`notes/./a.md`, `notes/../notes/a.md`).
+    // One that leaves the repo normalizes to `../…`, which no document has.
+    const source = byPath.get(posix.normalize(doc.generated_from));
     if (!source || source.path === doc.path || reported.has(`${doc.path}\n${source.path}`)) continue;
     if (new Date(source.updated).getTime() > new Date(doc.updated).getTime()) {
       issues.push({
