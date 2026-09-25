@@ -309,7 +309,7 @@ export async function startMcpServer(
     "brain_read",
     {
       description:
-        "Read a specific document from the brain knowledge base by its relative path. By default returns the whole file, frontmatter included, however long it is. Pass `section` to get one section by its heading, or `max_tokens` to get the frontmatter and an outline of headings with their token counts instead of a file larger than that.",
+        "Read a specific document from the brain knowledge base by its relative path. By default returns the whole file, frontmatter included, however long it is. Pass `section` to get one section by its heading (matched on its visible text, ignoring case; the first of two equal headings wins), or `max_tokens` to get the frontmatter and an outline of headings with their token counts instead of a file larger than that. `max_tokens` is the threshold for switching to the outline, not a cap on the output: a large frontmatter or very many headings make the outline larger than it.",
       inputSchema: {
         path: z.string().describe('Relative path to the document (e.g., "me/identity.md")'),
         section: z
@@ -321,7 +321,7 @@ export async function startMcpServer(
           .int()
           .positive()
           .optional()
-          .describe("When the result would be larger than this, return the frontmatter and an outline instead"),
+          .describe("Threshold, not a cap: when the result would be larger than this, return the frontmatter and an outline instead"),
       },
       annotations: { readOnlyHint: true },
     },

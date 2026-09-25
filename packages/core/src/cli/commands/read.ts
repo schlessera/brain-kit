@@ -10,9 +10,13 @@ const HELP = `brain read <path> — print a document (frontmatter included)
   --section <heading>     Print one section: its heading to the next heading
                           of the same or higher level
   --max-tokens <n>        When the output would be larger, print the
-                          frontmatter and an outline of headings instead
+                          frontmatter and an outline of headings instead.
+                          A threshold, not a cap: a large frontmatter or
+                          very many headings make the outline larger
 
-With neither flag the whole file is printed, however long it is.`;
+Headings are matched on their visible text, ignoring case; when two match,
+the first is used. With neither flag the whole file is printed, however long
+it is.`;
 
 export const readCommand: CoreCommand = {
   summary: "Read and print a document from the brain",
@@ -29,8 +33,9 @@ export const readCommand: CoreCommand = {
     let maxTokens: number | undefined;
     if (flags["max-tokens"] !== undefined) {
       maxTokens = typeof flags["max-tokens"] === "string" ? Number(flags["max-tokens"]) : NaN;
-      if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
-        throw new UsageError("--max-tokens must be a positive integer");
+      // Number.isSafeInteger, like the MCP input's z.number().int().
+      if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
+        throw new UsageError("--max-tokens must be a positive safe integer");
       }
     }
 

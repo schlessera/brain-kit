@@ -341,7 +341,7 @@ Tool names and input schemas are stable:
 |------|-------------|-------------------|
 | `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0 |
 | `brain_context` | readOnly | `{ context, warnings }` |
-| `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts |
+| `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], warnings }` |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
@@ -361,7 +361,7 @@ applies one:
 |------|--------|
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`, default `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
 | `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
-| `brain_read` | `path`, `section?` (heading text, matched case-insensitively; the section runs to the next heading of the same or higher level, and an unknown one is an error naming the document's headings), `max_tokens?` (positive integer; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
+| `brain_read` | `path`, `section?` (a heading's visible text, with inline markup stripped, compared under Unicode full case folding; ATX and setext headings count, and none inside fenced or indented code; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
 | `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (default `20`) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
 | `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |

@@ -102,8 +102,7 @@ describe("read", () => {
   test("--max-tokens over the file's size prints the outline, not the body", async () => {
     const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "50"]);
     expect(code).toBe(0);
-    expect(stdout).toMatch(/^- ## Current Identity \(~\d+ tokens\)$/m);
-    expect(stdout).toMatch(/^- ## How to Work With Alex \(~\d+ tokens\)$/m);
+    expect(stdout).toContain("- ## Current Identity (~205 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
     expect(stdout).toContain('--section "<heading>"');
     expect(stdout).not.toContain("Prefer concrete");
   });
@@ -114,11 +113,13 @@ describe("read", () => {
     expect(stderr).toContain('available headings: "Current Identity", "How to Work With Alex"');
   });
 
-  test("--max-tokens must be a positive integer", async () => {
-    for (const bad of ["0", "-3", "1.5", "many"]) {
+  test("--max-tokens must be a positive safe integer", async () => {
+    for (const bad of ["0", "-3", "1.5", "many", "9007199254740992"]) {
       const { code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", bad]);
-      expect(code).toBe(1);
+      expect({ bad, code }).toEqual({ bad, code: 1 });
     }
+    const { code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "9007199254740991"]);
+    expect(code).toBe(0);
   });
 });
 
