@@ -14,6 +14,7 @@ import {
 } from "../../lib/auditor.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
 import { openDatabase } from "../../lib/db.js";
+import { codeRanges, inRanges } from "../../lib/markdown-code.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import type { CoreCommand } from "../types.js";
 import { parseArgs, UsageError } from "../io.js";
@@ -42,7 +43,10 @@ function literal(value: string): string {
 
 /** Whether `value` is a real calendar day written `YYYY-MM-DD`. */
 function isDay(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  // An impossible day (2026-13-01) is an Invalid Date, whose toISOString throws.
+  const time = new Date(`${value}T00:00:00Z`).getTime();
+  return !Number.isNaN(time) && new Date(time).toISOString().startsWith(value);
 }
 
 /**
@@ -105,18 +109,15 @@ function lastHygieneRun(text: string): string | null {
   return isDay(day) ? day : null;
 }
 
-/** Open hygiene entries: the `### ` headings of open.md, outside code fences. */
+/** Open hygiene entries: the `### ` heading lines of open.md that are not code. */
 function countOpenEntries(text: string): number {
+  const body = matter(text, {}).content;
+  const code = codeRanges(body);
   let count = 0;
-  let fence: string | null = null;
-  for (const line of matter(text, {}).content.split(/\r?\n/)) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker) {
-      if (fence === null) fence = marker[0];
-      else if (marker[0] === fence) fence = null;
-      continue;
-    }
-    if (fence === null && line.startsWith("### ")) count++;
+  let offset = 0;
+  for (const line of body.split("\n")) {
+    if (line.startsWith("### ") && !inRanges(code, offset)) count++;
+    offset += line.length + 1;
   }
   return count;
 }
@@ -131,8 +132,20 @@ function upkeepLines(root: string, todayStr: string): string[] {
   const openPath = resolve(root, HYGIENE_OPEN);
   if (!existsSync(lastRunPath) && !existsSync(openPath)) return [];
   const lines = ["\n## Upkeep\n"];
-  const last = existsSync(lastRunPath) ? lastHygieneRun(readFileSync(lastRunPath, "utf-8")) : null;
-  if (last) {
+  // The log is written by hand as much as by the skill: a file that does not
+  // parse is reported, never allowed to take the rest of the briefing down.
+  let last: string | null = null;
+  let lastUnreadable = false;
+  if (existsSync(lastRunPath)) {
+    try {
+      last = lastHygieneRun(readFileSync(lastRunPath, "utf-8"));
+    } catch {
+      lastUnreadable = true;
+    }
+  }
+  if (lastUnreadable) {
+    lines.push(`- content-hygiene last run could not be read (${HYGIENE_LAST_RUN})`);
+  } else if (last) {
     const age = Math.round((Date.parse(todayStr) - Date.parse(last)) / MS_PER_DAY);
     const overdue = age > HYGIENE_OVERDUE_DAYS ? " (overdue)" : "";
     lines.push(`- content-hygiene last ran ${last}, ${age} day(s) ago${overdue}`);
@@ -140,7 +153,11 @@ function upkeepLines(root: string, todayStr: string): string[] {
     lines.push(`- content-hygiene has no recorded run (${HYGIENE_LAST_RUN})`);
   }
   if (existsSync(openPath)) {
-    lines.push(`- ${countOpenEntries(readFileSync(openPath, "utf-8"))} open (${HYGIENE_OPEN})`);
+    try {
+      lines.push(`- ${countOpenEntries(readFileSync(openPath, "utf-8"))} open (${HYGIENE_OPEN})`);
+    } catch {
+      lines.push(`- open entries could not be counted (${HYGIENE_OPEN})`);
+    }
   }
   return lines;
 }
@@ -224,11 +241,12 @@ export function generateBriefing(brain: BrainContext, limit = 15, opts: Briefing
       }
     }
 
-    // 4. Overdue reviews
+    // 4. Overdue reviews: due before today, as `brain audit` reads it
+    // (findOverdueReviews), so the audit the cap points to lists every one.
     const overdue = db
       .prepare(
         `SELECT next_review, path, title FROM documents
-         WHERE next_review IS NOT NULL AND next_review <= ? AND status != 'archived'
+         WHERE next_review IS NOT NULL AND next_review < ? AND status != 'archived'
          ORDER BY next_review ASC`
       )
       .all(todayStr) as any[];
