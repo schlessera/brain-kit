@@ -35,8 +35,9 @@ function parse(body: string): Root {
   return MARKDOWN.parse(body.replace(FRONT_MATTER, ""));
 }
 
-function walk(node: Nodes, visit: (node: Nodes) => void): void {
-  visit(node);
+/** Depth-first over the tree; a visitor that returns `false` skips the node's children. */
+function walk(node: Nodes, visit: (node: Nodes) => boolean | void): void {
+  if (visit(node) === false) return;
   if ("children" in node) for (const child of node.children) walk(child, visit);
 }
 
@@ -111,15 +112,21 @@ function explicitAnchors(node: Html): string[] {
  * Every anchor in a markdown body: one GitHub slug per heading (ATX or setext,
  * at any depth, numbered `-1`, `-2` around every slug already taken), plus the
  * `id` / `name` of each `<a>` tag. A heading's slug is taken from its rendered
- * text, so inline HTML tags and emphasis markers do not reach it. Code and
- * HTML comments render neither headings nor anchors, so they add nothing.
+ * text, so inline HTML tags, emphasis markers and image alt text do not reach
+ * it. Code and HTML comments render neither headings nor anchors, so they add
+ * nothing.
  */
 export function markdownAnchors(body: string): Set<string> {
   const anchors = new Set<string>();
   const slugger = new GithubSlugger();
   walk(parse(body), (node) => {
+    // An unused footnote does not render, and a used one renders at the end
+    // of the page, where its headings would number out of source order. Its
+    // headings and anchors are not collected at all; links inside it are
+    // still checked by markdownLinks.
+    if (node.type === "footnoteDefinition") return false;
     if (node.type === "heading") {
-      anchors.add(slugger.slug(toString(node, { includeHtml: false })));
+      anchors.add(slugger.slug(toString(node, { includeHtml: false, includeImageAlt: false })));
     } else if (node.type === "html") {
       for (const anchor of explicitAnchors(node)) anchors.add(anchor);
     }

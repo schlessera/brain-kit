@@ -94,7 +94,7 @@ describe("markdownAnchors: heading slugs", () => {
   });
 
   test("turns each space into a hyphen without collapsing runs", () => {
-    expect(anchors("# A & B")).toEqual(["a--b"]);
+    expect(anchors("# A & B\n\n# C  D")).toEqual(["a--b", "c--d"]);
   });
 
   test("slugs the rendered text: no inline HTML tags, emphasis markers or entities", () => {
@@ -102,6 +102,13 @@ describe("markdownAnchors: heading slugs", () => {
       "hello-world",
       "hello-again",
       "fish--chips",
+    ]);
+  });
+
+  test("leaves image alt text out of the slug", () => {
+    expect(anchors("# ![Status](status.svg) Setup\n\n# ![Badge][b] Usage\n\n[b]: badge.svg\n")).toEqual([
+      "-setup",
+      "-usage",
     ]);
   });
 
@@ -152,6 +159,10 @@ describe("markdownAnchors: which headings count", () => {
 
   test("a fenced heading does not take a duplicate number", () => {
     expect(anchors("```\n# Setup\n```\n# Setup\n")).toEqual(["setup"]);
+  });
+
+  test("a heading or anchor inside a footnote definition is not a target", () => {
+    expect(anchors('# Real\n\n[^unused]:\n    # Ghost\n\n[^note]: <a id="in-note"></a>\n')).toEqual(["real"]);
   });
 
   test("ignores a heading inside an HTML comment", () => {
