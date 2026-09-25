@@ -130,12 +130,26 @@ Run these in order and report each result in plain language:
    brain search "<paraphrase of their self-description>" --mode vector --json
    ```
    Point out that no shared keywords were needed — that is the embeddings working.
-5. **MCP registration** — make the `brain_*` tools available in-session. For Claude Code:
+5. **MCP registration** — make the `brain_*` tools available in-session. First ask the CLI
+   whether the server is already registered:
    ```bash
-   claude mcp add brain -- bun node_modules/.bin/brain mcp
+   brain doctor --json
    ```
-   (Other agents register the `brain` MCP server through their own mechanism.) Verify by
-   calling `brain_search` for the user's name in-session and confirming the identity hit.
+   Read the check whose `id` is `"mcp"`.
+   - **`status` is `"pass"`** — the server is already registered (the template's `.mcp.json`
+     declares it for the project). Do **not** run `claude mcp add`: it would add a second
+     `brain` server beside the one the repo carries. Tell the user where it is registered
+     (the check's `detail`) and go straight to the verification below.
+   - **Any other status** — register it. For Claude Code:
+     ```bash
+     claude mcp add brain -- bun node_modules/.bin/brain mcp
+     ```
+     (Other agents register the `brain` MCP server through their own mechanism.)
+
+   Verify by calling `brain_search` for the user's name in-session and confirming the
+   identity hit. A server the project's `.mcp.json` declares loads when the session starts
+   and the user approves it; if the `brain_*` tools are not there yet, ask them to restart
+   the session and approve the `brain` server, then verify.
 
 ## Stage 6 — Handoff
 
@@ -157,5 +171,6 @@ Close the loop:
 - `brain index` / `brain index --embeddings` — build the search index.
 - `brain validate` — frontmatter and link validation.
 - `brain search --mode fts|vector --json` — FTS and semantic smoke tests.
+- `brain doctor --json` — its `mcp` check says whether the MCP server is already registered.
 - `brain add` — demonstrate quick capture.
 - `git` (commit the generated structure), `claude mcp add` (Claude-only MCP registration example).

@@ -14,7 +14,7 @@ import {
 } from "fs";
 import { join } from "path";
 
-import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { installGitHooks } from "../src/cli/hooks-util";
 
 const temps: string[] = [];
@@ -259,6 +259,68 @@ test("doctor reports a dead MCP source-file registration", async () => {
     (check: { id: string }) => check.id === "mcp"
   );
   expect(currentMcp.status).toBe("pass");
+});
+
+/**
+ * /brain-init Stage 5 registers the MCP server only when `brain doctor
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:245-284`)
+ * does not pass. The template's `.mcp.json` already declares the server, so an
+ * unconditional `claude mcp add` gave every new brain a second, local-scope
+ * `brain` server beside the project one (#337).
+ */
+function mcpCheck(stdout: string): { status: string; detail: string } {
+  return JSON.parse(stdout).checks.find((check: { id: string }) => check.id === "mcp");
+}
+
+test("doctor's mcp check does not pass when nothing registers the server", async () => {
+  const root = tempBrain();
+  // No project .mcp.json, an empty home (no ~/.claude.json), and a `claude`
+  // on PATH whose `mcp list` names no server: every source checkMcp reads is
+  // present and says no.
+  const home = join(root, ".home");
+  const shimDir = join(root, ".shim");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(shimDir, { recursive: true });
+  writeFileSync(join(shimDir, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+  const proc = Bun.spawn(["bun", BRAIN_BIN, "doctor", "--json"], {
+    env: { ...keylessEnv(root), HOME: home, PATH: `${shimDir}:${process.env.PATH}` },
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  expect(existsSync(join(root, ".mcp.json"))).toBe(false);
+  expect(mcpCheck(stdout).status).not.toBe("pass");
+});
+
+test("the brain-init skill runs claude mcp add only when doctor's mcp check does not pass", () => {
+  const skill = readFileSync(
+    join(import.meta.dir, "../skills/brain-init/SKILL.md"),
+    "utf8"
+  );
+  const stage5 = skill.slice(skill.indexOf("## Stage 5"), skill.indexOf("## Stage 6"));
+  const step = stage5.slice(stage5.indexOf("5. **MCP registration**"));
+  expect(step.length).toBeGreaterThan(0);
+
+  // The step asks the CLI first, and every `claude mcp add` in it sits under
+  // the branch for a check that did not pass.
+  const ask = step.indexOf("brain doctor --json");
+  const passBranch = step.indexOf('**`status` is `"pass"`**');
+  const otherBranch = step.indexOf("**Any other status**");
+  const adds = [...step.matchAll(/claude mcp add/g)].map((m) => m.index!);
+  expect(ask).toBeGreaterThan(-1);
+  expect(passBranch).toBeGreaterThan(ask);
+  expect(otherBranch).toBeGreaterThan(passBranch);
+  // Before the other branch, the command appears once: where the pass branch
+  // forbids it.
+  const forbid = "Do **not** run `";
+  const forbidden = step.indexOf(forbid + "claude mcp add`", passBranch);
+  expect(forbidden).toBeGreaterThan(passBranch);
+  expect(adds.filter((i) => i < otherBranch)).toEqual([forbidden + forbid.length]);
+  expect(adds.some((i) => i > otherBranch)).toBe(true);
 });
 
 /**
