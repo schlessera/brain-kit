@@ -150,6 +150,12 @@ The original text is left as written.
   `Crawl-delay`, and redirects are followed without checking the target against
   robots.txt. Both are tracked in
   [#259](https://github.com/schlessera/brain-kit/issues/259).
+  **2026-09-25:** both gaps are closed. Every retry goes back through the
+  per-host limiter with the first attempt's delay, `Crawl-delay` included.
+  `ScrapeClient` follows redirects itself, on the native and the proxy path,
+  and checks each hop against its own origin's robots.txt and paces its host.
+  `allowDisallowed` covers only the origin that was asked for, so a hop to
+  another origin is checked normally.
 - *"`SCRAPE_RESPECT_ROBOTS` … turns enforcement off for a whole process."* It
   turns enforcement off only for clients built from `resolveEnv()`, which is
   how `runScrape` in `packages/module-jobs/src/scrape.ts` builds its client. A

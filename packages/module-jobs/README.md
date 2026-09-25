@@ -184,8 +184,9 @@ Only the board's own page for a job is followed: its `source_url`, and only on
 the hosts the adapter names for its job pages, never an apply link on another
 site. Every detail request goes through the same client and `--proxy` as the
 listings, so robots.txt and per-host pacing apply to it: 2 s between detail
-requests to one host, more where a board asks. Retries and redirects are not
-paced or checked separately yet (#259). A row whose
+requests to one host, more where a board asks. A retry is paced the same way,
+and a redirect is followed one hop at a time, each hop checked against its own
+site's robots.txt and paced for its own host. A row whose
 description arrives on a later run is scored again, and an automatic
 queue or dismiss decision on it is reconsidered. A decision you made is kept.
 The `enrichment` config bounds it:

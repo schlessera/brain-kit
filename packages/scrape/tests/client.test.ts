@@ -209,6 +209,323 @@ describe("retries", () => {
   });
 });
 
+/**
+ * Replace global fetch with one that answers by URL, and that honours
+ * `redirect` the way fetch does: unless it is "manual", the double follows a
+ * redirect itself, so a client that stops following by hand is caught
+ * requesting the target without checking it.
+ */
+function routeFetch(route: (url: string) => Response): Call[] {
+  const calls: Call[] = [];
+  globalThis.fetch = (async (input: any, init: any) => {
+    let url = String(input);
+    for (let hops = 0; ; hops++) {
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+      const response = route(url);
+      const location = response.headers.get("location");
+      if (init?.redirect === "manual" || !location || hops === 20) return response;
+      url = new URL(location, url).href;
+    }
+  }) as typeof fetch;
+  return calls;
+}
+
+function redirect(location: string, status = 301): Response {
+  return new Response("moved", { status, headers: { location } });
+}
+
+/** A robots cache that answers per origin and records which robots.txt it fetched. */
+function robotsByOrigin(bodies: Record<string, string>): { robots: RobotsCache; fetched: string[] } {
+  const fetched: string[] = [];
+  const robots = new RobotsCache({
+    async fetcher(robotsUrl) {
+      fetched.push(robotsUrl);
+      const body = bodies[new URL(robotsUrl).origin];
+      return body === undefined ? { status: 404, body: "" } : { status: 200, body };
+    },
+  });
+  return { robots, fetched };
+}
+
+/** A limiter that records the host of every acquire. */
+class RecordingLimiter extends RateLimiter {
+  readonly hosts: string[] = [];
+  override async acquire(host: string, delayMs?: number): Promise<void> {
+    this.hosts.push(host);
+    return super.acquire(host, delayMs);
+  }
+}
+
+describe("retries are paced", () => {
+  test("a retry waits out Crawl-delay like the first attempt", async () => {
+    const calls = stubFetch([
+      () => new Response("unavailable", { status: 503 }),
+      () => new Response("ok", { status: 200 }),
+    ]);
+    const clock = fakeClock();
+    const client = new ScrapeClient({
+      robots: robotsFor("User-agent: *\nCrawl-delay: 7\n"),
+      rateLimiter: new RateLimiter({ clock }),
+    });
+
+    const res = await client.get("https://example.com/a", { retryDelayMs: 1 });
+
+    expect(res.status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(clock.waits).toEqual([7000]);
+  });
+});
+
+describe("redirects", () => {
+  test("a redirect to a disallowed path throws before the target is requested", async () => {
+    const calls = routeFetch((url) =>
+      url.endsWith("/jobs") ? redirect("https://example.com/private") : new Response("secret")
+    );
+    const client = new ScrapeClient({ robots: robotsFor("User-agent: *\nDisallow: /private\n") });
+
+    const err = await client.get("https://example.com/jobs").catch((e) => e);
+
+    expect(err).toBeInstanceOf(RobotsDisallowedError);
+    expect((err as RobotsDisallowedError).url).toBe("https://example.com/private");
+    expect(calls.map((c) => c.url)).toEqual(["https://example.com/jobs"]);
+  });
+
+  test("a redirect to another origin resolves its robots.txt and paces its host", async () => {
+    routeFetch((url) =>
+      url.startsWith("https://example.com/") ? redirect("https://other.example/b", 302) : new Response("ok")
+    );
+    const { robots, fetched } = robotsByOrigin({});
+    const limiter = new RecordingLimiter();
+    const client = new ScrapeClient({ robots, rateLimiter: limiter });
+
+    const page = await client.getPage("https://example.com/a");
+
+    expect(page).toEqual({ body: "ok", url: "https://other.example/b" });
+    expect(fetched).toEqual(["https://example.com/robots.txt", "https://other.example/robots.txt"]);
+    expect(limiter.hosts).toEqual(["example.com", "other.example"]);
+  });
+
+  test("allowDisallowed lets a same-origin disallowed hop through", async () => {
+    const calls = routeFetch((url) =>
+      url.endsWith("/jobs") ? redirect("/private/list") : new Response("listed")
+    );
+    const client = new ScrapeClient({ robots: robotsFor("User-agent: *\nDisallow: /\n") });
+
+    const page = await client.getPage("https://example.com/jobs", { allowDisallowed: true });
+
+    expect(page).toEqual({ body: "listed", url: "https://example.com/private/list" });
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://example.com/jobs",
+      "https://example.com/private/list",
+    ]);
+  });
+
+  test("allowDisallowed does not cover a hop to another origin", async () => {
+    const calls = routeFetch((url) =>
+      url.startsWith("https://example.com/") ? redirect("https://other.example/private") : new Response("x")
+    );
+    const { robots } = robotsByOrigin({
+      "https://example.com": "User-agent: *\nDisallow: /\n",
+      "https://other.example": "User-agent: *\nDisallow: /private\n",
+    });
+    const client = new ScrapeClient({ robots });
+
+    const err = await client
+      .get("https://example.com/jobs", { allowDisallowed: true })
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(RobotsDisallowedError);
+    expect((err as RobotsDisallowedError).url).toBe("https://other.example/private");
+    expect(calls.map((c) => c.url)).toEqual(["https://example.com/jobs"]);
+  });
+
+  /** `/0` redirects to `/1` and so on; `/<last>` answers with a body. */
+  function chain(last: number): Call[] {
+    return routeFetch((url) => {
+      const n = Number(new URL(url).pathname.slice(1));
+      return n < last ? redirect(`/${n + 1}`, 307) : new Response(`end of ${n}`);
+    });
+  }
+
+  test("a 3-hop chain returns the final body and reports the final URL", async () => {
+    const calls = chain(3);
+    const client = new ScrapeClient({ respectRobots: false });
+
+    const page = await client.getPage("https://example.com/0");
+
+    expect(page).toEqual({ body: "end of 3", url: "https://example.com/3" });
+    expect(calls.length).toBe(4);
+  });
+
+  test("20 redirects are followed and the 21st throws, naming the start and the limit", async () => {
+    chain(20);
+    const client = new ScrapeClient({ respectRobots: false });
+    expect((await client.getPage("https://example.com/0")).url).toBe("https://example.com/20");
+
+    const calls = chain(21);
+    await expect(client.get("https://example.com/0")).rejects.toThrow(
+      "https://example.com/0 redirected more than 20 times"
+    );
+    expect(calls.length).toBe(21);
+  });
+
+  const CALLER_HEADERS = {
+    Authorization: "Bearer t",
+    Cookie: "s=1",
+    "Proxy-Authorization": "Basic p",
+    "X-Api-Key": "k",
+    Accept: "text/html",
+  };
+
+  test("only identity and content negotiation follow a redirect to another origin", async () => {
+    const calls = routeFetch((url) =>
+      url.startsWith("https://example.com/") ? redirect("https://other.example/b") : new Response("ok")
+    );
+    const client = new ScrapeClient({ respectRobots: false });
+
+    await client.get("https://example.com/a", { headers: CALLER_HEADERS });
+
+    expect(calls[0].headers).toEqual({ "User-Agent": DEFAULT_USER_AGENT, ...CALLER_HEADERS });
+    expect(calls[1].headers).toEqual({ "User-Agent": DEFAULT_USER_AGENT, Accept: "text/html" });
+  });
+
+  test("a same-origin hop keeps the caller's headers", async () => {
+    const calls = routeFetch((url) => (url.endsWith("/a") ? redirect("/b") : new Response("ok")));
+    const client = new ScrapeClient({ respectRobots: false });
+
+    await client.get("https://example.com/a", { headers: CALLER_HEADERS });
+
+    expect(calls.map((c) => c.url)).toEqual(["https://example.com/a", "https://example.com/b"]);
+    expect(calls[1].headers).toEqual(calls[0].headers);
+    expect(calls[1].headers["X-Api-Key"]).toBe("k");
+  });
+
+  test("a downgrade from https to http on the same host sends no credentials", async () => {
+    const calls = routeFetch((url) =>
+      url.startsWith("https:") ? redirect("http://example.com/b") : new Response("ok")
+    );
+    const client = new ScrapeClient({ respectRobots: false });
+
+    await client.get("https://example.com/a", { headers: CALLER_HEADERS });
+
+    expect(calls.map((c) => c.url)).toEqual(["https://example.com/a", "http://example.com/b"]);
+    expect(calls[1].headers).toEqual({ "User-Agent": DEFAULT_USER_AGENT, Accept: "text/html" });
+  });
+
+  test("a redirect off http(s) is refused rather than followed", async () => {
+    const calls = routeFetch(() => redirect("file:///etc/passwd"));
+    const client = new ScrapeClient({ respectRobots: false });
+
+    await expect(client.get("https://example.com/a")).rejects.toThrow(/unsupported URL file:/);
+    expect(calls.length).toBe(1);
+  });
+});
+
+describe("the proxy path", () => {
+  const realSpawn = Bun.spawn;
+  afterEach(() => {
+    (Bun as any).spawn = realSpawn;
+  });
+
+  interface CurlAnswer {
+    status: number;
+    body: string;
+    location?: string;
+  }
+
+  /**
+   * Replace Bun.spawn with a fake curl that answers by URL and honours the
+   * flags this client depends on: it follows redirects itself under `-L`,
+   * expands a `[n-m]` range unless `--globoff` is set, and prints only what
+   * the `-w` format asks for. Returns the argument lists and every URL the
+   * fake curl requested.
+   */
+  function stubCurl(route: (url: string) => CurlAnswer): { spawned: string[][]; requested: string[] } {
+    const spawned: string[][] = [];
+    const requested: string[] = [];
+    (Bun as any).spawn = (args: string[]) => {
+      spawned.push(args);
+      const target = args[args.length - 1];
+      const range = /\[(\d+)-(\d+)\]/.exec(target);
+      const urls =
+        range && !args.includes("--globoff") && !args.includes("-g")
+          ? Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, i) =>
+              target.replace(range[0], String(Number(range[1]) + i))
+            )
+          : [target];
+
+      let out = "";
+      for (let url of urls) {
+        let answer: CurlAnswer;
+        for (let hops = 0; ; hops++) {
+          requested.push(url);
+          answer = route(url);
+          if (!args.includes("-L") || !answer.location || hops === 20) break;
+          url = new URL(answer.location, url).href;
+        }
+        const writeOut = args[args.indexOf("-w") + 1] ?? "";
+        out += answer.body + writeOut
+          .replaceAll("%{http_code}", String(answer.status))
+          .replaceAll("%{redirect_url}", args.includes("-L") ? "" : (answer.location ?? ""));
+      }
+      return {
+        stdout: new Response(out).body,
+        stderr: new Response("").body,
+        exited: Promise.resolve(0),
+      };
+    };
+    return { spawned, requested };
+  }
+
+  const PROXY = { proxy: "http://proxy.test:8080" };
+
+  test("curl does not follow redirects; the client does, hop by hop", async () => {
+    const { spawned, requested } = stubCurl((url) =>
+      url.endsWith("/a")
+        ? { status: 301, body: "moved", location: "https://example.com/b" }
+        : { status: 200, body: "final" }
+    );
+    const client = new ScrapeClient({ respectRobots: false });
+
+    const page = await client.getPage("https://example.com/a", PROXY);
+
+    expect(page).toEqual({ body: "final", url: "https://example.com/b" });
+    expect(requested).toEqual(["https://example.com/a", "https://example.com/b"]);
+    expect(spawned.length).toBe(2);
+    for (const args of spawned) expect(args).not.toContain("-L");
+  });
+
+  test("a proxied redirect is held to robots.txt too", async () => {
+    const { requested } = stubCurl(() => ({
+      status: 302,
+      body: "moved",
+      location: "https://example.com/private",
+    }));
+    const client = new ScrapeClient({ robots: robotsFor("User-agent: *\nDisallow: /private\n") });
+
+    await expect(client.get("https://example.com/jobs", PROXY)).rejects.toBeInstanceOf(
+      RobotsDisallowedError
+    );
+    expect(requested).toEqual(["https://example.com/jobs"]);
+  });
+
+  test("a bracketed redirect target is one request, not a curl range", async () => {
+    // `/[1-3]` is one path to robots.txt and the limiter; to a globbing curl
+    // it is three requests, one of them to the disallowed `/1`.
+    const { requested } = stubCurl((url) =>
+      url.endsWith("/jobs")
+        ? { status: 302, body: "moved", location: "https://example.com/[1-3]" }
+        : { status: 200, body: "page" }
+    );
+    const client = new ScrapeClient({ robots: robotsFor("User-agent: *\nDisallow: /1\n") });
+
+    const page = await client.getPage("https://example.com/jobs", PROXY);
+
+    expect(requested).toEqual(["https://example.com/jobs", "https://example.com/[1-3]"]);
+    expect(page.body).toBe("page");
+  });
+});
+
 describe("parseRetryAfterMs", () => {
   test("reads seconds, reads HTTP-dates, and caps at a minute", () => {
     expect(parseRetryAfterMs("5")).toBe(5000);
