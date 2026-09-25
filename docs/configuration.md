@@ -385,8 +385,10 @@ The warn level for the always-loaded instruction weight that `brain doctor`
 reports as its `instructions-weight` check. That weight is what every session
 pays for before any work starts:
 
-- `CLAUDE.md`, with its `@` imports resolved one level. Only imports inside the
-  brain count.
+- `CLAUDE.md`, with its `@` imports resolved one level. An `@` inside a code
+  span or fence is not an import. Only files whose real path is inside the
+  brain count, so an import through a symlink that leaves the brain is skipped
+  with a note, and a file reached under two names counts once.
 - `AGENTS.md`.
 - The description of every skill a model may invoke on its own, meaning every
   skill without `disable-model-invocation: true`.
@@ -396,6 +398,10 @@ Tokens are estimated as characters ÷ 4, the same estimate `brain context` uses.
 | Key         | Type     | Default | Means                                          |
 | ----------- | -------- | ------- | ---------------------------------------------- |
 | `maxTokens` | `number` | `8000`  | Above this estimate, `brain doctor` warns and names the three largest contributors |
+
+The check's detail lists every counted file and skill with its estimate. An
+import that cannot be read, or a skill that cannot be discovered, makes the
+check warn even under the limit, because the total is then a lower bound.
 
 ```ts
 instructions: { maxTokens: 6000 }
