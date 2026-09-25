@@ -151,7 +151,7 @@ const taxonomyConfigSchema = z
             /** Estimated tokens above which the document is a `budget` issue. */
             maxTokens: z.number().int().positive().nullable().optional(),
             /** Days after `updated` at which the document is `review-overdue`. */
-            reviewDays: z.number().int().positive().nullable().optional(),
+            reviewDays: z.number().int().positive().max(3650).nullable().optional(),
           })
           .strict()
       )

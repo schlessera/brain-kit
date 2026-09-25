@@ -3,6 +3,10 @@ import { Glob } from "bun";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
 import { estimateTokens } from "./context-assembler.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
@@ -217,8 +221,12 @@ export function findOverdueReviews(docs: AuditDoc[], taxonomy: Taxonomy, now: nu
     if (!doc || overdue.has(doc.path) || (doc.next_review && doc.next_review >= today)) continue;
     const updated = new Date(doc.updated).getTime();
     if (Number.isNaN(updated)) continue;
-    const due = isoDay(updated + reviewDays * MS_PER_DAY);
-    if (due < today) overdue.set(doc.path, { doc, due, source: "reviewDays" });
+    // Compare whole days as numbers; only a due day that is past, and so
+    // within the calendar, is ever formatted.
+    const dueDay = Math.floor(updated / MS_PER_DAY) + reviewDays;
+    if (dueDay < Math.floor(now / MS_PER_DAY)) {
+      overdue.set(doc.path, { doc, due: isoDay(dueDay * MS_PER_DAY), source: "reviewDays" });
+    }
   }
   return [...overdue.values()];
 }
@@ -232,28 +240,51 @@ export interface PastDate {
 }
 
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/*
+ * The slice of mdast this reads, typed structurally (see document-parts.ts
+ * for why not through `@types/mdast`).
+ */
+interface MdNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MdNode[];
+}
+
+const markdown = unified().use(remarkParse).use(remarkGfm);
+
+/** `[start, end)` offsets of every code block and inline code span, as a GFM parser reads them. */
+function codeRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  const walk = (node: MdNode) => {
+    if (node.type === "code" || node.type === "inlineCode") {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) ranges.push([start, end]);
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(markdown.parse(text) as MdNode);
+  return ranges;
+}
 
 /**
  * Lines of `text` naming a calendar date (`YYYY-MM-DD`) before `today`,
- * outside fenced code. Whether the date is wrong is a judgement this does not
- * make: a past date in a focus document is usually a finished item or a
- * missed deadline, and either way worth a look.
+ * outside code: fenced and indented blocks and inline spans, wherever GFM
+ * puts them (a fence in a blockquote or a list item is code too). Whether
+ * the date is wrong is a judgement this does not make: a past date in a focus
+ * document is usually a finished item or a missed deadline, and either way
+ * worth a look.
  */
 export function findPastDates(text: string, today: string): PastDate[] {
+  const code = codeRanges(text);
+  const inCode = (offset: number) => code.some(([start, end]) => offset >= start && offset < end);
   const found: PastDate[] = [];
-  let fence: { char: string; length: number } | null = null;
+  let lineStart = 0;
   text.split("\n").forEach((line, i) => {
-    const run = line.match(FENCE)?.[1];
-    if (fence) {
-      if (run && run[0] === fence.char && run.length >= fence.length && line.trim() === run) fence = null;
-      return;
-    }
-    if (run) {
-      fence = { char: run[0], length: run.length };
-      return;
-    }
     const dates = [...line.matchAll(ISO_DATE)]
+      .filter((m) => !inCode(lineStart + m.index!))
       .filter(([, y, m, d]) => {
         const date = new Date(`${y}-${m}-${d}T00:00:00Z`);
         return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(`${y}-${m}-${d}`);
@@ -261,6 +292,7 @@ export function findPastDates(text: string, today: string): PastDate[] {
       .map((m) => m[0])
       .sort();
     if (dates.length > 0 && dates[0] < today) found.push({ line: i + 1, date: dates[0], text: line.trim() });
+    lineStart += line.length + 1;
   });
   return found;
 }

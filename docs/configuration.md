@@ -130,7 +130,7 @@ checks. They matter for the documents every session reads first.
 | Field        | Type             | Means                                                                          |
 | ------------ | ---------------- | ------------------------------------------------------------------------------ |
 | `maxTokens`  | `number \| null` | Estimated tokens (characters ÷ 4) above which the document is a `budget` warning |
-| `reviewDays` | `number \| null` | Days after `updated` at which the document is a `review-overdue` warning, unless its `next_review` is still ahead |
+| `reviewDays` | `number \| null` | Days (1 to 3650) after `updated` at which the document is a `review-overdue` warning, unless its `next_review` is still ahead |
 
 The only default is `currentFocus: { maxTokens: 1000 }`. Entries merge field
 by field over the default, so `{ currentFocus: { reviewDays: 14 } }` keeps
@@ -141,7 +141,8 @@ taxonomy: { canonicalPolicy: { currentFocus: { maxTokens: null, reviewDays: 14 }
 ```
 
 A canonical document with a policy entry is also scanned for `past-date`
-warnings: a line naming a `YYYY-MM-DD` day before today, outside fenced code.
+warnings: a line naming a `YYYY-MM-DD` day before today, outside code blocks
+and inline code as a GFM parser reads them.
 Any non-archived document whose `next_review` has passed is `review-overdue`,
 policy or not.
 

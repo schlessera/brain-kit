@@ -3,7 +3,10 @@
  * canonical document over `taxonomy.canonicalPolicy.<key>.maxTokens`),
  * `review-overdue` (a passed `next_review`, or a lapsed `reviewDays` cadence)
  * and `past-date` (a line naming a day before today in a canonical document
- * with a policy). Every clock is pinned.
+ * with a policy). Every date assertion pins `now`. The two CLI tests check only
+ * wiring that the calendar cannot change: whether a budget is reported, and
+ * that the command hands the audit the brain root. The line number that root
+ * produces is asserted in process, with `now` pinned.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -11,7 +14,9 @@ import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { audit, findPastDates } from "../src/lib/auditor";
+import { audit, auditWithModules, findPastDates } from "../src/lib/auditor";
+import { brainConfigSchema as schema } from "../src/lib/config";
+import { initContext } from "../src/lib/context";
 import { estimateTokens } from "../src/lib/context-assembler";
 import { openDatabase } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -103,6 +108,28 @@ describe("review-overdue", () => {
   });
 });
 
+describe("reviewDays bounds", () => {
+  test("the schema accepts 3650 days and refuses 3651", () => {
+    const policy = (reviewDays: number) =>
+      schema.safeParse({ taxonomy: { canonicalPolicy: { currentFocus: { reviewDays } } } }).success;
+    expect(policy(3650)).toBe(true);
+    expect(policy(3651)).toBe(false);
+  });
+
+  test("the largest cadence neither crashes nor reads as overdue", () => {
+    const tax = taxonomyWith({ canonicalPolicy: { currentFocus: { reviewDays: 3650 } } });
+    expect(of(audit(db([{ path: FOCUS, updated: "2026-06-01" }]), tax, { now: NOW }), "review-overdue")).toEqual([]);
+  });
+
+  test("a cadence due today is not overdue; due yesterday is", () => {
+    const tax = taxonomyWith({ canonicalPolicy: { currentFocus: { reviewDays: 30 } } });
+    expect(of(audit(db([{ path: FOCUS, updated: "2026-06-01" }]), tax, { now: NOW }), "review-overdue")).toEqual([]);
+    expect(
+      of(audit(db([{ path: FOCUS, updated: "2026-05-31" }]), tax, { now: NOW }), "review-overdue").map((i) => i.message)
+    ).toEqual(["Review was due 2026-06-30 (reviewDays cadence; last updated 2026-05-31)"]);
+  });
+});
+
 describe("past-date", () => {
   test("a focus line naming a past day warns with its line; today's date does not", () => {
     const content = ["## Now", "", "- 2020-01-01 submit report", `- ${TODAY} standup`, "- 2026-07-02 ship"].join("\n");
@@ -119,6 +146,33 @@ describe("past-date", () => {
       "past-date"
     );
     expect(issues).toEqual([]);
+  });
+
+  // Review round 1: code is whatever a GFM parser says it is.
+  test("a line after a one-line inline span of triple backticks is still scanned", () => {
+    const text = ["```2020-01-01```", "", "- 2020-01-02 submit report"].join("\n");
+    expect(findPastDates(text, TODAY)).toEqual([{ line: 3, date: "2020-01-02", text: "- 2020-01-02 submit report" }]);
+  });
+
+  test("a fence inside a blockquote or a list item, and an indented block, are code", () => {
+    const text = [
+      "> ```",
+      "> 2020-01-01 in quoted code",
+      "> ```",
+      "",
+      "Some prose.",
+      "",
+      "    2020-01-03 indented code",
+      "",
+      "- item",
+      "",
+      "  ```",
+      "  2020-01-02 in listed code",
+      "  ```",
+      "",
+      "> 2020-01-04 quoted prose",
+    ].join("\n");
+    expect(findPastDates(text, TODAY).map((p) => p.date)).toEqual(["2020-01-04"]);
   });
 
   test("findPastDates skips fenced code and impossible dates, and reports a line's earliest date", () => {
@@ -151,20 +205,56 @@ describe("brain audit --json on a copy of the fixture corpus", () => {
     return JSON.parse(stdout).issues as { path: string; category: string; message: string }[];
   }
 
+  /** The fixture's focus document, grown past the 1,000-token default with a past-dated task at its end. */
+  function growFocus(root: string): number {
+    const focus = join(root, FOCUS);
+    const lines = readFileSync(focus, "utf8").split("\n");
+    lines.push("", ...Array.from({ length: 60 }, (_, i) => `- Reference note ${i}: ${"detail ".repeat(12)}`));
+    lines.push("- 2020-01-01 submit report");
+    writeFileSync(focus, lines.join("\n") + "\n");
+    return lines.length;
+  }
+
   test("currentFocus.maxTokens: 100 yields a budget issue for the focus document", async () => {
     const issues = await auditJson(corpusWithPolicy("{ currentFocus: { maxTokens: 100 } }"));
     expect(issues.filter((i) => i.category === "budget").map((i) => i.path)).toEqual([FOCUS]);
   });
 
-  test("an unset budget yields none, and a past date names its line in the file", async () => {
-    const root = corpusWithPolicy("{ currentFocus: { maxTokens: null } }");
-    const focus = join(root, FOCUS);
-    const lines = readFileSync(focus, "utf8").split("\n");
-    lines.push("- 2020-01-01 submit report");
-    writeFileSync(focus, lines.join("\n") + "\n");
-    const issues = await auditJson(root);
-    expect(issues.filter((i) => i.category === "budget")).toEqual([]);
-    const past = issues.filter((i) => i.category === "past-date" && i.message.includes("2020-01-01"));
-    expect(past.map((i) => i.message.split(" names ")[0])).toEqual([`Line ${lines.length}`]);
+  test("a focus document over 1,000 tokens warns under the default and not with maxTokens: null", async () => {
+    const byDefault = corpusWithPolicy("{}");
+    growFocus(byDefault);
+    const warned = (await auditJson(byDefault)).filter((i) => i.category === "budget");
+    expect(warned.map((i) => i.path)).toEqual([FOCUS]);
+    expect(warned[0].message).toMatch(/over the 1000-token budget/);
+
+    const unset = corpusWithPolicy("{ currentFocus: { maxTokens: null } }");
+    growFocus(unset);
+    expect((await auditJson(unset)).filter((i) => i.category === "budget")).toEqual([]);
+  });
+
+  test("brain audit hands the audit the brain root, so a past date names its file line", async () => {
+    const root = corpusWithPolicy("{}");
+    growFocus(root);
+    const past = (await auditJson(root)).filter((i) => i.category === "past-date" && i.message.includes("2020-01-01"));
+    expect(past).toHaveLength(1);
+    expect(past[0].message.startsWith("Line ")).toBe(true);
+  });
+
+  test("with the root and a pinned clock, the line is the file's", async () => {
+    const root = corpusWithPolicy("{}");
+    const fileLines = growFocus(root);
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const brain = await initContext({ root });
+    const database = openDatabase(brain.dbPath, { readonly: true });
+    try {
+      const past = (await auditWithModules(database, brain, { now: NOW })).filter(
+        (i) => i.category === "past-date" && i.message.includes("2020-01-01")
+      );
+      expect(past.map((i) => i.message)).toEqual([
+        `Line ${fileLines} names 2020-01-01, before today (${TODAY}): - 2020-01-01 submit report`,
+      ]);
+    } finally {
+      database.close();
+    }
   });
 });
