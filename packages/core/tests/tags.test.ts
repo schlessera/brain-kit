@@ -359,6 +359,13 @@ describe("brain tags --apply", () => {
     expect(read(root, "notes/multi.md")).toBe(multiline);
   });
 
+  test("a byte order mark before the frontmatter stays, and the tags still migrate", async () => {
+    const bom = "\uFEFF---\ntitle: B\ntype: note\ntags: [trails]\n---\nbody\n";
+    const root = makeBrain({ aliases: { trails: "trail" } }, { "notes/bom.md": bom });
+    await apply(root);
+    expect(read(root, "notes/bom.md")).toBe(bom.replace("[trails]", "[trail]"));
+  });
+
   test("CRLF files keep their line endings", async () => {
     const crlf = "---\r\ntitle: C\r\ntype: note\r\ntags:\r\n  - trails\r\n  - hiking\r\n---\r\nbody\r\n";
     const root = makeBrain({ aliases: { trails: "trail" } }, { "notes/crlf.md": crlf });

@@ -15,6 +15,7 @@ import matter from "gray-matter";
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
+import { frontmatterLength } from "./document-parts.js";
 import { getMarkdownFiles } from "./indexer.js";
 import { findRedundantTags, tagReport } from "./tags.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -67,16 +68,16 @@ export function planRenames(root: string, taxonomy: Taxonomy, groups: boolean): 
 // ---------------------------------------------------------------------------
 
 /**
- * Where the frontmatter's inner text lies, by the rule gray-matter applies
- * when core reads a document: the file opens with `---` not followed by a
- * fourth `-`, and the block runs to the first `\n---`.
+ * Where the frontmatter's inner text lies: between the opening `---` line and
+ * the closing `---`, by the span `frontmatterLength` measures with
+ * gray-matter's rule (a leading byte order mark included).
  */
 function frontmatterBounds(text: string): { start: number; end: number } | null {
-  if (!text.startsWith("---") || text.charAt(3) === "-") return null;
-  const close = text.indexOf("\n---", 3);
-  if (close === -1) return null;
+  const length = frontmatterLength(text);
+  if (length === 0) return null;
+  const close = text.lastIndexOf("\n---", length);
   const start = text.indexOf("\n") + 1;
-  return start > 0 && start <= close + 1 ? { start, end: close + 1 } : null;
+  return close !== -1 && start > 0 && start <= close + 1 ? { start, end: close + 1 } : null;
 }
 
 interface Token {
