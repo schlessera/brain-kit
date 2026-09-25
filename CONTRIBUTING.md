@@ -70,7 +70,8 @@ needs an API key or the network.
    `docs/integration-contract.md` in the same commit and prefix the commit with
    `CONTRACT:`. Additive changes ship in a minor; a breaking change needs a
    maintainer ruling on its issue before code is written (see the contract
-   doc's header).
+   doc's header). Two checks hold this, described under
+   [Contract checks](#contract-checks).
 2. **No new seams.** Extension interfaces exist only where a second
    implementation is plausible within a year. The explicitly-not-pluggable
    list in the README is final: no storage providers, no framework adapters,
@@ -130,6 +131,59 @@ remain synchronized copies instead of moving into a shared package.
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs
 before `bun install` stays dependency-free.
+
+## Contract checks
+
+Two checks find contract changes, so a break cannot ship as a minor unnoticed.
+
+**The contract gate** (`.github/workflows/contract.yml`, rule in
+`scripts/check-contract-pr.ts`) runs on every pull request and again whenever
+its title or labels change. A PR whose diff touches
+`docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`
+and carry the `contract` label. A PR titled `CONTRACT:` or labelled `contract`
+must touch the doc. PRs are squash-merged, so the title becomes the commit
+subject that an audit searches for. "Touches" means the PR's own diff, from
+where its branch left the base to its head commit. If the gate fails, either
+fix the title and label, or move the doc edit out of a PR that is not a
+contract change.
+
+**The API report** (`api-report/*.txt`, written by `scripts/api-report.ts`,
+checked by `tests/api-surface.test.ts`) records every exported name per export
+subpath. For the seams in [`docs/extending/README.md`](docs/extending/README.md#the-seams)
+it also records each declaration's signature: its public surface, without
+comments, bodies, default values or private members. The same goes for every
+type declared in this repo that such a surface names, whether by reference,
+by inline `import("…")` or through `typeof`, directly or through another
+recorded type. A type used only by a private member is not recorded.
+
+The report records what is written, so it refuses a seam-reachable surface
+whose type is not written down. `bun run api-report` and the test fail, naming
+the declaration and its `file:line`, when any of these is reachable:
+
+- a public or protected property, method, getter or function whose type or
+  return type is inferred;
+- a parameter without an annotation, including one with a default value and a
+  constructor parameter property;
+- an unannotated constant whose inferred type names a type declared in this
+  repo (a constant of purely structural type, like `BLOCK_SCHEMA`, is recorded
+  by the type it infers to);
+- a whole module used as a type (`typeof import("x")`, or `typeof ns` for
+  `import * as ns`).
+
+The fix is to write the type down, which changes no behaviour. The `SEAMS`
+list at the top of the script names the seams. Adding or removing an export fails `… matches the current exports`. Retyping a
+seam member, or a member of any type it is made of, fails `… matches the
+current seam signatures`, and the failure shows the changed line.
+
+To change the surface on purpose, make the change, run `bun run api-report`,
+and read the diff under `api-report/` before committing it. A removed or
+changed line in a signature section is a change to a seam. Whether it breaks
+one is decided by
+[`docs/decisions/contract-versioning.md`](docs/decisions/contract-versioning.md);
+a break needs the ruling and the changeset the contract doc's header describes.
+Nothing else needs updating: the test checks every `SEAMS` entry by shape, not
+by its current signature. When the set of frozen declarations grows, add the
+names to `SEAMS` and regenerate.
 
 ## Releasing
 

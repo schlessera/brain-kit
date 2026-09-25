@@ -57,3 +57,114 @@ export "." (./src/index.ts)
   stripHtml
 
 export "./package.json" (./package.json) [asset]
+
+signatures (the seams in docs/extending/README.md and the types they are made of)
+  AdapterResult (packages/scrape/src/adapter/types.ts)
+    export interface AdapterResult<T> {
+        items: T[];
+        cursor?: string;
+        errors: string[];
+    }
+  AdapterRunOptions (packages/scrape/src/adapter/types.ts)
+    export interface AdapterRunOptions {
+        incremental?: boolean;
+        cursor?: string;
+        queries?: string[];
+        proxy?: string;
+        fetch?: FetchOptions;
+    }
+  BrowserSession (packages/scrape/src/browser/session.ts)
+    export interface BrowserSession {
+        load<T>(request: PageRequest<T>): Promise<T>;
+        close(): Promise<void>;
+    }
+  FetchOptions (packages/scrape/src/fetch/http.ts)
+    export interface FetchOptions {
+        proxy?: string;
+        timeoutMs?: number;
+        retries?: number;
+        retryDelayMs?: number;
+        headers?: Record<string, string>;
+        delayMs?: number;
+        userAgent?: string;
+        allowDisallowed?: boolean;
+    }
+  FetchedPage (packages/scrape/src/fetch/http.ts)
+    export interface FetchedPage {
+        body: string;
+        url: string;
+    }
+  PageRequest (packages/scrape/src/browser/session.ts)
+    export interface PageRequest<T> {
+        url: string;
+        waitForSelector?: string;
+        settleMs?: number;
+        extract: () => T;
+    }
+  RateLimiter (packages/scrape/src/politeness/rate-limit.ts)
+    export class RateLimiter {
+        constructor(options?: RateLimiterOptions);
+        acquire(host: string, delayMs?: number): Promise<void>;
+        reset(): void;
+    }
+  RateLimiterClock (packages/scrape/src/politeness/rate-limit.ts)
+    export interface RateLimiterClock {
+        now(): number;
+        sleep(ms: number): Promise<void>;
+    }
+  RateLimiterOptions (packages/scrape/src/politeness/rate-limit.ts)
+    export interface RateLimiterOptions {
+        defaultDelayMs?: number;
+        clock?: RateLimiterClock;
+    }
+  RobotsCache (packages/scrape/src/politeness/robots.ts)
+    export class RobotsCache {
+        constructor(options?: RobotsCacheOptions);
+        forUrl(url: string): Promise<RobotsRules>;
+        reset(): void;
+    }
+  RobotsCacheOptions (packages/scrape/src/politeness/robots.ts)
+    export interface RobotsCacheOptions {
+        fetcher?: RobotsFetcher;
+    }
+  RobotsFetcher (packages/scrape/src/politeness/robots.ts)
+    export type RobotsFetcher = (robotsUrl: string) => Promise<{
+        status: number;
+        body: string;
+    }>;
+  RobotsRules (packages/scrape/src/politeness/robots.ts)
+    export interface RobotsRules {
+        loaded: boolean;
+        isAllowed(url: string, userAgent: string): boolean;
+        crawlDelayMs(userAgent: string): number | undefined;
+    }
+  ScrapeClient (packages/scrape/src/fetch/http.ts)
+    export class ScrapeClient {
+        constructor(options?: ScrapeClientOptions);
+        get(url: string, opts?: FetchOptions): Promise<Response>;
+        getJson<T = unknown>(url: string, opts?: FetchOptions): Promise<T>;
+        getPage(url: string, opts?: FetchOptions): Promise<FetchedPage>;
+        getText(url: string, opts?: FetchOptions): Promise<string>;
+    }
+  ScrapeClientOptions (packages/scrape/src/fetch/http.ts)
+    export interface ScrapeClientOptions {
+        userAgent?: string;
+        defaultDelayMs?: number;
+        respectRobots?: boolean;
+        rateLimiter?: RateLimiter;
+        robots?: RobotsCache;
+    }
+  ScrapeContext (packages/scrape/src/adapter/types.ts)
+    export interface ScrapeContext {
+        http: ScrapeClient;
+        browser?: BrowserSession;
+        log(message: string): void;
+    }
+  SiteAdapter (packages/scrape/src/adapter/types.ts)
+    export interface SiteAdapter<T> {
+        readonly id: string;
+        readonly name: string;
+        readonly needsBrowser: boolean;
+        readonly needsProxy: boolean;
+        scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;
+    }

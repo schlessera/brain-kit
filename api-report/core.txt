@@ -159,3 +159,76 @@ export "." (./src/index.ts)
   writeScratchFile
 
 export "./package.json" (./package.json) [asset]
+
+signatures (the seams in docs/extending/README.md and the types they are made of)
+  AgentRunner (packages/core/src/lib/seams.ts)
+    export interface AgentRunner {
+        id: string;
+        capabilities: {
+            streaming: boolean;
+            skills: boolean;
+        };
+        run(prompt: string, opts: {
+            cwd: string;
+            timeoutMs?: number;
+        }): Promise<string>;
+        runStreaming?(prompt: string, opts: {
+            cwd: string;
+            onEvent: (e: {
+                kind: "tool" | "text";
+                label: string;
+            }) => void;
+        }): Promise<string>;
+    }
+  CompletionProvider (packages/core/src/lib/seams.ts)
+    export interface CompletionProvider {
+        id: string;
+        capabilities: {
+            vision: boolean;
+        };
+        complete(req: {
+            system?: string;
+            prompt: string;
+            parts?: ContentPart[];
+            maxTokens?: number;
+        }): Promise<string>;
+    }
+  ContentPart (packages/core/src/lib/seams.ts)
+    export type ContentPart = {
+        kind: "text";
+        text: string;
+    } | {
+        kind: "image";
+        data: Uint8Array;
+        mimeType: string;
+    } | {
+        kind: "pdf";
+        data: Uint8Array;
+    };
+  EmbeddingProvider (packages/core/src/lib/seams.ts)
+    export interface EmbeddingProvider {
+        id: string;
+        dimensions: number;
+        embed(texts: string[]): Promise<Float32Array[]>;
+        embedQuery(text: string, opts?: {
+            signal?: AbortSignal;
+        }): Promise<Float32Array>;
+        embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
+        embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
+    }
+  SkillEmitter (packages/core/src/lib/seams.ts)
+    export interface SkillEmitter {
+        agent: string;
+        emit(skills: SkillManifest[], repoRoot: string): {
+            written: string[];
+            removed: string[];
+        };
+    }
+  SkillManifest (packages/core/src/lib/seams.ts)
+    export interface SkillManifest {
+        name: string;
+        description: string;
+        dir: string;
+        source: "core" | "module" | "local";
+        frontmatter: Record<string, unknown>;
+    }

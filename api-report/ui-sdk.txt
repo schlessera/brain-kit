@@ -1077,3 +1077,915 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   toolBriefLines
   toolInputJsonSchema
   visibleToolName
+
+signatures (the seams in docs/extending/README.md and the types they are made of)
+  ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
+    const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  ActivityQuery (packages/ui-sdk/src/server/backend.ts)
+    export interface ActivityQuery {
+        scope: "running" | "recent" | "run" | "rollups" | "inbox";
+        runId?: string;
+        hoursBack?: number;
+        limit?: number;
+    }
+  ActivityQueryResult (packages/ui-sdk/src/server/backend.ts)
+    export type ActivityQueryResult = Record<string, unknown>;
+  ActivitySpan (packages/ui-sdk/src/protocol.ts)
+    export interface ActivitySpan {
+        spanId: string;
+        runId: string;
+        parentSpanId?: string;
+        name: string;
+        toolName?: string;
+        kind: ActivitySpanKind;
+        origin: ActivitySpanOrigin;
+        sessionId?: string;
+        jobName?: string;
+        principalId?: string;
+        startedAt: number;
+        waitUntil?: number;
+        endedAt?: number;
+        outcome?: ActivitySpanOutcome;
+        outcomeReason?: string;
+        usage?: ModelUsage & {
+            model?: string;
+        };
+        subagent?: {
+            type?: string;
+            description?: string;
+            summary?: string;
+            totalTokens?: number;
+        };
+        attrs?: Record<string, unknown>;
+    }
+  ActivitySpanEvent (packages/ui-sdk/src/protocol.ts)
+    export interface ActivitySpanEvent {
+        spanId: string;
+        eventIndex: number;
+        ts: number;
+        eventType: string;
+        payload?: unknown;
+        truncated?: boolean;
+    }
+  ActivitySpanKind (packages/ui-sdk/src/protocol.ts)
+    export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
+  ActivitySpanOrigin (packages/ui-sdk/src/protocol.ts)
+    export type ActivitySpanOrigin = "session" | "cron";
+  ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
+    export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
+  ActivityView (packages/ui-sdk/src/protocol.ts)
+    export type ActivityView = "index" | "session" | "run";
+  AgentBackend (packages/ui-sdk/src/server/backend.ts)
+    export interface AgentBackend {
+        id: string;
+        capabilities: BackendCapabilities;
+        listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
+        startTurn(req: StartTurnRequest): Promise<void>;
+        followUp?(req: FollowUpRequest): Promise<void>;
+        listSessions(): Promise<ChatSession[]>;
+        getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
+    }
+  AskUserAnnotation (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserAnnotation {
+        preview?: string;
+        notes?: string;
+    }
+  AskUserOption (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserOption {
+        label: string;
+        description: string;
+        preview?: string;
+    }
+  AskUserQuestion (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserQuestion {
+        question: string;
+        header: string;
+        multiSelect: boolean;
+        options: AskUserOption[];
+    }
+  AskUserResult (packages/ui-sdk/src/server/backend.ts)
+    export interface AskUserResult {
+        answers: Record<string, string>;
+        annotations?: Record<string, AskUserAnnotation>;
+    }
+  AsrClient (packages/ui-sdk/src/client/asr.ts)
+    export interface AsrClient {
+        start(): Promise<void>;
+        stop(): void;
+        drainAndStop(): Promise<void>;
+    }
+  BLOCK_SCHEMA (packages/ui-sdk/src/tool-contracts/blocks.ts)
+    const BLOCK_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        kind: z.ZodLiteral<"comparison">;
+        columns: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            note: z.ZodOptional<z.ZodString>;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+                ink: "ink";
+                dim: "dim";
+            }>>;
+            recommended: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strip>>;
+        rows: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            cells: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodObject<{
+                v: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    gold: "gold";
+                    teal: "teal";
+                    purple: "purple";
+                    blue: "blue";
+                    red: "red";
+                    neutral: "neutral";
+                    ink: "ink";
+                    dim: "dim";
+                }>>;
+            }, z.core.$strip>]>>;
+        }, z.core.$strip>>;
+        corner: z.ZodOptional<z.ZodString>;
+        footnote: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"stats">;
+        tiles: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            value: z.ZodString;
+            meta: z.ZodOptional<z.ZodString>;
+            icon: z.ZodOptional<z.ZodString>;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+                ink: "ink";
+                dim: "dim";
+            }>>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"trend">;
+        label: z.ZodOptional<z.ZodString>;
+        value: z.ZodOptional<z.ZodString>;
+        delta: z.ZodOptional<z.ZodString>;
+        deltaTone: z.ZodOptional<z.ZodEnum<{
+            teal: "teal";
+            red: "red";
+        }>>;
+        values: z.ZodArray<z.ZodNumber>;
+        ticks: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        tone: z.ZodOptional<z.ZodEnum<{
+            amber: "amber";
+            gold: "gold";
+            teal: "teal";
+            purple: "purple";
+            blue: "blue";
+            red: "red";
+            neutral: "neutral";
+        }>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"table">;
+        columns: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            align: z.ZodOptional<z.ZodEnum<{
+                left: "left";
+                right: "right";
+            }>>;
+        }, z.core.$strip>>;
+        rows: z.ZodArray<z.ZodObject<{
+            cells: z.ZodArray<z.ZodObject<{
+                v: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    gold: "gold";
+                    teal: "teal";
+                    purple: "purple";
+                    blue: "blue";
+                    red: "red";
+                    neutral: "neutral";
+                }>>;
+                mono: z.ZodOptional<z.ZodBoolean>;
+                bold: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"bars">;
+        rows: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            pct: z.ZodNumber;
+            value: z.ZodString;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+            }>>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"receipt">;
+        title: z.ZodOptional<z.ZodString>;
+        titleIcon: z.ZodOptional<z.ZodString>;
+        titleTone: z.ZodOptional<z.ZodEnum<{
+            amber: "amber";
+            gold: "gold";
+            teal: "teal";
+            purple: "purple";
+            blue: "blue";
+            red: "red";
+            neutral: "neutral";
+        }>>;
+        rows: z.ZodArray<z.ZodObject<{
+            k: z.ZodString;
+            v: z.ZodString;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+                ink: "ink";
+                dim: "dim";
+            }>>;
+        }, z.core.$strip>>;
+        diff: z.ZodOptional<z.ZodString>;
+        footnote: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"steps">;
+        steps: z.ZodArray<z.ZodObject<{
+            title: z.ZodString;
+            detail: z.ZodOptional<z.ZodString>;
+            meta: z.ZodOptional<z.ZodString>;
+            code: z.ZodOptional<z.ZodString>;
+            state: z.ZodOptional<z.ZodEnum<{
+                done: "done";
+                current: "current";
+                todo: "todo";
+            }>>;
+        }, z.core.$strip>>;
+        variant: z.ZodOptional<z.ZodEnum<{
+            numbered: "numbered";
+            checklist: "checklist";
+            progress: "progress";
+        }>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"timeline">;
+        items: z.ZodArray<z.ZodObject<{
+            time: z.ZodString;
+            title: z.ZodString;
+            detail: z.ZodOptional<z.ZodString>;
+            meta: z.ZodOptional<z.ZodString>;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+            }>>;
+            pulse: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"schedule">;
+        groups: z.ZodArray<z.ZodObject<{
+            day: z.ZodString;
+            meta: z.ZodOptional<z.ZodString>;
+            items: z.ZodArray<z.ZodObject<{
+                time: z.ZodString;
+                title: z.ZodString;
+                detail: z.ZodOptional<z.ZodString>;
+                tag: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    gold: "gold";
+                    teal: "teal";
+                    purple: "purple";
+                    blue: "blue";
+                    red: "red";
+                    neutral: "neutral";
+                }>>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"quote">;
+        quote: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        locator: z.ZodOptional<z.ZodString>;
+        note: z.ZodOptional<z.ZodString>;
+        tone: z.ZodOptional<z.ZodEnum<{
+            amber: "amber";
+            teal: "teal";
+            purple: "purple";
+            blue: "blue";
+            neutral: "neutral";
+        }>>;
+        icon: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"contact">;
+        label: z.ZodString;
+        role: z.ZodOptional<z.ZodString>;
+        contactKind: z.ZodOptional<z.ZodEnum<{
+            person: "person";
+            company: "company";
+            project: "project";
+        }>>;
+        badge: z.ZodOptional<z.ZodString>;
+        tone: z.ZodOptional<z.ZodEnum<{
+            amber: "amber";
+            teal: "teal";
+            purple: "purple";
+            blue: "blue";
+            neutral: "neutral";
+        }>>;
+        facts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            k: z.ZodString;
+            v: z.ZodString;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                gold: "gold";
+                teal: "teal";
+                purple: "purple";
+                blue: "blue";
+                red: "red";
+                neutral: "neutral";
+                ink: "ink";
+                dim: "dim";
+            }>>;
+        }, z.core.$strip>>>;
+        initials: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>], "kind">;
+  BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
+    export type BackendActivityEvent = {
+        kind: "subagent_started";
+        toolUseId: string;
+        taskId?: string;
+        subagentType?: string;
+        description?: string;
+        depth?: number;
+    } | {
+        kind: "subagent_status";
+        toolUseId: string;
+        status: "running" | "completed" | "failed" | "killed" | "paused";
+        usage?: {
+            totalTokens?: number;
+            toolUses?: number;
+            durationMs?: number;
+        };
+        summary?: string;
+    } | {
+        kind: "subagent_transcript";
+        toolUseId: string;
+        role: "assistant" | "user";
+        text: string;
+    } | {
+        kind: "permission_denied";
+        toolUseId: string;
+        requestKind: "tool" | "command";
+        reason: string;
+    } | {
+        kind: "runtime_observed";
+        runtime?: {
+            name: string;
+            version: string;
+        };
+        sdk?: {
+            name: string;
+            version: string;
+        };
+        credential?: Record<string, string>;
+        billing: BillingMode | "unknown";
+        policy?: BillingMode;
+        policyViolation?: string;
+        measured?: boolean;
+    } | {
+        kind: "auth_failure";
+        errorClass: string;
+        message?: string;
+    };
+  BackendBridge (packages/ui-sdk/src/server/backend.ts)
+    export interface BackendBridge {
+        emit(msg: ServerMessage): void;
+        requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
+        askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
+        getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
+        requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
+        pruneScratch?(): Promise<void>;
+        activity?(event: BackendActivityEvent): void;
+        queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
+    }
+  BackendCapabilities (packages/ui-sdk/src/server/backend.ts)
+    export interface BackendCapabilities {
+        resume: boolean;
+        permissions: boolean;
+        thinking: boolean;
+        attachments: boolean;
+        askUser: boolean;
+        costReporting: boolean;
+        concurrentSessions: boolean;
+        followUp: boolean;
+    }
+  BackendLogFn (packages/ui-sdk/src/server/backend-module.ts)
+    export type BackendLogFn = (level: "debug" | "info" | "warn" | "error", message: string, attrs?: Record<string, string | number | boolean>) => void;
+  BackendModelSource (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendModelSource {
+        list(): BackendProfileDeclaration[];
+        state(): BackendModelSourceState;
+        ensureFresh(): Promise<void>;
+        refresh(): Promise<void>;
+    }
+  BackendModelSourceState (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendModelSourceState {
+        enabled: boolean;
+        refreshedAt: number | null;
+        stale: boolean;
+        error?: string;
+        subscriptionProvenAt?: number;
+        subscriptionRefused?: {
+            status: number;
+            at: number;
+        };
+    }
+  BackendModule (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendModule {
+        id: string;
+        resolveFromEnv(context: BackendModuleContext): BackendModuleResolution | Promise<BackendModuleResolution>;
+        profileSchema: BackendProfileSchema;
+        settingsHooks: BackendSettingsHooks;
+        modelSource?(context: BackendModuleContext): BackendModelSource | null;
+        probeRuntime?(context: BackendModuleContext): BackendRuntimeReport;
+    }
+  BackendModuleContext (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendModuleContext {
+        brainPath: string;
+        config: Readonly<Record<string, unknown>>;
+        profiles: readonly BackendProfileDeclaration[];
+        confirmBashPatterns: readonly ConfirmPatternSource[] | null;
+        settings: Partial<BackendSettingsReaders>;
+        log?: BackendLogFn;
+        modelSource?: BackendModelSource | null;
+    }
+  BackendModuleResolution (packages/ui-sdk/src/server/backend-module.ts)
+    export type BackendModuleResolution = {
+        ok: true;
+        value: ResolvedBackendModule;
+    } | {
+        ok: false;
+        error: Error;
+    };
+  BackendProfileDeclaration (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendProfileDeclaration {
+        id: string;
+        label: string;
+        vendor?: string;
+    }
+  BackendProfileError (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendProfileError {
+        code: "invalid_json" | "invalid_shape" | "invalid_entry" | "reserved_id" | "duplicate_id";
+        message: string;
+        profileId?: string;
+    }
+  BackendProfileParseResult (packages/ui-sdk/src/server/backend-module.ts)
+    export type BackendProfileParseResult = {
+        ok: true;
+        profiles: BackendProfileDeclaration[];
+    } | {
+        ok: false;
+        errors: BackendProfileError[];
+    };
+  BackendProfileSchema (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendProfileSchema {
+        source: string;
+        parse(raw: string | null, context: BackendProfileSchemaContext): BackendProfileParseResult;
+    }
+  BackendProfileSchemaContext (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendProfileSchemaContext {
+        occupiedProfiles: readonly {
+            id: string;
+            source: string;
+        }[];
+        inactiveRosters?: readonly {
+            backendId: string;
+            raw: string | null;
+        }[];
+    }
+  BackendRuntimeReport (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendRuntimeReport {
+        runtime: {
+            name: string;
+            version: string;
+            command: string;
+            hostProvided: boolean;
+        };
+        sdk?: {
+            name: string;
+            version: string;
+        };
+        measured?: {
+            runtime: string;
+            sdk?: string;
+            matches: boolean;
+        };
+    }
+  BackendSettingsHooks (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendSettingsHooks {
+        hiddenModelIds?: true;
+        defaultModelId?: true;
+        customOpenRouterModels?: true;
+        thinkingOverrides?: true;
+        billingOverrides?: true;
+    }
+  BackendSettingsReaders (packages/ui-sdk/src/server/backend-module.ts)
+    export interface BackendSettingsReaders {
+        getHiddenModelIds(): string[];
+        getDefaultModelId(): string | null;
+        getCustomOpenRouterModels(): string[];
+        getThinkingOverrides(): Record<string, string>;
+        getBillingOverrides(): Record<string, BillingMode>;
+    }
+  BillingMode (packages/ui-sdk/src/protocol.ts)
+    export type BillingMode = "subscription" | "api";
+  Block (packages/ui-sdk/src/tool-contracts/blocks.ts)
+    export type Block = z.infer<typeof BLOCK_SCHEMA>;
+  ChatImageAttachment (packages/ui-sdk/src/protocol.ts)
+    export interface ChatImageAttachment {
+        data: string;
+        mediaType: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+    }
+  ChatSession (packages/ui-sdk/src/protocol.ts)
+    export interface ChatSession {
+        id: string;
+        title: string | null;
+        createdAt: number;
+        lastActiveAt: number;
+        totalCostUsd: number;
+        numTurns: number;
+        backendId?: string;
+    }
+  ClientEnvironment (packages/ui-sdk/src/protocol.ts)
+    export interface ClientEnvironment {
+        formFactor: "phone" | "tablet" | "desktop";
+        standalone?: boolean;
+        touch?: boolean;
+        camera?: boolean;
+        microphone?: boolean;
+        geolocation?: boolean;
+        share?: boolean;
+        shareFiles?: boolean;
+        viewportWidth?: number;
+        locale?: string;
+        timeZone?: string;
+    }
+  ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export interface ConfirmPattern {
+        pattern: string;
+        effect: string;
+    }
+  ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export type ConfirmPatternSource = string | ConfirmPattern;
+  FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
+    export interface FollowUpRequest {
+        sessionId: string;
+        prompt: string;
+        attachments?: ChatImageAttachment[];
+    }
+  GeoCoords (packages/ui-sdk/src/protocol.ts)
+    export interface GeoCoords {
+        latitude: number;
+        longitude: number;
+        accuracy: number;
+        altitude?: number | null;
+        altitudeAccuracy?: number | null;
+        heading?: number | null;
+        speed?: number | null;
+    }
+  GeoRequestOptions (packages/ui-sdk/src/protocol.ts)
+    export interface GeoRequestOptions {
+        enableHighAccuracy?: boolean;
+        timeoutMs?: number;
+        maximumAgeMs?: number;
+    }
+  LocationFix (packages/ui-sdk/src/server/backend.ts)
+    export interface LocationFix {
+        coords: GeoCoords;
+        timestamp: number;
+    }
+  MessageBlock (packages/ui-sdk/src/protocol.ts)
+    export interface MessageBlock {
+        partIndex: number;
+        start: number;
+        end: number;
+        block: Block;
+        confidence: number;
+    }
+  MessagePart (packages/ui-sdk/src/protocol.ts)
+    export type MessagePart = {
+        kind: "thinking";
+        text: string;
+    } | {
+        kind: "text";
+        text: string;
+    } | {
+        kind: "tool";
+        toolIndex: number;
+    };
+  ModelUsage (packages/ui-sdk/src/protocol.ts)
+    export interface ModelUsage {
+        inputTokens?: number;
+        outputTokens?: number;
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
+        costUsd?: number;
+    }
+  PermissionDecision (packages/ui-sdk/src/server/backend.ts)
+    export type PermissionDecision = {
+        behavior: "allow";
+        updatedInput?: Record<string, unknown>;
+    } | {
+        behavior: "deny";
+        message: string;
+    };
+  PermissionRequest (packages/ui-sdk/src/server/backend.ts)
+    export interface PermissionRequest {
+        toolUseId: string;
+        toolName: string;
+        input: Record<string, unknown>;
+        description?: string;
+        kind?: "tool" | "command";
+        outsideEnforcedAllowlist?: boolean;
+    }
+  PricingRoute (packages/ui-sdk/src/protocol.ts)
+    export type PricingRoute = "openrouter" | "direct";
+  ProviderInfo (packages/ui-sdk/src/protocol.ts)
+    export interface ProviderInfo {
+        id: string;
+        label: string;
+        vendor?: string;
+        backendId?: string;
+        contextWindow?: number;
+        thinkingLevel?: ThinkingLevel;
+        source?: "builtin" | "declared" | "discovered";
+        billingMode?: BillingMode;
+        pricingRoute?: PricingRoute;
+    }
+  ResolvedBackendModule (packages/ui-sdk/src/server/backend-module.ts)
+    export interface ResolvedBackendModule {
+        backend: AgentBackend;
+        classifyBilling?(profile: ProviderInfo): BillingMode;
+        classifyRoute?(profile: ProviderInfo): PricingRoute | undefined;
+        preferredProfile?: {
+            matches(profile: ProviderInfo): boolean;
+            hasCredential(): boolean | Promise<boolean>;
+        };
+    }
+  ServerActivityDelta (packages/ui-sdk/src/protocol.ts)
+    export interface ServerActivityDelta {
+        type: "activity_delta";
+        runId: string;
+        seq: number;
+        span?: ActivitySpan;
+        event?: ActivitySpanEvent;
+    }
+  ServerActivitySnapshot (packages/ui-sdk/src/protocol.ts)
+    export interface ServerActivitySnapshot {
+        type: "activity_snapshot";
+        view: ActivityView;
+        sessionId?: string;
+        runId?: string;
+        spans: ActivitySpan[];
+        events: ActivitySpanEvent[];
+        highWaterSeq: Record<string, number>;
+        append?: boolean;
+    }
+  ServerAskUserRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAskUserRequest extends SessionScoped {
+        type: "ask_user_request";
+        requestId: string;
+        questions: AskUserQuestion[];
+    }
+  ServerError (packages/ui-sdk/src/protocol.ts)
+    export interface ServerError extends SessionScoped {
+        type: "error";
+        code: string;
+        message: string;
+    }
+  ServerHello (packages/ui-sdk/src/protocol.ts)
+    export interface ServerHello {
+        type: "server_hello";
+        protocolRev: number;
+        capabilities?: Record<string, boolean>;
+    }
+  ServerLocationRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerLocationRequest extends SessionScoped {
+        type: "location_request";
+        requestId: string;
+        options?: GeoRequestOptions;
+    }
+  ServerMaskRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerMaskRequest extends SessionScoped {
+        type: "mask_request";
+        requestId: string;
+        imagePath: string;
+        instruction?: string;
+    }
+  ServerMessage (packages/ui-sdk/src/protocol.ts)
+    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks;
+  ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
+    export interface ServerMessageBlocks extends SessionScoped {
+        type: "message_blocks";
+        sessionId: string;
+        blocks: MessageBlock[];
+    }
+  ServerResultMessage (packages/ui-sdk/src/protocol.ts)
+    export interface ServerResultMessage {
+        type: "result";
+        sessionId: string;
+        outcome?: "success" | "error" | "cancelled";
+        costUsd?: number;
+        durationMs: number;
+        numTurns: number;
+        isError: boolean;
+        usage?: TurnUsage;
+        outcomeDetail?: string;
+    }
+  ServerSessionHistory (packages/ui-sdk/src/protocol.ts)
+    export interface ServerSessionHistory extends SessionScoped {
+        type: "session_history";
+        messages: SessionHistoryMessage[];
+        append?: boolean;
+    }
+  ServerSessionInfo (packages/ui-sdk/src/protocol.ts)
+    export interface ServerSessionInfo {
+        type: "session_info";
+        sessionId: string;
+        isNew: boolean;
+        providerId?: string;
+        backendId?: string;
+        draftId?: string;
+    }
+  ServerStatus (packages/ui-sdk/src/protocol.ts)
+    export interface ServerStatus extends SessionScoped {
+        type: "status";
+        status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
+        detail?: string;
+        activeSessionId?: string;
+    }
+  ServerTextDelta (packages/ui-sdk/src/protocol.ts)
+    export interface ServerTextDelta extends SessionScoped {
+        type: "text_delta";
+        text: string;
+    }
+  ServerThinkingDelta (packages/ui-sdk/src/protocol.ts)
+    export interface ServerThinkingDelta extends SessionScoped {
+        type: "thinking_delta";
+        text: string;
+    }
+  ServerToolApprovalRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolApprovalRequest extends SessionScoped {
+        type: "tool_approval_request";
+        toolUseId: string;
+        toolName: string;
+        input: Record<string, unknown>;
+        description?: string;
+        kind?: "tool" | "command";
+        rememberable?: boolean;
+    }
+  ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolInputDelta extends SessionScoped {
+        type: "tool_input_delta";
+        toolUseId: string;
+        partialJson: string;
+    }
+  ServerToolResult (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolResult extends SessionScoped {
+        type: "tool_result";
+        toolUseId: string;
+        output: string;
+        isError: boolean;
+    }
+  ServerToolUseComplete (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolUseComplete extends SessionScoped {
+        type: "tool_use_complete";
+        toolUseId: string;
+        toolName: string;
+        input: Record<string, unknown>;
+        parentToolUseId?: string;
+    }
+  ServerToolUseStart (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolUseStart extends SessionScoped {
+        type: "tool_use_start";
+        toolUseId: string;
+        toolName: string;
+        parentToolUseId?: string;
+    }
+  SessionHistoryMessage (packages/ui-sdk/src/protocol.ts)
+    export interface SessionHistoryMessage {
+        role: "user" | "assistant";
+        content: string;
+        thinking?: string;
+        toolCalls: Array<{
+            id: string;
+            name: string;
+            input: Record<string, unknown>;
+            output?: string;
+            isError?: boolean;
+        }>;
+        parts?: MessagePart[];
+        attachmentCount?: number;
+        blocks?: MessageBlock[];
+    }
+  SessionScoped (packages/ui-sdk/src/protocol.ts)
+    export interface SessionScoped {
+        sessionId?: string;
+        turnId?: string;
+    }
+  SpeechCapabilities (packages/ui-sdk/src/protocol.ts)
+    export interface SpeechCapabilities {
+        streaming: boolean;
+        interimResults: boolean;
+        keyterms: boolean;
+        endpointing: boolean;
+    }
+  SpeechProvider (packages/ui-sdk/src/server/speech.ts)
+    export interface SpeechProvider {
+        id: string;
+        capabilities: SpeechCapabilities;
+        createSession(opts: {
+            keyterms: string[];
+        }): Promise<SpeechSession>;
+    }
+  SpeechSession (packages/ui-sdk/src/server/speech.ts)
+    export interface SpeechSession {
+        url: string;
+        token?: string;
+        params?: Record<string, string>;
+        expiresAt: number;
+    }
+  StartTurnRequest (packages/ui-sdk/src/server/backend.ts)
+    export interface StartTurnRequest {
+        prompt: string;
+        attachments?: ChatImageAttachment[];
+        sessionId?: string;
+        profileId?: string;
+        signal: AbortSignal;
+        turnBudgetMs?: number;
+        bridge: BackendBridge;
+        client?: ClientEnvironment;
+        enforceAllowedTools?: boolean;
+        noGrantSurface?: boolean;
+    }
+  ThinkingLevel (packages/ui-sdk/src/protocol.ts)
+    export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  ToolCallView (packages/ui-sdk/src/client/renderers.ts)
+    export interface ToolCallView {
+        id: string;
+        name: string;
+        input: Record<string, unknown>;
+        output?: string;
+        isError?: boolean;
+        inputJson?: string;
+        status?: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
+        startedAt?: number;
+        endedAt?: number;
+    }
+  ToolRenderer (packages/ui-sdk/src/client/renderers.ts)
+    export interface ToolRenderer {
+        match: string | ((tool: ToolCallView, backendId: string) => number);
+        icon?: ComponentType<{
+            className?: string;
+        }>;
+        summary?(tool: ToolCallView): string | null;
+        meta?(tool: ToolCallView): string | null;
+        label?: string | ((tool: ToolCallView) => string);
+        touchedFile?(tool: ToolCallView): string | null;
+        subagentRows?: boolean;
+        semantics?: ToolSemantics;
+        Input?: ComponentType<{
+            tool: ToolCallView;
+        }>;
+        Output?: ComponentType<{
+            tool: ToolCallView;
+        }>;
+    }
+  ToolSemantics (packages/ui-sdk/src/client/renderers.ts)
+    export interface ToolSemantics {
+        command?(tool: ToolCallView): string | null;
+        writePath?(tool: ToolCallView): string | null;
+        unsandboxed?(tool: ToolCallView): boolean;
+    }
+  TurnUsage (packages/ui-sdk/src/protocol.ts)
+    export interface TurnUsage extends ModelUsage {
+        perModel?: Record<string, ModelUsage>;
+    }
