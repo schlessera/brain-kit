@@ -19,16 +19,24 @@ export {
 export { lintSkills, type LintFinding, type LintSeverity } from "./lint.js";
 
 export { claudeEmitter } from "./emitters/claude.js";
-export { codexEmitter } from "./emitters/codex.js";
+export {
+  codexEmitter,
+  CONTRACT_START,
+  CONTRACT_END,
+  CONTRACT_FILE,
+  renderContractBlock,
+} from "./emitters/codex.js";
 export { geminiEmitter } from "./emitters/gemini.js";
 export { piEmitter } from "./emitters/pi.js";
 export {
   INDEX_START,
   INDEX_END,
+  INDEX_MARKERS,
   renderIndexBlock,
   readManagedNames,
   upsertIndexBlock,
 } from "./emitters/index-block.js";
+export { upsertManagedBlock, removeManagedBlock, type Markers } from "./emitters/managed-block.js";
 
 import { claudeEmitter } from "./emitters/claude.js";
 import { codexEmitter } from "./emitters/codex.js";

@@ -35,7 +35,7 @@ layout, returning what it wrote and what stale entries it removed.
 | Emitter  | Emits into                                                      | When it runs                          |
 | -------- | -------------------------------------------------------------- | ------------------------------------- |
 | `claude` | Symlinks in `.claude/skills/` (Windows junction fallback)      | Always.                               |
-| `codex`  | `.codex/prompts/<name>.md` + a managed "Skills index" block in `AGENTS.md` | Opt-in via `skills.emitters`. |
+| `codex`  | A managed contract block in `AGENTS.md` (the installed `CONTRACT.md`) | Opt-in via `skills.emitters`. |
 | `gemini` | A managed "Skills index" block in `GEMINI.md`                   | Opt-in via `skills.emitters`.         |
 | `pi`     | Symlinks in `.pi/skills/` (Windows junction fallback)           | Opt-in via `skills.emitters`.         |
 
@@ -44,6 +44,25 @@ The `claude` emitter always runs. Add others in `brain.config.ts`:
 ```ts
 skills: { emitters: ["codex"] }   // claude always; also emit for codex
 ```
+
+Codex discovers skills in `.agents/skills/` itself, from the working directory
+up to the repository root, so the `codex` emitter writes no per-skill files.
+What Codex cannot reach is the agent contract: `CLAUDE.md` imports
+`CONTRACT.md` with an `@` line, and `AGENTS.md` has no import mechanism. The
+emitter copies the body of the installed `CONTRACT.md` between
+`<!-- brain-kit:contract:start -->` and `<!-- brain-kit:contract:end -->`, so it
+updates with the package on every sync. With the emitter on, `/brain-init`
+writes `CLAUDE.md` as `@AGENTS.md` plus the personal overlay, so the contract
+is loaded once. A skill that is manual-only (`disable-model-invocation: true`)
+ships an `agents/openai.yaml` with `policy.allow_implicit_invocation: false`
+beside its `SKILL.md`, which is where Codex reads that policy; `brain skills
+lint` warns when the two disagree.
+
+Earlier versions wrote `.codex/prompts/<name>.md`, which Codex never read from
+a project, and a "Skills index" block in `AGENTS.md`. The first sync after
+upgrading replaces the index block with the contract block in place and
+deletes the prompt files the index block named. Prompts it did not name are
+yours and stay.
 
 pi does **not** read `.agents/skills/`, despite the name. It discovers skills
 from `<agentDir>/skills` (user level — `$PI_AGENT_DIR`, else `~/.pi/agent`) and
@@ -65,9 +84,8 @@ package's.
 
 ## Add your own (≤3 steps)
 
-Emitters are small (each built-in is roughly 40 lines) — the index-block helpers
-(`renderIndexBlock`, `upsertIndexBlock`, `readManagedNames`) are exported from
-core so a new emitter is mostly a layout choice.
+Emitters are small (each built-in is roughly 40 to 80 lines), and a new one is
+mostly a layout choice.
 
 1. **Implement `SkillEmitter`:**
 
@@ -102,7 +120,9 @@ asserts that `emit` reports repo-relative paths that exist once written and
 are gone once removed, that every skill is reachable from what it wrote, that
 a skill dropped from the list leaves the layout, that re-emitting an
 unchanged list removes nothing, and that `.agents/skills/` itself is never
-written:
+written. An emitter for an agent that reads `.agents/skills/` natively, as
+Codex does, passes `readsCanonicalHome: true`: the reachability checks are
+waived, and everything else still applies.
 
 ```ts
 import { describe, expect, test } from "bun:test";
@@ -120,9 +140,9 @@ runSkillEmitterContract({ name: "opencode", emitter: () => myEmitter }, { descri
   outside an `<!-- agent:claude -->` fenced section, and notes claude-specific
   frontmatter keys that other agents ignore. Write skills to the lint and they
   emit cleanly everywhere.
-- **Index-block emitters are additive.** The codex/gemini emitters manage only a
+- **Block emitters are additive.** The codex and gemini emitters manage only a
   fenced block in `AGENTS.md` / `GEMINI.md`; everything you write around that
-  block is preserved across syncs.
+  block is preserved byte for byte across syncs.
 
 ## See also
 

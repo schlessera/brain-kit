@@ -155,6 +155,10 @@ for (const [name, factory] of Object.entries(COMPLETION_PROVIDERS)) {
   );
 }
 
+// Codex discovers `.agents/skills/` itself; its emitter delivers the contract.
 for (const [name, emitter] of Object.entries(BUILTIN_EMITTERS)) {
-  runSkillEmitterContract({ name, emitter: () => emitter }, primitives);
+  runSkillEmitterContract(
+    { name, emitter: () => emitter, readsCanonicalHome: name === "codex" },
+    primitives
+  );
 }
