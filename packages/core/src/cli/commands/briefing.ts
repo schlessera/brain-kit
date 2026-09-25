@@ -3,11 +3,20 @@ import { resolve } from "path";
 import matter from "gray-matter";
 
 import type { BrainContext } from "../../lib/context.js";
-import { findStale, loadAuditDocs } from "../../lib/auditor.js";
+import {
+  findBudgetOverruns,
+  findOverdueReviews,
+  findPastDates,
+  findStale,
+  isoDay,
+  loadAuditDocs,
+  type AuditDoc,
+} from "../../lib/auditor.js";
+import type { Taxonomy } from "../../lib/taxonomy.js";
 import { openDatabase } from "../../lib/db.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import type { CoreCommand } from "../types.js";
-import { parseArgs, today } from "../io.js";
+import { parseArgs } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
@@ -27,16 +36,56 @@ function addDays(dateStr: string, days: number): string {
  * path is unset — essential for a fresh template with no current-focus file.
  * Throws when the index is missing so importers can handle it themselves.
  */
+/** Milliseconds per day. */
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * One warning line per `brain audit` finding about the focus document: an
+ * overdue review, a blown token budget, past-dated lines. They come from the
+ * audit's own checks, so the briefing and `brain audit` cannot disagree.
+ */
+function focusWarnings(docs: AuditDoc[], taxonomy: Taxonomy, focusRel: string, now: number): string[] {
+  const focus = docs.find((d) => d.path === focusRel);
+  if (!focus) return [];
+  const warnings: string[] = [];
+  const todayStr = isoDay(now);
+
+  for (const { due } of findOverdueReviews(docs, taxonomy, now).filter((r) => r.doc.path === focusRel)) {
+    const days = Math.round((Date.parse(todayStr) - Date.parse(due)) / MS_PER_DAY);
+    warnings.push(`> **Warning:** ${focusRel} is ${days} day(s) overdue for review (due ${due}); the priorities below may be stale.`);
+  }
+  for (const { tokens, maxTokens } of findBudgetOverruns(docs, taxonomy).filter((o) => o.doc.path === focusRel)) {
+    warnings.push(`> **Warning:** ${focusRel} is ~${tokens} tokens, over its ${maxTokens}-token budget.`);
+  }
+  if (focus.status !== "archived" && taxonomy.canonicalPolicy.currentFocus) {
+    const past = findPastDates(focus.content, todayStr).length;
+    if (past > 0) {
+      warnings.push(`> **Warning:** ${focusRel} has ${past} line(s) naming a past date; \`brain audit\` lists them.`);
+    }
+  }
+  return warnings;
+}
+
 export function generateBriefing(brain: BrainContext, limit = 15): string {
   if (!existsSync(brain.dbPath)) {
     throw new Error("Database not found. Run `brain index` first.");
   }
   const db = openDatabase(brain.dbPath, { readonly: true });
   const lines: string[] = [];
-  const todayStr = today();
+  const now = new Date();
+  const todayStr = isoDay(now.getTime());
   const focusRel = brain.taxonomy.canonicalPath("currentFocus");
 
   try {
+    const docs = loadAuditDocs(db);
+
+    // 0. Warnings about the focus document, ahead of it, so stale priorities
+    // are not read as current.
+    if (focusRel) {
+      const warnings = focusWarnings(docs, brain.taxonomy, focusRel, now.getTime());
+      if (warnings.length > 0) lines.push(...warnings, "");
+    }
+
     // 1. Current focus (verbatim, without frontmatter)
     if (focusRel) {
       const focusPath = resolve(brain.root, focusRel);
@@ -127,7 +176,7 @@ export function generateBriefing(brain: BrainContext, limit = 15): string {
 
     // 7. Stale documents, by the taxonomy's thresholds: findStale is the
     // definition `brain audit` and `brain stats` share. Most overdue first.
-    const stale = findStale(loadAuditDocs(db), brain.taxonomy, Date.now()).sort(
+    const stale = findStale(docs, brain.taxonomy, now.getTime()).sort(
       (a, b) => b.ageDays - b.threshold - (a.ageDays - a.threshold) || b.ageDays - a.ageDays
     );
     if (stale.length > 0) {
