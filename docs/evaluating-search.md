@@ -58,8 +58,12 @@ repeats an `id` is a usage error (exit `1`) that names the line number.
   `expected`. A document you forgot to list scores as a miss when it comes first.
 - **Keep the set out of your notes.** A markdown note that quotes the queries is
   a perfect answer to all of them, and the eval ends up grading itself. The
-  `.jsonl` set is not markdown, so the index never sees it. Keep write-ups of
-  results out of indexed markdown as well.
+  top-level `evals/` directory is never indexed, so the set, results saved with
+  `--out`, and any notes about them are safe there. Elsewhere, `brain eval`
+  checks every indexed document before scoring. A document that contains one
+  of the set's queries of four or more words, or three of its queries of any
+  length (case and spacing ignored), is named in `warnings`. `--strict` turns
+  that into a refusal (exit `2`).
 - **Twenty to fifty queries is enough to start.** Each query moves hit@1 by
   1/n. With 25 queries one query is 4 points, so read a small change as a
   change in specific queries, not as a trend.

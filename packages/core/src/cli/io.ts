@@ -49,6 +49,7 @@ export const BOOLEAN_FLAGS = new Set([
   "scratch",
   "upcoming",
   "no-git",
+  "strict",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */

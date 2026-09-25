@@ -12,6 +12,7 @@ import {
   aggregate,
   EVAL_SCHEMA_VERSION,
   EvalSetError,
+  findContamination,
   parseEvalSet,
   parseKs,
   poolSize,
@@ -36,12 +37,14 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
   --rerank <mode>         none|heuristic (default: the search default)
   --k <list>              hit@k cutoffs, comma-separated (default: 1,3,10)
   --out <file>            Also write the JSON result to <file>, inside the brain
+  --strict                Refuse (exit 2) when an indexed document quotes the set's queries
 
 Relative paths are relative to the brain root.
 
 Exit codes: 0 scored · 1 usage error or malformed set · 2 refused (a validity
 gate failed: missing or empty set, an expected path not on disk or not indexed,
-the index older than the markdown, a requested search lane degraded).
+the index older than the markdown, a requested search lane degraded; with
+--strict, an indexed document that contains the set's queries).
 
 --json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" }
 Set format and how to read the numbers: docs/evaluating-search.md`;
@@ -187,6 +190,25 @@ function checkIndexFresh(brain: BrainContext, db: Database): void {
   }
 }
 
+/**
+ * Indexed markdown that quotes the set's queries grades the eval against
+ * itself. Read from disk: the freshness gate has already shown the index
+ * describes these files.
+ */
+function checkContamination(root: string, db: Database, queries: EvalQuery[]): string[] {
+  const paths = db
+    .prepare("SELECT path FROM documents WHERE asset_type = 'markdown' ORDER BY path")
+    .all() as { path: string }[];
+  const documents = paths.flatMap(({ path }) => {
+    try {
+      return [{ path, text: readFileSync(join(root, path), "utf-8") }];
+    } catch {
+      return [];
+    }
+  });
+  return findContamination(queries, documents);
+}
+
 async function runMode(
   db: Database,
   mode: EvalMode,
@@ -218,8 +240,16 @@ function pct(value: number | null): string {
   return value === null ? "-" : `${(value * 100).toFixed(1)}%`;
 }
 
-function printHuman(rows: ScoreRow[], perQuery: QueryOutcome[], ks: number[], meta: Record<string, unknown>): void {
+function printHuman(
+  rows: ScoreRow[],
+  perQuery: QueryOutcome[],
+  ks: number[],
+  meta: Record<string, unknown>,
+  warnings: string[]
+): void {
   console.log(`brain eval — ${meta.queries} queries, ${meta.documents} documents, now ${meta.now}\n`);
+  for (const warning of warnings) console.log(`Warning: ${warning}`);
+  if (warnings.length > 0) console.log();
   const header = ["mode", "class", "n", ...ks.map((k) => `hit@${k}`), "MRR@10", "oracle", "top1 median"];
   const table = rows.map((r) => [
     r.mode,
@@ -305,6 +335,10 @@ export const evalCommand: CoreCommand = {
       db = openReadonlyDb(cli.brain);
       checkExpectedPaths(root, db, queries);
       checkIndexFresh(cli.brain, db);
+      const warnings = checkContamination(root, db, queries);
+      if (warnings.length > 0 && flags.strict === true) {
+        throw new EvalRefused(`${warnings.length} indexed document(s) contain the set's queries (--strict)`, warnings);
+      }
       if (modes.some((m) => m !== "fts")) await loadVecSupport(db);
 
       const now = new Date();
@@ -335,10 +369,10 @@ export const evalCommand: CoreCommand = {
         pool,
         now: now.toISOString(),
       };
-      const envelope = { schema_version: EVAL_SCHEMA_VERSION, meta, rows, per_query: perQuery, warnings: [] as string[] };
+      const envelope = { schema_version: EVAL_SCHEMA_VERSION, meta, rows, per_query: perQuery, warnings };
 
       if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
-      emit(cli.json, envelope, () => printHuman(rows, perQuery, ks, meta));
+      emit(cli.json, envelope, () => printHuman(rows, perQuery, ks, meta, warnings));
       return 0;
     } catch (e) {
       if (!(e instanceof EvalRefused)) throw e;

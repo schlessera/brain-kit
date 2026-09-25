@@ -258,3 +258,39 @@ export function aggregate(mode: EvalMode, outcomes: QueryOutcome[], ks: number[]
   for (const [cls, list] of byClass) rows.push(row(mode, cls, list, ks));
   return rows;
 }
+
+/** A query this long or longer is contamination on its own when a document quotes it. */
+export const CONTAMINATION_MIN_WORDS = 4;
+
+/** This many of the set's queries in one document is contamination at any length. */
+export const CONTAMINATION_MIN_QUERIES = 3;
+
+/** Lowercase with every whitespace run collapsed to one space. */
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Documents that quote the set's queries, which makes them answer their own
+ * questions: a query set measures search only if search cannot see it. The
+ * match is exact after lowercasing and collapsing whitespace. A document is
+ * reported when it contains one query of CONTAMINATION_MIN_WORDS words or
+ * more, or CONTAMINATION_MIN_QUERIES queries of any length. Returns one
+ * warning per document, in the order given.
+ */
+export function findContamination(queries: EvalQuery[], documents: { path: string; text: string }[]): string[] {
+  const needles = queries.map((q) => {
+    const text = normalizeText(q.q);
+    return { id: q.id, text, long: text.split(" ").length >= CONTAMINATION_MIN_WORDS };
+  });
+  const warnings: string[] = [];
+  for (const doc of documents) {
+    const haystack = normalizeText(doc.text);
+    const found = needles.filter((n) => haystack.includes(n.text));
+    if (found.length >= CONTAMINATION_MIN_QUERIES || found.some((n) => n.long)) {
+      const ids = found.map((n) => n.id).join(", ");
+      warnings.push(`contamination: ${doc.path} contains the text of ${found.length} of the set's queries (${ids})`);
+    }
+  }
+  return warnings;
+}
