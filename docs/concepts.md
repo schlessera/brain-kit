@@ -219,8 +219,10 @@ of truth:
 - `.asset-cache.jsonl` — generated descriptions of binary assets.
 
 Both are content-hash-keyed `{k, v}` JSONL, appended from `brain.db` after an
-embeddings run. They are **machine-managed**: never hand-edit them; on a git
-conflict they union-merge. Templates ship them **empty**. Because they are keyed
+embeddings run. They are **machine-managed**: never hand-edit them. They
+union-merge in any git merge, not only in `brain sync`: the template's
+`.gitattributes` gives both files git's built-in `merge=union` driver, and
+`brain doctor --fix` adds it to a brain that lacks it. Templates ship them **empty**. Because they are keyed
 by content hash, they survive provider switches — only the entries whose inputs
 changed are recomputed.
 

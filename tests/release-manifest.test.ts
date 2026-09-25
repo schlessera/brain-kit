@@ -447,6 +447,7 @@ describe("the published template", () => {
       ".claude/settings.json",
       ".context-cache.jsonl",
       ".env.example",
+      ".gitattributes",
       ".gitignore",
       ".mcp.json",
       "CLAUDE.md",
