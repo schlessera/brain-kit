@@ -568,9 +568,9 @@ describe("nodesk's rendered card", () => {
     const $ = parseHtml(html);
     const $card = $("li.ais-Hits-item");
     expect($card.length).toBe(1);
-    // What src/adapters/nodesk.ts:66 looks for. Nothing in the card, and
+    // What src/adapters/nodesk.ts:59 looks for. Nothing in the card, and
     // nothing in the promoted block beside it either, so the container walk
-    // at :59 finds no company however far it climbs and the row is stored as
+    // at :52 finds no company however far it climbs and the row is stored as
     // "Unknown" — 39 of the 103 cards on the captured page.
     expect($('a[href*="/remote-companies/"]').length).toBe(0);
     // Where the company actually is.
@@ -579,6 +579,38 @@ describe("nodesk's rendered card", () => {
     // THROUGH: on a page state that rotates in a promoted card carrying a
     // company link, that company is what gets stored on its neighbours.
     expect(html).toContain("Promoted");
+  });
+
+  /**
+   * The fixture's hit card, below the kind of navigation the live page puts
+   * next to it: category pages whose slugs have three hyphenated parts, which
+   * the old slug-shape filter took for postings (#277).
+   */
+  function pageWithCategoryLinks(): string {
+    return (
+      '<nav><a href="/remote-jobs/full-time-remote/">Full-Time Remote Jobs</a>' +
+      '<a href="/remote-jobs/blockchain-cryptocurrency-jobs/">Blockchain Cryptocurrency Jobs</a></nav>' +
+      fixture("nodesk", "rendered-card.html")
+    );
+  }
+
+  test("category links outside a hit card are not stored as jobs (#277)", () => {
+    const records = extractFrom(pageFunctionOf(NodeskAdapter), pageWithCategoryLinks());
+    expect(records.map((r) => r.href)).toEqual([
+      "https://nodesk.co/remote-jobs/co2lift-customer-support-representative/",
+    ]);
+  });
+
+  test("the ready selector waits for the hit card, not the navigation (#277)", () => {
+    const selector = (new NodeskAdapter() as unknown as { readySelector: string }).readySelector;
+    const nav = '<nav><a href="/remote-jobs/full-time-remote/">Full-Time Remote Jobs</a></nav>';
+    // Navigation alone, which renders before Algolia's hits do, must not
+    // satisfy the wait: extraction would then run over a page with no cards.
+    expect(inFixtureDom(nav, () => document.querySelectorAll(selector).length)).toBe(0);
+    const hrefs = inFixtureDom(pageWithCategoryLinks(), () =>
+      Array.from(document.querySelectorAll(selector), (a) => a.getAttribute("href"))
+    );
+    expect(hrefs).toEqual(["/remote-jobs/co2lift-customer-support-representative/"]);
   });
 });
 
