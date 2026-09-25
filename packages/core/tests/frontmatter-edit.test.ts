@@ -189,4 +189,45 @@ describe("editFrontmatter", () => {
     const text = "---\n# before\naliases:\n  - one\n  - two\n# after\ntitle: T\n---\nbody\n";
     expect(editFrontmatter(text, { aliases: null })).toBe("---\n# before\n# after\ntitle: T\n---\nbody\n");
   });
+
+  test("a self-referencing alias in another key neither crashes nor blocks the edit", () => {
+    for (const meta of ["&m [*m]", "&m {self: *m}"]) {
+      const text = `---\ntitle: T # kept\nmeta: ${meta}\nstatus: active\n---\nbody\n`;
+      expect(editFrontmatter(text, { status: "draft" })).toBe(`---\ntitle: T # kept\nmeta: ${meta}\nstatus: draft\n---\nbody\n`);
+      expect(updateDocument(text, { status: "draft" })).toContain("status: draft");
+    }
+  });
+
+  test("an edit that removes an anchor is refused even when the value it asks for is the old one", () => {
+    // base keeps "x", but the rewrite drops `&b`, so `*b` dangles.
+    const text = "---\nbase: &b x\ntitle: *b\n---\nbody\n";
+    expect(editFrontmatter(text, { base: "x" })).toBeNull();
+  });
+
+  test("a column-zero comment between block-list entries stays on replace and on removal", () => {
+    const text = '---\ntags:\n  - a\n# keep between\n  - b\ntitle: "Demo" # keep inline\n---\nbody\n';
+    expect(editFrontmatter(text, { tags: ["c"] })).toBe('---\ntags: [c]\n# keep between\ntitle: "Demo" # keep inline\n---\nbody\n');
+    expect(editFrontmatter(text, { tags: null })).toBe('---\n# keep between\ntitle: "Demo" # keep inline\n---\nbody\n');
+  });
+
+  test("a comment less indented than a block scalar's text is outside it and stays", () => {
+    for (const indicator of ["|", "|4"]) {
+      const text = `---\nsummary: ${indicator}\n    old\n  # standalone outside scalar\ntitle: T\n---\nbody\n`;
+      expect(editFrontmatter(text, { summary: "new" })).toBe("---\nsummary: new\n  # standalone outside scalar\ntitle: T\n---\nbody\n");
+      expect(editFrontmatter(text, { summary: null })).toBe("---\n  # standalone outside scalar\ntitle: T\n---\nbody\n");
+    }
+  });
+
+  test("blank and comment lines after a value are outside it and stay", () => {
+    const text = "---\ndeadline: 2026-12-01\n\n  # retain\ntags:\n  - a\n\n# after the list\ntitle: T\n---\nbody\n";
+    expect(editFrontmatter(text, { deadline: null })).toBe("---\n\n  # retain\ntags:\n  - a\n\n# after the list\ntitle: T\n---\nbody\n");
+    expect(editFrontmatter(text, { tags: ["b"] })).toBe("---\ndeadline: 2026-12-01\n\n  # retain\ntags: [b]\n\n# after the list\ntitle: T\n---\nbody\n");
+  });
+
+  test("CRLF frontmatter stays CRLF, appended keys included", () => {
+    const text = "---\r\ntags:\r\n  - a\r\nsummary: |\r\n  old\r\ntitle: T\r\n---\r\nbody\r\n";
+    expect(editFrontmatter(text, { tags: ["c"], summary: "new", deadline: "2026-12-01" })).toBe(
+      "---\r\ntags: [c]\r\nsummary: new\r\ntitle: T\r\ndeadline: 2026-12-01\r\n---\r\nbody\r\n"
+    );
+  });
 });

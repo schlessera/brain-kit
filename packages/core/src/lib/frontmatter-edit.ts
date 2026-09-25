@@ -95,12 +95,21 @@ function formatValue(value: string | string[], quote: Token["quote"]): string {
   return plainOrQuoted(value, true);
 }
 
-/** Parsed data with its types kept for comparison: a Date is not the string it prints as. */
-function typed(value: unknown): unknown {
+/**
+ * Parsed data with its types kept for comparison: a Date is not the string it
+ * prints as. A YAML alias can make a value contain itself; a value met again
+ * inside itself becomes a marker instead of being walked forever.
+ */
+function typed(value: unknown, open: Set<object> = new Set()): unknown {
   if (value instanceof Date) return { $date: value.toISOString() };
-  if (Array.isArray(value)) return value.map(typed);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, typed(v)]));
+    if (open.has(value)) return { $cycle: true };
+    open.add(value);
+    const out = Array.isArray(value)
+      ? value.map((v) => typed(v, open))
+      : Object.fromEntries(Object.entries(value).map(([k, v]) => [k, typed(v, open)]));
+    open.delete(value);
+    return out;
   }
   return value;
 }
@@ -126,9 +135,12 @@ function readsAs(actual: unknown, wanted: string | string[]): boolean {
 
 interface Line {
   start: number;
-  /** Offset of the line's end, before its `\n`. */
+  /** Offset where the line's text ends, before its terminator. */
   end: number;
+  /** The line without its terminator. */
   text: string;
+  /** `\n`, `\r\n`, or empty for a last line without one. */
+  eol: string;
 }
 
 function splitLines(block: string): Line[] {
@@ -136,96 +148,119 @@ function splitLines(block: string): Line[] {
   let start = 0;
   while (start < block.length) {
     const nl = block.indexOf("\n", start);
-    const end = nl === -1 ? block.length : nl;
-    lines.push({ start, end, text: block.slice(start, end) });
-    start = end + 1;
+    const stop = nl === -1 ? block.length : nl;
+    const end = stop > start && block[stop - 1] === "\r" && nl !== -1 ? stop - 1 : stop;
+    lines.push({ start, end, text: block.slice(start, end), eol: nl === -1 ? "" : block.slice(end, nl + 1) });
+    start = stop + 1;
   }
   return lines;
 }
 
 const COMMENT_LINE = /^[ \t]*#/;
-const BLANK_LINE = /^[ \t]*\r?$/;
+const BLANK_LINE = /^[ \t]*$/;
+const indentOf = (text: string) => /^[ \t]*/.exec(text)![0].length;
+
+/**
+ * The lines after key line `k` that make up its value, as the index of the
+ * last one (k when the value is on the key line only).
+ *
+ * A block scalar owns every line indented at least as far as its content
+ * (its indentation indicator, else its first non-blank line), blank lines
+ * between them included. Any other value owns the indented lines and the
+ * `- ` entries after the key, with comment lines (at any column) and blank
+ * lines between them. Trailing blank and comment lines are never part of it.
+ */
+function valueEnd(lines: Line[], k: number, blockScalar: string | null): number {
+  let last = k;
+  if (blockScalar !== null) {
+    // `|4`, `|-4`, `>+2`: an explicit indentation indicator.
+    const explicit = /^[|>][+-]?([1-9])/.exec(blockScalar);
+    let indent = explicit ? Number(explicit[1]) : 0;
+    for (let j = k + 1; j < lines.length; j++) {
+      const t = lines[j]!.text;
+      if (BLANK_LINE.test(t)) continue;
+      if (indent === 0) indent = indentOf(t);
+      if (indent === 0 || indentOf(t) < indent) break;
+      last = j;
+    }
+    return last;
+  }
+  for (let j = k + 1; j < lines.length; j++) {
+    const t = lines[j]!.text;
+    if (/^(?:[ \t]+\S|-(?:[ \t]|$))/.test(t) && !COMMENT_LINE.test(t)) last = j;
+    else if (!BLANK_LINE.test(t) && !COMMENT_LINE.test(t)) break;
+  }
+  return last;
+}
 
 /**
  * `text` with each key in `updates` set (or removed, for null), every other
- * byte kept. A missing key is appended at the end of the frontmatter.
+ * byte kept. A missing key is appended at the end of the frontmatter, with
+ * the frontmatter's own line ending.
  *
- * It rewrites a top-level key (plain or quoted) whose value is a one-line
- * scalar or flow sequence, a block list, an empty value, or a block scalar
- * (`|`, `>`). Comment lines inside a value's lines stay, except in a block
- * scalar, where they are its text. It refuses (null) anything else, such as a
- * multi-line flow sequence, a multi-line plain scalar, a flow map, or keys
- * indented under the fence; and it refuses when the result does not read back
- * as exactly the requested values, types included, with every other key
- * unchanged. Callers then fall back to their serializer.
+ * It rewrites a top-level key whose value is a one-line scalar or flow
+ * sequence, a block list, an empty value, or a block scalar (`|`, `>`). The
+ * key may be plain or quoted, but a quoted key spelled with escapes
+ * (`"sta\\u0074us"`) is not recognised. Comment lines among a value's lines
+ * stay, except inside a block scalar, where they are its text; comment and
+ * blank lines after a value are outside it and stay too. It refuses (null)
+ * anything else, such as a multi-line flow sequence, a multi-line plain
+ * scalar, a flow map, or keys indented under the fence; and it refuses when
+ * the result does not read back as exactly the requested values, types
+ * included, with every other key unchanged. Callers then fall back to their
+ * serializer.
  */
 export function editFrontmatter(text: string, updates: Record<string, FrontmatterValue>): string | null {
   const bounds = frontmatterBounds(text);
   if (!bounds) return null;
   const block = text.slice(bounds.start, bounds.end);
   const lines = splitLines(block);
+  const eol = lines.find((line) => line.eol)?.eol ?? "\n";
   const edits: [number, number, string][] = [];
   const appended: string[] = [];
 
   for (const [key, value] of Object.entries(updates)) {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const keyPattern = new RegExp(`^(?:${escaped}|"${escaped}"|'${escaped}')[ \\t]*:(?=[ \\t\\r]|$)`);
+    const keyPattern = new RegExp(`^(?:${escaped}|"${escaped}"|'${escaped}')[ \\t]*:(?=[ \\t]|$)`);
     const k = lines.findIndex((line) => keyPattern.test(line.text));
     if (k === -1) {
-      if (value !== null) appended.push(`${key}: ${formatValue(value, null)}\n`);
+      if (value !== null) appended.push(`${key}: ${formatValue(value, null)}${eol}`);
       continue;
     }
     const keyLine = lines[k]!;
     const colonEnd = keyLine.start + keyPattern.exec(keyLine.text)![0].length;
-
-    // The value's lines: indented or `- ` entries after the key, up to the
-    // last one before the next top-level line (blank lines between them count).
-    let last = k;
-    for (let j = k + 1; j < lines.length; j++) {
-      const t = lines[j]!.text;
-      if (/^(?:[ \t]+\S|-(?:[ \t]|\r?$))/.test(t)) last = j;
-      else if (!BLANK_LINE.test(t)) break;
-    }
-    const valueLines = lines.slice(k + 1, last + 1);
-
     let i = colonEnd;
     while (block[i] === " " || block[i] === "\t") i++;
-    const inline = block.slice(i, keyLine.end).replace(/\r$/, "");
-    const blockScalar = /^[|>]/.test(inline);
-    // Comment lines survive the edit, except inside a block scalar, where
-    // they are text.
-    const comments = blockScalar ? [] : valueLines.filter((line) => COMMENT_LINE.test(line.text)).map((line) => line.text);
-    const content = blockScalar
-      ? valueLines
-      : valueLines.filter((line) => !COMMENT_LINE.test(line.text) && !BLANK_LINE.test(line.text));
-    const rangeEnd = last > k ? lines[last]!.end : keyLine.end;
-    const kept = comments.map((comment) => `\n${comment}`).join("");
+    const inline = block.slice(i, keyLine.end);
+    const blockScalar = /^[|>]/.test(inline) ? inline : null;
+    const last = valueEnd(lines, k, blockScalar);
+    const valueLines = lines.slice(k + 1, last + 1);
+    // The whole-line span from the key line through the value's last line.
+    const spanEnd = lines[last]!.end + lines[last]!.eol.length;
+    // Comment lines among the value's lines stay, with their own endings;
+    // in a block scalar every line is text.
+    const kept = blockScalar === null
+      ? valueLines.filter((line) => COMMENT_LINE.test(line.text)).map((line) => line.text + line.eol).join("")
+      : "";
 
     if (value === null) {
-      // The key line and its value go; its comment lines stay where they were.
-      const next = rangeEnd < block.length ? rangeEnd + 1 : rangeEnd;
-      edits.push([keyLine.start, next, comments.map((comment) => `${comment}\n`).join("")]);
+      edits.push([keyLine.start, spanEnd, kept]);
       continue;
     }
 
-    if (inline === "" || inline.startsWith("#")) {
-      // An empty or block value (a `- item` list, most often): replaced on the
-      // key's line, keeping the key's comment and the comment lines.
-      edits.push([colonEnd, rangeEnd, ` ${formatValue(value, null)}${inline ? ` ${inline}` : ""}${kept}`]);
+    const keyText = block.slice(keyLine.start, colonEnd);
+    if (inline === "" || inline.startsWith("#") || blockScalar !== null) {
+      // An empty, block-list or block-scalar value: rewritten on the key's
+      // line, keeping a comment after the colon or the indicator.
+      const comment = inline.startsWith("#") ? inline : /[ \t](#.*)$/.exec(inline)?.[1] ?? "";
+      edits.push([keyLine.start, spanEnd, `${keyText} ${formatValue(value, null)}${comment ? ` ${comment}` : ""}${keyLine.eol}${kept}`]);
       continue;
     }
-    if (blockScalar) {
-      // `|` or `>` and its indented text, replaced; a comment after the
-      // indicator stays.
-      const comment = /[ \t]#.*$/.exec(inline)?.[0].trim() ?? "";
-      edits.push([i, rangeEnd, `${formatValue(value, null)}${comment ? ` ${comment}` : ""}`]);
-      continue;
-    }
-    if (content.length > 0) return null;
+    if (last > k) return null;
     if (block[i] === "{") return null;
     const token = block[i] === "[" ? readFlow(block, i) : readScalar(block, i);
     if (!token) return null;
-    if (!/^[ \t]*(#.*)?\r?$/.test(block.slice(token.end, keyLine.end))) return null;
+    if (!/^[ \t]*(#.*)?$/.test(block.slice(token.end, keyLine.end))) return null;
     edits.push([token.start, token.end, formatValue(value, Array.isArray(value) ? null : token.quote)]);
   }
 
@@ -234,7 +269,7 @@ export function editFrontmatter(text: string, updates: Record<string, Frontmatte
     newBlock = newBlock.slice(0, start) + replacement + newBlock.slice(end);
   }
   if (appended.length > 0) {
-    if (newBlock.length > 0 && !newBlock.endsWith("\n")) newBlock += "\n";
+    if (newBlock.length > 0 && !newBlock.endsWith("\n")) newBlock += eol;
     newBlock += appended.join("");
   }
   const result = text.slice(0, bounds.start) + newBlock + text.slice(bounds.end);
