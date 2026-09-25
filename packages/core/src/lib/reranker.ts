@@ -11,17 +11,16 @@ export interface RerankerConfig {
   taxonomy?: Taxonomy;
 }
 
-// Multiplicative boosts: they preserve their relative effect regardless of the
-// base score scale (RRF fusion scores sit around 0.01–0.03, single-source BM25
-// scores around 1–10 — additive nudges were no-ops on the latter).
+// Lifecycle factors only (#422): what the brain's own metadata says about a
+// document, not how its text matches the query (fusion and alias matching
+// cover that). They multiply, so they keep their relative effect on any score
+// scale; vector mode hands them a rank-derived score (see search-engine.ts).
 const RELEVANCE_FACTOR: Record<string, number> = {
   primary: 1.15,
   secondary: 1.0,
   historical: 0.85,
 };
 
-const TITLE_MATCH_FACTOR = 0.25; // up to ×1.25 when every query term hits the title
-const ASSET_FACTOR = 1.3;
 const DRAFT_FACTOR = 0.9; // drafts are unfinished — slight deboost vs active docs
 
 // A doc loses half its recency credit per half-life; the decay multiplies the
@@ -32,21 +31,6 @@ const DEFAULT_HALF_LIFE_DAYS = 365;
 const RECENCY_FLOOR = 0.7;
 const MS_PER_DAY = 86_400_000;
 
-const VISUAL_INTENT_KEYWORDS = [
-  "photo", "image", "picture", "slide", "diagram", "screenshot",
-  "deck", "headshot", "portrait", "cv", "resume", "pdf", "presentation",
-];
-
-function hasVisualIntent(queryTerms: string[]): boolean {
-  return queryTerms.some((t) =>
-    VISUAL_INTENT_KEYWORDS.some((k) => t.includes(k))
-  );
-}
-
-function isAssetResult(path: string): boolean {
-  return /\.(jpg|jpeg|png|pdf)$/i.test(path);
-}
-
 /**
  * Get the default reranker mode based on environment.
  */
@@ -54,16 +38,6 @@ export function getDefaultRerankerMode(): RerankerConfig["mode"] {
   const envMode = resolveEnv().rerankMode;
   if (envMode === "none" || envMode === "heuristic") return envMode;
   return "heuristic";
-}
-
-/**
- * Title match factor — scales with the fraction of query terms found in the title.
- */
-function titleMatchFactor(title: string, queryTerms: string[]): number {
-  if (queryTerms.length === 0) return 1;
-  const titleLower = title.toLowerCase();
-  const matchCount = queryTerms.filter((term) => titleLower.includes(term)).length;
-  return 1 + TITLE_MATCH_FACTOR * (matchCount / queryTerms.length);
 }
 
 let coreTaxonomy: Taxonomy | undefined;
@@ -104,29 +78,20 @@ export function recencyFactor(
 }
 
 /**
- * Heuristic reranker: applies domain-specific multiplicative factors to
- * retrieval scores. Nudges ordering without overriding the retrieval signal.
+ * Heuristic reranker: multiplies each score by the document's lifecycle
+ * factors (relevance, draft status, recency). It nudges the retrieval order;
+ * it does not replace it.
  */
 function heuristicRerank(
-  query: string,
   candidates: SearchResult[],
   now: number,
   halfLives: Record<string, number>
 ): SearchResult[] {
-  const queryTerms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 2);
-
-  const visualIntent = hasVisualIntent(queryTerms);
-
   const scored = candidates.map((result) => {
     const factor =
       (RELEVANCE_FACTOR[result.relevance] ?? 1) *
-      titleMatchFactor(result.title, queryTerms) *
       recencyFactor(result.type, result.updated, now, halfLives) *
-      (result.status === "draft" ? DRAFT_FACTOR : 1) *
-      (visualIntent && isAssetResult(result.path) ? ASSET_FACTOR : 1);
+      (result.status === "draft" ? DRAFT_FACTOR : 1);
 
     return {
       ...result,
@@ -138,18 +103,19 @@ function heuristicRerank(
 }
 
 /**
- * Rerank search results using the specified strategy.
+ * Rerank search results using the specified strategy. `query` is kept for
+ * the signature's stability; the lifecycle factors do not read it.
  */
 export function rerank(
-  query: string,
+  _query: string,
   candidates: SearchResult[],
   config: RerankerConfig
 ): SearchResult[] {
   const now = config.now?.getTime() ?? Date.now();
   if (Number.isNaN(now)) throw new Error("rerank: now must be a valid Date");
-  if (config.mode === "none" || candidates.length <= 1) {
+  if (config.mode === "none" || candidates.length === 0) {
     return candidates;
   }
 
-  return heuristicRerank(query, candidates, now, halfLifeTable(config.taxonomy));
+  return heuristicRerank(candidates, now, halfLifeTable(config.taxonomy));
 }
