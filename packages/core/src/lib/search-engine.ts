@@ -458,8 +458,10 @@ async function vectorSearch(
 //   FTS_POOL_GUARD × limit candidates, the query barely matched as text and
 //   those few hits would each collect a two-lane bonus. Their weight drops to
 //   THIN_FTS_WEIGHT = 0.05, where an FTS first place is worth about three
-//   vector ranks at the top (0.05 / 61 ≈ 0.00082 ≈ 1/61 − 1/64), so a thin
-//   lane can reorder near neighbours but not outvote vector's first place.
+//   vector ranks at the top (0.05 / 61 ≈ 0.00082 ≈ 1/61 − 1/64). That reduces
+//   a thin lane's influence; it does not guarantee vector's first place wins.
+//   An overlap already within about three ranks of the top (for example
+//   vector 2 plus a thin FTS hit) can still pass it.
 const RRF_K = 60;
 const VECTOR_LANE_WEIGHT = 1.0;
 const FTS_LANE_WEIGHT = 0.8;

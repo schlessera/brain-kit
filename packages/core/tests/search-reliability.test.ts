@@ -6,7 +6,7 @@ import { join, resolve } from "path";
 import { initContext } from "../src/lib/context";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
-import { filterSearch, hybridSearch } from "../src/lib/search-engine";
+import { filterSearch, hybridSearch, weightedRankFusion } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
 let db: Database;
@@ -359,19 +359,25 @@ describe("hybrid fusion", () => {
   const vectorOnly = (limit: number) =>
     hybridSearch(db, { query: "lantern", mode: "vector", limit }, { embeddings: provider });
 
-  test("a thin full-text lane cannot outvote the vector lane's first place", async () => {
-    // Vector order: x, v2, v3, v4, y, a, b. Full-text matches only a, b, y,
-    // in that order: three candidates, below half of limit 10.
+  test("a thin full-text lane counts for less: in the issue's example, vector's first place outranks the overlap", async () => {
+    // The issue's example. Vector order: x, v2, v3, v4, y, then eight
+    // fillers, then a and b. Full-text matches only a, b and y, in that
+    // order: three candidates, below half of limit 10.
     addLaneDoc(1, "x", 0.0, "unrelated words");
     addLaneDoc(2, "v2", 0.1, "other words");
     addLaneDoc(3, "v3", 0.2, "more words");
     addLaneDoc(4, "v4", 0.3, "still other words");
     addLaneDoc(5, "y", 0.4, "a lantern in a long line of words that dilutes the match somewhat");
-    addLaneDoc(6, "a", 0.5, "lantern lantern lantern");
-    addLaneDoc(7, "b", 0.6, "lantern lantern");
-    // The premise: the lanes rank as described.
-    expect((await ftsOnly(10)).results.map(r => r.path)).toEqual(["notes/a.md", "notes/b.md", "notes/y.md"]);
-    expect((await vectorOnly(10)).results.map(r => r.path).slice(0, 5)).toEqual(["notes/x.md", "notes/v2.md", "notes/v3.md", "notes/v4.md", "notes/y.md"]);
+    for (let i = 0; i < 8; i++) addLaneDoc(6 + i, `filler${i}`, 0.45 + i * 0.01, "filler words");
+    addLaneDoc(14, "a", 0.6, "lantern lantern lantern");
+    addLaneDoc(15, "b", 0.7, "lantern lantern");
+    // The premise: the lanes rank as described, and equal-weight fusion (the
+    // behaviour before #404) puts y, the FTS-3 and vector-5 overlap, first.
+    const fts = (await ftsOnly(10)).results;
+    const vec = (await vectorOnly(10)).results;
+    expect(fts.map(r => r.path)).toEqual(["notes/a.md", "notes/b.md", "notes/y.md"]);
+    expect(vec.map(r => r.path).slice(0, 5)).toEqual(["notes/x.md", "notes/v2.md", "notes/v3.md", "notes/v4.md", "notes/y.md"]);
+    expect(weightedRankFusion([{ results: fts, weight: 1 }, { results: vec, weight: 1 }])[0]!.path).toBe("notes/y.md");
 
     const { results } = await hybrid(10);
     expect(results[0]!.path).toBe("notes/x.md");
@@ -398,5 +404,29 @@ describe("hybrid fusion", () => {
 
     const { results } = await hybrid(10);
     expect(results[0]!.path).toBe("notes/z.md");
+  });
+
+  test("with a full pool, a full-text-only first place ranks below a vector-only second place", async () => {
+    // At FTS weight 0.8, FTS-only rank 1 scores 0.8/61 ≈ 0.0131 and
+    // vector-only rank 2 scores 1/62 ≈ 0.0161. At weight 1.0 the FTS-only
+    // first place (1/61) would win. fo has no vector; v2 has no text match;
+    // f2..f5 fill the full-text pool to the guard.
+    addLaneDoc(1, "v1", 0.0, "unrelated words");
+    addLaneDoc(2, "v2", 0.1, "other words");
+    db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (3,'notes/fo.md','Doc fo','note','active','2026-01-01','2026-01-01','lantern lantern lantern lantern lantern','2026-01-01')");
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (3,'','','lantern lantern lantern lantern lantern','')");
+    addLaneDoc(4, "f2", 0.6, "lantern lantern lantern");
+    addLaneDoc(5, "f3", 0.7, "lantern lantern");
+    addLaneDoc(6, "f4", 0.8, "a lantern among words");
+    addLaneDoc(7, "f5", 0.9, "one lantern in a much longer run of other words here");
+    const fts = (await ftsOnly(10)).results.map(r => r.path);
+    expect(fts).toHaveLength(5);
+    expect(fts[0]).toBe("notes/fo.md");
+    const vec = (await vectorOnly(10)).results.map(r => r.path);
+    expect(vec.slice(0, 2)).toEqual(["notes/v1.md", "notes/v2.md"]);
+    expect(vec).not.toContain("notes/fo.md");
+
+    const paths = (await hybrid(10)).results.map(r => r.path);
+    expect(paths.indexOf("notes/v2.md")).toBeLessThan(paths.indexOf("notes/fo.md"));
   });
 });
