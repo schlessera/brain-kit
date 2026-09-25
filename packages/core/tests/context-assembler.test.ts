@@ -13,6 +13,9 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import matter from "gray-matter";
 import { fromMarkdown } from "mdast-util-from-markdown";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
@@ -238,6 +241,17 @@ describe("over a hand-built index", () => {
     expect(out).toContain("(notes/after.md)");
   });
 
+  test("a hit body that starts like a link or footnote definition stays a paragraph", async () => {
+    addDoc("notes/refdef.md", "Refdef", "[role]: warden");
+    addDoc("notes/footdef.md", "Footdef", "[^profile]: warden\n    indented footnote body");
+    const out = await assembleContext(db, ctx, { query: "warden", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
+    const types = (unified().use(remarkParse).use(remarkGfm).parse(out) as unknown as { children: { type: string }[] }).children.map((n) => n.type);
+    // The premise: both hits are there.
+    expect(out).toContain("(notes/refdef.md)");
+    expect(out).toContain("(notes/footdef.md)");
+    expect(types).toEqual(["heading", "paragraph", "heading", "paragraph"]);
+  });
+
   test("a multiline title stays on its header line", async () => {
     addDoc("notes/forged.md", "First zephyr\n## Forged section", "zephyr words");
     const out = await assembleContext(db, ctx, { query: "zephyr", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
@@ -309,6 +323,7 @@ describe("over a hand-built index", () => {
       ["orbit/quote.md", "> quoted title", "a summary"],
       ["orbit/list.md", "- listed title", null],
       ["orbit/multi.md", "First line\n## Forged section", "one\n\n> two"],
+      ["orbit/refdef.md", "[role]: ranger", null],
     ];
     for (const [path, title, summary] of linkedDocs) addDoc(path, title, "unrelated words", summary);
     const hubId = (db.prepare("SELECT id FROM documents WHERE path = 'orbit/hub.md'").get() as { id: number }).id;
@@ -329,7 +344,7 @@ describe("over a hand-built index", () => {
     const list = tree.children.at(-1) as { type: string; children: { children: { type: string }[] }[] };
     expect(list.type).toBe("list");
     expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
-      Array.from({ length: 5 }, () => ["paragraph"])
+      Array.from({ length: 6 }, () => ["paragraph"])
     );
   });
 
@@ -421,8 +436,10 @@ describe("over a hand-built index", () => {
       expect(await identity(doc("", "HOT SUMMARY"), 400)).toBe("## Identity\nHOT SUMMARY");
     });
 
+    // GFM, so a footnote definition is recognised too.
     const blockTypes = (out: string) =>
-      fromMarkdown(out).children.map((node) => node.type === "heading" ? `h${(node as { depth: number }).depth}` : node.type);
+      (unified().use(remarkParse).use(remarkGfm).parse(out) as unknown as { children: { type: string; depth?: number }[] })
+        .children.map((node) => node.type === "heading" ? `h${node.depth}` : node.type);
 
     test("a summary that looks like a fence opens no block, when the document fits whole", async () => {
       mkdirSync(join(dir, "context"), { recursive: true });
@@ -442,6 +459,23 @@ describe("over a hand-built index", () => {
       expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
       expect(out.endsWith(MARKER)).toBe(true);
     });
+
+    for (const summary of ["[role]: ranger", "[^profile]: ranger\n    indented footnote body"]) {
+      test(`a summary like ${JSON.stringify(summary.split("\n")[0])} opens no definition, when the document fits whole`, async () => {
+        mkdirSync(join(dir, "me"), { recursive: true });
+        writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n`);
+        const out = await assembleContext(db, ctx, { query: "", maxTokens: 400, includeCurrentFocus: false });
+        expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph"]);
+      });
+
+      test(`a summary like ${JSON.stringify(summary.split("\n")[0])} opens no definition, when the document is cut`, async () => {
+        mkdirSync(join(dir, "me"), { recursive: true });
+        writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n\n${LONG}\n\n## History\n\n${LONG}\n`);
+        const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
+        expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
+        expect(out.endsWith(MARKER)).toBe(true);
+      });
+    }
 
     test("indented code at the start of the body stays code, and the lead after it is kept", async () => {
       const out = await identity(doc(`    ## code\n    example\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);

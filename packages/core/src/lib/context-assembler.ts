@@ -75,13 +75,13 @@ function cleanSnippet(snippet: string): string {
 
 /**
  * `oneLine`, with a leading character that would start a heading, quote,
- * list, thematic break, fence or table escaped: for text that opens a line or
- * a list item.
+ * list, thematic break, fence, table, or link or footnote definition escaped:
+ * for text that opens a line or a list item.
  */
 function blockSafe(text: string): string {
   return oneLine(text)
     .replace(/^(\d+)([.)])/, "$1\\$2")
-    .replace(/^([#>+\-*_=|`~])/, "\\$1");
+    .replace(/^([#>+\-*_=|`~[])/, "\\$1");
 }
 
 /** A hit's one-line header. Every field is flattened to one line, so a
