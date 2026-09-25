@@ -9,7 +9,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { CONTRACT_DOC, judge, parseLabels } from "../scripts/check-contract-pr.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { changedFiles, CONTRACT_DOC, judge, parseLabels } from "../scripts/check-contract-pr.ts";
 
 const title = "CONTRACT: feat(core): add a field to brain stats --json";
 const plainTitle = "feat(core): add a field to brain stats --json";
@@ -76,5 +79,60 @@ describe("contract gate", () => {
     expect(parseLabels("[]")).toEqual([]);
     expect(parseLabels(undefined)).toEqual([]);
     expect(() => parseLabels('"contract"')).toThrow("not a JSON array");
+  });
+});
+
+describe("contract gate diff", () => {
+  function git(cwd: string, ...args: string[]): string {
+    const result = Bun.spawnSync(["git", ...args], { cwd });
+    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+  }
+
+  test("a doc edit that also landed on the base still counts as the PR's", () => {
+    // The base moves on after the PR branches, and another PR lands the same
+    // doc edit. The PR's own diff still has it. The synthetic merge commit a
+    // `pull_request` checkout gives by default, diffed against the base, does
+    // not: that is why the workflow checks out and passes the head SHA.
+    const repo = mkdtempSync(join(tmpdir(), "contract-gate-"));
+    try {
+      const write = (file: string, text: string) => {
+        mkdirSync(join(repo, file, ".."), { recursive: true });
+        writeFileSync(join(repo, file), text);
+      };
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "alex@example.com");
+      git(repo, "config", "user.name", "Alex Example");
+      write(CONTRACT_DOC, "v1\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-qm", "base");
+
+      git(repo, "checkout", "-qb", "pr");
+      write(CONTRACT_DOC, "v2\n");
+      write("packages/core/src/stats.ts", "// pr\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-qm", "pr");
+      const head = git(repo, "rev-parse", "HEAD");
+
+      git(repo, "checkout", "-q", "main");
+      write(CONTRACT_DOC, "v2\n");
+      git(repo, "commit", "-qam", "another PR lands the same edit");
+      git(repo, "checkout", "-q", "--detach", "main");
+      git(repo, "merge", "-q", "--no-ff", "-m", "synthetic merge", head);
+      const merge = git(repo, "rev-parse", "HEAD");
+
+      const own = changedFiles(repo, "main", head);
+      expect(own).toContain(CONTRACT_DOC);
+      expect(judge("CONTRACT: feat(core): x", ["contract"], own!).ok).toBe(true);
+
+      const synthetic = changedFiles(repo, "main", merge);
+      expect(synthetic).toEqual(["packages/core/src/stats.ts"]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("a ref git cannot resolve is not an empty diff", () => {
+    expect(changedFiles(process.cwd(), "no-such-ref", "HEAD")).toBeNull();
   });
 });

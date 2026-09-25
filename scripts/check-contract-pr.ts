@@ -13,7 +13,12 @@
  * labelled `contract` must change the doc. PRs are squash-merged, which makes
  * the title the commit subject, so the title is what gets checked.
  *
- *   PR_TITLE=… PR_LABELS='["contract"]' bun scripts/check-contract-pr.ts <base-ref>
+ * The diff is the PR's own: from where its branch left the base to its head
+ * commit. Not the synthetic merge commit a `pull_request` checkout gives by
+ * default — diffed against the base, that hides a doc edit which also landed
+ * on the base through another PR, and would reject a correctly titled one.
+ *
+ *   PR_TITLE=… PR_LABELS='["contract"]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>
  */
 
 import { resolve } from "path";
@@ -54,6 +59,22 @@ export function judge(title: string, labels: string[], changed: string[]): Contr
   return { touchesDoc, titled, labelled, problems, ok: problems.length === 0 };
 }
 
+/** Files the PR changes: `base...head`, i.e. since the merge base. `null`
+ * when git cannot answer, which the caller must not read as "no change". */
+export function changedFiles(cwd: string, base: string, head: string): string[] | null {
+  const result = Bun.spawnSync(["git", "diff", "--name-only", `${base}...${head}`], { cwd });
+  if (result.exitCode !== 0) {
+    console.error(`git diff ${base}...${head} failed:`);
+    console.error(new TextDecoder().decode(result.stderr));
+    return null;
+  }
+  return new TextDecoder()
+    .decode(result.stdout)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 /** `PR_LABELS` as the workflow passes it: a JSON array of label names. */
 export function parseLabels(raw: string | undefined): string[] {
   if (!raw) return [];
@@ -65,25 +86,18 @@ export function parseLabels(raw: string | undefined): string[] {
 }
 
 if (import.meta.main) {
-  const base = process.argv[2];
+  const [base, head] = process.argv.slice(2);
   const title = process.env.PR_TITLE;
-  if (!base || title === undefined) {
-    console.error("usage: PR_TITLE=… PR_LABELS='[…]' bun scripts/check-contract-pr.ts <base-ref>");
+  if (!base || !head || title === undefined) {
+    console.error(
+      "usage: PR_TITLE=… PR_LABELS='[…]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>"
+    );
     process.exit(2);
   }
 
-  const result = Bun.spawnSync(["git", "diff", "--name-only", `${base}...HEAD`], { cwd: ROOT });
-  if (result.exitCode !== 0) {
-    // A gate that cannot see the diff must not report success.
-    console.error(`git diff ${base}...HEAD failed:`);
-    console.error(new TextDecoder().decode(result.stderr));
-    process.exit(2);
-  }
-  const changed = new TextDecoder()
-    .decode(result.stdout)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const changed = changedFiles(ROOT, base, head);
+  // A gate that cannot see the diff must not report success.
+  if (changed === null) process.exit(2);
 
   const verdict = judge(title, parseLabels(process.env.PR_LABELS), changed);
   if (verdict.ok) {

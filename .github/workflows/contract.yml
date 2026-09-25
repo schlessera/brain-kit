@@ -27,8 +27,12 @@ jobs:
   contract:
     runs-on: ubuntu-latest
     steps:
+      # The PR's head commit, not the default synthetic merge commit: the
+      # merge commit, diffed against the base, drops a doc edit that also
+      # landed on the base through another PR. Full history for the merge base.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -36,6 +40,7 @@ jobs:
       - name: Match the CONTRACT title and label to the contract doc
         env:
           BASE_REF: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: bun scripts/check-contract-pr.ts "$BASE_REF"
+        run: bun scripts/check-contract-pr.ts "$BASE_REF" "$HEAD_SHA"
