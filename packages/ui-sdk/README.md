@@ -22,9 +22,12 @@ only exercised by `./client`).
 
 ## The wire protocol (`./protocol`)
 
-Protocol **rev 3**: sessions run in parallel, every turn-scoped frame carries a
+Protocol **rev 4**: sessions run in parallel, every turn-scoped frame carries a
 host-minted `turnId`, servers greet with `server_hello`, and every turn ends in
-**exactly one** terminal `result` frame with a unified `outcome`. The TypeScript
+**exactly one** terminal `result` frame with a unified `outcome`. A client that
+declares rev 3 or later in `client_hello` echoes `turnId` on its interactive
+replies, and rev 4 adds `message_blocks`, the blocks classified out of an
+assistant message. The TypeScript
 interfaces are the compatibility contract consumed by both sides; additive
 evolution only.
 
