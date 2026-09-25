@@ -78,11 +78,12 @@ function isGitRepo(root: string): boolean {
 let emptyGitDir: string | null = null;
 
 /**
- * An empty repository, so that `check-ignore` can be asked about a brain that
- * is not one: the answer is what a later `git init` would read from the same
- * `.gitignore`, and the rules are git's, not a re-implementation of them.
+ * An empty repository, so that git can be asked about a brain that is not
+ * one (`check-ignore` here, `check-attr` for the cache merge attributes): the
+ * answer is what a later `git init` would read from the same `.gitignore` or
+ * `.gitattributes`, and the rules are git's, not a re-implementation of them.
  */
-function emptyRepository(): string {
+export function emptyRepository(): string {
   if (emptyGitDir && existsSync(emptyGitDir)) return emptyGitDir;
   const dir = mkdtempSync(join(tmpdir(), "brain-scratch-ignore-"));
   const init = Bun.spawnSync(["git", "init", "-q", "--bare", dir], { stderr: "pipe" });

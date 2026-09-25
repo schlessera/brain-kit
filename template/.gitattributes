@@ -1,0 +1,9 @@
+# brain-kit's derived caches hold one self-contained {k,v} record per line, so
+# git's built-in union driver can merge them: a plain `git pull`, a rebase or a
+# hosting container's merge keeps both sides' lines instead of writing conflict
+# markers. The order it leaves does not matter to a reader: a key that appears
+# twice resolves to its first line in sorted order on every clone, and the file
+# is sorted again the next time an index run adds or prunes a line. The
+# built-in driver needs no git config.
+.context-cache.jsonl merge=union
+.asset-cache.jsonl merge=union
