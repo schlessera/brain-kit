@@ -490,6 +490,51 @@ describe("SkillEmitter contract suite", () => {
     expect(result.failed).toEqual(["a skill dropped from the list leaves the layout"]);
   });
 
+  /** Writes one skill-free file, as the codex emitter does with the agent contract. */
+  const contractOnly = (): SkillEmitter => ({
+    agent: "fake-contract",
+    emit(_skills, repoRoot) {
+      const rel = "FAKE-AGENTS.md";
+      if (existsSync(join(repoRoot, rel))) return { written: [], removed: [] };
+      writeFileSync(join(repoRoot, rel), "The agent contract.\n");
+      return { written: [rel], removed: [] };
+    },
+  });
+
+  test("an emitter that makes no skill reachable fails the reachability cases without readsCanonicalHome", async () => {
+    const result = await failingCases((p) =>
+      runSkillEmitterContract({ name: "contract-only", emitter: contractOnly }, p)
+    );
+    expect(result).toEqual({
+      ran: 6,
+      failed: [
+        "every skill is reachable from the emitted layout",
+        "a skill dropped from the list leaves the layout",
+        "re-emitting an unchanged list removes nothing and keeps the layout",
+      ],
+    });
+  });
+
+  test("the same emitter passes with readsCanonicalHome, which drops only the reachability case", async () => {
+    const result = await failingCases((p) =>
+      runSkillEmitterContract(
+        { name: "contract-only", emitter: contractOnly, readsCanonicalHome: true },
+        p
+      )
+    );
+    expect(result).toEqual({ ran: 5, failed: [] });
+  });
+
+  test("readsCanonicalHome does not waive the dropped-skill case for an emitter that never prunes", async () => {
+    const result = await failingCases((p) =>
+      runSkillEmitterContract(
+        { name: "hoarder", emitter: () => fileEmitter({ prune: false }), readsCanonicalHome: true },
+        p
+      )
+    );
+    expect(result.failed).toEqual(["a skill dropped from the list leaves the layout"]);
+  });
+
   test("an emitter that writes into the canonical home fails the canonical-home case", async () => {
     const result = await failingCases((p) =>
       runSkillEmitterContract(

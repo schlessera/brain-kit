@@ -132,6 +132,19 @@ import { myEmitter } from "./my-emitter";
 runSkillEmitterContract({ name: "opencode", emitter: () => myEmitter }, { describe, expect, test });
 ```
 
+`readsCanonicalHome` is a claim about the agent, not a way past a failing
+case. Set it only when the agent itself discovers `.agents/skills/`: the
+suite then stops asking whether each skill is reachable from what the emitter
+wrote, which is the only thing it waives. An emitter that leaves a dropped
+skill behind still fails.
+
+```ts
+runSkillEmitterContract(
+  { name: "codex", emitter: () => codexEmitter, readsCanonicalHome: true },
+  { describe, expect, test }
+);
+```
+
 ## Capability and degradation notes
 
 - **Skill lint keeps skills portable.** `brain skills lint` (folded into `brain
