@@ -20,6 +20,8 @@ import matter from "gray-matter";
 
 import {
   archiveDocument,
+  assembleContext,
+  estimateTokens,
   filterSearch,
   hybridSearch,
   indexAll,
@@ -112,11 +114,6 @@ export interface UpdateOutcome {
 const MAX_LIST_LIMIT = 100;
 const MAX_GRAPH_DEPTH = 4;
 
-/** ~4 chars per token, matching core's context-assembler estimate. */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
 export function createBrainAccess(brainPath: string): BrainAccess {
   let ctx: BrainContext | undefined;
   let embeddings: EmbeddingProvider | undefined;
@@ -190,33 +187,31 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       const db = openRead(c.dbPath);
       try {
         await loadVecSupport(db);
-        const { results, warnings } = await hybridSearch(
-          db,
-          { query, limit: 10 },
-          { embeddings, taxonomy: c.taxonomy }
-        );
-        // Identity / current-focus are intentionally NOT prepended here: the pi
+        // Identity / current-focus are intentionally NOT included here: the pi
         // session already loads AGENTS.md / CLAUDE.md (and the Layer-1 contract)
         // into its system context via the resource loader, so repeating them in
-        // every brain_context call would only burn budget. This wrapper is the
-        // retrieval half of core's assembleContext.
-        let budget = maxTokens;
-        const parts: string[] = [];
+        // every brain_context call would only burn budget. Everything else is
+        // core's assembler, so pi's hits read exactly like `brain context`'s.
+        const warnings: string[] = [];
+        const block = await assembleContext(db, c, {
+          query,
+          maxTokens,
+          includeIdentity: false,
+          includeCurrentFocus: false,
+          embeddings,
+          warnings,
+        });
+        // Warnings lead the block, in whatever budget the block left over.
+        let budget = maxTokens - (block ? estimateTokens(block) : 0);
+        const lines: string[] = [];
         for (const w of warnings) {
-          const line = `> ${w}`;
-          const cost = estimateTokens(line);
-          if (budget - cost < 0) break;
-          parts.push(line);
+          const line = `> ${w.replace(/\s+/g, " ")}`;
+          const cost = estimateTokens(`${line}\n\n`);
+          if (cost > budget) break;
+          lines.push(line);
           budget -= cost;
         }
-        for (const r of results) {
-          const section = `\n### ${r.title} (${r.path})\n${r.snippet}`;
-          const cost = estimateTokens(section);
-          if (budget - cost < 0) break;
-          parts.push(section);
-          budget -= cost;
-        }
-        return parts.join("\n\n");
+        return [...lines, ...(block ? [block] : [])].join("\n\n");
       } finally {
         db.close();
       }

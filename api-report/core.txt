@@ -8,6 +8,7 @@ export "." (./src/index.ts)
   type AgentRunner
   type ArchiveOptions
   type ArchiveResult
+  type AssembleOptions
   type Asset
   type AssetTitleRule
   type AuditIssue
@@ -90,6 +91,7 @@ export "." (./src/index.ts)
   type VecUnavailableReason
   WriteRefusedError
   archiveDocument
+  assembleContext
   assertScratchWritable
   audit
   brainConfigSchema
@@ -110,6 +112,7 @@ export "." (./src/index.ts)
   defineSkillEmitter
   discoverSkills
   ensureScratch
+  estimateTokens
   exportOkfBundle
   extractWikiLinks
   filterSearch
