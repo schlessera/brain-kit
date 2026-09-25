@@ -92,17 +92,13 @@ describe("over fixtures/corpus", () => {
     expect(out).not.toContain("(context/current-focus.md)");
   });
 
-  test("an identity that does not fit is cut at a paragraph boundary, with a pointer to the file", async () => {
-    const identity = matter(readFileSync(join(ctx.root, "me/identity.md"), "utf8")).content.trim();
+  test("an identity that does not fit leads with its summary, with a pointer to the file", async () => {
+    // The corpus identity has no text before its first "##" heading, and its
+    // first section does not fit in 200 tokens: what leads is the summary.
     const out = await assembleContext(db, ctx, { query: "astronomy", maxTokens: 200, includeCurrentFocus: false });
-    const section = out.split("\n\n(truncated — brain read me/identity.md)")[0]!;
-    expect(out).toContain("(truncated — brain read me/identity.md)");
-    const kept = section.replace(/^## Identity\n/, "");
-    // Whole paragraphs only: what is kept is a prefix of the file ending
-    // where a paragraph ends.
-    expect(kept.length).toBeGreaterThan(0);
-    expect(identity.startsWith(kept)).toBe(true);
-    expect(identity.slice(kept.length).startsWith("\n\n")).toBe(true);
+    expect(out.startsWith(
+      "## Identity\nWho Alex Example is — a park ranger tracking health, woodworking, and astronomy\n\n(truncated — brain read me/identity.md)"
+    )).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
   });
 });
@@ -333,5 +329,45 @@ describe("over a hand-built index", () => {
     expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
       Array.from({ length: 5 }, () => ["paragraph"])
     );
+  });
+
+  describe("identity leads with its lead, then whole sections", () => {
+    // A 300-character lead, then a 2,000-character section made of short
+    // paragraphs (each would fit on its own), then a second section.
+    const LEAD = `${"Ranger at the north preserve; speaks two languages; reach me by radio. ".repeat(4).trim()}`;
+    const SECTION = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: ${"ninety-some characters of old history ".repeat(3).trim()}.`).join("\n\n")}`;
+    const LATER = `## Later\n\n${"more words ".repeat(300).trim()}`;
+    const write = () => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${LEAD}\n\n${SECTION}\n\n${LATER}\n`);
+    };
+
+    test("the premise: lead and section have the sizes the case is about", () => {
+      expect(LEAD.length).toBeGreaterThanOrEqual(280);
+      expect(LEAD.length).toBeLessThanOrEqual(300);
+      expect(SECTION.length).toBeGreaterThan(1900);
+    });
+
+    test("a budget of 300 takes the whole lead and none of the section", async () => {
+      write();
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 300, includeCurrentFocus: false });
+      expect(out).toBe(`## Identity\n${LEAD}\n\n(truncated — brain read me/identity.md)`);
+    });
+
+    test("a heading inside a fenced block does not end the lead", async () => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      const lead = `${LEAD}\n\n` + "```\n## inside the fence\n```";
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${lead}\n\n${SECTION}\n`);
+      const expected = `## Identity\n${lead}\n\n(truncated — brain read me/identity.md)`;
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: estimateTokens(expected), includeCurrentFocus: false });
+      expect(out).toBe(expected);
+    });
+
+    test("a budget with room for the lead and the section takes the section whole", async () => {
+      write();
+      const budget = estimateTokens(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: budget, includeCurrentFocus: false });
+      expect(out).toBe(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
+    });
   });
 });

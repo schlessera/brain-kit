@@ -49,6 +49,10 @@ Ask, one topic at a time:
 3. Content language (non-English brains are a first-class case — do not assume English).
 4. Assistant tone and interaction preferences (terse vs. explanatory, proactive vs. on-request).
    These become the Personal Rules overlay in CLAUDE.md.
+5. A short facts card for the identity lead. Ask for each, and accept "skip" for any: current
+   roles, location, languages, and how to reach them.
+6. Their top priorities right now, and the next dated items (a deadline, an event, a review).
+   These seed the lead of the current-focus document.
 
 ## Stage 2 — Domains interview
 
@@ -94,7 +98,13 @@ After showing a summary of what will be written, generate:
   `review-overdue` two weeks after its last update. Ask before changing either number.
 - **Directories**, each with an `_index.md` (type `index`): a one-line purpose blurb and an
   empty registry table.
-- **`me/identity.md`** seeded from the Stage 1 self-description.
+- **`me/identity.md`** seeded from Stage 1. Its **lead**, the text before the first `##`
+  heading, holds the self-description and the facts card (only the facts they gave). Longer
+  material goes into `##` sections after it. `brain context` reads the lead first and adds
+  sections whole while they fit, so the lead is what an agent always sees.
+- **The current-focus document** (the `currentFocus` canonical, `context/current-focus.md` by
+  default) with a lead listing the top priorities and the next dated items from Stage 1, and
+  room for `##` sections below.
 - **CLAUDE.md** — the personal overlay (Layer 2). Import the shipped agent contract on the
   first line via `@node_modules/@schlessera/brain/CONTRACT.md`, then fill the fixed skeleton
   (Quick Navigation, Key Conventions, Directory Structure, Personal Rules). Wrap every

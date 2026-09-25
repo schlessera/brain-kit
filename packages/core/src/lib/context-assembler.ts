@@ -112,15 +112,39 @@ function hitHeader(result: SearchResult): string {
  * Read a markdown file and extract the content after frontmatter.
  * Returns null if the file doesn't exist.
  */
-function readMarkdownContent(root: string, relativePath: string): string | null {
+function readMarkdownContent(root: string, relativePath: string): { body: string; summary: string | null } | null {
   try {
     const fullPath = resolve(root, relativePath);
     const raw = readFileSync(fullPath, "utf-8");
-    const { content } = matter(raw);
-    return content.trim();
+    const { content, data } = matter(raw);
+    const summary = typeof data.summary === "string" && data.summary.trim() ? oneLine(data.summary) : null;
+    return { body: content.trim(), summary };
   } catch {
     return null;
   }
+}
+
+/** A `#` or `##` heading line: what ends a document's lead and starts a section. */
+const SECTION_LINE = /^ {0,3}#{1,2}(?:[ \t]|$)/;
+
+/**
+ * Split a body into its lead (everything before the first `#`/`##` heading)
+ * and its sections (each heading with the text up to the next one). A heading
+ * inside a fenced block does not split.
+ */
+function splitSections(body: string): { lead: string; sections: string[] } {
+  const lines = body.split("\n");
+  const starts: number[] = [];
+  let inFence = false;
+  for (let k = 0; k < lines.length; k++) {
+    if (!inFence && SECTION_LINE.test(lines[k]!)) starts.push(k);
+    if (FENCE_LINE.test(lines[k]!)) inFence = !inFence;
+  }
+  const bounds = [...starts, lines.length];
+  return {
+    lead: lines.slice(0, starts[0] ?? lines.length).join("\n").trim(),
+    sections: starts.map((start, i) => lines.slice(start, bounds[i + 1]).join("\n").trim()),
+  };
 }
 
 /**
@@ -155,16 +179,33 @@ export async function assembleContext(
   // Fixed sections: whole when they fit, else cut at a paragraph boundary with
   // a pointer to the full file, else skipped. A small budget is never exceeded
   // before search results are considered.
+  // A document that does not fit leads with its hot part (#381): its
+  // `summary` and the lead before its first `#`/`##` heading, then its
+  // sections whole, in order, while they fit. A lead that does not fit on its
+  // own is cut at a block boundary.
   const pushCanonical = (heading: string, path: string | null): void => {
-    const body = path ? readMarkdownContent(ctx.root, path) : null;
-    if (!path || !body) return;
-    if (push(`${heading}\n${body}`)) {
+    const doc = path ? readMarkdownContent(ctx.root, path) : null;
+    if (!path || !doc || !doc.body) return;
+    if (push(`${heading}\n${doc.body}`)) {
       included.add(path);
       return;
     }
-    const separatorCost = parts.length > 0 ? estimateTokens(SEPARATOR) : 0;
-    const cut = truncateAtBoundary(heading, body, `(truncated — brain read ${path})`, budget - separatorCost);
-    if (cut && push(cut)) included.add(path);
+    const marker = `(truncated — brain read ${path})`;
+    const room = budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0);
+    const { lead, sections } = splitSections(doc.body);
+    const hot = [doc.summary, lead].filter((part): part is string => !!part && part !== "").join("\n\n");
+    const fits = (blocks: string[]) => estimateTokens(`${heading}\n${blocks.join("\n\n")}\n\n${marker}`) <= room;
+    if (!hot || !fits([hot])) {
+      const cut = truncateAtBoundary(heading, hot || doc.body, marker, room);
+      if (cut && push(cut)) included.add(path);
+      return;
+    }
+    const kept = [hot];
+    for (const section of sections) {
+      if (!fits([...kept, section])) break;
+      kept.push(section);
+    }
+    if (push(`${heading}\n${kept.join("\n\n")}\n\n${marker}`)) included.add(path);
   };
 
   if (opts.includeIdentity !== false) {
