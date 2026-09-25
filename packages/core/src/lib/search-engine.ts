@@ -170,7 +170,7 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
 
   const sql = `
     SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, d.generated_from AS generatedFrom,
       (SELECT GROUP_CONCAT(t.name, ', ')
        FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
        WHERE dt.document_id = d.id) as tags,
@@ -255,7 +255,7 @@ function ftsSearch(
   // negation for score and ascending ORDER BY.
   const sql = `
     SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, d.generated_from AS generatedFrom,
       (SELECT GROUP_CONCAT(t.name, ', ')
        FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
        WHERE dt.document_id = d.id) as tags,
@@ -384,7 +384,7 @@ async function vectorSearch(
     const placeholders = chunkIds.map(() => "?").join(",");
     const sql = `
       SELECT
-        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, d.generated_from AS generatedFrom,
         (SELECT GROUP_CONCAT(t.name, ', ')
          FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
          WHERE dt.document_id = d.id) as tags,
@@ -405,6 +405,7 @@ async function vectorSearch(
       tags: string;
       updated: string;
       deadline: string | null;
+      generatedFrom: string | null;
       chunk_id: number;
       chunk_content: string;
     }[];
@@ -428,6 +429,7 @@ async function vectorSearch(
           tags: row.tags,
           updated: row.updated,
           deadline: row.deadline,
+          generatedFrom: row.generatedFrom,
           score,
           snippet: makeSnippet(row.chunk_content),
         });

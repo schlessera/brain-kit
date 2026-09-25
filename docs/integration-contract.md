@@ -74,8 +74,9 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
 `status`, `relevance`, `updated` (`YYYY-MM-DD`), `summary` (string or
-`null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0), plus ranking
-metadata. Treat unknown fields as additive; never rely on field order.
+`null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0),
+`generatedFrom` (the document's `generated_from`, string or `null`; additive in
+0.38.0), plus ranking metadata. Treat unknown fields as additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
 `updated` (strings); `summary` (string or `null`); `deadline` (`YYYY-MM-DD`,
@@ -597,13 +598,17 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **10**),
+- Check `index_metadata` first: `schema_version` (currently **11**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`. Schema 9 adds only
   an index on `links(target_id)`; no table or column changed from 8, so a
   reader that accepts 8 reads 9 unchanged. Schema 10 (0.38.0) adds only the
   column `documents.chunker_version`: the chunker version a markdown
   document's chunks came from, `NULL` for assets and for rows written before
   it existed. A reader that accepts 9 reads 10 unchanged.
+  Schema 11 (0.38.0) adds only the nullable `documents.generated_from`
+  column, so a reader that accepts 10 reads 11 unchanged. The migration also
+  clears the markdown rows' `content_hash`, so the next index run re-reads
+  every file and fills it.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
@@ -771,6 +776,12 @@ Rules a consumer may rely on:
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);
   `deadline` / `next_review` are ISO dates queried by briefing features.
+- Optional `generated_from` (additive in 0.38.0): a non-empty string, either a
+  repo-relative path to the document's source or a free-form tool name. It
+  marks the document as produced by a tool or an agent pass, not written by
+  hand. `brain validate` reports any other value as an error. `brain audit`
+  reports a `propagation` issue when it names a markdown document updated
+  after this one. The heuristic reranker weights a generated document ×0.85.
 - `brain archive` / `brain_archive` set `status: archived` and bump `updated`.
   Since 0.38.0 they also set `relevance: historical` when relevance is
   `primary` or missing, and leave an explicit `secondary` or `historical`

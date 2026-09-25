@@ -29,7 +29,8 @@ relevance: primary    # primary | secondary | historical
 
 Optional fields: `summary` (one line, used in search), `aliases` (inline
 array — extra wiki-link names), `deadline` / `next_review` (bare ISO dates,
-surfaced by `brain briefing`).
+surfaced by `brain briefing`), `generated_from` (the source a tool or an
+agent pass produced this document from: a repo-relative path or a tool name).
 
 Facts, for documents that restate the same facts (bios, fact sheets):
 - `facts` — on the canonical document a `taxonomy.facts` entry names as its
@@ -44,6 +45,8 @@ Rules:
 - Always bump `updated` when editing content. Mechanical/format-only edits may
   skip it, then run `brain accept-mtime` to baseline silent-edit detection.
 - Dates stay bare `YYYY-MM-DD` scalars; arrays stay inline (`[a, b]`).
+- A document with `generated_from` is regenerated from its source, not edited
+  by hand: a hand edit is lost at the next regeneration. Change the source.
 - `status: archived` removes a doc from default search; never delete history.
   An archived doc is not `relevance: primary`: `brain archive` sets a primary
   or missing relevance to `historical` (an explicit `secondary` stays), and

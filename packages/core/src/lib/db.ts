@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -295,7 +295,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 9);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 10) {
     // v10 — the chunker version each document was chunked by. An index run
     // re-chunks a document whose version is older, once, even when its file
     // is unchanged. Existing rows start NULL: chunked before versions were
@@ -303,6 +303,20 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     const columns = db.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
     if (!columns.some((c) => c.name === "chunker_version")) {
       db.run("ALTER TABLE documents ADD COLUMN chunker_version INTEGER");
+    }
+
+    setSchemaVersion(db, 10);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v11 — `generated_from` frontmatter (#430): the source a document is
+    // produced from. Clearing the markdown rows' content hash makes the next
+    // index run re-read every file, so the column is filled without
+    // `--force`; unchanged chunks keep their rows and vectors.
+    const columns = db.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "generated_from")) {
+      db.run("ALTER TABLE documents ADD COLUMN generated_from TEXT");
+      db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
     }
 
     setSchemaVersion(db, SCHEMA_VERSION);

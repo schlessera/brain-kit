@@ -52,6 +52,8 @@ export interface SearchResult {
   tags: string;
   updated?: string;
   deadline?: string | null;
+  /** The source a generated document is produced from (`generated_from`), or null. */
+  generatedFrom?: string | null;
   score: number;
   snippet: string;
   chunks?: ChunkMatch[];

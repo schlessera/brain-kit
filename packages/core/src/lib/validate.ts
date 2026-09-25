@@ -151,6 +151,13 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         message: `Invalid relevance: "${data.relevance}". Valid: ${VALID_RELEVANCES.join(", ")}`,
       });
     }
+    if ("generated_from" in data && (typeof data.generated_from !== "string" || data.generated_from.trim() === "")) {
+      issues.push({
+        file: filePath,
+        level: "error",
+        message: `Invalid generated_from: ${JSON.stringify(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
+      });
+    }
     if (data.status === "archived" && data.relevance === "primary") {
       issues.push({
         file: filePath,
