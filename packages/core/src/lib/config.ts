@@ -86,8 +86,13 @@ export const propagationRuleSchema = z
 
 export type PropagationRule = z.infer<typeof propagationRuleSchema>;
 
-/** Capturing groups in a regex source, counted by what an empty match reports. */
+/**
+ * Capturing groups in a regex source, counted by what an empty match reports.
+ * The source is compiled as it is first: wrapped, a malformed pattern such
+ * as `a)|(b` would turn valid and count as one group.
+ */
 function captureGroups(source: string): number {
+  new RegExp(source, "i");
   return new RegExp(`(?:${source})|`, "i").exec("")!.length - 1;
 }
 

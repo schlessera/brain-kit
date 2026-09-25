@@ -300,13 +300,59 @@ describe("audit fact-drift (#392)", () => {
         path: "me/basics/short-bio.md",
         body: "A ranger since 2019, who walks a loop of 12.50 miles — see `ranger since 2010` in the example.\n\n```\nranger since 2011\n```\n",
       },
+      // The positive control: a number that really differs is reported.
+      { path: "me/basics/long-bio.md", body: "Alex walks a loop of 13 miles.\n" },
     ]);
-    expect(categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift")).toEqual([]);
+    const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
+    expect(drift.map((i) => `${i.path} ${i.message}`)).toEqual(["me/basics/long-bio.md loop_miles: found 13, canonical 12.5"]);
     db.close();
   });
 
+  test("a capture that reaches into code is not a restatement, though the match starts in prose", () => {
+    const codeTaxonomy = buildTaxonomy({
+      user: brainConfigSchema.parse({
+        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since .*?(\\d{4})"] } } },
+      }),
+    });
+    const { root, db } = brain([
+      SOURCE,
+      { path: "me/basics/short-bio.md", body: "Listed as ranger since `2018` in the old export.\n" },
+      { path: "me/basics/long-bio.md", body: "A ranger since the spring of 2018.\n" },
+    ]);
+    const drift = categories(audit(db, codeTaxonomy, { now: NOW, root }), "fact-drift");
+    expect(drift.map((i) => i.path)).toEqual(["me/basics/long-bio.md"]);
+    db.close();
+  });
+
+  test("an empty capture is compared like any other value", () => {
+    const emptyTaxonomy = buildTaxonomy({
+      user: brainConfigSchema.parse({
+        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d*)"] } } },
+      }),
+    });
+    const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "A ranger since . Years unknown.\n" }]);
+    const drift = categories(audit(db, emptyTaxonomy, { now: NOW, root }), "fact-drift");
+    expect(drift.map((i) => i.message)).toEqual(['ranger_since: found "", canonical 2019']);
+    db.close();
+  });
+
+  test("a source path written with ./ or doubled separators is still the source", () => {
+    for (const source of ["./me/basics/FACTS.md", "me//basics/FACTS.md"]) {
+      const spelled = buildTaxonomy({
+        user: brainConfigSchema.parse({
+          taxonomy: { facts: { ranger_since: { source, patterns: ["ranger since (\\d{4})"] } } },
+        }),
+      });
+      const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "A ranger since 2018.\n" }]);
+      const drift = categories(audit(db, spelled, { now: NOW, root }), "fact-drift");
+      expect({ source, paths: drift.map((i) => i.path) }).toEqual({ source, paths: ["me/basics/long-bio.md"] });
+      db.close();
+    }
+  });
+
   test("a pattern without exactly one capture group fails config load, naming the key", () => {
-    for (const patterns of [["ranger since \\d{4}"], ["(ranger) since (\\d{4})"]]) {
+    // The third is malformed on its own and only looks valid once wrapped.
+    for (const patterns of [["ranger since \\d{4}"], ["(ranger) since (\\d{4})"], ["ranger)|(2018"]]) {
       const parsed = brainConfigSchema.safeParse({
         taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns } } },
       });
