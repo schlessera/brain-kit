@@ -79,3 +79,34 @@ test("no .claude/commands directory passes", async () => {
   expect(check.status).toBe("pass");
   expect(check.detail).toBe("no .claude/commands directory");
 });
+
+/** Every check id in `brain doctor --json`, after asserting the run completed. */
+async function checkIds(root: string, extra: string[] = []) {
+  const { stdout, code } = await runCli(root, ["doctor", "--json", ...extra]);
+  expect(code).toBe(0);
+  const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
+  return { ids: checks.map((c) => c.id), byId: (id: string) => checks.find((c) => c.id === id)! };
+}
+
+test("a .claude/commands that is a file warns and the rest of the battery still reports", async () => {
+  const root = tempBrain();
+  mkdirSync(join(root, ".claude"), { recursive: true });
+  writeFileSync(join(root, ".claude", "commands"), "not a directory\n");
+  const { ids, byId } = await checkIds(root);
+  expect(byId("shadowed-commands")).toMatchObject({ status: "warn" });
+  expect(byId("shadowed-commands").detail).toContain("could not read .claude/commands");
+  expect(ids).toEqual(expect.arrayContaining(["config", "db", "mcp", "scratch"]));
+});
+
+test("a .claude/skills that is a file warns in the symlinks check and the rest still reports", async () => {
+  const root = tempBrain();
+  mkdirSync(join(root, ".claude"), { recursive: true });
+  writeFileSync(join(root, ".claude", "skills"), "not a directory\n");
+  const { ids, byId } = await checkIds(root);
+  expect(byId("symlinks")).toMatchObject({ status: "warn" });
+  expect(byId("symlinks").detail).toContain("could not read .claude/skills");
+  expect(ids).toEqual(expect.arrayContaining(["shadowed-commands", "config", "db", "scratch"]));
+
+  const fixed = await checkIds(root, ["--fix"]);
+  expect(fixed.ids).toEqual(expect.arrayContaining(["symlinks", "config", "scratch"]));
+});

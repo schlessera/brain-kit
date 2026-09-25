@@ -55,6 +55,15 @@ function cmpSemver(a: number[], b: number[]): number {
   return 0;
 }
 
+/** Whether `path` is a directory now; false when it is missing or vanishes mid-check. */
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // --- individual checks -----------------------------------------------------
 
 function checkRuntime(): Check {
@@ -72,7 +81,7 @@ function checkGitHooks(root: string): Check {
   const hooksPath = gitConfig(root, "core.hooksPath");
   if (!hooksPath) return { id: "git-hooks", status: "fail", detail: "core.hooksPath is not set", fix: "run `brain setup`" };
   const resolvedHooksPath = resolve(root, hooksPath);
-  if (!existsSync(resolvedHooksPath) || !statSync(resolvedHooksPath).isDirectory()) {
+  if (!isDirectory(resolvedHooksPath)) {
     return {
       id: "git-hooks",
       status: "fail",
@@ -113,15 +122,26 @@ function checkSymlinks(root: string): Check {
     /* not linked at all — not broken, just absent */
   }
   const skillsDir = join(root, ".claude", "skills");
+  let entries: string[] = [];
+  let unreadable: string | undefined;
   if (existsSync(skillsDir)) {
-    for (const entry of readdirSync(skillsDir)) {
-      const p = join(skillsDir, entry);
-      try {
-        if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(`.claude/skills/${entry}`);
-      } catch {
-        /* ignore */
-      }
+    try {
+      entries = readdirSync(skillsDir);
+    } catch (e) {
+      unreadable = `could not read .claude/skills: ${(e as Error).message}`;
     }
+  }
+  for (const entry of entries) {
+    const p = join(skillsDir, entry);
+    try {
+      if (lstatSync(p).isSymbolicLink() && !existsSync(p)) broken.push(`.claude/skills/${entry}`);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (unreadable) {
+    const also = broken.length > 0 ? `; also broken: ${broken.join(", ")}` : "";
+    return { id: "symlinks", status: "warn", detail: unreadable + also, fix: "make .claude/skills a readable directory, then run `brain skills sync`" };
   }
   if (broken.length > 0) {
     return { id: "symlinks", status: "warn", detail: `${broken.length} stale/broken symlink(s): ${broken.slice(0, 3).join(", ")}`, fix: "run `brain skills sync`" };
@@ -142,11 +162,22 @@ function checkShadowedCommands(cli: CliContext): Check {
   if (!existsSync(commandsDir)) {
     return { id: "shadowed-commands", status: "pass", detail: "no .claude/commands directory" };
   }
-  const skills = new Set(discoverSkills({ root, modules: cli.brain.modules }).skills.map((s) => s.name));
+  const unreadable = (reason: string): Check => ({
+    id: "shadowed-commands",
+    status: "warn",
+    detail: `could not read .claude/commands: ${reason}`,
+    fix: "make .claude/commands a readable directory, or remove it",
+  });
+  if (!isDirectory(commandsDir)) return unreadable("it is not a directory");
   const shadowed: string[] = [];
-  for (const rel of new Bun.Glob("**/*.md").scanSync({ cwd: commandsDir })) {
-    const name = rel.replace(/\.md$/, "").split(/[\\/]/).join(":");
-    if (skills.has(name)) shadowed.push(`.claude/commands/${rel.split(sep).join("/")}`);
+  try {
+    const skills = new Set(discoverSkills({ root, modules: cli.brain.modules }).skills.map((s) => s.name));
+    for (const rel of new Bun.Glob("**/*.md").scanSync({ cwd: commandsDir })) {
+      const name = rel.replace(/\.md$/, "").split(/[\\/]/).join(":");
+      if (skills.has(name)) shadowed.push(`.claude/commands/${rel.split(sep).join("/")}`);
+    }
+  } catch (e) {
+    return unreadable((e as Error).message);
   }
   if (shadowed.length === 0) {
     return { id: "shadowed-commands", status: "pass", detail: "no command file shares a name with a skill" };
@@ -438,10 +469,16 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("symlinks")) {
-    const { emitters } = resolveEmitters(cli.brain);
-    syncSkills({ root, modules: cli.brain.modules }, { emitters });
-    installBinLinks(root);
-    applied.push("symlinks");
+    // A `.claude/skills` that is not a directory makes the sync throw; the
+    // check already said what to do, so record it and keep going.
+    try {
+      const { emitters } = resolveEmitters(cli.brain);
+      syncSkills({ root, modules: cli.brain.modules }, { emitters });
+      installBinLinks(root);
+      applied.push("symlinks");
+    } catch (e) {
+      console.error(`doctor --fix: symlinks fix failed: ${e instanceof Error ? e.message : e}`);
+    }
   }
   if (failing.has("deps")) {
     Bun.spawnSync(["bun", "install"], { cwd: root });
