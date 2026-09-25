@@ -522,33 +522,34 @@ describe("builtin's listing JSON-LD", () => {
 });
 
 describe("builtin's rendered card", () => {
-  test("the extractor returns no company at all (#35)", () => {
+  test("the company comes from the card's company-title link (#320)", () => {
     const records = extractFrom(
       pageFunctionOf(BuiltInAdapter),
       fixture("builtin", "rendered-card.html")
     );
     expect(records).toHaveLength(1);
     expect(records[0].title).toBe("Staff Software Engineer, Assets");
-    // Which BrowserAdapter.toRawJob turns into the literal "Unknown" — 35 of
-    // 35 rows in the live run, 19 of 19 cards on the captured page.
-    expect(records[0].company).toBe("");
+    expect(records[0].href).toBe(
+      "https://builtin.com/job/staff-software-engineer-assets/11309150"
+    );
+    // Before #320 this was "", which BrowserAdapter.toRawJob stores as
+    // "Unknown" — 35 of 35 rows in the live run.
+    expect(records[0].company).toBe("Webflow");
   });
 
-  test("the anchor's own class is why closest() never reaches the card (#35)", () => {
+  test("the title anchor's own class would stop a class-based closest() (#35)", () => {
     const $ = parseHtml(fixture("builtin", "rendered-card.html"));
     const link = $('a[href*="/job/"]').first();
     expect(link.length).toBe(1);
-    // src/adapters/builtin.ts:86 asks for closest('[class*="job"], [class*="card"], …'),
-    // and Element.closest() starts at the element itself.
+    // Why the card is found by `data-id`, not by class: Element.closest()
+    // starts at the element itself, and this one's class contains "card".
     expect(link.attr("class")).toContain("card");
-    // Meanwhile the company is sitting behind a stable selector, contrary to
-    // the comment at src/adapters/builtin.ts:26.
-    expect($('a[data-id="company-title"]').text().trim()).toBe("Webflow");
+    expect(link.closest('[data-id="job-card"]').length).toBe(1);
   });
 });
 
 describe("nodesk's rendered card", () => {
-  test("the extractor returns no company at all (#35)", () => {
+  test("the company comes from the hit card's heading (#320)", () => {
     const records = extractFrom(
       pageFunctionOf(NodeskAdapter),
       fixture("nodesk", "rendered-card.html")
@@ -558,9 +559,9 @@ describe("nodesk's rendered card", () => {
     expect(records[0].href).toBe(
       "https://nodesk.co/remote-jobs/co2lift-customer-support-representative/"
     );
-    // The company is CO2Lift, and it is in the markup. 39 of the 103 cards on
-    // the captured page come back like this.
-    expect(records[0].company).toBe("");
+    // Before #320 this was "": the card has no company link, only an h3. 39 of
+    // the 103 cards on the captured page came back like this.
+    expect(records[0].company).toBe("CO2Lift");
   });
 
   test("the card has no company LINK, only a company heading (#35)", () => {
@@ -568,17 +569,26 @@ describe("nodesk's rendered card", () => {
     const $ = parseHtml(html);
     const $card = $("li.ais-Hits-item");
     expect($card.length).toBe(1);
-    // What src/adapters/nodesk.ts:59 looks for. Nothing in the card, and
-    // nothing in the promoted block beside it either, so the container walk
-    // at :52 finds no company however far it climbs and the row is stored as
-    // "Unknown" — 39 of the 103 cards on the captured page.
+    // What the extractor read before #320. Nothing in the card, and nothing in
+    // the promoted block beside it either.
     expect($('a[href*="/remote-companies/"]').length).toBe(0);
-    // Where the company actually is.
     expect($card.find("h3").first().text().trim()).toBe("CO2Lift");
-    // The promoted block is in the fixture because it is what the walk climbs
-    // THROUGH: on a page state that rotates in a promoted card carrying a
-    // company link, that company is what gets stored on its neighbours.
     expect(html).toContain("Promoted");
+  });
+
+  test("a card with no heading does not take its neighbour's company (#320)", () => {
+    // A short card, so a walk upward for 100 characters of text climbs out of
+    // it into the list, where the next card's company link sits.
+    const html =
+      '<ul class="ais-Hits-list">' +
+      '<li class="ais-Hits-item"><h2><a href="/remote-jobs/headless-support-role/">Support Role</a></h2></li>' +
+      '<li class="ais-Hits-item"><h2><a href="/remote-jobs/example-corp-backend-engineer/">Backend Engineer</a></h2>' +
+      "<h3>Example Corp</h3>" +
+      '<a href="/remote-companies/example-corp/">Example Corp, a remote-first company hiring across every time zone</a></li>' +
+      "</ul>";
+    const records = extractFrom(pageFunctionOf(NodeskAdapter), html);
+    expect(records.map((r) => r.title)).toEqual(["Support Role", "Backend Engineer"]);
+    expect(records.map((r) => r.company)).toEqual(["", "Example Corp"]);
   });
 
   /**

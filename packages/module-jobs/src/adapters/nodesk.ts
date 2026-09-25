@@ -48,16 +48,13 @@ export class NodeskAdapter extends BrowserAdapter {
       const title = link.textContent?.trim();
       if (!title || title.length < 5) continue;
 
-      // Walk up until the container holds enough text to be the whole card.
-      let container = link.parentElement;
-      for (let i = 0; i < 5 && container; i++) {
-        if ((container.textContent?.length || 0) > 100) break;
-        container = container.parentElement;
-      }
-
-      const company =
-        container?.querySelector('a[href*="/remote-companies/"]')?.textContent?.trim() || "";
-      const text = container?.textContent || "";
+      // The hit card is the whole container: a walk upward from the link
+      // reached neighbouring cards and promoted blocks, and stored their
+      // company on this row. The company is the card's heading, not a link
+      // (#320).
+      const card = link.closest("li.ais-Hits-item");
+      const company = card?.querySelector("h3")?.textContent?.trim() || "";
+      const text = card?.textContent || "";
       const locMatch = text.match(
         /Remote:\s*(.*?)(?:\n|Engineering|Design|Marketing|Sales|Product|Customer|Non|Operations|Other)/s
       );
