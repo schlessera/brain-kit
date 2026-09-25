@@ -42,6 +42,8 @@ import {
   rtkRewriteCommand,
 } from "@schlessera/brain-ui-sdk/server";
 
+import { isIsoDate, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain";
+
 import { createPiBridgeTools } from "./bridge-tools.js";
 import {
   resolveEnabledWebSearchEnvNames,
@@ -58,6 +60,19 @@ const MAX_READ_BYTES = 100_000;
 const MAX_OUTPUT_BYTES = 30_000;
 
 /** Result helper: pi tools return content parts + arbitrary details. */
+interface BrainSearchParams {
+  query: string;
+  type?: string;
+  tag?: string;
+  limit?: number;
+  updated_since?: string;
+  updated_before?: string;
+  deadline_from?: string;
+  deadline_to?: string;
+  sort?: SearchOptions["sort"];
+  upcoming?: boolean;
+}
+
 function textResult(text: string, details: unknown = null) {
   return { content: [{ type: "text" as const, text }], details };
 }
@@ -263,22 +278,47 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     label: "Search brain",
     description:
       "Hybrid (full-text + vector) search across the knowledge base. Prefer this " +
-      "over grep for finding notes by meaning. Returns ranked results with snippets.",
+      "over grep for finding notes by meaning. Returns ranked results with snippets. " +
+      "For questions about time (\"what is due next\", \"what changed this week\"), turn the " +
+      "dates into the date filters yourself (YYYY-MM-DD, inclusive) and pick a sort; " +
+      "upcoming is a shortcut for deadline_from today, sort deadline.",
     parameters: Type.Object({
       query: Type.String({ description: "Natural-language or keyword query." }),
       type: Type.Optional(Type.String({ description: "Filter by document type." })),
       tag: Type.Optional(Type.String({ description: "Filter by tag." })),
       limit: Type.Optional(Type.Number({ description: "Max results (default 10)." })),
+      updated_since: Type.Optional(Type.String({ description: "Only documents updated on or after this date (YYYY-MM-DD)." })),
+      updated_before: Type.Optional(Type.String({ description: "Only documents updated on or before this date (YYYY-MM-DD)." })),
+      deadline_from: Type.Optional(Type.String({ description: "Only documents with a deadline on or after this date (YYYY-MM-DD)." })),
+      deadline_to: Type.Optional(Type.String({ description: "Only documents with a deadline on or before this date (YYYY-MM-DD)." })),
+      sort: Type.Optional(
+        Type.Union(SEARCH_SORTS.map((s) => Type.Literal(s)), {
+          description: "Result order: score (default), updated (newest first) or deadline (earliest first, undated last).",
+        })
+      ),
+      upcoming: Type.Optional(
+        Type.Boolean({ description: "Same as deadline_from today and sort deadline; an explicit deadline_from or sort wins." })
+      ),
     }),
-    async execute(
-      _id: string,
-      params: { query: string; type?: string; tag?: string; limit?: number }
-    ) {
+    async execute(_id: string, params: BrainSearchParams) {
+      // Core also refuses a bad date or sort; checking the dates here names the
+      // input the model sent (deadline_from, not deadlineFrom).
+      for (const key of ["updated_since", "updated_before", "deadline_from", "deadline_to"] as const) {
+        const value = params[key];
+        if (value !== undefined && (typeof value !== "string" || !isIsoDate(value))) {
+          throw new Error(`${key} must be a date written YYYY-MM-DD, got ${JSON.stringify(value)}`);
+        }
+      }
       const { results, warnings } = await brain.search({
         query: params.query,
         type: params.type,
         tag: params.tag,
         limit: params.limit ?? 10,
+        updatedSince: params.updated_since,
+        updatedBefore: params.updated_before,
+        deadlineFrom: params.deadline_from ?? (params.upcoming ? new Date().toISOString().slice(0, 10) : undefined),
+        deadlineTo: params.deadline_to,
+        sort: params.sort ?? (params.upcoming ? "deadline" : undefined),
       });
       const lines: string[] = [];
       for (const w of warnings) lines.push(`> ${w}`);

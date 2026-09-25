@@ -77,7 +77,7 @@ export {
   SCHEMA_VERSION,
 } from "./lib/db.js";
 export type { SchemaOptions, VecSupport, VecUnavailableReason } from "./lib/db.js";
-export { hybridSearch, filterSearch } from "./lib/search-engine.js";
+export { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 // Exported so a retrieval-quality harness can score rerank-on and rerank-off
 // orderings from one candidate list instead of re-embedding the query.
@@ -165,7 +165,7 @@ export type {
   IngestInput,
   Asset,
 } from "./lib/types.js";
-export { VALID_STATUSES, VALID_RELEVANCES, ASSET_EXTENSIONS } from "./lib/types.js";
+export { VALID_STATUSES, VALID_RELEVANCES, ASSET_EXTENSIONS, SEARCH_SORTS } from "./lib/types.js";
 
 // Environment contract (chokepoint: src/config/env.ts)
 export { ENV_VARS, DYNAMIC_ENV_READS, resolveEnv, readEnvVar } from "./config/env.js";
