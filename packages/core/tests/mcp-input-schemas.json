@@ -112,6 +112,14 @@
     "properties": {
       "path": {
         "type": "string"
+      },
+      "section": {
+        "type": "string"
+      },
+      "max_tokens": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
       }
     },
     "required": [

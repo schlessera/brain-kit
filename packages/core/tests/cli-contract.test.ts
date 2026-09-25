@@ -84,6 +84,45 @@ describe("search", () => {
   });
 });
 
+describe("read", () => {
+  test("prints the whole file with no flag", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md"]);
+    expect(code).toBe(0);
+    expect(stdout).toBe(readFileSync(join(root, "me/identity.md"), "utf-8") + "\n");
+  });
+
+  test("--section prints that section and no other", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--section", "How to Work With Alex"]);
+    expect(code).toBe(0);
+    expect(stdout.startsWith("## How to Work With Alex\n")).toBe(true);
+    expect(stdout).toContain("Prefer concrete, checklist-shaped guidance");
+    expect(stdout).not.toContain("## Current Identity");
+  });
+
+  test("--max-tokens over the file's size prints the outline, not the body", async () => {
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "50"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(stdout).toContain('--section "<heading>"');
+    expect(stdout).not.toContain("Prefer concrete");
+  });
+
+  test("an unknown --section is a usage error naming the available headings", async () => {
+    const { stderr, code } = await runCli(root, ["read", "me/identity.md", "--section", "No Such Heading"]);
+    expect(code).toBe(1);
+    expect(stderr).toContain('available headings: "Current Identity", "How to Work With Alex"');
+  });
+
+  test("--max-tokens must be a positive safe integer", async () => {
+    for (const bad of ["0", "-3", "1.5", "many", "9007199254740992"]) {
+      const { code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", bad]);
+      expect({ bad, code }).toEqual({ bad, code: 1 });
+    }
+    const { code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "9007199254740991"]);
+    expect(code).toBe(0);
+  });
+});
+
 describe("audit", () => {
   test("returns the { issues, errors, warnings, infos } envelope", async () => {
     const { stdout, code } = await runCli(root, ["audit", "--json"]);

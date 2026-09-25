@@ -214,6 +214,45 @@ describe("brain_read", () => {
     expect(first.type).toBe("text");
     expect(first.text).toBe(readFileSync(join(root, "me/identity.md"), "utf-8"));
   });
+
+  test("section returns that section and no other", async () => {
+    const res = await client.callTool({
+      name: "brain_read",
+      arguments: { path: "me/identity.md", section: "How to Work With Alex" },
+    });
+    expect(res.isError).toBeFalsy();
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    expect(first.text.startsWith("## How to Work With Alex\n")).toBe(true);
+    expect(first.text).toContain("Prefer concrete, checklist-shaped guidance");
+    expect(first.text).not.toContain("## Current Identity");
+  });
+
+  test("max_tokens over the file's size returns the outline, not the body", async () => {
+    const res = await client.callTool({
+      name: "brain_read",
+      arguments: { path: "me/identity.md", max_tokens: 50 },
+    });
+    expect(res.isError).toBeFalsy();
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    const file = readFileSync(join(root, "me/identity.md"), "utf-8");
+    const headings = file.split("\n").filter((l) => l.startsWith("## "));
+    expect(headings.length).toBeGreaterThan(1);
+    expect(headings).toEqual(["## Current Identity", "## How to Work With Alex"]);
+    expect(first.text).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(first.text).toContain('section: "<heading>"');
+    expect(first.text).not.toContain("park ranger** at a mid-sized");
+    expect(first.text).not.toContain("Prefer concrete");
+  });
+
+  test("an unknown section is an error naming the available headings", async () => {
+    const res = await client.callTool({
+      name: "brain_read",
+      arguments: { path: "me/identity.md", section: "No Such Heading" },
+    });
+    expect(res.isError).toBe(true);
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    expect(first.text).toContain('available headings: "Current Identity", "How to Work With Alex"');
+  });
 });
 
 describe("brain_graph", () => {

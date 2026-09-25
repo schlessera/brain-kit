@@ -53,7 +53,7 @@ export const BOOLEAN_FLAGS = new Set([
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
 export const VALUE_FLAGS = new Set([
   "mode", "rerank", "type", "tag", "relevance", "status", "limit",
-  "max-tokens", "title", "tags", "stamp", "path", "root", "name",
+  "max-tokens", "section", "title", "tags", "stamp", "path", "root", "name",
   "out", "include", "exclude",
   "center", "depth", "direction", "stale-days", "community",
   "format", "as", "width", "allow-host",

@@ -7,7 +7,7 @@ const MAX_TOKENS = 1000;
  * Estimate token count from text length.
  * Rough heuristic: ~4 characters per token.
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
