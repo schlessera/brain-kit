@@ -16,7 +16,7 @@ import type { Taxonomy } from "../../lib/taxonomy.js";
 import { openDatabase } from "../../lib/db.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import type { CoreCommand } from "../types.js";
-import { parseArgs } from "../io.js";
+import { parseArgs, UsageError } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
@@ -78,6 +78,73 @@ function focusWarnings(docs: AuditDoc[], taxonomy: Taxonomy, focusRel: string, n
   return warnings;
 }
 
+/** Overdue reviews listed before the rest are summarised. */
+const DEFAULT_REVIEW_LIMIT = 5;
+/** A content-hygiene run older than this many days is flagged. */
+const HYGIENE_OVERDUE_DAYS = 10;
+/** Where the content-hygiene skill keeps its log (its templates fix the layout). */
+const HYGIENE_LAST_RUN = "context/hygiene/last-run.md";
+const HYGIENE_OPEN = "context/hygiene/open.md";
+
+export interface BriefingOptions {
+  /** Overdue reviews to list, oldest first, before `… and N more`. Default 5. */
+  reviewLimit?: number;
+}
+
+/**
+ * The day the content-hygiene skill last recorded a run: the date in its
+ * `## Last run: <timestamp>` heading, else the file's frontmatter `updated`.
+ * Null when neither holds a date.
+ */
+function lastHygieneRun(text: string): string | null {
+  const parsed = matter(text, {});
+  const heading = /^## Last run:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(parsed.content)?.[1];
+  if (heading && isDay(heading)) return heading;
+  const updated = parsed.data.updated;
+  const day = updated instanceof Date ? updated.toISOString().slice(0, 10) : String(updated ?? "");
+  return isDay(day) ? day : null;
+}
+
+/** Open hygiene entries: the `### ` headings of open.md, outside code fences. */
+function countOpenEntries(text: string): number {
+  let count = 0;
+  let fence: string | null = null;
+  for (const line of matter(text, {}).content.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) {
+      if (fence === null) fence = marker[0];
+      else if (marker[0] === fence) fence = null;
+      continue;
+    }
+    if (fence === null && line.startsWith("### ")) count++;
+  }
+  return count;
+}
+
+/**
+ * The Upkeep section: when content-hygiene last ran and what it left open,
+ * so upkeep that stopped is visible in the briefing. Empty when the brain
+ * has no hygiene log.
+ */
+function upkeepLines(root: string, todayStr: string): string[] {
+  const lastRunPath = resolve(root, HYGIENE_LAST_RUN);
+  const openPath = resolve(root, HYGIENE_OPEN);
+  if (!existsSync(lastRunPath) && !existsSync(openPath)) return [];
+  const lines = ["\n## Upkeep\n"];
+  const last = existsSync(lastRunPath) ? lastHygieneRun(readFileSync(lastRunPath, "utf-8")) : null;
+  if (last) {
+    const age = Math.round((Date.parse(todayStr) - Date.parse(last)) / MS_PER_DAY);
+    const overdue = age > HYGIENE_OVERDUE_DAYS ? " (overdue)" : "";
+    lines.push(`- content-hygiene last ran ${last}, ${age} day(s) ago${overdue}`);
+  } else {
+    lines.push(`- content-hygiene has no recorded run (${HYGIENE_LAST_RUN})`);
+  }
+  if (existsSync(openPath)) {
+    lines.push(`- ${countOpenEntries(readFileSync(openPath, "utf-8"))} open (${HYGIENE_OPEN})`);
+  }
+  return lines;
+}
+
 /**
  * Assemble the structured briefing data. Mechanical (no LLM): warnings about
  * the focus document, current focus, focus-linked documents, upcoming
@@ -91,7 +158,8 @@ function focusWarnings(docs: AuditDoc[], taxonomy: Taxonomy, focusRel: string, n
  * path is unset — essential for a fresh template with no current-focus file.
  * Throws when the index is missing so importers can handle it themselves.
  */
-export function generateBriefing(brain: BrainContext, limit = 15): string {
+export function generateBriefing(brain: BrainContext, limit = 15, opts: BriefingOptions = {}): string {
+  const reviewLimit = opts.reviewLimit ?? DEFAULT_REVIEW_LIMIT;
   if (!existsSync(brain.dbPath)) {
     throw new Error("Database not found. Run `brain index` first.");
   }
@@ -166,10 +234,16 @@ export function generateBriefing(brain: BrainContext, limit = 15): string {
       .all(todayStr) as any[];
     if (overdue.length > 0) {
       lines.push("\n## Overdue Reviews\n");
-      for (const r of overdue) {
+      for (const r of overdue.slice(0, reviewLimit)) {
         lines.push(`- ${r.next_review} | ${r.path} | ${r.title}`);
       }
+      if (overdue.length > reviewLimit) {
+        lines.push(`- … and ${overdue.length - reviewLimit} more (brain audit)`);
+      }
     }
+
+    // 4b. Upkeep: the content-hygiene log, when the brain keeps one.
+    lines.push(...upkeepLines(brain.root, todayStr));
 
     // 5. Recently active primary docs
     const recent = filterSearch(db, { relevance: "primary", limit });
@@ -221,11 +295,19 @@ export const briefingCommand: CoreCommand = {
   summary: "Emit a mechanical daily briefing (deadlines, reviews, silent edits)",
   helpBlock: `brain briefing — mechanical daily status (no LLM)
 
-  --limit <n>             Max recently-active docs (default: 15)`,
+  --limit <n>             Max recently-active docs (default: 15)
+  --limit-reviews <n>     Overdue reviews to list before "… and N more" (default: 5)`,
   async run(args, cli) {
     const { flags } = parseArgs(args);
     const limit = parseInt(flags.limit as string, 10) || 15;
+    let reviewLimit: number | undefined;
+    if (flags["limit-reviews"] !== undefined) {
+      reviewLimit = typeof flags["limit-reviews"] === "string" ? Number(flags["limit-reviews"]) : NaN;
+      if (!Number.isSafeInteger(reviewLimit) || reviewLimit < 0) {
+        throw new UsageError("--limit-reviews must be a non-negative integer");
+      }
+    }
     // Briefing is plain text (contract). Errors surface as usage failures.
-    console.log(generateBriefing(cli.brain, limit));
+    console.log(generateBriefing(cli.brain, limit, { reviewLimit }));
   },
 };
