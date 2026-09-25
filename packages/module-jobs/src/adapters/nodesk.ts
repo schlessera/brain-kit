@@ -15,43 +15,34 @@ export class NodeskAdapter extends BrowserAdapter {
   readonly tier = 2 as const;
   /** Its job pages, which detail-page enrichment may follow (#36). */
   override readonly detailHosts = ["nodesk.co"];
-  protected readonly readySelector = 'a[href^="/remote-jobs/"]';
+  /**
+   * The title link of an Algolia hit card, not any `/remote-jobs/` link: the
+   * page's navigation carries category links under the same path, and they
+   * render before the hits do (#277).
+   */
+  protected readonly readySelector = 'li.ais-Hits-item h2 a[href^="/remote-jobs/"]';
 
   protected urls(): string[] {
     return [LISTING_URL];
   }
 
   /**
-   * Runs INSIDE the page. `/remote-jobs/<slug>` is used for both postings and
-   * category pages, so the slug shape is the filter: a real posting's slug has
-   * at least three hyphenated parts and is not one of the known category
-   * names.
+   * Runs INSIDE the page. `/remote-jobs/<slug>` is used for postings,
+   * categories and every filter link inside a card (location, role, job
+   * type), so no slug shape tells them apart: `full-time-remote` and
+   * `blockchain-cryptocurrency-jobs` look like postings (#277). The posting is
+   * the one link in a hit card's title, so that is the only link read. The
+   * selector repeats `readySelector` because this function closes over
+   * nothing.
    */
   protected extract(): BrowserJobRecord[] {
     const jobs: BrowserJobRecord[] = [];
     const seen = new Set<string>();
-    const skipPaths = [
-      "collections",
-      "new",
-      "customer-support",
-      "design",
-      "engineering",
-      "marketing",
-      "non-tech",
-      "operations",
-      "product",
-      "sales",
-      "entry-level",
-      "other",
-    ];
 
-    for (const link of document.querySelectorAll('a[href^="/remote-jobs/"]')) {
+    for (const link of document.querySelectorAll('li.ais-Hits-item h2 a[href^="/remote-jobs/"]')) {
       const href = link.getAttribute("href") || "";
-      if (seen.has(href) || href === "/remote-jobs/") continue;
-
       const slug = href.replace("/remote-jobs/", "").replace(/\/$/, "");
-      if (!slug || slug.includes("/") || skipPaths.includes(slug)) continue;
-      if (slug.split("-").length < 3) continue;
+      if (!slug || slug.includes("/") || seen.has(href)) continue;
       seen.add(href);
 
       const title = link.textContent?.trim();

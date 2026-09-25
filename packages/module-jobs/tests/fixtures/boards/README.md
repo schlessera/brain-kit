@@ -132,14 +132,15 @@ how often each one bites.
   company still has to come from the card.
   Fixtures: `builtin/rendered-card.html`, `builtin/listing-jsonld.html`.
 - **`nodesk`** — the company is the `<h3>` under the title, but
-  `src/adapters/nodesk.ts:66` looks for `a[href*="/remote-companies/"]`, and
+  `src/adapters/nodesk.ts:59` looks for `a[href*="/remote-companies/"]`, and
   an Algolia hit card does not have one. Replaying the extractor against the
-  captured page gives 39 of 103 cards no company at all. The slug filter at
-  `:51-52` also admits category pages (`blockchain-cryptocurrency-jobs`,
-  `full-time-remote`) as jobs. The seven rows the live run stored under a
-  *neighbouring* company came from promoted blocks that the page rotates; the
-  captured page does not hold them, so treat that count as observed, not as
-  reproducible against this fixture.
+  captured page gives 39 of 103 cards no company at all. The slug filter the
+  extractor used then also admitted category pages
+  (`blockchain-cryptocurrency-jobs`, `full-time-remote`) as jobs; since #277 it
+  reads only the title link inside a hit card. The seven rows the live run
+  stored under a *neighbouring* company came from promoted blocks that the
+  page rotates; the captured page does not hold them, so treat that count as
+  observed, not as reproducible against this fixture.
   Fixture: `nodesk/rendered-card.html`.
 - **`simplyhired`** — title and company parse correctly. There is no description
   anywhere in the listing markup, so every stored row has `description_text`
