@@ -81,7 +81,11 @@ export function syncSkills(ctx: SkillSources, opts: SyncOptions = {}): SyncResul
   }
 
   const emitters = opts.emitters ?? [claudeEmitter];
-  const emitterResults = emitters.map((e) => ({ agent: e.agent, ...e.emit(skills, root) }));
+  const emitterResults = emitters.map((e) => {
+    const { written, removed, warnings: emitted = [] } = e.emit(skills, root);
+    for (const w of emitted) warnings.push(`${e.agent} emitter: ${w}`);
+    return { agent: e.agent, written, removed };
+  });
 
   return { materialized, pruned, warnings, emitters: emitterResults };
 }

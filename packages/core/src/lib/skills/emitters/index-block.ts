@@ -1,7 +1,7 @@
 /**
  * Fenced, machine-managed "Skills index" block the gemini emitter keeps in
  * GEMINI.md. The codex emitter wrote the same block into AGENTS.md until it
- * switched to the contract block, and still reads it to migrate a repo off it.
+ * switched to the contract block; its migration parses the old block itself.
  *
  * Only the region between the markers is ever touched; everything before the
  * start marker and after the end marker is preserved byte-for-byte. The block
@@ -9,14 +9,12 @@
  * unchanged skill set produces an identical file.
  */
 
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import type { SkillManifest } from "../../seams.js";
-import { upsertManagedBlock, type Markers } from "./managed-block.js";
 
 export const INDEX_START = "<!-- brain-kit:skills-index:start -->";
 export const INDEX_END = "<!-- brain-kit:skills-index:end -->";
-export const INDEX_MARKERS: Markers = { start: INDEX_START, end: INDEX_END };
 
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -59,5 +57,24 @@ export function readManagedNames(filePath: string): string[] {
  * changed (false ⇒ already up to date, no write).
  */
 export function upsertIndexBlock(filePath: string, skills: SkillManifest[]): boolean {
-  return upsertManagedBlock(filePath, INDEX_MARKERS, renderIndexBlock(skills));
+  const block = renderIndexBlock(skills);
+  const existed = existsSync(filePath);
+  const original = existed ? readFileSync(filePath, "utf8") : "";
+
+  const start = original.indexOf(INDEX_START);
+  const end = original.indexOf(INDEX_END);
+
+  let next: string;
+  if (start !== -1 && end !== -1 && end > start) {
+    next = original.slice(0, start) + block + original.slice(end + INDEX_END.length);
+  } else if (!existed || original.trim() === "") {
+    next = block + "\n";
+  } else {
+    const gap = original.endsWith("\n") ? "\n" : "\n\n";
+    next = original + gap + block + "\n";
+  }
+
+  if (next === original) return false;
+  writeFileSync(filePath, next);
+  return true;
 }

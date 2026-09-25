@@ -10,23 +10,35 @@
  *
  * Earlier versions wrote `.codex/prompts/<name>.md` (a location Codex never
  * read from a project) and a Skills index block. The first run after upgrading
- * swaps the index block for the contract block in place and deletes the
- * prompt files it names. Prompts it does not name are hand-authored and stay.
+ * migrates a repo off both; see `migratePrompts`. AGENTS.md is left untouched,
+ * with a warning, whenever its markers are ambiguous or a prompt could not be
+ * deleted, so the next sync can finish the job.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
+import matter from "gray-matter";
 
 import type { SkillEmitter } from "../../seams.js";
-import { INDEX_MARKERS, readManagedNames } from "./index-block.js";
-import { removeManagedBlock, upsertManagedBlock, type Markers } from "./managed-block.js";
+import { INDEX_END, INDEX_START } from "./index-block.js";
+import { appendBlock, applyEdits, scanBlock, type Edit } from "./managed-block.js";
 
 export const CONTRACT_START = "<!-- brain-kit:contract:start -->";
 export const CONTRACT_END = "<!-- brain-kit:contract:end -->";
-const CONTRACT_MARKERS: Markers = { start: CONTRACT_START, end: CONTRACT_END };
 
 /** `<core>/CONTRACT.md`, resolved from this file at packages/core/src/lib/skills/emitters/. */
 export const CONTRACT_FILE = resolve(import.meta.dir, "../../../../CONTRACT.md");
+
+/**
+ * A skill name as the Agent Skills specification allows it: lowercase letters,
+ * digits and single hyphens, at most 64 characters. Only such a name can come
+ * from the index block unambiguously and become a file name without escaping
+ * `.codex/prompts/`.
+ */
+const SKILL_NAME = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** An index row exactly as the old renderer wrote it: `- **<name>** — <description>`. */
+const INDEX_ROW = /^- \*\*(.+?)\*\* — (.*)$/;
 
 /** The full managed block, markers included: the contract body, verbatim. */
 export function renderContractBlock(contract: string): string {
@@ -40,40 +52,163 @@ export function renderContractBlock(contract: string): string {
   ].join("\n");
 }
 
+function collapse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function isRealDir(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether `file` is byte-for-byte the kind of prompt the old emitter wrote for
+ * this index row: frontmatter of exactly `name` and `description`, in that
+ * order and JSON-quoted, agreeing with the row.
+ */
+function isGeneratedPrompt(text: string, name: string, description: string): boolean {
+  if (!text.startsWith(`---\nname: ${JSON.stringify(name)}\ndescription: "`)) return false;
+  let data: Record<string, unknown>;
+  try {
+    data = matter(text).data as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  return (
+    Object.keys(data).join(",") === "name,description" &&
+    data.name === name &&
+    typeof data.description === "string" &&
+    collapse(data.description) === description
+  );
+}
+
+/**
+ * Delete the `.codex/prompts/` files the old index block proves this emitter
+ * wrote. A file is deleted only when its row names a valid skill, it is a
+ * regular file directly inside a real `.codex/prompts/` directory, and its
+ * content is the old generated template for that row. Anything else is left
+ * where it is and reported. Returns false when a deletion failed, so the
+ * caller keeps the index block and the next sync can retry.
+ */
+function migratePrompts(
+  repoRoot: string,
+  indexBlock: string,
+  removed: string[],
+  warnings: string[]
+): boolean {
+  const codexDir = join(repoRoot, ".codex");
+  const promptsDir = join(codexDir, "prompts");
+  if (existsSync(codexDir) && !isRealDir(codexDir)) {
+    warnings.push("`.codex` is not a plain directory; left its prompts in place");
+    return true;
+  }
+  if (existsSync(promptsDir) && !isRealDir(promptsDir)) {
+    warnings.push("`.codex/prompts` is not a plain directory; left its prompts in place");
+    return true;
+  }
+
+  let complete = true;
+  for (const line of indexBlock.split("\n")) {
+    if (!line.startsWith("- ")) continue;
+    const row = line.match(INDEX_ROW);
+    if (!row || !SKILL_NAME.test(row[1])) {
+      warnings.push(`AGENTS.md index row ${JSON.stringify(line)} does not name a skill unambiguously; left any prompt for it in place`);
+      continue;
+    }
+    const [, name, description] = row;
+    const rel = `.codex/prompts/${name}.md`;
+    const file = join(promptsDir, `${name}.md`);
+
+    let isFile: boolean;
+    try {
+      isFile = lstatSync(file).isFile();
+    } catch {
+      continue; // already gone
+    }
+    if (!isFile || !isGeneratedPrompt(readFileSync(file, "utf8"), name, description)) {
+      warnings.push(`${rel} is not the prompt brain-kit generated for "${name}"; left in place`);
+      continue;
+    }
+    try {
+      rmSync(file);
+      removed.push(rel);
+    } catch (e) {
+      warnings.push(`could not delete ${rel} (${(e as Error).message}); kept the old index block so the next sync retries`);
+      complete = false;
+    }
+  }
+
+  // The old emitter created the directories even for zero skills.
+  for (const [dir, rel] of [
+    [promptsDir, ".codex/prompts"],
+    [codexDir, ".codex"],
+  ] as const) {
+    if (!isRealDir(dir) || readdirSync(dir).length > 0) break;
+    try {
+      rmdirSync(dir);
+      removed.push(rel);
+    } catch {
+      break;
+    }
+  }
+  return complete;
+}
+
 export const codexEmitter: SkillEmitter = {
   agent: "codex",
   emit(_skills, repoRoot) {
     const written: string[] = [];
     const removed: string[] = [];
+    const warnings: string[] = [];
 
     const agentsFile = join(repoRoot, "AGENTS.md");
-    const formerPrompts = readManagedNames(agentsFile);
+    const original = existsSync(agentsFile) ? readFileSync(agentsFile, "utf8") : null;
+    const text = original ?? "";
+
+    const contract = scanBlock(text, { start: CONTRACT_START, end: CONTRACT_END });
+    const index = scanBlock(text, { start: INDEX_START, end: INDEX_END });
+    for (const [scan, label] of [
+      [contract, "contract"],
+      [index, "old skills index"],
+    ] as const) {
+      if (scan.kind === "malformed") {
+        warnings.push(`AGENTS.md has ${scan.reason} for the ${label} block; left it unchanged, fix the markers by hand`);
+        return { written, removed, warnings };
+      }
+    }
+    if (
+      contract.kind === "present" &&
+      index.kind === "present" &&
+      contract.from < index.to &&
+      index.from < contract.to
+    ) {
+      warnings.push("AGENTS.md has the contract and old skills index blocks overlapping; left it unchanged, fix the markers by hand");
+      return { written, removed, warnings };
+    }
 
     const block = renderContractBlock(readFileSync(CONTRACT_FILE, "utf8"));
-    let changed = upsertManagedBlock(agentsFile, CONTRACT_MARKERS, block, INDEX_MARKERS);
-    // Both blocks present only when the contract block was there already.
-    if (removeManagedBlock(agentsFile, INDEX_MARKERS)) changed = true;
-    if (changed) written.push("AGENTS.md");
 
-    const promptsDir = join(repoRoot, ".codex", "prompts");
-    for (const name of formerPrompts) {
-      const stale = join(promptsDir, `${name}.md`);
-      if (existsSync(stale)) {
-        rmSync(stale);
-        removed.push(`.codex/prompts/${name}.md`);
-      }
-    }
-    if (removed.length > 0) {
-      for (const [dir, rel] of [
-        [promptsDir, ".codex/prompts"],
-        [join(repoRoot, ".codex"), ".codex"],
-      ]) {
-        if (!existsSync(dir) || readdirSync(dir).length > 0) break;
-        rmdirSync(dir);
-        removed.push(rel);
-      }
+    if (index.kind === "present") {
+      const indexBlock = text.slice(index.from, index.to);
+      if (!migratePrompts(repoRoot, indexBlock, removed, warnings)) return { written, removed, warnings };
     }
 
-    return { written, removed };
+    const edits: Edit[] = [];
+    if (contract.kind === "present") {
+      edits.push({ from: contract.from, to: contract.to, insert: block });
+      if (index.kind === "present") edits.push({ from: index.from, to: index.to, insert: "" });
+    } else if (index.kind === "present") {
+      edits.push({ from: index.from, to: index.to, insert: block });
+    }
+    const next = edits.length > 0 ? applyEdits(text, edits) : appendBlock(text, block);
+
+    if (next !== original) {
+      writeFileSync(agentsFile, next);
+      written.push("AGENTS.md");
+    }
+    return { written, removed, warnings };
   },
 };

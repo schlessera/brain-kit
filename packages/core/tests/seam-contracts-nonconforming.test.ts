@@ -535,6 +535,20 @@ describe("SkillEmitter contract suite", () => {
     expect(result.failed).toEqual(["a skill dropped from the list leaves the layout"]);
   });
 
+  test("an emitter whose warnings are not strings fails the paths case", async () => {
+    const noisy = (): SkillEmitter => {
+      const inner = fileEmitter({ prune: true });
+      return {
+        agent: "fake",
+        emit(skills, repoRoot) {
+          return { ...inner.emit(skills, repoRoot), warnings: [{ oops: true }] as unknown as string[] };
+        },
+      };
+    };
+    const result = await failingCases((p) => runSkillEmitterContract({ name: "noisy", emitter: noisy }, p));
+    expect(result.failed).toEqual(["emit reports repo-relative paths: written ones exist, removed ones do not"]);
+  });
+
   test("an emitter that writes into the canonical home fails the canonical-home case", async () => {
     const result = await failingCases((p) =>
       runSkillEmitterContract(

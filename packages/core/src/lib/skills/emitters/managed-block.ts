@@ -1,75 +1,61 @@
 /**
  * Marker-fenced, machine-managed regions in a markdown file the user also
- * edits (AGENTS.md, GEMINI.md).
+ * edits (AGENTS.md).
  *
- * Only the region between a start and an end marker is ever touched;
- * everything before the start marker and after the end marker is preserved
- * byte-for-byte. Both helpers return whether the file changed, and write
- * nothing when it would not.
+ * A region is trusted only when its markers are unambiguous: exactly one start
+ * marker, exactly one end marker, in that order. Anything else is reported as
+ * malformed, and the caller changes nothing, because guessing which markers
+ * belong together is how hand-written text gets deleted. Edits touch only the
+ * marker-inclusive span; every byte outside it is kept.
  */
-
-import { existsSync, readFileSync, writeFileSync } from "fs";
 
 export interface Markers {
   start: string;
   end: string;
 }
 
-/** `[start, endExclusive)` of the fenced region, markers included, or null. */
-function locate(text: string, { start, end }: Markers): [number, number] | null {
-  const from = text.indexOf(start);
-  const to = text.indexOf(end);
-  if (from === -1 || to === -1 || to < from) return null;
-  return [from, to + end.length];
+export type BlockScan =
+  | { kind: "absent" }
+  | { kind: "present"; from: number; to: number }
+  | { kind: "malformed"; reason: string };
+
+function occurrences(text: string, needle: string): number {
+  let count = 0;
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + needle.length)) count++;
+  return count;
 }
 
-/**
- * Insert or replace `block` (markers included) in `filePath`. When the file has
- * no region for `markers`, a region for `replacing` is swapped out in place
- * instead, which is how an emitter moves a file from an old block to a new one.
- * Otherwise the block is appended; a missing file is created.
- */
-export function upsertManagedBlock(
-  filePath: string,
-  markers: Markers,
-  block: string,
-  replacing?: Markers
-): boolean {
-  const existed = existsSync(filePath);
-  const original = existed ? readFileSync(filePath, "utf8") : "";
-
-  const at = locate(original, markers) ?? (replacing ? locate(original, replacing) : null);
-
-  let next: string;
-  if (at) {
-    next = original.slice(0, at[0]) + block + original.slice(at[1]);
-  } else if (!existed || original.trim() === "") {
-    next = block + "\n";
-  } else {
-    const gap = original.endsWith("\n") ? "\n" : "\n\n";
-    next = original + gap + block + "\n";
+/** Where the region for `markers` is in `text`: absent, one clean span, or malformed. */
+export function scanBlock(text: string, { start, end }: Markers): BlockScan {
+  const starts = occurrences(text, start);
+  const ends = occurrences(text, end);
+  if (starts === 0 && ends === 0) return { kind: "absent" };
+  if (starts !== 1 || ends !== 1) {
+    return { kind: "malformed", reason: `${starts} start and ${ends} end marker(s), expected one of each` };
   }
-
-  if (next === original) return false;
-  writeFileSync(filePath, next);
-  return true;
+  const from = text.indexOf(start);
+  const endAt = text.indexOf(end);
+  if (endAt < from + start.length) return { kind: "malformed", reason: "the end marker comes before the start marker" };
+  return { kind: "present", from, to: endAt + end.length };
 }
 
-/**
- * Remove the region for `markers` from `filePath`, with the newline after its
- * end marker and one blank line before its start marker when there is one,
- * so the gap `upsertManagedBlock` added on append goes with it.
- */
-export function removeManagedBlock(filePath: string, markers: Markers): boolean {
-  if (!existsSync(filePath)) return false;
-  const original = readFileSync(filePath, "utf8");
-  const at = locate(original, markers);
-  if (!at) return false;
+export interface Edit {
+  from: number;
+  to: number;
+  insert: string;
+}
 
-  let [from, to] = at;
-  if (original[to] === "\n") to += 1;
-  if (original.slice(0, from).endsWith("\n\n")) from -= 1;
+/** Apply non-overlapping span edits to `text`; bytes outside every span are kept. */
+export function applyEdits(text: string, edits: Edit[]): string {
+  let out = text;
+  for (const { from, to, insert } of [...edits].sort((a, b) => b.from - a.from)) {
+    out = out.slice(0, from) + insert + out.slice(to);
+  }
+  return out;
+}
 
-  writeFileSync(filePath, original.slice(0, from) + original.slice(to));
-  return true;
+/** `text` with `block` appended after a blank line, keeping every existing byte. */
+export function appendBlock(text: string, block: string): string {
+  if (text === "") return block + "\n";
+  return text + (text.endsWith("\n") ? "\n" : "\n\n") + block + "\n";
 }

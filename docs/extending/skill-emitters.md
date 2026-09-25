@@ -23,12 +23,14 @@ export interface SkillEmitter {
   emit(
     skills: SkillManifest[],
     repoRoot: string
-  ): { written: string[]; removed: string[] };
+  ): { written: string[]; removed: string[]; warnings?: string[] };
 }
 ```
 
 `emit` receives every discovered skill and writes them into the agent's expected
-layout, returning what it wrote and what stale entries it removed.
+layout, returning what it wrote and what stale entries it removed. `warnings`
+names anything it deliberately left alone; `brain skills sync` reports each one
+prefixed with the emitter's agent.
 
 ## Built-ins
 
@@ -60,9 +62,19 @@ lint` warns when the two disagree.
 
 Earlier versions wrote `.codex/prompts/<name>.md`, which Codex never read from
 a project, and a "Skills index" block in `AGENTS.md`. The first sync after
-upgrading replaces the index block with the contract block in place and
-deletes the prompt files the index block named. Prompts it did not name are
-yours and stay.
+upgrading deletes the prompts that block proves it wrote, then replaces the
+block with the contract block in place and removes `.codex/prompts/` and
+`.codex/` if they are left empty. A prompt counts as generated only when its
+row names a valid skill, it is a plain file directly inside a plain
+`.codex/prompts/`, and its frontmatter is exactly what the old emitter wrote
+for that row. Anything else is yours: it stays, and the sync warns about it.
+If a deletion fails, `AGENTS.md` keeps its index block and the next sync
+retries.
+
+The emitter only edits a block whose markers are unambiguous: one start marker
+and one end marker, in that order. With a missing, repeated or misordered
+marker, it leaves `AGENTS.md` exactly as it is and warns, so fix the markers
+by hand.
 
 pi does **not** read `.agents/skills/`, despite the name. It discovers skills
 from `<agentDir>/skills` (user level — `$PI_AGENT_DIR`, else `~/.pi/agent`) and
@@ -155,7 +167,8 @@ runSkillEmitterContract(
   emit cleanly everywhere.
 - **Block emitters are additive.** The codex and gemini emitters manage only a
   fenced block in `AGENTS.md` / `GEMINI.md`; everything you write around that
-  block is preserved byte for byte across syncs.
+  block is preserved byte for byte across syncs. The codex emitter refuses to
+  edit around markers it cannot pair unambiguously.
 
 ## See also
 

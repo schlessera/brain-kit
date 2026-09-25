@@ -5,7 +5,8 @@
  *   1. `agent` is a string
  *   2. every `emit` returns `{ written, removed }` synchronously, as
  *      repo-relative paths; everything it reports written exists afterwards
- *      (a link resolves), everything it reports removed does not
+ *      (a link resolves), everything it reports removed does not; `warnings`,
+ *      when present, is a list of strings
  *   3. every skill it is given is reachable from the emitted layout: a
  *      written path names it, or a written file mentions it (a written
  *      directory counts through the paths and files inside it)
@@ -165,6 +166,10 @@ export function runSkillEmitterContract(
           if (!Array.isArray(result?.written) || !Array.isArray(result?.removed)) {
             problems.push(`${step}: not { written: string[], removed: string[] }`);
             return;
+          }
+          const { warnings } = result as { warnings?: unknown };
+          if (warnings !== undefined && !(Array.isArray(warnings) && warnings.every((w) => typeof w === "string"))) {
+            problems.push(`${step}: warnings is not a list of strings`);
           }
           for (const rel of [...result.written, ...result.removed]) {
             if (!isRepoRelative(rel)) problems.push(`${step}: not repo-relative: ${rel}`);

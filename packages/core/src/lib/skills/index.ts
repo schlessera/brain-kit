@@ -31,12 +31,10 @@ export { piEmitter } from "./emitters/pi.js";
 export {
   INDEX_START,
   INDEX_END,
-  INDEX_MARKERS,
   renderIndexBlock,
   readManagedNames,
   upsertIndexBlock,
 } from "./emitters/index-block.js";
-export { upsertManagedBlock, removeManagedBlock, type Markers } from "./emitters/managed-block.js";
 
 import { claudeEmitter } from "./emitters/claude.js";
 import { codexEmitter } from "./emitters/codex.js";

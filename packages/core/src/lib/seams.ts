@@ -109,7 +109,12 @@ export interface SkillEmitter {
   emit(
     skills: SkillManifest[],
     repoRoot: string
-  ): { written: string[]; removed: string[] };
+  ): {
+    written: string[];
+    removed: string[];
+    /** Things the emitter deliberately left alone and the user should know about. */
+    warnings?: string[];
+  };
 }
 
 // ---------------------------------------------------------------------------
