@@ -75,3 +75,44 @@ describe("brain_read wrapper", () => {
     });
   });
 });
+
+describe("brain_read wrapper on a document over the output limit", () => {
+  // MAX_READ_BYTES in src/tools.ts.
+  const LIMIT = 100_000;
+  const filler = "Filler line for the long document.\n".repeat(Math.ceil((LIMIT * 1.5) / 35));
+  const LONG =
+    "---\ntype: note\ntitle: Long\ncreated: 2026-01-01\nupdated: 2026-01-02\n---\n\n## Early\n\n" +
+    filler +
+    "\n## Late\n\nThe section after the clip boundary.\n";
+  let big: TempBrain;
+
+  beforeAll(async () => {
+    big = await makeIndexedBrain({ "notes/long.md": LONG });
+  });
+  afterAll(() => big.cleanup());
+
+  const readBig = async (params: Record<string, unknown>) => {
+    const list = createBrainTools({
+      brain: createBrainAccess(big.root),
+      turn: createTurnContext(),
+      lock: toolLockFromKeyed(createKeyedLock()),
+    });
+    const tool = list.find((t) => t.name === "brain_read")!;
+    return resultText(await tool.execute("r", params as never, undefined, undefined, CTX));
+  };
+
+  test("a path-only read is still clipped", async () => {
+    expect(LONG.length).toBeGreaterThan(LIMIT);
+    const text = await readBig({ path: "notes/long.md" });
+    expect(text.startsWith(LONG.slice(0, LIMIT))).toBe(true);
+    expect(text).toContain(`… [truncated ${LONG.length - LIMIT} bytes]`);
+    expect(text).not.toContain("## Late");
+  });
+
+  test("a section past the clip boundary is found: the clip applies to the selected text", async () => {
+    expect(LONG.indexOf("## Late")).toBeGreaterThan(LIMIT);
+    await expect(readBig({ path: "notes/long.md", section: "Late" })).resolves.toBe(
+      "## Late\n\nThe section after the clip boundary.\n"
+    );
+  });
+});

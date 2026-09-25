@@ -510,7 +510,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     async execute(_id: string, params: { path: string; section?: string; max_tokens?: number }) {
       const abs = resolveOrThrow(params.path);
       // The same reader as the MCP tool and `brain read`; with neither option
-      // it returns the file untouched, so the default read is unchanged.
+      // it returns the file untouched, so the default read is unchanged. The
+      // byte clip applies to what it selected, so a section past the clip
+      // point of the whole file is still reachable.
       const text = readDocumentPart(readFileSync(abs, "utf-8"), {
         section: params.section,
         maxTokens: params.max_tokens,
