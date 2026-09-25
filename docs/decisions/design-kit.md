@@ -3826,7 +3826,7 @@ also billed differently, the subscription here and an API key on pi. No
 mechanism is known by which billing reaches what the model decides, but the
 two runs were not identical in that respect.
 
-## 2026-09-25 — measured: eager brain tools change how the Claude backend reads the brain, not whether it draws (#358)
+## 2026-09-25 — measured: eager brain tools change how the Claude backend reads the brain; no observed gain on `contact` or `quote` (#358)
 
 **Question.** The entry above left the tool roster as the leading suspect for
 the gap to pi, which sits in the prompts answered by reading the brain. On pi
@@ -3876,8 +3876,9 @@ on a `trend` turn.
 the brain copy. The harness's escape rule, conservative since #360, flagged
 all three itself. The transcript audit read every path-like token handed to a
 non-block tool, a bare `/`, `~` and `..` included, and found the same three
-and no others. All three are **excluded**. Two of them drew a `trend` block,
-so the exclusion lowers the rate. Apart from those, the audit found no
+and no others. All three are **excluded**. Two of them drew a `trend` block
+and one did not, so the exclusion moves the overall rate from 44/64 (68.75%)
+to 42/61 (68.85%). Apart from those, the audit found no
 instruction file, no user skill or agent, and no account email. Skills and
 agents were the CLI's built-ins, the same list #137 saw. Every `contact`
 answer named Alex Example.
@@ -3890,7 +3891,7 @@ out of every cell.
 | --- | --- | --- | --- | --- | --- | --- |
 | `compare-short` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 | 12/12, right 12 |
 | `compare-long` | `comparison` | 6/6 | 6/6 | **12/12**, right 12 | 12/12, right 12 | 12/12, right 12 |
-| `trend` | `trend` | 3/3 | 6/6 | **9/9**, right 8 (`timeline` ×1) | 10/10, right 10 | 8/8, right 8 |
+| `trend` | `trend` | 3/3 | 6/6 | **9/9**, right 8 (`timeline` ×1; one turn drew `bars` after its `trend`) | 10/10, right 10 | 8/8, right 8 |
 | `contact` | `contact` | 0/6 | 0/6 | **0/12** | 0/12 | 5/12, right 5 |
 | `steps` | `steps` | 2/2 | 2/2 | **4/4**, right 4 | 3/4, right 3 | 4/4, right 4 |
 | `schedule` | `schedule` | 1/2 | 1/2 | **2/4**, right 0 (`timeline`, `receipt`) | 2/4, right 0 (`timeline` ×2) | 4/4, right 0 (`timeline` ×4) |
@@ -3905,20 +3906,23 @@ typed the sentence as a markdown blockquote all four times, as it did in #137.
 **The effect, with a number.** Over the five prompts answered by reading the
 brain (`contact`, `steps`, `schedule`, `quote` and the summary), eager brain
 tools drew on **9 of 28 turns, against 6 of 28 with the tools deferred**. pi
-drew on 20 of 28. The whole move is three turns in the thin cells, the
-summary and `steps`, which #137 already said can move by a turn on a re-run.
-On the two firm cells nothing moved: `contact` and `quote` are **0 of 16
-with eager brain tools, 0 of 16 deferred, and 8 of 16 on pi**. The overall
-rate went from 65% to 69%, and it is still 18 points short of pi's 87%.
+drew on 20 of 28. The whole move is three turns in the two-rep cells, the
+summary and `steps`. At four turns a cell, 1/4 to 3/4 is too few turns to
+call either an effect or noise. On `contact` and `quote` there was **no
+observed improvement: 0 of 16 with eager brain tools, 0 of 16 deferred, and
+8 of 16 on pi**. The overall rate went from 65% to 69%, and it is still 18
+points short of pi's 87%.
 
 **What that means for the roster candidate.** Deferral of the brain tools
 explains *how* the Claude backend read the brain in #137. It went through
 `Bash` and `Read` because the brain tools were behind tool search, and with
 them in the prompt it reads through them, as pi does. It does not explain
 *whether* it draws. On `contact` and `quote` the model now reads the brain
-the way pi does and still types the answer every time. This rules out one
-roster difference, deferred against eager brain tools, as the cause of those
-two cells. It does not rule out the roster. The Claude prompt still carries
+the way pi does and still typed the answer on every turn measured. So
+deferral does not account for the size of pi's lead on those two cells (8 of
+16 against 0 of 16). These counts cannot rule out a smaller effect: a true
+draw rate of 10% still gives 0 of 4 about two times in three. It does not
+rule out the roster either. The Claude prompt still carries
 the 13 CLI tools, and pi carries its curated set, so the two rosters still
 differ in size and composition. The layer and the backend are also still
 open. Nothing here separates them from what is left of the roster.
@@ -3927,5 +3931,6 @@ open. Nothing here separates them from what is left of the roster.
 template should write into `.mcp.json`. That is a separate decision this run
 informs, not makes. The rate is one input to it. The prompt was 8 schemas
 larger, and on prompts 3–7 the model stopped reading the brain through a
-shell. Prompts 4–7 are still two reps a run. The summary's 1/4 to 3/4 and
-`steps`' 3/4 to 4/4 are inside what a re-run moves.
+shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
+and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
+`contact` and `quote` smaller than these counts can see.
