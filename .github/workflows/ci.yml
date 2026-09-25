@@ -199,6 +199,17 @@ jobs:
             if (typeof claude.createClaudeBackend !== "function") {
               throw new Error("createClaudeBackend export is missing");
             }
+            const coreTesting = await import("@schlessera/brain/testing");
+            for (const suite of [
+              "runEmbeddingProviderContract",
+              "runCompletionProviderContract",
+              "runAgentRunnerContract",
+              "runSkillEmitterContract",
+            ]) {
+              if (typeof coreTesting[suite] !== "function") {
+                throw new Error(`@schlessera/brain/testing is missing ${suite}`);
+              }
+            }
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
@@ -242,6 +253,13 @@ jobs:
                 );
               }
             }
+          }
+
+          // Core's seam contract suites import no bun: module, so unlike core
+          // itself they load under Node, which resolves them to the built dist/.
+          const coreTesting = await import("@schlessera/brain/testing");
+          if (typeof coreTesting.runEmbeddingProviderContract !== "function") {
+            throw new Error("Node failed to import the @schlessera/brain/testing suites from dist/");
           }
           NODE
           ./node_modules/.bin/brain --version

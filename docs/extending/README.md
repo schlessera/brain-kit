@@ -204,10 +204,16 @@ there is no vote and no score.
    no API key and no network, like every test in this repository. For a
    backend that means `runBackendContract` from
    `@schlessera/brain-ui-sdk/testing`, the harness both first-party backends
-   run. For a core seam it means driving the real provider code against an
-   isolated `fetch` or a fake binary, as `packages/core/tests/gemini-query.test.ts`
-   does, covering every method and every `capabilities` flag the provider
-   declares. A test of a predicate is not proof for anything with a runtime.
+   run. For a core seam it means the seam's suite from
+   `@schlessera/brain/testing` (`runEmbeddingProviderContract`,
+   `runCompletionProviderContract`, `runAgentRunnerContract` or
+   `runSkillEmitterContract`), run against the real provider code driven
+   through an isolated `fetch` or a fake binary, as
+   `packages/core/tests/seam-contracts.test.ts` and
+   `agent-runner-contracts.test.ts` beside it run every built-in. The suite
+   is the floor: cover every method and every `capabilities` flag the provider
+   declares beyond it too. A test of a predicate is not proof for anything with
+   a runtime.
 4. **Degradation matches the seam.** A missing key, an unreachable vendor, an
    absent optional method: each produces the degraded behaviour the seam's
    page documents and a `warnings` entry, never a crash and never a silently

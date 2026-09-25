@@ -53,6 +53,8 @@ export function assertPublishArtifacts(packageDir: string, packageName: string):
   if (packageName !== "@schlessera/brain") return;
 
   requireFile(join(packageDir, "dist", "cli", "brain.js"), packageName);
+  // The seam contract suites third-party providers run (#342).
+  requireFile(join(packageDir, "dist", "testing", "index.js"), packageName);
   const hooksDir = join(packageDir, "dist", "hooks");
   if (!existsSync(hooksDir) || !statSync(hooksDir).isDirectory()) {
     throw new Error(

@@ -93,6 +93,25 @@ core so a new emitter is mostly a layout choice.
 
 3. **(Optional) publish** the emitter so others can adopt your agent format.
 
+## Test it against the contract
+
+`@schlessera/brain/testing` exports `runSkillEmitterContract`, the suite every
+entry in `BUILTIN_EMITTERS` runs in `packages/core/tests/seam-contracts.test.ts`.
+It builds a scratch repository with two skills in `.agents/skills/` and
+asserts that `emit` reports repo-relative paths that exist once written and
+are gone once removed, that every skill is reachable from what it wrote, that
+a skill dropped from the list leaves the layout, that re-emitting an
+unchanged list removes nothing, and that `.agents/skills/` itself is never
+written:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { runSkillEmitterContract } from "@schlessera/brain/testing";
+import { myEmitter } from "./my-emitter";
+
+runSkillEmitterContract({ name: "opencode", emitter: () => myEmitter }, { describe, expect, test });
+```
+
 ## Capability and degradation notes
 
 - **Skill lint keeps skills portable.** `brain skills lint` (folded into `brain

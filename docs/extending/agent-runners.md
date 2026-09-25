@@ -79,6 +79,39 @@ pass a custom runner.
 3. **(Optional) publish** as `brain-agent-<vendor>` (or use any `id` string,
    e.g. `"omp"`, when you pass a value).
 
+## Test it against the contract
+
+`@schlessera/brain/testing` exports `runAgentRunnerContract`, the suite the
+four built-in runners run against stand-in CLIs in
+`packages/core/tests/agent-runner-contracts.test.ts`. It asserts that
+`capabilities.streaming` agrees with whether `runStreaming` exists, that
+`run` executes in `cwd` on the prompt and resolves to the agent's final text,
+that `timeoutMs` is honoured, and that `runStreaming` surfaces tool activity
+as it happens. Give it two runners wired to a fake agent. The first uses a
+tool, waits until the file named by the exported `TOOL_EVENT_SEEN_FILE`
+exists in its working directory, then answers with that directory and the
+prompt (`` `${process.cwd()}\n${prompt}` ``). The suite creates the file
+before `run`, and under `runStreaming` only once your runner has delivered
+the tool event, so a runner that holds events back until the end never
+finishes. The second runner's agent never finishes at all:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { runAgentRunnerContract } from "@schlessera/brain/testing";
+
+runAgentRunnerContract(
+  { name: "mine", echoing: () => myRunner(echoingAgent), hanging: () => myRunner(hangingAgent) },
+  { describe, expect, test }
+);
+```
+
+A runner that spawns its CLI by name resolves it against the `PATH` the test
+process started with, so point the runner at the stand-in directly, or start
+the test process with a `PATH` that holds only stand-ins, as the built-ins'
+test does.
+
+Some cases wait on a deadline for up to a few seconds, so run the suite with a per-test timeout above bun's default 5s (`bun test --timeout 30000`, as this repository does).
+
 ## Capability and degradation notes
 
 - **`capabilities.streaming: false`** → callers that want progress fall back to a
