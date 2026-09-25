@@ -427,6 +427,8 @@ describe("hybrid fusion", () => {
     expect(vec).not.toContain("notes/fo.md");
 
     const paths = (await hybrid(10)).results.map(r => r.path);
+    expect(paths).toContain("notes/v2.md");
+    expect(paths).toContain("notes/fo.md");
     expect(paths.indexOf("notes/v2.md")).toBeLessThan(paths.indexOf("notes/fo.md"));
   });
 });
@@ -464,7 +466,31 @@ describe("lifecycle reranking", () => {
     // The premise: the retrieval order puts them at 1 and 30.
     const raw = await paths(search("vector", "none", 50));
     expect([raw.indexOf("notes/old.md"), raw.indexOf("notes/late.md")]).toEqual([0, 29]);
+    expect(ranked).toContain("notes/old.md");
+    expect(ranked).toContain("notes/late.md");
     expect(ranked.indexOf("notes/old.md")).toBeLessThan(ranked.indexOf("notes/late.md"));
+  });
+
+  test("in vector mode, a lone result is scored like a first place among several", async () => {
+    addRankedDoc(1, "old", 0.0, "historical");
+    const alone = (await search("vector", "heuristic")).results;
+    expect(alone.map(r => r.path)).toEqual(["notes/old.md"]);
+    addRankedDoc(2, "far", 0.9, "historical");
+    const withOther = (await search("vector", "heuristic")).results;
+    expect(withOther[0]!.path).toBe("notes/old.md");
+    // Rank 1 is 1/61, times the historical factor and recency: the same
+    // score, whether or not another result came back.
+    expect(alone[0]!.score).toBeCloseTo(withOther[0]!.score, 12);
+    expect(alone[0]!.score).toBeLessThan(1 / 61);
+  });
+
+  test("in vector mode, a result filtered down to one keeps the same score", async () => {
+    addRankedDoc(1, "old", 0.0, "historical");
+    addRankedDoc(2, "far", 0.9, "secondary");
+    const all = (await search("vector", "heuristic")).results;
+    const filtered = (await hybridSearch(db, { query: "lantern", mode: "vector", rerank: "heuristic", relevance: "historical", now: NOW }, { embeddings: provider })).results;
+    expect(filtered.map(r => r.path)).toEqual(["notes/old.md"]);
+    expect(filtered[0]!.score).toBeCloseTo(all.find(r => r.path === "notes/old.md")!.score, 12);
   });
 
   test("with rerank none, every mode keeps the retrieval order", async () => {

@@ -625,7 +625,9 @@ export async function hybridSearch(
   // instead: the scale hybrid's fused scores already have, where a factor
   // nudges a document a few places rather than across the list.
   const rerankMode = opts.rerank ?? getDefaultRerankerMode();
-  if (rerankMode !== "none" && candidates.length > 1) {
+  // Every non-empty set, one result included, so a result's score does not
+  // change scale with how many others came back.
+  if (rerankMode !== "none" && candidates.length > 0) {
     if (mode === "vector") {
       candidates = candidates.map((result, i) => ({ ...result, score: 1 / (RRF_K + i + 1) }));
     }

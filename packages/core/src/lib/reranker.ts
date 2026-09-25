@@ -113,7 +113,7 @@ export function rerank(
 ): SearchResult[] {
   const now = config.now?.getTime() ?? Date.now();
   if (Number.isNaN(now)) throw new Error("rerank: now must be a valid Date");
-  if (config.mode === "none" || candidates.length <= 1) {
+  if (config.mode === "none" || candidates.length === 0) {
     return candidates;
   }
 

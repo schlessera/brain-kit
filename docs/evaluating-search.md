@@ -125,8 +125,22 @@ median for the answerable queries. When the two are close, search answers an
 unanswerable question as confidently as a real one. That is the case where an
 agent reading the top result is most likely to be misled.
 
-Scores are only comparable within one mode: full-text scores are BM25 values,
-hybrid scores are fusion values in the hundredths.
+Scores are only comparable within one mode and one rerank setting:
+
+| Mode | `--rerank none` | `--rerank heuristic` (the default) |
+| --- | --- | --- |
+| `fts` | the BM25 value, larger is better | BM25 times the lifecycle factors |
+| `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors |
+| `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors |
+
+The lifecycle factors are relevance (`primary` ×1.15, `historical` ×0.85),
+draft status (×0.9) and recency (between ×0.7 and ×1).
+
+With the heuristic reranker, a vector score comes from the result's rank, not
+its distance. Rank 1 starts at `1/61` whether the nearest vector was close or
+far, so the median top-1 score cannot tell a confident vector answer from a
+weak one. To compare confidence in vector mode, run it with `--rerank none`,
+which keeps the distance.
 
 ## Output
 
