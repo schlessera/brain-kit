@@ -8,7 +8,7 @@
  * its floor for all of them and cannot supply the date order itself.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -39,6 +39,14 @@ beforeAll(async () => {
     "notes/beacon-1.md": doc("Signal 1", "2020-05-02", "beacon beacon beacon beacon", "2020-12-03"),
     "notes/beacon-2.md": doc("Signal 2", "2020-05-03", "beacon beacon", "2020-12-02"),
     "notes/beacon-3.md": doc("Signal 3", "2020-05-04", "beacon", "2020-12-01"),
+    // upcoming, against a clock pinned to NOW (2026-07-01): deadlines
+    // yesterday, today and tomorrow, and two later ones whose score order
+    // (ember-late matches more strongly) is the reverse of their date order.
+    "notes/ember-yesterday.md": doc("Ember Y", "2020-05-01", "ember", "2026-06-30"),
+    "notes/ember-today.md": doc("Ember T", "2020-05-01", "ember", "2026-07-01"),
+    "notes/ember-tomorrow.md": doc("Ember M", "2020-05-01", "ember", "2026-07-02"),
+    "notes/ember-soon.md": doc("Ember S", "2020-05-01", "ember", "2026-08-01"),
+    "notes/ember-late.md": doc("Ember L", "2020-05-01", "ember ember ember ember ember", "2026-09-01"),
   });
   const list = createBrainTools({
     brain: createBrainAccess(brain.root),
@@ -104,11 +112,63 @@ describe("sorts", () => {
 });
 
 describe("upcoming", () => {
-  test("excludes a past deadline", async () => {
-    expect(await lantern({ upcoming: true })).not.toContain("notes/lantern-past.md");
+  const NOW = new Date("2026-07-01T12:00:00Z");
+  async function upcoming(params: Record<string, unknown> = {}) {
+    setSystemTime(NOW);
+    try {
+      return await paths({ query: "ember", upcoming: true, ...params });
+    } finally {
+      setSystemTime();
+    }
+  }
+
+  test("the premise: score order puts the later deadline first", async () => {
+    const ranked = await paths({ query: "ember" });
+    expect(ranked.indexOf("notes/ember-late.md")).toBeLessThan(ranked.indexOf("notes/ember-soon.md"));
   });
-  test("includes a far-future deadline", async () => {
-    expect(await lantern({ upcoming: true })).toEqual(["notes/lantern-far.md"]);
+  test("excludes a deadline yesterday", async () => {
+    expect(await upcoming()).not.toContain("notes/ember-yesterday.md");
+  });
+  test("includes a deadline today", async () => {
+    expect(await upcoming()).toContain("notes/ember-today.md");
+  });
+  test("lists every deadline from today on, earliest first", async () => {
+    expect(await upcoming()).toEqual([
+      "notes/ember-today.md", "notes/ember-tomorrow.md", "notes/ember-soon.md", "notes/ember-late.md",
+    ]);
+  });
+  test("an explicit deadline_from wins over today", async () => {
+    expect(await upcoming({ deadline_from: "2026-07-02" })).toEqual([
+      "notes/ember-tomorrow.md", "notes/ember-soon.md", "notes/ember-late.md",
+    ]);
+  });
+  test("an explicit sort wins over the deadline sort", async () => {
+    const ranked = await upcoming({ sort: "score" });
+    expect(ranked.indexOf("notes/ember-late.md")).toBeLessThan(ranked.indexOf("notes/ember-soon.md"));
+  });
+});
+
+describe("the registered schema", () => {
+  const schema = () => JSON.parse(JSON.stringify(search.parameters)) as {
+    required: string[];
+    properties: Record<string, { type?: string; description?: string; anyOf?: { const: string }[] }>;
+  };
+
+  test("adds the six date inputs, each optional and described", () => {
+    const { required, properties } = schema();
+    expect(required).toEqual(["query"]);
+    for (const key of ["updated_since", "updated_before", "deadline_from", "deadline_to"]) {
+      expect({ key, type: properties[key]?.type }).toEqual({ key, type: "string" });
+      expect(properties[key]?.description).toContain("YYYY-MM-DD");
+    }
+    expect(properties.upcoming?.type).toBe("boolean");
+    expect(properties.upcoming?.description).toContain("deadline_from today");
+  });
+
+  test("sort is an enum of score, updated and deadline", () => {
+    const { properties } = schema();
+    expect(properties.sort?.anyOf?.map((option) => option.const)).toEqual(["score", "updated", "deadline"]);
+    expect(properties.sort?.description).toContain("earliest first");
   });
 });
 
