@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -343,7 +343,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 11);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 12) {
     // v12 — `supersedes` frontmatter (#412): which documents a newer one
     // replaces. Stored like `links`: the target as written, and the document
     // it resolves to, re-resolved on every index run. Derived, never
@@ -358,8 +358,40 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     db.run("CREATE INDEX IF NOT EXISTS idx_supersedes_target_id ON supersedes(target_id)");
     db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
 
+    setSchemaVersion(db, 12);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v13 — full-text search over chunks, so a long document's match is found
+    // in the section it sits in rather than diluted across the whole body.
+    // An external-content table (fts5 §4.4.3): the text stays in `chunks`,
+    // and triggers keep the index in step with every write to it, cascaded
+    // deletes included. Built from the rows already there: an upgraded brain
+    // needs no reindex.
+    createChunksFts(db);
+    db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')");
+
     setSchemaVersion(db, SCHEMA_VERSION);
   }
+}
+
+/** The chunk full-text table and the triggers that keep it in step with `chunks`. */
+function createChunksFts(db: Database): void {
+  db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    heading, content,
+    content='chunks', content_rowid='id',
+    tokenize='porter unicode61'
+  )`);
+  db.run(`CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, heading, content) VALUES (new.id, new.heading, new.content);
+  END`);
+  db.run(`CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, heading, content) VALUES ('delete', old.id, old.heading, old.content);
+  END`);
+  db.run(`CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE OF heading, content ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, heading, content) VALUES ('delete', old.id, old.heading, old.content);
+    INSERT INTO chunks_fts(rowid, heading, content) VALUES (new.id, new.heading, new.content);
+  END`);
 }
 
 function getSchemaVersion(db: Database): number {

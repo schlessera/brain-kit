@@ -245,8 +245,37 @@ function sanitizeFtsQuery(query: string, stopwords: boolean): string {
   return [...new Set(content.map(quoteFtsTerm))].join(" OR ");
 }
 
+/** Whether the index has the chunk full-text table (schema 13 and later). */
+function hasChunksFts(db: Database): boolean {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chunks_fts'").get() !== null;
+}
+
+type FtsRow = Omit<SearchResult, "chunks">;
+
+/** The document fields a full-text row carries, as SQL. */
+function ftsDocColumns(db: Database): string {
+  return `
+  d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
+  (SELECT GROUP_CONCAT(t.name, ', ')
+   FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+   WHERE dt.document_id = d.id) as tags`;
+}
+
 /**
- * Full-text search using FTS5.
+ * Full-text search using FTS5, over two tables.
+ *
+ * - `documents_fts`, restricted to a document's title, summary and tags
+ *   (bm25 weights 5, 3 and 2): what the document is called and about.
+ * - `chunks_fts`, over each chunk's heading and body (weights 2 and 1): where
+ *   in the document the words are. A long document is ranked by its best
+ *   section, not diluted by BM25's length normalisation over its whole body.
+ *
+ * A document's score is the better of its two BM25 scores (its best chunk's,
+ * for the chunk table), and its snippet comes from its best-matching chunk
+ * when a chunk matched, else from the document row as before. A document
+ * that matches only on its whole-document row ranks after all of those (see
+ * below). An index from before schema 13 has no chunk table and is searched
+ * on its whole-document row alone, as it always was.
  */
 function ftsSearch(
   db: Database,
@@ -255,35 +284,84 @@ function ftsSearch(
   candidates = (opts.limit ?? 20) * 2
 ): SearchResult[] {
   const filters = buildFilters(opts);
+  const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+  const columns = ftsDocColumns(db);
 
-  // bm25() column weights: title 5x, summary 3x, content 1x, tags 2x —
-  // frontmatter fields carry far more signal per token than body text.
   // bm25() returns negative values (better = more negative), hence the
   // negation for score and ascending ORDER BY.
-  const sql = `
-    SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
-      (SELECT GROUP_CONCAT(t.name, ', ')
-       FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
-       WHERE dt.document_id = d.id) as tags,
-      -bm25(documents_fts, 5.0, 3.0, 1.0, 2.0) as score,
-      snippet(documents_fts, 2, '>>>', '<<<', '...', 40) as snippet
-    FROM documents_fts fts
-    JOIN documents d ON d.id = fts.rowid
-    WHERE documents_fts MATCH ? ${filters.where}
-    ORDER BY bm25(documents_fts, 5.0, 3.0, 1.0, 2.0)
-    LIMIT ?
-  `;
+  const wholeDocument = (expression: string, limit: number) =>
+    db
+      .prepare(
+        `SELECT ${columns},
+           -bm25(documents_fts, 5.0, 3.0, 1.0, 2.0) as score,
+           snippet(documents_fts, 2, '>>>', '<<<', '...', 40) as snippet
+         FROM documents_fts fts
+         JOIN documents d ON d.id = fts.rowid
+         WHERE documents_fts MATCH ? ${filters.where}
+         ORDER BY bm25(documents_fts, 5.0, 3.0, 1.0, 2.0)
+         LIMIT ?`
+      )
+      .all(expression, ...filters.params, limit) as SearchResult[];
+  if (!hasChunksFts(db)) return wholeDocument(match, candidates);
 
-  // Stopwords follow the index: English ones only for an English (Porter)
-  // index, so a query and the text it searches are read the same way. The
-  // tokenizer is read and the query run in one read transaction, so a
-  // rebuild committing in between cannot pair one table's stopwords with the
-  // other table.
-  return db.transaction(() => {
-    const sanitized = sanitizeFtsQuery(query, ftsIsEnglish(db));
-    return db.prepare(sql).all(sanitized, ...filters.params, candidates) as SearchResult[];
-  })();
+  const byDocument = db
+    .prepare(
+      `SELECT ${columns},
+         -bm25(documents_fts, 5.0, 3.0, 0.0, 2.0) as score,
+         snippet(documents_fts, 2, '>>>', '<<<', '...', 40) as snippet
+       FROM documents_fts fts
+       JOIN documents d ON d.id = fts.rowid
+       WHERE documents_fts MATCH ? ${filters.where}
+       ORDER BY bm25(documents_fts, 5.0, 3.0, 0.0, 2.0)
+       LIMIT ?`
+    )
+    .all(`{title summary tags} : (${match})`, ...filters.params, candidates) as FtsRow[];
+
+  // Several chunks of one document can match, so the chunk lane reads a wider
+  // window before keeping each document's best.
+  const byChunk = db
+    .prepare(
+      `SELECT ${columns},
+         -bm25(chunks_fts, 2.0, 1.0) as score,
+         snippet(chunks_fts, 1, '>>>', '<<<', '...', 40) as snippet
+       FROM chunks_fts cf
+       JOIN chunks c ON c.id = cf.rowid
+       JOIN documents d ON d.id = c.document_id
+       WHERE chunks_fts MATCH ? ${filters.where}
+       ORDER BY bm25(chunks_fts, 2.0, 1.0)
+       LIMIT ?`
+    )
+    .all(match, ...filters.params, candidates * 5) as FtsRow[];
+
+  const best = new Map<string, FtsRow>();
+  for (const row of byChunk) {
+    const seen = best.get(row.path);
+    if (!seen || row.score > seen.score) best.set(row.path, row);
+  }
+  for (const row of byDocument) {
+    const seen = best.get(row.path);
+    if (!seen) best.set(row.path, row);
+    // The better score wins; a chunk that matched keeps the snippet.
+    else if (row.score > seen.score) best.set(row.path, { ...seen, score: row.score });
+  }
+  const ranked = [...best.values()].sort(
+    (a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  );
+  if (ranked.length >= candidates) return ranked.slice(0, candidates) as SearchResult[];
+
+  // A document whose terms all match only across its sections (an AND of
+  // stopwords, a phrase over a chunk boundary), or that has no chunks, is
+  // still found by its whole-document row. It ranks after every document
+  // found in one place, in that row's order.
+  // Their scores are scaled under the lowest score above them, keeping their
+  // order, so a reranker reading scores keeps them there too.
+  const found = new Set(ranked.map((row) => row.path));
+  const acrossSections = (wholeDocument(match, candidates) as FtsRow[]).filter((row) => !found.has(row.path));
+  const floor = ranked.at(-1)?.score;
+  const top = acrossSections[0]?.score ?? 0;
+  const below =
+    floor === undefined || top <= 0 ? acrossSections : acrossSections.map((row) => ({ ...row, score: (row.score / top) * floor * 0.5 }));
+  return [...ranked, ...below].slice(0, candidates) as SearchResult[];
 }
 
 /**

@@ -62,8 +62,9 @@ beforeAll(async () => {
   root = makeTempBrain();
   mkdirSync(join(root, "notes"), { recursive: true });
   for (const [path, { updated, deadline, body }] of Object.entries(DOCS)) {
-    const topic = path.includes("beacon") ? "Signal" : "Lantern";
-    const lines = ["---", "type: note", `title: "${topic} ${path}"`, "created: 2026-01-01", `updated: ${updated}`, "tags: [t]"];
+    // A beacon note's title leaves out "beacon": its match strength is its body's alone.
+    const title = path.includes("beacon") ? `Signal ${path.replace("beacon", "signal")}` : `Lantern ${path}`;
+    const lines = ["---", "type: note", `title: "${title}"`, "created: 2026-01-01", `updated: ${updated}`, "tags: [t]"];
     if (deadline) lines.push(`deadline: ${deadline}`);
     lines.push("---", "", body ?? "Check the lantern wick.", "Some shared filler text for every note.", "");
     writeFileSync(join(root, path), lines.join("\n"));

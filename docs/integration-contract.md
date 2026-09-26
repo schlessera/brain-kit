@@ -685,7 +685,7 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **12**),
+- Check `index_metadata` first: `schema_version` (currently **13**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -706,6 +706,14 @@ Prefer the CLI/MCP. If reading directly:
   targets as written, and the document each resolves to (`NULL` when none),
   rebuilt by every index run like `links`. A reader that accepts 11 reads 12
   unchanged. Its migration clears `content_hash` the same way.
+  Schema 13 (0.38.0) adds only the FTS5 table `chunks_fts` (heading,
+  content), an external-content index over `chunks` kept in step by the
+  triggers `chunks_fts_insert`, `chunks_fts_delete` and `chunks_fts_update`,
+  and built from the existing chunk rows when a writable open migrates the
+  database. No table or column a reader selects changed, so a reader that
+  accepts 12 reads 13 unchanged. A writer that inserts, updates or deletes
+  `chunks` rows keeps the index current through those triggers; it must not
+  drop them.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
