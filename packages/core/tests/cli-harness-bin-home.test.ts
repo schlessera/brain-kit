@@ -51,7 +51,18 @@ test("doctor --fix links brain under the harness's XDG_BIN_HOME, not ~/.local/bi
 
   const link = join(testBinHome(), "brain");
   rmSync(link, { force: true });
-  const { stdout, code, stderr } = await runCli(root, ["doctor", "--fix", "--json"], { HOME: home });
+  // A developer's own XDG_BIN_HOME would otherwise be what the child inherits
+  // once the harness default is gone, so it is deleted from the environment
+  // the harness copies (not overridden), and the sentinel HOME is all that is left.
+  const inherited = process.env.XDG_BIN_HOME;
+  delete process.env.XDG_BIN_HOME;
+  let run;
+  try {
+    run = await runCli(root, ["doctor", "--fix", "--json"], { HOME: home });
+  } finally {
+    if (inherited !== undefined) process.env.XDG_BIN_HOME = inherited;
+  }
+  const { stdout, code, stderr } = run;
   expect(code, stderr).toBe(0);
   expect(JSON.parse(stdout).fixesApplied).toContain("symlinks");
 
