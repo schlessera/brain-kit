@@ -5,6 +5,7 @@ import matter from "gray-matter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
+import { topLevelBlocks } from "./document-parts.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
@@ -387,6 +388,87 @@ export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string
   return drift;
 }
 
+/** A paragraph shorter than this, after whitespace normalisation, is never counted as repeated. */
+export const REPEATED_TEXT_MIN_CHARS = 200;
+/** A paragraph found in at least this many documents is reported as repeated. */
+export const REPEATED_TEXT_MIN_DOCS = 5;
+
+export interface RepeatedText {
+  /** The paragraph, whitespace collapsed. */
+  text: string;
+  /** The documents that carry it, in path order. */
+  paths: string[];
+}
+
+/** Collapse whitespace, as the comparison does. */
+const normalizeText = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/**
+ * A document body's candidate paragraphs, whitespace collapsed: runs of
+ * non-blank lines, with an ATX heading line always a block of its own (and
+ * never a candidate).
+ */
+function candidateParagraphs(content: string): string[] {
+  const blocks: string[] = [];
+  let lines: string[] = [];
+  const flush = () => {
+    if (lines.length > 0) blocks.push(normalizeText(lines.join(" ")));
+    lines = [];
+  };
+  for (const line of content.split("\n")) {
+    if (!line.trim() || /^ {0,3}#{1,6}(?:\s|$)/.test(line)) flush();
+    else lines.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/**
+ * Paragraphs of at least REPEATED_TEXT_MIN_CHARS that at least
+ * REPEATED_TEXT_MIN_DOCS documents carry, compared after whitespace
+ * normalisation. Each copy is chunked, contextualised and embedded on its own,
+ * and near-identical vectors crowd the candidate window of any query they
+ * match.
+ *
+ * Candidates are found by blank lines, which is cheap and over-counts: a list,
+ * a quote, a setext heading or indented code reads as a paragraph there. So a
+ * document carrying a candidate that enough documents share is then parsed,
+ * and counts only when one of its top-level paragraph blocks is the candidate.
+ */
+export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
+  const seen = new Map<string, Set<AuditDoc>>();
+  for (const doc of docs) {
+    for (const text of candidateParagraphs(doc.content)) {
+      if (text.length < REPEATED_TEXT_MIN_CHARS) continue;
+      let where = seen.get(text);
+      if (!where) seen.set(text, (where = new Set()));
+      where.add(doc);
+    }
+  }
+
+  const paragraphs = new Map<AuditDoc, Set<string>>();
+  const paragraphsIn = (doc: AuditDoc) => {
+    let texts = paragraphs.get(doc);
+    if (!texts) {
+      texts = new Set(
+        topLevelBlocks(doc.content)
+          .filter((block) => block.type === "paragraph")
+          .map((block) => normalizeText(doc.content.slice(block.start, block.end)))
+      );
+      paragraphs.set(doc, texts);
+    }
+    return texts;
+  };
+
+  const repeated: RepeatedText[] = [];
+  for (const [text, where] of seen) {
+    if (where.size < REPEATED_TEXT_MIN_DOCS) continue;
+    const paths = [...where].filter((doc) => paragraphsIn(doc).has(text)).map((doc) => doc.path);
+    if (paths.length >= REPEATED_TEXT_MIN_DOCS) repeated.push({ text, paths: paths.sort() });
+  }
+  return repeated.sort((a, b) => b.paths.length - a.paths.length || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
+}
+
 /**
  * Run all audit checks against the indexed database.
  *
@@ -525,6 +607,20 @@ export function audit(
     }
   } catch {
     // tags tables may be empty
+  }
+
+  // ---------------------------------------------------------------
+  // 2e. Repeated text — one paragraph copied into many documents
+  // ---------------------------------------------------------------
+  for (const { text, paths } of findRepeatedText(docs)) {
+    const shown = paths.slice(0, 3).join(", ") + (paths.length > 3 ? ", …" : "");
+    issues.push({
+      path: "(corpus)",
+      severity: "info",
+      category: "repeated-text",
+      message: `A paragraph appears in ${paths.length} documents (${shown}): "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
+      suggestion: "Keep the text in one document and link to it from the others; each copy is embedded on its own",
+    });
   }
 
   // ---------------------------------------------------------------

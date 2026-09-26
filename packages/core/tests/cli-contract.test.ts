@@ -166,6 +166,13 @@ describe("audit", () => {
       expect.objectContaining({ path: "me/basics/long-bio.md", message: "ranger_since: found 2018, canonical 2019" }),
     ]);
   });
+
+  test("the fixture corpus repeats no paragraph (#431)", async () => {
+    const { stdout } = await runCli(root, ["audit", "--json"]);
+    const issues = JSON.parse(stdout).issues as Array<{ category: string }>;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.filter((i) => i.category === "repeated-text")).toEqual([]);
+  });
 });
 
 describe("index", () => {

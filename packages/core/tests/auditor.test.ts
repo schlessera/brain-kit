@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { audit } from "../src/lib/auditor";
+import { audit, REPEATED_TEXT_MIN_CHARS } from "../src/lib/auditor";
 import { openDatabase } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { brainConfigSchema } from "../src/lib/config";
@@ -364,5 +364,107 @@ describe("audit fact-drift (#392)", () => {
         taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (?:about )?(\\d{4})"] } } },
       }).success
     ).toBe(true);
+  });
+});
+
+describe("audit repeated-text (#431)", () => {
+  // 240 characters of boilerplate, the kind a generated set repeats.
+  const BOILERPLATE =
+    "This entry was generated from the trail survey template. Figures are provisional until the season report is filed, " +
+    "and any measurement taken during a storm closure should be read as an estimate rather than a reading from the gauge.";
+  const note = (i: number, extra: string) => ({
+    path: `notes/survey-${i}.md`,
+    type: "note",
+    updated: "2026-06-01",
+    content: `## Survey ${i}\n\nSegment ${i} findings.\n\n${extra}\n`,
+  });
+  const repeated = (db: Database) => categories(audit(db, taxonomy, { now: NOW }), "repeated-text");
+
+  test("a paragraph in 6 documents is one corpus issue", () => {
+    expect(BOILERPLATE.length).toBeGreaterThanOrEqual(REPEATED_TEXT_MIN_CHARS);
+    const db = freshDb();
+    // Wrapped differently in two copies: only whitespace normalisation makes six.
+    for (let i = 0; i < 6; i++) insertDoc(db, note(i, i >= 4 ? BOILERPLATE.replace(/\. /g, ".\n") : BOILERPLATE));
+    const issues = repeated(db);
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatchObject({ path: "(corpus)", severity: "info" });
+    expect(issues[0].message).toContain("6 documents");
+    expect(issues[0].message).toContain("notes/survey-0.md, notes/survey-1.md, notes/survey-2.md, …");
+    expect(issues[0].message).toContain(`"${BOILERPLATE.slice(0, 80)}…"`);
+    db.close();
+  });
+
+  test("the same paragraph in 4 documents is none", () => {
+    const db = freshDb();
+    for (let i = 0; i < 4; i++) insertDoc(db, note(i, BOILERPLATE));
+    expect(repeated(db)).toEqual([]);
+    db.close();
+  });
+
+  // Literal boundaries, not derived from the constants they check.
+  const P200 = BOILERPLATE.slice(0, 200);
+  const P199 = BOILERPLATE.slice(0, 199);
+
+  test("exactly 200 characters in exactly 5 documents is one issue", () => {
+    expect(P200.trim().length).toBe(200);
+    const db = freshDb();
+    for (let i = 0; i < 5; i++) insertDoc(db, note(i, P200));
+    const issues = repeated(db);
+    expect(issues.length).toBe(1);
+    expect(issues[0].message).toContain("5 documents");
+    db.close();
+  });
+
+  test("199 characters is none, even in 6 documents", () => {
+    expect(P199.trim().length).toBe(199);
+    const db = freshDb();
+    for (let i = 0; i < 6; i++) insertDoc(db, note(i, P199));
+    expect(repeated(db)).toEqual([]);
+    db.close();
+  });
+
+  /** The paragraphs reported, when each of 6 documents carries `extra` and, as the positive control, BOILERPLATE. */
+  function reportedWith(extra: string): string[] {
+    const db = freshDb();
+    for (let i = 0; i < 6; i++) insertDoc(db, note(i, `${extra}\n\n${BOILERPLATE}`));
+    const messages = repeated(db).map((issue) => issue.message);
+    db.close();
+    return messages;
+  }
+  const control = [expect.stringContaining(`"${BOILERPLATE.slice(0, 80)}…"`)];
+  const OTHER =
+    "The ranger station keeps a paper copy of every permit in the grey cabinet by the door, filed by trailhead and then by date, " +
+    "so a lost digital record can be rebuilt from the cabinet in a single afternoon.";
+  // Long enough to count, so each negative test below is about its structure, not its length.
+  test("the second paragraph is long enough to count as prose", () => {
+    expect(OTHER.length).toBeGreaterThanOrEqual(200);
+    expect(reportedWith(OTHER)).toHaveLength(2);
+  });
+
+  test("a paragraph inside a fence is none", () => {
+    expect(reportedWith(`\`\`\`text\n${OTHER}\n\`\`\``)).toEqual(control);
+  });
+
+  test("indented code inside a blockquote is none", () => {
+    expect(reportedWith(`>     ${OTHER}`)).toEqual(control);
+  });
+
+  test("code indented with a space and a tab is none", () => {
+    expect(reportedWith(` \t${OTHER}`)).toEqual(control);
+  });
+
+  test("a list of short items is not a paragraph", () => {
+    const list = Array.from({ length: 8 }, (_, i) => `- Observation ${i}: the reading is provisional.`).join("\n");
+    expect(reportedWith(list)).toEqual(control);
+  });
+
+  test("a long setext heading is not a paragraph", () => {
+    expect(reportedWith(`${OTHER}\n===`)).toEqual(control);
+  });
+
+  test("a document counts when any of its copies is prose, though an earlier one is code", () => {
+    const messages = reportedWith(`    ${OTHER}\n\n${OTHER}`);
+    expect(messages).toHaveLength(2);
+    expect(messages).toContainEqual(expect.stringContaining(`"${OTHER.slice(0, 80)}…"`));
   });
 });
