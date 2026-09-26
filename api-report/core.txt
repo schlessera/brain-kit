@@ -146,6 +146,7 @@ export "." (./src/index.ts)
   pruneScratch
   readDocumentPart
   readEnvVar
+  relevanceOnArchive
   repoRelativePathSchema
   rerank
   resolveAgentRunner

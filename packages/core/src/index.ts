@@ -105,7 +105,7 @@ export type { BrainStats, CollectStatsOptions, StatsThresholds } from "./lib/sta
 export type { AuditOptions } from "./lib/auditor.js";
 export { validate, checkIndexDrift } from "./lib/validate.js";
 export type { ValidationIssue } from "./lib/validate.js";
-export { archiveDocument } from "./lib/archiver.js";
+export { archiveDocument, relevanceOnArchive } from "./lib/archiver.js";
 export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";

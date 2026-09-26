@@ -50,13 +50,15 @@ Principle — "conference over" must propagate to every layer).
    - Skip if the delivery row already exists
 
 4. **Archive the conference and related travel** (the conference is over):
-   - Set `status: archived` on the conference's files in
-     `conferences/{name}-{year}/` (at minimum `status.md`)
-   - Set `status: archived` on the linked trip's files in `travel/{trip-slug}/`
-     if the trip is completed
+   - Archive the conference's files in `conferences/{name}-{year}/` (at minimum
+     `status.md`) with `brain archive <path>` (or the `brain_archive` tool), one
+     file at a time. Do not set `status: archived` by hand: archiving also
+     demotes the file's relevance, so it stops outranking current work.
+   - Archive the linked trip's files in `travel/{trip-slug}/` the same way, if
+     the trip is completed
    - Update the corresponding rows in `conferences/_index.md` and
-     `travel/_index.md` to an archived/past status
-   - Bump `updated` on every file touched
+     `travel/_index.md` to an archived/past status, and bump `updated` on each
+     index you edit
 
 5. **Output summary**: retrospective path (or the draft handed to the publishing
    workflow), registry/index updates, and a reminder to publish within 48 hours
