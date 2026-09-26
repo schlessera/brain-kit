@@ -20,6 +20,7 @@ import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
 import { gitIgnoredMatcher } from "../src/lib/git-ignore";
+import { CHUNKER_VERSION } from "../src/lib/chunker";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import type { Enrichment } from "../src/lib/enrichment";
 // sqlite-vec is optional in some environments — vector-dependent tests skip
@@ -1581,5 +1582,95 @@ describe("assets git ignores are not indexed (#433)", () => {
     expect(["a/b/c.png", "a/b/deeper/d.png", "x.png", "a/keep.png", "y.png", "a/bb/c.png"].map(ignored)).toEqual([
       true, true, true, false, false, false,
     ]);
+  });
+});
+
+describe("each document remembers its chunker version (#426)", () => {
+  /** A body long enough to be its own chunk, then a two-line closing section. */
+  const withStub = (title: string) =>
+    [
+      "---", "type: note", `title: ${title}`, 'created: "2026-01-01"', 'updated: "2026-01-02"', "---", "",
+      "## Body", "", "word ".repeat(600).trim(), "",
+      "## Related", "", "- [[one]]", "- [[two]]", "",
+    ].join("\n");
+
+  function rows(root: string, path: string): { version: number | null; chunks: Array<{ id: number; heading: string }> } {
+    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const doc = db.prepare("SELECT id, chunker_version FROM documents WHERE path = ?").get(path) as {
+      id: number;
+      chunker_version: number | null;
+    };
+    const chunks = db
+      .prepare("SELECT id, heading FROM chunks WHERE document_id = ? ORDER BY chunk_index")
+      .all(doc.id) as Array<{ id: number; heading: string }>;
+    db.close();
+    return { version: doc.chunker_version, chunks };
+  }
+
+  /** Put a document back the way the previous chunker left it: version 1, the stub as its own chunk. */
+  function downgrade(root: string, path: string): void {
+    const db = new Database(join(root, "brain.db"));
+    const { id } = db.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
+    db.run("UPDATE documents SET chunker_version = 1 WHERE id = ?", [id]);
+    db.run("DELETE FROM chunks WHERE document_id = ?", [id]);
+    const insert = db.prepare(
+      "INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate) VALUES (?, ?, ?, ?, ?)"
+    );
+    insert.run(id, 0, "Body", "word ".repeat(600).trim(), 600);
+    insert.run(id, 1, "Related", "- [[one]]\n- [[two]]", 5);
+    db.close();
+  }
+
+  test("a document chunked by an older version is re-chunked on the next run, once", async () => {
+    const root = makeCorpus({ "notes/alpha.md": withStub("Alpha") });
+    await runIndex(root);
+    expect(rows(root, "notes/alpha.md").chunks.map((c) => c.heading)).toEqual(["Body"]);
+
+    downgrade(root, "notes/alpha.md");
+    expect(rows(root, "notes/alpha.md").chunks.map((c) => c.heading)).toEqual(["Body", "Related"]);
+
+    const upgraded = await runIndex(root);
+    expect(upgraded).toMatchObject({ updated: 1, unchanged: 0 });
+    const after = rows(root, "notes/alpha.md");
+    expect(after).toMatchObject({ version: CHUNKER_VERSION });
+    expect(after.chunks.map((c) => c.heading)).toEqual(["Body"]);
+
+    expect(await runIndex(root)).toMatchObject({ updated: 0, unchanged: 1 });
+    expect(rows(root, "notes/alpha.md").chunks).toEqual(after.chunks);
+  });
+
+  test("a document stamped by a newer chunker (a rollback) is re-chunked by this one", async () => {
+    const root = makeCorpus({ "notes/alpha.md": withStub("Alpha") });
+    await runIndex(root);
+    downgrade(root, "notes/alpha.md");
+    const db = new Database(join(root, "brain.db"));
+    db.run("UPDATE documents SET chunker_version = ? WHERE path = 'notes/alpha.md'", [CHUNKER_VERSION + 1]);
+    db.close();
+
+    expect(await runIndex(root)).toMatchObject({ updated: 1, unchanged: 0 });
+    const after = rows(root, "notes/alpha.md");
+    expect(after.version).toBe(CHUNKER_VERSION);
+    expect(after.chunks.map((c) => c.heading)).toEqual(["Body"]);
+  });
+
+  test("a document the upgrade run could not read keeps its old version and is re-chunked later", async () => {
+    const alpha = withStub("Alpha");
+    const root = makeCorpus({ "notes/alpha.md": alpha, "notes/beta.md": withStub("Beta") });
+    await runIndex(root);
+    downgrade(root, "notes/alpha.md");
+    downgrade(root, "notes/beta.md");
+
+    // Alpha is unreadable for the upgrade run (broken frontmatter), then comes back byte for byte.
+    writeFileSync(join(root, "notes/alpha.md"), "---\ntitle: [broken\n---\n");
+    await runIndex(root);
+    expect(rows(root, "notes/beta.md").version).toBe(CHUNKER_VERSION);
+    expect(rows(root, "notes/alpha.md").version).toBe(1);
+
+    writeFileSync(join(root, "notes/alpha.md"), alpha);
+    const later = await runIndex(root);
+    expect(later).toMatchObject({ updated: 1 });
+    const after = rows(root, "notes/alpha.md");
+    expect(after.version).toBe(CHUNKER_VERSION);
+    expect(after.chunks.map((c) => c.heading)).toEqual(["Body"]);
   });
 });

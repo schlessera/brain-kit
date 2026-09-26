@@ -236,7 +236,11 @@ key, so two clones syncing with no content change leave the files untouched. A
 key that appears twice resolves to its first line in sorted order, the same on
 every clone, and `brain sync pull` applies the same rule when it unions this
 clone's lines with the merged file. An asset description is reused for the same
-bytes under any title, and is kept while any indexed asset still has those bytes.
+bytes under any title, and is kept while any indexed asset still has those bytes. Contexts are keyed by chunk text,
+so two clones on different chunker versions chunk the same documents
+differently: each prunes the other's contexts as unreachable and regenerates
+its own, and the cache changes on every sync until both run the same
+`@schlessera/brain`.
 
 To discard a bad entry, run `brain index --forget-cache <path>`: it removes that
 document's or asset's lines and resets it in `brain.db` (together with any other

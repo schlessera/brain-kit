@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -285,12 +285,25 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 8);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 9) {
     // v9 — "what links to this document" is a lookup, not a scan. The links
     // primary key leads with source_id, so without this every backlink query
     // (brain_graph direction "incoming") read the whole table. Built from the
     // rows already there: an upgraded brain needs no reindex.
     db.run("CREATE INDEX IF NOT EXISTS idx_links_target_id ON links(target_id)");
+
+    setSchemaVersion(db, 9);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v10 — the chunker version each document was chunked by. An index run
+    // re-chunks a document whose version is older, once, even when its file
+    // is unchanged. Existing rows start NULL: chunked before versions were
+    // recorded, so the next run re-chunks them.
+    const columns = db.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "chunker_version")) {
+      db.run("ALTER TABLE documents ADD COLUMN chunker_version INTEGER");
+    }
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

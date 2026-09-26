@@ -102,13 +102,14 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
  */
 export function loadExistingDocs(db: Database): Map<string, ExistingDoc> {
   const rows = db
-    .prepare("SELECT id, path, content_hash, accepted_mtime, stat_fingerprint FROM documents")
+    .prepare("SELECT id, path, content_hash, chunker_version, accepted_mtime, stat_fingerprint FROM documents")
     .all() as (ExistingDoc & { path: string })[];
   const existing = new Map<string, ExistingDoc>();
   for (const row of rows) {
     existing.set(row.path, {
       id: row.id,
       content_hash: row.content_hash,
+      chunker_version: row.chunker_version,
       accepted_mtime: row.accepted_mtime,
       stat_fingerprint: row.stat_fingerprint,
     });

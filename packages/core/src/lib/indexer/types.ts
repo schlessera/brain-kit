@@ -97,6 +97,8 @@ export interface ParsedFile {
 export interface ExistingDoc {
   id: number;
   content_hash: string | null;
+  /** The chunker version the document's chunks came from; null before versions were recorded. */
+  chunker_version: number | null;
   accepted_mtime: string | null;
   stat_fingerprint: string | null;
 }
