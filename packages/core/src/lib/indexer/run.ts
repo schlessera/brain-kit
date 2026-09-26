@@ -27,6 +27,7 @@ import type { Database } from "bun:sqlite";
 
 import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../graph/precompute.js";
 import { indexAssets } from "./assets.js";
+import { planFtsTokenizer } from "./fts.js";
 import { pruneSidecarCaches, saveAssetCache, saveContextCache } from "./caches.js";
 import { runEmbeddingPhase } from "./embeddings.js";
 import { acquireEmbeddingLock } from "./embedding-lock.js";
@@ -183,6 +184,10 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   const assetFiles = getAssetFiles(run.root, run.taxonomy);
   const assetsOnDisk = new Set(assetFiles.map((a) => a.path));
   const existingDocs = loadExistingDocs(run.db);
+
+  // The full-text table follows search.language; a rebuild has every
+  // document written again below, in the persist transaction.
+  planFtsTokenizer(run);
 
   // --- parse --------------------------------------------------------------
   const parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);

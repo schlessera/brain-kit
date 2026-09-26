@@ -332,6 +332,20 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
+    /** How full-text search reads text. */
+    search: z
+      .object({
+        /**
+         * The language the full-text index and its query builder assume.
+         * `english` (the default): the Porter stemmer and English stopwords.
+         * `none`: no stemming and no stopwords, for a brain in another
+         * language. Changing it rebuilds the full-text index on the next
+         * `brain index`; nothing is re-embedded.
+         */
+        language: z.enum(["english", "none"]).optional(),
+      })
+      .strict()
+      .optional(),
     /**
      * The always-loaded instruction weight `brain doctor` checks: CLAUDE.md
      * with its `@` imports, AGENTS.md, and model-invocable skill descriptions.

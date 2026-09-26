@@ -71,6 +71,12 @@ export interface IndexRun {
   now: string;
   stats: IndexStats;
   /**
+   * `documents_fts` is rebuilt this run for another `search.language`: every
+   * markdown document is rewritten into it, as if changed, and the persist
+   * transaction recreates the table first (see indexer/fts.ts).
+   */
+  ftsRebuilt?: boolean;
+  /**
    * Markdown vectors a `--force` run held on to before wiping, by a hash of
    * the text they were embedded from. Set only when the configured provider
    * is the one that produced them; see `vectors.ts`.

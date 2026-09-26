@@ -326,7 +326,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:413-452`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:414-453`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).
@@ -613,7 +613,8 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
   expect(checks.filter((c) => c.detail.startsWith("the check itself failed"))).toEqual([]);
   expect(checks.map((c) => c.id)).toEqual([
     "runtime", "git-hooks", "symlinks", "shadowed-commands", "instructions-weight", "config", "db",
-    "embeddings", "mcp", "deps", "version", "privacy", "git-storage", "tracked-leftovers", "scratch", "cache-merge", "sqlite-vec-macos",
+    "embeddings", "mcp", "deps", "version", "privacy", "git-storage", "tracked-leftovers", "scratch",
+    "search-language", "cache-merge", "sqlite-vec-macos",
   ]);
 });
 

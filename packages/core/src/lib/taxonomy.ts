@@ -12,6 +12,8 @@
 
 import { posix } from "path";
 
+import type { SearchLanguage } from "./search-language.js";
+
 import type {
   AssetTitleRule,
   BrainConfig,
@@ -104,6 +106,11 @@ export class Taxonomy {
   readonly graphRoot: string | null;
   /** `taxonomy.tags` from brain.config, or null when the block is absent. */
   readonly tags: TagsConfig | null;
+  /**
+   * `search.language` from brain.config (default `english`). It lives here for
+   * the reason `graphRoot` does: every indexing path already carries a taxonomy.
+   */
+  readonly searchLanguage: SearchLanguage;
 
   private readonly classifierRules: ClassifierRule[];
   /** [prefix, type] sorted longest-prefix-first. */
@@ -125,6 +132,7 @@ export class Taxonomy {
     defaultStaleness: StalenessVerdict;
     graphRoot?: string | null;
     tags?: TagsConfig | null;
+    searchLanguage?: SearchLanguage;
   }) {
     this.types = args.types;
     this.dirAnchors = args.dirAnchors;
@@ -138,6 +146,7 @@ export class Taxonomy {
     this.defaultStaleness = args.defaultStaleness;
     this.graphRoot = args.graphRoot ?? null;
     this.tags = args.tags ?? null;
+    this.searchLanguage = args.searchLanguage ?? "english";
 
     this.prefixIndex = Object.entries(this.types)
       .flatMap(([type, spec]) => spec.prefixes.map((p): [string, string] => [p, type]))
@@ -442,5 +451,6 @@ export function buildTaxonomy(opts: {
     defaultStaleness: user?.taxonomy?.defaultStaleness ?? DEFAULT_STALENESS,
     graphRoot: user?.graph?.root ?? null,
     tags: user?.taxonomy?.tags ?? null,
+    searchLanguage: user?.search?.language ?? "english",
   });
 }

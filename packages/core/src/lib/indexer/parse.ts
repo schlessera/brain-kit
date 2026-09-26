@@ -85,9 +85,11 @@ export function parseMarkdownFiles(
     // Another chunker's chunks count as a change: an older one, one from
     // before versions were recorded (NULL), or a newer one after a rollback.
     // The file is re-chunked once. A file skipped above keeps its old version
-    // and is retried next run.
+    // and is retried next run. A rebuilt full-text table has every document
+    // written again.
     const isChanged =
-      !isNew && (existing!.content_hash !== hash || existing!.chunker_version !== CHUNKER_VERSION);
+      !isNew &&
+      (existing!.content_hash !== hash || existing!.chunker_version !== CHUNKER_VERSION || run.ftsRebuilt === true);
 
     if (!run.force && !isNew && !isChanged) {
       run.stats.unchanged++;

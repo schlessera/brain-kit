@@ -5,6 +5,7 @@ import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
+import { ftsIsEnglish } from "./search-language.js";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -195,7 +196,8 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
  * English function words dropped from a full-text query before its terms are
  * ORed. FTS5 ships no stopword list, and without one an OR of a question's
  * words matches nearly every document through "the" or "is". English only, to
- * match the `porter unicode61` tokenizer, which stems English only.
+ * match the `porter unicode61` tokenizer, which stems English only; an index
+ * built for `search.language: none` gets no stopwords at all.
  */
 export const FTS_STOPWORDS = new Set([
   "a", "about", "after", "all", "also", "am", "an", "and", "any", "are", "as",
@@ -226,7 +228,7 @@ function quoteFtsTerm(token: string): string {
  * of stopwords keeps the AND of all its terms, so "the who" still means
  * something.
  */
-function sanitizeFtsQuery(query: string): string {
+function sanitizeFtsQuery(query: string, stopwords: boolean): string {
   // FTS5 escapes a quote inside a phrase by doubling it: `"a ""b"""`.
   const phrase = /^\s*"((?:[^"]|"")+)"\s*$/.exec(query);
   if (phrase) return quoteFtsTerm(phrase[1]!.replace(/""/g, '"').trim());
@@ -236,7 +238,7 @@ function sanitizeFtsQuery(query: string): string {
   // skips it, but alone in an OR it matches nothing, so it is not a content term.
   const content = tokens.filter((token) => {
     const word = token.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-    return word !== "" && !FTS_STOPWORDS.has(word);
+    return word !== "" && !(stopwords && FTS_STOPWORDS.has(word));
   });
   if (content.length === 0) return tokens.map(quoteFtsTerm).join(" ");
   return [...new Set(content.map(quoteFtsTerm))].join(" OR ");
@@ -252,7 +254,6 @@ function ftsSearch(
   candidates = (opts.limit ?? 20) * 2
 ): SearchResult[] {
   const filters = buildFilters(opts);
-  query = sanitizeFtsQuery(query);
 
   // bm25() column weights: title 5x, summary 3x, content 1x, tags 2x —
   // frontmatter fields carry far more signal per token than body text.
@@ -273,8 +274,15 @@ function ftsSearch(
     LIMIT ?
   `;
 
-  const params = [query, ...filters.params, candidates];
-  return db.prepare(sql).all(...params) as SearchResult[];
+  // Stopwords follow the index: English ones only for an English (Porter)
+  // index, so a query and the text it searches are read the same way. The
+  // tokenizer is read and the query run in one read transaction, so a
+  // rebuild committing in between cannot pair one table's stopwords with the
+  // other table.
+  return db.transaction(() => {
+    const sanitized = sanitizeFtsQuery(query, ftsIsEnglish(db));
+    return db.prepare(sql).all(sanitized, ...filters.params, candidates) as SearchResult[];
+  })();
 }
 
 /**
