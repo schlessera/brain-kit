@@ -20,11 +20,13 @@ question does not come back without evidence, and it agrees with the ruling.
 heuristic reranker, clock pinned to the set's `now` (2026-07-12). It then
 re-ranks each result list with a multiplicative boost on the documents one
 link away from `context/current-focus.md`, in either direction (`boost`,
-`scripts/measure-graph-boost.ts:59-64`). The boost multiplies the final
+`scripts/measure-graph-boost.ts:60-65`). The boost multiplies the final
 score, after the reranker, which is where a shipped boost would sit; placed
 there it would apply the same way in every mode. The script refuses to report
-unless its unboosted baseline reproduces `evals/expected-ranks.json` exactly,
-so the baseline is the goldens' own ranking.
+unless its unboosted baseline reproduces `evals/expected-ranks.json` exactly:
+the same query IDs, and every pinned field (rank, `current_first`, the
+no-answer `top`), checked as the golden test checks them. So the baseline is
+the goldens' own ranking.
 
 The set gained a `current-state` class for this: three queries whose answer is
 one of the focus document's links.

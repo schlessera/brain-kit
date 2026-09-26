@@ -18,8 +18,9 @@
  * is the one-hop version of the rejected third option, which drops the
  * structural links to `_index.md` from the ranking graph.
  *
- * The baseline must reproduce `evals/expected-ranks.json` exactly, or the
- * script refuses to report, so the numbers are the goldens' own ranking.
+ * The baseline must reproduce `evals/expected-ranks.json` exactly (the same
+ * query IDs and every pinned field; see `goldenDrift`), or the script refuses
+ * to report, so the numbers are the goldens' own ranking.
  *
  * Keyless and deterministic: full-text lane only, clock pinned by the set's
  * header. The vector and hybrid lanes need an embedding provider and are not
@@ -61,6 +62,37 @@ export function boost(results: SearchResult[], boosted: Set<string>, factor: num
     .map((r, i) => ({ r: { ...r, score: boosted.has(r.path) ? r.score * factor : r.score }, i }))
     .sort((a, b) => b.r.score - a.r.score || a.i - b.i)
     .map(({ r }) => r);
+}
+
+/** A pinned golden, as `packages/core/tests/eval-corpus.test.ts` records it. */
+export type Golden = { rank: number | null; current_first?: boolean; top?: string[] };
+
+/**
+ * Every way `baseline` fails to reproduce `goldens`, checked the way the
+ * golden test checks it: the same query IDs, and per query the rank, plus
+ * `current_first` and the pinned `top` where the golden records them. Empty
+ * when the baseline is the goldens' own ranking.
+ */
+export function goldenDrift(baseline: QueryOutcome[], goldens: Record<string, Golden>): string[] {
+  const problems: string[] = [];
+  const ids = new Set(baseline.map((b) => b.id));
+  for (const id of Object.keys(goldens)) if (!ids.has(id)) problems.push(`${id}: in the goldens but not measured`);
+  for (const b of baseline) {
+    const golden = goldens[b.id];
+    if (!golden) {
+      problems.push(`${b.id}: measured but has no golden`);
+      continue;
+    }
+    if (golden.rank !== b.rank) problems.push(`${b.id}: rank ${b.rank} (golden ${golden.rank})`);
+    if (golden.current_first !== undefined && golden.current_first !== b.current_first) {
+      problems.push(`${b.id}: current_first ${b.current_first} (golden ${golden.current_first})`);
+    }
+    if (golden.top !== undefined) {
+      const top = b.top.slice(0, golden.top.length);
+      if (top.join("\n") !== golden.top.join("\n")) problems.push(`${b.id}: top ${JSON.stringify(top)} (golden ${JSON.stringify(golden.top)})`);
+    }
+  }
+  return problems;
 }
 
 async function main(): Promise<void> {
@@ -123,8 +155,8 @@ async function main(): Promise<void> {
     }
     db.close();
 
-    const goldens = JSON.parse(readFileSync(join(CORPUS, "evals/expected-ranks.json"), "utf-8")) as Record<string, { rank: number | null }>;
-    const drift = baseline.filter((b) => goldens[b.id]?.rank !== b.rank).map((b) => `${b.id}: ${b.rank} (golden ${goldens[b.id]?.rank})`);
+    const goldens = JSON.parse(readFileSync(join(CORPUS, "evals/expected-ranks.json"), "utf-8")) as Record<string, Golden>;
+    const drift = goldenDrift(baseline, goldens);
     if (drift.length > 0) throw new Error(`the baseline does not reproduce the goldens: ${drift.join("; ")}`);
 
     const rows = (outcomes: QueryOutcome[]) => aggregate("fts", outcomes, KS);
