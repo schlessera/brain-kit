@@ -19,6 +19,7 @@ import { processCommand } from "./process.js";
 import { archiveCommand } from "./archive.js";
 import { acceptMtimeCommand } from "./accept-mtime.js";
 import { maintainCommand } from "./maintain.js";
+import { registryCommand } from "./registry.js";
 import { statsCommand } from "./stats.js";
 import { graphCommand } from "./graph.js";
 import { renderCommand } from "./render.js";
@@ -51,6 +52,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   archive: archiveCommand,
   "accept-mtime": acceptMtimeCommand,
   maintain: maintainCommand,
+  registry: registryCommand,
   stats: statsCommand,
   graph: graphCommand,
   render: renderCommand,

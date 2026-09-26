@@ -26,6 +26,8 @@ import { unified } from "unified";
 import { auditWithModules, isoDay, loadAuditDocs, type AuditDoc } from "./auditor.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { editFrontmatter } from "./frontmatter-edit.js";
+import { generatedRegionSpan } from "./generated-regions.js";
+import { planRegistry, REGISTRY_REGION } from "./index-registry.js";
 import type { LoadedModule } from "./module-types.js";
 import { writeExclusive } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -279,14 +281,14 @@ function linkedDetail(row: string[], indexDir: string, byPath: Map<string, Audit
  * row's Updated date. Rows whose detail is missing are skipped (orphan and
  * structure checks cover them). The evidence is the row's first cell.
  */
-export function indexTableLag(docs: AuditDoc[]): HygieneCandidate[] {
+export function indexTableLag(docs: AuditDoc[], registryIndexes: ReadonlySet<string> = new Set()): HygieneCandidate[] {
   const byPath = new Map(docs.map((d) => [d.path, d]));
   const out: HygieneCandidate[] = [];
   for (const index of docs) {
     if (index.type !== "index" && !index.path.endsWith("_index.md")) continue;
     if (index.status === "archived") continue;
     const indexDir = posix.dirname(index.path);
-    for (const [headerRow, ...rows] of tables(index.content)) {
+    for (const [headerRow, ...rows] of tables(outsideRegistry(index, registryIndexes))) {
       const header = (headerRow ?? []).map(plain);
       const updatedCol = header.findIndex((h) => h.includes("updated"));
       const statusCol = header.findIndex((h) => h.includes("status"));
@@ -319,6 +321,23 @@ export interface Detection {
   failedChecks: string[];
 }
 
+/**
+ * An index's body without its generated registry region, when the index opts
+ * in (`registry:`): that table is `brain registry`'s, audit reports it as
+ * index-stale, and a hand fix would be overwritten. Tables outside the region,
+ * and any index that does not opt in, are diffed as written. Malformed markers
+ * leave the body whole; `brain registry` reports those.
+ */
+function outsideRegistry(index: AuditDoc, registryIndexes: ReadonlySet<string>): string {
+  if (!registryIndexes.has(index.path)) return index.content;
+  try {
+    const span = generatedRegionSpan(index.content, REGISTRY_REGION);
+    return span ? index.content.slice(0, span[0]) + index.content.slice(span[1]) : index.content;
+  } catch {
+    return index.content;
+  }
+}
+
 /** Every candidate the CLI detects, the log's own files left out, and the module checks that failed. */
 export async function detectCandidates(
   db: Database,
@@ -328,7 +347,12 @@ export async function detectCandidates(
   const inLog = (path: string) => path.startsWith(`${HYGIENE_DIR}/`);
   const docs = loadAuditDocs(db).filter((d) => !inLog(d.path));
   const byPath = new Map(docs.map((d) => [d.path, d]));
-  const table = indexTableLag(docs);
+  // The indexes that opt in to a generated registry table; none when the
+  // brain's root cannot be scanned (audit reports that check as failed).
+  const registryIndexes = new Set(
+    existsSync(brain.root) ? planRegistry(brain.root, brain.taxonomy, isoDay(now.getTime())).indexes.map((i) => i.path) : []
+  );
+  const table = indexTableLag(docs, registryIndexes);
   // A row-level finding is more specific than audit's whole-file index-lag.
   const tableIndexes = new Set(table.map((c) => c.path));
   const failed = new Set<string>();

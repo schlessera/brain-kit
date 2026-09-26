@@ -54,7 +54,8 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
-| `brain maintain --json` | `[{ "step", "result" }]` in run order: `index`, `vectors`, `audit`, `tags`, `scratch`. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
+| `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `tags`, `git`, `scratch`. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
+| `brain registry [--check] --json` | `{ "indexes", "written", "stale", "invalid": [{ "path", "error" }] }` (additive in 0.38.0). Regenerates the registry table of every `_index.md` whose frontmatter has a `registry:` block. `indexes` counts them, valid or not. `written` lists the files rewritten. `stale` lists out-of-date indexes left as they are: all of them under `--check`, which writes nothing, and otherwise one whose file changed between being read and being written (it is regenerated on the next run). `invalid` lists indexes that cannot be generated, which are left untouched: a `registry:` block that does not validate, an index or a child that cannot be read, whose frontmatter does not parse, or whose frontmatter opens and never closes (an `_index.md` whose frontmatter does not parse counts when it has a `registry:` line, quoted or not), or malformed region markers. Exit `1` under `--check` when anything is stale or invalid, `2` without it when anything is invalid, else `0` |
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | no JSON. With no verb, `sync` runs the `/sync` skill through the configured coding agent and prints the agent's final text on stdout, whatever the output mode; exit `1` when no agent runner is available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` still runs the agent, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`assess`, `group`, `pull`, `conflicts`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for that skill to drive, are not part of this contract |
@@ -99,7 +100,8 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 `suggestion`, a string present only when the check has one. Core categories are
 `staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
 `verify`, `type-mismatch`, `orphan`, and, added in 0.38.0 additively,
-`budget`, `review-overdue`, `past-date`, `fact-drift` and `repeated-text`.
+`budget`, `review-overdue`, `past-date`, `fact-drift`, `repeated-text` and
+`index-stale`.
 `fact-drift` is a document that restates a keyed fact (`taxonomy.facts`) with a value other than
 the one in its source's `facts:` frontmatter, one issue per document per fact,
 `warning`, with `message: "<key>: found <x>, canonical <y>"`; the source is
@@ -108,7 +110,9 @@ top-level paragraph of at least 200 characters (whitespace collapsed; code, a
 list, a quote or a heading is not a paragraph) that at least 5 documents
 carry, one `info` issue per paragraph with `path: "(corpus)"`, the document
 count, the first three paths and the paragraph's first 80 characters in
-`message`. `budget` is a canonical document
+`message`. `index-stale` is an `_index.md` with a `registry:` block whose
+generated table no longer matches its children (or whose block is invalid),
+`warning`; such an index is never reported as `index-lag`. `budget` is a canonical document
 over its `taxonomy.canonicalPolicy.<key>.maxTokens`. `review-overdue` is a
 passed `next_review`, or a lapsed `canonicalPolicy.<key>.reviewDays` cadence.
 `past-date` is a line in a canonical document with a policy that names an
@@ -913,6 +917,29 @@ Rules a consumer may rely on:
   its first line in sorted order, and a run with nothing new does not write
   the file. Machine-managed, union-merge on conflict, never hand-edit.
   Templates ship them empty.
+- Generated regions (additive in 0.38.0): content a command derives and keeps
+  inside a hand-written markdown file sits between
+  `<!-- brain:generated:{name} -->` and `<!-- /brain:generated:{name} -->`.
+  Everything outside the markers is the author's and is never rewritten, byte
+  for byte, trailing whitespace and line endings included; a region is
+  rewritten, and the file's `updated:` bumped, only when its content changed. A
+  marker counts only on a line of its own and outside code, so one quoted
+  inside a line or in a fenced example is text.
+  A file with a stray, doubled or out-of-order marker line is not rewritten;
+  the command reports it instead, as it does a file whose frontmatter never
+  closes. Generated values, the registry's cells and module-finance's alike,
+  render a line break as a space, `|` as `\|` and `<!--` as `&lt;!--`
+  (`inertGeneratedText`). `brain registry` owns the `registry` region of an
+  `_index.md`, and module-finance the `finance` region of its ledgers and dashboard (which
+  replaced its older `BEGIN GENERATED` / `END GENERATED` markers; those are
+  still read and are rewritten to the region on the next `brain finance sync`).
+- An `_index.md` opts in to a generated registry table with a `registry:`
+  frontmatter block (additive in 0.38.0): `columns` (frontmatter keys, plus
+  `title`, `path` relative to the index, and `link` as a `[[wiki-link]]`),
+  optional `where: { key: [values] }`, optional `sort` (a column key, `-` for
+  descending) and optional `split` (a key: one table per value). Its children
+  are every markdown file under the index's directory, at any depth, other than
+  an `_index.md`.
 - Module data files (e.g. module-jobs' `jobs.db`) are documented by the module
   that owns them.
 - The scratch area `.brain/scratch/` (additive in 0.38.0) holds transient

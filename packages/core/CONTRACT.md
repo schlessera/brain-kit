@@ -78,6 +78,14 @@ the file.
   registry table of its children. **Index Sync Principle:** update summary
   layers (`_index.md`, the current-focus doc) in the same operation as the
   detail files they summarize — `brain audit` flags lag.
+- An `_index.md` can have its registry table generated instead: a
+  `registry:` frontmatter block (`columns: [link, status, updated]`, optional
+  `where`, `sort`, `split`) makes `brain registry` (and `brain maintain`)
+  render the table from the children's frontmatter between
+  `<!-- brain:generated:registry -->` and `<!-- /brain:generated:registry -->`.
+  Never edit inside the markers; edit the children, or the prose around the
+  table. Such an index is checked for `index-stale` (the table no longer
+  matches) instead of `index-lag`.
 - Directory taxonomy comes from `brain.config.ts`. Check where a type lives
   with `brain config check` before creating files; type/dir mismatches are
   audit findings.

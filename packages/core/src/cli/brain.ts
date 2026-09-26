@@ -68,11 +68,24 @@ const MUTATING_SUBCOMMAND: Record<string, string> = {
   graph: "compute",
 };
 
-// Commands that write only under a flag: `brain tags` reports, and rewrites
-// frontmatter only with --apply and no --dry-run.
+/**
+ * The arguments that can be flags: everything before a `--`. After it every
+ * argument is positional, as `parseArgs` reads them, so `brain registry --
+ * --check` is not a check and must be classified as the write it runs as.
+ */
+function beforeTerminator(args: string[]): string[] {
+  const end = args.indexOf("--");
+  return end === -1 ? args : args.slice(0, end);
+}
+
+// Commands that write only under a flag, or only without one: `brain tags`
+// reports, and rewrites frontmatter only with --apply and no --dry-run;
+// `brain hygiene` writes only under `reconcile` without --dry-run;
+// `brain registry` rewrites index tables unless --check.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
   hygiene: (args) => args[0] === "reconcile" && !args.includes("--dry-run"),
+  registry: (args) => !args.includes("--check"),
 };
 
 /** Env var holding the API key for a named built-in completion provider. */
@@ -220,7 +233,7 @@ async function main(): Promise<number> {
   const mutatingSub = MUTATING_SUBCOMMAND[command];
   const mutates =
     (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
-    (MUTATING_WITH_FLAGS[command]?.(argv.slice(1)) ?? false);
+    (MUTATING_WITH_FLAGS[command]?.(beforeTerminator(argv.slice(1))) ?? false);
   if (brain.configPath === null && mutates) {
     console.error(
       `No ${CONFIG_FILENAMES.join(" or ")} found from ${process.cwd()} — ` +

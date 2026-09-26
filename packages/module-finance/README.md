@@ -103,14 +103,19 @@ The module registers one top-level command, `brain finance`:
 
 ### Generated block
 
-`sync` rewrites only the region between these markers in each ledger body, so
-hand-written prose around it is preserved:
+`sync` rewrites only core's `finance` generated region in each ledger body, so
+hand-written prose around it is preserved, and bumps `updated` only when the
+tables changed:
 
 ```
-<!-- BEGIN GENERATED — do not edit by hand; run `brain finance sync` -->
+<!-- brain:generated:finance -->
 …tables…
-<!-- END GENERATED -->
+<!-- /brain:generated:finance -->
 ```
+
+A ledger still carrying the older `<!-- BEGIN GENERATED … -->` /
+`<!-- END GENERATED -->` markers is rewritten to the region on its next
+`sync`, with the same tables.
 
 ## Index-sync rules
 

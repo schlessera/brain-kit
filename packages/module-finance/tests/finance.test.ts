@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "path";
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 
-import { buildTaxonomy } from "@schlessera/brain";
+import { buildTaxonomy, readGeneratedRegion } from "@schlessera/brain";
 import type { LoadedModule } from "@schlessera/brain";
 
 import manifest, { configSchema } from "../src/module";
@@ -9,6 +11,8 @@ import {
   buildPortfolio,
   computeClient,
   loadLedgers,
+  renderLedgerTables,
+  syncFiles,
   type FinanceOptions,
 } from "../src/finance";
 
@@ -102,5 +106,87 @@ describe("module manifest", () => {
   test("setup shapes the finance dir from clientsDir", () => {
     const custom = manifest.setup(configSchema.parse({ clientsDir: "accounts" }));
     expect(custom.taxonomy?.types?.finance?.dir).toBe("accounts");
+  });
+});
+
+describe("the generated region (#403)", () => {
+  const LEGACY_BEGIN = "<!-- BEGIN GENERATED — do not edit by hand; run `brain finance sync` -->";
+  const LEGACY_END = "<!-- END GENERATED -->";
+
+  function copyFixtures(): string {
+    const root = mkdtempSync(join(tmpdir(), "finance-region-"));
+    cpSync(resolve(import.meta.dir, "fixtures"), root, { recursive: true });
+    return root;
+  }
+
+  test("a ledger carrying the old markers is rewritten to core's region, with today's tables", () => {
+    const root = copyFixtures();
+    try {
+      const path = join(root, "clients/acme-corp/ledger.md");
+      const prose = "Hand-written notes that must survive.";
+      writeFileSync(path, `${readFileSync(path, "utf8").trimEnd()}\n\n${prose}\n\n${LEGACY_BEGIN}\n\nold table\n\n${LEGACY_END}\n\nClosing words.\n`);
+      const opts = { ...OPTS, root };
+
+      const { files } = syncFiles(opts, AS_OF);
+      expect(files).toContain("clients/acme-corp/ledger.md");
+      const body = readFileSync(path, "utf8");
+      expect(body).not.toContain("BEGIN GENERATED");
+      expect(body).not.toContain("old table");
+      expect(body).toContain(`${prose}\n\n<!-- brain:generated:finance -->`);
+      expect(body).toContain("<!-- /brain:generated:finance -->\n\nClosing words.\n");
+
+      const ledger = loadLedgers(opts, "acme-corp")[0];
+      const expected = renderLedgerTables(computeClient(ledger, opts.feeTolerance, AS_OF), ledger.payments);
+      expect(expected.length).toBeGreaterThan(0);
+      expect(readGeneratedRegion(body, "finance")).toBe(expected);
+
+      // A second sync writes nothing: the file keeps its inode and its (aged) mtime.
+      utimesSync(path, new Date("2020-01-01T00:00:00Z"), new Date("2020-01-01T00:00:00Z"));
+      const before = statSync(path);
+      expect(syncFiles(opts, AS_OF).files).toEqual([]);
+      const after = statSync(path);
+      expect({ ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({ ino: before.ino, mtimeMs: before.mtimeMs });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("frontmatter text that looks like a marker, a pipe or a line break stays inside its cell, on the ledger and the dashboard", () => {
+    const root = copyFixtures();
+    try {
+      const ledger = join(root, "clients/acme-corp/ledger.md");
+      const CLOSE = "<!-- /brain:generated:finance -->";
+      writeFileSync(
+        ledger,
+        readFileSync(ledger, "utf8")
+          .replace("display_name: Acme Corporation", `display_name: "Acme | Corp\\n${CLOSE}"`)
+          .replace("client: acme-corp", `client: "acme-corp\\n${CLOSE}\\n(x)"`)
+          .replace("number: 2026-acme-corp-01", 'number: "2026-acme|01"')
+          .replace("invoice: 2026-acme-corp-01", 'invoice: "2026-acme|01"')
+          .replace("method: wire", `method: "wire\\n${CLOSE}\\nrest"`)
+      );
+      const dashboard = join(root, "clients/_index.md");
+      writeFileSync(dashboard, "---\ntype: index\ntitle: Clients\nupdated: 2026-01-01\n---\n\n# Clients\n");
+      const opts = { ...OPTS, root };
+
+      expect(syncFiles(opts, AS_OF).files.sort()).toContain("clients/acme-corp/ledger.md");
+      for (const path of [ledger, dashboard]) {
+        const text = readFileSync(path, "utf8");
+        const markerLines = text.split("\n").filter((line) => line.trim().startsWith("<!--") && line.includes("brain:generated:finance"));
+        expect({ path, markerLines }).toEqual({ path, markerLines: ["<!-- brain:generated:finance -->", CLOSE] });
+        const region = readGeneratedRegion(text, "finance")!;
+        // Every table row is still one line with its own cells.
+        for (const row of region.split("\n").filter((line) => line.startsWith("|"))) expect(row.endsWith("|")).toBe(true);
+      }
+      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("wire &lt;!-- /brain:generated:finance --> rest");
+      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-acme\\|01 |");
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("Acme \\| Corp &lt;!--");
+      // The client directory is a link destination: percent-encoded, not escaped.
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("](acme-corp%0A%3C!--%20%2Fbrain%3Agenerated%3Afinance%20--%3E%0A(x)/)");
+      // A second sync reads its own output back and writes nothing.
+      expect(syncFiles(opts, AS_OF).files).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

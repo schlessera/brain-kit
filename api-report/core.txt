@@ -130,6 +130,7 @@ export "." (./src/index.ts)
   hybridSearch
   ignoreScratch
   indexAll
+  inertGeneratedText
   ingest
   initContext
   installBinLinks
@@ -146,7 +147,9 @@ export "." (./src/index.ts)
   pruneScratch
   readDocumentPart
   readEnvVar
+  readGeneratedRegion
   relevanceOnArchive
+  replaceGeneratedRegion
   repoRelativePathSchema
   rerank
   resolveAgentRunner
@@ -156,12 +159,14 @@ export "." (./src/index.ts)
   resolveRoot
   resolveWikiLink
   resolveWritable
+  rewriteGeneratedRegion
   safeResolve
   scratchDir
   scratchIgnored
   scratchName
   setContext
   setMeta
+  splitFrontmatterBlock
   storedVectorWidth
   stringifyDocument
   syncSkills

@@ -29,6 +29,15 @@ export type {
   LoadedConfig,
 } from "./lib/config.js";
 
+// Generated regions: derived content inside hand-written markdown
+export {
+  inertGeneratedText,
+  readGeneratedRegion,
+  replaceGeneratedRegion,
+  rewriteGeneratedRegion,
+  splitFrontmatterBlock,
+} from "./lib/generated-regions.js";
+
 // Modules
 export { defineModule } from "./lib/module-types.js";
 export type {
