@@ -13,6 +13,9 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import matter from "gray-matter";
 import { fromMarkdown } from "mdast-util-from-markdown";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
@@ -70,10 +73,12 @@ describe("over fixtures/corpus", () => {
   });
 
   test("includes current focus whole when it fits", async () => {
-    const focus = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8")).content.trim();
+    const { content, data } = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8"));
+    const focus = content.trim();
     // The premise: more than the 800 characters main kept.
     expect(focus.length).toBeGreaterThan(800);
-    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${focus}`);
+    // Summary first, then the body whole.
+    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${data.summary}\n\n${focus}`);
   });
 
   test("carries no FTS5 highlight markers", async () => {
@@ -92,17 +97,13 @@ describe("over fixtures/corpus", () => {
     expect(out).not.toContain("(context/current-focus.md)");
   });
 
-  test("an identity that does not fit is cut at a paragraph boundary, with a pointer to the file", async () => {
-    const identity = matter(readFileSync(join(ctx.root, "me/identity.md"), "utf8")).content.trim();
+  test("an identity that does not fit leads with its summary, with a pointer to the file", async () => {
+    // The corpus identity has no text before its first "##" heading, and its
+    // first section does not fit in 200 tokens: what leads is the summary.
     const out = await assembleContext(db, ctx, { query: "astronomy", maxTokens: 200, includeCurrentFocus: false });
-    const section = out.split("\n\n(truncated — brain read me/identity.md)")[0]!;
-    expect(out).toContain("(truncated — brain read me/identity.md)");
-    const kept = section.replace(/^## Identity\n/, "");
-    // Whole paragraphs only: what is kept is a prefix of the file ending
-    // where a paragraph ends.
-    expect(kept.length).toBeGreaterThan(0);
-    expect(identity.startsWith(kept)).toBe(true);
-    expect(identity.slice(kept.length).startsWith("\n\n")).toBe(true);
+    expect(out.startsWith(
+      "## Identity\nWho Alex Example is — a park ranger tracking health, woodworking, and astronomy\n\n(truncated — brain read me/identity.md)"
+    )).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
   });
 });
@@ -240,6 +241,17 @@ describe("over a hand-built index", () => {
     expect(out).toContain("(notes/after.md)");
   });
 
+  test("a hit body that starts like a link or footnote definition stays a paragraph", async () => {
+    addDoc("notes/refdef.md", "Refdef", "[role]: warden");
+    addDoc("notes/footdef.md", "Footdef", "[^profile]: warden\n    indented footnote body");
+    const out = await assembleContext(db, ctx, { query: "warden", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
+    const types = (unified().use(remarkParse).use(remarkGfm).parse(out) as unknown as { children: { type: string }[] }).children.map((n) => n.type);
+    // The premise: both hits are there.
+    expect(out).toContain("(notes/refdef.md)");
+    expect(out).toContain("(notes/footdef.md)");
+    expect(types).toEqual(["heading", "paragraph", "heading", "paragraph"]);
+  });
+
   test("a multiline title stays on its header line", async () => {
     addDoc("notes/forged.md", "First zephyr\n## Forged section", "zephyr words");
     const out = await assembleContext(db, ctx, { query: "zephyr", maxTokens: 1000, includeIdentity: false, includeCurrentFocus: false });
@@ -311,6 +323,7 @@ describe("over a hand-built index", () => {
       ["orbit/quote.md", "> quoted title", "a summary"],
       ["orbit/list.md", "- listed title", null],
       ["orbit/multi.md", "First line\n## Forged section", "one\n\n> two"],
+      ["orbit/refdef.md", "[role]: ranger", null],
     ];
     for (const [path, title, summary] of linkedDocs) addDoc(path, title, "unrelated words", summary);
     const hubId = (db.prepare("SELECT id FROM documents WHERE path = 'orbit/hub.md'").get() as { id: number }).id;
@@ -331,7 +344,148 @@ describe("over a hand-built index", () => {
     const list = tree.children.at(-1) as { type: string; children: { children: { type: string }[] }[] };
     expect(list.type).toBe("list");
     expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
-      Array.from({ length: 5 }, () => ["paragraph"])
+      Array.from({ length: 6 }, () => ["paragraph"])
     );
+  });
+
+  describe("identity leads with its lead, then whole sections", () => {
+    // A 300-character lead, then a 2,000-character section made of short
+    // paragraphs (each would fit on its own), then a second section.
+    const LEAD = `${"Ranger at the north preserve; speaks two languages; reach me by radio. ".repeat(4).trim()}`;
+    const SECTION = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: ${"ninety-some characters of old history ".repeat(3).trim()}.`).join("\n\n")}`;
+    const LATER = `## Later\n\n${"more words ".repeat(300).trim()}`;
+    const write = () => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${LEAD}\n\n${SECTION}\n\n${LATER}\n`);
+    };
+
+    test("the premise: lead and section have the sizes the case is about", () => {
+      expect(LEAD.length).toBeGreaterThanOrEqual(280);
+      expect(LEAD.length).toBeLessThanOrEqual(300);
+      expect(SECTION.length).toBeGreaterThan(1900);
+    });
+
+    test("a budget of 300 takes the whole lead and none of the section", async () => {
+      write();
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 300, includeCurrentFocus: false });
+      expect(out).toBe(`## Identity\n${LEAD}\n\n(truncated — brain read me/identity.md)`);
+    });
+
+    test("a heading inside a fenced block does not end the lead", async () => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      const lead = `${LEAD}\n\n` + "```\n## inside the fence\n```";
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${lead}\n\n${SECTION}\n`);
+      const expected = `## Identity\n${lead}\n\n(truncated — brain read me/identity.md)`;
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: estimateTokens(expected), includeCurrentFocus: false });
+      expect(out).toBe(expected);
+    });
+
+    test("a budget with room for the lead and the section takes the section whole", async () => {
+      write();
+      const budget = estimateTokens(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: budget, includeCurrentFocus: false });
+      expect(out).toBe(`## Identity\n${LEAD}\n\n${SECTION}\n\n(truncated — brain read me/identity.md)`);
+    });
+  });
+
+  describe("identity split by parsed structure", () => {
+    const MARKER = "(truncated — brain read me/identity.md)";
+    const LONG = `${"long words of old history ".repeat(60).trim()}.`;
+    const identity = async (text: string, maxTokens: number) => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), text);
+      return assembleContext(db, ctx, { query: "", maxTokens, includeCurrentFocus: false });
+    };
+    const doc = (body: string, summary?: string) =>
+      `---\ntype: identity\n${summary ? `summary: "${summary}"\n` : ""}---\n${body}\n`;
+
+    test("a four-backtick fence holding ~~~ and a ## line is one block, never left open", async () => {
+      const out = await identity(doc(`Intro.\n\n${"````"}\n~~~\n## inside code\n${"````"}\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      const tree = fromMarkdown(out);
+      const last = tree.children.at(-1) as { type: string; children?: { value?: string }[] };
+      expect(last.type).toBe("paragraph");
+      expect(last.children?.[0]?.value).toBe(MARKER);
+      expect(out).toContain("## inside code\n````");
+    });
+
+    test("a ## line indented inside a list does not start a section", async () => {
+      const lead = "Intro.\n\n- an item\n  ## not a section\n\nMore lead.";
+      const out = await identity(doc(`${lead}\n\n## Real\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n${lead}\n\n${MARKER}`);
+    });
+
+    test("a setext ## heading starts a section, so none of it is taken partially", async () => {
+      const out = await identity(doc(`Intro.\n\nHistory\n-------\n\n${"A short old paragraph. ".repeat(3)}\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\nIntro.\n\n${MARKER}`);
+    });
+
+    test("a # heading stays in the lead, so an overflowing lead is cut after it", async () => {
+      const out = await identity(doc(`Intro.\n\n# Roles\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\nIntro.\n\n# Roles\n\nCurrent ranger.\n\n${MARKER}`);
+    });
+
+    test("the summary leads at every budget", async () => {
+      const text = doc(`Intro.\n\n${"word ".repeat(80).trim()}`, "HOT SUMMARY");
+      for (const budget of [40, 400, 4000]) {
+        const out = await identity(text, budget);
+        expect({ budget, lead: out.split("\n")[1] }).toEqual({ budget, lead: "HOT SUMMARY" });
+      }
+    });
+
+    test("a document with only a summary still contributes it", async () => {
+      expect(await identity(doc("", "HOT SUMMARY"), 400)).toBe("## Identity\nHOT SUMMARY");
+    });
+
+    // GFM, so a footnote definition is recognised too.
+    const blockTypes = (out: string) =>
+      (unified().use(remarkParse).use(remarkGfm).parse(out) as unknown as { children: { type: string; depth?: number }[] })
+        .children.map((node) => node.type === "heading" ? `h${node.depth}` : node.type);
+
+    test("a summary that looks like a fence opens no block, when the document fits whole", async () => {
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "context/current-focus.md"), "---\ntype: context\n---\nCurrent priority.\n");
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), doc("Intro.", "~~~"));
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 400 });
+      // Identity (summary, body), then focus: nothing swallowed by a code block.
+      expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "h2", "paragraph"]);
+      expect(out).toContain("Current priority.");
+    });
+
+    test("a summary that looks like a fence opens no block, when the document is cut", async () => {
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "context/current-focus.md"), "---\ntype: context\n---\nCurrent priority.\n");
+      const out = await identity(doc(`Intro.\n\n${LONG}\n\n## History\n\n${LONG}`, "~~~"), 100);
+      expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
+      expect(out.endsWith(MARKER)).toBe(true);
+    });
+
+    for (const summary of ["[role]: ranger", "[^profile]: ranger\n    indented footnote body"]) {
+      test(`a summary like ${JSON.stringify(summary.split("\n")[0])} opens no definition, when the document fits whole`, async () => {
+        mkdirSync(join(dir, "me"), { recursive: true });
+        writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n`);
+        const out = await assembleContext(db, ctx, { query: "", maxTokens: 400, includeCurrentFocus: false });
+        expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph"]);
+      });
+
+      test(`a summary like ${JSON.stringify(summary.split("\n")[0])} opens no definition, when the document is cut`, async () => {
+        mkdirSync(join(dir, "me"), { recursive: true });
+        writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n\n${LONG}\n\n## History\n\n${LONG}\n`);
+        const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
+        expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
+        expect(out.endsWith(MARKER)).toBe(true);
+      });
+    }
+
+    test("indented code at the start of the body stays code, and the lead after it is kept", async () => {
+      const out = await identity(doc(`    ## code\n    example\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n    ## code\n    example\n\nCurrent ranger.\n\n${MARKER}`);
+    });
+
+    test("with no lead, sections are taken whole or not at all", async () => {
+      const history = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: a short old line.`).join("\n\n")}`;
+      const out = await identity(doc(`${history}\n\n## Later\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n${MARKER}`);
+    });
   });
 });

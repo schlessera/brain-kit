@@ -39,6 +39,9 @@ Rules:
   An archived doc is not `relevance: primary`: `brain archive` sets a primary
   or missing relevance to `historical` (an explicit `secondary` stays), and
   `brain validate` warns on an archived doc that still claims `primary`.
+- The identity and current-focus documents lead with their hot part: the text
+  before the first `##` heading, plus `summary`. `brain context` reads that lead
+  first, so keep it current when you edit either file.
 
 ## Wiki-links
 
