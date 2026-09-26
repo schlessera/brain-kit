@@ -9,8 +9,8 @@
 
 import { z } from "zod";
 
-import type { AssembleReport } from "./context-assembler.js";
 import { caseFold } from "./case-fold.js";
+import type { AssembleReport } from "./context-assembler.js";
 import { FTS_STOPWORDS } from "./search-engine.js";
 import type { SearchResult } from "./types.js";
 
@@ -522,15 +522,21 @@ export function percentile(values: number[], p: number): number {
 export const PARAPHRASE_CLASS = "paraphrase";
 
 /**
- * A query's or title's content words: case-folded, stopwords dropped.
- * `caseFold` returns decomposed text, so a word keeps its combining marks
- * (`\p{M}`) or "résumé" would split into "re" and "sume", and "thé" would
- * lose its accent and be dropped as the stopword "the".
+ * A query's or title's content words, keyed the way FTS matches them: the
+ * index's `unicode61` tokenizer strips diacritics, so "resume" matches
+ * "résumé" and "thé" matches "the". A word is read whole, marks included
+ * (`caseFold` returns decomposed text, and without `\p{M}` "résumé" would
+ * split into "re" and "sume"), then its marks are stripped for the key, and
+ * the stopword check runs on the stripped key, so "thé" is dropped as "the".
+ * The value is the word as written (NFC), for display.
  */
-function contentWords(text: string): Set<string> {
-  return new Set(
-    (caseFold(text).match(/[\p{L}\p{M}\p{N}]+/gu) ?? []).filter((word) => !FTS_STOPWORDS.has(word))
-  );
+function contentWords(text: string): Map<string, string> {
+  const words = new Map<string, string>();
+  for (const word of caseFold(text).match(/[\p{L}\p{M}\p{N}]+/gu) ?? []) {
+    const key = word.replace(/\p{M}/gu, "");
+    if (key && !FTS_STOPWORDS.has(key) && !words.has(key)) words.set(key, word.normalize("NFC"));
+  }
+  return words;
 }
 
 /**
@@ -549,9 +555,9 @@ export function titleLeaks(queries: EvalQuery[], titleOf: (path: string) => stri
     for (const path of query.expected) {
       const title = titleOf(path);
       if (title === null) continue;
-      const shared = [...contentWords(title)].filter((word) => words.has(word));
+      const shared = [...contentWords(title).keys()].filter((key) => words.has(key));
       if (shared.length > 0) {
-        findings.push(`${query.id}: shares ${shared.map((w) => `"${w.normalize("NFC")}"`).join(", ")} with the title of ${path}`);
+        findings.push(`${query.id}: shares ${shared.map((key) => `"${words.get(key)}"`).join(", ")} with the title of ${path}`);
       }
     }
   }

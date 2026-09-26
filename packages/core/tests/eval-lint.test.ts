@@ -73,19 +73,26 @@ test("a candidate valid on its own is refused when linted with the set it joins 
   expect(stderr).toContain("line 2");
 });
 
-// Accented words (#506 review): caseFold decomposes, so a word must keep its
-// combining marks to be compared whole. Escapes keep the decomposed form visible.
+// Accented words (#506 review): the lint predicts what FTS matches, and the
+// index's unicode61 tokenizer strips diacritics. So words are compared whole,
+// with their marks stripped, and the stopword check runs after stripping. The
+// warning names the query's word as written. Escapes keep the forms visible.
 const leaks = (q: string, title: string) =>
   titleLeaks([{ id: "q1", q, class: PARAPHRASE_CLASS, expected: ["t.md"] }], () => title);
 
 test("an accented word shared with the title is reported whole, in either Unicode form", () => {
-  const precomposed = "résumé";
-  const decomposed = "résumé";
-  expect(leaks(`where is my ${precomposed}`, `RÉSUMÉ draft`)).toEqual([`q1: shares "${precomposed}" with the title of t.md`]);
+  const precomposed = "r\u00e9sum\u00e9";
+  const decomposed = "re\u0301sume\u0301";
+  expect(leaks(`where is my ${precomposed}`, "R\u00c9SUM\u00c9 draft")).toEqual([`q1: shares "${precomposed}" with the title of t.md`]);
   expect(leaks(`where is my ${decomposed}`, `${precomposed} draft`)).toEqual([`q1: shares "${precomposed}" with the title of t.md`]);
 });
 
-test("an accent is part of the word: thé is not the stopword the", () => {
-  expect(leaks("a cup of thé", "Thé at noon")).toEqual(['q1: shares "thé" with the title of t.md']);
-  expect(leaks("a cup of thé", "The noon break")).toEqual([]);
+test("a word that differs from the title's only by accents is reported, since FTS matches it", () => {
+  expect(leaks("where is my resume", "R\u00e9sum\u00e9 draft")).toEqual(['q1: shares "resume" with the title of t.md']);
+  expect(leaks("where is my r\u00e9sum\u00e9", "Resume draft")).toEqual(['q1: shares "r\u00e9sum\u00e9" with the title of t.md']);
+});
+
+test("the stopword check runs after stripping: th\u00e9 folds to the and is dropped", () => {
+  expect(leaks("a cup of th\u00e9", "Th\u00e9 at noon")).toEqual([]);
+  expect(leaks("a cup of th\u00e9 at dusk", "Dusk th\u00e9")).toEqual(['q1: shares "dusk" with the title of t.md']);
 });
