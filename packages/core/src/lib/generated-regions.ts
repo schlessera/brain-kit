@@ -16,6 +16,7 @@
  */
 
 import { frontmatterLength } from "./document-parts.js";
+import { codeRanges } from "./markdown-code.js";
 
 /** A region name: lowercase letters, digits and dashes. */
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -32,8 +33,9 @@ function eolOf(text: string): string {
 
 /**
  * Where the region's markers sit in `body`, or null when it has none. A marker
- * counts only on a line of its own (surrounding spaces and tabs allowed), so a
- * marker quoted in a table cell or a sentence is text. One opening line
+ * counts only on a line of its own (surrounding spaces and tabs allowed) and
+ * outside code, so a marker quoted in a table cell, a sentence or a fenced
+ * example is text. One opening line
  * followed by one closing line is a region; any other combination (a stray
  * marker, two of either, the closing one first) throws, and the caller leaves
  * the file alone rather than guess which part is generated.
@@ -42,12 +44,15 @@ function locate(body: string, name: string): { start: number; end: number; inner
   const { open, close } = markers(name);
   const opens: number[] = [];
   const closes: number[] = [];
+  // A marker quoted in a code block (a fenced example of the syntax) is text.
+  const code = body.includes(open) || body.includes(close) ? codeRanges(body) : [];
+  const inCode = (at: number) => code.some(([s, e]) => at >= s && at < e);
   let offset = 0;
   for (const line of body.split("\n")) {
     const text = line.replace(/\r$/, "").trim();
     const at = offset + line.indexOf(text);
-    if (text === open) opens.push(at);
-    else if (text === close) closes.push(at);
+    if (text === open && !inCode(at)) opens.push(at);
+    else if (text === close && !inCode(at)) closes.push(at);
     offset += line.length + 1;
   }
   if (opens.length === 0 && closes.length === 0) return null;
@@ -58,6 +63,15 @@ function locate(body: string, name: string): { start: number; end: number; inner
   }
   const [start, closeAt] = [opens[0], closes[0]];
   return { start, end: closeAt + close.length, inner: [start + open.length, closeAt] };
+}
+
+/**
+ * Where the region sits in `body`, markers included, as [start, end); null
+ * when it has none. Throws on malformed markers.
+ */
+export function generatedRegionSpan(body: string, name: string): [number, number] | null {
+  const at = locate(body, name);
+  return at ? [at.start, at.end] : null;
 }
 
 /**

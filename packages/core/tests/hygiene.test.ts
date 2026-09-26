@@ -224,12 +224,29 @@ describe("index table lag", () => {
     ]);
   });
 
-  test("a generated registry table is left to brain registry, not diffed row by row", () => {
+  test("a generated registry table of an index that opts in is left to brain registry; the rest is diffed", () => {
     const table = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Alpha](alpha.md) | active | 2026-05-01 |\n";
-    const detail = doc("work/alpha.md", "note", "2026-06-10");
-    const lag = (content: string) => indexTableLag([doc("work/_index.md", "index", "2026-06-01", content), detail]);
-    expect(lag(table)).toHaveLength(1); // the premise: the same table by hand lags
-    expect(lag(`<!-- brain:generated:registry -->\n\n${table}\n<!-- /brain:generated:registry -->\n`)).toEqual([]);
+    const outside = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Beta](beta.md) | active | 2026-05-01 |\n";
+    const details = [doc("work/alpha.md", "note", "2026-06-10"), doc("work/beta.md", "note", "2026-06-10")];
+    const region = `<!-- brain:generated:registry -->\n\n${table}\n<!-- /brain:generated:registry -->\n`;
+    const lag = (content: string, optedIn: boolean) =>
+      indexTableLag([doc("work/_index.md", "index", "2026-06-01", content), ...details], new Set(optedIn ? ["work/_index.md"] : [])).map(
+        (c) => c.evidence
+      );
+    expect(lag(table, true)).toEqual(["[Alpha](alpha.md)"]); // the premise: the same table by hand lags
+    expect(lag(`${region}\n${outside}`, true)).toEqual(["[Beta](beta.md)"]);
+    // An index that has not opted in is diffed as written, markers or not.
+    expect(lag(`${region}\n${outside}`, false)).toEqual(["[Alpha](alpha.md)", "[Beta](beta.md)"]);
+  });
+
+  test("a marker quoted in a fenced example suppresses nothing", () => {
+    const table = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Alpha](alpha.md) | active | 2026-05-01 |\n";
+    const example = "```markdown\n<!-- brain:generated:registry -->\n\n<!-- /brain:generated:registry -->\n```\n";
+    const found = indexTableLag(
+      [doc("work/_index.md", "index", "2026-06-01", `${example}\n${table}`), doc("work/alpha.md", "note", "2026-06-10")],
+      new Set(["work/_index.md"])
+    );
+    expect(found.map((c) => c.evidence)).toEqual(["[Alpha](alpha.md)"]);
   });
 
   test("a table without outer pipes, and a wiki-link with a label, are read as GFM reads them", () => {
@@ -639,7 +656,7 @@ describe("detection", () => {
       ({ key: name, dir: "/", config: {}, manifest: { name, hygieneChecks: [check] } }) as unknown as LoadedModule;
     const brain = {
       taxonomy,
-      root: "/nonexistent",
+      root: mkdtempSync(join(tmpdir(), "brain-hygiene-empty-")),
       modules: [
         mod("moods", () => [
           { path: "context/hygiene/open.md", severity: "info", category: "mood-drift", message: "in the log" },
@@ -658,6 +675,18 @@ describe("detection", () => {
     const detection = await detectCandidates(database, brain, new Date("2026-07-01T12:00:00Z"));
     expect(detection.failedChecks).toEqual(["broken"]);
     expect(detection.candidates.filter((c) => c.category === "mood-drift").map((c) => c.path)).toEqual(["notes/a.md"]);
+  });
+
+  test("a root that is given but missing fails the registry check out loud; no root audits the index alone", async () => {
+    const database = db([{ path: "notes/a.md" }]);
+    const failed: string[] = [];
+    await auditWithModules(database, { taxonomy, root: "/nonexistent", modules: [] }, { now: new Date("2026-07-01T12:00:00Z"), onCheckFailed: (c) => failed.push(c) });
+    expect(failed).toEqual(["index-stale"]);
+    expect((await detectCandidates(database, { taxonomy, root: "/nonexistent", modules: [] }, new Date("2026-07-01T12:00:00Z"))).failedChecks).toEqual(["index-stale"]);
+
+    const quiet: string[] = [];
+    audit(database, taxonomy, { now: new Date("2026-07-01T12:00:00Z"), onCheckFailed: (c) => quiet.push(c) });
+    expect(quiet).toEqual([]);
   });
 });
 

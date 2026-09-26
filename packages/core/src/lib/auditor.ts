@@ -35,7 +35,8 @@ export interface AuditOptions {
    * Called when a check could not run, so a caller can tell a check that found
    * nothing from one that did not look: with a module's name when one of its
    * hygiene checks throws (`auditWithModules`), and with a core check's
-   * category when it could not read its input (`fact-drift`, `tag-noise`).
+   * category when it could not read its input (`fact-drift`, `tag-noise`,
+   * and `index-stale` when a given root is missing).
    */
   onCheckFailed?: (check: string) => void;
 }
@@ -614,8 +615,11 @@ export function audit(
   // summary layer over its directory subtree and must not lag behind it. An
   // index with a generated registry table is judged by that table instead
   // (2b'): its `updated` moves only when the table does, so lag says nothing.
-  // A root that is not a directory (a caller auditing an index alone) has no registry to plan.
-  const registry = opts.root && existsSync(opts.root) ? planRegistry(opts.root, taxonomy, isoDay(now)) : null;
+  // Without a root there is nothing to plan (an audit of the index alone). A
+  // root that is given but missing is a check that could not run.
+  const rootMissing = !!opts.root && !existsSync(opts.root);
+  if (rootMissing) opts.onCheckFailed?.("index-stale");
+  const registry = opts.root && !rootMissing ? planRegistry(opts.root, taxonomy, isoDay(now)) : null;
   const generated = new Set([
     ...(registry?.indexes.map((i) => i.path) ?? []),
     ...(registry?.problems.map((p) => p.path) ?? []),

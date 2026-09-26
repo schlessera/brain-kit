@@ -923,7 +923,8 @@ Rules a consumer may rely on:
   Everything outside the markers is the author's and is never rewritten, byte
   for byte, trailing whitespace and line endings included; a region is
   rewritten, and the file's `updated:` bumped, only when its content changed. A
-  marker counts only on a line of its own, so one quoted inside a line is text.
+  marker counts only on a line of its own and outside code, so one quoted
+  inside a line or in a fenced example is text.
   A file with a stray, doubled or out-of-order marker line is not rewritten;
   the command reports it instead, as it does a file whose frontmatter never
   closes. Generated values, the registry's cells and module-finance's alike,

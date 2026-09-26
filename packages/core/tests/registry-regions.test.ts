@@ -52,6 +52,13 @@ describe("replaceGeneratedRegion / readGeneratedRegion", () => {
     expect(replaceGeneratedRegion(once, "t", content)).toBe(once);
   });
 
+  test("markers quoted in a fenced example are text: the region is appended after it, the example untouched", () => {
+    const example = `Prose.\n\n\`\`\`markdown\n${OPEN}\n\n${CLOSE}\n\`\`\`\n`;
+    const next = replaceGeneratedRegion(example, "t", "c");
+    expect(next).toBe(`${example}\n${OPEN}\n\nc\n\n${CLOSE}\n`);
+    expect(readGeneratedRegion(next, "t")).toBe("c");
+  });
+
   test("malformed markers throw instead of guessing the region", () => {
     for (const body of [
       `${OPEN}\n\nx\n`, // no closing line
