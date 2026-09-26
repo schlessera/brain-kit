@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
+import { nameKeys } from "./name-key.js";
 
 /**
  * The brain.db schema this build writes, and the ONE place the number lives.
@@ -400,6 +401,20 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
          FROM documents d`
       );
       db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
+    }
+    // The exact-name lookup: each markdown document's title and alias keys
+    // (name-key.ts), so a query that names a document finds it through the
+    // index, whatever the full-text lanes ranked. Titles are keyed now; the
+    // next index run, which rewrites every markdown row, adds the aliases.
+    db.run(`CREATE TABLE IF NOT EXISTS name_keys (
+      key TEXT NOT NULL,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      PRIMARY KEY (key, document_id)
+    ) WITHOUT ROWID`);
+    db.run("CREATE INDEX IF NOT EXISTS idx_name_keys_document_id ON name_keys(document_id)");
+    const insertKey = db.prepare("INSERT OR IGNORE INTO name_keys (key, document_id) VALUES (?, ?)");
+    for (const doc of db.prepare("SELECT id, title FROM documents WHERE asset_type = 'markdown'").all() as { id: number; title: string }[]) {
+      for (const key of nameKeys(doc.title, [])) insertKey.run(key, doc.id);
     }
 
     setSchemaVersion(db, SCHEMA_VERSION);

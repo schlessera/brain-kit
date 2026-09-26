@@ -727,7 +727,10 @@ Prefer the CLI/MCP. If reading directly:
   changed, so a reader that accepts 13 reads 14 unchanged. The migration
   refills the table from `documents` and clears the markdown rows'
   `content_hash`, so the next index run writes each row again with its
-  aliases.
+  aliases. It also adds `name_keys` (key, document_id): each markdown
+  document's title and aliases, case-folded with whitespace collapsed, the
+  lookup exact-name search uses. Titles are keyed at migration; the next index
+  run adds the aliases.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,

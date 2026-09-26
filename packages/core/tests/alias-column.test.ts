@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { migrateVecSchema, openDatabase, setMeta } from "../src/lib/db";
+import { nameKeys } from "../src/lib/name-key";
 import { hybridSearch } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -198,30 +199,62 @@ function handBuilt() {
     );
     db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags,aliases) VALUES (?,?,'',?,'',?)", [docId, title, body, (meta.aliases ?? []).join("\n")]);
     db.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,0,'',?,1)", [docId, body]);
+    // As the indexer writes them.
+    for (const key of nameKeys(title, meta.aliases ?? [])) db.run("INSERT INTO name_keys(key, document_id) VALUES (?, ?)", [key, docId]);
+    return docId;
   };
-  return { db, add };
+  /** `newer` supersedes `older`, as the indexer resolves it. */
+  const supersede = (newer: number, older: number) =>
+    db.run("INSERT INTO supersedes(source_id, target, target_id) VALUES (?, 'x', ?)", [newer, older]);
+  return { db, add, supersede };
 }
 
 describe("an exact name is found whatever the lanes retrieved", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `gravel${i}`).join(" ");
 
-  test("when the full-text pool is taken by better-scoring documents", async () => {
-    const { db, add } = handBuilt();
-    add("studies/setup.md", "Telescope setup", words(2000), { aliases: ["my scope"] });
+  test("when the full-text pool is taken by better-scoring documents, supersededBy included", async () => {
+    const { db, add, supersede } = handBuilt();
+    const setup = add("studies/setup.md", "Telescope setup", words(2000), { aliases: ["my scope"] });
+    const newer = add("studies/setup-v2.md", "Telescope setup, revised", words(10));
+    supersede(newer, setup);
     for (let i = 0; i < 42; i++) add(`notes/scope-${i}.md`, "Scope notes", "scope scope");
     for (const limit of [1, 20]) {
       const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", rerank: "none", limit });
-      expect({ limit, first: results[0]?.path, count: results.length }).toEqual({ limit, first: "studies/setup.md", count: limit });
+      expect({ limit, first: results[0]?.path, by: results[0]?.supersededBy, count: results.length }).toEqual({
+        limit,
+        first: "studies/setup.md",
+        by: "studies/setup-v2.md",
+        count: limit,
+      });
     }
     db.close();
   });
 
-  test("when the tokenizer does not match the folded form", async () => {
-    const { db, add } = handBuilt();
-    add("notes/street.md", "Street names", "Notes on the corner.", { aliases: ["Straße"] });
+  test("when the tokenizer does not match the folded form, supersededBy included", async () => {
+    const { db, add, supersede } = handBuilt();
+    const street = add("notes/street.md", "Street names", "Notes on the corner.", { aliases: ["Straße"] });
+    supersede(add("notes/street-v2.md", "Street names, revised", "Corner notes."), street);
     add("notes/other.md", "Other", "strasse strasse");
     const { results } = await hybridSearch(db, { query: "STRASSE", mode: "fts", rerank: "none" });
-    expect(results[0]?.path).toBe("notes/street.md");
+    expect({ first: results[0]?.path, by: results[0]?.supersededBy }).toEqual({ first: "notes/street.md", by: "notes/street-v2.md" });
+    db.close();
+  });
+
+  test("through the name index, never a scan of every document", async () => {
+    const { db, add } = handBuilt();
+    for (let i = 0; i < 20; i++) add(`notes/n${i}.md`, `Note ${i}`, "text");
+    const lookups: string[] = [];
+    const prepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      if (sql.includes("FROM name_keys")) lookups.push(sql);
+      return prepare(sql);
+    }) as typeof db.prepare;
+    await hybridSearch(db, { query: "nothing named this", mode: "fts", rerank: "none" });
+    db.prepare = prepare;
+    expect(lookups).toHaveLength(1);
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${lookups[0]}`).all("nothing named this", "archived") as { detail: string }[]).map((r) => r.detail);
+    expect(plan.some((d) => /SEARCH k USING (PRIMARY KEY|INDEX)/.test(d))).toBe(true);
+    expect(plan.filter((d) => d.startsWith("SCAN "))).toEqual([]);
     db.close();
   });
 

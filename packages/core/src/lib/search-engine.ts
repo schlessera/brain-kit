@@ -4,7 +4,7 @@ import { SEARCH_SORTS, type SearchResult, type SearchOptions } from "./types.js"
 import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
-import { caseFold } from "./case-fold.js";
+import { nameKey } from "./name-key.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 import { ftsIsEnglish } from "./search-language.js";
 import { SUPERSEDED_FACTOR } from "./supersedes.js";
@@ -261,53 +261,64 @@ function hasAliasesColumn(db: Database): boolean {
   return !!row && /\baliases\b/.test(row.sql);
 }
 
-/** A title or an alias as compared with a whole query: case-folded, whitespace collapsed. */
-function nameKey(text: string): string {
-  return caseFold(text.replace(/\s+/g, " ").trim());
-}
 
 /**
  * A query that is, case-folded with its spacing collapsed, a document's exact
  * title or one of its aliases names that document: it goes first, whatever
- * the lanes scored. The named documents are looked up on their own, over
- * every document the search's filters allow, so one the score-limited lanes
- * left out (or that the tokenizer does not match, `STRASSE` for `Straße`) is
- * still found. Several keep their ranked order among themselves, a named one
- * the lanes missed after those, by path, all ahead of the rest.
+ * the lanes scored. The named documents are looked up by that key in
+ * `name_keys` (an indexed lookup, schema 14), under the search's filters, so
+ * one the score-limited lanes left out, or that the tokenizer does not match
+ * (`STRASSE` for `Straße`), is still found. Several keep their ranked order
+ * among themselves, a named one the lanes missed after those, by path, all
+ * ahead of the rest; a missed one carries `supersededBy` like any result. An
+ * index from before schema 14 has no `name_keys`: only the ranked candidates
+ * are compared there.
  */
 function promoteExactNames(db: Database, query: string, candidates: SearchResult[], opts: SearchOptions): SearchResult[] {
   const key = nameKey(query);
   if (!key) return candidates;
-  const filters = buildFilters(opts);
-  const rows = db
-    .prepare(
-      `SELECT d.path AS path, d.title AS title, ${hasAliasesColumn(db) ? "fts.aliases" : "''"} AS aliases
-       FROM documents d JOIN documents_fts fts ON fts.rowid = d.id
-       WHERE 1=1 ${filters.where}`
-    )
-    .all(...filters.params) as { path: string; title: string; aliases: string | null }[];
-  const named = new Set(
-    rows
-      .filter((row) => [row.title, ...(row.aliases ?? "").split("\n")].some((name) => name.trim() && nameKey(name) === key))
-      .map((row) => row.path)
-  );
+  let named: Set<string>;
+  if (hasNameKeys(db)) {
+    const filters = buildFilters(opts);
+    named = new Set(
+      (
+        db
+          .prepare(
+            `SELECT d.path AS path FROM name_keys k JOIN documents d ON d.id = k.document_id
+             WHERE k.key = ? ${filters.where}`
+          )
+          .all(key, ...filters.params) as { path: string }[]
+      ).map((row) => row.path)
+    );
+  } else {
+    const titles = new Map(candidates.map((r) => [r.path, r.title]));
+    named = new Set([...titles].filter(([, title]) => nameKey(title) === key).map(([path]) => path));
+  }
   if (named.size === 0) return candidates;
   const ranked = new Set(candidates.map((r) => r.path));
   const missing = [...named].filter((path) => !ranked.has(path)).sort();
   const fetched =
     missing.length === 0
       ? []
-      : (
-          db
-            .prepare(
-              `SELECT ${ftsDocColumns(db)}, d.content AS content
-               FROM documents d WHERE d.path IN (${missing.map(() => "?").join(",")})`
-            )
-            .all(...missing) as Array<SearchResult & { content: string }>
-        )
-          .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))
-          .map(({ content, ...row }) => ({ ...row, score: 0, snippet: makeSnippet(content) }));
+      : markSuperseded(
+          db,
+          (
+            db
+              .prepare(
+                `SELECT ${ftsDocColumns(db)}, d.content AS content
+                 FROM documents d WHERE d.path IN (${missing.map(() => "?").join(",")})`
+              )
+              .all(...missing) as Array<SearchResult & { content: string }>
+          )
+            .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))
+            .map(({ content, ...row }) => ({ ...row, score: 0, snippet: makeSnippet(content) }))
+        );
   return [...candidates.filter((r) => named.has(r.path)), ...fetched, ...candidates.filter((r) => !named.has(r.path))];
+}
+
+/** Whether the index has the exact-name lookup table (schema 14 and later). */
+function hasNameKeys(db: Database): boolean {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'name_keys'").get() !== null;
 }
 
 /** The document fields a full-text row carries, as SQL. */
