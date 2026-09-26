@@ -267,30 +267,47 @@ function nameKey(text: string): string {
 }
 
 /**
- * A query that is, case-insensitively, a document's exact title or alias
- * names that document: it goes first, whatever the lanes scored. Several
- * such documents keep their order among themselves, ahead of the rest. The
- * candidates are the already-ranked results, so filters still apply.
+ * A query that is, case-folded with its spacing collapsed, a document's exact
+ * title or one of its aliases names that document: it goes first, whatever
+ * the lanes scored. The named documents are looked up on their own, over
+ * every document the search's filters allow, so one the score-limited lanes
+ * left out (or that the tokenizer does not match, `STRASSE` for `Straße`) is
+ * still found. Several keep their ranked order among themselves, a named one
+ * the lanes missed after those, by path, all ahead of the rest.
  */
-function promoteExactNames(db: Database, query: string, candidates: SearchResult[]): SearchResult[] {
+function promoteExactNames(db: Database, query: string, candidates: SearchResult[], opts: SearchOptions): SearchResult[] {
   const key = nameKey(query);
-  if (!key || candidates.length === 0) return candidates;
-  const aliases = hasAliasesColumn(db);
-  const placeholders = candidates.map(() => "?").join(",");
+  if (!key) return candidates;
+  const filters = buildFilters(opts);
   const rows = db
     .prepare(
-      `SELECT d.path AS path, d.title AS title, ${aliases ? "fts.aliases" : "''"} AS aliases
+      `SELECT d.path AS path, d.title AS title, ${hasAliasesColumn(db) ? "fts.aliases" : "''"} AS aliases
        FROM documents d JOIN documents_fts fts ON fts.rowid = d.id
-       WHERE d.path IN (${placeholders})`
+       WHERE 1=1 ${filters.where}`
     )
-    .all(...candidates.map((r) => r.path)) as { path: string; title: string; aliases: string | null }[];
+    .all(...filters.params) as { path: string; title: string; aliases: string | null }[];
   const named = new Set(
     rows
       .filter((row) => [row.title, ...(row.aliases ?? "").split("\n")].some((name) => name.trim() && nameKey(name) === key))
       .map((row) => row.path)
   );
   if (named.size === 0) return candidates;
-  return [...candidates.filter((r) => named.has(r.path)), ...candidates.filter((r) => !named.has(r.path))];
+  const ranked = new Set(candidates.map((r) => r.path));
+  const missing = [...named].filter((path) => !ranked.has(path)).sort();
+  const fetched =
+    missing.length === 0
+      ? []
+      : (
+          db
+            .prepare(
+              `SELECT ${ftsDocColumns(db)}, d.content AS content
+               FROM documents d WHERE d.path IN (${missing.map(() => "?").join(",")})`
+            )
+            .all(...missing) as Array<SearchResult & { content: string }>
+        )
+          .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))
+          .map(({ content, ...row }) => ({ ...row, score: 0, snippet: makeSnippet(content) }));
+  return [...candidates.filter((r) => named.has(r.path)), ...fetched, ...candidates.filter((r) => !named.has(r.path))];
 }
 
 /** The document fields a full-text row carries, as SQL. */
@@ -853,7 +870,7 @@ export async function hybridSearch(
   if (ftsResults !== null && (vecResults === null || vecResults.length === 0)) {
     candidates = [...candidates].sort((a, b) => Number(ACROSS_SECTIONS in a) - Number(ACROSS_SECTIONS in b));
   }
-  if (mode !== "vector") candidates = promoteExactNames(db, query, candidates);
+  if (mode !== "vector") candidates = promoteExactNames(db, query, candidates, opts);
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }

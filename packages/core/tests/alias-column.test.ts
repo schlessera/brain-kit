@@ -180,3 +180,76 @@ describe("a search.language switch", () => {
     expect((await paths(root, "my scope", "--mode", "fts"))[0]).toBe(SCOPE);
   }, 180_000);
 });
+
+/** A hand-built index (schema 14): title, aliases and body per document, its body one chunk. */
+function handBuilt() {
+  const db = openDatabase(":memory:");
+  let id = 0;
+  const add = (
+    path: string,
+    title: string,
+    body: string,
+    meta: { aliases?: string[]; relevance?: string; status?: string; updated?: string } = {}
+  ) => {
+    const docId = ++id;
+    db.run(
+      "INSERT INTO documents(id,path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?,?,?,'note',?,?,'2026-01-01',?,?,'2026-01-01')",
+      [docId, path, title, meta.status ?? "active", meta.relevance ?? "primary", meta.updated ?? "2026-06-01", body]
+    );
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags,aliases) VALUES (?,?,'',?,'',?)", [docId, title, body, (meta.aliases ?? []).join("\n")]);
+    db.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,0,'',?,1)", [docId, body]);
+  };
+  return { db, add };
+}
+
+describe("an exact name is found whatever the lanes retrieved", () => {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `gravel${i}`).join(" ");
+
+  test("when the full-text pool is taken by better-scoring documents", async () => {
+    const { db, add } = handBuilt();
+    add("studies/setup.md", "Telescope setup", words(2000), { aliases: ["my scope"] });
+    for (let i = 0; i < 42; i++) add(`notes/scope-${i}.md`, "Scope notes", "scope scope");
+    for (const limit of [1, 20]) {
+      const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", rerank: "none", limit });
+      expect({ limit, first: results[0]?.path, count: results.length }).toEqual({ limit, first: "studies/setup.md", count: limit });
+    }
+    db.close();
+  });
+
+  test("when the tokenizer does not match the folded form", async () => {
+    const { db, add } = handBuilt();
+    add("notes/street.md", "Street names", "Notes on the corner.", { aliases: ["Straße"] });
+    add("notes/other.md", "Other", "strasse strasse");
+    const { results } = await hybridSearch(db, { query: "STRASSE", mode: "fts", rerank: "none" });
+    expect(results[0]?.path).toBe("notes/street.md");
+    db.close();
+  });
+
+  test("but not past the search's filters", async () => {
+    const { db, add } = handBuilt();
+    add("notes/old.md", "Old setup", words(20), { aliases: ["my scope"], status: "archived" });
+    add("notes/scope.md", "Scope notes", "scope scope");
+    const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", rerank: "none" });
+    expect(results.map((r) => r.path)).toEqual(["notes/scope.md"]);
+    db.close();
+  });
+
+  test("and it goes first after the rerank, which favours the other document", async () => {
+    const { db, add } = handBuilt();
+    // Everything the reranker weighs against the named document.
+    add("studies/setup.md", "Telescope setup", `my scope ${words(40)}`, {
+      aliases: ["my scope"],
+      relevance: "historical",
+      status: "draft",
+      updated: "2000-01-01",
+    });
+    add("notes/scope.md", "Scope notes", "my scope my scope my scope", { updated: "2026-06-30" });
+    const now = new Date("2026-07-01T00:00:00Z");
+    // The premise: ranked on its own, the reranked order puts the other first.
+    const plain = await hybridSearch(db, { query: "scope my", mode: "fts", now });
+    expect(plain.results[0]?.path).toBe("notes/scope.md");
+    const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", now });
+    expect(results[0]?.path).toBe("studies/setup.md");
+    db.close();
+  });
+});
