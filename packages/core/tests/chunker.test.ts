@@ -357,3 +357,95 @@ describe("CRLF line endings (#426 review round 3)", () => {
     expect(headings).toEqual(["First", "Second"]);
   });
 });
+
+describe("a table nested in a list or blockquote (#497)", () => {
+  const header = "| Id | Name | Notes |";
+  const separator = "| --- | --- | --- |";
+  const rows = Array.from({ length: 300 }, (_, i) => `| ${i} | Station ${i} | mooring mast log row ${i} |`);
+  const nested = (prefix: string, first = prefix) =>
+    [first + header, ...[separator, ...rows].map((line) => prefix + line)].join("\n");
+
+  /** Every chunk opens on the header rows, carrying `prefix`, is within the bound, and each data row appears once. */
+  function expectHeaderLed(content: string, prefix: string) {
+    const chunks = chunkDocument({ title: "T", documentId: 1, content: `## Registry\n\n${content}` });
+    expect(chunks.length).toBeGreaterThan(2);
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.content.split("\n").slice(0, 2)).toEqual([prefix + header, prefix + separator]);
+    }
+    for (const chunk of chunks) expect(chunk.token_estimate).toBeLessThanOrEqual(MAX_TOKENS);
+    const kept = chunks.flatMap((c) => c.content.split("\n")).filter((line) => /\| \d+ \| Station/.test(line));
+    expect(kept).toEqual(rows.map((row) => prefix + row));
+  }
+
+  test("inside a blockquote, continuation pieces start with the header rows and the > prefix", () => {
+    expectHeaderLed(nested("> "), "> ");
+  });
+
+  test("inside a list item, continuation pieces start with the header rows and the list indentation", () => {
+    expectHeaderLed(`- Stations on file:\n\n${nested("  ")}`, "  ");
+  });
+
+  test("a table opening on the list marker line repeats its header with the indentation, not the marker", () => {
+    expectHeaderLed(nested("  ", "- "), "  ");
+  });
+
+  test("two containers deep, the whole prefix is repeated", () => {
+    expectHeaderLed(`> - Stations on file:\n>\n${nested(">   ")}`, ">   ");
+  });
+
+  test("with CRLF line endings, the repeated header rows keep theirs", () => {
+    const content = `## Registry\r\n\r\n${nested("> ").replace(/\n/g, "\r\n")}`;
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    expect(chunks.length).toBeGreaterThan(2);
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.content.split("\n").slice(0, 2)).toEqual([`> ${header}\r`, `> ${separator}\r`]);
+    }
+  });
+
+  test("a row too wide to share a piece with the header goes out alone, within the bound", () => {
+    const wide = `| 1 | ${"x".repeat(3960)} | wide |`;
+    const content = `## Registry\n\n${[`> ${header}`, `> ${separator}`, ...rows.slice(0, 40).map((r) => `> ${r}`), `> ${wide}`].join("\n")}`;
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    for (const chunk of chunks) expect(chunk.token_estimate).toBeLessThanOrEqual(MAX_TOKENS);
+    expect(chunks.some((c) => c.content === `> ${wide}`)).toBe(true);
+  });
+
+  test("a cut never falls between the header row and the separator", () => {
+    // Pad the quote so a cut lands on the table's header rows.
+    for (let pad = 3700; pad < 4000; pad += 7) {
+      const content = `## Registry\n\n> ${"w".repeat(pad)}\n>\n${nested("> ")}`;
+      for (const chunk of chunkDocument({ title: "T", documentId: 1, content })) {
+        expect(chunk.content.split("\n")[0]).not.toBe(`> ${separator}`);
+      }
+    }
+  });
+
+  test("nor in a table with no data rows", () => {
+    let cutNearby = false;
+    for (let pad = 3900; pad < 4000; pad += 2) {
+      const content = `## Registry\n\n> ${"w".repeat(pad)}\n>\n> ${header}\n> ${separator}`;
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      cutNearby ||= chunks.length > 1;
+      for (const chunk of chunks) expect(chunk.content.split("\n")[0]).not.toBe(`> ${separator}`);
+    }
+    // The padding really does push a cut onto the table.
+    expect(cutNearby).toBe(true);
+  });
+
+  test("a wide header whose separator tips it over is cut at lines, in a quote or a list", () => {
+    const wide = `| ${"h".repeat(3990)} |`;
+    for (const [lead, prefix] of [["", "> "], ["- Stations:\n\n", "  "]]) {
+      const content = `## Registry\n\n${lead}${[wide, "| ----------- |", "| row |"].map((line) => prefix + line).join("\n")}`;
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      expect({ prefix, over: chunks.map((c) => c.token_estimate).filter((t) => t > MAX_TOKENS) }).toEqual({ prefix, over: [] });
+    }
+  });
+
+  test("the rows after a row too wide for the header are led by the header again", () => {
+    const wideHeader = `| ${"h".repeat(3000)} |`;
+    const lines = [wideHeader, "| --- |", `| ${"r".repeat(1500)} |`, "| short |"].map((line) => `> ${line}`);
+    const chunks = chunkDocument({ title: "T", documentId: 1, content: `## Registry\n\n${lines.join("\n")}` });
+    const holding = chunks.find((c) => c.content.includes("| short |"))!;
+    expect(holding.content.split("\n")).toEqual([`> ${wideHeader}`, "> | --- |", "> | short |"]);
+  });
+});
