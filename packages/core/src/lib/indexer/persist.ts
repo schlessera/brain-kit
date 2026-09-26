@@ -100,6 +100,10 @@ type Statements = ReturnType<typeof prepareStatements>;
  * own change detection and refreshes what actually changed.
  */
 function wipeMarkdownState(db: Database): void {
+  // The chunk full-text index is derived from `chunks`: rebuilt from them
+  // first, so whatever state it was in, the deletes below find the entries
+  // they remove, and the rows written after keep it whole.
+  db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')");
   db.run(
     "DELETE FROM documents_fts WHERE rowid IN (SELECT id FROM documents WHERE asset_type = 'markdown')"
   );

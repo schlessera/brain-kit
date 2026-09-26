@@ -154,8 +154,11 @@ describe("neighbours over fixtures/corpus", () => {
   test("a budget with room for one related line gets exactly that line", async () => {
     const full = await assemble(4000);
     const hitSection = full.split("\n\n### Related")[0]!;
-    const oneLine = `${hitSection}\n\n### Related\n${INDEX_LINE}`;
-    expect(await assemble(estimateTokens(oneLine))).toBe(oneLine);
+    const related = `\n\n### Related\n${INDEX_LINE}`;
+    const oneLine = `${hitSection}${related}`;
+    // The budget is charged per section, each rounded up on its own, so the
+    // room this needs is the two sections' costs, not the joined text's.
+    expect(await assemble(estimateTokens(hitSection) + estimateTokens(related))).toBe(oneLine);
   });
 
   test("an archived neighbour is never offered", async () => {
@@ -207,6 +210,8 @@ describe("over a hand-built index", () => {
     const id = nextId++;
     db.run("INSERT INTO documents(id,path,title,type,status,summary,created,updated,content,indexed_at) VALUES (?,?,?,'note','active',?,'2026-01-01','2026-01-01',?,'2026-01-01')", [id, path, title, summary, content]);
     db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,?,'',?,'')", [id, title, content]);
+    // Its body is chunked, as the indexer would.
+    db.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,0,'',?,1)", [id, content]);
   }
 
   test("a hit too large for the budget is skipped and the next one that fits is included", async () => {

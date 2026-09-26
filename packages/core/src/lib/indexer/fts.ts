@@ -11,9 +11,11 @@
  * old table, its rows and its metadata as they were, and the next run finds
  * the mismatch again. A document the run could not read keeps its old row
  * exactly, aliases and tag order included, so it is found by everything it was
- * found by. Nothing is re-embedded: chunks and vectors are untouched.
+ * found by. `chunks_fts` (the chunk table) is recreated with the same
+ * tokenizer and rebuilt from `chunks`. Nothing is re-embedded: chunks and
+ * vectors are untouched.
  */
-import { setMeta } from "../db.js";
+import { createChunksFts, setMeta } from "../db.js";
 import { builtFtsTokenizer, FTS_TOKENIZER_META, ftsTokenizer } from "../search-language.js";
 import type { IndexRun } from "./types.js";
 
@@ -69,6 +71,14 @@ export function applyFtsTokenizer(run: IndexRun): void {
       );
       run.db.run("DROP TABLE temp.documents_fts_copy");
     }
+  }
+  // The chunk table follows the same tokenizer. Its text lives in `chunks`,
+  // so it is recreated and rebuilt from them, whenever it differs.
+  const chunks = builtFtsTokenizer(run.db, "chunks_fts");
+  if (chunks !== null && chunks !== wanted) {
+    run.db.run("DROP TABLE chunks_fts");
+    createChunksFts(run.db);
+    run.db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')");
   }
   setMeta(run.db, FTS_TOKENIZER_META, wanted);
 }

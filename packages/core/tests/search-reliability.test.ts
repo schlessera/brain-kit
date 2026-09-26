@@ -415,6 +415,8 @@ describe("hybrid fusion", () => {
     addLaneDoc(2, "v2", 0.1, "other words");
     db.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (3,'notes/fo.md','Doc fo','note','active','2026-01-01','2026-01-01','lantern lantern lantern lantern lantern','2026-01-01')");
     db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (3,'','','lantern lantern lantern lantern lantern','')");
+    // Its text is chunked, as the indexer would; the chunk just has no vector.
+    db.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (3,0,'','lantern lantern lantern lantern lantern',1)");
     addLaneDoc(4, "f2", 0.6, "lantern lantern lantern");
     addLaneDoc(5, "f3", 0.7, "lantern lantern");
     addLaneDoc(6, "f4", 0.8, "a lantern among words");

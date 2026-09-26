@@ -53,10 +53,10 @@
     ]
   },
   "multi-hop-collimate": {
-    "rank": 2
+    "rank": 1
   },
   "multi-hop-focus": {
-    "rank": 5
+    "rank": 2
   },
   "non-english-title": {
     "rank": 1
