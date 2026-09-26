@@ -5,10 +5,11 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync, writeFileSync } from "fs";
+import { chmodSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { embedTempBrain, loadVec, vecAvailable } from "./vec-fixture";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(cleanup));
@@ -47,6 +48,31 @@ function tokenizer(root: string): string {
   return sql.match(/tokenize='([^']*)'/)![1];
 }
 
+/** What a switch must leave alone or complete: the table's tokenizer, its metadata, and its row count against the documents. */
+async function state(root: string): Promise<{ tokenizer: string; meta: string | null; docs: number; fts: number }> {
+  const db = new Database(join(root, "brain.db"), { readonly: true });
+  try {
+    const meta = db.prepare("SELECT value FROM index_metadata WHERE key = 'fts_tokenizer'").get() as { value: string } | null;
+    const counts = db
+      .prepare("SELECT (SELECT COUNT(*) FROM documents) AS docs, (SELECT COUNT(*) FROM documents_fts) AS fts")
+      .get() as { docs: number; fts: number };
+    return { tokenizer: tokenizer(root), meta: meta?.value ?? null, ...counts };
+  } finally {
+    db.close();
+  }
+}
+
+/** Make every document write fail, as a crash in the middle of the persist phase would. */
+function failWrites(root: string, fail: boolean): void {
+  const db = new Database(join(root, "brain.db"));
+  db.run(
+    fail
+      ? "CREATE TRIGGER fail_writes BEFORE UPDATE ON documents BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+      : "DROP TRIGGER fail_writes"
+  );
+  db.close();
+}
+
 async function paths(root: string, query: string): Promise<string[]> {
   const r = await runCli(root, ["search", query, "--mode", "fts", "--limit", "50", "--json"]);
   expect(r.code).toBe(0);
@@ -75,7 +101,7 @@ describe("search.language", () => {
     const chunkIds = () => {
       const db = new Database(join(root, "brain.db"), { readonly: true });
       const ids = db.prepare("SELECT id FROM chunks ORDER BY id").all();
-      const counts = db.prepare("SELECT (SELECT COUNT(*) FROM documents) AS docs, (SELECT COUNT(*) FROM documents_fts) AS fts").get();
+      const counts = db.prepare("SELECT (SELECT COUNT(*) FROM documents) AS docs, (SELECT COUNT(*) FROM documents_fts) AS fts").get() as { docs: number; fts: number };
       db.close();
       return { ids, counts };
     };
@@ -100,9 +126,85 @@ describe("search.language", () => {
     );
     expect(doctorAfter).toMatchObject({ status: "pass" });
 
-    await runCli(root, ["index", "--force", "--json"]);
+    const force = await runCli(root, ["index", "--force", "--json"]);
+    expect(force.code).toBe(0);
+    expect(JSON.parse(force.stdout).updated + JSON.parse(force.stdout).added).toBeGreaterThan(0);
+    expect(await state(root)).toMatchObject({
+      tokenizer: "unicode61 remove_diacritics 2",
+      meta: "unicode61 remove_diacritics 2",
+      fts: before.counts.fts,
+    });
+  }, 180_000);
+
+  test("a switch that fails part-way leaves the old table, its rows and its metadata whole", async () => {
+    const root = brain();
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const english = await state(root);
+    expect(english).toMatchObject({ tokenizer: "porter unicode61", meta: "porter unicode61" });
+    expect(english.fts).toBe(english.docs);
+
+    setLanguage(root, "none");
+    failWrites(root, true);
+    expect((await runCli(root, ["index", "--json"])).code).not.toBe(0);
+    expect(await state(root)).toEqual(english);
+  }, 180_000);
+
+  test("the run after a failed switch completes it, every document back in the table", async () => {
+    const root = brain();
+    await runCli(root, ["index", "--json"]);
+    setLanguage(root, "none");
+    failWrites(root, true);
+    await runCli(root, ["index", "--json"]);
+    failWrites(root, false);
+
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const after = await state(root);
+    expect(after).toMatchObject({ tokenizer: "unicode61 remove_diacritics 2", meta: "unicode61 remove_diacritics 2" });
+    expect(after.fts).toBe(after.docs);
+    expect(await paths(root, "Fernrohr")).toContain("notes/himmel.md");
+  }, 180_000);
+
+  test("a document the switching run cannot read stays searchable", async () => {
+    // Root reads anything; the case only exists for a normal user.
+    if (process.getuid?.() === 0) return;
+    const root = brain();
+    await runCli(root, ["index", "--json"]);
+    setLanguage(root, "none");
+    const note = join(root, "notes/himmel.md");
+    chmodSync(note, 0o000);
+    try {
+      expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+      const after = await state(root);
+      expect(after.tokenizer).toBe("unicode61 remove_diacritics 2");
+      expect(after.fts).toBe(after.docs);
+      expect(await paths(root, "Fernrohr")).toContain("notes/himmel.md");
+    } finally {
+      chmodSync(note, 0o644);
+    }
+  }, 180_000);
+
+  test.skipIf(!vecAvailable)("a switch keeps every vector and chunk context", async () => {
+    const root = brain();
+    expect(await embedTempBrain(root)).toBeGreaterThan(0);
+    const db = new Database(join(root, "brain.db"));
+    db.run("UPDATE chunks SET context = 'context ' || id");
+    db.close();
+    const kept = async () => {
+      const db = new Database(join(root, "brain.db"), { readonly: true });
+      await loadVec(db);
+      const vectors = (db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number }).n;
+      const contexts = db.prepare("SELECT id, context FROM chunks ORDER BY id").all();
+      db.close();
+      return { vectors, contexts };
+    };
+    const before = await kept();
+    expect(before.vectors).toBeGreaterThan(0);
+    expect(before.contexts.length).toBeGreaterThan(0);
+
+    setLanguage(root, "none");
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
     expect(tokenizer(root)).toBe("unicode61 remove_diacritics 2");
-    expect(chunkIds().counts).toEqual(before.counts);
+    expect(await kept()).toEqual(before);
   }, 180_000);
 
   test("an unknown language fails config validation", async () => {

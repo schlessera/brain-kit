@@ -71,8 +71,9 @@ export interface IndexRun {
   now: string;
   stats: IndexStats;
   /**
-   * `documents_fts` was rebuilt this run for another `search.language`: every
-   * markdown document is rewritten into it, as if changed.
+   * `documents_fts` is rebuilt this run for another `search.language`: every
+   * markdown document is rewritten into it, as if changed, and the persist
+   * transaction recreates the table first (see indexer/fts.ts).
    */
   ftsRebuilt?: boolean;
   /**

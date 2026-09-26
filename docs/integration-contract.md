@@ -639,7 +639,8 @@ Prefer the CLI/MCP. If reading directly:
   `porter unicode61` for `search.language: english` (the default) or
   `unicode61 remove_diacritics 2` for `none`. It can be absent on an index no
   run has touched since it was added; the table's own definition in
-  `sqlite_master` is then the answer. Schema 9 adds only
+  `sqlite_master` is then the answer. A rebuild for another language writes
+  the new table, all its rows and `fts_tokenizer` in one transaction. Schema 9 adds only
   an index on `links(target_id)`; no table or column changed from 8, so a
   reader that accepts 8 reads 9 unchanged. Schema 10 (0.38.0) adds only the
   column `documents.chunker_version`: the chunker version a markdown

@@ -254,9 +254,6 @@ function ftsSearch(
   candidates = (opts.limit ?? 20) * 2
 ): SearchResult[] {
   const filters = buildFilters(opts);
-  // Stopwords follow the index: English ones only for an English (Porter)
-  // index, so a query and the text it searches are read the same way.
-  query = sanitizeFtsQuery(query, ftsIsEnglish(db));
 
   // bm25() column weights: title 5x, summary 3x, content 1x, tags 2x —
   // frontmatter fields carry far more signal per token than body text.
@@ -277,8 +274,15 @@ function ftsSearch(
     LIMIT ?
   `;
 
-  const params = [query, ...filters.params, candidates];
-  return db.prepare(sql).all(...params) as SearchResult[];
+  // Stopwords follow the index: English ones only for an English (Porter)
+  // index, so a query and the text it searches are read the same way. The
+  // tokenizer is read and the query run in one read transaction, so a
+  // rebuild committing in between cannot pair one table's stopwords with the
+  // other table.
+  return db.transaction(() => {
+    const sanitized = sanitizeFtsQuery(query, ftsIsEnglish(db));
+    return db.prepare(sql).all(sanitized, ...filters.params, candidates) as SearchResult[];
+  })();
 }
 
 /**

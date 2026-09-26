@@ -16,6 +16,7 @@ import type { Database } from "bun:sqlite";
 
 import { CHUNKER_VERSION, chunkDocument } from "../chunker.js";
 import { chunkContextKey } from "./caches.js";
+import { applyFtsTokenizer } from "./fts.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
 import type { ExistingDoc, IndexRun, ParseResult } from "./types.js";
 
@@ -296,6 +297,7 @@ export function persistMarkdown(
 ): void {
   const st = prepareStatements(run.db);
   const write = run.db.transaction(() => {
+    applyFtsTokenizer(run);
     if (run.force) wipeMarkdownState(run.db);
 
     for (const file of parsed.files) {

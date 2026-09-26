@@ -435,7 +435,9 @@ How full-text search reads text.
 
 - `english`: the index uses `porter unicode61`, which stems English words, and
   a query drops English stopwords ("the", "was", "also") before its terms are
-  ORed.
+  ORed. A query made only of stopwords keeps them, so `was` alone still
+  searches for "was"; the setting shows in a mixed query such as
+  `was telescope`.
 - `none`: the index uses `unicode61 remove_diacritics 2`, with no stemming and
   no stopwords. Use it for a brain in another language. The Porter stemmer is
   English-only, stems nothing useful elsewhere, and can conflate unrelated
@@ -446,7 +448,9 @@ search: { language: "none" }
 ```
 
 Changing it takes effect on the next `brain index`, which rebuilds the
-full-text index and says so. Nothing is re-embedded. `brain doctor` reports the
+full-text index and says so. The rebuild commits with the rest of that run's
+writes or not at all: a run that fails leaves the old full-text index whole,
+and the next run rebuilds it. Nothing is re-embedded. `brain doctor` reports the
 configured language and whether the index matches it. Other languages'
 stemmers and stopword lists are not built in.
 
