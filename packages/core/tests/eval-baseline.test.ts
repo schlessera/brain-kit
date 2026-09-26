@@ -6,7 +6,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { BaselineError, compareRuns, parseStoredRun, signTestP } from "../src/lib/eval-baseline";
@@ -280,6 +280,35 @@ describe("an incomplete baseline is refused, never compared", () => {
     refuse(stray);
   });
 
+  test("null hits only for a no-answer query, and a query keeps its class in every mode", () => {
+    const answerableNull = base();
+    answerableNull.per_query[0].hit_at = null;
+    refuse(answerableNull);
+    const noAnswerHits = base();
+    for (const q of noAnswerHits.per_query) if (q.id === "b") q.class = "no-answer";
+    refuse(noAnswerHits);
+    const classDrift = base();
+    const drifted = classDrift.per_query.find((q) => q.id === "b" && q.mode === "hybrid")!;
+    drifted.class = "no-answer";
+    drifted.hit_at = null;
+    refuse(classDrift);
+    // The legitimate shape still parses: a no-answer query, null in every mode.
+    const noAnswer = base();
+    for (const q of noAnswer.per_query) if (q.id === "b") Object.assign(q, { class: "no-answer", hit_at: null });
+    expect(parseStoredRun(JSON.stringify(noAnswer)).per_query).toHaveLength(4);
+  });
+
+  test("the CLI refuses answerable null hits with exit 2 instead of skipping them", async () => {
+    const stored = JSON.parse(readFileSync(join(root, "evals", "baseline.json"), "utf-8"));
+    expect(stored.per_query[0].class).toBe("exact");
+    stored.per_query[0].hit_at = null;
+    writeFileSync(join(root, "evals", "nulled.json"), JSON.stringify(stored));
+    const { code, stdout, stderr } = await evalRun("--set", "evals/set.jsonl", "--baseline", "evals/nulled.json");
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain(`query "scope" in mode fts is answerable but has no hits`);
+  });
+
   test("the CLI refuses such a baseline with exit 2 before scoring", async () => {
     const stored = JSON.parse(readFileSync(join(root, "evals", "baseline.json"), "utf-8"));
     stored.per_query[0].hit_at = {};
@@ -352,5 +381,86 @@ describe("--redact in the human output", () => {
     // so the loss shows at hit@3, and per class under it.
     expect(stdout).toContain("[fts] hit@3: lost 1 (knee), gained 0 (-), unchanged 3");
     expect(stdout).toContain("[fts] hit@3: lost 1 (knee), gained 0 (-), unchanged 3, sign test p 1.00\n      exact: lost 1 (knee), gained 0 (-), unchanged 2\n      alias: lost 0 (-), gained 0 (-), unchanged 1");
+  });
+});
+
+describe("--redact on a refused run", () => {
+  // A populated failure for each refusal that names documents or quotes the
+  // set, run once without --redact to show the leak is real, then with it.
+  let brain: string;
+  const texts = SET.map((q) => q.q);
+  const eval_ = (...args: string[]) => runCli(brain, ["eval", "--mode", "fts", "--rerank", "heuristic", "--json", ...args]);
+  const set = (name: string, lines: object[]) => {
+    writeFileSync(join(brain, "evals", name), [{ now: "2026-07-12" }, ...lines].map((l) => JSON.stringify(l)).join("\n"));
+    return `evals/${name}`;
+  };
+
+  /** Refused both ways; `leaks` are in the plain stderr and nowhere in the redacted run. */
+  async function refusedBothWays(args: string[], leaks: string[]) {
+    const plain = await eval_(...args);
+    expect(plain.code).toBe(2);
+    for (const leak of leaks) expect(plain.stderr, leak).toContain(leak);
+    const redacted = await eval_(...args, "--redact");
+    expect(redacted.code).toBe(2);
+    expect(redacted.stdout).toBe("");
+    for (const leak of leaks) expect(redacted.stderr, leak).not.toContain(leak);
+    return redacted.stderr;
+  }
+
+  beforeAll(async () => {
+    brain = makeTempBrain();
+    mkdirSync(join(brain, "evals"), { recursive: true });
+    writeFileSync(
+      join(brain, "notes", "eval-notes.md"),
+      `---\ntitle: Eval notes\ntype: note\ncreated: 2026-07-01\nupdated: 2026-07-01\n---\n\n${texts.join(", ")}\n`
+    );
+    expect((await runCli(brain, ["index", "--json"])).code).toBe(0);
+    set("set.jsonl", SET);
+  });
+  afterAll(() => cleanup(brain));
+
+  test("an expected path that does not exist: the reason stays, the paths do not", async () => {
+    const missing = set("missing.jsonl", [{ ...SET[0], expected: ["notes/withheld-plan.md"] }]);
+    const stderr = await refusedBothWays(["--set", missing], ["notes/withheld-plan.md"]);
+    expect(stderr).toContain("1 expected path(s) do not exist in the brain");
+    expect(stderr).toContain("1 detail(s) withheld by --redact");
+  });
+
+  test("a stale index names no document", async () => {
+    const extra = join(brain, "notes", "unindexed-draft.md");
+    writeFileSync(extra, "---\ntitle: Draft\ntype: note\ncreated: 2026-07-01\nupdated: 2026-07-01\n---\n\nBody.\n");
+    try {
+      const stderr = await refusedBothWays(["--set", "evals/set.jsonl"], ["notes/unindexed-draft.md"]);
+      expect(stderr).toContain("the index is older than the markdown");
+    } finally {
+      rmSync(extra);
+    }
+  });
+
+  test("--strict contamination names neither the document nor the query text", async () => {
+    const stderr = await refusedBothWays(["--set", "evals/set.jsonl", "--strict"], ["notes/eval-notes.md"]);
+    for (const t of texts) expect(stderr, t).not.toContain(t);
+    expect(stderr).toContain("contain the set's queries (--strict)");
+  });
+
+  test("a malformed set line keeps its file and line, not the parser's quote of it", async () => {
+    writeFileSync(join(brain, "evals", "broken.jsonl"), `{"now":"2026-07-12"}\n{"id":"x","q":confidential words}\n`);
+    const stderr = await refusedBothWays(["--set", "evals/broken.jsonl"], ["confidential"]);
+    expect(stderr).toContain("evals/broken.jsonl: line 2: malformed (withheld by --redact)");
+  });
+
+  test("a baseline that is not JSON keeps its file, not the parser's quote of it", async () => {
+    writeFileSync(join(brain, "evals", "broken.json"), `{"q": confidential}`);
+    const stderr = await refusedBothWays(["--set", "evals/set.jsonl", "--baseline", "evals/broken.json"], ["confidential"]);
+    expect(stderr).toContain("evals/broken.json is not valid JSON");
+  });
+
+  test("an error about a path given on the command line still repeats it", async () => {
+    const set_ = await eval_("--set", "evals/typed-by-hand.jsonl", "--redact");
+    expect(set_.code).toBe(2);
+    expect(set_.stderr).toContain("evals/typed-by-hand.jsonl");
+    const baseline = await eval_("--set", "evals/set.jsonl", "--baseline", "evals/typed-baseline.json", "--redact");
+    expect(baseline.code).toBe(2);
+    expect(baseline.stderr).toContain("evals/typed-baseline.json");
   });
 });

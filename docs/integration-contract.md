@@ -278,9 +278,14 @@ search runs, `--k` must include 1, and the gate flags need `--baseline`.
 `--redact` removes `q`, `expected` and `top` from each `per_query` entry,
 nulls `meta.set`, `meta.source` and `baseline.file`, and replaces `warnings`
 (which name documents) with a count, in the output (`--json` and the human
-report alike) and in `--out`. A redacted run still works as a baseline. A
-baseline is refused (exit `2`) unless every query appears once in every mode
-it names, with a hit or miss at every k.
+report alike) and in `--out`. On stderr, a refusal keeps its reason, which
+carries counts and query IDs, and replaces its details (which name documents)
+with a count, and a malformed set or baseline is named by file and line
+without the parser's words. An error that repeats a path given on the command
+line (`--set`, `--baseline`, `--out`) still names it. A redacted run still
+works as a baseline. A baseline is refused (exit `2`) unless every query
+appears once in every mode it names, keeps its class across modes, and has a
+hit or miss at every k, with `hit_at` null exactly for the `no-answer` class.
 
 #### `brain index` counters
 

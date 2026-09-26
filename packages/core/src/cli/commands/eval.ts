@@ -76,7 +76,9 @@ Against a stored run (one written with --out):
   --max-net-loss <n>      Fail when lost − gained on hit@1 reaches n (default: 2)
   --must-pass <classes>   Fail when any query in these classes (comma-separated) is lost
   --allow-set-change      Compare the queries both runs share when the set changed
-  --redact                Leave query text and every path out of the output and --out
+  --redact                Leave query text and every path out of the output, --out
+                          and a refusal's details; an error about a path you passed
+                          (--set, --baseline, --out) still repeats it
 
 Exit codes: 0 scored (and the gate passed) · 1 the baseline gate failed · 3 not
 comparable with the baseline (a different set, mode, embedding model or k) ·
@@ -122,7 +124,11 @@ function checkoutSource(): string | null {
   }
 }
 
-function loadSet(path: string, root: string): { header: SetHeader | null; queries: EvalQuery[]; sha256: string } {
+function loadSet(
+  path: string,
+  root: string,
+  redact: boolean
+): { header: SetHeader | null; queries: EvalQuery[]; sha256: string } {
   const shown = displayPath(root, path);
   if (!existsSync(path)) {
     throw new EvalRefused(`no query set at ${shown}. ${DOCS_POINTER}`);
@@ -132,7 +138,10 @@ function loadSet(path: string, root: string): { header: SetHeader | null; querie
   try {
     parsed = parseEvalSet(bytes.toString("utf-8"));
   } catch (e) {
-    if (e instanceof EvalSetError) throw new UsageError(`${shown}: ${e.message}`);
+    if (e instanceof EvalSetError) {
+      // The reason can quote the line, and so the query text.
+      throw new UsageError(redact ? `${shown}: line ${e.line}: malformed (withheld by --redact)` : `${shown}: ${e.message}`);
+    }
     throw e;
   }
   if (parsed.queries.length === 0) {
@@ -590,6 +599,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
   if (flags["must-pass"] !== undefined && mustPass.length === 0) {
     throw new UsageError("--must-pass takes one or more classes, comma-separated");
   }
+  const redact = flags.redact === true;
   const nowFlag = typeof flags.now === "string" ? flags.now : undefined;
   if (nowFlag !== undefined && !parseEvalDate(nowFlag)) {
     throw new UsageError(`--now takes an ISO date (YYYY-MM-DD) or timestamp, got "${nowFlag}"`);
@@ -606,7 +616,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
 
   let db: Database | undefined;
   try {
-    const { header, queries: written, sha256 } = loadSet(setPath, root);
+    const { header, queries: written, sha256 } = loadSet(setPath, root, redact);
     // The baseline is read before any search runs, so a missing or
     // unreadable one costs nothing.
     let stored: StoredRun | undefined;
@@ -616,7 +626,9 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
       try {
         stored = parseStoredRun(readFileSync(path, "utf-8"));
       } catch (e) {
-        if (e instanceof BaselineError) throw new EvalRefused(`${displayPath(root, path)} is ${e.message}`);
+        if (e instanceof BaselineError) {
+          throw new EvalRefused(`${displayPath(root, path)} is ${redact ? e.summary : e.message}`);
+        }
         throw e;
       }
     }
@@ -682,7 +694,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
       };
       envelope.baseline = baseline;
     }
-    if (flags.redact === true) envelope = redactEnvelope(envelope);
+    if (redact) envelope = redactEnvelope(envelope);
 
     if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
     // The human output reads the same, possibly redacted, envelope as --json,
@@ -707,7 +719,10 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
   } catch (e) {
     if (!(e instanceof EvalRefused)) throw e;
     console.error(`brain eval refused: ${e.reason}`);
-    for (const detail of e.details) console.error(`  ${detail}`);
+    // A reason carries counts, query IDs and the paths the user passed; the
+    // details name documents and quote search warnings.
+    if (redact && e.details.length > 0) console.error(`  ${e.details.length} detail(s) withheld by --redact`);
+    else for (const detail of e.details) console.error(`  ${detail}`);
     return 2;
   } finally {
     db?.close();

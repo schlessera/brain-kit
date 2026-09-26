@@ -14,7 +14,7 @@
 
 import { z } from "zod";
 
-import { EVAL_SCHEMA_VERSION } from "./retrieval-eval.js";
+import { EVAL_SCHEMA_VERSION, NO_ANSWER_CLASS } from "./retrieval-eval.js";
 
 /** What a comparison reads from a stored run; anything else in it is ignored. */
 const storedRunSchema = z.object({
@@ -39,15 +39,22 @@ const storedRunSchema = z.object({
 
 export type StoredRun = z.infer<typeof storedRunSchema>;
 
-/** A stored run that cannot be read as one. */
-export class BaselineError extends Error {}
+/**
+ * A stored run that cannot be read as one. `summary` never quotes the file;
+ * `detail` is the JSON parser's own words, which can.
+ */
+export class BaselineError extends Error {
+  constructor(readonly summary: string, readonly detail?: string) {
+    super(detail === undefined ? summary : `${summary} (${detail})`);
+  }
+}
 
 export function parseStoredRun(text: string): StoredRun {
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch (e) {
-    throw new BaselineError(`not valid JSON (${(e as Error).message})`);
+    throw new BaselineError("not valid JSON", (e as Error).message);
   }
   const parsed = storedRunSchema.safeParse(value);
   if (!parsed.success) {
@@ -62,7 +69,9 @@ export function parseStoredRun(text: string): StoredRun {
  * A run must score every query once in every mode it names, with a hit or
  * miss at every k it names. A missing entry would otherwise read as nothing
  * to compare, and a missing key as a miss, so a truncated or hand-edited
- * baseline could hide a loss.
+ * baseline could hide a loss. For the same reason `hit_at` is null exactly
+ * when the query is in the no-answer class, which has nothing to lose, and
+ * a query keeps its class in every mode.
  */
 function checkCoverage(run: StoredRun): void {
   const fail = (why: string) => {
@@ -70,11 +79,18 @@ function checkCoverage(run: StoredRun): void {
   };
   const ks = run.meta.k.map(String);
   const seen = new Map<string, Set<string>>(run.meta.modes.map((m) => [m, new Set()]));
+  const classOf = new Map<string, string>();
   for (const q of run.per_query) {
     const ids = seen.get(q.mode);
     if (!ids) fail(`per_query has mode "${q.mode}", which meta.modes does not name`);
     if (ids!.has(q.id)) fail(`query "${q.id}" appears twice in mode ${q.mode}`);
     ids!.add(q.id);
+    const cls = classOf.get(q.id) ?? q.class;
+    if (cls !== q.class) fail(`query "${q.id}" is class ${cls} in one mode and ${q.class} in another`);
+    classOf.set(q.id, cls);
+    const noAnswer = q.class === NO_ANSWER_CLASS;
+    if (noAnswer && q.hit_at !== null) fail(`query "${q.id}" in mode ${q.mode} is ${NO_ANSWER_CLASS} but has hits`);
+    if (!noAnswer && q.hit_at === null) fail(`query "${q.id}" in mode ${q.mode} is answerable but has no hits`);
     if (q.hit_at !== null) {
       const missing = ks.filter((k) => typeof q.hit_at![k] !== "boolean");
       if (missing.length > 0) fail(`query "${q.id}" in mode ${q.mode} has no hit at k ${missing.join(", ")}`);

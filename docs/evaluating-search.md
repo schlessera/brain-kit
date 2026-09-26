@@ -261,7 +261,10 @@ install or upgrade.
 
 `--redact` leaves the query text and every path out of the output and of
 `--out`, keeping IDs, classes and the numbers, so a result can be shared
-without sharing the brain.
+without sharing the brain. A refused run keeps its reason and withholds the
+list of documents behind it. The one thing `--redact` does not withhold is a
+path you typed yourself: an error about a missing `--set`, `--baseline` or
+`--out` repeats it.
 
 ## Output
 
