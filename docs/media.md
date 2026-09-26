@@ -44,8 +44,8 @@ A brain usually hits the pain well before those limits.
   binaries already tracked, and warns when any tracked file is over the limit.
   It weighs the blobs in git's index, which is what a clone downloads, not
   the copies in your working folder. A file in Git LFS counts as its small
-  pointer, and a symlink as the link. If git cannot read an object, the check
-  warns rather than passing on partial figures.
+  pointer, and a symlink as the link. If git cannot read an object, or a merge
+  is unresolved, the check warns rather than passing on partial figures.
 - **The `media` block in `brain.config.ts`** sets the limit and your standing
   decisions, so the skill does not ask about the same files twice:
 

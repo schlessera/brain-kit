@@ -3,11 +3,12 @@
  * and a warning for any tracked file over `media.maxTrackedBytes`.
  */
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { indexedFiles, parseCatFileBatch, type GitRun } from "../src/lib/media";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -114,4 +115,74 @@ test("an object git cannot read makes the check warn that it is incomplete", asy
   const check = await mediaCheck(root);
   expect(check.status).toBe("warn");
   expect(check.detail).toStartWith("could not inspect 1 tracked file(s), so the figures are incomplete: render.png: object");
+});
+
+// Review round 2: conflicted paths and objects that vanish mid-inspection.
+function gitIn(root: string) {
+  return (...args: string[]) =>
+    Bun.spawnSync(["git", "-C", root, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", ...args]);
+}
+
+test("a delete/modify conflict is reported as not inspected, not passed over", async () => {
+  const root = repo({ "render.png": 1_000 });
+  const git = gitIn(root);
+  expect(git("checkout", "-q", "-b", "theirs").exitCode).toBe(0);
+  writeFileSync(join(root, "render.png"), Buffer.alloc(200_000, 7));
+  expect(git("commit", "-qam", "bigger").exitCode).toBe(0);
+  expect(git("checkout", "-q", "main").exitCode).toBe(0);
+  expect(git("rm", "-q", "render.png").exitCode).toBe(0);
+  expect(git("commit", "-qm", "delete").exitCode).toBe(0);
+  expect(git("merge", "-q", "theirs").exitCode).not.toBe(0);
+  const stages = new TextDecoder().decode(git("ls-files", "-s", "render.png").stdout);
+  expect(stages).toContain(" 3\trender.png");
+
+  const check = await mediaCheck(root);
+  expect(check.status).toBe("warn");
+  expect(check.detail).toStartWith("could not inspect 1 tracked file(s), so the figures are incomplete: 1 conflicted path(s) not inspected until the merge is resolved: render.png");
+});
+
+test("a conflict whose sides differ in size is reported as not inspected too", async () => {
+  const root = repo({ "render.png": 1_000 });
+  const git = gitIn(root);
+  expect(git("checkout", "-q", "-b", "theirs").exitCode).toBe(0);
+  writeFileSync(join(root, "render.png"), Buffer.alloc(200_000, 7));
+  expect(git("commit", "-qam", "bigger").exitCode).toBe(0);
+  expect(git("checkout", "-q", "main").exitCode).toBe(0);
+  writeFileSync(join(root, "render.png"), Buffer.alloc(2_000, 9));
+  expect(git("commit", "-qam", "smaller").exitCode).toBe(0);
+  expect(git("merge", "-q", "theirs").exitCode).not.toBe(0);
+
+  const check = await mediaCheck(root);
+  expect(check.status).toBe("warn");
+  expect(check.detail).toContain("1 conflicted path(s) not inspected until the merge is resolved: render.png");
+});
+
+test("an object that disappears between the size and content queries is reported, not read as media", () => {
+  const root = repo({ "icon.png": 500 });
+  const sha = new TextDecoder().decode(Bun.spawnSync(["git", "-C", root, "rev-parse", ":icon.png"]).stdout).trim();
+  const run: GitRun = (dir, args, stdin) => {
+    // Between `--batch-check` and `--batch`, the object goes.
+    if (args[0] === "cat-file" && args[1] === "--batch") rmSync(join(dir, ".git", "objects", sha.slice(0, 2), sha.slice(2)));
+    const proc = Bun.spawnSync(["git", "-C", dir, ...args], { stdin: stdin === undefined ? "ignore" : Buffer.from(stdin) });
+    return { ok: proc.exitCode === 0, stdout: Buffer.from(proc.stdout), stderr: new TextDecoder().decode(proc.stderr).trim() };
+  };
+  const { problems } = indexedFiles(root, run);
+  expect(problems).toEqual([`icon.png: object ${sha} could not be read to check for a Git LFS pointer`]);
+});
+
+describe("parseCatFileBatch", () => {
+  const blob = (sha: string, body: string) => `${sha} blob ${Buffer.byteLength(body)}\n${body}\n`;
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+
+  test("reads each body, and a missing object as null", () => {
+    const out = Buffer.from(`${A} missing\n` + blob(B, "hello"));
+    expect(parseCatFileBatch(out, [A, B]).map((b) => b?.toString() ?? null)).toEqual([null, "hello"]);
+  });
+
+  test("stops at an answer for another object, or a body that does not end where its size says", () => {
+    expect(parseCatFileBatch(Buffer.from(blob(B, "x")), [A])).toEqual([null]);
+    const short = Buffer.from(`${A} blob 10\nabc\n` + blob(B, "hello"));
+    expect(parseCatFileBatch(short, [A, B])).toEqual([null, null]);
+  });
 });

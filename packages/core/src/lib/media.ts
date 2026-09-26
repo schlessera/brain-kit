@@ -70,64 +70,108 @@ const LFS_POINTER = "version https://git-lfs.github.com/spec/";
 /** Pointer files are around 130 bytes; anything this size or larger is content. */
 const MAX_POINTER_BYTES = 1024;
 
-function git(root: string, args: string[], stdin?: string): { ok: boolean; stdout: Buffer; stderr: string } {
+export type GitRun = (root: string, args: string[], stdin?: string) => { ok: boolean; stdout: Buffer; stderr: string };
+
+const runGit: GitRun = (root, args, stdin) => {
   const proc = Bun.spawnSync(["git", "-C", root, ...args], { stdin: stdin === undefined ? "ignore" : Buffer.from(stdin) });
   return { ok: proc.exitCode === 0, stdout: Buffer.from(proc.stdout), stderr: new TextDecoder().decode(proc.stderr).trim() };
+};
+
+/**
+ * Parse `git cat-file --batch` output for `shas`, in order: for each, the blob
+ * body, or null when git answered "missing", another type, or anything the
+ * parser cannot align. After a malformed answer the rest are null too, because
+ * the position of the next header is no longer known.
+ */
+export function parseCatFileBatch(stdout: Buffer, shas: string[]): (Buffer | null)[] {
+  const bodies: (Buffer | null)[] = [];
+  let at = 0;
+  for (const sha of shas) {
+    const end = stdout.indexOf(0x0a, at);
+    if (end === -1) break;
+    const [name, type, size] = stdout.subarray(at, end).toString("utf8").split(" ");
+    if (name === sha && type === "missing") {
+      bodies.push(null);
+      at = end + 1;
+      continue;
+    }
+    const bytes = Number(size);
+    const bodyEnd = end + 1 + bytes;
+    if (name !== sha || type !== "blob" || !/^\d+$/.test(size ?? "") || bodyEnd >= stdout.length || stdout[bodyEnd] !== 0x0a) {
+      break;
+    }
+    bodies.push(stdout.subarray(end + 1, bodyEnd));
+    at = bodyEnd + 1;
+  }
+  while (bodies.length < shas.length) bodies.push(null);
+  return bodies;
 }
 
 /**
  * Every regular file in git's index with the size of the blob git stores:
  * what a clone downloads, not what happens to be in the work tree. Read-only
- * (`git ls-files -s`, `git cat-file --batch-check`). Symlinks and submodules
- * are skipped (git stores a link target or a commit, not content), and a small
- * blob that is a Git LFS pointer is marked. Anything that could not be read is
- * returned in `problems`, never silently dropped.
+ * (`git ls-files -s`, `git cat-file --batch-check`, and `--batch` for small
+ * blobs). Symlinks and submodules are skipped (git stores a link target or a
+ * commit, not content), and a small blob that is a Git LFS pointer is marked.
+ * A conflicted path, or anything that could not be read, is returned in
+ * `problems`, never silently dropped.
  */
-export function indexedFiles(root: string): { files: IndexedFile[]; problems: string[] } {
+export function indexedFiles(root: string, git: GitRun = runGit): { files: IndexedFile[]; problems: string[] } {
   const listed = git(root, ["ls-files", "-s", "-z"]);
   if (!listed.ok) return { files: [], problems: [`git ls-files failed: ${listed.stderr}`] };
   const entries: { path: string; sha: string }[] = [];
+  const conflicted = new Set<string>();
   for (const record of listed.stdout.toString("utf8").split("\0")) {
     if (!record) continue;
     const tab = record.indexOf("\t");
     const [mode, sha, stage] = record.slice(0, tab).split(" ");
-    // Regular files only (100644, 100755), and one entry per path mid-merge.
-    if (!mode.startsWith("100") || (stage !== "0" && stage !== "2")) continue;
-    entries.push({ path: record.slice(tab + 1), sha });
+    const path = record.slice(tab + 1);
+    // Mid-merge a path has stages 1-3 and no settled content to weigh.
+    if (stage !== "0") {
+      conflicted.add(path);
+      continue;
+    }
+    // Regular files only (100644, 100755).
+    if (!mode.startsWith("100")) continue;
+    entries.push({ path, sha });
   }
-  if (entries.length === 0) return { files: [], problems: [] };
+  const problems: string[] = [];
+  if (conflicted.size > 0) {
+    const names = [...conflicted].sort();
+    problems.push(`${names.length} conflicted path(s) not inspected until the merge is resolved: ${names.slice(0, 3).join(", ")}`);
+  }
+  if (entries.length === 0) return { files: [], problems };
 
   const checked = git(root, ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"], entries.map((e) => e.sha).join("\n") + "\n");
-  if (!checked.ok) return { files: [], problems: [`git cat-file failed: ${checked.stderr}`] };
+  if (!checked.ok) return { files: [], problems: [...problems, `git cat-file failed: ${checked.stderr}`] };
   const lines = checked.stdout.toString("utf8").trimEnd().split("\n");
-  const files: IndexedFile[] = [];
-  const problems: string[] = [];
+  const files: (IndexedFile & { sha: string })[] = [];
   entries.forEach((entry, i) => {
     const [sha, type, size] = (lines[i] ?? "").split(" ");
     if (sha !== entry.sha || type !== "blob" || !/^\d+$/.test(size ?? "")) {
       problems.push(`${entry.path}: object ${entry.sha} could not be read (${lines[i] ?? "no answer"})`);
       return;
     }
-    files.push({ path: entry.path, bytes: Number(size), lfs: false });
+    files.push({ path: entry.path, bytes: Number(size), lfs: false, sha: entry.sha });
   });
 
   // Only a small blob can be a pointer; read just those.
   const small = files.filter((f) => f.bytes < MAX_POINTER_BYTES);
   if (small.length > 0) {
-    const shaOf = new Map(entries.map((e) => [e.path, e.sha]));
-    const batch = git(root, ["cat-file", "--batch"], small.map((f) => shaOf.get(f.path)).join("\n") + "\n");
+    const batch = git(root, ["cat-file", "--batch"], small.map((f) => f.sha).join("\n") + "\n");
     if (!batch.ok) {
       problems.push(`git cat-file --batch failed, so Git LFS pointers were not recognised: ${batch.stderr}`);
     } else {
-      let at = 0;
-      for (const file of small) {
-        const header = batch.stdout.indexOf(0x0a, at);
-        const size = Number(batch.stdout.subarray(at, header).toString("utf8").split(" ")[2]);
-        const body = batch.stdout.subarray(header + 1, header + 1 + size);
-        file.lfs = body.toString("utf8").startsWith(LFS_POINTER);
-        at = header + 1 + size + 1; // the body, then a newline
-      }
+      const bodies = parseCatFileBatch(batch.stdout, small.map((f) => f.sha));
+      small.forEach((file, i) => {
+        const body = bodies[i];
+        if (body === null || body.length !== file.bytes) {
+          problems.push(`${file.path}: object ${file.sha} could not be read to check for a Git LFS pointer`);
+        } else {
+          file.lfs = body.toString("utf8").startsWith(LFS_POINTER);
+        }
+      });
     }
   }
-  return { files, problems };
+  return { files: files.map(({ sha: _sha, ...file }) => file), problems };
 }
