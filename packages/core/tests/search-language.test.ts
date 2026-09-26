@@ -136,6 +136,30 @@ describe("search.language", () => {
     });
   }, 180_000);
 
+  test("the chunk full-text table follows the switch too, and stays whole", async () => {
+    const root = brain();
+    await runCli(root, ["index", "--json"]);
+    const chunkTable = () => {
+      const db = new Database(join(root, "brain.db"), { readonly: true });
+      const { sql } = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'chunks_fts'").get() as { sql: string };
+      db.close();
+      return sql.match(/tokenize='([^']*)'/)![1];
+    };
+    expect(chunkTable()).toBe("porter unicode61");
+    // Porter stems "collimations" and the corpus's "collimation" alike.
+    expect((await paths(root, "collimations")).length).toBeGreaterThan(0);
+
+    setLanguage(root, "none");
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    expect(chunkTable()).toBe("unicode61 remove_diacritics 2");
+    // Without a stemmer, no table matches the plural any more.
+    expect(await paths(root, "collimations")).toEqual([]);
+    expect((await paths(root, "collimation")).length).toBeGreaterThan(0);
+    const db = new Database(join(root, "brain.db"));
+    db.run("INSERT INTO chunks_fts(chunks_fts, rank) VALUES ('integrity-check', 1)");
+    db.close();
+  }, 180_000);
+
   test("a switch that fails part-way leaves the old table, its rows and its metadata whole", async () => {
     const root = brain();
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);

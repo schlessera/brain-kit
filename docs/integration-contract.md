@@ -713,7 +713,9 @@ Prefer the CLI/MCP. If reading directly:
   database. No table or column a reader selects changed, so a reader that
   accepts 12 reads 13 unchanged. A writer that inserts, updates or deletes
   `chunks` rows keeps the index current through those triggers; it must not
-  drop them.
+  drop them. `chunks_fts` uses the same tokenizer as `documents_fts`, and a
+  `search.language` rebuild recreates it from `chunks` in the same
+  transaction.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,

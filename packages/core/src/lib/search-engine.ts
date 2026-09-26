@@ -283,6 +283,15 @@ function ftsSearch(
   opts: SearchOptions,
   candidates = (opts.limit ?? 20) * 2
 ): SearchResult[] {
+  // Stopwords follow the index: English ones only for an English (Porter)
+  // index, so a query and the text it searches are read the same way. The
+  // tokenizer is read and every query run in one read transaction, so a
+  // rebuild committing in between cannot pair one table's stopwords with the
+  // other table.
+  return db.transaction(() => ftsSearchInSnapshot(db, query, opts, candidates))();
+}
+
+function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, candidates: number): SearchResult[] {
   const filters = buildFilters(opts);
   const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
   const columns = ftsDocColumns(db);

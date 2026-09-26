@@ -375,12 +375,21 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
   }
 }
 
-/** The chunk full-text table and the triggers that keep it in step with `chunks`. */
-function createChunksFts(db: Database): void {
+/**
+ * The chunk full-text table and the triggers that keep it in step with
+ * `chunks`. It reads text the way `documents_fts` does: with that table's
+ * tokenizer (`search.language`), `porter unicode61` when there is none yet.
+ * The triggers belong to `chunks`, so recreating the table keeps them.
+ */
+export function createChunksFts(db: Database): void {
+  const documents = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
+    | { sql: string }
+    | null;
+  const tokenizer = documents?.sql.match(/tokenize\s*=\s*'([^']*)'/i)?.[1] ?? "porter unicode61";
   db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     heading, content,
     content='chunks', content_rowid='id',
-    tokenize='porter unicode61'
+    tokenize='${tokenizer}'
   )`);
   db.run(`CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
     INSERT INTO chunks_fts(rowid, heading, content) VALUES (new.id, new.heading, new.content);

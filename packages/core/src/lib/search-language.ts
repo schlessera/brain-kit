@@ -25,11 +25,12 @@ export function ftsTokenizer(language: SearchLanguage): string {
 export const FTS_TOKENIZER_META = "fts_tokenizer";
 
 /**
- * The tokenizer `documents_fts` was actually created with, read from its
- * definition in `sqlite_master`; null when the table does not exist.
+ * The tokenizer a full-text table (`documents_fts` unless named) was actually
+ * created with, read from its definition in `sqlite_master`; null when the
+ * table does not exist.
  */
-export function builtFtsTokenizer(db: Database): string | null {
-  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
+export function builtFtsTokenizer(db: Database, table: "documents_fts" | "chunks_fts" = "documents_fts"): string | null {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as
     | { sql: string }
     | null;
   if (!row) return null;
