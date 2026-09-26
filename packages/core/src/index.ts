@@ -109,6 +109,8 @@ export { archiveDocument } from "./lib/archiver.js";
 export type { ArchiveOptions, ArchiveResult } from "./lib/archiver.js";
 export { chunkDocument, chunkTextForEmbedding } from "./lib/chunker.js";
 export { stringifyDocument, normalizeFrontmatterDates } from "./lib/frontmatter.js";
+export { editFrontmatter, updateDocument } from "./lib/frontmatter-edit.js";
+export type { FrontmatterValue } from "./lib/frontmatter-edit.js";
 export { resolveWritable, safeResolve, WriteRefusedError, writeFileSafely } from "./lib/safe-path.js";
 export {
   SCRATCH_DIR,
