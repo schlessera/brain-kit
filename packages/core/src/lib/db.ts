@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -361,7 +361,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 12);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 13) {
     // v13 — full-text search over chunks, so a long document's match is found
     // in the section it sits in rather than diluted across the whole body.
     // An external-content table (fts5 §4.4.3): the text stays in `chunks`,
@@ -370,6 +370,37 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     // needs no reindex.
     createChunksFts(db);
     db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')");
+
+    setSchemaVersion(db, 13);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v14 — aliases get their own full-text column, weighted like the title,
+    // instead of riding in `tags`. An FTS5 table cannot gain a column, so it
+    // is recreated and filled from the documents table at once, searchable
+    // straight away. Clearing the markdown rows' content hash has the next
+    // index run rewrite each markdown row with its aliases.
+    const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
+      | { sql: string }
+      | null;
+    if (!table || !/\baliases\b/.test(table.sql)) {
+      // Keep the tokenizer the table has: `search.language` chose it.
+      const tokenizer = table?.sql.match(/tokenize\s*=\s*'([^']*)'/i)?.[1] ?? "porter unicode61";
+      db.run("DROP TABLE IF EXISTS documents_fts");
+      db.run(`CREATE VIRTUAL TABLE documents_fts USING fts5(
+        title, summary, content, tags, aliases,
+        tokenize='${tokenizer}'
+      )`);
+      db.run(
+        `INSERT INTO documents_fts(rowid, title, summary, content, tags)
+         SELECT d.id, d.title, COALESCE(d.summary, ''), d.content,
+                COALESCE((SELECT GROUP_CONCAT(t.name, ' ')
+                          FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+                          WHERE dt.document_id = d.id), '')
+         FROM documents d`
+      );
+      db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
+    }
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

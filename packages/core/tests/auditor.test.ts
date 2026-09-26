@@ -518,3 +518,29 @@ describe("audit repeated-text (#431)", () => {
     expect(messages).toContainEqual(expect.stringContaining(`"${OTHER.slice(0, 80)}…"`));
   });
 });
+
+describe("audit duplicate-title (#416)", () => {
+  const titled = (path: string, title: string, status = "active") => ({ path, title, type: "note", updated: "2026-06-01", status });
+
+  test("two documents with the same title each get one finding naming the other", () => {
+    const db = freshDb();
+    insertDoc(db, titled("notes/a.md", "Trail Log"));
+    insertDoc(db, titled("notes/b.md", "Trail Log"));
+    insertDoc(db, titled("notes/c.md", "Trail Log, 2025"));
+    const found = categories(audit(db, taxonomy, { now: NOW }), "duplicate-title");
+    expect(found.map((i) => ({ path: i.path, severity: i.severity, message: i.message }))).toEqual([
+      { path: "notes/a.md", severity: "info", message: 'Title "Trail Log" is also the title of notes/b.md' },
+      { path: "notes/b.md", severity: "info", message: 'Title "Trail Log" is also the title of notes/a.md' },
+    ]);
+    db.close();
+  });
+
+  test("distinct titles, and a duplicate that is archived, produce none", () => {
+    const db = freshDb();
+    insertDoc(db, titled("notes/a.md", "Trail Log"));
+    insertDoc(db, titled("notes/b.md", "Trail Log", "archived"));
+    insertDoc(db, titled("notes/c.md", "Signage Plan"));
+    expect(categories(audit(db, taxonomy, { now: NOW }), "duplicate-title")).toEqual([]);
+    db.close();
+  });
+});

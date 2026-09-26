@@ -4,6 +4,7 @@ import { SEARCH_SORTS, type SearchResult, type SearchOptions } from "./types.js"
 import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
+import { caseFold } from "./case-fold.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 import { ftsIsEnglish } from "./search-language.js";
 import { SUPERSEDED_FACTOR } from "./supersedes.js";
@@ -252,6 +253,46 @@ function hasChunksFts(db: Database): boolean {
 
 type FtsRow = Omit<SearchResult, "chunks">;
 
+/** Whether `documents_fts` has its own aliases column (schema 14 and later). */
+function hasAliasesColumn(db: Database): boolean {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
+    | { sql: string }
+    | null;
+  return !!row && /\baliases\b/.test(row.sql);
+}
+
+/** A title or an alias as compared with a whole query: case-folded, whitespace collapsed. */
+function nameKey(text: string): string {
+  return caseFold(text.replace(/\s+/g, " ").trim());
+}
+
+/**
+ * A query that is, case-insensitively, a document's exact title or alias
+ * names that document: it goes first, whatever the lanes scored. Several
+ * such documents keep their order among themselves, ahead of the rest. The
+ * candidates are the already-ranked results, so filters still apply.
+ */
+function promoteExactNames(db: Database, query: string, candidates: SearchResult[]): SearchResult[] {
+  const key = nameKey(query);
+  if (!key || candidates.length === 0) return candidates;
+  const aliases = hasAliasesColumn(db);
+  const placeholders = candidates.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT d.path AS path, d.title AS title, ${aliases ? "fts.aliases" : "''"} AS aliases
+       FROM documents d JOIN documents_fts fts ON fts.rowid = d.id
+       WHERE d.path IN (${placeholders})`
+    )
+    .all(...candidates.map((r) => r.path)) as { path: string; title: string; aliases: string | null }[];
+  const named = new Set(
+    rows
+      .filter((row) => [row.title, ...(row.aliases ?? "").split("\n")].some((name) => name.trim() && nameKey(name) === key))
+      .map((row) => row.path)
+  );
+  if (named.size === 0) return candidates;
+  return [...candidates.filter((r) => named.has(r.path)), ...candidates.filter((r) => !named.has(r.path))];
+}
+
 /** The document fields a full-text row carries, as SQL. */
 function ftsDocColumns(db: Database): string {
   return `
@@ -264,8 +305,9 @@ function ftsDocColumns(db: Database): string {
 /**
  * Full-text search using FTS5, over two tables.
  *
- * - `documents_fts`, restricted to a document's title, summary and tags
- *   (bm25 weights 5, 3 and 2): what the document is called and about.
+ * - `documents_fts`, restricted to a document's title, summary, tags and
+ *   aliases (bm25 weights 5, 3, 2 and 5, an alias counting like the title):
+ *   what the document is called and about.
  * - `chunks_fts`, over each chunk's heading and body (weights 2 and 1): where
  *   in the document the words are. A long document is ranked by its best
  *   section, not diluted by BM25's length normalisation over its whole body.
@@ -298,16 +340,18 @@ function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, c
 
   // bm25() returns negative values (better = more negative), hence the
   // negation for score and ascending ORDER BY.
+  // Column weights: title, summary, content, tags, aliases. An index from
+  // before schema 14 has no aliases column; the extra weight is ignored there.
   const wholeDocument = (expression: string, limit: number) =>
     db
       .prepare(
         `SELECT ${columns},
-           -bm25(documents_fts, 5.0, 3.0, 1.0, 2.0) as score,
+           -bm25(documents_fts, 5.0, 3.0, 1.0, 2.0, 5.0) as score,
            snippet(documents_fts, 2, '>>>', '<<<', '...', 40) as snippet
          FROM documents_fts fts
          JOIN documents d ON d.id = fts.rowid
          WHERE documents_fts MATCH ? ${filters.where}
-         ORDER BY bm25(documents_fts, 5.0, 3.0, 1.0, 2.0)
+         ORDER BY bm25(documents_fts, 5.0, 3.0, 1.0, 2.0, 5.0)
          LIMIT ?`
       )
       .all(expression, ...filters.params, limit) as SearchResult[];
@@ -316,15 +360,15 @@ function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, c
   const byDocument = db
     .prepare(
       `SELECT ${columns},
-         -bm25(documents_fts, 5.0, 3.0, 0.0, 2.0) as score,
+         -bm25(documents_fts, 5.0, 3.0, 0.0, 2.0, 5.0) as score,
          snippet(documents_fts, 2, '>>>', '<<<', '...', 40) as snippet
        FROM documents_fts fts
        JOIN documents d ON d.id = fts.rowid
        WHERE documents_fts MATCH ? ${filters.where}
-       ORDER BY bm25(documents_fts, 5.0, 3.0, 0.0, 2.0)
+       ORDER BY bm25(documents_fts, 5.0, 3.0, 0.0, 2.0, 5.0)
        LIMIT ?`
     )
-    .all(`{title summary tags} : (${match})`, ...filters.params, candidates) as FtsRow[];
+    .all(`{${hasAliasesColumn(db) ? "title summary tags aliases" : "title summary tags"}} : (${match})`, ...filters.params, candidates) as FtsRow[];
 
   // Each document's best chunk, chosen over every matching chunk before the
   // document limit applies: a document whose best section is strong is not
@@ -809,6 +853,7 @@ export async function hybridSearch(
   if (ftsResults !== null && (vecResults === null || vecResults.length === 0)) {
     candidates = [...candidates].sort((a, b) => Number(ACROSS_SECTIONS in a) - Number(ACROSS_SECTIONS in b));
   }
+  if (mode !== "vector") candidates = promoteExactNames(db, query, candidates);
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }

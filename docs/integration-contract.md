@@ -100,8 +100,10 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 `suggestion`, a string present only when the check has one. Core categories are
 `staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
 `verify`, `type-mismatch`, `orphan`, and, added in 0.38.0 additively,
-`budget`, `review-overdue`, `past-date`, `fact-drift`, `repeated-text` and
-`index-stale`.
+`budget`, `review-overdue`, `past-date`, `fact-drift`, `repeated-text`,
+`index-stale` and `duplicate-title`. `duplicate-title` is a non-archived
+markdown document whose exact title another non-archived one shares, one
+`info` issue on each, with the others' paths in `message`.
 `fact-drift` is a document that restates a keyed fact (`taxonomy.facts`) with a value other than
 the one in its source's `facts:` frontmatter, one issue per document per fact,
 `warning`, with `message: "<key>: found <x>, canonical <y>"`; the source is
@@ -689,7 +691,7 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **13**),
+- Check `index_metadata` first: `schema_version` (currently **14**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -719,7 +721,13 @@ Prefer the CLI/MCP. If reading directly:
   `chunks` rows keeps the index current through those triggers; it must not
   drop them. `chunks_fts` uses the same tokenizer as `documents_fts`, and a
   `search.language` rebuild recreates it from `chunks` in the same
-  transaction.
+  transaction. Schema 14 (0.38.0) recreates `documents_fts` with a fifth
+  column, `aliases` (a document's aliases, one per line), and no longer
+  writes them into its `tags` column. No table or column a reader selects
+  changed, so a reader that accepts 13 reads 14 unchanged. The migration
+  refills the table from `documents` and clears the markdown rows'
+  `content_hash`, so the next index run writes each row again with its
+  aliases.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,

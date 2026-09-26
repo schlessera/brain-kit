@@ -74,7 +74,7 @@ function prepareStatements(db: Database) {
     insertSupersedes: db.prepare("INSERT OR IGNORE INTO supersedes (source_id, target, target_id) VALUES (?, ?, NULL)"),
     deleteDoc: db.prepare("DELETE FROM documents WHERE id = ?"),
     insertFts: db.prepare(
-      "INSERT INTO documents_fts(rowid, title, summary, content, tags) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO documents_fts(rowid, title, summary, content, tags, aliases) VALUES (?, ?, ?, ?, ?, ?)"
     ),
     insertChunk: db.prepare(
       `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate)
@@ -172,16 +172,18 @@ function writeDocument(
   // A value of the wrong shape stores nothing; `brain validate` reports it.
   for (const target of supersedesTargets(data.supersedes) ?? []) st.insertSupersedes.run(docRow.id, target);
 
-  // Aliases ride along in the FTS tags column, so an alternate name is
-  // findable by keyword search even though it is not a tag.
+  // Aliases have their own column, weighted like the title; one per line, so
+  // an exact alias can be read back whole.
   const aliases = Array.isArray(data.aliases) ? data.aliases.map(String) : [];
   st.insertFts.run(
     docRow.id,
     String(data.title),
     data.summary ? String(data.summary) : "",
     content,
-    [...tagNames, ...aliases].join(" ")
+    tagNames.join(" "),
+    aliases.join("\n")
   );
+
 
   const title = String(data.title);
   const chunks = chunkDocument({ title, content, documentId: docRow.id });
