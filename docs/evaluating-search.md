@@ -117,12 +117,13 @@ and spacing, so "cat" never matches "concatenate". `--strict` turns
 - **Mark questions as asked with `class: "paraphrase"`, and lint them.** A
   query worded while looking at its answer borrows the answer's title words.
   `brain eval --lint` reports each `paraphrase` query that shares a content word
-  (stopwords dropped, ignoring case) with the title of one of its `expected`
-  documents. It names the words and the path in `warnings`, and exits `0`. It
-  validates the set too (a malformed line exits `2` and names the line), and it
-  never opens the index, so it runs in a brain that has not been indexed.
-  The `brain-eval` skill collects real questions from a session and an
-  interview, and appends them to the set only after `--lint` passes.
+  (stopwords dropped, ignoring case but not accents) with the title of one of
+  its `expected` documents. It names the words and the path in `warnings`, and
+  exits `0`. It validates the set too (a malformed line exits `2` and names the
+  line), and it never opens the index, so it runs in a brain that has not been
+  indexed. The `brain-eval` skill collects real questions from a session and an
+  interview, lints the set they would produce (existing queries included), and
+  writes it only when that passes.
 - **Twenty to fifty queries is enough to start.** Each query moves hit@1 by
   1/n. With 25 queries one query is 4 points, so read a small change as a
   change in specific queries, not as a trend.

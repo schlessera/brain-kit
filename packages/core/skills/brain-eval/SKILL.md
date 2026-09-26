@@ -8,7 +8,7 @@ compatibility: Requires the brain CLI. Scoring the vector or hybrid lane needs a
 
 A query written while looking at its answer borrows the answer's words, which flatters
 keyword search. The questions worth keeping are the ones someone actually asked. This skill
-collects them, pairs each with the documents that answer it, and appends them to the brain's
+collects them, pairs each with the documents that answer it, and adds them to the brain's
 query set.
 
 **This skill orchestrates; `brain eval` executes.** Validating the set and checking for
@@ -45,24 +45,34 @@ For each question, keep `q` exactly as it was asked. Then find the answer, in th
 Class: `paraphrase` for a question as asked, `no-answer` for one with no answer, and any
 other label the user wants for grouping. Give each query a short, stable `id`.
 
-## 3. Lint before writing
+## 3. Lint the whole proposed set
 
-Write the candidates to a scratch file, one JSON object per line, and run:
+A candidate that is valid on its own can still break the set it joins: an `id` the set
+already uses makes the whole file fail to load. So lint what the set would become, not the
+candidates alone.
+
+Write a scratch file that is the current `evals/retrieval.jsonl` exactly as it is (its header
+line stays first), followed by the candidates, one JSON object per line. If the set does not
+exist yet, the scratch file is just the candidates. Then run:
 
 ```bash
 brain eval --lint --set <scratch file> --json
 ```
 
-- Exit `2` means the set is malformed; the message names the line. Fix that line and run it
-  again.
+- Exit `2` means the proposed set is malformed; the message names the line. If that line is a
+  candidate, fix it (a clashing `id` gets a new one); if it is an existing line, stop and show
+  the user, since the set was already broken. Run it again until it exits `0`.
 - Each entry in `warnings` is a `paraphrase` query that shares a word with its answer's title.
-  Show them to the user. Keep a question that really was asked that way, since that is how
-  they search. Rewrite one only if the user says the wording was not theirs.
+  Warnings about existing queries were already accepted; show the user the ones about new
+  candidates. Keep a question that really was asked that way, since that is how they search.
+  Rewrite one only if the user says the wording was not theirs, then lint again.
 
-## 4. Append and run
+## 4. Write and run
 
-Append the linted lines to `evals/retrieval.jsonl` (create it if needed; keep an existing
-header line first) only when `--lint` exits `0`. Then offer a run:
+Only when the last `--lint` of the whole proposed set exits `0`, replace
+`evals/retrieval.jsonl` with the scratch file that passed (create `evals/` if needed). Do not
+append the candidates separately: that would write something other than what was linted.
+Then offer a run:
 
 ```bash
 brain eval --mode fts          # keyless
