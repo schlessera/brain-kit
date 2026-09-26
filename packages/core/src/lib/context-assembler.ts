@@ -6,7 +6,7 @@ import matter from "gray-matter";
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";
 import { topLevelBlocks } from "./document-parts.js";
-import { hybridSearch } from "./search-engine.js";
+import { chunkMatchLine, hybridSearch } from "./search-engine.js";
 import type { ChunkMatch, SearchResult } from "./types.js";
 
 export interface AssembleOptions {
@@ -316,7 +316,7 @@ export async function assembleContext(
       const best = result.chunks?.[0];
       const room = Math.min(hitCap, budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0));
       const body = cleanSnippet(result.snippet ?? "");
-      const forms = [best ? hitSection(result, best, ctx.root, room) : null, body ? `${hitHeader(result)}\n${body}` : hitHeader(result)].filter(
+      const forms = [best ? hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), ctx.root, room) : null, body ? `${hitHeader(result)}\n${body}` : hitHeader(result)].filter(
         (form): form is string => form !== null && estimateTokens(form) <= hitCap
       );
       if (forms.some((form) => push(form))) {
@@ -433,14 +433,23 @@ function chunkLines(content: string): string[] {
 
 /**
  * The part of a document a chunk comes from: its lead (the text before the
- * first top-level `##`) or one `##` section, as the source parses today. The
- * chunk only identifies it: the part holding most of the chunk's lines wins
- * (the chunker can repeat a table's header row or re-prefix a nested table's
- * row, so not every line need be there), ties going to the part the chunk's
- * heading names, then the first. Null when no part holds half the lines: the
- * file has changed since it was indexed.
+ * first top-level `##`) or one `##` section, as the source parses today.
+ *
+ * When the query's first match in the chunk is known (`matchLine`, the line
+ * that holds it), the part holding that line is taken. That is what decides a
+ * folded chunk, one into which the chunker merged a short section: it carries
+ * that section's `##` heading, and only the match says which part answers.
+ * Otherwise, for a chunk that is not folded, the part holding most of its
+ * lines is taken (the chunker can repeat a table's header row or re-prefix a
+ * nested table's row, so not every line need be there), ties going to the
+ * part the chunk's heading names, then the first.
+ *
+ * Null, so the caller keeps the snippet, when the part cannot be told: a
+ * folded chunk whose match line is unknown, a match line more than one part
+ * holds in a folded chunk, or a chunk no part holds half of (the file has
+ * changed since it was indexed).
  */
-function sourcePart(body: string, chunk: ChunkMatch): { name: string | null; text: string } | null {
+function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): { name: string | null; text: string } | null {
   const { lead, sections } = splitSections(body);
   const parts = [
     { name: null as string | null, text: lead },
@@ -452,11 +461,20 @@ function sourcePart(body: string, chunk: ChunkMatch): { name: string | null; tex
       return { name, text: rest.trimEnd() };
     }),
   ];
+  const folded = topLevelBlocks(chunk.content).some((block) => block.type === "heading" && (block.depth ?? 1) <= 2);
+  let candidates = parts;
+  if (matchLine !== null) {
+    const asHeading = /^#{1,6}(?:[ \t]|$)/.test(matchLine) ? headingBlockText(matchLine) : null;
+    candidates = parts.filter((part) => part.text.includes(matchLine) || (asHeading !== null && part.name === asHeading));
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length === 0) return null;
+  }
+  if (folded) return null;
   const lines = chunkLines(chunk.content);
   if (lines.length === 0) return null;
   const hinted = chunk.heading.replace(/ \(cont\.\)$/, "").split(" › ")[0];
   let best: { part: (typeof parts)[number]; found: number } | null = null;
-  for (const part of parts) {
+  for (const part of candidates) {
     const found = lines.filter((line) => part.text.includes(line)).length;
     const better =
       !best || found > best.found || (found === best.found && part.name === hinted && best.part.name !== hinted);
@@ -466,8 +484,9 @@ function sourcePart(body: string, chunk: ChunkMatch): { name: string | null; tex
 }
 
 /**
- * A hit as the whole `##` section (or the lead) its best chunk comes from,
- * read from the source file: under the hit's header and a `####` naming the
+ * A hit as the whole `##` section (or the lead) its best chunk comes from
+ * (`sourcePart`, with the line of the query's first match in it), read from
+ * the source file: under the hit's header and a `####` naming the
  * section, with its headings demoted below that and a construct left open at
  * its end closed. Longer than `cap` tokens, it is cut after its last whole
  * block that fits, with a pointer to the file. Null, so the caller falls back
@@ -475,9 +494,9 @@ function sourcePart(body: string, chunk: ChunkMatch): { name: string | null; tex
  * when not even the header fits, or when no block but a heading survives the
  * cut.
  */
-function hitSection(result: SearchResult, best: ChunkMatch, root: string, cap: number): string | null {
+function hitSection(result: SearchResult, best: ChunkMatch, matchLine: string | null, root: string, cap: number): string | null {
   const doc = readMarkdownContent(root, result.path);
-  const part = doc ? sourcePart(doc.body, best) : null;
+  const part = doc ? sourcePart(doc.body, best, matchLine) : null;
   if (!part || !part.text) return null;
   const text = closeOpenConstructs(demoteHeadings(part.text));
   const named = part.name ? `\n#### ${oneLine(part.name)}` : "";

@@ -889,7 +889,7 @@ export async function hybridSearch(
   }
 
   const results = candidates.slice(0, limit);
-  return { results: opts.chunks ? withChunks(db, results, query) : results, warnings };
+  return { results: opts.chunks ? withChunks(db, results, query, warnings) : results, warnings };
 }
 
 /**
@@ -899,29 +899,79 @@ export async function hybridSearch(
  * and the same stopwords. A chunk matches when it holds a query term; its
  * score is its BM25 relevance (heading weight 2, content 1), negated so that
  * higher is better, and ties go to document order. A result with no matching
- * chunk (a vector-only match), and every result on an index from before the
- * chunk table (schema 12), gets an empty list.
+ * chunk (a vector-only match), every result of a query with no word to match
+ * (whitespace or punctuation alone), and every result on an index from before
+ * the chunk table (schema 12), gets an empty list. Matching that fails is
+ * treated like a failed lane: the results stand, each with an empty list, and
+ * `warnings` says why.
  */
-function withChunks(db: Database, results: SearchResult[], query: string): SearchResult[] {
+function withChunks(db: Database, results: SearchResult[], query: string, warnings: string[]): SearchResult[] {
   if (results.length === 0) return results;
-  if (!hasChunksFts(db)) return results.map((r) => ({ ...r, chunks: [] }));
-  // The tokenizer is read and the query run in one read transaction, as ftsSearch does.
-  const rows = db.transaction(() => {
-    const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
-    return db
-      .prepare(
-        `SELECT d.path, c.chunk_index, c.heading, c.content, -bm25(chunks_fts, 2.0, 1.0) AS score
-         FROM chunks_fts
-         JOIN chunks c ON c.id = chunks_fts.rowid
-         JOIN documents d ON d.id = c.document_id
-         WHERE chunks_fts MATCH ? AND d.path IN (${results.map(() => "?").join(",")})
-         ORDER BY d.path, score DESC, c.chunk_index`
-      )
-      .all(match, ...results.map((r) => r.path)) as ChunkMatch[];
-  })();
+  const none = () => results.map((r) => ({ ...r, chunks: [] as ChunkMatch[] }));
+  if (!hasLexicalTerm(query) || !hasChunksFts(db)) return none();
+  let rows: ChunkMatch[];
+  try {
+    // The tokenizer is read and the query run in one read transaction, as ftsSearch does.
+    rows = db.transaction(() => {
+      const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+      return db
+        .prepare(
+          `SELECT d.path, c.chunk_index, c.heading, c.content, -bm25(chunks_fts, 2.0, 1.0) AS score
+           FROM chunks_fts
+           JOIN chunks c ON c.id = chunks_fts.rowid
+           JOIN documents d ON d.id = c.document_id
+           WHERE chunks_fts MATCH ? AND d.path IN (${results.map(() => "?").join(",")})
+           ORDER BY d.path, score DESC, c.chunk_index`
+        )
+        .all(match, ...results.map((r) => r.path)) as ChunkMatch[];
+    })();
+  } catch (e) {
+    warnings.push(`chunk matching failed: ${(e as Error).message}`);
+    return none();
+  }
   const byPath = new Map<string, ChunkMatch[]>();
   for (const row of rows) byPath.set(row.path, [...(byPath.get(row.path) ?? []), row]);
   return results.map((result) => ({ ...result, chunks: byPath.get(result.path) ?? [] }));
+}
+
+/** Whether a query has a letter or digit for the full-text match to look for. */
+function hasLexicalTerm(query: string): boolean {
+  return /[\p{L}\p{N}]/u.test(query);
+}
+
+/**
+ * Where in one chunk the query first matches, as the full-text lane reads it:
+ * the chunk's content line holding the first highlighted term, trimmed. Null
+ * when the query matches only the chunk's heading, or not at all, or when the
+ * chunk index cannot answer (no chunk table, a query with no word, a failure).
+ * `brain context` uses it to tell which source section of a chunk the chunker
+ * folded together holds the match.
+ */
+export function chunkMatchLine(db: Database, query: string, path: string, chunkIndex: number): string | null {
+  if (!hasLexicalTerm(query) || !hasChunksFts(db)) return null;
+  try {
+    const row = db.transaction(() => {
+      const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+      return db
+        .prepare(
+          `SELECT highlight(chunks_fts, 1, char(1), char(2)) AS marked
+           FROM chunks_fts
+           JOIN chunks c ON c.id = chunks_fts.rowid
+           JOIN documents d ON d.id = c.document_id
+           WHERE chunks_fts MATCH ? AND d.path = ? AND c.chunk_index = ?`
+        )
+        .get(match, path, chunkIndex) as { marked: string } | null;
+    })();
+    const marked = row?.marked;
+    const at = marked?.indexOf("\u0001") ?? -1;
+    if (!marked || at === -1) return null;
+    const start = marked.lastIndexOf("\n", at) + 1;
+    const end = marked.indexOf("\n", at);
+    const line = marked.slice(start, end === -1 ? marked.length : end).replace(/[\u0001\u0002]/g, "").trim();
+    return line || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

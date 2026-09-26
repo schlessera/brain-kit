@@ -6,7 +6,7 @@
  * the unit tests build a small in-memory index by hand.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -856,6 +856,70 @@ describe("sections from chunks", () => {
       expect(hit).toBeDefined();
       expect(hit!.chunks!.map((c) => c.content)).toEqual([expect.stringContaining(line)]);
     } finally {
+      db.close();
+    }
+  });
+  test.each([
+    ["after", (weather: string) => `${weather}## Signal\n\nThe beacon code is violet.\n`],
+    ["before", (weather: string) => `## Signal\n\nThe beacon code is violet.\n\n${weather}`],
+  ])("a short section folded into a long one %s it still answers from its own text", async (_, layout) => {
+    const weather = `## Weather\n\n${para("Weather", 8)}\n\n`;
+    const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", layout(weather)) });
+    try {
+      // The premise: the chunker folded Signal into Weather's chunk.
+      const chunks = db
+        .prepare("SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ?")
+        .all("studies/folded.md") as { content: string }[];
+      expect(chunks.filter((c) => c.content.includes("violet") && c.content.includes("Weather paragraph 1"))).toHaveLength(1);
+      const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+      const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+      expect(hit).toContain("#### Signal\nThe beacon code is violet.");
+      expect(hit).not.toContain("Weather paragraph 1");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("when the match cannot be placed in a folded chunk, the hit keeps its snippet", async () => {
+    const body = `## Weather\n\n${para("Weather", 8)}\n\n## Signal\n\nThe beacon code is violet.\n`;
+    const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+    // Only the match line fails; the chunk itself is still matched.
+    const real = db.prepare.bind(db);
+    const spy = spyOn(db, "prepare").mockImplementation(((sql: string) => {
+      if (sql.includes("highlight(chunks_fts")) throw new Error("injected highlight failure");
+      return real(sql);
+    }) as typeof db.prepare);
+    try {
+      const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+      const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+      expect(hit).toBeDefined();
+      // Not Weather, which holds most of the chunk's lines: the snippet, which holds the match.
+      expect(hit).not.toContain("Weather paragraph 1");
+      expect(hit).not.toContain("####");
+      expect(hit).toContain("violet");
+    } finally {
+      spy.mockRestore();
+      db.close();
+    }
+  });
+
+  test("when chunk matching fails, the context still assembles, from snippets", async () => {
+    const { ctx, db } = await brainWith({ "studies/survey.md": study("Survey", `## Log\n\nThe beacon survey log.\n`) });
+    const real = db.prepare.bind(db);
+    const spy = spyOn(db, "prepare").mockImplementation(((sql: string) => {
+      if (sql.includes("-bm25(chunks_fts, 2.0, 1.0) AS score") || sql.includes("highlight(chunks_fts")) {
+        throw new Error("injected chunk failure");
+      }
+      return real(sql);
+    }) as typeof db.prepare);
+    try {
+      const warnings: string[] = [];
+      const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, warnings });
+      expect(out).toContain("(studies/survey.md)");
+      expect(out).not.toContain("#### Log");
+      expect(warnings).toContain("chunk matching failed: injected chunk failure");
+    } finally {
+      spy.mockRestore();
       db.close();
     }
   });

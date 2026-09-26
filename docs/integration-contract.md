@@ -90,9 +90,11 @@ first, as `{ "path", "chunk_index", "heading", "content", "score" }`. `heading`
 is the section the chunk comes from (`(intro)` before the first, `Section
 (cont.)` and `Section › Sub` for the pieces of a long one); `score` is the
 chunk's BM25 relevance (heading weighted 2, content 1), higher is better. A
-result with no such chunk, every result of a filter-only search, and every
-result on an index from before schema 12 have an empty list; without
-`--chunks` there is no `chunks` key. Treat unknown fields as
+result with no such chunk, every result of a filter-only search or of a query
+with no word in it, and every result on an index from before schema 12 have an
+empty list. If chunk matching fails, the results stand with empty lists and
+`warnings` says so, as for a failed search lane. Without `--chunks` there is
+no `chunks` key. Treat unknown fields as
 additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and

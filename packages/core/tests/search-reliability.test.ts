@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
@@ -6,7 +6,7 @@ import { join, resolve } from "path";
 import { initContext } from "../src/lib/context";
 import { openDatabase, migrateVecSchema, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
-import { filterSearch, hybridSearch, weightedRankFusion } from "../src/lib/search-engine";
+import { chunkMatchLine, filterSearch, hybridSearch, weightedRankFusion } from "../src/lib/search-engine";
 import type { EmbeddingProvider } from "../src/lib/seams";
 
 let db: Database;
@@ -40,6 +40,40 @@ function addDoc(id: number, chunks: number, distance: number, opts: { tagged?: b
     db.run("INSERT INTO vec_chunks(chunk_id,embedding,is_archived,doc_type) VALUES (?,?,?,?)", [row.id, new Uint8Array(new Float32Array([1, distance]).buffer), status === "archived" ? 1 : 0, type]);
   }
 }
+
+describe("chunk matching degrades like a lane", () => {
+  test("a failing chunk match keeps the results, each with no chunks, and says why", async () => {
+    addDoc(1, 1, 0);
+    addDoc(2, 1, 0.2);
+    // The control: without the failure, the chunks are there.
+    const ok = await hybridSearch(db, { query: "topic", limit: 2, chunks: true }, { embeddings: provider });
+    expect(ok.results.map((r) => r.chunks?.length)).toEqual([1, 1]);
+    const real = db.prepare.bind(db);
+    const spy = spyOn(db, "prepare").mockImplementation(((sql: string) => {
+      if (sql.includes("-bm25(chunks_fts, 2.0, 1.0) AS score")) throw new Error("injected chunk failure");
+      return real(sql);
+    }) as typeof db.prepare);
+    try {
+      const failed = await hybridSearch(db, { query: "topic", limit: 2, chunks: true }, { embeddings: provider });
+      expect(failed.results.map((r) => r.path)).toEqual(ok.results.map((r) => r.path));
+      expect(failed.results.map((r) => r.chunks)).toEqual([[], []]);
+      expect(failed.warnings).toContain("chunk matching failed: injected chunk failure");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test.each([["spaces", "   "], ["a tab", "\t"], ["punctuation", "?!"]])(
+    "a query of %s has no word to match: the vector results stand, with no chunks",
+    async (_, query) => {
+      addDoc(1, 1, 0);
+      const { results, warnings } = await hybridSearch(db, { query, limit: 1, chunks: true }, { embeddings: provider });
+      expect(results.map((r) => [r.path, r.chunks])).toEqual([["notes/1.md", []]]);
+      expect(warnings.filter((w) => w.startsWith("chunk matching failed"))).toEqual([]);
+      expect(chunkMatchLine(db, query, "notes/1.md", 0)).toBeNull();
+    }
+  );
+});
 
 test("widens duplicate-heavy KNN results to fill the document limit with one embedding", async () => {
   addDoc(1, 6, 0);
