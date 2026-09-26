@@ -51,6 +51,7 @@ export const BOOLEAN_FLAGS = new Set([
   "no-git",
   "strict",
   "context",
+  "lint",
   "apply", "groups", "redundant",
 ]);
 

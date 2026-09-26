@@ -16,6 +16,7 @@ import {
   EvalSetError,
   ContaminationScanner,
   parseEvalSet,
+  titleLeaks,
   parseKs,
   parseBudgets,
   answerPresent,
@@ -62,6 +63,9 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
                           and report whether the answer is in it (the "context" block)
   --budgets <list>        Context budgets in tokens, comma-separated
                           (default: 1000,4000,8000; needs --context)
+  --lint                  Validate the set and report title leakage in its
+                          "paraphrase" queries, without scoring or opening the
+                          index: exit 0 with findings, 2 on a malformed set
 
 Relative paths are relative to the brain root.
 
@@ -73,6 +77,7 @@ document that contains the set's queries).
 
 --json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" },
 plus "context": { "budgets", "rows", "per_query" } with --context
+(--lint: { "schema_version", "meta": { "set", "set_sha256", "queries" }, "warnings" })
 Set format and how to read the numbers: docs/evaluating-search.md`;
 
 const MODES: Readonly<Record<string, EvalMode[]>> = {
@@ -438,6 +443,50 @@ function writeOut(root: string, outRel: string, data: string): void {
   }
 }
 
+/**
+ * `brain eval --lint`: validate the set and report title leakage in its
+ * `paraphrase` queries, without scoring. It never opens the index: titles come
+ * from the markdown files. A malformed set exits 2 naming the line; findings
+ * are warnings and exit 0.
+ */
+function lintSet(json: boolean, root: string, setPath: string): number {
+  const shown = displayPath(root, setPath);
+  const refuse = (reason: string) => {
+    console.error(`brain eval refused: ${reason}`);
+    return 2;
+  };
+  if (!existsSync(setPath)) return refuse(`no query set at ${shown}. ${DOCS_POINTER}`);
+  const bytes = readFileSync(setPath);
+  let queries: EvalQuery[];
+  try {
+    queries = parseEvalSet(bytes.toString("utf-8")).queries;
+  } catch (e) {
+    if (e instanceof EvalSetError) return refuse(`${shown}: ${e.message}`);
+    throw e;
+  }
+  const titleOf = (path: string): string | null => {
+    const full = safeResolve(root, path);
+    if (!full || !existsSync(full)) return null;
+    try {
+      const title = matter(readFileSync(full, "utf-8"), {}).data.title;
+      return typeof title === "string" ? title : null;
+    } catch {
+      return null;
+    }
+  };
+  const warnings = titleLeaks(queries, titleOf);
+  const envelope = {
+    schema_version: EVAL_SCHEMA_VERSION,
+    meta: { set: shown, set_sha256: createHash("sha256").update(bytes).digest("hex"), queries: queries.length },
+    warnings,
+  };
+  emit(json, envelope, () => {
+    if (warnings.length === 0) console.log(`${shown}: ${queries.length} queries, no lint findings.`);
+    else for (const warning of warnings) console.log(`Warning: ${warning}`);
+  });
+  return 0;
+}
+
 export const evalCommand: CoreCommand = {
   summary: "Score a retrieval query set against this brain's index",
   helpBlock: HELP,
@@ -482,6 +531,7 @@ export const evalCommand: CoreCommand = {
 
     const root = cli.brain.root;
     const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
+    if (flags.lint === true) return lintSet(cli.json, root, setPath);
     // Everything the CLI writes stays inside the brain (integration contract,
     // "Containment"): checked before any search runs, and again at the write.
     const outRel = typeof flags.out === "string" ? flags.out : undefined;

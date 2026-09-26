@@ -9,7 +9,9 @@
 
 import { z } from "zod";
 
+import { caseFold } from "./case-fold.js";
 import type { AssembleReport } from "./context-assembler.js";
+import { FTS_STOPWORDS } from "./search-engine.js";
 import type { SearchResult } from "./types.js";
 
 /** Bumped when a field of the `brain eval --json` envelope changes meaning. */
@@ -514,4 +516,50 @@ export function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
   return sorted[rank - 1];
+}
+
+/** The class of a query phrased the way someone actually asked it. */
+export const PARAPHRASE_CLASS = "paraphrase";
+
+/**
+ * A query's or title's content words, keyed the way FTS matches them: the
+ * index's `unicode61` tokenizer strips diacritics, so "resume" matches
+ * "résumé" and "thé" matches "the". A word is read whole, marks included
+ * (`caseFold` returns decomposed text, and without `\p{M}` "résumé" would
+ * split into "re" and "sume"), then its marks are stripped for the key, and
+ * the stopword check runs on the stripped key, so "thé" is dropped as "the".
+ * The value is the word as written (NFC), for display.
+ */
+function contentWords(text: string): Map<string, string> {
+  const words = new Map<string, string>();
+  for (const word of caseFold(text).match(/[\p{L}\p{M}\p{N}]+/gu) ?? []) {
+    const key = word.replace(/\p{M}/gu, "");
+    if (key && !FTS_STOPWORDS.has(key) && !words.has(key)) words.set(key, word.normalize("NFC"));
+  }
+  return words;
+}
+
+/**
+ * Title leakage (#380): a `paraphrase` query should be worded the way it was
+ * asked, before the answer was known, so a content word it shares with an
+ * expected document's title flatters keyword search. One finding per query
+ * and expected path, naming the shared words. Only the query's own
+ * `expected` paths are checked; a selector resolves only at run time.
+ * `titleOf` returns null for a path it cannot read, which is not a finding.
+ */
+export function titleLeaks(queries: EvalQuery[], titleOf: (path: string) => string | null): string[] {
+  const findings: string[] = [];
+  for (const query of queries) {
+    if (query.class !== PARAPHRASE_CLASS || !query.expected) continue;
+    const words = contentWords(query.q);
+    for (const path of query.expected) {
+      const title = titleOf(path);
+      if (title === null) continue;
+      const shared = [...contentWords(title).keys()].filter((key) => words.has(key));
+      if (shared.length > 0) {
+        findings.push(`${query.id}: shares ${shared.map((key) => `"${words.get(key)}"`).join(", ")} with the title of ${path}`);
+      }
+    }
+  }
+  return findings;
 }
