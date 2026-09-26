@@ -18,7 +18,7 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 import { initContext, type BrainContext } from "../src/lib/context";
-import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
+import { assembleContext, emptyAssembleReport, estimateTokens } from "../src/lib/context-assembler";
 import { openDatabase } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
 import { indexAll } from "../src/lib/indexer";
@@ -105,6 +105,45 @@ describe("over fixtures/corpus", () => {
       "## Identity\nWho Alex Example is — a park ranger tracking health, woodworking, and astronomy\n\n(truncated — brain read me/identity.md)"
     )).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
+  });
+
+  // #518: identity and focus used to take as much as fitted before any hit,
+  // so a budget where the focus fits whole (550) held fewer hits than a
+  // smaller one where it was cut (500). Now they are placed in their minimal
+  // form, hits against the rest, and only what is left grows them.
+  // A known limit, accepted on #522: the hit fill stays greedy (#370), so an
+  // early hit too big for a small budget can fit a larger one and displace a
+  // later, smaller hit. This sweep guards that no such case occurs here.
+  test("a larger budget never drops a search hit, and every budget is kept", async () => {
+    const now = new Date("2026-07-12");
+    for (const query of ["ranger", "knee injury"]) {
+      let previous: string[] = [];
+      const dropped: string[] = [];
+      const over: number[] = [];
+      const missing: number[] = [];
+      for (let budget = 200; budget <= 2000; budget += 10) {
+        const report = emptyAssembleReport();
+        const out = await assembleContext(db, ctx, { query, maxTokens: budget, now, report });
+        for (const path of previous) if (!report.results.includes(path)) dropped.push(`${path} at ${budget}`);
+        if (estimateTokens(out) > budget) over.push(budget);
+        if (!report.identity || !report.focus) missing.push(budget);
+        previous = report.results;
+      }
+      // The sweep is not vacuous: hits arrive as the budget grows.
+      expect(previous.length).toBeGreaterThan(1);
+      expect({ query, dropped }).toEqual({ query, dropped: [] });
+      expect({ query, over }).toEqual({ query, over: [] });
+      expect({ query, missing }).toEqual({ query, missing: [] });
+    }
+  });
+
+  test("with room for them and every hit, identity and focus are whole again", async () => {
+    const report = emptyAssembleReport();
+    const out = await assembleContext(db, ctx, { query: "ranger", maxTokens: 2000, now: new Date("2026-07-12"), report });
+    // The premise: at 2000 tokens "ranger" gets all of its hits.
+    expect(report.results.length).toBe(4);
+    expect(out).not.toContain("(truncated — brain read");
+    expect(out).toContain("## How to Work With Alex");
   });
 });
 
@@ -316,6 +355,31 @@ describe("over a hand-built index", () => {
       const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
       expect(out).toBe("## Identity\nIntro.\n\n(truncated — brain read me/identity.md)");
     });
+
+    test("while the lead is cut no hit is placed, so none is dropped as the cut grows (#518)", async () => {
+      // Twelve short paragraphs: the cut keeps a few more with each larger
+      // budget, so the room it leaves behind rises and falls.
+      const paragraphs = Array.from({ length: 12 }, (_, i) => `Paragraph ${i}: ${"steady prose about the preserve ".repeat(6).trim()}.`);
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${paragraphs.join("\n\n")}\n`);
+      addDoc("notes/quiver.md", "Quiver", "quiver");
+      let previous: string[] = [];
+      const dropped: number[] = [];
+      const hitWhileCut: number[] = [];
+      let firstHit: number | null = null;
+      for (let budget = 60; budget <= 1200; budget += 5) {
+        const report = emptyAssembleReport();
+        const out = await assembleContext(db, ctx, { query: "quiver", maxTokens: budget, includeCurrentFocus: false, report });
+        if (previous.some((path) => !report.results.includes(path))) dropped.push(budget);
+        if (!out.includes(paragraphs[11]!) && report.results.length > 0) hitWhileCut.push(budget);
+        if (firstHit === null && report.results.length > 0) firstHit = budget;
+        previous = report.results;
+      }
+      // The premise: the hit does arrive once the whole lead fits.
+      expect(firstHit).not.toBeNull();
+      expect(dropped).toEqual([]);
+      expect(hitWhileCut).toEqual([]);
+    });
   });
 
   test("neighbour titles and summaries cannot open a block of their own", async () => {
@@ -351,6 +415,44 @@ describe("over a hand-built index", () => {
     expect(list.children.map((item) => item.children.map((child) => child.type))).toEqual(
       Array.from({ length: 6 }, () => ["paragraph"])
     );
+  });
+
+  describe("a separator is charged with the text it precedes (#522)", () => {
+    // `estimateTokens("\n\n" + text)` can be one token less than the two
+    // rounded apart, so a form that fits by push's own charge must be taken.
+    const write = (identity: string, focus: string) => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${identity}\n`);
+      writeFileSync(join(dir, "context/current-focus.md"), `---\ntype: context\n---\n${focus}\n`);
+    };
+    afterAll(() => rmSync(join(dir, "context/current-focus.md"), { force: true }));
+    const FOCUS = `Short.\n\n${"L".repeat(158)}\n\n## Long\n${"X".repeat(1000)}`;
+
+    test("a focus that fits after a cut identity is included (budget 18)", async () => {
+      write("A".repeat(1000), "F");
+      const report = emptyAssembleReport();
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 18, report });
+      expect(report.focus).toBe("context/current-focus.md");
+      expect(out.endsWith("## Current Focus\nF")).toBe(true);
+      expect(estimateTokens(out)).toBeLessThanOrEqual(18);
+    });
+
+    test("both documents grow whole when they fit exactly (budget 303)", async () => {
+      write("I", FOCUS);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 303 });
+      expect(out).toBe(`## Identity\nI\n\n## Current Focus\n${FOCUS}`);
+      expect(estimateTokens(out)).toBeLessThanOrEqual(303);
+    });
+
+    test("growth never shortens a placed form (budget 63)", async () => {
+      write("I", FOCUS);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 63 });
+      // The premise: both minimal forms fit, and the focus lead is one of them.
+      const minimal = `## Identity\nI\n\n## Current Focus\nShort.\n\n${"L".repeat(158)}\n\n(truncated — brain read context/current-focus.md)`;
+      expect(estimateTokens(minimal)).toBeLessThanOrEqual(63);
+      expect(out).toBe(minimal);
+    });
   });
 
   describe("identity leads with its lead, then whole sections", () => {

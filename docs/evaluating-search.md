@@ -213,7 +213,10 @@ which keeps the distance.
 ## Measuring `brain context`
 
 `brain context` is what an agent is handed: the identity and current-focus
-documents, then search hits, within a token budget. `--context` runs every
+documents, then search hits, within a token budget. The two documents are
+placed as their summary and lead first, the hits get the rest, and only what
+the hits leave grows the documents towards their whole body, so a larger
+budget never holds fewer hits. `--context` runs every
 query through it at each budget (`--budgets 1000,4000,8000` is the default),
 and reports per budget:
 
