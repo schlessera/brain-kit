@@ -210,5 +210,6 @@ reranker, the cutoffs, and `now`, the instant recency ranking was measured
 from.
 
 Keyed lanes (vector, hybrid) cost one query embedding per query and mode. They
-only run in your own brain, with your own keys. brain-kit's CI runs the
-full-text lane only.
+only run in your own brain, with your own keys. brain-kit's CI scores the
+full-text lane on real text, and runs the hybrid lane only with hand-staged
+vectors that test how the lanes are fused, never how good embeddings are.

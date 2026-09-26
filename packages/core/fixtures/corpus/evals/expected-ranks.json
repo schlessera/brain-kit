@@ -1,0 +1,70 @@
+{
+  "exact-title-telescope": {
+    "rank": 1
+  },
+  "exact-title-plan": {
+    "rank": 1
+  },
+  "question-collimate": {
+    "rank": 1
+  },
+  "question-physio": {
+    "rank": 1
+  },
+  "paraphrase-signs": {
+    "rank": 1
+  },
+  "paraphrase-blanks": {
+    "rank": 2
+  },
+  "alias-dobsonian": {
+    "rank": 1
+  },
+  "alias-scope": {
+    "rank": 1
+  },
+  "alias-only": {
+    "rank": 1
+  },
+  "filename-bookshelf": {
+    "rank": 1
+  },
+  "filename-signage": {
+    "rank": 1
+  },
+  "time-due-next": {
+    "rank": 1
+  },
+  "time-review": {
+    "rank": 3
+  },
+  "stale-bio": {
+    "rank": 4,
+    "current_first": false
+  },
+  "stale-facts": {
+    "rank": 1,
+    "current_first": true
+  },
+  "no-answer-tax": {
+    "rank": null,
+    "top": [
+      "projects/active/bookshelf/status.md"
+    ]
+  },
+  "multi-hop-collimate": {
+    "rank": 2
+  },
+  "multi-hop-focus": {
+    "rank": 5
+  },
+  "non-english-title": {
+    "rank": 1
+  },
+  "non-english-word": {
+    "rank": 1
+  },
+  "recency-rehab": {
+    "rank": 3
+  }
+}

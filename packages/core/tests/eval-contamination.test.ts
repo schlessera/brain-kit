@@ -15,8 +15,15 @@ afterEach(() => {
   while (temps.length) cleanup(temps.pop()!);
 });
 
-// The fixture's own set: three short queries, each a known top-1 hit.
+// The default set path. The tests write their own set there: three short
+// queries, each a known top-1 hit (the fixture's committed set is the
+// goldens' and quotes its own targets by design).
 const SET = "evals/retrieval.jsonl";
+const THREE = [
+  { id: "telescope-setup", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
+  { id: "knee-injury", q: "knee injury", class: "exact", expected: ["health/knee-injury.md"] },
+  { id: "sleep-tracking", q: "sleep tracking", class: "exact", expected: ["health/sleep-tracking.md"] },
+];
 
 function note(body: string): string {
   return `---\ntitle: Eval notes\ntype: note\ncreated: 2026-07-01\nupdated: 2026-07-01\n---\n\n${body}\n`;
@@ -26,6 +33,7 @@ function note(body: string): string {
 async function brainWith(files: Record<string, string>): Promise<string> {
   const root = makeTempBrain();
   temps.push(root);
+  writeFileSync(join(root, SET), THREE.map((q) => JSON.stringify(q)).join("\n"));
   for (const [rel, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, rel)), { recursive: true });
     writeFileSync(join(root, rel), content);
@@ -41,7 +49,7 @@ async function evalRun(root: string, ...flags: string[]) {
 
 const QUOTING = note("Queries I test search with:\n\n- Telescope  setup\n- knee injury\n- SLEEP tracking\n");
 
-test("the fixture set scores with no contamination warning", async () => {
+test("the three-query set scores with no contamination warning", async () => {
   const { code, out } = await evalRun(await brainWith({}));
   expect(code).toBe(0);
   expect(out.per_query).toHaveLength(3);

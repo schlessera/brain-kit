@@ -6,7 +6,7 @@ park ranger who tracks personal **health**, **woodworking projects**, and evenin
 tests don't accidentally encode the maintainer's real domains.
 
 This corpus is the shared substrate for the integration and contract test layers:
-index it into a temp DB, then run FTS-only golden queries and assert
+index it into a temp DB, then run the retrieval goldens (below) and assert
 the `--json` envelope shapes. All content is invented; no strings from any real
 brain appear here (enforced by the leakage grep in CI).
 
@@ -74,7 +74,7 @@ This is the contract: each scenario below is present at least once.
 
 | Edge case | Fixture |
 |-----------|---------|
-| `aliases` array | `studies/telescope-setup.md` (`["my scope", "the Dobsonian"]`) |
+| `aliases` array | `studies/telescope-setup.md` (`["my scope", "the Dobsonian", "the lightbucket"]`; the last appears nowhere else in the corpus) |
 | `deadline` field | `projects/active/bookshelf/status.md` (`2026-08-15`) |
 | `next_review` field | `context/current-focus.md`, `context/reading-list.md` |
 | Unicode title (emoji + umlauts) | `studies/astronomy/messier-catalog.md` (`🔭 Messier-Katalog — Deep-Sky Übersicht`) |
@@ -124,11 +124,46 @@ All three are valid enough for extension-based type detection (`file(1)` identif
 them correctly). Regenerate with the scripts under the session scratchpad if needed;
 they are tiny and deterministic.
 
+## Retrieval goldens (`corpus/evals/`)
+
+`evals/retrieval.jsonl` is a `brain eval` query set over this corpus, pinned to
+the reference date by its `{"now": "2026-07-12"}` header. It has at least one query per class:
+exact title, natural-language question, paraphrase (inflected words the
+stemmer has to join), alias (one of them, `lightbucket`, appears only in the
+page's `aliases`, so only alias indexing finds it), ambiguous filename (two `status.md`), time
+(a `deadline` and a `next_review` selector), stale-vs-current (`short-bio.md`
+against its source `FACTS.md`), no-answer, multi-hop (`current-focus.md` links
+to the answer), non-English (the Messier page's German title) and recency
+(a fast-decaying `context` note whose rank moves with the date).
+
+`evals/expected-ranks.json` records, per query, the rank of its expected path
+from `brain eval --mode fts --rerank heuristic`, plus `current_first` for
+stale-vs-current, and for a no-answer query (rank null by definition) the top
+paths it gets instead. The reranker is named on the command line so an
+ambient `BRAIN_RERANK_MODE` cannot change what a run or a regeneration sees.
+`packages/core/tests/eval-corpus.test.ts` asserts every rank. A change to
+ranking therefore fails the suite until the file is rewritten, which puts the
+moved ranks in the PR's diff for review:
+
+```sh
+BRAIN_UPDATE_GOLDENS=1 bun run test packages/core/tests/eval-corpus.test.ts
+```
+
+The test prints a one-line score table (hit@1, MRR@10, hit@1 per class) that a
+ranking PR can paste before and after. A separate test in the same file drives
+the hybrid lane with hand-staged vectors, both directly and through
+`brain eval --mode hybrid` with a deterministic provider in the temp brain's
+config; it guards fusion mechanics only.
+
+**These goldens make regressions visible; they do not measure quality.** A
+25-document fixture says nothing about how well search serves a real brain.
+Measure that with `brain eval` on your own brain (see `docs/evaluating-search.md`).
+
 ## Full inventory
 
 29 files: 25 markdown + `brain.config.ts` + 3 binary assets. `evals/retrieval.jsonl`
-is a 30th file on disk, but `evals/` is excluded from the index by default, so
-nothing that counts corpus files counts it.
+and `evals/expected-ranks.json` are on disk too, but `evals/` is excluded from the
+index by default, so nothing that counts corpus files counts them.
 
 | Path | type | Roles |
 |------|------|-------|
