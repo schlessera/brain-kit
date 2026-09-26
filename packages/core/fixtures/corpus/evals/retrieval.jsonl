@@ -20,3 +20,6 @@
 {"id": "non-english-title", "q": "Deep-Sky Übersicht", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
 {"id": "non-english-word", "q": "Katalog", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
 {"id": "recency-rehab", "q": "knee rehab", "class": "recency", "expected": ["context/current-focus.md"]}
+{"id": "current-state-face-frame", "q": "walnut face frame joinery", "class": "current-state", "expected": ["projects/active/bookshelf/plan.md"]}
+{"id": "current-state-scope-case", "q": "telescope case dimensions", "class": "current-state", "expected": ["studies/telescope-setup.md"]}
+{"id": "current-state-rehab", "q": "range-of-motion progress", "class": "current-state", "expected": ["health/knee-injury.md"]}
