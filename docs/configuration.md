@@ -560,7 +560,10 @@ doctor`'s `tracked-media` check draws its line. See [media.md](media.md).
 | `ignore`          | `string[]` | `[]`             | Globs that are always `ARTIFACT`                                                 |
 
 `sync assess` applies `ignore`, then `track`, before any other class except
-`SENSITIVE`, which always comes first. A glob's `*` matches any run of
+`SENSITIVE`, which always comes first. Generated output that matches sync's
+own artifact patterns (logs, temp files, tool leftovers) stays `ARTIFACT`
+even over the size limit, because it is never committed. Office files,
+presentations included, are `MEDIA` or `LARGE`. A glob's `*` matches any run of
 characters, and a glob with no `/` also matches the file name alone.
 
 ```ts

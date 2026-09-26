@@ -8,7 +8,7 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
@@ -29,7 +29,9 @@ Mechanical verbs (structured output for the skill to drive):
 // The tool leftovers are shared with brain doctor and the template .gitignore.
 const ARTIFACT_PATTERNS = [
   ...TOOL_LEFTOVER_PATTERNS,
-  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log", "*.pptx",
+  // No office formats: a presentation is media, and the MEDIA/LARGE classes
+  // (with `media.ignore` for generated ones) decide it.
+  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log",
 ];
 const SENSITIVE_PATTERNS = [
   ".env", ".env.*", "credentials*", "*.key", "*.pem", "*.secret", "*_secret*", "*_token*",
@@ -129,13 +131,18 @@ interface AssessedFile {
   bytes?: number;
 }
 
-/** Size of `file` under `root`, or null when it is gone (a deletion) or not a regular file. */
-function sizeOf(root: string, file: string): number | null {
+/**
+ * Size of `file` under `root` as git would store it: a regular file's bytes,
+ * or null for a deletion or a symlink (git stores the link, not its target).
+ * "unreadable" when the size could not be read, which is never a reason to
+ * treat a file as small.
+ */
+function sizeOf(root: string, file: string): number | null | "unreadable" {
   try {
-    const stat = statSync(resolve(root, file));
+    const stat = lstatSync(resolve(root, file));
     return stat.isFile() ? stat.size : null;
-  } catch {
-    return null;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ENOENT" ? null : "unreadable";
   }
 }
 
@@ -145,9 +152,10 @@ function sizeOf(root: string, file: string): number | null {
  * - `media.ignore` → ARTIFACT, `media.track` → TRACK.
  * - ARTIFACT: tool leftovers and generated output.
  * - DERIVED: the sidecar caches.
- * - LARGE: anything over `media.maxTrackedBytes`.
+ * - LARGE: anything over `media.maxTrackedBytes`. An ARTIFACT or DERIVED
+ *   match wins over it: those are never committed, whatever their size.
  * - MEDIA: an image, PDF, audio, video or office file.
- * - TRACK: text, or UNKNOWN.
+ * - UNKNOWN when the size could not be read; otherwise TRACK for text, or UNKNOWN.
  */
 function assess(root: string, media: MediaPolicy): AssessedFile[] {
   const files: AssessedFile[] = [];
@@ -167,6 +175,7 @@ function assess(root: string, media: MediaPolicy): AssessedFile[] {
 
     let klass: AssessedFile["class"];
     let bytes: number | null = null;
+    let size: number | null | "unreadable" = null;
     const policy = mediaPolicyClass(file, media);
     if (matchesAnyPattern(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
     else if (policy) klass = policy;
@@ -174,7 +183,8 @@ function assess(root: string, media: MediaPolicy): AssessedFile[] {
     // Committed on purpose, but post-sync commits them after its reindex —
     // taking them here too would just commit a stale copy and duplicate work.
     else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
-    else if ((bytes = sizeOf(root, file)) !== null && bytes > media.maxTrackedBytes) klass = "LARGE";
+    else if ((size = sizeOf(root, file)) === "unreadable") klass = "UNKNOWN";
+    else if ((bytes = size) !== null && bytes > media.maxTrackedBytes) klass = "LARGE";
     else if (bytes !== null && isMediaPath(file)) klass = "MEDIA";
     else if (isTrackable(file)) klass = "TRACK";
     else klass = "UNKNOWN";

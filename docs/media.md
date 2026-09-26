@@ -36,10 +36,16 @@ A brain usually hits the pain well before those limits.
 
 - **`brain sync assess`** classes a new binary (an image, PDF, audio, video or
   office file) as `MEDIA`, and any file over the size limit as `LARGE`, each
-  with its size in bytes. The `/sync` skill asks you before committing either.
-  Nothing is committed silently.
+  with its size in bytes. A presentation (`.pptx`) is media like any other.
+  The `/sync` skill asks you before committing either. An unattended sync
+  leaves them untouched and lists them in its report. Nothing is committed
+  silently.
 - **`brain doctor`** has a `tracked-media` check. It lists the five largest
   binaries already tracked, and warns when any tracked file is over the limit.
+  It weighs the blobs in git's index, which is what a clone downloads, not
+  the copies in your working folder. A file in Git LFS counts as its small
+  pointer, and a symlink as the link. If git cannot read an object, the check
+  warns rather than passing on partial figures.
 - **The `media` block in `brain.config.ts`** sets the limit and your standing
   decisions, so the skill does not ask about the same files twice:
 

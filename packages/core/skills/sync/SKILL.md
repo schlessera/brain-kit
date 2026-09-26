@@ -20,13 +20,16 @@ post-sync reindex. Run all five phases in order and report progress at each boun
 A sync is frequently unattended: on a schedule, from a container, or through an agent runner with
 nobody watching. It must therefore complete on its own, and these rules override any default
 cautiousness. They hold in an interactive session too — every decision below has a defined
-conservative default, so there is nothing worth stopping to ask about.
+conservative default, so there is nothing worth stopping to ask about. **The one exception is
+a media decision** (a `MEDIA` or `LARGE` file in Phase 1): committing a binary is permanent in
+git's history, so it is never a default. Interactively, ask; unattended, leave it untouched
+and report it.
 
 - **Never stop to plan.** Do not enter a plan-and-approve mode, write a plan document, or present
   a plan and wait for a go. There may be nobody to approve it — a sync that ends with "awaiting
   approval" is a failed sync.
-- **Never ask questions.** No interactive prompts, no "should I…" in the output. Take the default,
-  and note what was decided in the final report.
+- **Never ask questions**, except the media decision above. No interactive prompts, no "should I…"
+  in the output. Take the default, and note what was decided in the final report.
 - **Resolve leftover repo state in place.** Stale unmerged index entries (UU without MERGE_HEAD),
   stale `AUTO_MERGE` refs, and autostash entries from interrupted pulls are part of the job:
   resolve conflicted files with the Phase 4 strategy table, then continue the phases.
@@ -36,8 +39,8 @@ conservative default, so there is nothing worth stopping to ask about.
 - **Conservative default everywhere:** when two resolution options exist, pick the one that keeps
   more content (union / keep-both over overwrite) and touches less state. Never delete, reset, or
   rewrite history to make a problem go away.
-- **Truly unresolvable items** (malformed stash entries, binary conflicts, files >100KB) are the
-  only allowed leftovers: leave them untouched, complete every other phase, and list them in the
+- **Truly unresolvable items** (malformed stash entries, binary conflicts, files >100KB) and
+  **media nobody has approved** are the only allowed leftovers: leave them untouched, complete every other phase, and list them in the
   final report. The only reasons to stop early are a blocked network (`fetch-failed`) and a merge
   git would not make (`merge-failed`, Phase 3).
 
@@ -58,11 +61,16 @@ Outputs `STATUS\tCLASS\tPATH` for every changed/untracked file. Handle each clas
   reindex immediately supersedes, and `pull` merges a local change to one itself.
 - **MEDIA** / **LARGE** — a binary (image, PDF, audio, video, office file) or any file over
   `media.maxTrackedBytes`, with its size in bytes as the fourth column. Git keeps every version
-  forever, so **ask the user before tracking it** and name the size. Offer three answers:
-  track it (small final media a note uses), ignore it (iterations, renders, exports — add a
-  `media.ignore` glob in `brain.config.ts` or a `.gitignore` line so the question does not come
-  back), or keep it with Git LFS (large masters that must travel with the brain). Never commit
-  one unasked. A `media.track` glob records a standing "track".
+  forever, so this is the one decision a sync does not take on its own. Never commit one
+  unasked.
+  - **Someone is there:** ask before tracking it, and name the size. Offer three answers:
+    track it (small final media a note uses), ignore it (iterations, renders, exports — add a
+    `media.ignore` glob in `brain.config.ts` or a `.gitignore` line so the question does not
+    come back), or keep it with Git LFS (large masters that must travel with the brain).
+  - **Unattended:** leave it untouched (not staged, not deleted, not ignored), finish every
+    other phase, and list it with its size in the final report as awaiting a decision.
+  - A `media.track` glob records a standing "track", and a `media.ignore` glob a standing
+    "ignore"; files they match never come back as MEDIA or LARGE.
 - **UNKNOWN** — read the file. Generated output / test fixture / temp data → treat as ARTIFACT;
   otherwise TRACK.
 

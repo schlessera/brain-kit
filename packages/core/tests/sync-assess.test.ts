@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, renameSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { makeTempBrain, cleanup, runCli } from "./cli-harness";
 
@@ -95,6 +95,33 @@ describe("sync exact paths", () => {
       // Matched by both: ignore wins.
       expect(files).toContainEqual({ path: "assets/iterations/logo.png", class: "ARTIFACT", status: "?" });
       expect(files).toContainEqual({ path: "assets/cover.png", class: "LARGE", status: "?", bytes: 2_000 });
+    });
+
+    // Review round 1: a presentation is media, not an artifact.
+    test("a small PPTX is MEDIA and an oversized one LARGE", async () => {
+      const files = await assessWith({ "talks/slides.pptx": 20_000, "talks/keynote.pptx": 6_000_000 });
+      expect(files).toContainEqual({ path: "talks/slides.pptx", class: "MEDIA", status: "?", bytes: 20_000 });
+      expect(files).toContainEqual({ path: "talks/keynote.pptx", class: "LARGE", status: "?", bytes: 6_000_000 });
+    });
+
+    test("a symlink is weighed as the link git stores, not its target", async () => {
+      const outside = makeTempBrain({ empty: true });
+      try {
+        writeFileSync(join(outside, "huge.png"), Buffer.alloc(6_000_000, 7));
+        const root = makeTempBrain();
+        try {
+          expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
+          symlinkSync(join(outside, "huge.png"), join(root, "linked.png"));
+          const result = await runCli(root, ["sync", "assess", "--json"]);
+          const files = JSON.parse(result.stdout).files as { path: string; class: string }[];
+          expect(files.find((f) => f.path === "linked.png")?.class).toBe("UNKNOWN");
+        } finally { cleanup(root); }
+      } finally { cleanup(outside); }
+    });
+
+    test("an artifact pattern wins over LARGE: a 6 MB log is still ARTIFACT", async () => {
+      const files = await assessWith({ "build.log": 6_000_000 });
+      expect(files).toContainEqual({ path: "build.log", class: "ARTIFACT", status: "?" });
     });
 
     test("a secret-shaped name stays SENSITIVE even when media.track matches it", async () => {
