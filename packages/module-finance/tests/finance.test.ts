@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -140,8 +140,12 @@ describe("the generated region (#403)", () => {
       expect(expected.length).toBeGreaterThan(0);
       expect(readGeneratedRegion(body, "finance")).toBe(expected);
 
-      // A second sync writes nothing.
+      // A second sync writes nothing: the file keeps its inode and its (aged) mtime.
+      utimesSync(path, new Date("2020-01-01T00:00:00Z"), new Date("2020-01-01T00:00:00Z"));
+      const before = statSync(path);
       expect(syncFiles(opts, AS_OF).files).toEqual([]);
+      const after = statSync(path);
+      expect({ ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({ ino: before.ino, mtimeMs: before.mtimeMs });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -20,7 +20,7 @@ import matter from "gray-matter";
 import { dirname, join, posix } from "path";
 import { z } from "zod";
 
-import { rewriteGeneratedRegion } from "./generated-regions.js";
+import { rewriteGeneratedRegion, splitFrontmatterBlock } from "./generated-regions.js";
 import { writeFileSafely } from "./safe-path.js";
 import { getMarkdownFiles } from "./indexer.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -43,6 +43,8 @@ export type RegistrySpec = z.infer<typeof registrySpecSchema>;
 /** One opted-in index, as `brain registry` and `brain audit` see it. */
 export interface RegistryIndex {
   path: string;
+  /** The file as it was read when the plan was made. */
+  raw: string;
   /** The file as it would be after regeneration; null when the region is current. */
   next: string | null;
 }
@@ -52,7 +54,15 @@ export interface RegistryProblem {
   error: string;
 }
 
-/** A frontmatter value as table text: dates as `YYYY-MM-DD`, lists joined, pipes and newlines made safe. */
+/**
+ * Text that goes into the region made inert: a pipe cannot end a cell, and an
+ * HTML comment opener cannot hide the rest of the table or pass for a marker.
+ */
+function inert(text: string): string {
+  return text.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").replace(/<!--/g, "&lt;!--");
+}
+
+/** A frontmatter value as table text: dates as `YYYY-MM-DD`, lists joined, made inert. */
 function cell(value: unknown): string {
   if (value === undefined || value === null || value === "") return "—";
   const text =
@@ -61,7 +71,7 @@ function cell(value: unknown): string {
       : Array.isArray(value)
         ? value.map((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v))).join(", ")
         : String(value);
-  return text.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+  return inert(text);
 }
 
 /** A value for comparison: the same text a cell shows, without the escaping. */
@@ -110,7 +120,7 @@ export function renderRegistry(spec: RegistrySpec, children: Child[], indexDir: 
 
   const table = (group: Child[]): string =>
     [
-      `| ${spec.columns.join(" | ")} |`,
+      `| ${spec.columns.map(inert).join(" | ")} |`,
       `| ${spec.columns.map(() => "---").join(" | ")} |`,
       ...group.map((child) => `| ${spec.columns.map((c) => cell(columnValue(child, c, indexDir))).join(" | ")} |`),
     ].join("\n");
@@ -127,17 +137,39 @@ export function renderRegistry(spec: RegistrySpec, children: Child[], indexDir: 
   }
   return [...groups.keys()]
     .sort()
-    .map((value) => `**${spec.split}: ${value.replace(/\|/g, "\\|")}**\n\n${table(groups.get(value)!)}`)
+    .map((value) => `**${inert(spec.split!)}: ${inert(value)}**\n\n${table(groups.get(value)!)}`)
     .join("\n\n");
 }
 
-function readFrontmatter(root: string, path: string): Record<string, unknown> {
-  return matter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
+/** A file as read for planning: its text and parsed frontmatter, or why it could not be read. */
+type Read = { raw: string; data: Record<string, unknown> } | { raw: string | null; error: string };
+
+function readFile(root: string, path: string): Read {
+  let raw: string;
+  try {
+    raw = readFileSync(join(root, path), "utf8");
+  } catch (error) {
+    return { raw: null, error: `unreadable: ${firstLine(error)}` };
+  }
+  try {
+    return { raw, data: matter(raw, {}).data as Record<string, unknown> };
+  } catch (error) {
+    return { raw, error: `frontmatter does not parse: ${firstLine(error)}` };
+  }
+}
+
+function firstLine(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).split("\n")[0];
 }
 
 /**
  * Every opted-in `_index.md` with what regenerating it would produce, and the
- * ones whose `registry:` block is invalid. Reads files only; writes nothing.
+ * ones that cannot be generated: an invalid `registry:` block, an index or a
+ * child that cannot be read or parsed, malformed region markers. Those are
+ * reported and left as they are, never regenerated from missing data. An
+ * `_index.md` whose frontmatter does not parse counts as opted in when it has
+ * a `registry:` line; one that cannot be read at all is always reported.
+ * Reads files only; writes nothing.
  */
 export function planRegistry(
   root: string,
@@ -147,23 +179,22 @@ export function planRegistry(
   const files = getMarkdownFiles(root, taxonomy);
   const indexes: RegistryIndex[] = [];
   const problems: RegistryProblem[] = [];
-  const frontmatter = new Map<string, Record<string, unknown>>();
-  const dataOf = (path: string) => {
-    let data = frontmatter.get(path);
-    if (!data) {
-      try {
-        data = readFrontmatter(root, path);
-      } catch {
-        data = {};
-      }
-      frontmatter.set(path, data);
-    }
-    return data;
+  const reads = new Map<string, Read>();
+  const readOf = (path: string) => {
+    let read = reads.get(path);
+    if (!read) reads.set(path, (read = readFile(root, path)));
+    return read;
   };
 
   for (const path of files) {
     if (posix.basename(path) !== "_index.md") continue;
-    const raw = dataOf(path).registry;
+    const index = readOf(path);
+    if ("error" in index) {
+      const optedIn = index.raw === null || /^registry\s*:/m.test(splitFrontmatterBlock(index.raw).frontmatter);
+      if (optedIn) problems.push({ path, error: index.error });
+      continue;
+    }
+    const raw = index.data.registry;
     if (raw === undefined) continue;
     const parsed = registrySpecSchema.safeParse(raw);
     if (!parsed.success) {
@@ -172,12 +203,24 @@ export function planRegistry(
     }
     const indexDir = dirname(path) === "." ? "" : dirname(path);
     const prefix = indexDir ? `${indexDir}/` : "";
-    const children = files
-      .filter((p) => p !== path && p.startsWith(prefix) && posix.basename(p) !== "_index.md")
-      .map((p) => ({ path: p, data: dataOf(p) }));
-    const content = renderRegistry(parsed.data, children, indexDir);
-    const fileText = readFileSync(join(root, path), "utf8");
-    indexes.push({ path, next: rewriteGeneratedRegion(fileText, REGISTRY_REGION, content, asOf) });
+    const children: Child[] = [];
+    const broken: string[] = [];
+    for (const p of files) {
+      if (p === path || !p.startsWith(prefix) || posix.basename(p) === "_index.md") continue;
+      const child = readOf(p);
+      if ("error" in child) broken.push(`${p}: ${child.error}`);
+      else children.push({ path: p, data: child.data });
+    }
+    if (broken.length > 0) {
+      problems.push({ path, error: `child ${broken.join("; child ")}` });
+      continue;
+    }
+    try {
+      const content = renderRegistry(parsed.data, children, indexDir);
+      indexes.push({ path, raw: index.raw, next: rewriteGeneratedRegion(index.raw, REGISTRY_REGION, content, asOf) });
+    } catch (error) {
+      problems.push({ path, error: firstLine(error) });
+    }
   }
   return { indexes, problems };
 }
@@ -187,9 +230,12 @@ export interface RegistryRun {
   indexes: number;
   /** Indexes rewritten this run (never under `check`). */
   written: string[];
-  /** Indexes whose region is out of date (under `check`: left as they are). */
+  /**
+   * Indexes whose region is out of date and were left as they are: every one
+   * under `check`, else one whose file changed between planning and writing.
+   */
   stale: string[];
-  /** Indexes whose `registry:` block is invalid; left untouched. */
+  /** Indexes that cannot be generated (see planRegistry); left untouched. */
   invalid: RegistryProblem[];
 }
 
@@ -199,16 +245,37 @@ export interface RegistryRun {
  * nothing is written and the out-of-date indexes are listed instead.
  */
 export function runRegistry(root: string, taxonomy: Taxonomy, opts: { check?: boolean; asOf: string }): RegistryRun {
-  const { indexes, problems } = planRegistry(root, taxonomy, opts.asOf);
+  return applyRegistry(root, planRegistry(root, taxonomy, opts.asOf), opts);
+}
+
+/** Carry out a plan: write each index whose region changed, unless `check` or its file changed since. */
+export function applyRegistry(
+  root: string,
+  { indexes, problems }: ReturnType<typeof planRegistry>,
+  opts: { check?: boolean }
+): RegistryRun {
   const run: RegistryRun = { indexes: indexes.length + problems.length, written: [], stale: [], invalid: problems };
   for (const index of indexes) {
     if (index.next === null) continue;
     if (opts.check) {
       run.stale.push(index.path);
-    } else {
-      writeFileSafely(join(root, index.path), index.next);
-      run.written.push(index.path);
+      continue;
     }
+    // Planning read the file a moment ago; an edit since then (an editor
+    // saving the prose) must not be overwritten by that snapshot. Such a file
+    // is left for the next run and listed as stale.
+    let now: string | null;
+    try {
+      now = readFileSync(join(root, index.path), "utf8");
+    } catch {
+      now = null;
+    }
+    if (now !== index.raw) {
+      run.stale.push(index.path);
+      continue;
+    }
+    writeFileSafely(join(root, index.path), index.next);
+    run.written.push(index.path);
   }
   return run;
 }
