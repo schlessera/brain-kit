@@ -45,6 +45,8 @@ const CLASSES = [
   "multi-hop",
   "non-english",
   "recency",
+  // #419: the answer is one link away from the current-focus document.
+  "current-state",
 ];
 
 /**

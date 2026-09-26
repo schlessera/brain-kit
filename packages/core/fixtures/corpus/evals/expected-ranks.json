@@ -66,5 +66,14 @@
   },
   "recency-rehab": {
     "rank": 3
+  },
+  "current-state-face-frame": {
+    "rank": 1
+  },
+  "current-state-scope-case": {
+    "rank": 2
+  },
+  "current-state-rehab": {
+    "rank": 1
   }
 }

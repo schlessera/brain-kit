@@ -21,6 +21,7 @@ somebody already learn the hard way?*
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
 | [claude-code-runtime.md](claude-code-runtime.md) | Which Claude Code binary the Claude backend runs (the one the Agent SDK ships, pinned by the lockfile), why the server records the version that ran, and how the behaviours measured against one version are re-checked when it moves. |
+| [graph-ranking-signal.md](graph-ranking-signal.md) | Why the link graph does not move search results: a boost on the current-focus document's neighbours, measured on the keyless goldens, rewards structural hubs and leaves the class it was meant for unchanged. |
 | [contract-versioning.md](contract-versioning.md) | How a change to the integration contract is versioned before 1.0: additive ships in a minor, breaking needs a ruling first. |
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
 
