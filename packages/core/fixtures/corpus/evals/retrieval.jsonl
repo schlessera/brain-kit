@@ -7,6 +7,7 @@
 {"id": "paraphrase-blanks", "q": "cedar blank", "class": "paraphrase", "expected": ["projects/active/trail-signage/materials.md"]}
 {"id": "alias-dobsonian", "q": "the Dobsonian", "class": "alias", "expected": ["studies/telescope-setup.md"]}
 {"id": "alias-scope", "q": "my scope", "class": "alias", "expected": ["studies/telescope-setup.md"]}
+{"id": "alias-only", "q": "lightbucket", "class": "alias", "expected": ["studies/telescope-setup.md"]}
 {"id": "filename-bookshelf", "q": "bookshelf status", "class": "ambiguous-filename", "expected": ["projects/active/bookshelf/status.md"]}
 {"id": "filename-signage", "q": "trail signage status", "class": "ambiguous-filename", "expected": ["projects/active/trail-signage/status.md"]}
 {"id": "time-due-next", "q": "what is due next", "class": "time", "expect": {"select": {"field": "deadline", "after": "now", "order": "asc", "take": 1}}}

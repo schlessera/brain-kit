@@ -23,6 +23,9 @@
   "alias-scope": {
     "rank": 1
   },
+  "alias-only": {
+    "rank": 1
+  },
   "filename-bookshelf": {
     "rank": 1
   },

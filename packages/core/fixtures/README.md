@@ -74,7 +74,7 @@ This is the contract: each scenario below is present at least once.
 
 | Edge case | Fixture |
 |-----------|---------|
-| `aliases` array | `studies/telescope-setup.md` (`["my scope", "the Dobsonian"]`) |
+| `aliases` array | `studies/telescope-setup.md` (`["my scope", "the Dobsonian", "the lightbucket"]`; the last appears nowhere else in the corpus) |
 | `deadline` field | `projects/active/bookshelf/status.md` (`2026-08-15`) |
 | `next_review` field | `context/current-focus.md`, `context/reading-list.md` |
 | Unicode title (emoji + umlauts) | `studies/astronomy/messier-catalog.md` (`🔭 Messier-Katalog — Deep-Sky Übersicht`) |
@@ -129,7 +129,8 @@ they are tiny and deterministic.
 `evals/retrieval.jsonl` is a `brain eval` query set over this corpus, pinned to
 the reference date by its `{"now": "2026-07-12"}` header. It has at least one query per class:
 exact title, natural-language question, paraphrase (inflected words the
-stemmer has to join), alias, ambiguous filename (two `status.md`), time
+stemmer has to join), alias (one of them, `lightbucket`, appears only in the
+page's `aliases`, so only alias indexing finds it), ambiguous filename (two `status.md`), time
 (a `deadline` and a `next_review` selector), stale-vs-current (`short-bio.md`
 against its source `FACTS.md`), no-answer, multi-hop (`current-focus.md` links
 to the answer), non-English (the Messier page's German title) and recency

@@ -7,7 +7,7 @@ tags: [study, astronomy, telescope, collimation]
 status: active
 relevance: primary
 summary: "Setup, collimation, and transport notes for the Dobsonian — the reference I keep reopening"
-aliases: ["my scope", "the Dobsonian"]
+aliases: ["my scope", "the Dobsonian", "the lightbucket"]
 ---
 
 ## The scope
