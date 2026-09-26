@@ -16,11 +16,17 @@
 
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, posix, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
+import matter from "gray-matter";
+import { join, posix, resolve } from "path";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { auditWithModules, isoDay, loadAuditDocs, type AuditDoc } from "./auditor.js";
+import { topLevelBlocks } from "./document-parts.js";
 import type { LoadedModule } from "./module-types.js";
+import { writeFileSafely } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
 import type { AuditIssue } from "./types.js";
 
@@ -43,6 +49,8 @@ export interface HygieneEntry {
   id: string;
   state: HygieneState;
   lines: string[];
+  /** The `## ` heading the entry sat under, or null. */
+  section: string | null;
 }
 
 export interface ReconcileResult {
@@ -55,6 +63,10 @@ export interface ReconcileResult {
   changedFiles: string[];
   /** Every issue detected this run, with its ID, for the skill's auto-fix decisions. */
   detected: Array<{ id: string; category: string; path: string; message: string }>;
+  /** Auto-fixes the skill reported (`--fixed`), recorded in last-run.md. */
+  autoFixed: number;
+  /** Modules whose hygiene check threw; entries they may own were left as they were. */
+  failedChecks: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -89,29 +101,46 @@ export function hygieneId(category: string, path: string, evidence: string): str
 // ---------------------------------------------------------------------------
 
 /**
- * An audit issue as a candidate. Each documented category has its evidence
- * rule; any other category (module checks, and core checks the skill did not
- * name) uses the whole message, which is stable while the document is.
+ * An audit issue as a candidate. Every core category has an evidence rule
+ * that leaves out what changes while the issue stays the same (ages, counts,
+ * today's date, line numbers), so the ID holds from one run to the next. A
+ * module's categories use the whole message, which is stable while the
+ * document is.
  */
 export function candidateFromAudit(issue: AuditIssue, docs: Map<string, AuditDoc>): HygieneCandidate {
   const base = { category: issue.category, path: issue.path, message: issue.message };
+  const from = (pattern: RegExp) => pattern.exec(issue.message)?.slice(1).join("") ?? issue.message;
   switch (issue.category) {
     case "staleness":
-      // The type whose staleness threshold applies; the age in the message
-      // changes every day and must not move the ID.
+      // The type whose staleness threshold applies.
       return { ...base, evidence: docs.get(issue.path)?.type ?? "" };
     case "propagation":
     case "orphan":
     case "index-lag":
+    case "stale-draft":
       return { ...base, evidence: issue.path };
+    case "review-overdue":
+    case "tag-noise":
+      // One per document (review-overdue) or per corpus (tag-noise).
+      return { ...base, evidence: "" };
     case "todo":
     case "verify":
-      return { ...base, evidence: /\[(?:TODO|VERIFY):[^\]]*\]/.exec(issue.message)?.[0] ?? issue.message };
+      return { ...base, evidence: from(/(\[(?:TODO|VERIFY):[^\]]*\])/) };
     case "type-mismatch":
-      return { ...base, evidence: /^Document type "([^"]*)"/.exec(issue.message)?.[1] ?? issue.message };
-    case "tag-noise":
-      // One corpus-wide issue; its counts move with every tag.
-      return { ...base, evidence: "" };
+      return { ...base, evidence: from(/^Document type "([^"]*)"/) };
+    case "budget":
+      return { ...base, evidence: from(/canonical "([^"]*)"/) };
+    case "past-date":
+      // The date and the line's text, not its number or today.
+      return { ...base, evidence: from(/names (\d{4}-\d{2}-\d{2}), before today \([^)]*\)(: [\s\S]*)$/) };
+    case "fact-drift":
+      // `{key}={found}`: the same wrong value keeps its ID, another one gets a new one.
+      return { ...base, evidence: /^([^:]*): found ([\s\S]*), canonical [\s\S]*$/.exec(issue.message)?.slice(1).join("=") ?? issue.message };
+    case "repeated-text":
+      // The paragraph, not how many documents carry it.
+      return { ...base, evidence: from(/: "([\s\S]*)"$/) };
+    case "module-hygiene":
+      return { ...base, evidence: from(/module "([^"]*)"/) };
     default:
       return { ...base, evidence: issue.message };
   }
@@ -150,10 +179,43 @@ export function silentEdits(db: Database): HygieneCandidate[] {
   return out;
 }
 
-/** The cells of a markdown table row, outer pipes dropped. Escaped pipes stay in their cell. */
-function cells(line: string): string[] {
-  const inner = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return inner.split(/(?<!\\)\|/).map((c) => c.trim());
+/*
+ * The slice of mdast the table pass reads, typed structurally (see
+ * document-parts.ts for why not through `@types/mdast`).
+ */
+interface MdNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MdNode[];
+}
+
+const markdown = unified().use(remarkParse).use(remarkGfm);
+
+/**
+ * Every GFM table in `content`, as rows of raw cell source (trimmed, `\|`
+ * unescaped). GFM splits a cell at any unescaped pipe, a wiki-link's
+ * `[[target|label]]` included, so those pipes are escaped before parsing and
+ * the link reads back whole.
+ */
+function tables(content: string): string[][][] {
+  const source = content.replace(/\[\[[^\]\n]*\]\]/g, (link) => link.replace(/(?<!\\)\|/g, "\\|"));
+  const cellText = (cell: MdNode) => {
+    const kids = cell.children ?? [];
+    const start = kids[0]?.position?.start.offset;
+    const end = kids[kids.length - 1]?.position?.end.offset;
+    if (start === undefined || end === undefined) return "";
+    return source.slice(start, end).trim().replace(/\\\|/g, "|");
+  };
+  const out: string[][][] = [];
+  const walk = (node: MdNode) => {
+    if (node.type === "table") {
+      out.push((node.children ?? []).map((row) => (row.children ?? []).map(cellText)));
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(markdown.parse(source) as MdNode);
+  return out;
 }
 
 /** Plain text of a cell for header matching: markup, links and case gone. */
@@ -223,15 +285,12 @@ export function indexTableLag(docs: AuditDoc[]): HygieneCandidate[] {
     if (index.type !== "index" && !index.path.endsWith("_index.md")) continue;
     if (index.status === "archived") continue;
     const indexDir = posix.dirname(index.path);
-    const lines = index.content.split(/\r?\n/);
-    for (let i = 0; i + 1 < lines.length; i++) {
-      if (!lines[i].trim().startsWith("|") || !/^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) continue;
-      const header = cells(lines[i]).map(plain);
+    for (const [headerRow, ...rows] of tables(index.content)) {
+      const header = (headerRow ?? []).map(plain);
       const updatedCol = header.findIndex((h) => h.includes("updated"));
       const statusCol = header.findIndex((h) => h.includes("status"));
       if (updatedCol === -1) continue;
-      for (let j = i + 2; j < lines.length && lines[j].trim().startsWith("|"); j++) {
-        const row = cells(lines[j]);
+      for (const row of rows) {
         const rowUpdated = dayIn(row[updatedCol] ?? "");
         const detail = linkedDetail(row, indexDir === "." ? "" : indexDir, byPath);
         if (!detail || !rowUpdated || !(detail.updated > rowUpdated)) continue;
@@ -252,62 +311,163 @@ export function indexTableLag(docs: AuditDoc[]): HygieneCandidate[] {
   return out;
 }
 
-/** Every candidate the CLI detects, deduplicated by ID, the log's own files left out. */
+/** What the CLI detected, and which module checks did not run. */
+export interface Detection {
+  candidates: HygieneCandidate[];
+  /** Modules whose hygiene check threw, by name. */
+  failedChecks: string[];
+}
+
+/** Every candidate the CLI detects, the log's own files left out, and the module checks that failed. */
 export async function detectCandidates(
   db: Database,
   brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
   now: Date
-): Promise<HygieneCandidate[]> {
+): Promise<Detection> {
   const inLog = (path: string) => path.startsWith(`${HYGIENE_DIR}/`);
   const docs = loadAuditDocs(db).filter((d) => !inLog(d.path));
   const byPath = new Map(docs.map((d) => [d.path, d]));
   const table = indexTableLag(docs);
   // A row-level finding is more specific than audit's whole-file index-lag.
   const tableIndexes = new Set(table.map((c) => c.path));
+  const failed = new Set<string>();
   // The log is left out of detection, so writing it cannot change the next run.
-  const audited = (await auditWithModules(db, brain, { now, exclude: inLog }))
+  const audited = (await auditWithModules(db, brain, { now, exclude: inLog, onCheckFailed: (name) => failed.add(name) }))
     .filter((issue) => !(issue.category === "index-lag" && tableIndexes.has(issue.path)))
     .map((issue) => candidateFromAudit(issue, byPath));
-  return [...audited, ...silentEdits(db).filter((c) => !inLog(c.path)), ...table];
+  return {
+    candidates: [...audited, ...silentEdits(db).filter((c) => !inLog(c.path)), ...table],
+    failedChecks: [...failed].sort(),
+  };
 }
 
 // ---------------------------------------------------------------------------
 // The log's files
 // ---------------------------------------------------------------------------
 
-export interface HygieneFile {
+/** A log file `brain hygiene` will not rewrite, or one that changed under it. */
+export class HygieneLogError extends Error {}
+
+/** An entry heading: `### ` and one token ending in the ID's `-hash4`. */
+const ENTRY_HEADING = /^### +(\S+-[0-9a-f]{4})[ \t]*\r?$/;
+const FRONTMATTER = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+
+/** A `## ` section of a log file, or (heading null) the text before the first one. */
+interface Segment {
+  heading: string | null;
+  /** The segment's source, heading included. */
+  text: string;
+  /** The text between the heading and the first entry (all of it when there is none). */
+  intro: string;
+  entries: HygieneEntry[];
+  /** Rebuilt by the tool; everything else is kept byte for byte. */
+  owned: boolean;
+}
+
+interface LogFile {
   /** The frontmatter block with its fences, or "" when the file has none. */
   frontmatter: string;
-  /** Everything before the first entry, as written. */
-  preamble: string;
+  body: string;
+  segments: Segment[];
   entries: HygieneEntry[];
 }
 
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+/**
+ * The frontmatter and body of a log file. A file that opens a frontmatter
+ * block it does not close, or whose block is not a YAML mapping, is refused:
+ * rewriting it would mean guessing where the frontmatter ends.
+ */
+function splitFrontmatter(text: string, rel: string): { frontmatter: string; body: string } {
+  if (!/^---[ \t]*\r?\n/.test(text)) return { frontmatter: "", body: text };
+  const frontmatter = FRONTMATTER.exec(text)?.[0];
+  if (!frontmatter) throw new HygieneLogError(`${rel}: the frontmatter is never closed with ---; fix it by hand, brain hygiene will not rewrite it`);
+  let data: unknown;
+  try {
+    // With options, gray-matter skips its cache, which would hand back a failed parse as a success.
+    data = matter(frontmatter, {}).data;
+  } catch (e) {
+    throw new HygieneLogError(`${rel}: the frontmatter is not valid YAML (${(e as Error).message.split("\n")[0]}); fix it by hand, brain hygiene will not rewrite it`);
+  }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    throw new HygieneLogError(`${rel}: the frontmatter is not a YAML mapping; fix it by hand, brain hygiene will not rewrite it`);
+  }
+  return { frontmatter, body: text.slice(frontmatter.length) };
+}
 
-/** Split a hygiene file into frontmatter, preamble and its `### id` entries. */
-export function parseHygieneFile(text: string, state: HygieneState): HygieneFile {
-  const frontmatter = FRONTMATTER.exec(text)?.[0] ?? "";
-  const lines = text.slice(frontmatter.length).split("\n");
-  const preamble: string[] = [];
-  const entries: HygieneEntry[] = [];
-  let current: HygieneEntry | null = null;
-  for (const line of lines) {
-    const heading = /^### +(\S+)\s*$/.exec(line);
-    if (heading) {
-      current = { id: heading[1], state, lines: [] };
-      entries.push(current);
+/** A heading block's text: its first line without the `#` markers. */
+function headingText(line: string): string {
+  return line.replace(/^ {0,3}#{1,6}[ \t]*/, "").replace(/[ \t]+#+[ \t]*$/, "").trim();
+}
+
+/**
+ * Split a log file into its `## ` sections, as GFM parses them (a heading in a
+ * code block is not one). With `state`, each section's `### id` entries are
+ * read: an entry runs to the next entry or section heading, and keeps
+ * whatever a person wrote under it. A section is owned, and rebuilt on
+ * write, when `owns` accepts its heading or it holds entries; any other
+ * section is kept as written. A section with an unknown heading that holds
+ * both entries and other text is refused, since rebuilding it would lose one
+ * or the other.
+ */
+function parseLogFile(text: string, rel: string, state: HygieneState | null, owns: (heading: string) => boolean): LogFile {
+  const { frontmatter, body } = splitFrontmatter(text, rel);
+  const lineEnd = (start: number) => {
+    const nl = body.indexOf("\n", start);
+    return nl === -1 ? body.length : nl;
+  };
+  const headings = topLevelBlocks(body).filter((b) => b.type === "heading");
+  const sections = headings.filter((h) => (h.depth ?? 1) <= 2);
+  const entryStarts = state === null ? [] : headings.filter((h) => h.depth === 3 && ENTRY_HEADING.test(body.slice(h.start, lineEnd(h.start)))).map((h) => h.start);
+
+  const bounds = [...new Set([0, ...sections.map((h) => h.start)])].sort((a, b) => a - b);
+  const segments: Segment[] = [];
+  bounds.forEach((start, i) => {
+    const end = bounds[i + 1] ?? body.length;
+    const head = sections.find((h) => h.start === start);
+    const heading = head ? headingText(body.slice(start, lineEnd(start))) : null;
+    const contentStart = head ? Math.min(end, lineEnd(head.end > start ? head.end - 1 : start) + 1) : start;
+    const starts = entryStarts.filter((s) => s >= contentStart && s < end);
+    const entries = starts.map((s, j): HygieneEntry => {
+      const lines = body.slice(Math.min(lineEnd(s) + 1, end), starts[j + 1] ?? end).split("\n");
+      while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+      return { id: ENTRY_HEADING.exec(body.slice(s, lineEnd(s)))![1], state: state!, lines, section: heading };
+    });
+    const intro = body.slice(contentStart, starts[0] ?? end);
+    const owned = heading !== null && (owns(heading) || entries.length > 0);
+    if (heading !== null && !owns(heading) && entries.length > 0 && intro.trim() !== "") {
+      throw new HygieneLogError(
+        `${rel}: the section "## ${heading}" holds entries and other text; move the text to its own section or the entries under a log heading`
+      );
+    }
+    segments.push({ heading, text: body.slice(start, end), intro, entries, owned });
+  });
+  return { frontmatter, body, segments, entries: segments.flatMap((s) => s.entries) };
+}
+
+/**
+ * The body with the owned sections replaced by `block`, placed where the
+ * first of them was (at the end when there is none). Every other byte stays.
+ */
+function renderLogFile(file: LogFile, block: string): string {
+  const pieces: Array<string | null> = [];
+  let placed = false;
+  for (const segment of file.segments) {
+    if (!segment.owned && segment.entries.length === 0) {
+      pieces.push(segment.text);
       continue;
     }
-    // A section heading ends the entry above it.
-    if (line.startsWith("## ")) current = null;
-    if (current) current.lines.push(line);
-    else if (entries.length === 0) preamble.push(line);
+    // Entries before any heading: the text above them stays.
+    if (segment.heading === null) pieces.push(segment.intro);
+    if (!placed) pieces.push(null);
+    placed = true;
   }
-  for (const entry of entries) {
-    while (entry.lines.length > 0 && entry.lines[entry.lines.length - 1].trim() === "") entry.lines.pop();
-  }
-  return { frontmatter, preamble: preamble.join("\n"), entries };
+  let out = "";
+  pieces.forEach((piece, i) => {
+    if (piece !== null) out += piece;
+    else if (block) out += pieces.slice(i + 1).some((p) => p) ? `${block}\n` : block;
+  });
+  if (!placed && block) out = `${out.replace(/\s*$/, "")}\n\n${block}`;
+  return out;
 }
 
 /** A `key: value` field of an entry, however it is bolded or backticked. */
@@ -347,6 +507,35 @@ const SECTIONS: Array<[string, string]> = [
   ["type-mismatch", "Type/directory mismatches"],
 ];
 const SECTION_HEADINGS = new Set(SECTIONS.map(([, heading]) => heading));
+const isOpenSection = (heading: string) => SECTION_HEADINGS.has(heading) || heading.startsWith("Other: ");
+const sectionFor = (category: string) => SECTIONS.find(([c]) => c === category)?.[1] ?? `Other: ${category}`;
+
+/**
+ * The categories whose detection this command runs itself (core's audit
+ * checks, silent edits, the table pass) or that the skill hands in whole
+ * (`conflict`). When a module check fails, an entry outside these may be
+ * that module's, and is left as it is. An ID is matched by its category
+ * prefix, so a module category that starts with one of these reads as core.
+ */
+const COMPLETE_CATEGORIES = [
+  "budget",
+  "conflict",
+  "fact-drift",
+  "index-lag",
+  "module-hygiene",
+  "orphan",
+  "past-date",
+  "propagation",
+  "repeated-text",
+  "review-overdue",
+  "silent-edit",
+  "stale-draft",
+  "staleness",
+  "tag-noise",
+  "todo",
+  "type-mismatch",
+  "verify",
+];
 
 /** The generated lines of an open entry, fresh from its detection. */
 function detectionLines(candidate: HygieneCandidate, updated: string | undefined, firstSeen: string, lastSeen: string): string[] {
@@ -368,42 +557,39 @@ function renderEntries(entries: HygieneEntry[]): string {
   return entries.map((e) => [`### ${e.id}`, ...e.lines].join("\n")).join("\n\n");
 }
 
-/** The preamble with trailing blank lines and a trailing "(empty)" placeholder dropped. */
-function trimPreamble(preamble: string): string {
-  const lines = preamble.split("\n");
-  while (lines.length > 0 && (lines[lines.length - 1].trim() === "" || lines[lines.length - 1].trim() === "(empty)")) {
-    lines.pop();
-  }
-  return lines.join("\n");
+/** A section's intro as kept: trimmed, the template's "(empty)" placeholder dropped. */
+function introOf(file: LogFile, heading: string): string {
+  const intro = file.segments.find((s) => s.heading === heading)?.intro.trim() ?? "";
+  return intro === "(empty)" ? "" : intro;
 }
 
-function renderOpen(preamble: string, entries: HygieneEntry[], categoryOf: Map<string, string>): string {
-  // Keep the text before the first category section; the sections are rebuilt.
-  const head: string[] = [];
-  for (const line of preamble.split("\n")) {
-    const heading = /^## +(.*?)\s*$/.exec(line)?.[1];
-    if (heading && (SECTION_HEADINGS.has(heading) || heading.startsWith("Other: "))) break;
-    head.push(line);
-  }
+/** open.md's owned block: one section per category that has entries or an intro, in the template's order. */
+function openBlock(file: LogFile, entries: HygieneEntry[], headingOf: (entry: HygieneEntry) => string): string {
   const bySection = new Map<string, HygieneEntry[]>();
   for (const entry of entries) {
-    const category = categoryOf.get(entry.id) ?? "";
-    const heading = SECTIONS.find(([c]) => c === category)?.[1] ?? `Other: ${category || "uncategorised"}`;
+    const heading = headingOf(entry);
     bySection.set(heading, [...(bySection.get(heading) ?? []), entry]);
   }
+  for (const segment of file.segments) {
+    if (segment.heading !== null && isOpenSection(segment.heading) && introOf(file, segment.heading) && !bySection.has(segment.heading)) {
+      bySection.set(segment.heading, []);
+    }
+  }
   const order = [...SECTIONS.map(([, h]) => h), ...[...bySection.keys()].filter((h) => !SECTION_HEADINGS.has(h)).sort()];
-  const parts = [trimPreamble(head.join("\n"))];
+  const parts: string[] = [];
   for (const heading of order) {
     const group = bySection.get(heading);
-    if (group && group.length > 0) parts.push(`## ${heading}\n\n${renderEntries(group)}`);
+    if (!group) continue;
+    const intro = introOf(file, heading);
+    parts.push([`## ${heading}`, intro, renderEntries(group)].filter(Boolean).join("\n\n"));
   }
-  return `${parts.filter(Boolean).join("\n\n")}\n`;
+  return parts.length > 0 ? `${parts.join("\n\n")}\n` : "";
 }
 
-function renderList(preamble: string, entries: HygieneEntry[]): string {
-  const head = trimPreamble(preamble);
-  const body = entries.length > 0 ? renderEntries(entries) : "(empty)";
-  return `${head ? `${head}\n\n` : ""}${body}\n`;
+/** snoozed.md's or resolved.md's owned block: its one section. */
+function listBlock(file: LogFile, heading: string, entries: HygieneEntry[]): string {
+  const intro = introOf(file, heading);
+  return `${[`## ${heading}`, intro, entries.length > 0 ? renderEntries(entries) : "(empty)"].filter(Boolean).join("\n\n")}\n`;
 }
 
 /** Set `updated:` in a frontmatter block to `today`, touching nothing else. */
@@ -416,11 +602,11 @@ function template(name: string, today: string, timestamp: string): string {
   return readFileSync(resolve(TEMPLATES_DIR, name), "utf-8").replaceAll("<TODAY>", today).replaceAll("<TIMESTAMP>", timestamp);
 }
 
-/** A file's frontmatter and body, from disk or from its template when missing. */
-function load(root: string, name: string, today: string, timestamp: string): { exists: boolean; text: string } {
+/** A log file's text on disk (null when missing), and the text to start from: the file, or its template. */
+function load(root: string, name: string, today: string, timestamp: string): { disk: string | null; text: string } {
   const path = resolve(root, HYGIENE_DIR, name);
-  if (existsSync(path)) return { exists: true, text: readFileSync(path, "utf-8") };
-  return { exists: false, text: template(name, today, timestamp) };
+  const disk = existsSync(path) ? readFileSync(path, "utf-8") : null;
+  return { disk, text: disk ?? template(name, today, timestamp) };
 }
 
 // ---------------------------------------------------------------------------
@@ -430,11 +616,28 @@ function load(root: string, name: string, today: string, timestamp: string): { e
 /** resolved.md keeps this many entries, dropping the oldest by `resolved-on`. */
 const RESOLVED_CAP = 200;
 
+/** An auto-fix the skill applied, for last-run.md. */
+export interface HygieneFix {
+  path: string;
+  fix: string;
+}
+
 export interface ReconcileOptions {
   now: Date;
   dryRun?: boolean;
   /** Findings the skill made itself (canonical conflicts), as candidates. */
   extra?: HygieneCandidate[];
+  /** Auto-fixes the skill applied this run; they go into last-run.md. */
+  fixed?: HygieneFix[];
+  /** Modules whose hygiene check threw (`detectCandidates`). */
+  failedChecks?: string[];
+  /** Writes one file; the default replaces it atomically. Tests inject failures here. */
+  write?: (path: string, text: string) => void;
+}
+
+/** Write through a temporary sibling and a rename, so a file is either old or new, never partial. */
+function atomicWrite(path: string, text: string): void {
+  writeFileSafely(path, text);
 }
 
 /**
@@ -451,10 +654,19 @@ export interface ReconcileOptions {
  * | resolved | yes | re-open (reopened: today, was resolved-by: prev) |
  * | resolved | no | leave resolved |
  *
- * A snoozed entry with no readable `until:` stays snoozed. Files are written
- * only when their body changes (then with `updated` set to today), and
- * last-run.md only when an entry changed state, so a run that changes
- * nothing leaves every file as it was.
+ * A snoozed entry with no readable `until:` stays snoozed. When a module check
+ * failed, an entry that may be that module's is not resolved: "not detected"
+ * means nothing when the detector did not run.
+ *
+ * Every log file is read and parsed before anything is written, and one that
+ * cannot be parsed safely stops the run. Files are written only when their
+ * body changes (then with `updated` set to today), and last-run.md only when
+ * an entry changed state or the skill reports fixes, so a run that changes
+ * nothing leaves every file as it was. Each file is replaced atomically, and a
+ * move between files is written in two passes: first every file with its
+ * arrivals added and nothing taken away, then the final contents. A run that
+ * stops part-way leaves an entry in two files, never in none, and the next
+ * run keeps one copy (snoozed, then resolved, then open).
  */
 export function reconcile(
   root: string,
@@ -464,6 +676,8 @@ export function reconcile(
 ): ReconcileResult {
   const today = isoDay(opts.now.getTime());
   const timestamp = opts.now.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const fixed = opts.fixed ?? [];
+  const failedChecks = [...(opts.failedChecks ?? [])].sort();
 
   // Detected issues by ID; the first candidate for an ID wins.
   const detected = new Map<string, HygieneCandidate>();
@@ -473,16 +687,21 @@ export function reconcile(
     if (!detected.has(id)) detected.set(id, c);
   }
 
-  const files = {
+  const rel = (name: string) => `${HYGIENE_DIR}/${name}`;
+  const loaded = {
     open: load(root, "open.md", today, timestamp),
     snoozed: load(root, "snoozed.md", today, timestamp),
     resolved: load(root, "resolved.md", today, timestamp),
+    index: load(root, "_index.md", today, timestamp),
+    lastRun: load(root, "last-run.md", today, timestamp),
   };
   const parsed = {
-    open: parseHygieneFile(files.open.text, "open"),
-    snoozed: parseHygieneFile(files.snoozed.text, "snoozed"),
-    resolved: parseHygieneFile(files.resolved.text, "resolved"),
+    open: parseLogFile(loaded.open.text, rel("open.md"), "open", isOpenSection),
+    snoozed: parseLogFile(loaded.snoozed.text, rel("snoozed.md"), "snoozed", (h) => h === "Snoozed"),
+    resolved: parseLogFile(loaded.resolved.text, rel("resolved.md"), "resolved", (h) => h === "Resolved"),
   };
+  const index = parseLogFile(loaded.index.text, rel("_index.md"), null, (h) => h === "Latest counts");
+  const lastRun = parseLogFile(loaded.lastRun.text, rel("last-run.md"), null, (h) => h.startsWith("Last run:") || h === "Auto-fixes applied this run");
 
   // One state per ID. A person's move wins over a copy left behind in open.
   const known = new Map<string, HygieneEntry>();
@@ -490,20 +709,30 @@ export function reconcile(
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
   }
 
+  const extraCategories = (opts.extra ?? []).map((c) => c.category);
+  const complete = (id: string) =>
+    failedChecks.length === 0 || [...COMPLETE_CATEGORIES, ...extraCategories].some((c) => id.startsWith(`${c}-`));
+
   const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], resolved: [] as HygieneEntry[] };
   const categoryOf = new Map<string, string>();
   const counts = { opened: 0, reopened: 0, resolved: 0, stillOpen: 0 };
   const firstSeenOf = (entry: HygieneEntry) =>
     day(/\*\*First seen\*\*:\s*(\S+)/.exec(entry.lines.join("\n"))?.[1] ?? null);
 
-  const openFrom = (candidate: HygieneCandidate, id: string, lines: string[], firstSeen: string) => {
+  const openFrom = (candidate: HygieneCandidate, id: string, lines: string[], firstSeen: string): HygieneEntry => {
     categoryOf.set(id, candidate.category);
-    return { id, state: "open" as const, lines: refreshLines(lines, detectionLines(candidate, docs.get(candidate.path)?.updated, firstSeen, today)) };
+    return {
+      id,
+      state: "open",
+      lines: refreshLines(lines, detectionLines(candidate, docs.get(candidate.path)?.updated, firstSeen, today)),
+      section: null,
+    };
   };
   const resolve_ = (entry: HygieneEntry): HygieneEntry => ({
     id: entry.id,
     state: "resolved",
     lines: [...withoutFields(entry.lines, ["until", "resolved-by", "resolved-on"]), "- resolved-by: auto-disappeared", `- resolved-on: ${today}`],
+    section: null,
   });
 
   // Existing entries, in the order their files list them.
@@ -514,6 +743,9 @@ export function reconcile(
       if (state === "open") {
         if (candidate) {
           next.open.push(openFrom(candidate, entry.id, entry.lines, firstSeenOf(entry) ?? today));
+          counts.stillOpen++;
+        } else if (!complete(entry.id)) {
+          next.open.push(entry);
           counts.stillOpen++;
         } else {
           next.resolved.push(resolve_(entry));
@@ -526,6 +758,8 @@ export function reconcile(
         } else if (candidate) {
           next.open.push(openFrom(candidate, entry.id, withoutFields(entry.lines, ["until"]), firstSeenOf(entry) ?? today));
           counts.reopened++;
+        } else if (!complete(entry.id)) {
+          next.snoozed.push(entry);
         } else {
           next.resolved.push(resolve_(entry));
           counts.resolved++;
@@ -556,47 +790,77 @@ export function reconcile(
     next.resolved = next.resolved.filter((e) => keep.has(e));
   }
 
-  const stateChanged = counts.opened + counts.reopened + counts.resolved > 0;
-  const bodies = new Map<string, { exists: boolean; frontmatter: string; oldBody: string; newBody: string }>();
-  const plan = (name: string, text: string, exists: boolean, newBody: string) => {
-    const frontmatter = FRONTMATTER.exec(text)?.[0] ?? "";
-    bodies.set(name, { exists, frontmatter, oldBody: text.slice(frontmatter.length), newBody });
+  // An entry with no detection this run keeps the section it sat in.
+  const headingOf = (entry: HygieneEntry) => {
+    const category = categoryOf.get(entry.id);
+    if (category) return sectionFor(category);
+    if (entry.section && isOpenSection(entry.section)) return entry.section;
+    const prefix = [...SECTIONS.map(([c]) => c), ...COMPLETE_CATEGORIES].filter((c) => entry.id.startsWith(`${c}-`)).sort((a, b) => b.length - a.length)[0];
+    return sectionFor(prefix ?? "uncategorised");
   };
-  plan("open.md", files.open.text, files.open.exists, `\n${renderOpen(parsed.open.preamble.replace(/^\n/, ""), next.open, categoryOf)}`);
-  plan("snoozed.md", files.snoozed.text, files.snoozed.exists, `\n${renderList(parsed.snoozed.preamble.replace(/^\n/, ""), next.snoozed)}`);
-  plan("resolved.md", files.resolved.text, files.resolved.exists, `\n${renderList(parsed.resolved.preamble.replace(/^\n/, ""), next.resolved)}`);
+  const stateBody = (state: HygieneState, entries: HygieneEntry[]) =>
+    state === "open"
+      ? renderLogFile(parsed.open, openBlock(parsed.open, entries, headingOf))
+      : renderLogFile(parsed[state], listBlock(parsed[state], state === "snoozed" ? "Snoozed" : "Resolved", entries));
+  // The first pass: arrivals added, departures still in place.
+  const withDepartures = (state: HygieneState) => {
+    const staying = new Set(next[state].map((e) => e.id));
+    return [...next[state], ...parsed[state].entries.filter((e) => !staying.has(e.id))];
+  };
 
-  const index = load(root, "_index.md", today, timestamp);
-  const indexFront = FRONTMATTER.exec(index.text)?.[0] ?? "";
-  const indexBody = index.text.slice(indexFront.length);
+  const stateChanged = counts.opened + counts.reopened + counts.resolved > 0;
   const countsText = `- Open: ${next.open.length}\n- Snoozed: ${next.snoozed.length}\n- Resolved: ${next.resolved.length}\n`;
-  const latest = /^## Latest counts[ \t]*\r?\n/m.exec(indexBody);
-  const newIndexBody = latest
-    ? `${indexBody.slice(0, latest.index + latest[0].length)}\n${countsText}`
-    : `${indexBody.replace(/\s*$/, "")}\n\n## Latest counts\n\n${countsText}`;
-  plan("_index.md", index.text, index.exists, newIndexBody);
+  const fixLines = fixed.length > 0 ? fixed.map((f) => `- \`${f.path}\`: ${f.fix.replace(/\s+/g, " ").trim()}`).join("\n") : "(none)";
+  const lastRunBlock =
+    `## Last run: ${timestamp}\n\n` +
+    `- Auto-fixed: ${fixed.length}\n- New open: ${counts.opened}\n- Resolved (disappeared): ${counts.resolved}\n- Reopened: ${counts.reopened}\n` +
+    `- Still open: ${counts.stillOpen}\n- Snoozed: ${next.snoozed.length}\n\n` +
+    `## Auto-fixes applied this run\n\n${fixLines}\n`;
 
-  const lastRun = load(root, "last-run.md", today, timestamp);
-  if (stateChanged || !lastRun.exists) {
-    plan(
-      "last-run.md",
-      lastRun.text,
-      lastRun.exists,
-      `\n## Last run: ${timestamp}\n\n` +
-        `- New open: ${counts.opened}\n- Resolved (disappeared): ${counts.resolved}\n- Reopened: ${counts.reopened}\n` +
-        `- Still open: ${counts.stillOpen}\n- Snoozed: ${next.snoozed.length}\n`
-    );
+  const sources = {
+    "open.md": { from: loaded.open, file: parsed.open },
+    "snoozed.md": { from: loaded.snoozed, file: parsed.snoozed },
+    "resolved.md": { from: loaded.resolved, file: parsed.resolved },
+    "_index.md": { from: loaded.index, file: index },
+    "last-run.md": { from: loaded.lastRun, file: lastRun },
+  };
+  type Name = keyof typeof sources;
+  // The text a file gets for `body`: as it was when the body is unchanged, else with `updated` set to today.
+  const textFor = (name: Name, body: string) => {
+    const { from, file } = sources[name];
+    return from.disk !== null && body === file.body ? from.disk : `${withUpdated(file.frontmatter, today)}${body}`;
+  };
+  const final = new Map<Name, string>([
+    ["open.md", textFor("open.md", stateBody("open", next.open))],
+    ["snoozed.md", textFor("snoozed.md", stateBody("snoozed", next.snoozed))],
+    ["resolved.md", textFor("resolved.md", stateBody("resolved", next.resolved))],
+    ["_index.md", textFor("_index.md", renderLogFile(index, `## Latest counts\n\n${countsText}`))],
+  ]);
+  if (stateChanged || fixed.length > 0 || loaded.lastRun.disk === null) {
+    final.set("last-run.md", textFor("last-run.md", renderLogFile(lastRun, lastRunBlock)));
   }
+  const changedFiles = [...final].filter(([name, text]) => sources[name].from.disk !== text).map(([name]) => rel(name));
 
-  const changedFiles: string[] = [];
-  for (const [name, { exists, frontmatter, oldBody, newBody }] of bodies) {
-    if (exists && oldBody === newBody) continue;
-    const rel = `${HYGIENE_DIR}/${name}`;
-    changedFiles.push(rel);
-    if (opts.dryRun) continue;
-    const full = resolve(root, rel);
-    mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, `${withUpdated(frontmatter, today)}${newBody}`, "utf-8");
+  if (!opts.dryRun && changedFiles.length > 0) {
+    const write = opts.write ?? atomicWrite;
+    const dir = resolve(root, HYGIENE_DIR);
+    mkdirSync(dir, { recursive: true });
+    const real = realpathSync(dir);
+    const onDisk = new Map<Name, string | null>((Object.keys(sources) as Name[]).map((name) => [name, sources[name].from.disk]));
+    const commit = (name: Name, text: string) => {
+      if (onDisk.get(name) === text) return;
+      const path = join(real, name);
+      const now = existsSync(path) ? readFileSync(path, "utf-8") : null;
+      if (now !== onDisk.get(name)) {
+        throw new HygieneLogError(`${rel(name)} changed while brain hygiene reconcile ran; nothing more was written, run it again`);
+      }
+      write(path, text);
+      onDisk.set(name, text);
+    };
+    for (const state of ["open", "snoozed", "resolved"] as const) {
+      commit(`${state}.md`, textFor(`${state}.md`, stateBody(state, withDepartures(state))));
+    }
+    for (const [name, text] of final) commit(name, text);
   }
 
   return {
@@ -604,6 +868,8 @@ export function reconcile(
     snoozed: next.snoozed.length,
     changedFiles: changedFiles.sort(),
     detected: [...detected].sort(([a], [b]) => (a < b ? -1 : 1)).map(([id, c]) => ({ id, category: c.category, path: c.path, message: c.message })),
+    autoFixed: fixed.length,
+    failedChecks,
   };
 }
 
@@ -620,10 +886,11 @@ export function readHygieneLog(root: string): Array<{
   resolvedOn: string | null;
 }> {
   const out = [];
+  const owns = { open: isOpenSection, snoozed: (h: string) => h === "Snoozed", resolved: (h: string) => h === "Resolved" };
   for (const state of ["open", "snoozed", "resolved"] as const) {
     const path = resolve(root, HYGIENE_DIR, `${state}.md`);
     if (!existsSync(path)) continue;
-    for (const entry of parseHygieneFile(readFileSync(path, "utf-8"), state).entries) {
+    for (const entry of parseLogFile(readFileSync(path, "utf-8"), `${HYGIENE_DIR}/${state}.md`, state, owns[state]).entries) {
       const text = entry.lines.join("\n");
       out.push({
         id: entry.id,

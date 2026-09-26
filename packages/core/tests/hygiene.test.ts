@@ -4,12 +4,27 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import type { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import type { AuditDoc } from "../src/lib/auditor";
-import { hygieneId, indexTableLag, reconcile, shortPath, type HygieneCandidate } from "../src/lib/hygiene";
+import { audit, auditWithModules, type AuditDoc } from "../src/lib/auditor";
+import { brainConfigSchema } from "../src/lib/config";
+import { openDatabase } from "../src/lib/db";
+import {
+  candidateFromAudit,
+  detectCandidates,
+  HygieneLogError,
+  hygieneId,
+  indexTableLag,
+  reconcile,
+  shortPath,
+  type HygieneCandidate,
+} from "../src/lib/hygiene";
+import type { LoadedModule } from "../src/lib/module-types";
+import { buildTaxonomy } from "../src/lib/taxonomy";
+import type { AuditIssue } from "../src/lib/types";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const NOW = new Date("2026-07-01T12:00:00Z");
@@ -155,9 +170,17 @@ describe("the state machine", () => {
 
   test("a run that changes nothing writes nothing", () => {
     const root = tempRoot();
-    expect(run(root, [stale]).changedFiles.length).toBeGreaterThan(0);
+    const writes: string[] = [];
+    const spy = (path: string, text: string) => {
+      writes.push(path);
+      writeFileSync(path, text);
+    };
+    expect(reconcile(root, [stale], docs, { now: NOW, write: spy }).changedFiles.length).toBeGreaterThan(0);
+    expect(writes.length).toBeGreaterThan(0);
+    writes.length = 0;
     const before = ["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"].map((n) => read(root, n));
-    expect(run(root, [stale]).changedFiles).toEqual([]);
+    expect(reconcile(root, [stale], docs, { now: NOW, write: spy }).changedFiles).toEqual([]);
+    expect(writes).toEqual([]);
     expect(["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"].map((n) => read(root, n))).toEqual(before);
   });
 
@@ -198,6 +221,17 @@ describe("index table lag", () => {
       },
     ]);
   });
+
+  test("a table without outer pipes, and a wiki-link with a label, are read as GFM reads them", () => {
+    const detail = doc("work/alpha.md", "note", "2026-06-10");
+    const lag = (table: string) => indexTableLag([doc("work/_index.md", "index", "2026-06-01", table), detail]);
+    expect(lag("Item | Status | Updated\n--- | --- | ---\n[Alpha](alpha.md) | active | 2026-05-01\n")).toEqual([
+      expect.objectContaining({ evidence: "[Alpha](alpha.md)", message: expect.stringContaining('Row "alpha" says updated 2026-05-01, status active') }),
+    ]);
+    expect(lag("| Item | Status | Updated |\n| --- | --- | --- |\n| [[alpha|Alpha]] | active | 2026-05-01 |\n")).toEqual([
+      expect.objectContaining({ evidence: "[[alpha|Alpha]]", message: expect.stringContaining('Row "alpha" says updated 2026-05-01, status active') }),
+    ]);
+  });
 });
 
 describe("brain hygiene", () => {
@@ -209,8 +243,11 @@ describe("brain hygiene", () => {
     brains.push(root);
     return root;
   }
-  const git = (root: string, ...args: string[]) =>
-    Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  const git = (root: string, ...args: string[]) => {
+    const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect({ args, code: proc.exitCode, stderr: proc.stderr.toString() }).toMatchObject({ args, code: 0 });
+    return proc.stdout.toString();
+  };
   async function reconcileCli(root: string, ...flags: string[]) {
     const { stdout, stderr, code } = await runCli(root, ["hygiene", "reconcile", ...flags, "--json"]);
     return { out: code === 0 ? JSON.parse(stdout) : null, stderr, code };
@@ -227,8 +264,14 @@ describe("brain hygiene", () => {
     git(root, "init", "-q");
     git(root, "add", "-A");
     git(root, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.com", "commit", "-qm", "after the first run");
+    // Back-date the log, so any write at all, even of the same bytes, shows in the mtimes.
+    const names = ["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"];
+    const past = new Date("2020-01-01T00:00:00Z");
+    for (const name of names) utimesSync(log(root, name), past, past);
     const second = await reconcileCli(root);
     expect(second.out.changedFiles).toEqual([]);
+    expect(names.map((name) => statSync(log(root, name)).mtimeMs)).toEqual(names.map(() => past.getTime()));
+    expect(git(root, "rev-parse", "--is-inside-work-tree").trim()).toBe("true");
     expect(second.out.stillOpen).toBe(first.out.opened);
     expect(git(root, "status", "--porcelain")).toBe("");
     // The IDs are the same on both runs.
@@ -273,7 +316,290 @@ describe("brain hygiene", () => {
 
   test("the skill no longer carries the ID recipe or asks briefing for JSON", () => {
     const skill = readFileSync(join(import.meta.dir, "../skills/content-hygiene/SKILL.md"), "utf-8");
-    for (const gone of ["brain briefing --json", "sha1sum", "shasum"]) expect(skill).not.toContain(gone);
+    for (const gone of ["brain briefing --json", "sha1sum", "shasum", "no writes anywhere", "no writes performed"]) {
+      expect(skill).not.toContain(gone);
+    }
     expect(skill).toContain("brain hygiene reconcile --extra");
+  });
+
+  test("the skill hands reconcile only conflicts that survive its fixes, and the fixes themselves", () => {
+    const skill = readFileSync(join(import.meta.dir, "../skills/content-hygiene/SKILL.md"), "utf-8");
+    const phase4 = skill.slice(skill.indexOf("## Phase 4"), skill.indexOf("## Phase 5"));
+    expect(phase4).toContain("drop from the Phase 2 conflicts every one a Phase 3 fix cleared");
+    expect(phase4).toContain("--fixed .brain/scratch/hygiene-fixed.json");
+    // The template matches what reconcile writes to last-run.md.
+    const lastRun = readFileSync(join(import.meta.dir, "../skills/content-hygiene/templates/last-run.md"), "utf-8");
+    expect(lastRun).toContain("- Auto-fixed: 0\n- New open: 0\n");
+    expect(lastRun).toContain("## Auto-fixes applied this run\n\n(none)\n");
+  });
+
+  test("--fixed entries are checked before anything is written", async () => {
+    const root = await corpusBrain();
+    writeFileSync(join(root, "fixed.json"), '[{"path": "a.md"}]');
+    const { code, stderr } = await reconcileCli(root, "--fixed", join(root, "fixed.json"));
+    expect(code).toBe(1);
+    expect(stderr).toContain('--fixed: entry 0 needs a non-empty string "fix"');
+    expect(existsSync(join(root, "context/hygiene"))).toBe(false);
+  });
+});
+
+describe("writing the log", () => {
+  const docs = new Map<string, { updated: string }>();
+  const todo = (name: string): HygieneCandidate => ({
+    category: "todo",
+    path: `notes/${name}.md`,
+    evidence: `[TODO: ${name}]`,
+    message: `Contains marker: [TODO: ${name}]`,
+  });
+  const idOf = (c: HygieneCandidate) => hygieneId(c.category, c.path, c.evidence);
+  const [stays, goes, wakes, lapses, returns, rests, fresh] = ["stays", "goes", "wakes", "lapses", "returns", "rests", "fresh"].map(todo);
+
+  /** A log with an entry on every transition that moves it between files. */
+  function seed(root: string): void {
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(stays), seen)}\n\n${entry(idOf(goes), seen)}\n`);
+    write(root, "snoozed.md", "Snoozed", `## Snoozed\n\n${entry(idOf(wakes), "- until: 2026-06-15")}\n\n${entry(idOf(lapses), "- until: 2026-06-15")}\n`);
+    write(root, "resolved.md", "Resolved", `## Resolved\n\n${entry(idOf(returns), "- resolved-by: manual", "- resolved-on: 2026-06-10")}\n\n${entry(idOf(rests), "- resolved-by: dismissed", "- resolved-on: 2026-06-10")}\n`);
+  }
+  // Detected: stays (open), wakes (snoozed → open), returns (resolved → open), fresh (new).
+  // Not detected: goes (open → resolved), lapses (snoozed → resolved), rests (stays resolved).
+  const candidates = [stays, wakes, returns, fresh];
+  const everyId = [stays, goes, wakes, lapses, returns, rests].map(idOf);
+
+  const state = (root: string) =>
+    Object.fromEntries(
+      ["open.md", "snoozed.md", "resolved.md"].map((name) => [
+        name,
+        [...read(root, name).matchAll(/^### (\S+)/gm)].map((m) => m[1]).sort(),
+      ])
+    );
+
+  test("a write that fails part-way loses no entry, and the next run settles the log", () => {
+    const baseline = tempRoot();
+    seed(baseline);
+    const writes: string[] = [];
+    reconcile(baseline, candidates, docs, {
+      now: NOW,
+      write: (path, text) => {
+        writes.push(path);
+        writeFileSync(path, text);
+      },
+    });
+    const settled = state(baseline);
+    // Every file moves, so each of the writes below is one a crash could stop.
+    expect(settled["open.md"]).toEqual([stays, wakes, returns, fresh].map(idOf).sort());
+    expect(settled["resolved.md"]).toEqual([goes, lapses, rests].map(idOf).sort());
+    expect(writes.length).toBeGreaterThanOrEqual(5);
+
+    for (let fail = 0; fail < writes.length; fail++) {
+      const root = tempRoot();
+      seed(root);
+      let n = 0;
+      expect(() =>
+        reconcile(root, candidates, docs, {
+          now: NOW,
+          write: (path, text) => {
+            if (n++ === fail) throw new Error(`injected failure writing ${path}`);
+            writeFileSync(path, text);
+          },
+        })
+      ).toThrow("injected failure");
+      const present = new Set(Object.values(state(root)).flat());
+      expect({ fail, missing: everyId.filter((id) => !present.has(id)) }).toEqual({ fail, missing: [] });
+      reconcile(root, candidates, docs, { now: NOW });
+      expect({ fail, state: state(root) }).toEqual({ fail, state: settled });
+    }
+  });
+
+  test("sections and text the tool does not own are kept byte for byte", () => {
+    const root = tempRoot();
+    const notes = "## Operator notes\n\nChecked the TODOs with the team; leave `goes` alone.\n";
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    write(root, "open.md", "Open", `## How to use this file\n\nMove entries by hand.\n\n## TODO markers\n\n${entry(idOf(goes), seen)}\n\n${notes}`);
+    write(root, "resolved.md", "Resolved", `## Resolved\n\n(empty)\n\n## Kept elsewhere\n\n- a list a person keeps\n`);
+    write(root, "_index.md", "Hygiene", `## Overview\n\nThe log.\n\n## Latest counts\n\n- Open: 1\n\n## History\n\nStarted in June.\n`);
+    // `goes` disappears: open.md, resolved.md and _index.md all change.
+    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 1 });
+    expect(read(root, "open.md")).toContain(`## How to use this file\n\nMove entries by hand.\n\n${notes}`);
+    expect(read(root, "open.md")).not.toContain(`### ${idOf(goes)}`);
+    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
+    expect(read(root, "resolved.md")).toContain("\n\n## Kept elsewhere\n\n- a list a person keeps\n");
+    expect(read(root, "_index.md")).toEndWith(
+      "## Overview\n\nThe log.\n\n## Latest counts\n\n- Open: 0\n- Snoozed: 0\n- Resolved: 1\n\n## History\n\nStarted in June.\n"
+    );
+    // And the result is stable.
+    expect(reconcile(root, [], docs, { now: NOW }).changedFiles).toEqual([]);
+  });
+
+  test("a note a person adds under an entry moves with it", () => {
+    const root = tempRoot();
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(goes), seen, "", "Asked about this on Monday.")}\n`);
+    reconcile(root, [], docs, { now: NOW });
+    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}\n${seen}\n\nAsked about this on Monday.\n- resolved-by: auto-disappeared`);
+  });
+
+  test.each([
+    ["frontmatter that is not valid YAML", '---\ntitle: "unclosed\nupdated: 2026-01-01\n---\n\n## Resolved\n', "not valid YAML"],
+    ["frontmatter that is never closed", "---\ntitle: Resolved\n\n## Resolved\n", "never closed"],
+    ["frontmatter that is a list, not a mapping", "---\n- one\n- two\n---\n\n## Resolved\n", "not a YAML mapping"],
+    ["a section holding entries and other text", "## Parked\n\nA note.\n\n### todo-notes-goes-abcd\n- resolved-by: manual\n", 'section "## Parked"'],
+  ])("a log file with %s is refused, and nothing is written", (_, text, message) => {
+    const root = tempRoot();
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(goes), seen)}\n`);
+    writeFileSync(log(root, "resolved.md"), text);
+    const before = read(root, "open.md");
+    const writes: string[] = [];
+    expect(() => reconcile(root, [], docs, { now: NOW, write: (path) => writes.push(path) })).toThrow(HygieneLogError);
+    expect(() => reconcile(root, [], docs, { now: NOW })).toThrow(message);
+    expect(writes).toEqual([]);
+    expect(read(root, "open.md")).toBe(before);
+    expect(read(root, "resolved.md")).toBe(text);
+  });
+
+  test("a log file changed by someone else during the run is not overwritten", () => {
+    const root = tempRoot();
+    seed(root);
+    let edited = false;
+    expect(() =>
+      reconcile(root, candidates, docs, {
+        now: NOW,
+        write: (path, text) => {
+          if (!edited) {
+            edited = true;
+            writeFileSync(log(root, "resolved.md"), `${read(root, "resolved.md")}\nA hand edit.\n`);
+          }
+          writeFileSync(path, text);
+        },
+      })
+    ).toThrow("changed while brain hygiene reconcile ran");
+    expect(read(root, "resolved.md")).toContain("A hand edit.");
+  });
+
+  test("--fixed auto-fixes go into last-run.md, even on a run that moves no entry", () => {
+    const root = tempRoot();
+    reconcile(root, [stays], docs, { now: NOW });
+    const later = new Date("2026-07-02T08:00:00Z");
+    const result = reconcile(root, [stays], docs, {
+      now: later,
+      fixed: [{ path: "work/_index.md", fix: "Alpha row status active → paused" }],
+    });
+    expect(result).toMatchObject({ autoFixed: 1, opened: 0, resolved: 0, reopened: 0 });
+    expect(result.changedFiles).toContain("context/hygiene/last-run.md");
+    expect(read(root, "last-run.md")).toContain(
+      "## Last run: 2026-07-02T08:00:00Z\n\n- Auto-fixed: 1\n- New open: 0\n- Resolved (disappeared): 0\n- Reopened: 0\n- Still open: 1\n- Snoozed: 0\n\n" +
+        "## Auto-fixes applied this run\n\n- `work/_index.md`: Alpha row status active → paused\n"
+    );
+  });
+
+  test("when a module check failed, an entry it may own stays; core entries still resolve", () => {
+    const root = tempRoot();
+    const moduleId = hygieneId("mood-drift", "journal/2026-06-01.md", "sad");
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(goes), seen)}\n\n## Other: mood-drift\n\n${entry(moduleId, seen)}\n`);
+    write(root, "snoozed.md", "Snoozed", `## Snoozed\n\n${entry(hygieneId("mood-drift", "journal/b.md", "x"), "- until: 2026-06-15")}\n`);
+    const result = reconcile(root, [], docs, { now: NOW, failedChecks: ["moods"] });
+    expect(result).toMatchObject({ resolved: 1, stillOpen: 1, snoozed: 1, failedChecks: ["moods"] });
+    expect(read(root, "open.md")).toContain(`## Other: mood-drift\n\n${entry(moduleId, seen)}`);
+    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
+    // Once the check runs again and finds nothing, the entries resolve.
+    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 2, stillOpen: 0 });
+  });
+});
+
+describe("detection", () => {
+  const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: {} }) });
+
+  function db(rows: { path: string; content?: string; updated?: string; status?: string; next_review?: string | null }[]): Database {
+    const d = openDatabase(":memory:");
+    for (const r of rows) {
+      d.run(
+        `INSERT INTO documents
+           (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, next_review, indexed_at)
+         VALUES (?, ?, 'note', ?, 'primary', NULL, '2026-01-01', ?, ?, ?, 'markdown', ?, '2026-01-01')`,
+        [r.path, r.path, r.status ?? "active", r.updated ?? "2026-06-30", r.content ?? "", `h-${r.path}`, r.next_review ?? null]
+      );
+    }
+    return d;
+  }
+  const idOfDoc = (d: Database, path: string) => (d.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number }).id;
+
+  test("an unchanged finding keeps its ID as the days pass", () => {
+    const database = db([
+      { path: "notes/draft.md", status: "draft", updated: "2026-01-10" },
+      { path: "notes/review.md", next_review: "2026-03-01" },
+      { path: "context/current-focus.md", updated: "2026-02-01", content: `- 2026-02-15 send the offer\n${"word ".repeat(1000)}` },
+    ]);
+    const ids = (now: string) => {
+      const issues = audit(database, taxonomy, { now: new Date(now) });
+      const docs = new Map(
+        (database.prepare("SELECT * FROM documents").all() as AuditDoc[]).map((d) => [d.path, d])
+      );
+      return new Map(issues.map((i) => [i.category, hygieneId(i.category, i.path, candidateFromAudit(i, docs).evidence)]));
+    };
+    const july = ids("2026-07-01T12:00:00Z");
+    const september = ids("2026-09-20T12:00:00Z");
+    for (const category of ["stale-draft", "past-date", "review-overdue", "budget"]) {
+      expect({ category, july: july.get(category) }).toEqual({ category, july: expect.any(String) });
+      expect({ category, id: september.get(category) }).toEqual({ category, id: july.get(category) });
+    }
+  });
+
+  test("fact-drift keys on the wrong value, repeated-text on the paragraph, a failed module on its name", () => {
+    const docs = new Map<string, AuditDoc>();
+    const id = (issue: Partial<AuditIssue>) => {
+      const full = { path: "me/bio.md", severity: "warning", ...issue } as AuditIssue;
+      return hygieneId(full.category, full.path, candidateFromAudit(full, docs).evidence);
+    };
+    const drift = (message: string) => id({ category: "fact-drift", message });
+    expect(drift("employer: found Ithaca Tours, canonical Aegean Ferries")).toBe(drift("employer: found Ithaca Tours, canonical Troy Travel"));
+    expect(drift("employer: found Ithaca Tours, canonical Aegean Ferries")).not.toBe(drift("employer: found Sparta Sails, canonical Aegean Ferries"));
+    const repeated = (n: number, shown: string) =>
+      id({ category: "repeated-text", path: "(corpus)", message: `A paragraph appears in ${n} documents (${shown}): "The sea was calm that year"` });
+    expect(repeated(5, "a.md, b.md, c.md, …")).toBe(repeated(7, "a.md, d.md, e.md, …"));
+    const failed = (error: string) =>
+      id({ category: "module-hygiene", path: "(module)", message: `hygiene check from module "moods" failed: ${error}` });
+    expect(failed("ENOENT at 03:00")).toBe(failed("timeout at 04:00"));
+  });
+
+  test("an excluded document's links un-orphan nothing", () => {
+    const database = db([{ path: "notes/lonely.md" }, { path: "context/hygiene/open.md" }]);
+    database.run("INSERT INTO links (source_id, target, target_id) VALUES (?, 'lonely', ?)", [
+      idOfDoc(database, "context/hygiene/open.md"),
+      idOfDoc(database, "notes/lonely.md"),
+    ]);
+    const orphans = (exclude?: (p: string) => boolean) =>
+      audit(database, taxonomy, { now: new Date("2026-07-01T12:00:00Z"), exclude }).filter((i) => i.category === "orphan").map((i) => i.path);
+    // The control: the link does count when nothing is excluded.
+    expect(orphans()).not.toContain("notes/lonely.md");
+    expect(orphans((p) => p.startsWith("context/hygiene/"))).toEqual(["notes/lonely.md"]);
+  });
+
+  test("a module finding on an excluded path is dropped, and a failing check is reported", async () => {
+    const database = db([{ path: "notes/a.md" }]);
+    const mod = (name: string, check: () => AuditIssue[]) =>
+      ({ key: name, dir: "/", config: {}, manifest: { name, hygieneChecks: [check] } }) as unknown as LoadedModule;
+    const brain = {
+      taxonomy,
+      root: "/nonexistent",
+      modules: [
+        mod("moods", () => [
+          { path: "context/hygiene/open.md", severity: "info", category: "mood-drift", message: "in the log" },
+          { path: "notes/a.md", severity: "info", category: "mood-drift", message: "in a note" },
+        ]),
+        mod("broken", () => {
+          throw new Error("no network");
+        }),
+      ],
+    };
+    const exclude = (p: string) => p.startsWith("context/hygiene/");
+    const found = (await auditWithModules(database, brain, { now: new Date("2026-07-01T12:00:00Z"), exclude })).filter(
+      (i) => i.category === "mood-drift"
+    );
+    expect(found.map((i) => i.path)).toEqual(["notes/a.md"]);
+    const detection = await detectCandidates(database, brain, new Date("2026-07-01T12:00:00Z"));
+    expect(detection.failedChecks).toEqual(["broken"]);
+    expect(detection.candidates.filter((c) => c.category === "mood-drift").map((c) => c.path)).toEqual(["notes/a.md"]);
   });
 });

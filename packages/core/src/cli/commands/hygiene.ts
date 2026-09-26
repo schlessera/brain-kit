@@ -7,6 +7,7 @@ import {
   readHygieneLog,
   reconcile,
   type HygieneCandidate,
+  type HygieneFix,
   type HygieneState,
 } from "../../lib/hygiene.js";
 import { indexAll } from "../../lib/indexer.js";
@@ -15,14 +16,18 @@ import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain hygiene <reconcile|list> — the content-hygiene log under context/hygiene/
 
-  reconcile [--extra <file.json>] [--dry-run]
+  reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, silent edits, index table
       lag, and --extra candidates), give each a stable ID, apply the
       open/snoozed/resolved state machine to the log, and write the log's
       files only where they change. --extra is a JSON array of
-      { "category", "path", "evidence", "message" }. --dry-run writes nothing.
+      { "category", "path", "evidence", "message" }; --fixed is a JSON array of
+      { "path", "fix" }, the auto-fixes to record in last-run.md. When a module's
+      hygiene check fails, entries it may own are left as they are, and the
+      module is named in "failedChecks". --dry-run writes no log file; the
+      index is still refreshed.
       --json envelope: { "opened", "reopened", "resolved", "stillOpen", "snoozed", "changedFiles",
-      "detected": [{ "id", "category", "path", "message" }] }
+      "detected": [{ "id", "category", "path", "message" }], "autoFixed", "failedChecks" }
 
   list [--state open|snoozed|resolved]
       The log's entries.
@@ -31,17 +36,33 @@ const HELP = `brain hygiene <reconcile|list> — the content-hygiene log under c
 
 const STATES: HygieneState[] = ["open", "snoozed", "resolved"];
 
-/** Read and check an --extra file. Anything malformed is a usage error, before any write. */
-function readExtra(path: string): HygieneCandidate[] {
-  if (!existsSync(path)) throw new UsageError(`--extra: no such file: ${path}`);
+/** A JSON array from a --extra or --fixed file. Anything malformed is a usage error, before any write. */
+function readArray(flag: string, path: string): unknown[] {
+  if (!existsSync(path)) throw new UsageError(`--${flag}: no such file: ${path}`);
   let data: unknown;
   try {
     data = JSON.parse(readFileSync(path, "utf-8"));
   } catch (e) {
-    throw new UsageError(`--extra: ${path} is not JSON: ${(e as Error).message}`);
+    throw new UsageError(`--${flag}: ${path} is not JSON: ${(e as Error).message}`);
   }
-  if (!Array.isArray(data)) throw new UsageError(`--extra: ${path} must hold a JSON array`);
-  return data.map((item, i) => {
+  if (!Array.isArray(data)) throw new UsageError(`--${flag}: ${path} must hold a JSON array`);
+  return data;
+}
+
+function readFixed(path: string): HygieneFix[] {
+  return readArray("fixed", path).map((item, i) => {
+    const f = item as Record<string, unknown>;
+    for (const key of ["path", "fix"]) {
+      if (typeof f?.[key] !== "string" || (f[key] as string).trim() === "") {
+        throw new UsageError(`--fixed: entry ${i} needs a non-empty string "${key}"`);
+      }
+    }
+    return { path: f.path, fix: f.fix } as HygieneFix;
+  });
+}
+
+function readExtra(path: string): HygieneCandidate[] {
+  return readArray("extra", path).map((item, i) => {
     const c = item as Record<string, unknown>;
     for (const key of ["category", "path", "evidence", "message"]) {
       if (typeof c?.[key] !== "string" || (key !== "evidence" && (c[key] as string).trim() === "")) {
@@ -77,22 +98,25 @@ export const hygieneCommand: CoreCommand = {
 
     if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
+    if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
+    const fixed = typeof flags.fixed === "string" ? readFixed(flags.fixed) : [];
     const dryRun = flags["dry-run"] === true;
     const now = new Date();
 
     const db = openDatabase(cli.brain.dbPath);
     try {
       await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-      const candidates = await detectCandidates(db, cli.brain, now);
+      const { candidates, failedChecks } = await detectCandidates(db, cli.brain, now);
       const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
-      const result = reconcile(cli.brain.root, candidates, docs, { now, dryRun, extra });
+      const result = reconcile(cli.brain.root, candidates, docs, { now, dryRun, extra, fixed, failedChecks });
       emit(cli.json, result, () => {
         const prefix = dryRun ? "[DRY-RUN] " : "";
         console.log(
           `${prefix}hygiene: ${result.opened} new, ${result.reopened} reopened, ${result.resolved} resolved, ` +
             `${result.stillOpen} still open, ${result.snoozed} snoozed`
         );
+        for (const name of result.failedChecks) console.log(`  hygiene check from module "${name}" failed; its entries were left as they are`);
         for (const f of result.changedFiles) console.log(`  ${dryRun ? "would write" : "wrote"} ${f}`);
       });
       return 0;

@@ -17,8 +17,9 @@ which auto-fixes to apply.
 
 ## Input
 
-None. Optional flag in the user message: `--dry-run` (detect and report, no writes anywhere — not
-even to `context/hygiene/`).
+None. Optional flag in the user message: `--dry-run` (detect and report; no brain content is
+written: no fixes, and nothing under `context/hygiene/`. The index is still refreshed, and the
+candidate file goes to the scratch area, `.brain/scratch/`, as on any run).
 
 Work the phases in order. Be conservative: if a fix is not clearly warranted, log it instead.
 
@@ -74,7 +75,8 @@ table diff names the row, its values and the detail file's in its message. **Ski
 is:** in the inbox directory, under archived content, inside `context/hygiene/`, or has frontmatter
 `status: archived`.
 
-**Auto-fix (edit the file directly, and keep a list of what you fixed for the report):**
+**Auto-fix (edit the file directly, and keep a list of what you fixed, one `{ "path", "fix" }`
+per fix, for Phase 4):**
 
 1. **`updated < created`** — set both fields to the later of (created, updated, file mtime as a
    date). Bump `updated` only if the chosen date is newer than the current `updated`.
@@ -94,14 +96,21 @@ With `--dry-run`, apply none.
 
 ## Phase 4 — Record the log
 
-Write the Phase 2 conflicts, as a JSON array (`[]` when there are none), to
-`.brain/scratch/hygiene-extra.json`, then run:
+First drop from the Phase 2 conflicts every one a Phase 3 fix cleared, and any other that no
+longer holds when you re-read both files: the CLI cannot detect a conflict itself, so a conflict
+it is handed stays open. Then write two JSON arrays (`[]` when empty):
+
+- `.brain/scratch/hygiene-extra.json`: the conflicts still present.
+- `.brain/scratch/hygiene-fixed.json`: the Phase 3 fixes, e.g.
+  `[{ "path": "work/_index.md", "fix": "Alpha row status active → paused" }]`.
 
 ```bash
-brain hygiene reconcile --extra .brain/scratch/hygiene-extra.json --json
+brain hygiene reconcile --extra .brain/scratch/hygiene-extra.json \
+  --fixed .brain/scratch/hygiene-fixed.json --json
 ```
 
-With `--dry-run`, add `--dry-run`: it computes the same and writes nothing.
+With `--dry-run`, there are no fixes: pass `--dry-run` and leave out `--fixed`. It computes the
+same and writes no log file.
 
 This detects again, so issues your fixes cleared are resolved, and then matches everything
 against the log by ID:
@@ -118,17 +127,24 @@ against the log by ID:
 | resolved | no | leave resolved |
 
 It writes a file only when its content changes, and `last-run.md` only when an issue changed
-state, so a run that changes nothing leaves no diff. It keeps `resolved.md` to the newest 200
-entries. The log's own files are never detected as issues.
+state or `--fixed` names a fix (it lists them under "Auto-fixes applied this run"), so a run that
+changes nothing leaves no diff. It keeps `resolved.md` to the newest 200 entries, and any section
+of the log it does not own (your own notes) as written. The log's own files are never detected as
+issues. If a module's hygiene check fails, `failedChecks` names the module and entries it may own
+are left as they are rather than resolved; report it. If a log file cannot be parsed safely (its
+frontmatter is broken, say), reconcile exits non-zero and writes nothing: stop and report.
 
 **Stable IDs** are `{category}-{shortpath}-{hash4}`: `shortpath` is the last two path segments,
 extension dropped, lowercased, with every run of characters outside `a-z0-9_-` (`/` and `.`
 included) turned into one `-`; `hash4` is the first 4 hex characters of a SHA-1 over
 `{category}|{path}|{evidence}`. The evidence is the smallest stable piece for the category:
 staleness → the document's type; conflict → the canonical fact text you gave; index-lag → the
-row's first cell (the whole-file audit finding: the index path); propagation, silent-edit and
-orphan → the file path; todo/verify → the marker text; type-mismatch → the type name; tag-noise →
-empty; any other category → its message.
+row's first cell (the whole-file audit finding: the index path); propagation, silent-edit,
+orphan and stale-draft → the file path; todo/verify → the marker text; type-mismatch → the type
+name; budget → the canonical key; past-date → the date and the line's text; fact-drift →
+`{key}={found}`, so the ID holds while the document keeps the same wrong value; repeated-text →
+the paragraph's excerpt; module-hygiene → the module's name; review-overdue and tag-noise →
+empty; any other category (a module's) → its message.
 
 ## Phase 5 — Report
 
@@ -142,7 +158,7 @@ content-hygiene complete
 
 If nothing changed (`changedFiles` empty and no fixes), print one line:
 `content-hygiene: no changes (N issues still open)`. If `--dry-run`, prefix `[DRY-RUN]` and add
-`(no writes performed)`.
+`(no content written)`.
 
 ## Notes
 
@@ -159,7 +175,7 @@ If nothing changed (`changedFiles` empty and no fixes), print one line:
 
 ## CLI it relies on
 
-- `brain hygiene reconcile [--extra <file.json>] [--dry-run] --json` — refresh the index, detect,
-  and reconcile the log.
+- `brain hygiene reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run] --json` —
+  refresh the index, detect, and reconcile the log.
 - `brain hygiene list [--state open|snoozed|resolved] --json` — the log as it stands.
 - `brain config check` — read `taxonomy.canonical` and `taxonomy.propagation`.

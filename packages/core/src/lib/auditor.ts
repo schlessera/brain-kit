@@ -24,11 +24,18 @@ export interface AuditOptions {
    */
   root?: string;
   /**
-   * Documents to leave out of every check, as if they were not indexed.
+   * Documents to leave out of every check, as if they were not indexed: their
+   * links count for no orphan check, and a module finding on one is dropped.
    * `brain hygiene reconcile` leaves out its own log, so writing the log
    * cannot change what the next run detects.
    */
   exclude?: (path: string) => boolean;
+  /**
+   * Called with the module's name when one of its hygiene checks throws
+   * (`auditWithModules`), so a caller can tell a check that found nothing
+   * from one that did not run.
+   */
+  onCheckFailed?: (module: string) => void;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -99,7 +106,12 @@ export function findStale(docs: AuditDoc[], taxonomy: Taxonomy, now: number): St
  * link pointing at them, minus orphan-exempt types and `_index.md` anchors.
  * Shared by `brain audit` and `brain stats` for the same reason as findStale.
  */
-export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy): AuditDoc[] {
+export function findOrphans(
+  db: Database,
+  docs: AuditDoc[],
+  taxonomy: Taxonomy,
+  opts: { linksAmongDocs?: boolean } = {}
+): AuditDoc[] {
   // Exclude orphan-exempt types (index/context and any config-declared
   // exemptions) and _index.md files.
   const candidateDocs = docs.filter(
@@ -157,8 +169,24 @@ export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy):
   // either, so dropping the broken links here changes nothing.
   const ids = (sql: string) =>
     new Set((db.prepare(sql).all() as { id: number }[]).map((r) => r.id));
-  const hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
-  const hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+  let hasOutgoing: Set<number>;
+  let hasIncoming: Set<number>;
+  if (opts.linksAmongDocs) {
+    // Only links between the given documents count: a link from a document
+    // left out of `docs` makes nothing un-orphaned, and one to it is broken.
+    const among = new Set(docs.map((d) => d.id));
+    const rows = db.prepare("SELECT source_id, target_id FROM links").all() as { source_id: number; target_id: number | null }[];
+    hasOutgoing = new Set();
+    hasIncoming = new Set();
+    for (const { source_id, target_id } of rows) {
+      if (!among.has(source_id)) continue;
+      hasOutgoing.add(source_id);
+      if (target_id !== null && among.has(target_id)) hasIncoming.add(target_id);
+    }
+  } else {
+    hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
+    hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+  }
 
   const orphans: AuditDoc[] = [];
   for (const doc of candidateDocs) {
@@ -723,7 +751,7 @@ export function audit(
   // ---------------------------------------------------------------
   // 5. Orphan detection
   // ---------------------------------------------------------------
-  for (const doc of findOrphans(db, docs, taxonomy)) {
+  for (const doc of findOrphans(db, docs, taxonomy, { linksAmongDocs: exclude !== undefined })) {
     issues.push({
       path: doc.path,
       severity: "info",
@@ -801,9 +829,11 @@ export function audit(
 /**
  * The core audit plus every enabled module's hygiene checks, each run against
  * its own module's config. A check that throws becomes one `module-hygiene`
- * warning instead of failing the audit. `brain audit` and `brain maintain`
- * both count issues through this, so their numbers agree. The brain's root
- * reaches the core audit (`AuditOptions.root`) unless `opts` sets another.
+ * warning instead of failing the audit, and `opts.onCheckFailed` hears of
+ * it. `brain audit` and `brain maintain` both count issues through this, so
+ * their numbers agree. The brain's root reaches the core audit
+ * (`AuditOptions.root`) unless `opts` sets another. A check sees the whole
+ * index, so `opts.exclude` drops its findings on excluded paths.
  */
 export async function auditWithModules(
   db: Database,
@@ -814,8 +844,10 @@ export async function auditWithModules(
   for (const mod of brain.modules) {
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {
-        issues.push(...(await check({ db, root: brain.root, config: mod.config })));
+        const found = await check({ db, root: brain.root, config: mod.config });
+        issues.push(...(opts.exclude ? found.filter((issue) => !opts.exclude!(issue.path)) : found));
       } catch (e) {
+        opts.onCheckFailed?.(mod.manifest.name);
         issues.push({
           path: "(module)",
           severity: "warning",
