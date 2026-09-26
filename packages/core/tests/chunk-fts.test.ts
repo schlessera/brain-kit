@@ -66,6 +66,16 @@ async function fts(root: string, query: string): Promise<Array<{ path: string; s
   return JSON.parse(r.stdout).results;
 }
 
+/** How many chunks the chunk index finds for `word`: its postings, not the rows behind them. */
+function postings(root: string, word: string): number {
+  const db = new Database(join(root, "brain.db"), { readonly: true });
+  try {
+    return (db.prepare("SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?").get(word) as { n: number }).n;
+  } finally {
+    db.close();
+  }
+}
+
 /** FTS5's own check that the chunk index matches the `chunks` rows; throws when it does not. */
 function integrity(root: string): void {
   const db = new Database(join(root, "brain.db"));
@@ -108,6 +118,76 @@ describe("a document found only across its sections", () => {
   });
 });
 
+/** A hand-built index: each document's chunks are written as given, and the triggers index them. */
+function handBuilt() {
+  const db = openDatabase(":memory:");
+  let id = 0;
+  const add = (
+    path: string,
+    chunks: string[],
+    meta: { title?: string; relevance?: string; status?: string; updated?: string; generatedFrom?: string } = {}
+  ) => {
+    const docId = ++id;
+    const body = chunks.join("\n\n");
+    db.run(
+      "INSERT INTO documents(id,path,title,type,status,relevance,created,updated,content,generated_from,indexed_at) VALUES (?,?,?,'note',?,?,'2026-01-01',?,?,?,'2026-01-01')",
+      [docId, path, meta.title ?? path, meta.status ?? "active", meta.relevance ?? "primary", meta.updated ?? "2026-06-01", body, meta.generatedFrom ?? null]
+    );
+    db.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (?,?,'',?,'')", [docId, meta.title ?? "", body]);
+    chunks.forEach((text, i) => db.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (?,?,'',?,1)", [docId, i, text]));
+  };
+  return { db, add };
+}
+
+const filler = (n: number, word = "gravel") => Array.from({ length: n }, (_, i) => `${word}${i}`).join(" ");
+
+describe("the chunk lane picks each document's best chunk before the limit", () => {
+  test("a document with one strong section is not pushed out by one with many", async () => {
+    const { db, add } = handBuilt();
+    add("notes/a.md", Array.from({ length: 50 }, () => "beacon ".repeat(100).trim()));
+    add("notes/b.md", [`beacon light ${filler(70)}`, ...Array.from({ length: 100 }, (_, i) => filler(30, `ridge${i}x`))]);
+    add("notes/c.md", [`beacon ${filler(100)}`]);
+    const order = async (limit: number) =>
+      (await hybridSearch(db, { query: "beacon", mode: "fts", rerank: "none", limit })).results.map((r) => r.path);
+    expect(await order(20)).toEqual(["notes/a.md", "notes/b.md", "notes/c.md"]); // every document's best chunk, ranked
+    expect(await order(2)).toEqual(["notes/a.md", "notes/b.md"]);
+    db.close();
+  });
+
+  test("a document found by its title takes its snippet from its best matching chunk", async () => {
+    const { db, add } = handBuilt();
+    // Other documents own every strong chunk, so this one's weak chunk is not
+    // among the chunk lane's best; it comes in on its title.
+    for (const name of ["s1", "s2", "s3"]) add(`notes/${name}.md`, Array.from({ length: 10 }, () => `beacon beacon ${filler(20)}`));
+    add("notes/x.md", [filler(40), `the beacon on the ridge ${filler(200)}`], { title: "Beacon" });
+    const { results } = await hybridSearch(db, { query: "beacon", mode: "fts", rerank: "none", limit: 1 });
+    db.close();
+    expect(results[0]?.path).toBe("notes/x.md"); // the premise: its title match wins
+    expect(results[0]?.snippet).toContain(">>>beacon<<< on the ridge");
+  });
+});
+
+describe("a document found only across its sections, reranked", () => {
+  test("stays after one found in one place, whatever their lifecycle factors", async () => {
+    const { db, add } = handBuilt();
+    // Everything the reranker weighs against it: historical, draft, generated, old.
+    add("notes/one-place.md", [`the band called the who ${filler(60)}`], {
+      relevance: "historical",
+      status: "draft",
+      updated: "2000-01-01",
+      generatedFrom: "tools/export",
+    });
+    // Everything in its favour, but its two words sit in different chunks.
+    add("notes/split.md", [`the ${filler(60)}`, `who ${filler(60)}`], { relevance: "primary", updated: "2026-06-30" });
+    const now = new Date("2026-07-01T00:00:00Z");
+    for (const rerank of ["none", "heuristic"] as const) {
+      const { results } = await hybridSearch(db, { query: "the who", mode: "fts", rerank, now });
+      expect({ rerank, paths: results.map((r) => r.path) }).toEqual({ rerank, paths: ["notes/one-place.md", "notes/split.md"] });
+    }
+    db.close();
+  });
+});
+
 describe("full-text search over chunks", () => {
   test("a long document's matching section outranks a short note's passing mention, and gives the snippet", async () => {
     const root = brain();
@@ -144,7 +224,13 @@ describe("full-text search over chunks", () => {
   test("brain index --force rebuilds the chunk index from the markdown", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
+    // Lose the derived postings; the markdown and the chunk rows stay.
+    const db = new Database(join(root, "brain.db"));
+    db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('delete-all')");
+    db.close();
+    expect(postings(root, "aluminium")).toBe(0); // the precondition
     expect((await runCli(root, ["index", "--force", "--json"])).code).toBe(0);
+    expect(postings(root, "aluminium")).toBe(1);
     integrity(root);
     expect((await fts(root, "aluminium")).map((r) => r.path)).toEqual(["notes/field-manual.md"]);
   }, 120_000);

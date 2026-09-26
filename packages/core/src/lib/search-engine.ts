@@ -317,51 +317,111 @@ function ftsSearch(
     )
     .all(`{title summary tags} : (${match})`, ...filters.params, candidates) as FtsRow[];
 
-  // Several chunks of one document can match, so the chunk lane reads a wider
-  // window before keeping each document's best.
+  // Each document's best chunk, chosen over every matching chunk before the
+  // document limit applies: a document whose best section is strong is not
+  // pushed out by another document owning many good ones. bm25() cannot run
+  // under a window function, so it is scored in a materialized CTE first.
   const byChunk = db
     .prepare(
-      `SELECT ${columns},
-         -bm25(chunks_fts, 2.0, 1.0) as score,
-         snippet(chunks_fts, 1, '>>>', '<<<', '...', 40) as snippet
-       FROM chunks_fts cf
-       JOIN chunks c ON c.id = cf.rowid
-       JOIN documents d ON d.id = c.document_id
-       WHERE chunks_fts MATCH ? ${filters.where}
-       ORDER BY bm25(chunks_fts, 2.0, 1.0)
+      `WITH hits AS MATERIALIZED (
+         SELECT cf.rowid AS chunk_id, bm25(chunks_fts, 2.0, 1.0) AS rank
+         FROM chunks_fts cf WHERE chunks_fts MATCH ?
+       )
+       SELECT ${columns}, best.chunk_id AS chunkId, -best.rank AS score
+       FROM (
+         SELECT c.document_id AS doc_id, hits.chunk_id, hits.rank,
+                ROW_NUMBER() OVER (PARTITION BY c.document_id ORDER BY hits.rank, hits.chunk_id) AS nth
+         FROM hits JOIN chunks c ON c.id = hits.chunk_id
+       ) best
+       JOIN documents d ON d.id = best.doc_id
+       WHERE best.nth = 1 ${filters.where}
+       ORDER BY best.rank, d.path
        LIMIT ?`
     )
-    .all(match, ...filters.params, candidates * 5) as FtsRow[];
+    .all(match, ...filters.params, candidates) as Array<FtsRow & { chunkId: number }>;
 
-  const best = new Map<string, FtsRow>();
-  for (const row of byChunk) {
-    const seen = best.get(row.path);
-    if (!seen || row.score > seen.score) best.set(row.path, row);
-  }
+  const best = new Map<string, FtsRow & { chunkId?: number }>();
+  for (const row of byChunk) best.set(row.path, row);
   for (const row of byDocument) {
     const seen = best.get(row.path);
     if (!seen) best.set(row.path, row);
     // The better score wins; a chunk that matched keeps the snippet.
     else if (row.score > seen.score) best.set(row.path, { ...seen, score: row.score });
   }
-  const ranked = [...best.values()].sort(
-    (a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
-  );
-  if (ranked.length >= candidates) return ranked.slice(0, candidates) as SearchResult[];
+  const ranked = [...best.values()]
+    .sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .slice(0, candidates);
+  chunkSnippets(db, match, ranked);
 
   // A document whose terms all match only across its sections (an AND of
   // stopwords, a phrase over a chunk boundary), or that has no chunks, is
   // still found by its whole-document row. It ranks after every document
-  // found in one place, in that row's order.
-  // Their scores are scaled under the lowest score above them, keeping their
-  // order, so a reranker reading scores keeps them there too.
+  // found in one place, in that row's order: its scores are scaled under the
+  // lowest score above it, and it is marked, so the rerank keeps it there
+  // whatever the lifecycle factors say (see hybridSearch).
+  if (ranked.length >= candidates) return ranked as SearchResult[];
   const found = new Set(ranked.map((row) => row.path));
   const acrossSections = (wholeDocument(match, candidates) as FtsRow[]).filter((row) => !found.has(row.path));
   const floor = ranked.at(-1)?.score;
   const top = acrossSections[0]?.score ?? 0;
-  const below =
-    floor === undefined || top <= 0 ? acrossSections : acrossSections.map((row) => ({ ...row, score: (row.score / top) * floor * 0.5 }));
+  const below = acrossSections.map((row) => ({
+    ...row,
+    score: floor === undefined || top <= 0 ? row.score : (row.score / top) * floor * 0.5,
+    [ACROSS_SECTIONS]: true,
+  }));
   return [...ranked, ...below].slice(0, candidates) as SearchResult[];
+}
+
+/**
+ * Marks a full-text result found only on its whole-document row. A symbol
+ * key: it survives the reranker's object spread and never reaches JSON.
+ */
+const ACROSS_SECTIONS = Symbol("acrossSections");
+
+/**
+ * Fill in each ranked document's snippet from its best-matching chunk: the
+ * one the chunk lane chose, or, for a document that came in on its title,
+ * summary or tags, its best chunk that matches at all. A document with no
+ * matching chunk keeps its document-row snippet.
+ */
+function chunkSnippets(db: Database, match: string, ranked: Array<FtsRow & { chunkId?: number }>): void {
+  const needBest = ranked.filter((row) => row.chunkId === undefined).map((row) => row.path);
+  if (needBest.length > 0) {
+    const placeholders = needBest.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `WITH hits AS MATERIALIZED (
+           SELECT cf.rowid AS chunk_id, bm25(chunks_fts, 2.0, 1.0) AS rank
+           FROM chunks_fts cf WHERE chunks_fts MATCH ?
+         )
+         SELECT path, chunk_id FROM (
+           SELECT d.path AS path, hits.chunk_id,
+                  ROW_NUMBER() OVER (PARTITION BY d.id ORDER BY hits.rank, hits.chunk_id) AS nth
+           FROM hits JOIN chunks c ON c.id = hits.chunk_id JOIN documents d ON d.id = c.document_id
+           WHERE d.path IN (${placeholders})
+         ) WHERE nth = 1`
+      )
+      .all(match, ...needBest) as { path: string; chunk_id: number }[];
+    const byPath = new Map(rows.map((r) => [r.path, r.chunk_id]));
+    for (const row of ranked) if (row.chunkId === undefined && byPath.has(row.path)) row.chunkId = byPath.get(row.path);
+  }
+  const ids = ranked.map((row) => row.chunkId).filter((id): id is number => id !== undefined);
+  if (ids.length === 0) return;
+  const snippets = new Map(
+    (
+      db
+        .prepare(
+          `SELECT rowid AS id, snippet(chunks_fts, 1, '>>>', '<<<', '...', 40) AS snippet
+           FROM chunks_fts WHERE chunks_fts MATCH ? AND rowid IN (${ids.map(() => "?").join(",")})`
+        )
+        .all(match, ...ids) as { id: number; snippet: string }[]
+    ).map((r) => [r.id, r.snippet])
+  );
+  for (const row of ranked) {
+    const snippet = row.chunkId === undefined ? undefined : snippets.get(row.chunkId);
+    if (snippet !== undefined) row.snippet = snippet;
+    delete row.chunkId;
+  }
 }
 
 /**
@@ -728,6 +788,9 @@ export async function hybridSearch(
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
   candidates = demoteSuperseded(db, candidates);
+  // A full-text result found only across its sections stays after every one
+  // found in one place: its tier comes before its reranked score.
+  if (mode === "fts") candidates = [...candidates].sort((a, b) => Number(ACROSS_SECTIONS in a) - Number(ACROSS_SECTIONS in b));
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }
