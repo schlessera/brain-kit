@@ -183,6 +183,34 @@ describe("search.language", () => {
     }
   }, 180_000);
 
+  test("an unreadable document keeps its aliases and tag order through a switch, and after it is readable again", async () => {
+    // Root reads anything; the case only exists for a normal user.
+    if (process.getuid?.() === 0) return;
+    const root = brain();
+    await runCli(root, ["index", "--json"]);
+    const scope = "studies/telescope-setup.md"; // aliases ["my scope", "the Dobsonian", "the lightbucket"]
+    const plan = "projects/active/bookshelf/plan.md"; // tags [project, woodworking, bookshelf, plan]
+    const found = async () => ({
+      alias: (await paths(root, "lightbucket")).includes(scope),
+      phrase: (await paths(root, '"project woodworking"')).includes(plan),
+    });
+    expect(await found()).toEqual({ alias: true, phrase: true }); // the premise
+
+    setLanguage(root, "none");
+    const files = [scope, plan].map((path) => join(root, path));
+    for (const file of files) chmodSync(file, 0o000);
+    try {
+      expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+      expect(tokenizer(root)).toBe("unicode61 remove_diacritics 2");
+      expect(await found()).toEqual({ alias: true, phrase: true });
+    } finally {
+      for (const file of files) chmodSync(file, 0o644);
+    }
+    // Readable again, and unchanged, the next run skips it: what it kept is what it has.
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    expect(await found()).toEqual({ alias: true, phrase: true });
+  }, 180_000);
+
   test.skipIf(!vecAvailable)("a switch keeps every vector and chunk context", async () => {
     const root = brain();
     expect(await embedTempBrain(root)).toBeGreaterThan(0);
