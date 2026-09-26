@@ -130,6 +130,7 @@ export "." (./src/index.ts)
   hybridSearch
   ignoreScratch
   indexAll
+  inertGeneratedText
   ingest
   initContext
   installBinLinks

@@ -113,6 +113,32 @@ describe("planRegistry / applyRegistry", () => {
     expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(broken);
   });
 
+  test("an index whose frontmatter never closes is reported and left as it is", () => {
+    const unclosed = "---\ntitle: Projects\nupdated: 2026-01-01\nregistry: {columns: [title]}\n\nProse.\n";
+    const root = tree({ "projects/_index.md": unclosed, "projects/a.md": child("Alpha") });
+    const run = runRegistry(root, taxonomy, { asOf: "2026-06-01" });
+    expect(run.invalid).toEqual([{ path: "projects/_index.md", error: expect.stringContaining("no closing --- line") }]);
+    expect(run.written).toEqual([]);
+    expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(unclosed);
+    // And the next run still reports it, rather than finding nothing.
+    expect(runRegistry(root, taxonomy, { asOf: "2026-06-02" }).invalid.map((p) => p.path)).toEqual(["projects/_index.md"]);
+  });
+
+  test("a child whose frontmatter never closes is reported on its index", () => {
+    const root = tree({ "projects/_index.md": INDEX, "projects/a.md": "---\ntitle: Alpha\nstatus: active\n\nBody.\n" });
+    const run = runRegistry(root, taxonomy, { asOf: "2026-06-01" });
+    expect(run.invalid).toEqual([{ path: "projects/_index.md", error: expect.stringContaining("child projects/a.md") }]);
+    expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(INDEX);
+  });
+
+  test("a malformed quoted registry key counts as opted in and is reported", () => {
+    const broken = INDEX.replace("registry: { columns: [title, status] }", '"registry": {columns: [title]');
+    const root = tree({ "projects/_index.md": broken, "projects/a.md": child("Alpha") });
+    const run = runRegistry(root, taxonomy, { asOf: "2026-06-01" });
+    expect(run.invalid.map((p) => p.path)).toEqual(["projects/_index.md"]);
+    expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(broken);
+  });
+
   test("an unreadable index is reported, not skipped", () => {
     const root = tree({ "projects/_index.md": INDEX, "projects/a.md": child("Alpha") });
     chmodSync(join(root, "projects/_index.md"), 0o000);
@@ -259,6 +285,13 @@ describe("brain registry", () => {
     expect(git(root, "status", "--porcelain", "--", ".", ":!node_modules")).toBe("");
   }, 120_000);
 
+  test("takes no arguments", async () => {
+    const { root } = brain();
+    const r = await runCli(root, ["registry", "--", "--check"]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("brain registry takes no arguments, got: --check");
+  }, 60_000);
+
   test("refuses to write in an uninitialized directory; --check still reads", async () => {
     const root = makeTempBrain({ empty: true });
     roots.push(root);
@@ -271,6 +304,12 @@ describe("brain registry", () => {
     const write = await runCli(root, ["registry"]);
     expect(write.code).toBe(1);
     expect(write.stderr).toContain("refusing to modify an uninitialized directory");
+    expect(readFileSync(index, "utf8")).toBe(text);
+
+    // After `--`, "--check" is an argument, not the flag: this is still a write.
+    const terminated = await runCli(root, ["registry", "--", "--check"]);
+    expect(terminated.code).toBe(1);
+    expect(terminated.stderr).toContain("refusing to modify an uninitialized directory");
     expect(readFileSync(index, "utf8")).toBe(text);
 
     const check = await runCli(root, ["registry", "--check", "--json"]);

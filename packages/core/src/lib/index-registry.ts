@@ -20,7 +20,8 @@ import matter from "gray-matter";
 import { dirname, join, posix } from "path";
 import { z } from "zod";
 
-import { rewriteGeneratedRegion, splitFrontmatterBlock } from "./generated-regions.js";
+import { inertGeneratedText, rewriteGeneratedRegion, splitFrontmatterBlock } from "./generated-regions.js";
+import { frontmatterLength } from "./document-parts.js";
 import { writeFileSafely } from "./safe-path.js";
 import { getMarkdownFiles } from "./indexer.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -54,13 +55,7 @@ export interface RegistryProblem {
   error: string;
 }
 
-/**
- * Text that goes into the region made inert: a pipe cannot end a cell, and an
- * HTML comment opener cannot hide the rest of the table or pass for a marker.
- */
-function inert(text: string): string {
-  return text.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").replace(/<!--/g, "&lt;!--");
-}
+const inert = inertGeneratedText;
 
 /** A frontmatter value as table text: dates as `YYYY-MM-DD`, lists joined, made inert. */
 function cell(value: unknown): string {
@@ -152,6 +147,9 @@ function readFile(root: string, path: string): Read {
     return { raw: null, error: `unreadable: ${firstLine(error)}` };
   }
   try {
+    // gray-matter reads a block with no closing fence as frontmatter anyway;
+    // the rewrite would then treat the whole file as body.
+    splitFrontmatterBlock(raw);
     return { raw, data: matter(raw, {}).data as Record<string, unknown> };
   } catch (error) {
     return { raw, error: `frontmatter does not parse: ${firstLine(error)}` };
@@ -190,7 +188,7 @@ export function planRegistry(
     if (posix.basename(path) !== "_index.md") continue;
     const index = readOf(path);
     if ("error" in index) {
-      const optedIn = index.raw === null || /^registry\s*:/m.test(splitFrontmatterBlock(index.raw).frontmatter);
+      const optedIn = index.raw === null || /^\s*["']?registry["']?\s*:/m.test(index.raw.slice(0, frontmatterLength(index.raw)));
       if (optedIn) problems.push({ path, error: index.error });
       continue;
     }

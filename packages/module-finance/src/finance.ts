@@ -17,7 +17,7 @@ import { resolve, join, relative } from "path";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
 import matter from "gray-matter";
 
-import { rewriteGeneratedRegion, splitFrontmatterBlock } from "@schlessera/brain";
+import { inertGeneratedText, rewriteGeneratedRegion, splitFrontmatterBlock } from "@schlessera/brain";
 import { safeResolve } from "@schlessera/brain";
 
 /** Runtime configuration for the AR engine, threaded through every entry point. */
@@ -461,6 +461,15 @@ const STATUS_LABEL: Record<InvoiceStatus, string> = {
   overdue: "overdue ⚠", written_off: "written off", credited: "credited",
 };
 
+/**
+ * Frontmatter text as it goes into a generated table: made inert, so a line
+ * break, a pipe or an HTML comment in a value cannot break the table or put
+ * a region marker on a line of its own.
+ */
+const t = (value: unknown): string => inertGeneratedText(value === undefined || value === null ? "" : String(value));
+/** An amount in a generated table; a custom currency code is frontmatter text too. */
+const m = (n: number, currency: string): string => t(money(n, currency));
+
 /** Markdown tables + summary for a single client's ledger body. */
 export function renderLedgerTables(c: ClientReport, payments: Payment[]): string {
   const cur = c.currency;
@@ -469,27 +478,27 @@ export function renderLedgerTables(c: ClientReport, payments: Payment[]): string
   lines.push(`## Summary\n`);
   lines.push(`| Metric | Value |`);
   lines.push(`|--------|------:|`);
-  lines.push(`| Invoiced (${c.invoiceCount}) | ${money(c.invoiced, cur)} |`);
-  lines.push(`| Received (cash, ${c.paymentCount} payments) | ${money(c.received, cur)} |`);
-  lines.push(`| Allocated to invoices | ${money(c.allocated, cur)} |`);
-  lines.push(`| Bank/processor fees | ${money(c.fees, cur)} |`);
+  lines.push(`| Invoiced (${c.invoiceCount}) | ${m(c.invoiced, cur)} |`);
+  lines.push(`| Received (cash, ${c.paymentCount} payments) | ${m(c.received, cur)} |`);
+  lines.push(`| Allocated to invoices | ${m(c.allocated, cur)} |`);
+  lines.push(`| Bank/processor fees | ${m(c.fees, cur)} |`);
   for (const [ch, amt] of Object.entries(c.settledByChannel)) {
-    lines.push(`| Settled via ${ch} (external) | ${money(amt, cur)} |`);
+    lines.push(`| Settled via ${t(ch)} (external) | ${m(amt, cur)} |`);
   }
-  lines.push(`| **Open balance (${c.openInvoices.length})** | **${money(c.open, cur)}** |`);
+  lines.push(`| **Open balance (${c.openInvoices.length})** | **${m(c.open, cur)}** |`);
   const a = c.aging;
   lines.push("");
-  lines.push(`Aging of open balance — current ${money(a.current, cur)} · 1–30 ${money(a.d1_30, cur)} · 31–60 ${money(a.d31_60, cur)} · 61–90 ${money(a.d61_90, cur)} · 90+ **${money(a.d90_plus, cur)}**`);
+  lines.push(`Aging of open balance — current ${m(a.current, cur)} · 1–30 ${m(a.d1_30, cur)} · 31–60 ${m(a.d31_60, cur)} · 61–90 ${m(a.d61_90, cur)} · 90+ **${m(a.d90_plus, cur)}**`);
 
   lines.push(`\n## Invoices\n`);
   lines.push(`| Invoice | Period | Issued | Hours | Amount | Paid | Open | Status |`);
   lines.push(`|---------|--------|--------|------:|-------:|-----:|-----:|--------|`);
   for (const i of c.invoices) {
     const statusText = i.paidVia
-      ? `paid ✓ (${i.paidVia})`
+      ? `paid ✓ (${t(i.paidVia)})`
       : `${STATUS_LABEL[i.status]}${i.daysOverdue ? ` (${i.daysOverdue}d)` : ""}`;
     lines.push(
-      `| ${i.number} | ${i.period || ""} | ${i.issued || ""} | ${i.hours ?? ""} | ${money(i.amount, cur)} | ${money(i.paid, cur)} | ${i.open > 0.01 ? money(i.open, cur) : "—"} | ${statusText} |`
+      `| ${t(i.number)} | ${t(i.period)} | ${t(i.issued)} | ${t(i.hours)} | ${m(i.amount, cur)} | ${m(i.paid, cur)} | ${i.open > 0.01 ? m(i.open, cur) : "—"} | ${statusText} |`
     );
   }
 
@@ -497,12 +506,12 @@ export function renderLedgerTables(c: ClientReport, payments: Payment[]): string
   lines.push(`| Date | Received | Fee | Method | Settles |`);
   lines.push(`|------|---------:|----:|--------|---------|`);
   for (const p of payments) {
-    const settles = (p.allocations || []).map((al) => `${al.invoice} (${money(al.amount, cur)})`).join(", ");
-    lines.push(`| ${p.date} | ${money(p.received, cur)} | ${money(p.fee || 0, cur)} | ${p.method || "wire"} | ${settles} |`);
+    const settles = (p.allocations || []).map((al) => `${t(al.invoice)} (${m(al.amount, cur)})`).join(", ");
+    lines.push(`| ${t(p.date)} | ${m(p.received, cur)} | ${m(p.fee || 0, cur)} | ${t(p.method || "wire")} | ${settles} |`);
   }
 
   if (c.settledExternal > 0) {
-    const chans = Object.keys(c.settledByChannel).join(", ");
+    const chans = t(Object.keys(c.settledByChannel).join(", "));
     lines.push(
       `\n_Invoices marked "paid (${chans})" were settled outside the tracked payment stream (external ${chans} channel). Exact receipt dates/amounts live in that channel; counted above under "Settled via ${chans}"._`
     );
@@ -514,20 +523,20 @@ export function renderLedgerTables(c: ClientReport, payments: Payment[]): string
 /** Portfolio dashboard table for <clientsDir>/_index.md. */
 function renderIndexTable(pf: Portfolio): string {
   const lines: string[] = [];
-  lines.push(`_As of ${pf.asOf}. Generated from each client's \`ledger.md\` — run \`brain finance sync\` to refresh._\n`);
+  lines.push(`_As of ${t(pf.asOf)}. Generated from each client's \`ledger.md\` — run \`brain finance sync\` to refresh._\n`);
   lines.push(`| Client | Status | Invoiced | Settled | Open | Oldest open | Dir |`);
   lines.push(`|--------|--------|---------:|--------:|-----:|-------------|-----|`);
   for (const c of pf.clients) {
     const oldest = c.openInvoices.length
-      ? `${c.openInvoices[0].period || c.openInvoices[0].number} (${c.openInvoices[0].daysOverdue}d)`
+      ? `${t(c.openInvoices[0].period || c.openInvoices[0].number)} (${c.openInvoices[0].daysOverdue}d)`
       : "—";
     const settled = Math.max(0, Math.round((c.invoiced - c.open) * 100) / 100);
     lines.push(
-      `| ${c.displayName} | ${c.status} | ${money(c.invoiced, c.currency)} | ${money(settled, c.currency)} | **${money(c.open, c.currency)}** | ${oldest} | [${c.slug}](${c.slug}/) |`
+      `| ${t(c.displayName)} | ${t(c.status)} | ${m(c.invoiced, c.currency)} | ${m(settled, c.currency)} | **${m(c.open, c.currency)}** | ${oldest} | [${t(c.slug)}](${c.slug}/) |`
     );
   }
   lines.push("");
-  const totals = Object.entries(pf.openByCurrency).map(([cur, amt]) => money(amt, cur)).join(" · ");
+  const totals = Object.entries(pf.openByCurrency).map(([cur, amt]) => m(amt, cur)).join(" · ");
   lines.push(`**Total open: ${totals || "—"}**`);
   if (pf.warningCount) lines.push(`\n⚠ ${pf.warningCount} reconciliation warning(s) — run \`brain finance\` to see them.`);
   return lines.join("\n");

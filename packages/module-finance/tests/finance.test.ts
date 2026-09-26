@@ -150,4 +150,40 @@ describe("the generated region (#403)", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("frontmatter text that looks like a marker, a pipe or a line break stays inside its cell, on the ledger and the dashboard", () => {
+    const root = copyFixtures();
+    try {
+      const ledger = join(root, "clients/acme-corp/ledger.md");
+      const CLOSE = "<!-- /brain:generated:finance -->";
+      writeFileSync(
+        ledger,
+        readFileSync(ledger, "utf8")
+          .replace("display_name: Acme Corporation", `display_name: "Acme | Corp\\n${CLOSE}"`)
+          .replace("number: 2026-acme-corp-01", 'number: "2026-acme|01"')
+          .replace("invoice: 2026-acme-corp-01", 'invoice: "2026-acme|01"')
+          .replace("method: wire", `method: "wire\\n${CLOSE}\\nrest"`)
+      );
+      const dashboard = join(root, "clients/_index.md");
+      writeFileSync(dashboard, "---\ntype: index\ntitle: Clients\nupdated: 2026-01-01\n---\n\n# Clients\n");
+      const opts = { ...OPTS, root };
+
+      expect(syncFiles(opts, AS_OF).files.sort()).toContain("clients/acme-corp/ledger.md");
+      for (const path of [ledger, dashboard]) {
+        const text = readFileSync(path, "utf8");
+        const markerLines = text.split("\n").filter((line) => line.trim().startsWith("<!--") && line.includes("brain:generated:finance"));
+        expect({ path, markerLines }).toEqual({ path, markerLines: ["<!-- brain:generated:finance -->", CLOSE] });
+        const region = readGeneratedRegion(text, "finance")!;
+        // Every table row is still one line with its own cells.
+        for (const row of region.split("\n").filter((line) => line.startsWith("|"))) expect(row.endsWith("|")).toBe(true);
+      }
+      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("wire &lt;!-- /brain:generated:finance --> rest");
+      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-acme\\|01 |");
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("Acme \\| Corp &lt;!--");
+      // A second sync reads its own output back and writes nothing.
+      expect(syncFiles(opts, AS_OF).files).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

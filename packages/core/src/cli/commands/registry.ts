@@ -1,6 +1,6 @@
 import { runRegistry } from "../../lib/index-registry.js";
 import type { CoreCommand } from "../types.js";
-import { emit, parseArgs } from "../io.js";
+import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain registry — regenerate _index.md registry tables from the children's frontmatter
 
@@ -17,7 +17,8 @@ export const registryCommand: CoreCommand = {
   summary: "Regenerate _index.md registry tables from the children's frontmatter",
   helpBlock: HELP,
   async run(args, cli): Promise<number> {
-    const { flags } = parseArgs(args);
+    const { flags, args: positional } = parseArgs(args);
+    if (positional.length > 0) throw new UsageError(`brain registry takes no arguments, got: ${positional.join(" ")}`);
     const check = flags.check === true;
     const result = runRegistry(cli.brain.root, cli.brain.taxonomy, {
       check,

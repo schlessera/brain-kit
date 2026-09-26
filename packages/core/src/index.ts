@@ -31,6 +31,7 @@ export type {
 
 // Generated regions: derived content inside hand-written markdown
 export {
+  inertGeneratedText,
   readGeneratedRegion,
   replaceGeneratedRegion,
   rewriteGeneratedRegion,

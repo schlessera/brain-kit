@@ -15,6 +15,8 @@
  * and dashboard tables.
  */
 
+import { frontmatterLength } from "./document-parts.js";
+
 /** A region name: lowercase letters, digits and dashes. */
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -96,12 +98,24 @@ export function replaceGeneratedRegion(body: string, name: string, content: stri
 /**
  * Split a file into its frontmatter block, kept verbatim (`---` fences
  * included), and its body. Frontmatter is never re-serialized: hand-written
- * YAML keeps its layout.
+ * YAML keeps its layout. Where the block starts follows the rule core reads
+ * documents by (`frontmatterLength`); a block that opens and never closes
+ * throws, since which part is the body cannot be known.
  */
 export function splitFrontmatterBlock(raw: string): { frontmatter: string; body: string } {
-  const m = raw.match(/^(---\r?\n[\s\S]*?\r?\n---)(\r?\n[\s\S]*)?$/);
-  if (!m) return { frontmatter: "", body: raw };
-  return { frontmatter: m[1], body: m[2] ?? "" };
+  if (frontmatterLength(raw) === 0) return { frontmatter: "", body: raw };
+  const close = raw.indexOf("\n---", 3);
+  if (close === -1) throw new Error("frontmatter has no closing --- line");
+  return { frontmatter: raw.slice(0, close + 4), body: raw.slice(close + 4) };
+}
+
+/**
+ * Text that goes into a generated region made inert: a line break cannot end
+ * a table row or put a marker on a line of its own, a pipe cannot end a cell,
+ * and an HTML comment opener cannot hide what follows or pass for a marker.
+ */
+export function inertGeneratedText(text: string): string {
+  return text.replace(/\r?\n|\r/g, " ").replace(/\|/g, "\\|").replace(/<!--/g, "&lt;!--");
 }
 
 /**
