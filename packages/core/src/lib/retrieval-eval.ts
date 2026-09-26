@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import type { AssembleReport } from "./context-assembler.js";
 import type { SearchResult } from "./types.js";
 
 /** Bumped when a field of the `brain eval --json` envelope changes meaning. */
@@ -79,6 +80,8 @@ const querySchema = z
     expect: z.object({ select: selectSchema }).strict().optional(),
     stale: z.array(z.string().min(1)).min(1).optional(),
     lang: z.string().min(1).optional(),
+    /** Text the context eval looks for in the assembled output instead of an expected path. */
+    answer: z.string().trim().min(1).optional(),
   })
   .strict()
   .superRefine((query, ctx) => {
@@ -91,6 +94,7 @@ const querySchema = z
       if (query.expect) issue(`a "${NO_ANSWER_CLASS}" query cannot select its answers`);
       else if (query.expected!.length > 0) issue(`a "${NO_ANSWER_CLASS}" query must have an empty "expected"`);
       if (query.stale) issue(`a "${NO_ANSWER_CLASS}" query has no current answer for "stale" to rank below`);
+      if (query.answer !== undefined) issue(`a "${NO_ANSWER_CLASS}" query has no "answer" to look for`);
     } else if (query.expected?.length === 0) {
       issue(`an empty "expected" requires class "${NO_ANSWER_CLASS}"`);
     }
@@ -439,4 +443,75 @@ export function selectPaths(select: Selector, documents: FrontmatterDocument[], 
   const sign = select.order === "asc" ? 1 : -1;
   candidates.sort((a, b) => sign * (a.at - b.at) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return candidates.slice(0, select.take).map((c) => c.path);
+}
+
+/** The largest `--budgets` value accepted, in tokens. */
+export const MAX_BUDGET = 1_000_000;
+
+/** Parse `--budgets 1000,4000,8000` into sorted, distinct positive integers up to MAX_BUDGET. */
+export function parseBudgets(raw: string): number[] {
+  const values = new Set<number>();
+  for (const part of raw.split(",").map((p) => p.trim())) {
+    if (!/^[1-9]\d*$/.test(part)) {
+      throw new EvalSetError(`--budgets takes positive integers separated by commas, got "${raw}"`);
+    }
+    const value = Number(part);
+    if (!Number.isSafeInteger(value) || value > MAX_BUDGET) {
+      throw new EvalSetError(`--budgets values go up to ${MAX_BUDGET}, got ${part.length > 12 ? `${part.slice(0, 12)}…` : part}`);
+    }
+    values.add(value);
+  }
+  return [...values].sort((a, b) => a - b);
+}
+
+/** What `brain context` put in its output, as the assembler reported it. */
+export interface ContextSections {
+  /** 1 when the identity section (whole or cut) is in. */
+  identity: number;
+  /** 1 when the current-focus section is in. */
+  focus: number;
+  /** Search-result sections. */
+  results: number;
+  /** Documents in the `### Related` list. */
+  related: number;
+}
+
+/** Count the assembled context's sections from the assembler's report. */
+export function contextSections(report: AssembleReport): ContextSections {
+  return {
+    identity: report.identity === null ? 0 : 1,
+    focus: report.focus === null ? 0 : 1,
+    results: report.results.length,
+    related: report.related.length,
+  };
+}
+
+/**
+ * Whether the assembled context carries a query's answer. With `answer`, the
+ * text itself must appear in the output (case and whitespace ignored).
+ * Otherwise an expected path must be one the assembler reports as a search
+ * hit, or as the source of the identity or current-focus section. A document
+ * in the Related list is not an answer: only its summary line is there. The
+ * report comes from the assembler, so nothing in a document's own text (a
+ * quoted heading, a fenced example) can pass for a section.
+ */
+export function answerPresent(
+  output: string,
+  report: AssembleReport,
+  query: { expected: string[]; answer?: string }
+): boolean {
+  if (query.answer !== undefined) {
+    const squash = (t: string) => t.toLowerCase().replace(/\s+/g, " ");
+    return squash(output).includes(squash(query.answer).trim());
+  }
+  return query.expected.some(
+    (path) => report.results.includes(path) || path === report.identity || path === report.focus
+  );
+}
+
+/** Nearest-rank percentile (p in 0..100) of a non-empty list. */
+export function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
+  return sorted[rank - 1];
 }

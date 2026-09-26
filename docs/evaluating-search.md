@@ -198,6 +198,30 @@ far, so the median top-1 score cannot tell a confident vector answer from a
 weak one. To compare confidence in vector mode, run it with `--rerank none`,
 which keeps the distance.
 
+## Measuring `brain context`
+
+`brain context` is what an agent is handed: the identity and current-focus
+documents, then search hits, within a token budget. `--context` runs every
+query through it at each budget (`--budgets 1000,4000,8000` is the default),
+and reports per budget:
+
+- **answer present**: the share of answerable queries whose expected path the
+  assembler included as a search hit, or as the identity or focus document
+  (shown in full or in part). A document only named in the Related list does
+  not count. Give a query an `answer` string to look for that text
+  instead, when the right answer is a fact rather than a document.
+- **budget used**: how much of the budget the output takes, by the
+  assembler's own token estimate, as the median, p10 and p90 over all
+  queries. A budget used to the brim with the answer still missing is spent
+  on the wrong things; one barely used means more budget buys nothing.
+
+```sh
+brain eval --mode fts --context --budgets 500,1000,4000
+```
+
+Read the rows as a curve: the budget at which the answer-present rate stops
+rising is the most your agents need to be given for this set.
+
 ## Output
 
 `--json` prints the envelope described in the

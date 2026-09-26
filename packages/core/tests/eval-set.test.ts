@@ -290,3 +290,11 @@ describe("ContaminationScanner and a document's own answers", () => {
     expect(scan(long, "notes/eval.md", text)).toHaveLength(1);
   });
 });
+
+describe("the answer field", () => {
+  test("a query may carry an answer to look for; a no-answer query may not", () => {
+    expect(parseEvalSet(line({ ...query, answer: "collimation" })).queries[0].answer).toBe("collimation");
+    expect(() => parseEvalSet(line({ ...query, answer: "  " }))).toThrow(/^line 1: answer: /);
+    expect(() => parseEvalSet(line({ ...query, class: "no-answer", expected: [], answer: "x" }))).toThrow(/no "answer" to look for/);
+  });
+});

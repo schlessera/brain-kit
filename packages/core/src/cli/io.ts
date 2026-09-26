@@ -50,6 +50,7 @@ export const BOOLEAN_FLAGS = new Set([
   "upcoming",
   "no-git",
   "strict",
+  "context",
   "apply", "groups", "redundant",
 ]);
 
@@ -61,7 +62,7 @@ export const VALUE_FLAGS = new Set([
   "center", "depth", "direction", "stale-days", "community",
   "format", "as", "width", "allow-host", "only",
   "forget-cache",
-  "set", "k", "now",
+  "set", "k", "now", "budgets",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
 ]);
 
