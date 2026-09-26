@@ -5,8 +5,8 @@
  */
 
 import { afterEach, expect, test } from "bun:test";
-import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "fs";
-import { homedir } from "os";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { cleanup, makeTempBrain, runCli, testBinHome } from "./cli-harness";
@@ -16,16 +16,6 @@ const temps: string[] = [];
 afterEach(() => {
   while (temps.length) cleanup(temps.pop()!);
 });
-
-/** What the developer's own bin link points at, or null when there is none. */
-function realLink(): string | null {
-  const link = join(homedir(), ".local", "bin", "brain");
-  try {
-    return lstatSync(link).isSymbolicLink() ? readlinkSync(link) : "(not a link)";
-  } catch {
-    return null;
-  }
-}
 
 test("doctor --fix links brain under the harness's XDG_BIN_HOME, not ~/.local/bin", async () => {
   const root = makeTempBrain();
@@ -48,14 +38,24 @@ test("doctor --fix links brain under the harness's XDG_BIN_HOME, not ~/.local/bi
   mkdirSync(join(root, ".claude", "skills"), { recursive: true });
   symlinkSync(join(root, "nowhere"), join(root, ".claude", "skills", "ghost"));
 
-  const before = realLink();
+  // The child gets a throwaway HOME holding a sentinel where ~/.local/bin/brain
+  // would be. If the harness default ever stops applying, --fix relinks the
+  // sentinel, not the developer's own link, and the last assertion fails.
+  const home = mkdtempSync(join(tmpdir(), "brain-sentinel-home-"));
+  temps.push(home);
+  const sentinelTarget = join(home, "sentinel-brain");
+  writeFileSync(sentinelTarget, "#!/bin/sh\n");
+  mkdirSync(join(home, ".local", "bin"), { recursive: true });
+  const sentinel = join(home, ".local", "bin", "brain");
+  symlinkSync(sentinelTarget, sentinel);
+
   const link = join(testBinHome(), "brain");
   rmSync(link, { force: true });
-  const { stdout, code, stderr } = await runCli(root, ["doctor", "--fix", "--json"]);
+  const { stdout, code, stderr } = await runCli(root, ["doctor", "--fix", "--json"], { HOME: home });
   expect(code, stderr).toBe(0);
   expect(JSON.parse(stdout).fixesApplied).toContain("symlinks");
 
   expect(lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true);
   expect(readlinkSync(link)).toBe(target);
-  expect(realLink()).toBe(before);
+  expect(readlinkSync(sentinel)).toBe(sentinelTarget);
 });
