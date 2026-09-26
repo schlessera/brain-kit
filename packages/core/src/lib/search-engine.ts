@@ -659,7 +659,7 @@ export async function hybridSearch(
 
 /**
  * A document another one `supersedes` (#412) is demoted, not hidden: its score
- * is multiplied by SUPERSEDED_FACTOR and it carries `superseded_by`, the path
+ * is multiplied by SUPERSEDED_FACTOR and it carries `supersededBy`, the path
  * of the document that replaces it (the first by path when several do). It
  * runs after fusion and reranking, in every mode and with `rerank: none`, so
  * no mode ranks a replaced document on equal terms with its replacement. An
@@ -685,7 +685,7 @@ function demoteSuperseded(db: Database, candidates: SearchResult[]): SearchResul
   return candidates
     .map((result) => {
       const by = supersededBy.get(result.path);
-      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, superseded_by: by } : result;
+      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, supersededBy: by } : result;
     })
     .sort((a, b) => b.score - a.score);
 }

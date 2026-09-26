@@ -33,7 +33,7 @@ surfaced by `brain briefing`), `generated_from` (the source a tool or an
 agent pass produced this document from: a repo-relative path or a tool name),
 `supersedes` (on a newer version, the document it replaces: `"[[plan]]"`, or
 an inline list of them; search then ranks the replaced one lower and marks it
-`superseded_by`, without hiding it).
+`supersededBy`, without hiding it).
 
 Facts, for documents that restate the same facts (bios, fact sheets):
 - `facts` — on the canonical document a `taxonomy.facts` entry names as its

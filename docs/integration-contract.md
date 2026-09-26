@@ -80,7 +80,7 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 `status`, `relevance`, `updated` (`YYYY-MM-DD`), `summary` (string or
 `null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0),
 `generatedFrom` (the document's `generated_from`, string or `null`; additive in
-0.38.0), `superseded_by` (present only on a document another one
+0.38.0), `supersededBy` (present only on a document another one
 `supersedes`: that document's path; additive in 0.38.0), plus ranking
 metadata. Treat unknown fields as additive; never rely on field order.
 
@@ -476,7 +476,7 @@ Tool names and input schemas are stable:
 
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
-| `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, superseded_by? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `superseded_by`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
+| `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, supersededBy? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `supersededBy`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
 | `brain_context` | readOnly | `{ context, warnings }` |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
 | `brain_list` | readOnly | `{ documents, warnings }` |
@@ -884,7 +884,7 @@ Rules a consumer may rely on:
   `plan`) or an inline list of them, resolved like a body wiki-link, aliases
   included. Search multiplies a superseded document's score by 0.85 after
   fusion and reranking, in every mode and with `rerank: none`, and marks the
-  result with `superseded_by`; the document stays in the results. `brain
+  result with `supersededBy`; the document stays in the results. `brain
   validate` reports a value of another shape, an unresolved target and a
   cycle (a document superseding itself through a chain) as errors.
 - `brain archive` / `brain_archive` set `status: archived` and bump `updated`.

@@ -214,7 +214,7 @@ export async function startMcpServer(
     tags: z.string().nullish(),
     score: z.number().nullish(),
     snippet: z.string().nullish(),
-    superseded_by: z.string().optional(),
+    supersededBy: z.string().optional(),
   });
 
   server.registerTool(
@@ -284,7 +284,7 @@ export async function startMcpServer(
             tags: r.tags,
             score: r.score,
             snippet: r.snippet,
-            ...(r.superseded_by ? { superseded_by: r.superseded_by } : {}),
+            ...(r.supersededBy ? { supersededBy: r.supersededBy } : {}),
           })),
           warnings,
         };

@@ -55,7 +55,7 @@ export interface SearchResult {
   /** The source a generated document is produced from (`generated_from`), or null. */
   generatedFrom?: string | null;
   /** The path of the document that `supersedes` this one, when one does (#412). */
-  superseded_by?: string;
+  supersededBy?: string;
   score: number;
   snippet: string;
   chunks?: ChunkMatch[];

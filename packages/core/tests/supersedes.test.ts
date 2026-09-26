@@ -43,7 +43,7 @@ function brain(supersedes: string | null = `"[[${OLD.replace(/\.md$/, "")}]]"`):
   return root;
 }
 
-type Hit = { path: string; superseded_by?: string };
+type Hit = { path: string; supersededBy?: string };
 
 async function fts(root: string): Promise<Hit[]> {
   const r = await runCli(root, ["search", QUERY, "--mode", "fts", "--rerank", "none", "--json"]);
@@ -94,13 +94,13 @@ describe("supersedes", () => {
     db.close();
   }, 120_000);
 
-  test("full-text: the superseding plan ranks first, and the old one stays, carrying superseded_by", async () => {
+  test("full-text: the superseding plan ranks first, and the old one stays, carrying supersededBy", async () => {
     const root = brain();
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
     const hits = await fts(root);
     expect(order(hits)).toEqual([NEW, OLD]);
-    expect(hits.find((h) => h.path === OLD)?.superseded_by).toBe(NEW);
-    expect(hits.find((h) => h.path === NEW)?.superseded_by).toBeUndefined();
+    expect(hits.find((h) => h.path === OLD)?.supersededBy).toBe(NEW);
+    expect(hits.find((h) => h.path === NEW)?.supersededBy).toBeUndefined();
   }, 120_000);
 
   test("vector: the superseding plan ranks first", async () => {
@@ -123,7 +123,7 @@ describe("supersedes", () => {
     db.close();
   }, 120_000);
 
-  test("brain_search carries superseded_by too", async () => {
+  test("brain_search carries supersededBy too", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
     const client = new Client({ name: "supersedes-test", version: "1.0.0" });
@@ -132,8 +132,8 @@ describe("supersedes", () => {
       const res = await client.callTool({ name: "brain_search", arguments: { query: QUERY, mode: "fts", rerank: "none" } });
       const results = (res.structuredContent as { results: Hit[] }).results;
       expect(order(results)).toEqual([NEW, OLD]);
-      expect(results.find((h) => h.path === OLD)?.superseded_by).toBe(NEW);
-      expect(results.find((h) => h.path === NEW)).not.toHaveProperty("superseded_by");
+      expect(results.find((h) => h.path === OLD)?.supersededBy).toBe(NEW);
+      expect(results.find((h) => h.path === NEW)).not.toHaveProperty("supersededBy");
     } finally {
       await client.close();
     }
@@ -144,7 +144,7 @@ describe("supersedes", () => {
     await runCli(root, ["index", "--json"]);
     expect((await runCli(root, ["index", "--force", "--json"])).code).toBe(0);
     const hits = await fts(root);
-    expect(hits.find((h) => h.path === OLD)?.superseded_by).toBe(NEW);
+    expect(hits.find((h) => h.path === OLD)?.supersededBy).toBe(NEW);
   }, 120_000);
 
   test("an index from before schema 12 gains supersession on its next index run, without --force", async () => {
@@ -155,7 +155,7 @@ describe("supersedes", () => {
     db.run("UPDATE index_metadata SET value = '11' WHERE key = 'schema_version'");
     db.close();
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    expect((await fts(root)).find((h) => h.path === OLD)?.superseded_by).toBe(NEW);
+    expect((await fts(root)).find((h) => h.path === OLD)?.supersededBy).toBe(NEW);
   }, 120_000);
 });
 
