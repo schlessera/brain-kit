@@ -478,6 +478,29 @@ function candidateParagraphs(content: string): string[] {
 }
 
 /**
+ * Each non-archived document whose exact title (surrounding whitespace aside)
+ * another non-archived document shares, with the paths of the others. An
+ * archived copy is history, not a second current document.
+ */
+export function findDuplicateTitles(docs: AuditDoc[]): Array<{ doc: AuditDoc; others: string[] }> {
+  const byTitle = new Map<string, AuditDoc[]>();
+  for (const doc of docs) {
+    if (doc.status === "archived") continue;
+    const title = doc.title.trim();
+    if (!title) continue;
+    const group = byTitle.get(title);
+    if (group) group.push(doc);
+    else byTitle.set(title, [doc]);
+  }
+  const found: Array<{ doc: AuditDoc; others: string[] }> = [];
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    for (const doc of group) found.push({ doc, others: group.filter((d) => d !== doc).map((d) => d.path) });
+  }
+  return found.sort((a, b) => (a.doc.path < b.doc.path ? -1 : a.doc.path > b.doc.path ? 1 : 0));
+}
+
+/**
  * Paragraphs of at least REPEATED_TEXT_MIN_CHARS that at least
  * REPEATED_TEXT_MIN_DOCS documents carry, compared after whitespace
  * normalisation. Each copy is chunked, contextualised and embedded on its own,
@@ -743,6 +766,19 @@ export function audit(
       category: "repeated-text",
       message: `A paragraph appears in ${paths.length} documents (${shown}): "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
       suggestion: "Keep the text in one document and link to it from the others; each copy is embedded on its own",
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // 2f. Duplicate titles — two documents a result list cannot tell apart
+  // ---------------------------------------------------------------
+  for (const { doc, others } of findDuplicateTitles(docs)) {
+    issues.push({
+      path: doc.path,
+      severity: "info",
+      category: "duplicate-title",
+      message: `Title "${doc.title}" is also the title of ${others.join(", ")}`,
+      suggestion: "Give each a title that says how it differs; search results and links show titles, not paths",
     });
   }
 

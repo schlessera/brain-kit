@@ -16,6 +16,7 @@ import type { Database } from "bun:sqlite";
 
 import { CHUNKER_VERSION, chunkDocument } from "../chunker.js";
 import { supersedesTargets } from "../supersedes.js";
+import { nameKeys } from "../name-key.js";
 import { chunkContextKey } from "./caches.js";
 import { applyFtsTokenizer } from "./fts.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
@@ -70,11 +71,13 @@ function prepareStatements(db: Database) {
     deleteChunks: db.prepare("DELETE FROM chunks WHERE document_id = ?"),
     deleteTags: db.prepare("DELETE FROM document_tags WHERE document_id = ?"),
     deleteLinks: db.prepare("DELETE FROM links WHERE source_id = ?"),
+    deleteNameKeys: db.prepare("DELETE FROM name_keys WHERE document_id = ?"),
+    insertNameKey: db.prepare("INSERT OR IGNORE INTO name_keys (key, document_id) VALUES (?, ?)"),
     deleteSupersedes: db.prepare("DELETE FROM supersedes WHERE source_id = ?"),
     insertSupersedes: db.prepare("INSERT OR IGNORE INTO supersedes (source_id, target, target_id) VALUES (?, ?, NULL)"),
     deleteDoc: db.prepare("DELETE FROM documents WHERE id = ?"),
     insertFts: db.prepare(
-      "INSERT INTO documents_fts(rowid, title, summary, content, tags) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO documents_fts(rowid, title, summary, content, tags, aliases) VALUES (?, ?, ?, ?, ?, ?)"
     ),
     insertChunk: db.prepare(
       `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate)
@@ -172,16 +175,21 @@ function writeDocument(
   // A value of the wrong shape stores nothing; `brain validate` reports it.
   for (const target of supersedesTargets(data.supersedes) ?? []) st.insertSupersedes.run(docRow.id, target);
 
-  // Aliases ride along in the FTS tags column, so an alternate name is
-  // findable by keyword search even though it is not a tag.
+  // Aliases have their own column, weighted like the title; one per line, so
+  // an exact alias can be read back whole.
   const aliases = Array.isArray(data.aliases) ? data.aliases.map(String) : [];
+  // A changed document's keys were written for its old title and aliases.
+  st.deleteNameKeys.run(docRow.id);
+  for (const key of nameKeys(String(data.title), aliases)) st.insertNameKey.run(key, docRow.id);
   st.insertFts.run(
     docRow.id,
     String(data.title),
     data.summary ? String(data.summary) : "",
     content,
-    [...tagNames, ...aliases].join(" ")
+    tagNames.join(" "),
+    aliases.join("\n")
   );
+
 
   const title = String(data.title);
   const chunks = chunkDocument({ title, content, documentId: docRow.id });

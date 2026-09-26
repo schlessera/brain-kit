@@ -61,11 +61,11 @@ export function applyFtsTokenizer(run: IndexRun): void {
     }
     run.db.run("DROP TABLE IF EXISTS documents_fts");
     run.db.run(`CREATE VIRTUAL TABLE documents_fts USING fts5(
-      title, summary, content, tags,
+      title, summary, content, tags, aliases,
       tokenize='${wanted}'
     )`);
     if (columns.length > 0) {
-      const kept = columns.filter((c) => ["title", "summary", "content", "tags"].includes(c));
+      const kept = columns.filter((c) => ["title", "summary", "content", "tags", "aliases"].includes(c));
       run.db.run(
         `INSERT INTO documents_fts(rowid, ${kept.join(", ")}) SELECT id, ${kept.join(", ")} FROM temp.documents_fts_copy`
       );
