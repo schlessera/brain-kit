@@ -6,6 +6,7 @@ import { dirname, relative } from "path";
 import type { DocumentType, IngestInput } from "./types.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { stringifyDocument } from "./frontmatter.js";
+import { updateDocument } from "./frontmatter-edit.js";
 import { safeResolve } from "./safe-path.js";
 
 export interface IngestOutcome {
@@ -204,11 +205,12 @@ export async function ingest(
   if (classification.path && !input.path && !input.type && title.toLowerCase() === classification.title?.toLowerCase()) {
     const fullPath = resolvePath(classification.path);
     if (existsSync(fullPath)) {
-      const parsed = matter(readFileSync(fullPath, "utf-8"));
+      const raw = readFileSync(fullPath, "utf-8");
+      const parsed = matter(raw);
       if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
-        parsed.data.updated = today();
-        const updatedContent = parsed.content + `\n\n## ${today()} Update\n\n` + content.trim() + "\n";
-        writeFileSync(fullPath, stringifyDocument(updatedContent, parsed.data), "utf-8");
+        // Only `updated` changes in the frontmatter; its other bytes stay as written.
+        const section = `## ${today()} Update\n\n${content.trim()}`;
+        writeFileSync(fullPath, updateDocument(raw, { updated: today() }, section), "utf-8");
         return {
           action: "appended",
           path: relative(canonicalRoot, fullPath),
