@@ -51,6 +51,16 @@ describe("recencyFactor", () => {
 });
 
 describe("rerank", () => {
+  test("a generated document ranks below an equal hand-written one", () => {
+    // Equal base score and `updated`; the generated one comes first going in.
+    const candidates = [
+      result({ path: "generated.md", updated: "2026-06-01", generatedFrom: "notes/source.md" }),
+      result({ path: "written.md", updated: "2026-06-01" }),
+    ];
+    const ranked = rerank("query", candidates, { mode: "heuristic", now: new Date("2026-06-11") });
+    expect(ranked.map((r) => r.path)).toEqual(["written.md", "generated.md"]);
+  });
+
   test("primary relevance outranks historical at equal base score", () => {
     const candidates = [
       result({ path: "old.md", relevance: "historical", updated: "2026-06-01" }),

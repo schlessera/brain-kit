@@ -5,6 +5,7 @@ import matter from "gray-matter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
+import { hasDocumentsColumn } from "./db.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
@@ -36,6 +37,8 @@ export interface AuditDoc {
   /** `next_review` from the frontmatter as `YYYY-MM-DD`, or null. */
   next_review: string | null;
   content: string;
+  /** `generated_from` frontmatter: the source the document is produced from, or null. */
+  generated_from: string | null;
 }
 
 /**
@@ -46,7 +49,9 @@ export interface AuditDoc {
 export function loadAuditDocs(db: Database): AuditDoc[] {
   return db
     .prepare(
-      `SELECT id, path, title, type, status, relevance, updated, next_review, content
+      // A read-only connection on a schema-9 index has no generated_from yet.
+      `SELECT id, path, title, type, status, relevance, updated, next_review, content,
+         ${hasDocumentsColumn(db, "generated_from") ? "generated_from" : "NULL AS generated_from"}
        FROM documents
        WHERE asset_type = 'markdown'
        ORDER BY path`
@@ -507,6 +512,7 @@ export function audit(
   // Each taxonomy propagation rule names a canonical source document and a glob
   // for the derivatives generated from it (e.g. bios generated from a canonical
   // FACTS.md must not lag behind it).
+  const reported = new Set<string>();
   for (const rule of taxonomy.propagation) {
     const source = docs.find((d) => d.path === rule.source);
     if (!source) continue;
@@ -518,6 +524,7 @@ export function audit(
       if (doc.path === rule.source || !glob.match(doc.path)) continue;
       const docUpdated = new Date(doc.updated).getTime();
       if (sourceUpdated > docUpdated) {
+        reported.add(`${doc.path}\n${rule.source}`);
         issues.push({
           path: doc.path,
           severity,
@@ -526,6 +533,28 @@ export function audit(
           suggestion: `Regenerate ${doc.path} from ${rule.source}`,
         });
       }
+    }
+  }
+
+  // A document's own `generated_from` (#430) is the same rule for one file:
+  // when it names a markdown document in the corpus that was updated after
+  // it, the derivative lags. A path that resolves to nothing, or a tool name,
+  // has no `updated` to compare, so it is never reported.
+  const byPath = new Map(docs.map((d) => [d.path, d]));
+  for (const doc of docs) {
+    if (!doc.generated_from) continue;
+    // A repo-relative path, normalized (`notes/./a.md`, `notes/../notes/a.md`).
+    // One that leaves the repo normalizes to `../…`, which no document has.
+    const source = byPath.get(posix.normalize(doc.generated_from));
+    if (!source || source.path === doc.path || reported.has(`${doc.path}\n${source.path}`)) continue;
+    if (new Date(source.updated).getTime() > new Date(doc.updated).getTime()) {
+      issues.push({
+        path: doc.path,
+        severity: "warning",
+        category: "propagation",
+        message: `${source.path} was updated more recently than this derivative (source: ${source.updated}, this: ${doc.updated})`,
+        suggestion: `Regenerate ${doc.path} from ${source.path}`,
+      });
     }
   }
 

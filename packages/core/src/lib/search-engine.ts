@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { SEARCH_SORTS, type SearchResult, type SearchOptions } from "./types.js";
 import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
-import { hasVecSupport, getMeta, embeddingIdentityMatches } from "./db.js";
+import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 
 export interface SearchResponse {
@@ -24,6 +24,11 @@ export interface SearchDeps {
   taxonomy?: Taxonomy;
   /** Interactive vector budget; must finish before the UI CLI deadline. */
   queryTimeoutMs?: number;
+}
+
+/** `documents.generated_from`, or NULL on a schema-9 index a read-only connection has not migrated. */
+function generatedFromColumn(db: Database): string {
+  return hasDocumentsColumn(db, "generated_from") ? "d.generated_from" : "NULL";
 }
 
 interface FilterResult {
@@ -170,7 +175,7 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
 
   const sql = `
     SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
       (SELECT GROUP_CONCAT(t.name, ', ')
        FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
        WHERE dt.document_id = d.id) as tags,
@@ -255,7 +260,7 @@ function ftsSearch(
   // negation for score and ascending ORDER BY.
   const sql = `
     SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
       (SELECT GROUP_CONCAT(t.name, ', ')
        FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
        WHERE dt.document_id = d.id) as tags,
@@ -384,7 +389,7 @@ async function vectorSearch(
     const placeholders = chunkIds.map(() => "?").join(",");
     const sql = `
       SELECT
-        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline,
+        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
         (SELECT GROUP_CONCAT(t.name, ', ')
          FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
          WHERE dt.document_id = d.id) as tags,
@@ -405,6 +410,7 @@ async function vectorSearch(
       tags: string;
       updated: string;
       deadline: string | null;
+      generatedFrom: string | null;
       chunk_id: number;
       chunk_content: string;
     }[];
@@ -428,6 +434,7 @@ async function vectorSearch(
           tags: row.tags,
           updated: row.updated,
           deadline: row.deadline,
+          generatedFrom: row.generatedFrom,
           score,
           snippet: makeSnippet(row.chunk_content),
         });

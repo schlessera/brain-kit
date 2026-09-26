@@ -188,7 +188,8 @@ Scores are only comparable within one mode and one rerank setting:
 | `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors |
 
 The lifecycle factors are relevance (`primary` ×1.15, `historical` ×0.85),
-draft status (×0.9) and recency (between ×0.7 and ×1).
+draft status (×0.9), a `generated_from` document (×0.85) and recency (between
+×0.7 and ×1).
 
 With the heuristic reranker, a vector score comes from the result's rank, not
 its distance. Rank 1 starts at `1/61` whether the nearest vector was close or

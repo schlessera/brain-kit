@@ -8,6 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "path";
 
+import { SCHEMA_VERSION } from "../src/lib/db";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const roots: string[] = [];
@@ -21,6 +22,7 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   // Put the database back the way schema 9 left it.
   const db = new Database(join(root, "brain.db"));
   db.run("ALTER TABLE documents DROP COLUMN chunker_version");
+  db.run("ALTER TABLE documents DROP COLUMN generated_from");
   db.run("UPDATE index_metadata SET value = '9' WHERE key = 'schema_version'");
   db.run("PRAGMA wal_checkpoint(TRUNCATE)");
   db.close();
@@ -43,7 +45,7 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   expect(doctor.code).toBe(0);
   expect(doctor.stdout + doctor.stderr).not.toContain("no such column");
   const checks = (JSON.parse(doctor.stdout) as { checks: Array<{ id: string; status: string; detail: string }> }).checks;
-  expect(checks.find((c) => c.id === "db")).toMatchObject({ status: "warn", detail: "schema_version 9 < 10" });
+  expect(checks.find((c) => c.id === "db")).toMatchObject({ status: "warn", detail: `schema_version 9 < ${SCHEMA_VERSION}` });
 
   // Still schema 9: nothing above migrated it.
   const check = new Database(join(root, "brain.db"), { readonly: true });

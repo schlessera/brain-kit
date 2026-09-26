@@ -33,6 +33,19 @@ export interface ValidationIssue {
   message: string;
 }
 
+/**
+ * A frontmatter value named by its kind, for a diagnostic. Never serialized:
+ * YAML anchors can make a value cyclic, and JSON.stringify throws on that.
+ */
+function describeValue(value: unknown): string {
+  if (value === null || value === undefined) return "an empty value";
+  if (Array.isArray(value)) return "a list";
+  if (value instanceof Date) return "a date";
+  if (typeof value === "object") return "a map";
+  if (typeof value === "string") return "an empty string";
+  return `a ${typeof value}`;
+}
+
 export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const files = getMarkdownFiles(root, taxonomy);
@@ -149,6 +162,13 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: `Invalid relevance: "${data.relevance}". Valid: ${VALID_RELEVANCES.join(", ")}`,
+      });
+    }
+    if ("generated_from" in data && (typeof data.generated_from !== "string" || data.generated_from.trim() === "")) {
+      issues.push({
+        file: filePath,
+        level: "error",
+        message: `Invalid generated_from: ${describeValue(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
       });
     }
     if (data.status === "archived" && data.relevance === "primary") {

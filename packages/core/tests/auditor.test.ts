@@ -41,6 +41,7 @@ interface DocRow {
   content?: string;
   title?: string;
   created?: string;
+  generatedFrom?: string;
 }
 
 function freshDb(): Database {
@@ -50,8 +51,8 @@ function freshDb(): Database {
 function insertDoc(db: Database, d: DocRow): number {
   db.run(
     `INSERT INTO documents
-       (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, indexed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, indexed_at, generated_from)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       d.path,
       d.title ?? d.path,
@@ -65,6 +66,7 @@ function insertDoc(db: Database, d: DocRow): number {
       "hash-" + d.path,
       "markdown",
       "2026-01-01",
+      d.generatedFrom ?? null,
     ]
   );
   return (db.prepare("SELECT id FROM documents WHERE path = ?").get(d.path) as { id: number }).id;
@@ -108,6 +110,54 @@ describe("audit propagation", () => {
     expect(prop[0].suggestion).toContain("me/basics/FACTS.md");
     db.close();
   });
+});
+
+describe("audit generated_from", () => {
+  // Paths outside the taxonomy's propagation rule, so only generated_from can report them.
+  const setup = () => {
+    const db = freshDb();
+    insertDoc(db, { path: "notes/source.md", type: "note", updated: "2026-06-01" });
+    insertDoc(db, { path: "notes/old-source.md", type: "note", updated: "2026-03-01" });
+    insertDoc(db, { path: "notes/lagging.md", type: "note", updated: "2026-05-01", generatedFrom: "notes/source.md" });
+    insertDoc(db, { path: "notes/current.md", type: "note", updated: "2026-05-01", generatedFrom: "notes/old-source.md" });
+    insertDoc(db, { path: "notes/scraped.md", type: "note", updated: "2026-01-01", generatedFrom: "trail-scraper" });
+    insertDoc(db, { path: "notes/dangling.md", type: "note", updated: "2026-01-01", generatedFrom: "notes/gone.md" });
+    insertDoc(db, { path: "notes/outside.md", type: "note", updated: "2026-01-01", generatedFrom: "../notes/source.md" });
+    return db;
+  };
+
+  test("a derivative older than its generated_from source yields exactly one propagation issue", () => {
+    const db = setup();
+    const prop = categories(audit(db, taxonomy, { now: NOW }), "propagation").filter((i) => i.path === "notes/lagging.md");
+    expect(prop).toEqual([{
+      path: "notes/lagging.md",
+      severity: "warning",
+      category: "propagation",
+      message: "notes/source.md was updated more recently than this derivative (source: 2026-06-01, this: 2026-05-01)",
+      suggestion: "Regenerate notes/lagging.md from notes/source.md",
+    }]);
+    db.close();
+  });
+
+  test("a derivative newer than its source, a tool name and a missing path yield none", () => {
+    const db = setup();
+    const paths = categories(audit(db, taxonomy, { now: NOW }), "propagation").map((i) => i.path);
+    expect(paths).toEqual(["notes/lagging.md"]);
+    db.close();
+  });
+});
+
+describe("audit generated_from paths", () => {
+  for (const written of ["notes/./source.md", "notes/../notes/source.md", "./notes/source.md"]) {
+    test(`${written} resolves to notes/source.md`, () => {
+      const db = freshDb();
+      insertDoc(db, { path: "notes/source.md", type: "note", updated: "2026-06-01" });
+      insertDoc(db, { path: "notes/lagging.md", type: "note", updated: "2026-05-01", generatedFrom: written });
+      const prop = categories(audit(db, taxonomy, { now: NOW }), "propagation");
+      expect(prop.map((i) => [i.path, i.suggestion])).toEqual([["notes/lagging.md", "Regenerate notes/lagging.md from notes/source.md"]]);
+      db.close();
+    });
+  }
 });
 
 describe("audit index-lag", () => {

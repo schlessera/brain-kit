@@ -22,6 +22,10 @@ const RELEVANCE_FACTOR: Record<string, number> = {
 };
 
 const DRAFT_FACTOR = 0.9; // drafts are unfinished — slight deboost vs active docs
+// Produced by a tool or an agent from another source (`generated_from`, #430):
+// the source is usually the better hit, so the derivative weighs like a
+// historical document.
+const GENERATED_FACTOR = 0.85;
 
 // A doc loses half its recency credit per half-life; the decay multiplies the
 // score between RECENCY_FLOOR (infinitely old) and 1.0 (updated today). The
@@ -79,8 +83,8 @@ export function recencyFactor(
 
 /**
  * Heuristic reranker: multiplies each score by the document's lifecycle
- * factors (relevance, draft status, recency). It nudges the retrieval order;
- * it does not replace it.
+ * factors (relevance, draft status, `generated_from`, recency). It nudges the
+ * retrieval order; it does not replace it.
  */
 function heuristicRerank(
   candidates: SearchResult[],
@@ -91,7 +95,8 @@ function heuristicRerank(
     const factor =
       (RELEVANCE_FACTOR[result.relevance] ?? 1) *
       recencyFactor(result.type, result.updated, now, halfLives) *
-      (result.status === "draft" ? DRAFT_FACTOR : 1);
+      (result.status === "draft" ? DRAFT_FACTOR : 1) *
+      (result.generatedFrom ? GENERATED_FACTOR : 1);
 
     return {
       ...result,

@@ -1,0 +1,189 @@
+/**
+ * `generated_from` end to end (#430): validate refuses a non-string, the
+ * indexer stores it, search results carry it so the reranker can weigh it,
+ * and a schema 10 database gains the column on open.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
+import { hybridSearch } from "../src/lib/search-engine";
+import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+
+const doc = (title: string, extra = "") =>
+  `---\ntype: note\ntitle: ${title}\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [t]\nstatus: active\nrelevance: secondary\n${extra}---\n\nThe lantern wick.\n`;
+
+describe("over a temp brain", () => {
+  let root: string;
+
+  beforeAll(async () => {
+    root = makeTempBrain({ empty: true });
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    // Same body, title length and date: only generated_from differs.
+    writeFileSync(join(root, "notes/written.md"), doc("Lantern A"));
+    writeFileSync(join(root, "notes/generated.md"), doc("Lantern B", "generated_from: notes/written.md\n"));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+  });
+
+  afterAll(() => cleanup(root));
+
+  test("the indexer stores generated_from", () => {
+    const db = openDatabase(join(root, "brain.db"), { readonly: true });
+    try {
+      const rows = db.prepare("SELECT path, generated_from FROM documents ORDER BY path").all();
+      expect(rows).toEqual([
+        { path: "notes/generated.md", generated_from: "notes/written.md" },
+        { path: "notes/written.md", generated_from: null },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("search results carry it, and the reranker puts the generated document second", async () => {
+    const search = async (rerank: string) => {
+      const { stdout, code } = await runCli(root, ["search", "lantern", "--mode", "fts", "--rerank", rerank, "--json"]);
+      expect(code).toBe(0);
+      return JSON.parse(stdout).results as { path: string; generatedFrom: string | null }[];
+    };
+    // The premise: without reranking, the generated document comes first.
+    expect((await search("none")).map((r) => r.path)).toEqual(["notes/generated.md", "notes/written.md"]);
+    const ranked = await search("heuristic");
+    expect(ranked.map((r) => [r.path, r.generatedFrom])).toEqual([
+      ["notes/written.md", null],
+      ["notes/generated.md", "notes/written.md"],
+    ]);
+  });
+
+  test("validate reports a cyclic generated_from and goes on to the next document", async () => {
+    // Valid YAML: an anchored list that contains itself.
+    writeFileSync(join(root, "notes/cyclic.md"), doc("Cyclic", "generated_from: &self [*self]\n"));
+    writeFileSync(join(root, "notes/untagged.md"), "---\ntype: note\ntitle: Untagged\ncreated: 2026-01-01\nupdated: 2026-06-01\n---\n\nbody\n");
+    try {
+      const { stdout, code } = await runCli(root, ["validate", "--json"]);
+      expect(code).not.toBe(2);
+      const issues = JSON.parse(stdout).issues as { file: string; level: string; message: string }[];
+      expect(issues.filter((i) => i.file === "notes/cyclic.md" && i.message.includes("generated_from"))).toEqual([{
+        file: "notes/cyclic.md",
+        level: "error",
+        message: "Invalid generated_from: a list. It must be a non-empty string: a repo-relative path or a tool name",
+      }]);
+      // The document after it was still checked.
+      expect(issues.some((i) => i.file === "notes/untagged.md")).toBe(true);
+    } finally {
+      rmSync(join(root, "notes/cyclic.md"));
+      rmSync(join(root, "notes/untagged.md"));
+    }
+  });
+
+  test("validate reports a generated_from that is not a non-empty string", async () => {
+    writeFileSync(join(root, "notes/bad.md"), doc("Bad", "generated_from: []\n"));
+    try {
+      const { stdout } = await runCli(root, ["validate", "--json"]);
+      const issues = (JSON.parse(stdout).issues as { file: string; level: string; message: string }[])
+        .filter((i) => i.file === "notes/bad.md" && i.message.includes("generated_from"));
+      expect(issues).toEqual([{
+        file: "notes/bad.md",
+        level: "error",
+        message: "Invalid generated_from: a list. It must be a non-empty string: a repo-relative path or a tool name",
+      }]);
+    } finally {
+      rmSync(join(root, "notes/bad.md"));
+    }
+  });
+});
+
+test("opening a schema 10 database adds the column and makes the next index re-read its files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-generated-from-"));
+  try {
+    const path = join(dir, "brain.db");
+    // A current database taken back to what schema 10 looked like.
+    const db = openDatabase(path);
+    db.run("ALTER TABLE documents DROP COLUMN generated_from");
+    db.run("INSERT INTO documents(path,title,type,status,created,updated,content,content_hash,asset_type,indexed_at) VALUES ('notes/a.md','A','note','active','2026-01-01','2026-01-01','x','hash-a','markdown','2026-01-01')");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
+    db.close();
+
+    const reopened = openDatabase(path);
+    try {
+      const columns = (reopened.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name);
+      expect(columns).toContain("generated_from");
+      expect(reopened.prepare("SELECT content_hash FROM documents WHERE path = 'notes/a.md'").get()).toEqual({ content_hash: null });
+      expect(reopened.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: String(SCHEMA_VERSION) });
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a schema 10 index serves search, audit and stats read-only before anything migrates it", async () => {
+  const root = makeTempBrain({ empty: true });
+  try {
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes/lamp.md"), doc("Lantern"));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    // Put the database back the way schema 10 left it.
+    const db = openDatabase(join(root, "brain.db"));
+    db.run("ALTER TABLE documents DROP COLUMN generated_from");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
+    db.close();
+
+    const search = await runCli(root, ["search", "lantern", "--mode", "fts", "--json"]);
+    expect(search.code).toBe(0);
+    const out = JSON.parse(search.stdout);
+    expect(out.warnings).toEqual([]);
+    expect(out.results.map((r: { path: string; generatedFrom: unknown }) => [r.path, r.generatedFrom])).toEqual([["notes/lamp.md", null]]);
+    const filter = await runCli(root, ["search", "--type", "note", "--json"]);
+    expect(filter.code).toBe(0);
+    expect(JSON.parse(filter.stdout).results).toHaveLength(1);
+    expect((await runCli(root, ["audit", "--json"])).code).toBe(0);
+    expect((await runCli(root, ["stats", "--json"])).code).toBe(0);
+
+    // Nothing above migrated it.
+    const check = new Database(join(root, "brain.db"), { readonly: true });
+    try {
+      expect(check.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "10" });
+    } finally {
+      check.close();
+    }
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("a reader kept open across the migration sees the new column", async () => {
+  const root = makeTempBrain({ empty: true });
+  try {
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes/lamp.md"), doc("Lantern", "generated_from: notes/source.md\n"));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const db = openDatabase(join(root, "brain.db"));
+    db.run("ALTER TABLE documents DROP COLUMN generated_from");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
+    db.close();
+
+    // A long-lived reader (an MCP server, say) searches before the migration.
+    const reader = openDatabase(join(root, "brain.db"), { readonly: true });
+    try {
+      const before = await hybridSearch(reader, { query: "lantern", mode: "fts" });
+      expect(before.results.map((r) => r.generatedFrom)).toEqual([null]);
+      // Another process migrates and reindexes.
+      expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+      const after = await hybridSearch(reader, { query: "lantern", mode: "fts" });
+      expect(after.results.map((r) => r.generatedFrom)).toEqual(["notes/source.md"]);
+    } finally {
+      reader.close();
+    }
+  } finally {
+    cleanup(root);
+  }
+});
