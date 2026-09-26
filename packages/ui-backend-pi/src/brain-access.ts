@@ -402,13 +402,13 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         changes.push("next_review");
       }
       if (input.appendContent) changes.push("content");
-      // Archiving by a status edit demotes relevance the way brain_archive
-      // does (#450), unless this call sets relevance itself.
-      if (input.status === "archived" && input.relevance === undefined) {
-        const relevance = relevanceOnArchive(raw);
+      // Archiving by a status edit applies brain_archive's relevance rule
+      // (#450) to the effective relevance, including one set in this call.
+      if (input.status === "archived") {
+        const relevance = relevanceOnArchive(raw, input.relevance);
         if (relevance) {
           updates.relevance = relevance;
-          changes.push("relevance");
+          if (!changes.includes("relevance")) changes.push("relevance");
         }
       }
 

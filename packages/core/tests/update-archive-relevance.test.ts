@@ -1,8 +1,8 @@
 /**
  * Archiving through `brain_update` (#450): setting `status: archived` applies
  * the relevance rule `brain archive` applies (#413). A primary or missing
- * relevance becomes historical; an explicit secondary or historical stays,
- * and so does a relevance set in the same call.
+ * relevance becomes historical, whether it is the document's or passed in
+ * the same call; an explicit secondary or historical stays.
  */
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -62,8 +62,14 @@ test("an explicit secondary survives archiving", async () => {
   expect(out.changes).toEqual(["status"]);
 });
 
-test("a relevance set in the same call wins", async () => {
-  expect((await update("primary", { status: "archived", relevance: "primary" })).relevance).toBe("primary");
+test("a primary passed in the same call is demoted too, reported once", async () => {
+  const out = await update("secondary", { status: "archived", relevance: "primary" });
+  expect(out.relevance).toBe("historical");
+  expect(out.changes).toEqual(["status", "relevance"]);
+});
+
+test("a secondary passed in the same call is kept", async () => {
+  expect((await update("primary", { status: "archived", relevance: "secondary" })).relevance).toBe("secondary");
 });
 
 test("a status other than archived leaves relevance alone", async () => {

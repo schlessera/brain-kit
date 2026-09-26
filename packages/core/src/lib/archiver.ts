@@ -37,11 +37,14 @@ function today(): string {
  * The relevance a document gets when it is archived, by any route (#413,
  * #450): an archived doc claiming primary would still take the primary search
  * boost whenever archived docs are included, so a primary or unset relevance
- * becomes historical. An explicit secondary or historical is the author's
- * call and stays, which is `undefined` here: leave the key alone.
+ * becomes historical. The rule reads the effective relevance: `requested`,
+ * when the same edit sets one, else the document's own. So a primary asked
+ * for alongside the archive is demoted too. An explicit secondary or
+ * historical is the author's call and stays, which is `undefined` here: leave
+ * the relevance as it would otherwise be.
  */
-export function relevanceOnArchive(raw: string): "historical" | undefined {
-  const relevance = matter(raw, {}).data.relevance;
+export function relevanceOnArchive(raw: string, requested?: string): "historical" | undefined {
+  const relevance = requested ?? matter(raw, {}).data.relevance;
   return !relevance || relevance === "primary" ? "historical" : undefined;
 }
 

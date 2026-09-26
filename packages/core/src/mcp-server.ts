@@ -550,7 +550,7 @@ export async function startMcpServer(
     "brain_update",
     {
       description:
-        "Update an existing brain document: set frontmatter fields (summary, status, relevance, tags, deadline, next_review) and/or append a markdown section to the body. Bumps the `updated` field and reindexes. Setting status to archived also demotes a primary or unset relevance to historical, as brain_archive does. Does not create files — use brain_add for that.",
+        "Update an existing brain document: set frontmatter fields (summary, status, relevance, tags, deadline, next_review) and/or append a markdown section to the body. Bumps the `updated` field and reindexes. Setting status to archived also demotes a primary or unset relevance to historical, as brain_archive does, including a primary passed in the same call. Does not create files — use brain_add for that.",
       inputSchema: {
         path: z.string().describe('Relative path to the document (e.g., "context/current-focus.md")'),
         summary: z.string().optional().describe("New one-line summary"),
@@ -594,11 +594,14 @@ export async function startMcpServer(
         }
         if (params.append_content) changes.push("content");
 
-        // Archiving by a status edit demotes relevance the way brain_archive
-        // does (#450), unless this call sets relevance itself.
-        if (params.status === "archived" && params.relevance === undefined) {
-          const relevance = relevanceOnArchive(raw);
-          if (relevance) { updates.relevance = relevance; changes.push("relevance"); }
+        // Archiving by a status edit applies brain_archive's relevance rule
+        // (#450) to the effective relevance, including one set in this call.
+        if (params.status === "archived") {
+          const relevance = relevanceOnArchive(raw, params.relevance);
+          if (relevance) {
+            updates.relevance = relevance;
+            if (!changes.includes("relevance")) changes.push("relevance");
+          }
         }
 
         if (changes.length === 0) return errorResult(new Error("no changes specified"));
