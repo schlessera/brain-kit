@@ -6,8 +6,8 @@ import matter from "gray-matter";
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";
 import { topLevelBlocks } from "./document-parts.js";
-import { hybridSearch } from "./search-engine.js";
-import type { SearchResult } from "./types.js";
+import { chunkMatchLine, hybridSearch } from "./search-engine.js";
+import type { ChunkMatch, SearchResult } from "./types.js";
 
 export interface AssembleOptions {
   query: string;
@@ -298,22 +298,44 @@ export async function assembleContext(
   if (opts.query && minimalFits && budget > BUDGET_FLOOR) {
     const { results, warnings } = await hybridSearch(
       db,
-      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now },
+      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now, chunks: true },
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
     opts.warnings?.push(...warnings);
 
     const hits: string[] = [];
+    // One hit may take this much of the budget, as a snippet or a section, so
+    // a long section cannot crowd out every other hit.
+    const hitCap = Math.floor(maxTokens * SECTION_BUDGET_SHARE);
+    // Monotone in the budget, as the canonical documents are (#518): every
+    // hit is first placed as its one-line snippet, whose size does not depend
+    // on the budget, and only the budget left after all of them grows each
+    // one, in rank order, into its best chunk's section. A hit whose section
+    // would fit a larger budget therefore never pushes out a later hit.
+    const placedHits: Array<{ result: SearchResult; index: number }> = [];
     for (const result of results) {
       if (budget < BUDGET_FLOOR) break;
       if (included.has(result.path)) continue;
       const body = cleanSnippet(result.snippet ?? "");
-      const section = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
-      if (push(section)) {
+      const snippet = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
+      if (estimateTokens(snippet) <= hitCap && push(snippet)) {
         included.add(result.path);
         hits.push(result.path);
+        placedHits.push({ result, index: parts.length - 1 });
         opts.report?.results.push(result.path);
       }
+    }
+    for (const { result, index } of placedHits) {
+      const best = result.chunks?.[0];
+      if (!best) continue;
+      const cost = (text: string) => estimateTokens(index > 0 ? SEPARATOR + text : text);
+      const current = parts[index]!;
+      // Within the cap and what is left, with this hit's snippet given back.
+      const room = Math.min(hitCap, budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0));
+      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), ctx.root, room);
+      if (section === null || cost(section) - cost(current) > budget) continue;
+      budget -= cost(section) - cost(current);
+      parts[index] = section;
     }
 
     growCanonicals();
@@ -340,6 +362,165 @@ export async function assembleContext(
   growCanonicals();
 
   return parts.join(SEPARATOR);
+}
+
+/** The largest share of the budget one hit's section may take. */
+const SECTION_BUDGET_SHARE = 0.4;
+
+/** A heading block's text: an ATX heading without its `#` markers, or a setext heading's lines joined. */
+function headingBlockText(source: string): string {
+  const lines = source.split("\n");
+  if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(lines[0]!)) {
+    return lines[0]!.replace(/^ {0,3}#{1,6}[ \t]*/, "").replace(/(?:^|[ \t]+)#+[ \t]*$/, "").trim();
+  }
+  return lines.slice(0, -1).map((line) => line.trim()).join(" ");
+}
+
+/**
+ * Every top-level heading of `text`, ATX or setext, rewritten as an ATX
+ * heading at level 5 or deeper (its own level plus two, at most 6), so a
+ * section cannot open a heading at the output's `##`/`###`/`####` levels. The
+ * parse decides what a heading is, so a `#` line in code or a quote is left
+ * as it is.
+ */
+function demoteHeadings(text: string): string {
+  let out = "";
+  let at = 0;
+  for (const block of topLevelBlocks(text)) {
+    if (block.type !== "heading") continue;
+    const depth = Math.min(6, Math.max(5, (block.depth ?? 1) + 2));
+    out += `${text.slice(at, block.start)}${"#".repeat(depth)} ${headingBlockText(text.slice(block.start, block.end))}`;
+    at = block.end;
+  }
+  return out + text.slice(at);
+}
+
+/** How a type 1–5 HTML block (CommonMark 4.6) that opens `source` ends, if it does not already. */
+function openHtmlTerminator(source: string): string | null {
+  const start = source.trimStart();
+  const kinds: Array<[RegExp, string]> = [
+    [/^<(?:script|pre|style|textarea)(?:[\s>]|$)/i, ""],
+    [/^<!--/, "-->"],
+    [/^<\?/, "?>"],
+    [/^<![A-Za-z]/, ">"],
+    [/^<!\[CDATA\[/, "]]>"],
+  ];
+  for (const [opens, end] of kinds) {
+    if (!opens.test(start)) continue;
+    const terminator = end || `</${/^<([a-z]+)/i.exec(start)![1]!.toLowerCase()}>`;
+    return source.toLowerCase().includes(terminator.toLowerCase()) ? null : terminator;
+  }
+  return null;
+}
+
+/**
+ * `text` with a construct left open at its end closed: a fence without its
+ * closing fence, or an HTML block (a comment, `<script>`, …) without its end
+ * marker. Such a construct runs to the end of the document, so in the output
+ * it would swallow every hit after it. Only the last top-level block can be
+ * one; one inside a list or a quote ends with its container.
+ */
+function closeOpenConstructs(text: string): string {
+  const last = topLevelBlocks(text).at(-1);
+  if (!last) return text;
+  const source = text.slice(last.start, last.end);
+  if (last.type === "code") {
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(source)?.[1];
+    if (!fence) return text;
+    const lines = source.split("\n");
+    const closing = new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \t]*$`);
+    return lines.length > 1 && closing.test(lines[lines.length - 1]!) ? text : `${text}\n${fence}`;
+  }
+  if (last.type === "html") {
+    const terminator = openHtmlTerminator(source);
+    return terminator ? `${text}\n${terminator}` : text;
+  }
+  return text;
+}
+
+/** The non-blank lines of a chunk, as the section's source has them. */
+function chunkLines(content: string): string[] {
+  return content.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim() !== "");
+}
+
+/**
+ * The part of a document a chunk comes from: its lead (the text before the
+ * first top-level `##`) or one `##` section, as the source parses today.
+ *
+ * When the query's first match in the chunk is known (`matchLine`, the line
+ * that holds it), the part holding that line is taken. That is what decides a
+ * folded chunk, one into which the chunker merged a short section: it carries
+ * that section's `##` heading, and only the match says which part answers.
+ * Otherwise, for a chunk that is not folded, the part holding most of its
+ * lines is taken (the chunker can repeat a table's header row or re-prefix a
+ * nested table's row, so not every line need be there), ties going to the
+ * part the chunk's heading names, then the first.
+ *
+ * Null, so the caller keeps the snippet, when the part cannot be told: a
+ * folded chunk whose match line is unknown, a match line more than one part
+ * holds in a folded chunk, or a chunk no part holds half of (the file has
+ * changed since it was indexed).
+ */
+function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): { name: string | null; text: string } | null {
+  const { lead, sections } = splitSections(body);
+  const parts = [
+    { name: null as string | null, text: lead },
+    ...sections.map((section) => {
+      const heading = topLevelBlocks(section)[0]!;
+      const name = headingBlockText(section.slice(heading.start, heading.end));
+      // What follows the heading: blank lines before it go, indentation stays.
+      const rest = section.slice(heading.end).replace(/^[ \t]*\r?\n/, "").replace(/^(?:[ \t]*\r?\n)+/, "");
+      return { name, text: rest.trimEnd() };
+    }),
+  ];
+  const folded = topLevelBlocks(chunk.content).some((block) => block.type === "heading" && (block.depth ?? 1) <= 2);
+  let candidates = parts;
+  if (matchLine !== null) {
+    const asHeading = /^#{1,6}(?:[ \t]|$)/.test(matchLine) ? headingBlockText(matchLine) : null;
+    candidates = parts.filter((part) => part.text.includes(matchLine) || (asHeading !== null && part.name === asHeading));
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length === 0) return null;
+  }
+  if (folded) return null;
+  const lines = chunkLines(chunk.content);
+  if (lines.length === 0) return null;
+  const hinted = chunk.heading.replace(/ \(cont\.\)$/, "").split(" › ")[0];
+  let best: { part: (typeof parts)[number]; found: number } | null = null;
+  for (const part of candidates) {
+    const found = lines.filter((line) => part.text.includes(line)).length;
+    const better =
+      !best || found > best.found || (found === best.found && part.name === hinted && best.part.name !== hinted);
+    if (better) best = { part, found };
+  }
+  return best && best.found * 2 >= lines.length && best.found > 0 ? best.part : null;
+}
+
+/**
+ * A hit as the whole `##` section (or the lead) its best chunk comes from
+ * (`sourcePart`, with the line of the query's first match in it), read from
+ * the source file: under the hit's header and a `####` naming the
+ * section, with its headings demoted below that and a construct left open at
+ * its end closed. Longer than `cap` tokens, it is cut after its last whole
+ * block that fits, with a pointer to the file. Null, so the caller falls back
+ * to the snippet, when the file cannot be read or no longer holds the chunk,
+ * when not even the header fits, or when no block but a heading survives the
+ * cut.
+ */
+function hitSection(result: SearchResult, best: ChunkMatch, matchLine: string | null, root: string, cap: number): string | null {
+  const doc = readMarkdownContent(root, result.path);
+  const part = doc ? sourcePart(doc.body, best, matchLine) : null;
+  if (!part || !part.text) return null;
+  const text = closeOpenConstructs(demoteHeadings(part.text));
+  const named = part.name ? `\n#### ${oneLine(part.name)}` : "";
+  const head = `${hitHeader(result)}${named}`;
+  const whole = `${head}\n${text}`;
+  if (estimateTokens(whole) <= cap) return whole;
+  const marker = `(truncated — brain read ${result.path})`;
+  const cut = truncateAtBoundary(head, text, marker, cap);
+  if (cut === null) return null;
+  // A cut that keeps no block but headings says nothing the snippet does not.
+  const kept = cut.slice(head.length + 1, cut.length - marker.length);
+  return topLevelBlocks(kept).some((block) => block.type !== "heading") ? cut : null;
 }
 
 interface NeighbourDoc {

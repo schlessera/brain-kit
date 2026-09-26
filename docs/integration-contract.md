@@ -83,7 +83,19 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 `generatedFrom` (the document's `generated_from`, string or `null`; additive in
 0.38.0), `supersededBy` (present only on a document another one
 `supersedes`: that document's path; additive in 0.38.0), plus ranking
-metadata. Treat unknown fields as additive; never rely on field order.
+metadata. With `brain search --chunks` (additive in 0.38.0), each result also
+carries `chunks`: its indexed chunks that match the query as the full-text
+lane reads it (the same tokenizer, `search.language` and stopwords), best
+first, as `{ "path", "chunk_index", "heading", "content", "score" }`. `heading`
+is the section the chunk comes from (`(intro)` before the first, `Section
+(cont.)` and `Section › Sub` for the pieces of a long one); `score` is the
+chunk's BM25 relevance (heading weighted 2, content 1), higher is better. A
+result with no such chunk, every result of a filter-only search or of a query
+with no word in it, and every result on an index from before schema 12 have an
+empty list. If chunk matching fails, the results stand with empty lists and
+`warnings` says so, as for a failed search lane. Without `--chunks` there is
+no `chunks` key. Treat unknown fields as
+additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
 `updated` (strings); `summary` (string or `null`); `deadline` (`YYYY-MM-DD`,

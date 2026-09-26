@@ -16,6 +16,8 @@ const HELP = `brain search <query> — hybrid FTS5 + vector search
   --rerank <mode>         Rerank mode: none|heuristic (default: heuristic)
   --include-archived      Include archived documents
   --assets-only           Only return non-markdown assets (images, PDFs)
+  --chunks                Add each result's chunks that match the query, best
+                          first ({ path, chunk_index, heading, content, score })
   --limit <n>             Max results (default: 20)
   --updated-since <date>  Only documents updated on or after this date (YYYY-MM-DD)
   --updated-before <date> Only documents updated on or before this date
@@ -54,6 +56,7 @@ export const searchCommand: CoreCommand = {
       status: flags.status as string | undefined,
       includeArchived: flags.status === "archived" || flags["include-archived"] === true,
       assetsOnly: flags["assets-only"] === true,
+      chunks: flags.chunks === true,
       limit: flags.limit ? parseInt(flags.limit as string, 10) : 20,
       updatedSince: flags["updated-since"] as string | undefined,
       updatedBefore: flags["updated-before"] as string | undefined,

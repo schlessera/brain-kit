@@ -47,6 +47,28 @@ describe("search", () => {
     expect(status.updated).toBe("2026-06-30");
   });
 
+  test("--chunks adds each result's matching chunks; without it the results carry none", async () => {
+    const withChunks = JSON.parse((await runCli(root, ["search", "walnut shelves", "--mode", "fts", "--chunks", "--json"])).stdout);
+    const first = withChunks.results[0];
+    expect(first.chunks.length).toBeGreaterThan(0);
+    const source = readFileSync(join(root, first.path), "utf-8");
+    for (const chunk of first.chunks) {
+      expect(Object.keys(chunk).sort()).toEqual(["chunk_index", "content", "heading", "path", "score"]);
+      expect(chunk.path).toBe(first.path);
+      // The chunk's heading is one of the file's own section headings.
+      if (chunk.heading !== "(intro)") expect(source).toMatch(new RegExp(`^## ${chunk.heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+    }
+    const without = JSON.parse((await runCli(root, ["search", "walnut shelves", "--mode", "fts", "--json"])).stdout);
+    expect(without.results.map((r: { path: string }) => r.path)).toEqual(withChunks.results.map((r: { path: string }) => r.path));
+    for (const r of without.results) expect(r).not.toHaveProperty("chunks");
+  });
+
+  test("--chunks on a filter-only search gives each result an empty chunks list", async () => {
+    const out = JSON.parse((await runCli(root, ["search", "--type", "note", "--chunks", "--json"])).stdout);
+    expect(out.results.length).toBeGreaterThan(0);
+    for (const r of out.results) expect(r.chunks).toEqual([]);
+  });
+
   test("hybrid mode without a key degrades to FTS with a warning", async () => {
     const { stdout, code } = await runCli(root, ["search", "telescope", "--mode", "hybrid", "--json"]);
     expect(code).toBe(0);

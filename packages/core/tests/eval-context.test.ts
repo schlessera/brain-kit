@@ -88,10 +88,11 @@ describe("brain eval --context", () => {
     expect(high.budget_used).toEqual({ median: Math.min(...used), p10: Math.min(...used), p90: Math.max(...used) });
   });
 
-  // At 250 tokens "ranger" leaves room for one hit after the pinned sections
-  // (the budget moved from 600 when #484 changed how those sections fill, and
-  // from 500 when #518 placed hits before those sections grow: one hit now
-  // fits on both dates from 170 to 300 tokens, and 250 is inside that range).
+  // At 280 tokens "ranger" leaves room for one hit after the pinned sections
+  // (the budget moved from 600 when #484 changed how those sections fill, from
+  // 500 when #518 placed hits before those sections grow, and from 250 when
+  // #373 held a hit's snippet to 40% of the budget: one hit now fits on both
+  // dates from 260 to 300 tokens, and 280 is inside that range).
   // Which one depends on recency, so the pinned now must reach the
   // assembler's search: ignoring it gives both runs the same output, and one
   // of the two dates' assertions fails whatever the wall clock says.
@@ -103,12 +104,12 @@ describe("brain eval --context", () => {
     const run = async (now: string) => {
       const path = join(root, "evals", `ranger-${now}.jsonl`);
       writeFileSync(path, [{ now }, ...pair].map((l) => JSON.stringify(l)).join("\n"));
-      return (await contextRun(path, "--budgets", "250")).at;
+      return (await contextRun(path, "--budgets", "280")).at;
     };
     const early = await run("2026-07-12");
-    expect([early("idea", 250).answer_present, early("bio", 250).answer_present]).toEqual([true, false]);
+    expect([early("idea", 280).answer_present, early("bio", 280).answer_present]).toEqual([true, false]);
     const late = await run("2028-07-12");
-    expect([late("idea", 250).answer_present, late("bio", 250).answer_present]).toEqual([false, true]);
+    expect([late("idea", 280).answer_present, late("bio", 280).answer_present]).toEqual([false, true]);
   });
 
   test("an answer string is looked for in the text itself", async () => {
