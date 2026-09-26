@@ -329,7 +329,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 10);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 11) {
     // v11 — `generated_from` frontmatter (#430): the source a document is
     // produced from. Clearing the markdown rows' content hash makes the next
     // index run re-read every file, so the column is filled without
