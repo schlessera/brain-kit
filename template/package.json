@@ -6,7 +6,9 @@
   "scripts": {
     "setup": "brain setup",
     "brain": "brain",
-    "test": "bun test"
+    "test": "bun test",
+    "eval": "brain eval --mode fts",
+    "eval:baseline": "brain eval --mode fts --out evals/baseline.json"
   },
   "dependencies": {
     "@schlessera/brain": "^0.37.0"

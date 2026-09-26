@@ -74,6 +74,51 @@ one below it:
 Tier 0 means the CLI is useful the moment you clone. Add a `GEMINI_API_KEY` when
 you want the "search by meaning" experience — see [`.env.example`](.env.example).
 
+## Measuring search
+
+`bun run eval` scores a set of your own questions against your brain: for each
+question you name the documents that answer it, and it reports how often search
+puts one of them first (hit@1), how high on average (MRR@10), and which
+questions it missed. The set lives in `evals/retrieval.jsonl`, one JSON object
+per line. `evals/` is never indexed, so the questions cannot answer themselves.
+
+```jsonl
+{"id": "hello", "q": "hello brain", "class": "exact", "expected": ["notes/hello-brain.md"]}
+{"id": "due-next", "q": "what is due next", "class": "time", "expect": {"select": {"field": "deadline", "after": "now", "order": "asc", "take": 1}}}
+{"id": "tax", "q": "tax return deadline", "class": "no-answer", "expected": []}
+```
+
+- `expected` lists the paths that answer the question; any one of them counts.
+- `expect.select` works the answer out from frontmatter at each run, for
+  questions whose answer changes over time (here: the document with the next
+  `deadline`). It needs at least one document with that field.
+- `class: "no-answer"` marks a question your brain should have nothing for.
+
+Start with the first line, which finds this template's starter note, then add
+questions you actually ask. `bun run eval` runs the keyless full-text lane;
+with an embedding key, add `-- --mode hybrid` to measure the search your agent
+gets. The format, the numbers and how to read them are in
+[Evaluating search](https://github.com/schlessera/brain-kit/blob/main/docs/evaluating-search.md).
+
+## After upgrading
+
+Nothing runs on install or upgrade. When you update brain-kit, check that
+search still finds what it used to:
+
+```sh
+bun run eval:baseline                           # once, before upgrading
+bun update
+brain index
+bun run eval -- --baseline evals/baseline.json
+```
+
+The comparison lists the questions **lost** (found before, missed now) and
+**gained**. It fails when at least two more were lost than gained, and says
+which. A lost question is worth a look: open it in `brain search` and see what
+ranks above its answer. When you are happy with the new results, run
+`bun run eval:baseline` again to make them the new baseline. `brain doctor`
+reminds you when `evals/baseline.json` was recorded with an older version.
+
 ## Documentation
 
 Full docs — concepts, CLI reference, MCP, hosting, and modules — live with the

@@ -454,6 +454,7 @@ describe("the published template", () => {
       "README.md",
       "brain.config.ts",
       "context/.gitkeep",
+      "evals/.gitkeep",
       "me/.gitkeep",
       "notes/hello-brain.md",
       "package.json",
