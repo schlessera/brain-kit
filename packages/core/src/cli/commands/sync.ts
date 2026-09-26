@@ -1,6 +1,7 @@
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
+import { matchesAnyPattern, TOOL_LEFTOVER_PATTERNS } from "../../lib/tool-leftovers.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -23,9 +24,10 @@ Mechanical verbs (structured output for the skill to drive):
                then report head parity and any remaining working-tree dirt`;
 
 // Artifact + sensitive path globs (ported from sync.sh). No personal patterns.
+// The tool leftovers are shared with brain doctor and the template .gitignore.
 const ARTIFACT_PATTERNS = [
-  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log",
-  "*.swp", "*.swo", "*~", ".DS_Store", "Desktop.ini", "Thumbs.db", "*.pptx",
+  ...TOOL_LEFTOVER_PATTERNS,
+  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log", "*.pptx",
 ];
 const SENSITIVE_PATTERNS = [
   ".env", ".env.*", "credentials*", "*.key", "*.pem", "*.secret", "*_secret*", "*_token*",
@@ -94,21 +96,6 @@ function unmergedPaths(root: string): string[] {
   return git(root, ["diff", "--name-only", "-z", "--diff-filter=U"], true).stdout.split("\0").filter(Boolean);
 }
 
-function globToRegex(pattern: string): RegExp {
-  const body = pattern
-    .split(/(\*)/)
-    .map((p) => (p === "*" ? ".*" : p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")))
-    .join("");
-  return new RegExp(`^${body}$`);
-}
-
-function matchesAny(file: string, patterns: string[]): boolean {
-  const base = file.split("/").pop() ?? file;
-  return patterns.some((p) => {
-    const re = globToRegex(p);
-    return re.test(file) || re.test(base);
-  });
-}
 
 function isTrackable(file: string): boolean {
   const ext = file.includes(".") ? file.split(".").pop()! : "";
@@ -155,8 +142,8 @@ function assess(root: string): AssessedFile[] {
     if (git(root, ["check-ignore", "-q", "--", file]).code === 0) continue;
 
     let klass: AssessedFile["class"];
-    if (matchesAny(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
-    else if (matchesAny(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
+    if (matchesAnyPattern(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
+    else if (matchesAnyPattern(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
     // Committed on purpose, but post-sync commits them after its reindex —
     // taking them here too would just commit a stale copy and duplicate work.
     else if (DERIVED_CACHES.has(file)) klass = "DERIVED";

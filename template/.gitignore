@@ -24,4 +24,21 @@ workspaces/*/
 # it to keep it.
 .brain/scratch/
 
-# Add your own ignores below (local extensions, editor files, OS cruft, …).
+# Tool leftovers: OS metadata, editor swap and backup files, LaTeX
+# byproducts. `brain sync` treats the same list as artifacts, and
+# `brain doctor` points out any that were committed before this was here.
+.DS_Store
+Thumbs.db
+Desktop.ini
+*:Zone.Identifier
+*.swp
+*.swo
+*~
+*.aux
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# Add your own ignores below (local extensions, anything else you keep out).

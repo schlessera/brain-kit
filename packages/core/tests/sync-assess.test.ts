@@ -36,4 +36,19 @@ describe("sync exact paths", () => {
       expect(grouped.groups.some((g: { path: string }) => g.path.includes("credentials"))).toBe(false);
     } finally { cleanup(root); }
   });
+
+  test("classifies tool leftovers as ARTIFACT", async () => {
+    const root = makeTempBrain();
+    try {
+      expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
+      // Review round 1: a newline in the name is still matched.
+      const leftovers = ["photo.jpg:Zone.Identifier", "cv.aux", "cv.synctex.gz", "notes/draft.md~", "line\nbreak.aux", "line\nbreak.jpg:Zone.Identifier"];
+      mkdirSync(join(root, "notes"), { recursive: true });
+      for (const path of leftovers) writeFileSync(join(root, path), "x");
+      const result = await runCli(root, ["sync", "assess", "--json"]);
+      expect(result.code).toBe(0);
+      const files = JSON.parse(result.stdout).files as { path: string; class: string; status: string }[];
+      for (const path of leftovers) expect(files).toContainEqual({ path, class: "ARTIFACT", status: "?" });
+    } finally { cleanup(root); }
+  });
 });

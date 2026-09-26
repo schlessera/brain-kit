@@ -22,6 +22,7 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
+import { isToolLeftover } from "../../lib/tool-leftovers.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
@@ -552,6 +553,42 @@ async function checkSqliteVecMac(): Promise<Check> {
  * or a render could land in the brain's history. Fixable: `--fix` adds the
  * line to `.gitignore`.
  */
+/** `path` as one shell word: single-quoted unless it is plainly safe. */
+function shellWord(path: string): string {
+  return /^[\w./@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Committed tool leftovers (OS metadata, editor swap files, LaTeX
+ * byproducts): the same list `brain sync assess` treats as ARTIFACT and the
+ * template `.gitignore` ignores. The fix is shown as text, never run: taking
+ * a file out of the index is the user's call.
+ */
+function checkTrackedLeftovers(root: string): Check {
+  if (!gitInstalled()) return { id: "tracked-leftovers", status: "warn", detail: GIT_MISSING };
+  if (!isGitRepo(root)) return { id: "tracked-leftovers", status: "pass", detail: "not a git repository" };
+  const proc = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"]);
+  if (proc.exitCode !== 0) {
+    return { id: "tracked-leftovers", status: "warn", detail: `git ls-files failed: ${new TextDecoder().decode(proc.stderr).trim()}` };
+  }
+  const leftovers = new TextDecoder()
+    .decode(proc.stdout)
+    .split("\0")
+    .filter((path) => path !== "" && isToolLeftover(path))
+    .sort();
+  if (leftovers.length === 0) return { id: "tracked-leftovers", status: "pass", detail: "no committed tool leftovers" };
+  const shown = leftovers.slice(0, 10);
+  const more = leftovers.length > shown.length ? ` and ${leftovers.length - shown.length} more` : "";
+  return {
+    id: "tracked-leftovers",
+    status: "warn",
+    detail: `${leftovers.length} committed tool leftover(s): ${shown.join(", ")}${more}`,
+    // --literal-pathspecs: a file named `:(exclude)cv.aux` or `*.aux` is that
+    // file, not a pathspec that selects others.
+    fix: `untrack them (the files stay on disk), then commit: git --literal-pathspecs rm --cached -- ${shown.map(shellWord).join(" ")}`,
+  };
+}
+
 function checkScratch(root: string): Check {
   if (!gitInstalled()) {
     return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
@@ -639,6 +676,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["version", () => checkVersion()],
     ["privacy", () => checkPrivacy(root)],
     ["git-storage", () => checkGitStorage(root)],
+    ["tracked-leftovers", () => checkTrackedLeftovers(root)],
     ["scratch", () => checkScratch(root)],
     ["cache-merge", () => checkCacheMerge(root)],
     ["sqlite-vec-macos", () => checkSqliteVecMac()],
