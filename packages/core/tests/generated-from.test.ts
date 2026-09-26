@@ -1,7 +1,7 @@
 /**
  * `generated_from` end to end (#430): validate refuses a non-string, the
  * indexer stores it, search results carry it so the reranker can weigh it,
- * and a schema 9 database gains the column on open.
+ * and a schema 10 database gains the column on open.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
+import { hybridSearch } from "../src/lib/search-engine";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const doc = (title: string, extra = "") =>
@@ -97,15 +98,15 @@ describe("over a temp brain", () => {
   });
 });
 
-test("opening a schema 9 database adds the column and makes the next index re-read its files", () => {
+test("opening a schema 10 database adds the column and makes the next index re-read its files", () => {
   const dir = mkdtempSync(join(tmpdir(), "brain-generated-from-"));
   try {
     const path = join(dir, "brain.db");
-    // A schema 10 database taken back to what schema 9 looked like.
+    // A current database taken back to what schema 10 looked like.
     const db = openDatabase(path);
     db.run("ALTER TABLE documents DROP COLUMN generated_from");
     db.run("INSERT INTO documents(path,title,type,status,created,updated,content,content_hash,asset_type,indexed_at) VALUES ('notes/a.md','A','note','active','2026-01-01','2026-01-01','x','hash-a','markdown','2026-01-01')");
-    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '9')");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
     db.close();
 
     const reopened = openDatabase(path);
@@ -122,17 +123,17 @@ test("opening a schema 9 database adds the column and makes the next index re-re
   }
 });
 
-test("a schema 9 index serves search, audit and stats read-only before anything migrates it", async () => {
+test("a schema 10 index serves search, audit and stats read-only before anything migrates it", async () => {
   const root = makeTempBrain({ empty: true });
   try {
     writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes/lamp.md"), doc("Lantern"));
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    // Put the database back the way schema 9 left it.
+    // Put the database back the way schema 10 left it.
     const db = openDatabase(join(root, "brain.db"));
     db.run("ALTER TABLE documents DROP COLUMN generated_from");
-    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '9')");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
     db.close();
 
     const search = await runCli(root, ["search", "lantern", "--mode", "fts", "--json"]);
@@ -149,9 +150,38 @@ test("a schema 9 index serves search, audit and stats read-only before anything 
     // Nothing above migrated it.
     const check = new Database(join(root, "brain.db"), { readonly: true });
     try {
-      expect(check.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "9" });
+      expect(check.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "10" });
     } finally {
       check.close();
+    }
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("a reader kept open across the migration sees the new column", async () => {
+  const root = makeTempBrain({ empty: true });
+  try {
+    writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
+    mkdirSync(join(root, "notes"), { recursive: true });
+    writeFileSync(join(root, "notes/lamp.md"), doc("Lantern", "generated_from: notes/source.md\n"));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const db = openDatabase(join(root, "brain.db"));
+    db.run("ALTER TABLE documents DROP COLUMN generated_from");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
+    db.close();
+
+    // A long-lived reader (an MCP server, say) searches before the migration.
+    const reader = openDatabase(join(root, "brain.db"), { readonly: true });
+    try {
+      const before = await hybridSearch(reader, { query: "lantern", mode: "fts" });
+      expect(before.results.map((r) => r.generatedFrom)).toEqual([null]);
+      // Another process migrates and reindexes.
+      expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+      const after = await hybridSearch(reader, { query: "lantern", mode: "fts" });
+      expect(after.results.map((r) => r.generatedFrom)).toEqual(["notes/source.md"]);
+    } finally {
+      reader.close();
     }
   } finally {
     cleanup(root);

@@ -61,20 +61,25 @@ export function openDatabase(
   return db;
 }
 
-const documentColumns = new WeakMap<Database, Set<string>>();
+const documentColumns = new WeakMap<Database, { cookie: number; columns: Set<string> }>();
 
 /**
  * Whether the `documents` table has a column. A read-only connection does
  * not migrate, so a database from an older schema lacks later columns until
- * a writable command opens it; readers of such a column check first.
+ * a writable command opens it; readers of such a column check first. The
+ * answer is cached per connection under SQLite's schema cookie, which any
+ * connection's ALTER TABLE bumps, so a long-lived reader sees a migration
+ * another process ran.
  */
 export function hasDocumentsColumn(db: Database, name: string): boolean {
-  let columns = documentColumns.get(db);
-  if (!columns) {
-    columns = new Set((db.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name));
-    documentColumns.set(db, columns);
+  const cookie = (db.prepare("PRAGMA schema_version").get() as { schema_version: number }).schema_version;
+  let cached = documentColumns.get(db);
+  if (!cached || cached.cookie !== cookie) {
+    const columns = new Set((db.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name));
+    cached = { cookie, columns };
+    documentColumns.set(db, cached);
   }
-  return columns.has(name);
+  return cached.columns.has(name);
 }
 
 /**
