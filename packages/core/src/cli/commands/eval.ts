@@ -492,7 +492,7 @@ function writeOut(root: string, outRel: string, data: string): void {
  * from the markdown files. A malformed set exits 2 naming the line; findings
  * are warnings and exit 0.
  */
-function lintSet(json: boolean, root: string, setPath: string): number {
+function lintSet(json: boolean, root: string, setPath: string, redact: boolean): number {
   const shown = displayPath(root, setPath);
   const refuse = (reason: string) => {
     console.error(`brain eval refused: ${reason}`);
@@ -504,7 +504,9 @@ function lintSet(json: boolean, root: string, setPath: string): number {
   try {
     queries = parseEvalSet(bytes.toString("utf-8")).queries;
   } catch (e) {
-    if (e instanceof EvalSetError) return refuse(`${shown}: ${e.message}`);
+    if (e instanceof EvalSetError) {
+      return refuse(redact ? `${shown}: line ${e.line}: malformed (withheld by --redact)` : `${shown}: ${e.message}`);
+    }
     throw e;
   }
   const titleOf = (path: string): string | null => {
@@ -517,14 +519,20 @@ function lintSet(json: boolean, root: string, setPath: string): number {
       return null;
     }
   };
-  const warnings = titleLeaks(queries, titleOf);
+  const found = titleLeaks(queries, titleOf);
+  // A finding quotes a title and the query's words, so --redact keeps its count.
+  const warnings = redact && found.length > 0 ? [`${found.length} warning(s) withheld by --redact`] : found;
   const envelope = {
     schema_version: EVAL_SCHEMA_VERSION,
-    meta: { set: shown, set_sha256: createHash("sha256").update(bytes).digest("hex"), queries: queries.length },
+    meta: {
+      set: redact ? null : shown,
+      set_sha256: createHash("sha256").update(bytes).digest("hex"),
+      queries: queries.length,
+    },
     warnings,
   };
   emit(json, envelope, () => {
-    if (warnings.length === 0) console.log(`${shown}: ${queries.length} queries, no lint findings.`);
+    if (warnings.length === 0) console.log(`${redact ? "The set" : shown}: ${queries.length} queries, no lint findings.`);
     else for (const warning of warnings) console.log(`Warning: ${warning}`);
   });
   return 0;
@@ -607,6 +615,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
 
   const root = cli.brain.root;
   const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
+  if (flags.lint === true) return lintSet(cli.json, root, setPath, redact);
   // Everything the CLI writes stays inside the brain (integration contract,
   // "Containment"): checked before any search runs, and again at the write.
   const outRel = typeof flags.out === "string" ? flags.out : undefined;

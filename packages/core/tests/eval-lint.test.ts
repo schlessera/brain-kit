@@ -96,3 +96,29 @@ test("the stopword check runs after stripping: th\u00e9 folds to the and is drop
   expect(leaks("a cup of th\u00e9", "Th\u00e9 at noon")).toEqual([]);
   expect(leaks("a cup of th\u00e9 at dusk", "Dusk th\u00e9")).toEqual(['q1: shares "dusk" with the title of t.md']);
 });
+
+test("--redact keeps the findings' count, not the titles, query words, paths or the parser's quote", async () => {
+  const leaky = { id: "q1", q: "how do I keep the telescope aligned", class: "paraphrase", expected: [PATH] };
+  const plain = await lint([leaky]);
+  expect(plain.out.warnings.join(" ")).toContain(PATH);
+  const args = ["eval", "--lint", "--set", "evals/lint.jsonl", "--redact"];
+  const json = await runCli(root, [...args, "--json"]);
+  expect(json.code).toBe(0);
+  const human = await runCli(root, [...args, "--human"]);
+  expect(human.code).toBe(0);
+  for (const out of [json.stdout, human.stdout]) {
+    for (const leak of [PATH, "telescope", "evals/lint.jsonl"]) expect(out, leak).not.toContain(leak);
+  }
+  expect(JSON.parse(json.stdout)).toMatchObject({ meta: { set: null, queries: 1 }, warnings: ["1 warning(s) withheld by --redact"] });
+
+  // With no findings, the human line that names the set names it only as "The set".
+  await lint([{ ...leaky, q: "how do I keep the scope aligned" }]);
+  const clean = await runCli(root, [...args, "--human"]);
+  expect(clean.stdout).toBe("The set: 1 queries, no lint findings.\n");
+
+  writeFileSync(join(root, "evals/lint.jsonl"), `{"id":"q1","q":confidential words}\n`);
+  const broken = await runCli(root, [...args, "--json"]);
+  expect(broken.code).toBe(2);
+  expect(broken.stderr).not.toContain("confidential");
+  expect(broken.stderr).toContain("evals/lint.jsonl: line 1: malformed (withheld by --redact)");
+});

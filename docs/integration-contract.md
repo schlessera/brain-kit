@@ -278,7 +278,8 @@ search runs, `--k` must include 1, and the gate flags need `--baseline`.
 `--redact` removes `q`, `expected` and `top` from each `per_query` entry,
 nulls `meta.set`, `meta.source` and `baseline.file`, and replaces `warnings`
 (which name documents) with a count, in the output (`--json` and the human
-report alike) and in `--out`. On stderr, a refusal keeps its reason, which
+report alike) and in `--out`. With `--lint` it nulls `meta.set` and replaces
+`warnings` (which quote titles and query words) with a count. On stderr, a refusal keeps its reason, which
 carries counts and query IDs, and replaces its details (which name documents)
 with a count, and a malformed set or baseline is named by file and line
 without the parser's words. An error that repeats a path given on the command
