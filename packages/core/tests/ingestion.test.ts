@@ -113,6 +113,45 @@ describe("ingest", () => {
     expect(written).toContain("Update"); // dated append heading
   });
 
+  test("an append changes only `updated` in the frontmatter and keeps every other byte (#492)", async () => {
+    const frontmatter = [
+      "---",
+      "# Kept by hand; brain add must not drop this line.",
+      "type: project",
+      'title: "Bookshelf"',
+      "created: '2026-01-01' # first sketch",
+      "updated: 2026-01-02",
+      "tags: [woodwork, 'home']",
+      "---",
+    ];
+    const original = [...frontmatter, "", "Original plan.", ""].join("\n");
+    const root = makeCorpus({ "projects/active/bookshelf.md": original });
+    const db = openDatabase(join(root, "brain.db"));
+    await indexAll(db, { root, taxonomy, quiet: true });
+
+    const out = await ingest({ content: "Bookshelf\n\nAdded a top shelf." }, db, { root, taxonomy });
+    db.close();
+
+    expect(out.action).toBe("appended");
+    const written = readFileSync(join(root, "projects/active/bookshelf.md"), "utf-8");
+    const date = written.match(/^updated: (\S+)$/m)?.[1] ?? "";
+    expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(date).not.toBe("2026-01-02");
+    const expected = [
+      ...frontmatter.map((line) => (line.startsWith("updated:") ? `updated: ${date}` : line)),
+      "",
+      "Original plan.",
+      "",
+      `## ${date} Update`,
+      "",
+      "Bookshelf",
+      "",
+      "Added a top shelf.",
+      "",
+    ].join("\n");
+    expect(written).toBe(expected);
+  });
+
   test("rejects an invalid explicit type with the valid list", async () => {
     const root = makeCorpus();
     const db = openDatabase(join(root, "brain.db"));
