@@ -885,8 +885,11 @@ Rules a consumer may rely on:
   included. Search multiplies a superseded document's score by 0.85 after
   fusion and reranking, in every mode and with `rerank: none`, and marks the
   result with `supersededBy`; the document stays in the results. `brain
-  validate` reports a value of another shape, an unresolved target and a
-  cycle (a document superseding itself through a chain) as errors.
+  validate` reports as errors a value that is not one complete target or a
+  non-empty list of them (an empty, blank or null entry, an unclosed `[[`, an
+  empty `[[]]`), an unresolved target, and every document on a cycle (a
+  document superseding itself through a chain), naming the others. A
+  filter-only search (no query) marks `supersededBy` too, without reordering.
 - `brain archive` / `brain_archive` set `status: archived` and bump `updated`.
   Since 0.38.0 they also set `relevance: historical` when relevance is
   `primary` or missing, and leave an explicit `secondary` or `historical`

@@ -5,7 +5,6 @@
  * included. A superseded document stays searchable and ranks lower
  * (SUPERSEDED_FACTOR); archiving it is a separate decision.
  */
-import { extractWikiLinks } from "./indexer/links.js";
 
 /**
  * How much a superseded document's score is multiplied by, after fusion and
@@ -16,18 +15,27 @@ import { extractWikiLinks } from "./indexer/links.js";
 export const SUPERSEDED_FACTOR = 0.85;
 
 /**
- * The targets a `supersedes` value names, or null when its shape is wrong
- * (not a string or an array of strings). Absent is `[]`.
+ * The targets a `supersedes` value names, or null when it is not a valid one.
+ * Absent is `[]`. A value is valid when it is a string, or a non-empty list of
+ * strings, and every entry is one complete target: `"[[target]]"` (a label
+ * after `|` allowed) or bare `target`. An empty, blank or null entry, an
+ * unclosed `[[`, an empty `[[]]`, or several links in one entry is invalid, so
+ * a typo is reported instead of silently naming nothing.
  */
 export function supersedesTargets(value: unknown): string[] | null {
-  if (value === undefined || value === null) return [];
-  const entries = typeof value === "string" ? [value] : Array.isArray(value) ? value : null;
-  if (!entries || entries.some((entry) => typeof entry !== "string")) return null;
+  if (value === undefined) return [];
+  const entries = typeof value === "string" ? [value] : Array.isArray(value) && value.length > 0 ? value : null;
+  if (!entries) return null;
   const targets: string[] = [];
-  for (const entry of entries as string[]) {
+  for (const entry of entries) {
+    if (typeof entry !== "string") return null;
     const text = entry.trim();
-    if (!text) continue;
-    targets.push(...(text.includes("[[") ? extractWikiLinks(text) : [text.split("|")[0]!.trim()]));
+    const linked = /^\[\[([^[\]]*)\]\]$/.exec(text);
+    const inner = linked ? linked[1]! : text;
+    if (!linked && /[[\]]/.test(text)) return null;
+    const target = inner.split("|")[0]!.trim();
+    if (!target) return null;
+    targets.push(target);
   }
   return [...new Set(targets)];
 }

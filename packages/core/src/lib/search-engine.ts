@@ -555,7 +555,7 @@ export async function hybridSearch(
 
   // No query: delegate to filter search
   if (!opts.query) {
-    return { results: filterSearch(db, opts), warnings };
+    return { results: markSuperseded(db, filterSearch(db, opts)), warnings };
   }
 
   const query = opts.query;
@@ -666,10 +666,39 @@ export async function hybridSearch(
  * index from before schema 12 has no `supersedes` table and is left as it is.
  */
 function demoteSuperseded(db: Database, candidates: SearchResult[]): SearchResult[] {
-  if (candidates.length === 0) return candidates;
+  const supersededBy = supersededByOf(db, candidates);
+  if (supersededBy.size === 0) return candidates;
+  return candidates
+    .map((result) => {
+      const by = supersededBy.get(result.path);
+      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, supersededBy: by } : result;
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * A filter-only search's results with `supersededBy` set on each superseded
+ * one. Nothing is demoted: a filter has no ranking, and its date order stays.
+ */
+function markSuperseded(db: Database, results: SearchResult[]): SearchResult[] {
+  const supersededBy = supersededByOf(db, results);
+  if (supersededBy.size === 0) return results;
+  return results.map((result) => {
+    const by = supersededBy.get(result.path);
+    return by ? { ...result, supersededBy: by } : result;
+  });
+}
+
+/**
+ * For each result another document supersedes, that document's path (the
+ * first by path when several do). Empty on an index from before schema 12,
+ * which has no `supersedes` table.
+ */
+function supersededByOf(db: Database, results: SearchResult[]): Map<string, string> {
+  if (results.length === 0) return new Map();
   const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supersedes'").get() !== null;
-  if (!hasTable) return candidates;
-  const placeholders = candidates.map(() => "?").join(",");
+  if (!hasTable) return new Map();
+  const placeholders = results.map(() => "?").join(",");
   const rows = db
     .prepare(
       `SELECT old.path AS path, MIN(new.path) AS by
@@ -679,15 +708,8 @@ function demoteSuperseded(db: Database, candidates: SearchResult[]): SearchResul
        WHERE old.path IN (${placeholders})
        GROUP BY old.path`
     )
-    .all(...candidates.map((r) => r.path)) as { path: string; by: string }[];
-  if (rows.length === 0) return candidates;
-  const supersededBy = new Map(rows.map((row) => [row.path, row.by]));
-  return candidates
-    .map((result) => {
-      const by = supersededBy.get(result.path);
-      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, supersededBy: by } : result;
-    })
-    .sort((a, b) => b.score - a.score);
+    .all(...results.map((r) => r.path)) as { path: string; by: string }[];
+  return new Map(rows.map((row) => [row.path, row.by]));
 }
 
 /** How many query matches each lane retrieves before a date sort. */

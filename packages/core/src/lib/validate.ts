@@ -258,7 +258,7 @@ function validateSupersedes(
       issues.push({
         file,
         level: "error",
-        message: `Invalid supersedes: ${describeValue(value)}. It must be a wiki-link target, "[[target]]", or a list of them`,
+        message: `Invalid supersedes: ${describeValue(value)}. It must be one wiki-link target, "[[target]]" or target, or a non-empty list of them`,
       });
       continue;
     }
@@ -271,35 +271,55 @@ function validateSupersedes(
     edges.set(file, resolved);
   }
 
-  // A cycle is reported once, on each document in it, naming the whole loop.
-  const reported = new Set<string>();
-  // Documents whose every chain ends without looping.
-  const acyclic = new Set<string>();
-  for (const start of edges.keys()) {
-    if (reported.has(start)) continue;
-    const path: string[] = [];
-    const walk = (node: string): string[] | null => {
-      if (acyclic.has(node)) return null;
-      const at = path.indexOf(node);
-      if (at !== -1) return path.slice(at);
-      path.push(node);
-      for (const next of edges.get(node) ?? []) {
-        const cycle = walk(next);
-        if (cycle) return cycle;
-      }
-      path.pop();
-      acyclic.add(node);
-      return null;
-    };
-    const cycle = walk(start);
-    if (!cycle || cycle.some((file) => reported.has(file))) continue;
-    const loop = [...cycle, cycle[0]].join(" → ");
-    for (const file of cycle) {
-      reported.add(file);
-      issues.push({ file, level: "error", message: `supersedes cycle: ${loop}` });
+  // Every document on a cycle is reported, once, naming the others it loops
+  // with: the cycles are the strongly connected components (Tarjan) of more
+  // than one document, or one that supersedes itself.
+  for (const component of stronglyConnected(edges)) {
+    const looped = component.length > 1 || (edges.get(component[0]!) ?? []).includes(component[0]!);
+    if (!looped) continue;
+    const members = [...component].sort();
+    for (const file of members) {
+      issues.push({ file, level: "error", message: `supersedes cycle among ${members.join(", ")}` });
     }
   }
   return issues;
+}
+
+/** The strongly connected components of a graph (Tarjan's algorithm). */
+function stronglyConnected(edges: Map<string, string[]>): string[][] {
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const components: string[][] = [];
+  let next = 0;
+  const visit = (node: string): void => {
+    index.set(node, next);
+    low.set(node, next);
+    next++;
+    stack.push(node);
+    onStack.add(node);
+    for (const to of edges.get(node) ?? []) {
+      if (!index.has(to)) {
+        visit(to);
+        low.set(node, Math.min(low.get(node)!, low.get(to)!));
+      } else if (onStack.has(to)) {
+        low.set(node, Math.min(low.get(node)!, index.get(to)!));
+      }
+    }
+    if (low.get(node) === index.get(node)) {
+      const component: string[] = [];
+      let member: string;
+      do {
+        member = stack.pop()!;
+        onStack.delete(member);
+        component.push(member);
+      } while (member !== node);
+      components.push(component);
+    }
+  };
+  for (const node of edges.keys()) if (!index.has(node)) visit(node);
+  return components;
 }
 
 /**
