@@ -254,7 +254,7 @@ function hookedBrain(): string {
 }
 
 async function gitHooksCheck(root: string, args: string[] = []) {
-  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args]);
+  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args], isolatedHome());
   expect(code).toBe(0);
   const out = JSON.parse(stdout);
   return { check: out.checks.find((c: { id: string }) => c.id === "git-hooks"), fixesApplied: out.fixesApplied };
@@ -326,7 +326,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:410-449`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:412-451`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).
