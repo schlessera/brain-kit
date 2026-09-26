@@ -93,8 +93,8 @@ CREATE INDEX IF NOT EXISTS idx_scrape_runs_source ON scrape_runs(source);
  */
 export function openDatabase(path: string): Database {
   const db = new Database(path, { create: true });
-  db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
+  db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
 

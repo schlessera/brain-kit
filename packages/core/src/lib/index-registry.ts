@@ -11,6 +11,8 @@
  *       where: { status: [active, paused] } # optional: keep children with these values
  *       sort: -updated                      # optional: a column key, `-` for descending
  *       split: status                       # optional: one table per value of this key
+ *       split: { key: stage, tables: { Active: [researching, interviewing], Closed: [closed] } }
+ *                                           # …or named tables, each for a set of values
  *
  * The children are every markdown file under the index's directory, at any
  * depth, other than an `_index.md`.
@@ -35,7 +37,30 @@ export const registrySpecSchema = z
     columns: z.array(z.string().min(1)).min(1),
     where: z.record(z.string(), z.array(scalar).min(1)).optional(),
     sort: z.string().min(1).optional(),
-    split: z.string().min(1).optional(),
+    split: z
+      .union([
+        z.string().min(1),
+        z
+          .object({
+            key: z.string().min(1),
+            // A whole-number label (`"2"`, `"10"`) would lose its place: a
+            // JavaScript object lists integer-like keys first, in numeric
+            // order, whatever order the YAML gives them.
+            tables: z.record(z.string().min(1), z.array(scalar).min(1)).superRefine((tables, check) => {
+              for (const label of Object.keys(tables)) {
+                if (/^(?:0|[1-9]\d*)$/.test(label)) {
+                  check.addIssue({
+                    code: "custom",
+                    path: [label],
+                    message: `table label "${label}" cannot be a whole number, which would lose its listed order`,
+                  });
+                }
+              }
+            }),
+          })
+          .strict(),
+      ])
+      .optional(),
   })
   .strict();
 
@@ -123,17 +148,30 @@ export function renderRegistry(spec: RegistrySpec, children: Child[], indexDir: 
   if (rows.length === 0) return "_No entries._";
   if (!spec.split) return table(rows);
 
+  const splitKey = typeof spec.split === "string" ? spec.split : spec.split.key;
+  const named = typeof spec.split === "string" ? [] : Object.entries(spec.split.tables);
+  const sections: string[] = [];
+  const claimed = new Set<Child>();
+  // Named tables first, in the order the spec lists them; an empty one is left out.
+  for (const [label, values] of named) {
+    const accepted = new Set(values.map(String));
+    const group = rows.filter((child) => !claimed.has(child) && accepted.has(key(child.data[splitKey])));
+    for (const child of group) claimed.add(child);
+    if (group.length > 0) sections.push(`**${inert(label)}**\n\n${table(group)}`);
+  }
+  // Then one table per value no named table took.
   const groups = new Map<string, Child[]>();
   for (const child of rows) {
-    const value = key(child.data[spec.split]) || "—";
+    if (claimed.has(child)) continue;
+    const value = key(child.data[splitKey]) || "—";
     const group = groups.get(value);
     if (group) group.push(child);
     else groups.set(value, [child]);
   }
-  return [...groups.keys()]
-    .sort()
-    .map((value) => `**${inert(spec.split!)}: ${inert(value)}**\n\n${table(groups.get(value)!)}`)
-    .join("\n\n");
+  for (const value of [...groups.keys()].sort()) {
+    sections.push(`**${inert(splitKey)}: ${inert(value)}**\n\n${table(groups.get(value)!)}`);
+  }
+  return sections.join("\n\n");
 }
 
 /** A file as read for planning: its text and parsed frontmatter, or why it could not be read. */

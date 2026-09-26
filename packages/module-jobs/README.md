@@ -32,7 +32,33 @@ export default defineConfig({
 | `opportunity` | `career/opportunities` | `status.md`  |
 
 `brain jobs scaffold <id>` creates `career/opportunities/<company-slug>/status.md`
-for a job you're interested in, and marks the job `interested` in the jobs DB.
+for a job you're interested in (`stage: researching`, `tags: [job-search]`,
+the `research-opportunity` skill's sections), and marks the job `interested` in
+the jobs DB.
+
+### Pipeline fields
+
+Where an opportunity stands lives in its `status.md` frontmatter, not in prose:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `stage` | `researching`, `applied`, `screening`, `interviewing`, `offer`, `closed` | Where it is in the pipeline. |
+| `fit` | `strong`, `medium`, `weak` | The fit assessment's verdict. |
+| `applied` | a date | When the application went out. |
+| `next_step` | a string | What happens next. Its date goes in the core `deadline` field, which `brain briefing` lists. |
+| `closed_reason` | a string | Why it ended. A closed opportunity also sets `relevance: historical`. |
+
+`brain jobs pipeline` gives `<opportunitiesDir>/_index.md` a `registry:` spec
+(creating the index if needed): an **Active** table and a **Closed** table of
+the status files, by `stage`, newest first. From then on `brain registry` and
+`brain maintain` keep the tables current; write the fields, never the rows.
+It adds the spec only when the result reads back as the index's own
+frontmatter plus the spec. An index written as a flow mapping, or ending in a
+YAML `...` line, is refused and left as it is: add the `registry:` block by
+hand. So is a path that leaves the brain root.
+
+Two audit checks (category `jobs-stage`, info) flag a `status.md` without a
+`stage`, and one still `researching` whose `updated` is over 60 days old.
 
 > **Relocating the dir.** Set `opportunitiesDir` in the module's config block —
 > the manifest's `setup()` derives the `opportunity` taxonomy dir from it, so
@@ -112,6 +138,8 @@ brain jobs triage                # interactive one-at-a-time review (TTY)
 brain jobs review                # list the review queue
 brain jobs stats                 # database + adapter-health stats
 brain jobs scaffold <id>         # create an opportunity dir from a job
+brain jobs pipeline              # give the opportunities' _index.md its registry
+                                 #   spec and regenerate it
 brain jobs show|open|decide|search|gc …
 ```
 

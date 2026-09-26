@@ -125,8 +125,17 @@ opportunity notes.
   `research-opportunity` (turn a listing into a tracked opportunity with a fit
   assessment), `interview-scheduled` (record a booked interview and sync the
   four places that have to agree about it).
+- **Pipeline fields:** an opportunity's `status.md` records where it stands in
+  frontmatter: `stage` (`researching` → `applied` → `screening` →
+  `interviewing` → `offer`, or `closed`), `fit` (`strong`/`medium`/`weak`),
+  `applied` (date), `next_step`, whose date goes in the core `deadline`, and
+  `closed_reason`. Closing also sets `relevance: historical`. `brain jobs
+  pipeline` gives the opportunities' `_index.md` a registry spec (an Active and
+  a Closed table by `stage`), after which `brain registry` and `brain maintain`
+  keep it current. Two audit checks (`jobs-stage`, info) flag a `status.md`
+  without a `stage` and one still `researching` after 60 days.
 - **CLI word:** `brain jobs` — `scrape`, `score`, `triage`, `review`, `stats`,
-  `scaffold <id>`, `show`, `open`, `decide`, `search`, `gc`. `scrape --browser`
+  `scaffold <id>`, `pipeline`, `show`, `open`, `decide`, `search`, `gc`. `scrape --browser`
   appends the headless-Chrome pass to the API pass; `--browser-only` runs just
   the former.
 - **Cron:** advisory `scrape` daily at 06:00, unified across both passes.

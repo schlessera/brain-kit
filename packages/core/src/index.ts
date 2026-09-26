@@ -37,6 +37,8 @@ export {
   rewriteGeneratedRegion,
   splitFrontmatterBlock,
 } from "./lib/generated-regions.js";
+export { runRegistry, registrySpecSchema } from "./lib/index-registry.js";
+export type { RegistryRun, RegistrySpec } from "./lib/index-registry.js";
 
 // Modules
 export { defineModule } from "./lib/module-types.js";

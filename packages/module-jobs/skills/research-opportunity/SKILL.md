@@ -77,13 +77,16 @@ Every path below writes the directory you resolved as `{opportunities}`.
      title: "{Company Name} — {Role Title}"
      created: {YYYY-MM-DD}
      updated: {YYYY-MM-DD}
-     tags: [job-search, opportunity, {company-slug}]
+     tags: [job-search]
      relevance: primary
+     stage: researching
+     fit: {strong | medium | weak}
      summary: "{Role Title} at {Company Name} — {one line}"
      ```
+     Where it stands lives in these fields, not in prose (see Pipeline fields
+     below). Add `next_step` and its date as `deadline` once there is one.
    - Sections:
-     - **Overview** — company, role, location, source, listing URL, Status
-       (`researching`)
+     - **Overview** — company, role, location, source, listing URL
      - **Fit Assessment** — role fit, company fit, compensation range, key
        attraction, key concern, then Alignment and Gaps subsections
      - **Materials Sent** — empty table (Date | Material | Notes)
@@ -97,16 +100,15 @@ Every path below writes the directory you resolved as `{opportunities}`.
    something up.
    - Path: `{opportunities}/{company-slug}/research.md`
    - Frontmatter mirrors `status.md` with `title: "{Company Name} — Research"`
-     and `tags: [job-search, research, {company-slug}]`.
+     and `tags: [job-search]`, and no `stage` (only `status.md` carries one).
    - Sections: Company Overview, Why This Could Work, Concerns / Red Flags,
      Relevant Connections, Key People.
    - Skip the file entirely when research was thin. A stub is worse than
      nothing.
 
-9. **Update the pipeline index** — add a row to
-   `{opportunities}/_index.md`:
-   `| {Company} | {Role} | researching | {YYYY-MM-DD} | {strong/moderate/weak/assessing} | [{company-slug}]({company-slug}/) |`
-   and bump the file's `updated`.
+9. **Refresh the pipeline index** — run `brain jobs pipeline`. The index's
+   tables are generated from every `status.md`'s frontmatter; never add or edit
+   a table row by hand.
 
 10. **Present the findings and talk it through.**
     - A concise summary: what aligns, what is a gap, any red flags.
@@ -120,14 +122,14 @@ Every path below writes the directory you resolved as `{opportunities}`.
 
 ### Files to read
 - The criteria file from the module's `criteria` config (fit assessment)
-- `{opportunities}/_index.md` (duplicate check, pipeline row)
+- `{opportunities}/_index.md` (duplicate check)
 - Your identity doc (current positioning)
 - Your expertise index, if you keep one (gap analysis)
 
 ### Files to write or modify
 - Create: `{opportunities}/{company-slug}/status.md`
 - Create (optional): `{opportunities}/{company-slug}/research.md`
-- Modify: `{opportunities}/_index.md`
+- Run: `brain jobs pipeline`, which regenerates `{opportunities}/_index.md`
 
 ### External sources (WebFetch/WebSearch)
 - The job listing URL, the company website, funding databases, professional
@@ -137,6 +139,34 @@ Every path below writes the directory you resolved as `{opportunities}`.
 - **Before**: a role turns up — manually, or from `brain jobs review`
 - **After**: if pursuing, prepare materials; when a call is booked, use
   `/interview-scheduled`
+
+## Pipeline fields
+
+`status.md` records where the opportunity stands, and the pipeline index is
+generated from it:
+
+- `stage`: `researching` → `applied` → `screening` → `interviewing` → `offer`,
+  or `closed` at any point.
+- `fit`: `strong`, `medium` or `weak`, from the fit assessment.
+- `applied`: the date the application went out.
+- `next_step`: what happens next, in a few words; its date goes in `deadline`,
+  which is what `brain briefing` lists under Upcoming Deadlines.
+- `closed_reason`: why it ended, when `stage` is `closed`.
+
+**Closing** (`stage: closed`, at any point):
+
+1. Set `closed_reason` and `relevance: historical`.
+2. Remove `next_step` and `deadline` from `status.md`. A closed opportunity has
+   no next step, and a `deadline` left behind keeps listing it in
+   `brain briefing`'s Upcoming Deadlines. Keep them as history instead: add a
+   Timeline line, `- {today}: closed ({closed_reason}); "{next_step}" on
+   {deadline} cancelled`.
+3. Retire the deadline of every other file of the opportunity that still has
+   one ahead, such as an `interview-prep.md`: remove its `deadline:` and add
+   `Cancelled {today}: the opportunity closed.` under its title. Leave the
+   rest of the file as it is.
+
+After changing any of them, bump `updated` and run `brain jobs pipeline`.
 
 ## Notes
 

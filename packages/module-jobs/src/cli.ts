@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { CommandContext, CommandModule } from "@schlessera/brain";
-import { safeResolve } from "@schlessera/brain";
+import type { CommandContext, CommandModule, Taxonomy } from "@schlessera/brain";
+import { runRegistry, safeResolve } from "@schlessera/brain";
 
 import { openDatabase } from "./db.js";
 import { runScrape } from "./scrape.js";
@@ -24,6 +24,7 @@ import {
   formatJobDetail,
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
+import { ensurePipelineIndex } from "./pipeline.js";
 import { ALL_SOURCES, BROWSER_SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
 import type { ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
@@ -465,34 +466,55 @@ function cmdScaffold(args: string[], jctx: JobsCtx): number {
   }
 
   const url = job.url || job.source_url;
-  const roleLines = [`- **Title:** ${job.title}`, `- **Company:** ${job.company}`];
-  if (job.location) roleLines.push(`- **Location:** ${job.location}`);
-  if (salary) roleLines.push(`- **Salary:** ${salary}`);
-  if (url) roleLines.push(`- **Source URL:** ${url}`);
-  roleLines.push(`- **Relevance score:** ${scoreLine}`);
+  const overview = [`- **Company:** ${job.company}`, `- **Role:** ${job.title}`];
+  if (job.location) overview.push(`- **Location:** ${job.location}`);
+  overview.push(`- **Source:** ${job.source} (job id ${job.id})`);
+  if (url) overview.push(`- **Listing:** ${url}`);
+  if (salary) overview.push(`- **Salary:** ${salary}`);
+  overview.push(`- **Relevance score:** ${scoreLine}`);
+  const description = (job.description_text ?? "").trim();
 
+  // The research-opportunity skill's section set; the pipeline stage lives in
+  // frontmatter (see pipeline.ts), not in the Overview.
   const content = `---
 type: opportunity
-title: "${escapeQuotes(job.company)} - ${escapeQuotes(job.title)}"
+title: "${escapeQuotes(`${job.company} — ${job.title}`)}"
 created: ${today}
 updated: ${today}
-tags: [opportunity, job-search, ${slug}]
+tags: [job-search]
 status: active
 relevance: primary
+stage: researching
 summary: "${escapeQuotes(`${job.title} at ${job.company}`)}"
 ---
 
-## Role
+## Overview
 
-${roleLines.join("\n")}
+${overview.join("\n")}
+
+## Fit Assessment
+
+- [TODO: assess fit against the search criteria]
+
+## Materials Sent
+
+| Date | Material | Notes |
+|------|----------|-------|
+
+## Contacts
+
+| Name | Role | Relationship | Notes |
+|------|------|--------------|-------|
 
 ## Timeline
 
-- ${today} — Scaffolded from job scraper (source: ${job.source}, job id ${job.id})
+- ${today} — Scaffolded from the job scraper
 
-## Next Steps
+## Notes
 
-- [TODO: review posting and decide whether to apply]
+## Full Job Description
+
+${description || "[TODO: paste the full listing; listings get taken down]"}
 `;
 
   mkdirSync(dir, { recursive: true });
@@ -507,9 +529,28 @@ ${roleLines.join("\n")}
   } else {
     console.log(`Created: ${statusPath}`);
     console.log(`Job #${job.id} "${job.title}" @ ${job.company} -> interested`);
-    console.log(`Reminder: add a row for ${job.company} to ${jctx.opportunitiesDir}/_index.md (not edited automatically)`);
+    console.log(`Run \`brain jobs pipeline\` to bring ${jctx.opportunitiesDir}/_index.md up to date.`);
   }
   return 0;
+}
+
+function cmdPipeline(jctx: JobsCtx, taxonomy: Taxonomy): number {
+  const today = new Date().toISOString().split("T")[0];
+  const index = ensurePipelineIndex(jctx.root, jctx.opportunitiesDir, today);
+  const run = runRegistry(jctx.root, taxonomy, { asOf: today });
+  const invalid = run.invalid.find((p) => p.path === index.path);
+  const stale = run.stale.includes(index.path);
+  if (jctx.json) {
+    emitJson({ index: index.path, spec: index.action, written: run.written, stale: run.stale, invalid: run.invalid });
+  } else {
+    if (index.action === "created") console.log(`Created: ${index.path}`);
+    if (index.action === "added") console.log(`Added the pipeline registry spec to ${index.path}`);
+    if (!stale) console.log(run.written.includes(index.path) ? `Updated: ${index.path}` : `${index.path} is current.`);
+    for (const other of run.written.filter((p) => p !== index.path)) console.log(`Updated: ${other}`);
+    for (const p of run.stale) console.error(`Left as it is (changed while it was being generated; run again): ${p}`);
+    for (const p of run.invalid) console.error(`Invalid registry in ${p.path}: ${p.error}`);
+  }
+  return invalid || stale ? 1 : 0;
 }
 
 function cmdShow(args: string[], jctx: JobsCtx): number {
@@ -686,6 +727,9 @@ Subcommands:
     --all | --status <s> | --min-score <n> | --limit <n> | --source <s>
   stats                   Database + adapter-health statistics
   scaffold <id>           Create an opportunity dir from a job, mark interested
+  pipeline                Give the opportunities' _index.md its registry spec (stage
+                          tables: Active and Closed) and regenerate it; afterwards
+                          \`brain registry\` and \`brain maintain\` keep it current
   show <id> | open <id> | decide <id> <status> | search <query> | gc [--purge]`;
 
 const command: CommandModule<JobsConfig> = {
@@ -714,6 +758,8 @@ const command: CommandModule<JobsConfig> = {
         return cmdStats(jctx);
       case "scaffold":
         return cmdScaffold(args, jctx);
+      case "pipeline":
+        return cmdPipeline(jctx, ctx.taxonomy);
       case "show":
         return cmdShow(args, jctx);
       case "open":

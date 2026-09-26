@@ -61,6 +61,8 @@ export "." (./src/index.ts)
   type OkfExportReport
   type PropagationRule
   type ReadPartOptions
+  type RegistryRun
+  type RegistrySpec
   type RerankerConfig
   type ResolvedTypeSpec
   SCHEMA_VERSION
@@ -148,6 +150,7 @@ export "." (./src/index.ts)
   readDocumentPart
   readEnvVar
   readGeneratedRegion
+  registrySpecSchema
   relevanceOnArchive
   replaceGeneratedRegion
   repoRelativePathSchema
@@ -160,6 +163,7 @@ export "." (./src/index.ts)
   resolveWikiLink
   resolveWritable
   rewriteGeneratedRegion
+  runRegistry
   safeResolve
   scratchDir
   scratchIgnored

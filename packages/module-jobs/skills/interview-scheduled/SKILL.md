@@ -42,15 +42,15 @@ Ask for anything missing before writing.
 2. **Update `{opportunities}/{company-slug}/status.md`**
    - Add a Timeline entry: today's date, the round, the interview date and time
      with timezone, the interviewer.
-   - Set the Overview **Status** to `interviewing`.
    - Add or update the interviewer's row in the Contacts table.
-   - Set frontmatter `deadline:` to the interview date.
+   - Set the frontmatter fields: `stage: interviewing`,
+     `next_step: "{Round} with {interviewer}, {D Mon HH:MM TZ}"` and
+     `deadline:` the interview date.
    - Bump `updated`.
 
-3. **Update the pipeline index** (`{opportunities}/_index.md`)
-   - Put the concrete date in the row's Status, e.g.
-     `interviewing — {round} Tue 7 Jul 15:30 CEST ({interviewer})`.
-   - Update the row's Updated column and the file's frontmatter `updated`.
+3. **Refresh the pipeline index** — run `brain jobs pipeline`. Its tables are
+   generated from the opportunities' frontmatter, so the new stage, next step
+   and date show there; never edit a table row by hand.
 
 4. **Update the canonical current-focus document** (the taxonomy's
    `currentFocus`, e.g. `context/current-focus.md`)
@@ -70,7 +70,7 @@ Ask for anything missing before writing.
      title: "{Company} — {Round} Prep ({Interviewer}, {D Mon})"
      created: {YYYY-MM-DD}
      updated: {YYYY-MM-DD}
-     tags: [job-search, opportunity, {company-slug}, interview-prep]
+     tags: [job-search, interview-prep]
      relevance: primary
      status: active
      deadline: {interview date}
@@ -97,13 +97,18 @@ Ask for anything missing before writing.
 
 ### Files to write or modify
 - Modify: `{opportunities}/{company-slug}/status.md`
-- Modify: `{opportunities}/_index.md`
+- Run: `brain jobs pipeline`, which regenerates `{opportunities}/_index.md`
 - Modify: the canonical current-focus document
 - Create or modify: `{opportunities}/{company-slug}/interview-prep.md`
 
 ### Workflow position
 - **Before**: `/research-opportunity` — the opportunity must already be tracked
-- **After**: a prep session before the call; record outcomes afterwards
+- **After**: a prep session before the call; record the outcome afterwards in
+  `status.md`'s fields: the next round's `next_step` and `deadline`, or
+  `stage: offer`, then `brain jobs pipeline`. To close instead, follow
+  `/research-opportunity`'s **Closing** steps: they remove `next_step` and
+  `deadline` from `status.md` and this prep file's `deadline`, keeping both as
+  history, so a cancelled interview stops showing in `brain briefing`
 
 ## Notes
 
@@ -112,6 +117,6 @@ Ask for anything missing before writing.
   it.
 - Always write timezone-explicit times. Calendar ambiguity causes rebookings.
 - Rebooked interviews go through the same flow: a new Timeline entry (keep the
-  old one), an updated deadline, an updated index row.
+  old one), an updated `next_step` and `deadline`, and `brain jobs pipeline`.
 - Do not invent interviewer details. Record what the user provides, or clearly
   sourced research marked `[VERIFY]`.
