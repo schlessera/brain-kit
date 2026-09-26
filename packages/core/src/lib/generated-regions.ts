@@ -92,8 +92,9 @@ export function readGeneratedRegion(body: string, name: string): string | null {
  * `body` with the region's content replaced by `content`, every byte outside
  * the markers kept. A body without the region gets it appended at the end,
  * after only the line breaks needed to make it a block of its own, in the
- * body's line ending; an existing region keeps its opening line's. Returns `body` itself when the content is
- * already `content`. Throws on malformed markers.
+ * body's line ending; an existing region keeps its opening line's. Returns
+ * `body` itself when the content is already `content`. Throws on malformed
+ * markers, and when the region would not read back as written.
  */
 export function replaceGeneratedRegion(body: string, name: string, content: string): string {
   const { open, close } = markers(name);
@@ -101,12 +102,22 @@ export function replaceGeneratedRegion(body: string, name: string, content: stri
   // An existing region keeps the line ending of its opening line; a new one takes the body's.
   const eol = at ? (/^[^\n]*\r\n/.test(body.slice(at.inner[0])) ? "\r\n" : "\n") : eolOf(body);
   const block = [open, "", content.replace(/\r?\n/g, eol), "", close].join(eol);
+  let next: string;
   if (!at) {
     const gap = body === "" || body.endsWith(eol + eol) ? "" : body.endsWith(eol) ? eol : eol + eol;
-    return `${body}${gap}${block}${eol}`;
+    next = `${body}${gap}${block}${eol}`;
+  } else {
+    if (body.slice(at.start, at.end) === block) return body;
+    next = body.slice(0, at.start) + block + body.slice(at.end);
   }
-  if (body.slice(at.start, at.end) === block) return body;
-  return body.slice(0, at.start) + block + body.slice(at.end);
+  // The region must read back as written. A body that ends inside an unclosed
+  // code fence would swallow an appended region, and every run would append
+  // another: refuse, and leave the file to its author.
+  const expected = content.replace(/\r\n/g, "\n").replace(/^\s*\n/, "").replace(/\n\s*$/, "");
+  if (readGeneratedRegion(next, name) !== expected) {
+    throw new Error(`generated region "${name}" would not read back as written (does the file end inside a code block?)`);
+  }
+  return next;
 }
 
 /**

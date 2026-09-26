@@ -59,6 +59,13 @@ describe("replaceGeneratedRegion / readGeneratedRegion", () => {
     expect(readGeneratedRegion(next, "t")).toBe("c");
   });
 
+  test("a body that ends inside an unclosed fence is refused, since the region would not read back", () => {
+    for (const fence of ["```", "~~~"]) {
+      const body = `Prose.\n\n${fence}markdown\nan example left open\n`;
+      expect(() => replaceGeneratedRegion(body, "t", "c")).toThrow(/would not read back as written/);
+    }
+  });
+
   test("malformed markers throw instead of guessing the region", () => {
     for (const body of [
       `${OPEN}\n\nx\n`, // no closing line
@@ -129,6 +136,23 @@ describe("planRegistry / applyRegistry", () => {
     expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(unclosed);
     // And the next run still reports it, rather than finding nothing.
     expect(runRegistry(root, taxonomy, { asOf: "2026-06-02" }).invalid.map((p) => p.path)).toEqual(["projects/_index.md"]);
+  });
+
+  test("an index that ends inside an unclosed fence is reported, left as it is, and a second run changes nothing", () => {
+    for (const fence of ["```", "~~~"]) {
+      const open = `${INDEX}\n${fence}text\nan example left open\n`;
+      const root = tree({ "projects/_index.md": open, "projects/a.md": child("Alpha") });
+      for (const asOf of ["2026-06-01", "2026-06-02"]) {
+        const run = runRegistry(root, taxonomy, { asOf });
+        expect({ fence, asOf, invalid: run.invalid, written: run.written }).toEqual({
+          fence,
+          asOf,
+          invalid: [{ path: "projects/_index.md", error: expect.stringContaining("would not read back as written") }],
+          written: [],
+        });
+        expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(open);
+      }
+    }
   });
 
   test("a child whose frontmatter never closes is reported on its index", () => {
