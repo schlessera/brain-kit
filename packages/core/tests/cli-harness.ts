@@ -32,13 +32,34 @@ export function cleanup(dir: string): void {
   }
 }
 
-/** Env with API keys stripped → deterministic keyless (FTS-only) behaviour. */
+let binHome: string | null = null;
+
+/**
+ * One throwaway bin directory per test process. `brain setup` and
+ * `brain doctor --fix` link `brain` into XDG_BIN_HOME (else ~/.local/bin), and
+ * a test must never replace the developer's own link with one into a temp
+ * brain that is about to be deleted.
+ */
+export function testBinHome(): string {
+  if (binHome === null) {
+    const dir = mkdtempSync(join(tmpdir(), "brain-test-bin-"));
+    binHome = dir;
+    process.on("exit", () => cleanup(dir));
+  }
+  return binHome;
+}
+
+/**
+ * Env with API keys stripped → deterministic keyless (FTS-only) behaviour, and
+ * XDG_BIN_HOME pointed at `testBinHome()`. A caller can pass its own.
+ */
 export function keylessEnv(root: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) env[k] = v;
   }
   env.BRAIN_ROOT = root;
+  env.XDG_BIN_HOME = testBinHome();
   delete env.GEMINI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.GOOGLE_API_KEY;
