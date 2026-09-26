@@ -105,6 +105,17 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CRON_HYGIENE",
+    description:
+      "Whether the generated crontab schedules the weekly `hygiene` job " +
+      "(Mondays 06:00), which runs `brain hygiene reconcile` through the cron " +
+      "wrapper: it refreshes the content-hygiene log's backlog and last-run " +
+      "date and edits no content. Set to a false token (0, false, off, no) to " +
+      "leave the job out.",
+    default: "on",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
       "Comma-separated environment variable names to admit to every child " +
@@ -623,6 +634,8 @@ export interface CronConfig {
   childEnv: EnvRecord;
   /** Valid operator-added names, also used when emitting /etc/environment. */
   subprocessEnvExtraNames: string[];
+  /** Whether the crontab schedules the weekly `hygiene` job (BRAIN_UI_CRON_HYGIENE). */
+  hygiene: boolean;
   /**
    * Control configuration the cron RUNNER itself reads — the exec wrapper and
    * its cancellation helper. Kept apart from `childEnv` on purpose: that one
@@ -853,6 +866,7 @@ export function resolveCronConfig(
       subprocessEnvExtraNames
     ),
     subprocessEnvExtraNames,
+    hygiene: envFlag(env.BRAIN_UI_CRON_HYGIENE, true),
     controlEnv: Object.fromEntries(
       CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
     ),

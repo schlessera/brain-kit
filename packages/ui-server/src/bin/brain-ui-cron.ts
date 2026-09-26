@@ -161,6 +161,7 @@ if (subcommand === "crontab") {
       ...options,
       modules,
       subprocessEnvExtraNames: config.subprocessEnvExtraNames,
+      hygiene: config.hygiene,
       legacyScraperPresent: isRegularFile(
         join(config.brainPath, "scripts", "jobs", "scrape-all.ts")
       ),

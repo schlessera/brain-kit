@@ -49,6 +49,11 @@ export interface EmitCrontabOptions {
   legacyScraperPresent: boolean;
   /** Valid names carried into each wrapper so the run process re-admits them. */
   subprocessEnvExtraNames?: readonly string[];
+  /**
+   * Schedule the weekly `hygiene` job, which runs `brain hygiene reconcile`.
+   * Default true; BRAIN_UI_CRON_HYGIENE=off turns it off.
+   */
+  hygiene?: boolean;
 }
 
 /**
@@ -106,6 +111,7 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     user,
     legacyScraperPresent,
     subprocessEnvExtraNames = [],
+    hygiene = true,
   } = options;
 
   assertSingleLine("wrapperCommand", wrapperCommand);
@@ -130,6 +136,12 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     `0 3 * * * ${user} cd /data/brain && ${wrapper} validate -- brain validate 2>&1 | logger -t brain-validate`,
     `0 7 * * * ${user} cd /data/brain && ${wrapper} maintain -- brain maintain 2>&1 | logger -t brain-maintain`,
     `30 7 * * * ${user} cd /data/brain && ${wrapper} digest -- ${digestCommand} 2>&1 | logger -t brain-digest`,
+    // Weekly, and only the deterministic half of content hygiene: the log's
+    // backlog and last-run date move, and no content is edited. It runs
+    // repository code, so it goes through the wrapper and is never trusted.
+    ...(hygiene
+      ? [`0 6 * * 1 ${user} cd /data/brain && ${wrapper} hygiene -- brain hygiene reconcile 2>&1 | logger -t brain-hygiene`]
+      : []),
     "",
     "# Module jobs (from enabled modules' cron manifests, when exposed)",
   ];
