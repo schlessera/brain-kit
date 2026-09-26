@@ -31,7 +31,10 @@ interface Token {
 function frontmatterBounds(text: string): { start: number; end: number } | null {
   const length = frontmatterLength(text);
   if (length === 0) return null;
-  const close = text.lastIndexOf("\n---", length);
+  // The first `\n---` after the opening fence, as frontmatterLength finds it:
+  // a later `---` or `----` line is a horizontal rule in the body.
+  const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const close = text.indexOf("\n---", bom + 3);
   const start = text.indexOf("\n") + 1;
   return close !== -1 && start > 0 && start <= close + 1 ? { start, end: close + 1 } : null;
 }
@@ -201,9 +204,11 @@ function valueEnd(lines: Line[], k: number, blockScalar: string | null): number 
  * It rewrites a top-level key whose value is a one-line scalar or flow
  * sequence, a block list, an empty value, or a block scalar (`|`, `>`). The
  * key may be plain or quoted, but a quoted key spelled with escapes
- * (`"sta\\u0074us"`) is not recognised. Comment lines among a value's lines
- * stay, except inside a block scalar, where they are its text; comment and
- * blank lines after a value are outside it and stay too. It refuses (null)
+ * (`"sta\\u0074us"`) is not recognised. Comment and blank lines among a
+ * value's lines stay, except inside a block scalar, where they are its text;
+ * comment and blank lines after a value are outside it and stay too. A known
+ * limit: in a block scalar whose first text line is whitespace only, the
+ * extent is inferred from the next line, which can differ from YAML's reading. It refuses (null)
  * anything else, such as a multi-line flow sequence, a multi-line plain
  * scalar, a flow map, or keys indented under the fence; and it refuses when
  * the result does not read back as exactly the requested values, types
@@ -215,7 +220,8 @@ export function editFrontmatter(text: string, updates: Record<string, Frontmatte
   if (!bounds) return null;
   const block = text.slice(bounds.start, bounds.end);
   const lines = splitLines(block);
-  const eol = lines.find((line) => line.eol)?.eol ?? "\n";
+  // The opening fence's line ending is the file's convention.
+  const eol = text[text.indexOf("\n") - 1] === "\r" ? "\r\n" : "\n";
   const edits: [number, number, string][] = [];
   const appended: string[] = [];
 
@@ -237,10 +243,10 @@ export function editFrontmatter(text: string, updates: Record<string, Frontmatte
     const valueLines = lines.slice(k + 1, last + 1);
     // The whole-line span from the key line through the value's last line.
     const spanEnd = lines[last]!.end + lines[last]!.eol.length;
-    // Comment lines among the value's lines stay, with their own endings;
-    // in a block scalar every line is text.
+    // Comment and blank lines among the value's lines stay, with their own
+    // endings; in a block scalar every line is text.
     const kept = blockScalar === null
-      ? valueLines.filter((line) => COMMENT_LINE.test(line.text)).map((line) => line.text + line.eol).join("")
+      ? valueLines.filter((line) => COMMENT_LINE.test(line.text) || BLANK_LINE.test(line.text)).map((line) => line.text + line.eol).join("")
       : "";
 
     if (value === null) {

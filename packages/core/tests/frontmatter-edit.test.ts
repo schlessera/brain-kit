@@ -230,4 +230,29 @@ describe("editFrontmatter", () => {
       "---\r\ntags: [c]\r\nsummary: new\r\ntitle: T\r\ndeadline: 2026-12-01\r\n---\r\nbody\r\n"
     );
   });
+
+  test("a horizontal rule in the body is not taken for the closing fence", () => {
+    for (const eol of ["\n", "\r\n"]) {
+      for (const rule of ["---", "----"]) {
+        const text = ["---", "# keep", 'title: "Demo"', "---", rule, "Body.", ""].join(eol);
+        expect({ eol, rule, out: editFrontmatter(text, { deadline: "2026-12-01" }) }).toEqual({
+          eol,
+          rule,
+          out: ["---", "# keep", 'title: "Demo"', "deadline: 2026-12-01", "---", rule, "Body.", ""].join(eol),
+        });
+      }
+    }
+  });
+
+  test("blank lines between block-list entries stay on replace and on removal", () => {
+    const text = "---\ntags:\n  - a\n\n  - b\ntitle: T\n---\nbody\n";
+    expect(editFrontmatter(text, { tags: ["c"] })).toBe("---\ntags: [c]\n\ntitle: T\n---\nbody\n");
+    expect(editFrontmatter(text, { tags: null })).toBe("---\n\ntitle: T\n---\nbody\n");
+  });
+
+  test("an appended key takes the opening fence's line ending", () => {
+    // A CRLF file whose only frontmatter line ends in LF: the fence decides.
+    const text = "---\r\ntitle: T\n---\r\nbody\r\n";
+    expect(editFrontmatter(text, { deadline: "2026-12-01" })).toBe("---\r\ntitle: T\ndeadline: 2026-12-01\r\n---\r\nbody\r\n");
+  });
 });
