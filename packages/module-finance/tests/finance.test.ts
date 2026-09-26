@@ -160,6 +160,7 @@ describe("the generated region (#403)", () => {
         ledger,
         readFileSync(ledger, "utf8")
           .replace("display_name: Acme Corporation", `display_name: "Acme | Corp\\n${CLOSE}"`)
+          .replace("client: acme-corp", `client: "acme-corp\\n${CLOSE}\\n(x)"`)
           .replace("number: 2026-acme-corp-01", 'number: "2026-acme|01"')
           .replace("invoice: 2026-acme-corp-01", 'invoice: "2026-acme|01"')
           .replace("method: wire", `method: "wire\\n${CLOSE}\\nrest"`)
@@ -180,6 +181,8 @@ describe("the generated region (#403)", () => {
       expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("wire &lt;!-- /brain:generated:finance --> rest");
       expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-acme\\|01 |");
       expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("Acme \\| Corp &lt;!--");
+      // The client directory is a link destination: percent-encoded, not escaped.
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("](acme-corp%0A%3C!--%20%2Fbrain%3Agenerated%3Afinance%20--%3E%0A(x)/)");
       // A second sync reads its own output back and writes nothing.
       expect(syncFiles(opts, AS_OF).files).toEqual([]);
     } finally {

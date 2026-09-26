@@ -467,7 +467,8 @@ const STATUS_LABEL: Record<InvoiceStatus, string> = {
  * a region marker on a line of its own.
  */
 const t = (value: unknown): string => inertGeneratedText(value === undefined || value === null ? "" : String(value));
-/** An amount in a generated table; a custom currency code is frontmatter text too. */
+/** An amount in a generated table; a custom currency code is frontmatter text too. A link
+ * destination (the dashboard's client directory) is percent-encoded instead. */
 const m = (n: number, currency: string): string => t(money(n, currency));
 
 /** Markdown tables + summary for a single client's ledger body. */
@@ -532,7 +533,7 @@ function renderIndexTable(pf: Portfolio): string {
       : "—";
     const settled = Math.max(0, Math.round((c.invoiced - c.open) * 100) / 100);
     lines.push(
-      `| ${t(c.displayName)} | ${t(c.status)} | ${m(c.invoiced, c.currency)} | ${m(settled, c.currency)} | **${m(c.open, c.currency)}** | ${oldest} | [${t(c.slug)}](${c.slug}/) |`
+      `| ${t(c.displayName)} | ${t(c.status)} | ${m(c.invoiced, c.currency)} | ${m(settled, c.currency)} | **${m(c.open, c.currency)}** | ${oldest} | [${t(c.slug)}](${encodeURIComponent(c.slug)}/) |`
     );
   }
   lines.push("");

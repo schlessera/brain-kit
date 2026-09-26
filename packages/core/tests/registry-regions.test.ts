@@ -125,9 +125,12 @@ describe("planRegistry / applyRegistry", () => {
   });
 
   test("a child whose frontmatter never closes is reported on its index", () => {
-    const root = tree({ "projects/_index.md": INDEX, "projects/a.md": "---\ntitle: Alpha\nstatus: active\n\nBody.\n" });
+    // Valid YAML, and no body: only the missing closing fence is wrong, which gray-matter accepts.
+    const root = tree({ "projects/_index.md": INDEX, "projects/a.md": "---\ntitle: Alpha\nstatus: active\n" });
     const run = runRegistry(root, taxonomy, { asOf: "2026-06-01" });
-    expect(run.invalid).toEqual([{ path: "projects/_index.md", error: expect.stringContaining("child projects/a.md") }]);
+    expect(run.invalid).toEqual([
+      { path: "projects/_index.md", error: "child projects/a.md: frontmatter does not parse: frontmatter has no closing --- line" },
+    ]);
     expect(readFileSync(join(root, "projects/_index.md"), "utf8")).toBe(INDEX);
   });
 
