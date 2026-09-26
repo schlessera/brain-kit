@@ -28,7 +28,7 @@ import { assembleContext } from "./lib/context-assembler.js";
 import { walkLinks } from "./lib/link-walk.js";
 import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
-import { archiveDocument } from "./lib/archiver.js";
+import { archiveDocument, relevanceOnArchive } from "./lib/archiver.js";
 import { indexAll } from "./lib/indexer.js";
 import { updateDocument } from "./lib/frontmatter-edit.js";
 import type { FrontmatterValue } from "./lib/frontmatter-edit.js";
@@ -550,7 +550,7 @@ export async function startMcpServer(
     "brain_update",
     {
       description:
-        "Update an existing brain document: set frontmatter fields (summary, status, relevance, tags, deadline, next_review) and/or append a markdown section to the body. Bumps the `updated` field and reindexes. Does not create files — use brain_add for that.",
+        "Update an existing brain document: set frontmatter fields (summary, status, relevance, tags, deadline, next_review) and/or append a markdown section to the body. Bumps the `updated` field and reindexes. Setting status to archived also demotes a primary or unset relevance to historical, as brain_archive does. Does not create files — use brain_add for that.",
       inputSchema: {
         path: z.string().describe('Relative path to the document (e.g., "context/current-focus.md")'),
         summary: z.string().optional().describe("New one-line summary"),
@@ -593,6 +593,13 @@ export async function startMcpServer(
           changes.push("next_review");
         }
         if (params.append_content) changes.push("content");
+
+        // Archiving by a status edit demotes relevance the way brain_archive
+        // does (#450), unless this call sets relevance itself.
+        if (params.status === "archived" && params.relevance === undefined) {
+          const relevance = relevanceOnArchive(raw);
+          if (relevance) { updates.relevance = relevance; changes.push("relevance"); }
+        }
 
         if (changes.length === 0) return errorResult(new Error("no changes specified"));
 

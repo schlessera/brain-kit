@@ -655,8 +655,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     description:
       "Update an existing brain document: set frontmatter fields (summary, status, " +
       "relevance, tags, deadline, next_review) and/or append a markdown section to the " +
-      "body. Bumps the `updated` field and reindexes. Does not create files — use " +
-      "brain_add for that.",
+      "body. Bumps the `updated` field and reindexes. Setting status to archived also " +
+      "demotes a primary or unset relevance to historical, as brain_archive does. Does " +
+      "not create files — use brain_add for that.",
     parameters: Type.Object({
       path: Type.String({ description: "Repo-relative document path." }),
       summary: Type.Optional(Type.String({ description: "New one-line summary." })),

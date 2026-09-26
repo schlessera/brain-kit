@@ -34,6 +34,18 @@ function today(): string {
 }
 
 /**
+ * The relevance a document gets when it is archived, by any route (#413,
+ * #450): an archived doc claiming primary would still take the primary search
+ * boost whenever archived docs are included, so a primary or unset relevance
+ * becomes historical. An explicit secondary or historical is the author's
+ * call and stays, which is `undefined` here: leave the key alone.
+ */
+export function relevanceOnArchive(raw: string): "historical" | undefined {
+  const relevance = matter(raw, {}).data.relevance;
+  return !relevance || relevance === "primary" ? "historical" : undefined;
+}
+
+/**
  * Archive a document: set status archived, demote a primary or unset
  * relevance to historical, bump updated, move
  * projects/active/ files to projects/archive/, and reindex.
@@ -77,14 +89,9 @@ export async function archiveDocument(
   }
 
   const raw = readFileSync(fullPath, "utf-8");
-  const parsed = matter(raw, {});
   const updates: Record<string, string> = { status: "archived" };
-  // An archived doc claiming primary would still take the primary search boost
-  // whenever archived docs are included. An explicit secondary or historical
-  // is the author's call and stays.
-  if (!parsed.data.relevance || parsed.data.relevance === "primary") {
-    updates.relevance = "historical";
-  }
+  const relevance = relevanceOnArchive(raw);
+  if (relevance) updates.relevance = relevance;
   updates.updated = today();
   // Only these keys change; the rest of the file keeps its bytes (#449).
   const output = updateDocument(raw, updates);

@@ -28,6 +28,7 @@ import {
   initContext,
   loadVecSupport,
   openDatabase,
+  relevanceOnArchive,
   resolveEmbeddingProvider,
   safeResolve,
   updateDocument,
@@ -401,6 +402,15 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         changes.push("next_review");
       }
       if (input.appendContent) changes.push("content");
+      // Archiving by a status edit demotes relevance the way brain_archive
+      // does (#450), unless this call sets relevance itself.
+      if (input.status === "archived" && input.relevance === undefined) {
+        const relevance = relevanceOnArchive(raw);
+        if (relevance) {
+          updates.relevance = relevance;
+          changes.push("relevance");
+        }
+      }
 
       if (changes.length === 0) throw new Error("No changes specified.");
 
