@@ -124,10 +124,10 @@ describe("brain eval --context", () => {
     const plain = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
     expect(Object.keys(JSON.parse(plain.stdout))).not.toContain("context");
     const alone = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set, "--budgets", "1000"]);
-    expect(alone.code).toBe(1);
+    expect(alone.code).toBe(2);
     expect(alone.stderr).toContain("--budgets needs --context");
     const bad = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set, "--context", "--budgets", "0"]);
-    expect(bad.code).toBe(1);
+    expect(bad.code).toBe(2);
   });
 
   test("the context block's shape", async () => {

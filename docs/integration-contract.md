@@ -34,7 +34,9 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
   (`maintain` exits `2` if any step failed; `scratch clean|prune` exits `2`
   when a file could not be removed, with the JSON report still printed;
   `eval` exits `2` when a validity gate refuses the run, with nothing on
-  stdout).
+  stdout, and also on a usage error, so its `1` only ever means a failed
+  `--baseline` gate; `3` is runs that are not comparable, the report still
+  printed).
 - Boolean flags never consume the following argument.
 - End-of-options: a bare `--` stops flag parsing, and every later argument is
   positional verbatim. Output-mode and help flags after it are positional too
@@ -183,10 +185,11 @@ path is outside the brain (symlinks followed), not a file, or not in the index,
 a selector selects no document, the index is older than the markdown on disk or
 an indexed file cannot be read to tell, or a requested lane degraded (any
 `warnings` from the search, such as `--mode vector` with no embedding
-provider). Usage errors exit `1`: a malformed set line (named by number), a
-value option given no value, a `--k` cutoff above 1000, an `--now` that is not
-an ISO date, and an `--out` outside the brain, which is refused before any
-search runs. `--set` and `--out` resolve against the brain root.
+provider). Usage errors exit `2` as well under `brain eval` (every other
+command keeps `1`), so `1` only ever means a failed `--baseline` gate: a
+malformed set line (named by number), a value option given no value, a `--k`
+cutoff above 1000, an `--now` that is not an ISO date, and an `--out` outside
+the brain, which is refused before any search runs. `--set` and `--out` resolve against the brain root.
 
 The query-set format (additive in 0.38.0): the optional first-line header
 takes `now` (an ISO date or timestamp), and no other key. A query gives either
@@ -239,6 +242,45 @@ instead, ignoring case and whitespace; a `no-answer` query may not carry one.
 `--budgets` without `--context` is a usage error. Search warnings from the
 assembler (a keyless brain has no vector lane) are reported once each in
 `warnings`, prefixed `context: `, and never refuse the run.
+
+`--baseline <file>` compares the run, query by query, against a stored one (a
+`--json` envelope written with `--out`), and adds a `baseline` block (additive
+in 0.38.0):
+
+```jsonc
+"baseline": {
+  "file": "evals/baseline.json",   // null under --redact
+  "version": "0.38.0",             // the version the baseline was recorded with
+  "comparable": true,
+  "not_comparable": [],            // why not, when comparable is false
+  "only_in_baseline": [],          // query IDs one run lacks (--allow-set-change)
+  "only_in_run": [],
+  "modes": [
+    { "mode": "fts",
+      "hit_at": { "1": { "lost": ["knee"], "gained": [], "unchanged": 25, "sign_test_p": 1 } },  // per k
+      "per_class": [ { "class": "exact", "hit_at": { "1": { "lost": ["knee"], "gained": [], "unchanged": 4 } } } ] }
+  ],
+  "gate": { "max_net_loss": 2, "must_pass": [], "failed": false, "reasons": [] }
+}
+```
+
+`lost` and `gained` list query IDs that hit at k in one run and not the other;
+a no-answer query is never compared. `sign_test_p` is the exact two-sided sign
+test over the discordant queries, reported for information only. The gate
+fails (exit `1`) when lost minus gained on hit@1 reaches `--max-net-loss`
+(default 2) in any mode, or when a query in a `--must-pass` class (comma
+separated) is lost. The runs are not comparable (exit `3`) when their schema,
+modes, embedding model or k differ, or, without `--allow-set-change`, their
+set hash or query IDs do; with it, only the queries both runs have are
+compared. A missing or unreadable baseline is refused (exit `2`) before any
+search runs, `--k` must include 1, and the gate flags need `--baseline`.
+
+`--redact` removes `q`, `expected` and `top` from each `per_query` entry,
+nulls `meta.set`, `meta.source` and `baseline.file`, and replaces `warnings`
+(which name documents) with a count, in the output (`--json` and the human
+report alike) and in `--out`. A redacted run still works as a baseline. A
+baseline is refused (exit `2`) unless every query appears once in every mode
+it names, with a hit or miss at every k.
 
 #### `brain index` counters
 

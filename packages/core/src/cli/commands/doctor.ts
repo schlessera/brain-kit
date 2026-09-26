@@ -512,6 +512,32 @@ function checkGitStorage(root: string): Check {
   return { id: "git-storage", status: "warn", detail: problems.join("; "), fix: fixes.join("; ") };
 }
 
+/**
+ * A stored eval baseline recorded on another `@schlessera/brain` version is
+ * a reminder, not a failure: upgrades arrive by version bump, and comparing
+ * the new version's ranking against the old one is a step for a person.
+ */
+function checkEvalBaseline(root: string): Check {
+  const path = join(root, "evals", "baseline.json");
+  if (!existsSync(path)) return { id: "eval-baseline", status: "pass", detail: "no evals/baseline.json" };
+  let version: unknown;
+  try {
+    version = (JSON.parse(readFileSync(path, "utf-8")) as { meta?: { version?: unknown } }).meta?.version;
+  } catch (e) {
+    return { id: "eval-baseline", status: "warn", detail: `evals/baseline.json could not be read: ${(e as Error).message}` };
+  }
+  const installed = packageVersion();
+  if (version === installed) {
+    return { id: "eval-baseline", status: "pass", detail: `evals/baseline.json matches the installed version (${installed})` };
+  }
+  return {
+    id: "eval-baseline",
+    status: "warn",
+    detail: `evals/baseline.json was recorded with ${typeof version === "string" ? version : "an unknown version"}; ${installed} is installed`,
+    fix: "run `brain eval --baseline evals/baseline.json`",
+  };
+}
+
 function checkPrivacy(root: string): Check {
   if (!gitInstalled()) return { id: "privacy", status: "warn", detail: `${GIT_MISSING}, so the remote's visibility was not checked` };
   const hasRemote = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"]).exitCode === 0;
@@ -709,6 +735,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["deps", () => checkDeps(root)],
     ["version", () => checkVersion()],
     ["privacy", () => checkPrivacy(root)],
+    ["eval-baseline", () => checkEvalBaseline(root)],
     ["git-storage", () => checkGitStorage(root)],
     ["tracked-leftovers", () => checkTrackedLeftovers(root)],
     ["scratch", () => checkScratch(root)],
