@@ -5,6 +5,7 @@ import matter from "gray-matter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
+import { topLevelBlocks } from "./document-parts.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
@@ -399,32 +400,24 @@ export interface RepeatedText {
   paths: string[];
 }
 
+/** Collapse whitespace, as the comparison does. */
+const normalizeText = (text: string) => text.replace(/\s+/g, " ").trim();
+
 /**
- * The paragraphs of a document body: runs of non-blank lines, with an ATX
- * heading line always a block of its own (and never a paragraph). Offsets
- * are into `content`; `text` has its whitespace collapsed.
+ * A document body's candidate paragraphs, whitespace collapsed: runs of
+ * non-blank lines, with an ATX heading line always a block of its own (and
+ * never a candidate).
  */
-function paragraphsOf(content: string): Array<{ text: string; start: number; end: number }> {
-  const blocks: Array<{ text: string; start: number; end: number }> = [];
-  let start = -1;
-  let end = 0;
+function candidateParagraphs(content: string): string[] {
+  const blocks: string[] = [];
   let lines: string[] = [];
   const flush = () => {
-    if (lines.length > 0) blocks.push({ text: lines.join(" ").replace(/\s+/g, " ").trim(), start, end });
+    if (lines.length > 0) blocks.push(normalizeText(lines.join(" ")));
     lines = [];
-    start = -1;
   };
-  let offset = 0;
   for (const line of content.split("\n")) {
-    const lineStart = offset;
-    offset += line.length + 1;
-    if (!line.trim() || /^ {0,3}#{1,6}(?:\s|$)/.test(line)) {
-      flush();
-      continue;
-    }
-    if (start === -1) start = lineStart;
-    end = lineStart + line.length;
-    lines.push(line);
+    if (!line.trim() || /^ {0,3}#{1,6}(?:\s|$)/.test(line)) flush();
+    else lines.push(line);
   }
   flush();
   return blocks;
@@ -435,41 +428,42 @@ function paragraphsOf(content: string): Array<{ text: string; start: number; end
  * REPEATED_TEXT_MIN_DOCS documents carry, compared after whitespace
  * normalisation. Each copy is chunked, contextualised and embedded on its own,
  * and near-identical vectors crowd the candidate window of any query they
- * match. A paragraph that touches code is not counted.
+ * match.
  *
- * Paragraphs are found by blank lines, which is cheap; only a document that
- * carries a candidate and could hold code (a backtick, a tilde fence, an
- * indented line) is parsed, to find its code.
+ * Candidates are found by blank lines, which is cheap and over-counts: a list,
+ * a quote, a setext heading or indented code reads as a paragraph there. So a
+ * document carrying a candidate that enough documents share is then parsed,
+ * and counts only when one of its top-level paragraph blocks is the candidate.
  */
 export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
-  const seen = new Map<string, Map<string, { start: number; end: number }>>();
+  const seen = new Map<string, Set<AuditDoc>>();
   for (const doc of docs) {
-    for (const { text, start, end } of paragraphsOf(doc.content)) {
+    for (const text of candidateParagraphs(doc.content)) {
       if (text.length < REPEATED_TEXT_MIN_CHARS) continue;
       let where = seen.get(text);
-      if (!where) seen.set(text, (where = new Map()));
-      if (!where.has(doc.path)) where.set(doc.path, { start, end });
+      if (!where) seen.set(text, (where = new Set()));
+      where.add(doc);
     }
   }
 
-  const code = new Map<string, [number, number][]>();
-  const content = new Map(docs.map((d) => [d.path, d.content]));
-  const inCode = (path: string, start: number, end: number) => {
-    let ranges = code.get(path);
-    if (!ranges) {
-      const text = content.get(path) ?? "";
-      // Code needs a backtick, a tilde fence or an indented line; a document
-      // with none of them has no code, and is not parsed.
-      ranges = /`|~~~|^(?: {4}|\t)/m.test(text) ? codeRanges(text) : [];
-      code.set(path, ranges);
+  const paragraphs = new Map<AuditDoc, Set<string>>();
+  const paragraphsIn = (doc: AuditDoc) => {
+    let texts = paragraphs.get(doc);
+    if (!texts) {
+      texts = new Set(
+        topLevelBlocks(doc.content)
+          .filter((block) => block.type === "paragraph")
+          .map((block) => normalizeText(doc.content.slice(block.start, block.end)))
+      );
+      paragraphs.set(doc, texts);
     }
-    return ranges.some(([s, e]) => start < e && end > s);
+    return texts;
   };
 
   const repeated: RepeatedText[] = [];
   for (const [text, where] of seen) {
     if (where.size < REPEATED_TEXT_MIN_DOCS) continue;
-    const paths = [...where].filter(([path, at]) => !inCode(path, at.start, at.end)).map(([path]) => path);
+    const paths = [...where].filter((doc) => paragraphsIn(doc).has(text)).map((doc) => doc.path);
     if (paths.length >= REPEATED_TEXT_MIN_DOCS) repeated.push({ text, paths: paths.sort() });
   }
   return repeated.sort((a, b) => b.paths.length - a.paths.length || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));

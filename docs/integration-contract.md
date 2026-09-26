@@ -97,8 +97,9 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 the one in its source's `facts:` frontmatter, one issue per document per fact,
 `warning`, with `message: "<key>: found <x>, canonical <y>"`; the source is
 never reported, nor a document that lists the key in `facts_ignore`. `repeated-text` is a
-paragraph of at least 200 characters (whitespace collapsed, code excluded)
-that at least 5 documents carry, one `info` issue per paragraph with `path: "(corpus)"`, the document
+top-level paragraph of at least 200 characters (whitespace collapsed; code, a
+list, a quote or a heading is not a paragraph) that at least 5 documents
+carry, one `info` issue per paragraph with `path: "(corpus)"`, the document
 count, the first three paths and the paragraph's first 80 characters in
 `message`. `budget` is a canonical document
 over its `taxonomy.canonicalPolicy.<key>.maxTokens`. `review-overdue` is a
