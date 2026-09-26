@@ -36,7 +36,7 @@ plain-language explanation, consent, and re-verification — not re-implementing
 | Check | Detects | Fix |
 |---|---|---|
 | runtime | bun missing / too old | none — explain how to install; stop if blocking |
-| git-hooks | `core.hooksPath` not set | `brain setup` |
+| git-hooks | `core.hooksPath` not set, or an installed hook missing or different from the packaged one (an older copy after an upgrade) | `brain setup` or `brain doctor --fix`, which replace the hooks with the packaged ones |
 | symlinks | `~/.local/bin/brain` or `.claude/skills/*` broken/stale | `brain skills sync` |
 | shadowed-commands | a `.claude/commands/<name>.md` file with the same name as a skill; the skill runs, so the file is dead | none automatic — ask, then delete or rename each listed file |
 | instructions-weight | `CLAUDE.md` (with its `@` imports), `AGENTS.md` and model-invocable skill descriptions together exceed `instructions.maxTokens` (default 8000) | none automatic — show the three largest contributors, and offer to trim them or move rarely needed rules into a skill |
