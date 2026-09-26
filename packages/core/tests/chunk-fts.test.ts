@@ -7,11 +7,13 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { rmSync, writeFileSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
-import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
+import { migrateVecSchema, openDatabase, SCHEMA_VERSION, setMeta } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
+import type { EmbeddingProvider } from "../src/lib/seams";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const roots: string[] = [];
@@ -167,6 +169,42 @@ describe("the chunk lane picks each document's best chunk before the limit", () 
   });
 });
 
+describe("a full-text search reads one snapshot", () => {
+  test("a rebuild committing between its queries leaves the result whole", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-chunk-snapshot-"));
+    roots.push(dir);
+    const path = join(dir, "brain.db");
+    const writer = openDatabase(path);
+    writer.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (1,'notes/coast.md','Coast','note','active','2026-01-01','2026-06-01','x','2026-01-01')");
+    writer.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (1,'Coast','','x','')");
+    const TEXT = `the lighthouse keeper logs every beacon ${filler(30)}`;
+    writer.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (1,0,'',?,1)", [TEXT]);
+
+    const reader = openDatabase(path, { readonly: true });
+    // Between the chunk lane's pick and the snippet lookup, another run
+    // rewrites the document's chunks: same text, new ids, as --force does.
+    const prepare = reader.prepare.bind(reader);
+    let rebuilt = false;
+    reader.prepare = ((sql: string) => {
+      if (!rebuilt && sql.includes("snippet(chunks_fts")) {
+        rebuilt = true;
+        writer.run("DELETE FROM chunks WHERE document_id = 1");
+        writer.run("INSERT INTO chunks(document_id,chunk_index,heading,content,token_estimate) VALUES (1,0,'',?,1)", [TEXT]);
+      }
+      return prepare(sql);
+    }) as typeof reader.prepare;
+
+    const { results, warnings } = await hybridSearch(reader, { query: "beacon", mode: "fts", rerank: "none" });
+    reader.close();
+    writer.close();
+    expect(rebuilt).toBe(true); // the premise: the rebuild did land mid-search
+    expect(warnings).toEqual([]);
+    expect(results.map((r) => ({ path: r.path, snippet: r.snippet }))).toEqual([
+      { path: "notes/coast.md", snippet: expect.stringContaining(">>>beacon<<<") },
+    ]);
+  });
+});
+
 describe("a document found only across its sections, reranked", () => {
   test("stays after one found in one place, whatever their lifecycle factors", async () => {
     const { db, add } = handBuilt();
@@ -184,6 +222,62 @@ describe("a document found only across its sections, reranked", () => {
       const { results } = await hybridSearch(db, { query: "the who", mode: "fts", rerank, now });
       expect({ rerank, paths: results.map((r) => r.path) }).toEqual({ rerank, paths: ["notes/one-place.md", "notes/split.md"] });
     }
+    db.close();
+  });
+
+  /** The same two documents, for a hybrid search with a vector lane as `vectors` stages it. */
+  async function lifecyclePair(vectors: "none" | "empty" | "one-place" | "split") {
+    const { db, add } = handBuilt();
+    add("notes/one-place.md", [`the band called the who ${filler(60)}`], {
+      relevance: "historical",
+      status: "draft",
+      updated: "2000-01-01",
+      generatedFrom: "tools/export",
+    });
+    add("notes/split.md", [`the ${filler(60)}`, `who ${filler(60)}`], { relevance: "primary", updated: "2026-06-30" });
+    if (vectors !== "none") {
+      expect(await migrateVecSchema(db, 2)).toBe(true);
+      setMeta(db, "embedding_model", "test:tier");
+      const near = vectors === "empty" ? null : vectors === "one-place" ? "notes/one-place.md" : "notes/split.md";
+      if (near) {
+        const chunk = db.prepare("SELECT c.id FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? LIMIT 1").get(near) as { id: number };
+        db.run("INSERT INTO vec_chunks(chunk_id,embedding,is_archived,doc_type) VALUES (?,?,0,'note')", [chunk.id, new Uint8Array(new Float32Array([1, 0]).buffer)]);
+      }
+    }
+    return db;
+  }
+  const provider = (fail = false): EmbeddingProvider => ({
+    id: "test:tier",
+    dimensions: 2,
+    embed: async () => [],
+    embedQuery: async () => {
+      if (fail) throw new Error("embedding service down");
+      return new Float32Array([1, 0]);
+    },
+  });
+  const now = new Date("2026-07-01T00:00:00Z");
+  const hybridOrder = async (db: Database, embeddings?: EmbeddingProvider) =>
+    (await hybridSearch(db, { query: "the who", mode: "hybrid", now }, { embeddings })).results.map((r) => r.path);
+
+  test("stays after it in hybrid degraded to full text: no extension, no provider, no vectors, a failed provider", async () => {
+    const cases: Array<[string, () => Promise<{ db: Database; embeddings?: EmbeddingProvider }>]> = [
+      ["no extension", async () => ({ db: await lifecyclePair("none"), embeddings: provider() })],
+      ["no provider", async () => ({ db: await lifecyclePair("empty") })],
+      ["no stored vectors", async () => ({ db: await lifecyclePair("empty"), embeddings: provider() })],
+      ["a failed provider", async () => ({ db: await lifecyclePair("one-place"), embeddings: provider(true) })],
+    ];
+    for (const [name, make] of cases) {
+      const { db, embeddings } = await make();
+      expect({ name, paths: await hybridOrder(db, embeddings) }).toEqual({ name, paths: ["notes/one-place.md", "notes/split.md"] });
+      db.close();
+    }
+  });
+
+  test("with vector hits, the fused rank decides", async () => {
+    const db = await lifecyclePair("split");
+    // The vector lane finds only the split document; fused with the lifecycle
+    // factors, it comes first, tier or not.
+    expect(await hybridOrder(db, provider())).toEqual(["notes/split.md", "notes/one-place.md"]);
     db.close();
   });
 });

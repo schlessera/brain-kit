@@ -429,6 +429,9 @@ function chunkSnippets(db: Database, match: string, ranked: Array<FtsRow & { chu
   for (const row of ranked) {
     const snippet = row.chunkId === undefined ? undefined : snippets.get(row.chunkId);
     if (snippet !== undefined) row.snippet = snippet;
+    // Every result carries a snippet; this is reached only if the chunk went
+    // missing, which the caller's read snapshot rules out.
+    row.snippet ??= "";
     delete row.chunkId;
   }
 }
@@ -798,8 +801,14 @@ export async function hybridSearch(
   }
   candidates = demoteSuperseded(db, candidates);
   // A full-text result found only across its sections stays after every one
-  // found in one place: its tier comes before its reranked score.
-  if (mode === "fts") candidates = [...candidates].sort((a, b) => Number(ACROSS_SECTIONS in a) - Number(ACROSS_SECTIONS in b));
+  // found in one place: its tier comes before its reranked score. That holds
+  // whenever the ranking came from full text alone: `fts` mode, or `hybrid`
+  // with no vector contribution (no extension, no provider, no stored
+  // vectors, a failed embedding call, no vector hits). With vector hits the
+  // fused rank decides.
+  if (ftsResults !== null && (vecResults === null || vecResults.length === 0)) {
+    candidates = [...candidates].sort((a, b) => Number(ACROSS_SECTIONS in a) - Number(ACROSS_SECTIONS in b));
+  }
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }
