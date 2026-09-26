@@ -9,17 +9,26 @@ export function packagedHooksDir(): string {
   return resolve(import.meta.dir, "../hooks");
 }
 
+/** What a git-dependent step says when there is no git to run. */
+export const GIT_MISSING = "git is not installed or not on PATH";
+
+/** Whether a `git` executable is on PATH. Spawning a missing one throws. */
+export function gitInstalled(): boolean {
+  return Bun.which("git") !== null;
+}
+
 export function isGitRepo(root: string): boolean {
-  return (
-    existsSync(join(root, ".git")) ||
-    Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0
-  );
+  if (existsSync(join(root, ".git"))) return true;
+  if (!gitInstalled()) return false;
+  return Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0;
 }
 
 export interface HookInstallResult {
   installed: boolean;
   hooks: string[];
   hooksPath: string | null;
+  /** Why nothing was installed: not a git repository, or no git to run. */
+  skipped?: string;
 }
 
 /**
@@ -32,8 +41,11 @@ export function installGitHooks(
   root: string,
   hooksSourceDir = packagedHooksDir()
 ): HookInstallResult {
+  if (!gitInstalled()) {
+    return { installed: false, hooks: [], hooksPath: null, skipped: GIT_MISSING };
+  }
   if (!isGitRepo(root)) {
-    return { installed: false, hooks: [], hooksPath: null };
+    return { installed: false, hooks: [], hooksPath: null, skipped: "not a git repository" };
   }
 
   if (!existsSync(hooksSourceDir) || !statSync(hooksSourceDir).isDirectory()) {

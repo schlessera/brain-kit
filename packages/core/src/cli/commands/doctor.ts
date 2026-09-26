@@ -21,7 +21,7 @@ import { packageVersion } from "../../package-version.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
-import { HOOK_NAMES, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
+import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
@@ -45,8 +45,9 @@ interface Check {
   fix?: string;
 }
 
+/** Whether `cmd` is on PATH. Looked up, not spawned: a shell may be missing too. */
 function which(cmd: string): boolean {
-  return Bun.spawnSync(["sh", "-c", `command -v ${cmd}`]).exitCode === 0;
+  return Bun.which(cmd) !== null;
 }
 
 function gitConfig(root: string, key: string): string {
@@ -82,6 +83,7 @@ function checkRuntime(): Check {
 }
 
 export function checkGitHooks(root: string, packaged = packagedHooksDir()): Check {
+  if (!gitInstalled()) return { id: "git-hooks", status: "warn", detail: GIT_MISSING, fix: "install git, then run `brain setup`" };
   if (!isGitRepo(root)) return { id: "git-hooks", status: "warn", detail: "not a git repository", fix: "run `git init`, then `brain setup`" };
   const hooksPath = gitConfig(root, "core.hooksPath");
   if (!hooksPath) return { id: "git-hooks", status: "fail", detail: "core.hooksPath is not set", fix: "run `brain setup`" };
@@ -509,6 +511,7 @@ function checkGitStorage(root: string): Check {
 }
 
 function checkPrivacy(root: string): Check {
+  if (!gitInstalled()) return { id: "privacy", status: "warn", detail: `${GIT_MISSING}, so the remote's visibility was not checked` };
   const hasRemote = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"]).exitCode === 0;
   if (!hasRemote) return { id: "privacy", status: "pass", detail: "no git remote (nothing published)" };
   if (!which("gh")) return { id: "privacy", status: "warn", detail: "git remote exists but gh CLI unavailable — verify the repo is PRIVATE manually" };
@@ -550,6 +553,9 @@ async function checkSqliteVecMac(): Promise<Check> {
  * line to `.gitignore`.
  */
 function checkScratch(root: string): Check {
+  if (!gitInstalled()) {
+    return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
+  }
   try {
     if (scratchIgnored(root)) return { id: "scratch", status: "pass", detail: `${SCRATCH_DIR}/ is gitignored` };
   } catch (error) {
@@ -604,26 +610,42 @@ function checkCacheMerge(root: string): Check {
   return { id: "cache-merge", status: "pass", detail: "the sidecar caches union-merge (.gitattributes)" };
 }
 
+/**
+ * Run one check, and report a check that throws as a `warn` naming its error
+ * instead of losing the whole battery: a doctor that crashes tells the user
+ * nothing about the checks that would have passed.
+ */
+export async function guarded(id: string, check: () => Check | Promise<Check>): Promise<Check> {
+  try {
+    return await check();
+  } catch (e) {
+    return { id, status: "warn", detail: `the check itself failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
 async function runChecks(cli: CliContext): Promise<Check[]> {
   const root = cli.brain.root;
-  return [
-    checkRuntime(),
-    checkGitHooks(root),
-    checkSymlinks(root),
-    checkShadowedCommands(cli),
-    checkInstructionsWeight(cli),
-    checkConfig(cli),
-    checkDb(cli),
-    await checkEmbeddings(cli),
-    checkMcp(root),
-    checkDeps(root),
-    checkVersion(),
-    checkPrivacy(root),
-    checkGitStorage(root),
-    checkScratch(root),
-    checkCacheMerge(root),
-    await checkSqliteVecMac(),
+  const battery: [string, () => Check | Promise<Check>][] = [
+    ["runtime", () => checkRuntime()],
+    ["git-hooks", () => checkGitHooks(root)],
+    ["symlinks", () => checkSymlinks(root)],
+    ["shadowed-commands", () => checkShadowedCommands(cli)],
+    ["instructions-weight", () => checkInstructionsWeight(cli)],
+    ["config", () => checkConfig(cli)],
+    ["db", () => checkDb(cli)],
+    ["embeddings", () => checkEmbeddings(cli)],
+    ["mcp", () => checkMcp(root)],
+    ["deps", () => checkDeps(root)],
+    ["version", () => checkVersion()],
+    ["privacy", () => checkPrivacy(root)],
+    ["git-storage", () => checkGitStorage(root)],
+    ["scratch", () => checkScratch(root)],
+    ["cache-merge", () => checkCacheMerge(root)],
+    ["sqlite-vec-macos", () => checkSqliteVecMac()],
   ];
+  const checks: Check[] = [];
+  for (const [id, check] of battery) checks.push(await guarded(id, check));
+  return checks;
 }
 
 /** Apply the auto-fixable checks currently not passing. Returns applied ids. */
@@ -642,13 +664,16 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
       console.error(`doctor --fix: git-hooks fix failed: ${e instanceof Error ? e.message : e}`);
     }
   }
-  if (failing.has("scratch")) {
+  if (failing.has("scratch") && gitInstalled()) {
     // A symlinked scratch is not fixable by a line; the check already said so.
+    // Without git, whether the line is needed cannot be asked.
     try {
       if (ignoreScratch(root)) applied.push("scratch");
     } catch (e) {
-      if (!(e instanceof ScratchRedirectedError || e instanceof WriteRefusedError)) throw e;
-      console.error(`doctor --fix: scratch fix refused: ${e.message}`);
+      // Anything else (a `.brain` that is a file, say) is reported by the check
+      // too; record it and keep going rather than lose the rest of the fixes.
+      const reason = e instanceof ScratchRedirectedError || e instanceof WriteRefusedError ? "refused" : "failed";
+      console.error(`doctor --fix: scratch fix ${reason}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   if (failing.has("cache-merge")) {

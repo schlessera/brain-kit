@@ -20,7 +20,7 @@ export const setupCommand: CoreCommand = {
 
     // 1. Git hooks — copied into .githooks/ + core.hooksPath set.
     const hooks = installGitHooks(root);
-    if (!hooks.installed) warnings.push("not a git repository — skipped git hooks");
+    if (!hooks.installed) warnings.push(`${hooks.skipped ?? "not a git repository"} — skipped git hooks`);
     result.hooksPath = hooks.hooksPath;
     result.hooks = hooks.hooks;
 
@@ -44,7 +44,7 @@ export const setupCommand: CoreCommand = {
 
     emit(cli.json, result, () => {
       console.log("brain setup complete:");
-      console.log(`  git hooks:  ${hooks.installed ? `${hooks.hooks.join(", ")} (core.hooksPath=.githooks)` : "skipped (not a git repo)"}`);
+      console.log(`  git hooks:  ${hooks.installed ? `${hooks.hooks.join(", ")} (core.hooksPath=.githooks)` : `skipped (${hooks.skipped ?? "not a git repository"})`}`);
       console.log(`  skills:     ${skills.materialized.length} materialized, ${skills.pruned.length} pruned`);
       console.log(`  bin links:  ${bin.linked.length ? bin.linked.join(", ") : "none"}`);
       for (const w of warnings) console.log(`  warning: ${w}`);

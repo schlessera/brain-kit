@@ -7,11 +7,14 @@ import { afterEach, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -170,10 +173,21 @@ test("graph compute refuses without a brain.config; its readers behave like othe
   expect(existsSync(join(root, "brain.db"))).toBe(false);
 });
 
+/**
+ * A throwaway HOME and bin directory for a command that may write there:
+ * setup and doctor --fix link `brain` into XDG_BIN_HOME (else ~/.local/bin),
+ * and must never replace the developer's own link.
+ */
+function isolatedHome(): Record<string, string> {
+  const home = mkdtempSync(join(tmpdir(), "brain-home-"));
+  temps.push(home);
+  return { HOME: home, XDG_BIN_HOME: join(home, "bin") };
+}
+
 test("skills sync and setup also refuse to run without a brain.config", async () => {
   const root = tempBrain({ empty: true });
   for (const cmd of [["skills", "sync"], ["setup"]]) {
-    const { code, stderr } = await runCli(root, cmd);
+    const { code, stderr } = await runCli(root, cmd, isolatedHome());
     expect(code).toBe(1);
     expect(stderr).toContain("refusing to modify an uninitialized directory");
   }
@@ -240,7 +254,7 @@ function hookedBrain(): string {
 }
 
 async function gitHooksCheck(root: string, args: string[] = []) {
-  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args]);
+  const { stdout, code } = await runCli(root, ["doctor", "--json", ...args], isolatedHome());
   expect(code).toBe(0);
   const out = JSON.parse(stdout);
   return { check: out.checks.find((c: { id: string }) => c.id === "git-hooks"), fixesApplied: out.fixesApplied };
@@ -312,7 +326,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:410-449`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:412-451`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).
@@ -573,4 +587,75 @@ test("the brain-init skill branches on initialized, not on the config file exist
   );
   expect(skill).toContain("config.initialized");
   expect(skill).toContain("never on `config.exists`");
+});
+
+/** A PATH holding only `bun`: no git, no sh, nothing else. */
+function bunOnlyPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), "brain-bun-only-"));
+  temps.push(dir);
+  symlinkSync(process.execPath, join(dir, "bun"));
+  return dir;
+}
+
+test("doctor without git on PATH still prints every check, with git-hooks naming the missing binary", async () => {
+  const root = tempBrain();
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], { PATH: bunOnlyPath() });
+  expect(code, stderr).toBe(0);
+  const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
+  const byId = Object.fromEntries(checks.map((c) => [c.id, c]));
+  expect(byId["git-hooks"]).toMatchObject({ status: "warn", detail: "git is not installed or not on PATH" });
+  expect(byId["runtime"]?.status).toBe("pass");
+  expect(byId["config"]?.status).toBe("pass");
+  expect(byId["db"]).toBeDefined();
+  expect(byId["privacy"]?.detail).toContain("git is not installed");
+  expect(byId["scratch"]?.detail).toContain("git is not installed");
+  // Every check answered for itself; none fell back to the crash guard.
+  expect(checks.filter((c) => c.detail.startsWith("the check itself failed"))).toEqual([]);
+  expect(checks.map((c) => c.id)).toEqual([
+    "runtime", "git-hooks", "symlinks", "shadowed-commands", "instructions-weight", "config", "db",
+    "embeddings", "mcp", "deps", "version", "privacy", "git-storage", "scratch", "cache-merge", "sqlite-vec-macos",
+  ]);
+});
+
+/** PATH with only `bun`, and a throwaway HOME and bin directory (see isolatedHome). */
+function noGitEnv(): Record<string, string> {
+  return { ...isolatedHome(), PATH: bunOnlyPath() };
+}
+
+test("doctor --fix and brain setup without git on PATH finish and say why hooks were skipped", async () => {
+  const root = tempBrain();
+  // A git repository, so the only reason to skip is the missing binary.
+  mkdirSync(join(root, ".git"));
+  const env = noGitEnv();
+  const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
+  expect(fix.code, fix.stderr).toBe(0);
+  expect(JSON.parse(fix.stdout).fixesApplied).not.toContain("git-hooks");
+  const setup = await runCli(root, ["setup", "--json"], env);
+  expect(setup.code, setup.stderr).toBe(0);
+  expect(JSON.parse(setup.stdout).warnings).toContain("git is not installed or not on PATH — skipped git hooks");
+  const human = await runCli(root, ["setup", "--human"], env);
+  expect(human.code, human.stderr).toBe(0);
+  expect(human.stdout).toContain("  git hooks:  skipped (git is not installed or not on PATH)");
+});
+
+// Review round 1: containment is proven through the command, not the helper.
+test("a check that throws becomes a warn, and every later check still reports", async () => {
+  const root = tempBrain();
+  writeFileSync(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } }));
+  // A file where the scratch directory's parent should be: mkdir throws ENOTDIR inside the check.
+  writeFileSync(join(root, ".brain"), "not a directory\n");
+  const env = isolatedHome();
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], env);
+  expect(code, stderr).toBe(0);
+  const checks = JSON.parse(stdout).checks as { id: string; status: string; detail: string }[];
+  const scratch = checks.find((c) => c.id === "scratch");
+  expect(scratch?.status).toBe("warn");
+  expect(scratch?.detail).toStartWith("the check itself failed: ENOTDIR");
+  expect(checks.map((c) => c.id).slice(-2)).toEqual(["cache-merge", "sqlite-vec-macos"]);
+
+  const fix = await runCli(root, ["doctor", "--fix", "--json"], env);
+  expect(fix.code, fix.stderr).toBe(0);
+  expect(fix.stderr).toContain("doctor --fix: scratch fix failed: ENOTDIR");
+  // Whatever --fix linked went into the throwaway bin directory.
+  expect(existsSync(join(env.HOME!, ".local"))).toBe(false);
 });
