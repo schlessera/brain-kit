@@ -52,6 +52,10 @@ Where an opportunity stands lives in its `status.md` frontmatter, not in prose:
 (creating the index if needed): an **Active** table and a **Closed** table of
 the status files, by `stage`, newest first. From then on `brain registry` and
 `brain maintain` keep the tables current; write the fields, never the rows.
+It adds the spec only when the result reads back as the index's own
+frontmatter plus the spec. An index written as a flow mapping, or ending in a
+YAML `...` line, is refused and left as it is: add the `registry:` block by
+hand. So is a path that leaves the brain root.
 
 Two audit checks (category `jobs-stage`, info) flag a `status.md` without a
 `stage`, and one still `researching` whose `updated` is over 60 days old.

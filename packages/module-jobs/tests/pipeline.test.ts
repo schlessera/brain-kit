@@ -7,7 +7,7 @@
 
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import matter from "gray-matter";
@@ -150,6 +150,30 @@ describe("jobs pipeline refuses to guess", () => {
     expect(readFileSync(join(root, INDEX), "utf8")).toBe(broken);
   });
 
+  test.each([
+    ["a flow mapping", "---\n{type: index, title: Pipeline}\n---\nNotes.\n"],
+    ["a `...` document end", "---\ntype: index\ntitle: Pipeline\n...\n---\nNotes.\n"],
+  ])("frontmatter written as %s is refused, its bytes untouched", async (_, text) => {
+    // The premise: the index is valid as it stands.
+    expect(matter(text, {}).data).toMatchObject({ type: "index", title: "Pipeline" });
+    const root = makeBrain({ [INDEX]: text });
+    const { code, stderr } = await brain(root, "jobs", "pipeline");
+    expect(readFileSync(join(root, INDEX), "utf8")).toBe(text);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("its frontmatter layout cannot take the registry spec");
+  });
+
+  test("a symlinked parent that leaves the brain gets no directory made outside it", async () => {
+    const root = makeBrain();
+    const outside = mkdtempSync(join(tmpdir(), "jobs-outside-"));
+    roots.push(outside);
+    symlinkSync(outside, join(root, "career"));
+    const { code, stderr } = await brain(root, "jobs", "pipeline");
+    expect(readdirSync(outside)).toEqual([]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("leaves the brain root");
+  });
+
   test("an index edited between the read and the write is not overwritten", () => {
     const original = `---\ntype: index\ntitle: Pipeline\n---\n\nNotes.\n`;
     const edited = `${original}A line saved meanwhile.\n`;
@@ -230,5 +254,16 @@ describe("the skills", () => {
     expect(text).toContain("brain jobs pipeline");
     // No step adds or edits a row of the pipeline table.
     expect(text).not.toMatch(/add a row|row's Status|Update the pipeline index/i);
+  });
+
+  test("closing clears the next step and its deadline, and retires a prep file's, keeping them as history", () => {
+    const closing = read("research-opportunity").split("**Closing**")[1]!.split("\n## ")[0]!;
+    expect(closing).toContain("Remove `next_step` and `deadline` from `status.md`");
+    expect(closing).toContain("Timeline line");
+    expect(closing).toMatch(/interview-prep\.md.*remove its `deadline:`/s);
+    // interview-scheduled closes through those steps rather than its own.
+    const after = read("interview-scheduled").split("**After**")[1]!.split("\n## ")[0]!;
+    expect(after).toContain("**Closing** steps");
+    expect(after).not.toMatch(/stage: closed` with a `closed_reason`/);
   });
 });

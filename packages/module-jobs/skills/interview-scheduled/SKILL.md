@@ -104,9 +104,11 @@ Ask for anything missing before writing.
 ### Workflow position
 - **Before**: `/research-opportunity` — the opportunity must already be tracked
 - **After**: a prep session before the call; record the outcome afterwards in
-  `status.md`'s fields: the next round's `next_step` and `deadline`, `stage:
-  offer`, or `stage: closed` with a `closed_reason` and `relevance:
-  historical`, then `brain jobs pipeline`
+  `status.md`'s fields: the next round's `next_step` and `deadline`, or
+  `stage: offer`, then `brain jobs pipeline`. To close instead, follow
+  `/research-opportunity`'s **Closing** steps: they remove `next_step` and
+  `deadline` from `status.md` and this prep file's `deadline`, keeping both as
+  history, so a cancelled interview stops showing in `brain briefing`
 
 ## Notes
 

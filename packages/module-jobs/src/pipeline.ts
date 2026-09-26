@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import matter from "gray-matter";
-import { splitFrontmatterBlock, writeFileSafely, type AuditIssue, type HygieneContext } from "@schlessera/brain";
+import { safeResolve, splitFrontmatterBlock, writeFileSafely, type AuditIssue, type HygieneContext } from "@schlessera/brain";
 
 import type { JobsConfig } from "./module.js";
 
@@ -50,8 +50,12 @@ export const PIPELINE_REGISTRY_YAML = [
  * index is created (never over a file that appears meanwhile); one without a
  * `registry:` block gets the module's, added at the end of its frontmatter
  * with every other byte left as it was; one that already has a block keeps
- * it. A file whose frontmatter never closes, or that changes between the read
- * and the write, is refused rather than guessed at. Returns what it did.
+ * it. The result is parsed back before it is written: it must hold exactly
+ * the module's spec and every other key as it was, so a layout the append
+ * cannot extend (a flow mapping, a `...` document end) is refused with the
+ * file untouched. So is a file whose frontmatter never closes, one that
+ * changes between the read and the write, and a path that leaves the brain
+ * root, which is checked before any directory is created. Returns what it did.
  */
 export function ensurePipelineIndex(
   root: string,
@@ -59,7 +63,10 @@ export function ensurePipelineIndex(
   today: string
 ): { path: string; action: "created" | "added" | "kept" } {
   const path = join(opportunitiesDir, "_index.md");
-  const full = join(root, path);
+  // Canonical, and inside the root, before anything is created: a symlinked
+  // parent must not get a directory made outside the brain.
+  const full = safeResolve(root, path);
+  if (full === null) throw new Error(`${path} leaves the brain root; refusing to create or change it`);
   if (!existsSync(full)) {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSafely(
@@ -98,10 +105,40 @@ export function ensurePipelineIndex(
   const beforeClose = frontmatter.slice(0, -3);
   const eol = beforeClose.endsWith("\r\n") ? "\r\n" : "\n";
   const next = `${beforeClose}${PIPELINE_REGISTRY_YAML.replace(/\n/g, eol)}${eol}${raw.slice(beforeClose.length)}`;
+  if (!readsBackWithSpec(raw, next)) {
+    throw new Error(
+      `${path}: its frontmatter layout cannot take the registry spec as appended lines (a flow mapping or a \`...\` end, for example); ` +
+        "add the `registry:` block by hand, or rewrite the frontmatter as a block mapping"
+    );
+  }
   // An edit since the read (an editor saving the index) is not overwritten.
   if (readFileSync(full, "utf8") !== raw) throw new Error(`${path} changed while the registry spec was being added; run it again`);
   writeFileSafely(full, next);
   return { path, action: "added" };
+}
+
+/** The registry spec as the pipeline index should read it back. */
+const PIPELINE_SPEC = matter(`---\n${PIPELINE_REGISTRY_YAML}\n---\n`, {}).data.registry as unknown;
+
+/**
+ * Whether `next` parses to `raw`'s frontmatter plus exactly the pipeline
+ * spec, every other key unchanged (compared as JSON, so a date stays a date).
+ */
+function readsBackWithSpec(raw: string, next: string): boolean {
+  let before: Record<string, unknown>;
+  let after: Record<string, unknown>;
+  try {
+    splitFrontmatterBlock(next);
+    before = matter(raw, {}).data;
+    after = matter(next, {}).data;
+  } catch {
+    return false;
+  }
+  if (JSON.stringify(after.registry) !== JSON.stringify(PIPELINE_SPEC)) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  keys.delete("registry");
+  for (const key of keys) if (JSON.stringify(after[key]) !== JSON.stringify(before[key])) return false;
+  return true;
 }
 
 const MS_PER_DAY = 86_400_000;

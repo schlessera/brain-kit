@@ -151,8 +151,20 @@ generated from it:
 - `applied`: the date the application went out.
 - `next_step`: what happens next, in a few words; its date goes in `deadline`,
   which is what `brain briefing` lists under Upcoming Deadlines.
-- `closed_reason`: why it ended, when `stage` is `closed`. Closing also sets
-  `relevance: historical`.
+- `closed_reason`: why it ended, when `stage` is `closed`.
+
+**Closing** (`stage: closed`, at any point):
+
+1. Set `closed_reason` and `relevance: historical`.
+2. Remove `next_step` and `deadline` from `status.md`. A closed opportunity has
+   no next step, and a `deadline` left behind keeps listing it in
+   `brain briefing`'s Upcoming Deadlines. Keep them as history instead: add a
+   Timeline line, `- {today}: closed ({closed_reason}); "{next_step}" on
+   {deadline} cancelled`.
+3. Retire the deadline of every other file of the opportunity that still has
+   one ahead, such as an `interview-prep.md`: remove its `deadline:` and add
+   `Cancelled {today}: the opportunity closed.` under its title. Leave the
+   rest of the file as it is.
 
 After changing any of them, bump `updated` and run `brain jobs pipeline`.
 

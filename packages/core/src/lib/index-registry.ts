@@ -41,7 +41,23 @@ export const registrySpecSchema = z
       .union([
         z.string().min(1),
         z
-          .object({ key: z.string().min(1), tables: z.record(z.string().min(1), z.array(scalar).min(1)) })
+          .object({
+            key: z.string().min(1),
+            // A whole-number label (`"2"`, `"10"`) would lose its place: a
+            // JavaScript object lists integer-like keys first, in numeric
+            // order, whatever order the YAML gives them.
+            tables: z.record(z.string().min(1), z.array(scalar).min(1)).superRefine((tables, check) => {
+              for (const label of Object.keys(tables)) {
+                if (/^(?:0|[1-9]\d*)$/.test(label)) {
+                  check.addIssue({
+                    code: "custom",
+                    path: [label],
+                    message: `table label "${label}" cannot be a whole number, which would lose its listed order`,
+                  });
+                }
+              }
+            }),
+          })
           .strict(),
       ])
       .optional(),

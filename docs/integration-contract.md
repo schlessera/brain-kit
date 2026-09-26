@@ -962,8 +962,9 @@ Rules a consumer may rely on:
   optional `where: { key: [values] }`, optional `sort` (a column key, `-` for
   descending) and optional `split`: a key (one table per value), or
   `{ key, tables: { Label: [values] } }` (one table per label, in the listed
-  order, left out when empty, then one per value no label took; additive in
-  0.38.0). Its children
+  order, left out when empty, then one per value no label took; a label that
+  is a whole number, such as `"2"`, is rejected, since it would not keep its
+  listed order; additive in 0.38.0). Its children
   are every markdown file under the index's directory, at any depth, other than
   an `_index.md`.
 - module-jobs' opportunity `status.md` records the pipeline in frontmatter

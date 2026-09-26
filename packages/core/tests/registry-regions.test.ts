@@ -373,6 +373,19 @@ describe("renderRegistry split into named tables", () => {
     expect(active).not.toContain("closed");
   });
 
+  test("a whole-number label is rejected, since it would not keep its listed order", () => {
+    // The counterexample: JavaScript lists "2" before "10", whatever the YAML says.
+    expect(Object.keys({ "10": 1, "2": 2 })).toEqual(["2", "10"]);
+    const numeric = { columns: ["path"], split: { key: "stage", tables: { "10": ["researching"], "2": ["closed"] } } };
+    const parsed = registrySpecSchema.safeParse(numeric);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.message).toContain("whole number");
+    // A label with other text, or a leading zero, keeps its place and is accepted.
+    for (const label of ["Top 10", "02"]) {
+      expect(registrySpecSchema.safeParse({ ...numeric, split: { key: "stage", tables: { [label]: ["closed"] } } }).success).toBe(true);
+    }
+  });
+
   test("a label is made inert like any generated text", () => {
     const out = renderRegistry(
       { columns: ["path"], split: { key: "stage", tables: { "Now | <!-- soon": ["researching"] } } },
