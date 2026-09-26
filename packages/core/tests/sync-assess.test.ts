@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, renameSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { makeTempBrain, cleanup, runCli } from "./cli-harness";
 
@@ -50,5 +50,83 @@ describe("sync exact paths", () => {
       const files = JSON.parse(result.stdout).files as { path: string; class: string; status: string }[];
       for (const path of leftovers) expect(files).toContainEqual({ path, class: "ARTIFACT", status: "?" });
     } finally { cleanup(root); }
+  });
+
+  describe("media", () => {
+    /** A git brain with an optional media block, and the files given. */
+    async function assessWith(files: Record<string, number>, media?: string) {
+      const root = makeTempBrain();
+      try {
+        expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
+        if (media) {
+          const config = join(root, "brain.config.ts");
+          const text = readFileSync(config, "utf8");
+          expect(text).toContain("  taxonomy: {\n");
+          writeFileSync(config, text.replace("  taxonomy: {\n", `  media: ${media},\n  taxonomy: {\n`));
+        }
+        for (const [path, bytes] of Object.entries(files)) {
+          mkdirSync(join(root, path, ".."), { recursive: true });
+          writeFileSync(join(root, path), Buffer.alloc(bytes, 7));
+        }
+        const result = await runCli(root, ["sync", "assess", "--json"]);
+        expect(result.code, result.stderr).toBe(0);
+        return JSON.parse(result.stdout).files as { path: string; class: string; status: string; bytes?: number }[];
+      } finally { cleanup(root); }
+    }
+
+    test("an untracked 6 MB PNG is LARGE and a 20 KB PNG is MEDIA, each with its size", async () => {
+      const files = await assessWith({ "assets/render.png": 6_000_000, "assets/icon.png": 20_000 });
+      expect(files).toContainEqual({ path: "assets/render.png", class: "LARGE", status: "?", bytes: 6_000_000 });
+      expect(files).toContainEqual({ path: "assets/icon.png", class: "MEDIA", status: "?", bytes: 20_000 });
+    });
+
+    test("any file over the limit is LARGE, whatever its kind", async () => {
+      const files = await assessWith({ "notes/huge.md": 6_000_000 });
+      expect(files).toContainEqual({ path: "notes/huge.md", class: "LARGE", status: "?", bytes: 6_000_000 });
+    });
+
+    test("media.ignore makes it ARTIFACT, media.track makes it TRACK, ignore wins over track, and maxTrackedBytes moves the limit", async () => {
+      const files = await assessWith(
+        { "assets/iterations/v3.png": 6_000_000, "assets/iterations/logo.png": 20_000, "assets/logo.png": 20_000, "assets/cover.png": 2_000 },
+        `{ ignore: ["assets/iterations/*"], track: ["logo.png"], maxTrackedBytes: 1000 }`
+      );
+      expect(files).toContainEqual({ path: "assets/iterations/v3.png", class: "ARTIFACT", status: "?" });
+      expect(files).toContainEqual({ path: "assets/logo.png", class: "TRACK", status: "?" });
+      // Matched by both: ignore wins.
+      expect(files).toContainEqual({ path: "assets/iterations/logo.png", class: "ARTIFACT", status: "?" });
+      expect(files).toContainEqual({ path: "assets/cover.png", class: "LARGE", status: "?", bytes: 2_000 });
+    });
+
+    // Review round 1: a presentation is media, not an artifact.
+    test("a small PPTX is MEDIA and an oversized one LARGE", async () => {
+      const files = await assessWith({ "talks/slides.pptx": 20_000, "talks/keynote.pptx": 6_000_000 });
+      expect(files).toContainEqual({ path: "talks/slides.pptx", class: "MEDIA", status: "?", bytes: 20_000 });
+      expect(files).toContainEqual({ path: "talks/keynote.pptx", class: "LARGE", status: "?", bytes: 6_000_000 });
+    });
+
+    test("a symlink is weighed as the link git stores, not its target", async () => {
+      const outside = makeTempBrain({ empty: true });
+      try {
+        writeFileSync(join(outside, "huge.png"), Buffer.alloc(6_000_000, 7));
+        const root = makeTempBrain();
+        try {
+          expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
+          symlinkSync(join(outside, "huge.png"), join(root, "linked.png"));
+          const result = await runCli(root, ["sync", "assess", "--json"]);
+          const files = JSON.parse(result.stdout).files as { path: string; class: string }[];
+          expect(files.find((f) => f.path === "linked.png")?.class).toBe("UNKNOWN");
+        } finally { cleanup(root); }
+      } finally { cleanup(outside); }
+    });
+
+    test("an artifact pattern wins over LARGE: a 6 MB log is still ARTIFACT", async () => {
+      const files = await assessWith({ "build.log": 6_000_000 });
+      expect(files).toContainEqual({ path: "build.log", class: "ARTIFACT", status: "?" });
+    });
+
+    test("a secret-shaped name stays SENSITIVE even when media.track matches it", async () => {
+      const files = await assessWith({ "credentials.png": 20_000 }, `{ track: ["*.png"] }`);
+      expect(files).toContainEqual({ path: "credentials.png", class: "SENSITIVE", status: "?" });
+    });
   });
 });

@@ -41,4 +41,13 @@ Desktop.ini
 *.fls
 *.fdb_latexmk
 
+# Media. Git keeps every version of a binary forever, so iterations and large
+# masters make every clone and sync heavy. `brain sync` asks before tracking
+# an image, PDF, audio, video or office file; see brain-kit's docs/media.md.
+# Uncomment what fits, or use `media.ignore` in brain.config.ts:
+# assets/renders/
+# *.mov
+# *.wav
+# *.psd
+
 # Add your own ignores below (local extensions, anything else you keep out).

@@ -23,6 +23,7 @@ import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
 import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
 import { isToolLeftover } from "../../lib/tool-leftovers.js";
+import { formatBytes, indexedFiles, isMediaPath, mediaPolicy, type IndexedFile } from "../../lib/media.js";
 import { ignoreScratch, SCRATCH_DIR, ScratchRedirectedError, scratchIgnored } from "../../lib/scratch.js";
 import { WriteRefusedError } from "../../lib/safe-path.js";
 import { builtFtsTokenizer, ftsTokenizer } from "../../lib/search-language.js";
@@ -649,6 +650,48 @@ function checkTrackedLeftovers(root: string): Check {
   };
 }
 
+/**
+ * What the tracked binaries weigh, measured on the blobs in git's index
+ * (what a clone downloads), not on the work tree: the five largest media
+ * files, and any tracked file over `media.maxTrackedBytes`, which warns. A
+ * file in Git LFS is stored as a small pointer, so it is counted as that, and
+ * named. Anything the check could not inspect makes it warn rather than pass.
+ * Repository and pack size are the `git-storage` check's.
+ */
+function checkTrackedMedia(cli: CliContext): Check {
+  const root = cli.brain.root;
+  const { maxTrackedBytes } = mediaPolicy(cli.brain.config);
+  if (!gitInstalled()) return { id: "tracked-media", status: "warn", detail: GIT_MISSING };
+  if (!isGitRepo(root)) return { id: "tracked-media", status: "pass", detail: "not a git repository" };
+  const { files, problems } = indexedFiles(root);
+  const bySize = (a: IndexedFile, b: IndexedFile) => b.bytes - a.bytes || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const list = (entries: IndexedFile[]) => entries.map((f) => `${f.path} (${formatBytes(f.bytes)})`).join(", ");
+  const lfs = files.filter((f) => f.lfs);
+  const content = files.filter((f) => !f.lfs);
+  const largest = content.filter((f) => isMediaPath(f.path)).sort(bySize).slice(0, 5);
+  const over = content.filter((f) => f.bytes > maxTrackedBytes).sort(bySize);
+  const parts = [largest.length > 0 ? `largest tracked binaries: ${list(largest)}` : "no tracked binaries"];
+  if (lfs.length > 0) parts.push(`${lfs.length} file(s) in Git LFS`);
+  if (over.length > 0) {
+    parts.unshift(
+      `${over.length} tracked file(s) over media.maxTrackedBytes (${formatBytes(maxTrackedBytes)}): ${list(over.slice(0, 5))}${over.length > 5 ? ` and ${over.length - 5} more` : ""}`
+    );
+  }
+  if (problems.length > 0) {
+    parts.unshift(`could not inspect ${problems.length} tracked file(s), so the figures are incomplete: ${problems.slice(0, 3).join("; ")}`);
+  }
+  if (over.length === 0 && problems.length === 0) return { id: "tracked-media", status: "pass", detail: parts.join("; ") };
+  return {
+    id: "tracked-media",
+    status: "warn",
+    detail: parts.join("; "),
+    fix:
+      over.length > 0
+        ? "keep large masters out of git (a media.ignore glob, or Git LFS), or raise media.maxTrackedBytes; see docs/media.md"
+        : "check the repository with `git fsck`",
+  };
+}
+
 function checkScratch(root: string): Check {
   if (!gitInstalled()) {
     return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
@@ -738,6 +781,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["eval-baseline", () => checkEvalBaseline(root)],
     ["git-storage", () => checkGitStorage(root)],
     ["tracked-leftovers", () => checkTrackedLeftovers(root)],
+    ["tracked-media", () => checkTrackedMedia(cli)],
     ["scratch", () => checkScratch(root)],
     ["search-language", () => checkSearchLanguage(cli)],
     ["cache-merge", () => checkCacheMerge(root)],

@@ -2,12 +2,13 @@ import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.
 import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
 import { matchesAnyPattern, TOOL_LEFTOVER_PATTERNS } from "../../lib/tool-leftovers.js";
+import { isMediaPath, mediaPolicy, mediaPolicyClass, type MediaPolicy } from "../../lib/media.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
@@ -15,7 +16,8 @@ const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 With no verb, delegates the full workflow to the coding agent (/sync skill).
 Mechanical verbs (structured output for the skill to drive):
 
-  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|UNKNOWN)
+  assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|MEDIA|LARGE|UNKNOWN;
+               MEDIA and LARGE carry their size in bytes)
   group        Group tracked changes by taxonomy domain
   pull         Fetch origin/main and fast-forward or merge
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
@@ -27,7 +29,9 @@ Mechanical verbs (structured output for the skill to drive):
 // The tool leftovers are shared with brain doctor and the template .gitignore.
 const ARTIFACT_PATTERNS = [
   ...TOOL_LEFTOVER_PATTERNS,
-  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log", "*.pptx",
+  // No office formats: a presentation is media, and the MEDIA/LARGE classes
+  // (with `media.ignore` for generated ones) decide it.
+  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log",
 ];
 const SENSITIVE_PATTERNS = [
   ".env", ".env.*", "credentials*", "*.key", "*.pem", "*.secret", "*_secret*", "*_token*",
@@ -121,11 +125,39 @@ function currentBranch(root: string): string {
 
 interface AssessedFile {
   status: string;
-  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "UNKNOWN";
+  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "MEDIA" | "LARGE" | "UNKNOWN";
   path: string;
+  /** Size on disk, for MEDIA and LARGE only. */
+  bytes?: number;
 }
 
-function assess(root: string): AssessedFile[] {
+/**
+ * Size of `file` under `root` as git would store it: a regular file's bytes,
+ * or null for a deletion or a symlink (git stores the link, not its target).
+ * "unreadable" when the size could not be read, which is never a reason to
+ * treat a file as small.
+ */
+function sizeOf(root: string, file: string): number | null | "unreadable" {
+  try {
+    const stat = lstatSync(resolve(root, file));
+    return stat.isFile() ? stat.size : null;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ENOENT" ? null : "unreadable";
+  }
+}
+
+/**
+ * Classes, first match wins:
+ * - SENSITIVE: a secret-shaped name, whatever the media policy says.
+ * - `media.ignore` → ARTIFACT, `media.track` → TRACK.
+ * - ARTIFACT: tool leftovers and generated output.
+ * - DERIVED: the sidecar caches.
+ * - LARGE: anything over `media.maxTrackedBytes`. An ARTIFACT or DERIVED
+ *   match wins over it: those are never committed, whatever their size.
+ * - MEDIA: an image, PDF, audio, video or office file.
+ * - UNKNOWN when the size could not be read; otherwise TRACK for text, or UNKNOWN.
+ */
+function assess(root: string, media: MediaPolicy): AssessedFile[] {
   const files: AssessedFile[] = [];
   for (const { xy, file } of porcelainRecords(root)) {
 
@@ -142,15 +174,24 @@ function assess(root: string): AssessedFile[] {
     if (git(root, ["check-ignore", "-q", "--", file]).code === 0) continue;
 
     let klass: AssessedFile["class"];
+    let bytes: number | null = null;
+    let size: number | null | "unreadable" = null;
+    const policy = mediaPolicyClass(file, media);
     if (matchesAnyPattern(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
+    else if (policy) klass = policy;
     else if (matchesAnyPattern(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
     // Committed on purpose, but post-sync commits them after its reindex —
     // taking them here too would just commit a stale copy and duplicate work.
     else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
+    else if ((size = sizeOf(root, file)) === "unreadable") klass = "UNKNOWN";
+    else if ((bytes = size) !== null && bytes > media.maxTrackedBytes) klass = "LARGE";
+    else if (bytes !== null && isMediaPath(file)) klass = "MEDIA";
     else if (isTrackable(file)) klass = "TRACK";
     else klass = "UNKNOWN";
 
-    files.push({ status, class: klass, path: file });
+    files.push(
+      klass === "MEDIA" || klass === "LARGE" ? { status, class: klass, path: file, bytes: bytes! } : { status, class: klass, path: file }
+    );
   }
   return files;
 }
@@ -384,10 +425,12 @@ export const syncCommand: CoreCommand = {
       case "assess": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const files = assess(root);
+        const files = assess(root, mediaPolicy(cli.brain.config));
         emit(cli.json, { branch: "main", files }, () => {
           console.log("# sync assess — file classification");
-          for (const f of files) console.log(`${f.status}\t${f.class}\t${f.path}`);
+          for (const f of files) {
+            console.log(`${f.status}\t${f.class}\t${f.path}${f.bytes === undefined ? "" : `\t${f.bytes}`}`);
+          }
           if (files.length === 0) console.log("# No local changes");
         });
         return 0;
@@ -396,7 +439,7 @@ export const syncCommand: CoreCommand = {
       case "group": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const groups = assess(root)
+        const groups = assess(root, mediaPolicy(cli.brain.config))
           .filter((f) => f.class === "TRACK")
           .map((f) => ({ domain: domainFor(f.path, cli.brain.taxonomy), status: f.status, path: f.path }))
           .sort((a, b) => a.domain.localeCompare(b.domain) || a.path.localeCompare(b.path));
