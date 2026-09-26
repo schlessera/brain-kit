@@ -111,6 +111,9 @@ describe("over fixtures/corpus", () => {
   // so a budget where the focus fits whole (550) held fewer hits than a
   // smaller one where it was cut (500). Now they are placed in their minimal
   // form, hits against the rest, and only what is left grows them.
+  // A known limit, accepted on #522: the hit fill stays greedy (#370), so an
+  // early hit too big for a small budget can fit a larger one and displace a
+  // later, smaller hit. This sweep guards that no such case occurs here.
   test("a larger budget never drops a search hit, and every budget is kept", async () => {
     const now = new Date("2026-07-12");
     for (const query of ["ranger", "knee injury"]) {
