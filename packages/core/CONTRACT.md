@@ -80,7 +80,7 @@ the file.
   detail files they summarize — `brain audit` flags lag.
 - An `_index.md` can have its registry table generated instead: a
   `registry:` frontmatter block (`columns: [link, status, updated]`, optional
-  `where`, `sort`, `split`) makes `brain registry` (and `brain maintain`)
+  `where`, `sort`, `split` — a key, or named tables of values) makes `brain registry` (and `brain maintain`)
   render the table from the children's frontmatter between
   `<!-- brain:generated:registry -->` and `<!-- /brain:generated:registry -->`.
   Never edit inside the markers; edit the children, or the prose around the

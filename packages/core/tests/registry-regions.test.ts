@@ -8,7 +8,7 @@ import { dirname, join } from "path";
 
 import { brainConfigSchema } from "../src/lib/config";
 import { readGeneratedRegion, replaceGeneratedRegion } from "../src/lib/generated-regions";
-import { applyRegistry, planRegistry, runRegistry } from "../src/lib/index-registry";
+import { applyRegistry, planRegistry, registrySpecSchema, renderRegistry, runRegistry } from "../src/lib/index-registry";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
@@ -350,4 +350,46 @@ describe("brain registry", () => {
     expect(JSON.parse(check.stdout).stale).toEqual(["projects/_index.md"]);
     expect(readFileSync(index, "utf8")).toBe(text);
   }, 60_000);
+});
+
+describe("renderRegistry split into named tables", () => {
+  const child = (path: string, stage?: string) => ({ path, data: stage === undefined ? {} : { stage } });
+  const spec = {
+    columns: ["path", "stage"],
+    split: { key: "stage", tables: { Active: ["researching", "interviewing"], Closed: ["closed"] } },
+  };
+
+  test("groups rows into the named tables, in the spec's order, then the values none named", () => {
+    const out = renderRegistry(
+      spec,
+      [child("x/a.md", "closed"), child("x/b.md", "researching"), child("x/c.md", "interviewing"), child("x/d.md", "paused"), child("x/e.md")],
+      "x"
+    );
+    const headings = out.split("\n").filter((line) => line.startsWith("**"));
+    expect(headings).toEqual(["**Active**", "**Closed**", "**stage: paused**", "**stage: —**"]);
+    const active = out.split("**Active**")[1]!.split("**Closed**")[0]!;
+    expect(active).toContain("| b.md | researching |");
+    expect(active).toContain("| c.md | interviewing |");
+    expect(active).not.toContain("closed");
+  });
+
+  test("a label is made inert like any generated text", () => {
+    const out = renderRegistry(
+      { columns: ["path"], split: { key: "stage", tables: { "Now | <!-- soon": ["researching"] } } },
+      [child("x/b.md", "researching")],
+      "x"
+    );
+    expect(out.split("\n")[0]).toBe("**Now \\| &lt;!-- soon**");
+  });
+
+  test("leaves out a named table no row falls into", () => {
+    const out = renderRegistry(spec, [child("x/b.md", "researching")], "x");
+    expect(out).toContain("**Active**");
+    expect(out).not.toContain("**Closed**");
+  });
+
+  test("the spec accepts the named form and still rejects an empty table", () => {
+    expect(registrySpecSchema.safeParse(spec).success).toBe(true);
+    expect(registrySpecSchema.safeParse({ ...spec, split: { key: "stage", tables: { Active: [] } } }).success).toBe(false);
+  });
 });

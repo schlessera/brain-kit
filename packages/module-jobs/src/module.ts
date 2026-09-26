@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
 
+import { checkOpportunityStages } from "./pipeline.js";
+
 /**
  * Config for @schlessera/brain-module-jobs. `criteria` points at a markdown file whose
  * frontmatter defines the weighted scoring rules (see docs/criteria-template.md
@@ -58,6 +60,7 @@ export default defineModule({
     skills: "./skills",
     commands: { jobs: () => import("./cli.js") },
     indexRules: { dirAnchors: ["status.md"] },
+    hygieneChecks: [(ctx) => checkOpportunityStages(ctx)],
     // One run, one pipeline: `--browser` adds the boards that need Chrome to
     // the source list, and a host without Chrome loses those boards rather
     // than the whole scrape.

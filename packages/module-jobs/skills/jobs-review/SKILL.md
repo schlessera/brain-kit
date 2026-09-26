@@ -51,8 +51,8 @@ None required. Optionally a minimum score or a source filter.
      research, a fit assessment, and opportunity intake.
    - Lighter alternative when no deep research is wanted:
      `brain jobs scaffold <id>` creates the opportunity `status.md` directly
-     and marks the job interested — but the pipeline row in
-     `_index.md` still needs adding by hand.
+     (`stage: researching`) and marks the job interested; then run
+     `brain jobs pipeline` to bring the pipeline index up to date.
 
 6. **Dismiss the rest** — `brain jobs decide <id> dismissed` for jobs that were
    actually looked at and declined. Leave unreviewed jobs alone.
