@@ -97,7 +97,7 @@ describe("selectors", () => {
     for (const bad of ["soon", "2026-02-30"]) {
       const { code, stderr } = await evalRun(writeSet("due-bad.jsonl", [DUE_NEXT]), "--now", bad);
       expect(stderr).toContain("--now takes an ISO date");
-      expect(code).toBe(1);
+      expect(code).toBe(2);
     }
   });
 });

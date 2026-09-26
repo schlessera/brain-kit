@@ -47,7 +47,9 @@ date](#answers-that-depend-on-the-date)). Any other key is refused rather than
 silently ignored.
 
 A line that is not valid JSON, misses a field, carries an unknown field, or
-repeats an `id` is a usage error (exit `1`) that names the line number.
+repeats an `id` is a usage error that names the line number. Under `brain eval`
+a usage error exits `2`, like a refused run, so exit `1` is kept for a failed
+`--baseline` gate.
 
 ### Answers that depend on the date
 
@@ -231,6 +233,38 @@ brain eval --mode fts --context --budgets 500,1000,4000
 
 Read the rows as a curve: the budget at which the answer-present rate stops
 rising is the most your agents need to be given for this set.
+
+## Comparing against a baseline
+
+Store a run, then compare later runs against it, query by query:
+
+```sh
+brain eval --mode fts --out evals/baseline.json     # once, before the change
+brain eval --mode fts --baseline evals/baseline.json
+```
+
+The report lists which queries were **lost** (a hit before, a miss now),
+**gained** and **unchanged**, at each k and per class. With a few dozen queries,
+one flip moves hit@1 by several points, so the gate counts queries instead: it
+fails (exit `1`) when the net loss on hit@1 reaches `--max-net-loss` (default 2),
+or when any query in a `--must-pass` class is lost. The exact sign-test p over
+the flipped queries is printed as information. With few flips it has little
+power: three lost and one gained is p = 0.625, although six lost and none
+gained is already p = 0.031. The list of IDs says more than the number.
+
+Runs that measured different things are **not comparable** (exit `3`, which is
+not a pass): a different mode, embedding model or `--k`, or a changed query
+set. After editing the set on purpose, `--allow-set-change` compares the
+queries both runs share. `brain doctor` reminds you to rerun the comparison
+when `evals/baseline.json` was recorded with another version. Nothing runs on
+install or upgrade.
+
+`--redact` leaves the query text and every path out of the output and of
+`--out`, keeping IDs, classes and the numbers, so a result can be shared
+without sharing the brain. A refused run keeps its reason and withholds the
+list of documents behind it. The one thing `--redact` does not withhold is a
+path you typed yourself: an error about a missing `--set`, `--baseline` or
+`--out` repeats it.
 
 ## Output
 

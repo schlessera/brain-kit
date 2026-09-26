@@ -43,7 +43,9 @@ import type { EmbeddingProvider } from "../../lib/seams.js";
 import { packageRoot, packageVersion } from "../../package-version.js";
 import { assembleContext, emptyAssembleReport, estimateTokens } from "../../lib/context-assembler.js";
 import type { ContextSections } from "../../lib/retrieval-eval.js";
-import type { CoreCommand } from "../types.js";
+import { BaselineError, compareRuns, parseStoredRun, redactEnvelope } from "../../lib/eval-baseline.js";
+import type { BaselineReport, StoredRun } from "../../lib/eval-baseline.js";
+import type { CliContext, CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const DOCS_POINTER =
@@ -69,11 +71,23 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
 
 Relative paths are relative to the brain root.
 
-Exit codes: 0 scored · 1 usage error or malformed set · 2 refused (a validity
-gate failed: missing or empty set, an expected or stale path not on disk or
-not indexed, a selector that selects nothing, the index older than the
-markdown, a requested search lane degraded; with --strict, an indexed
-document that contains the set's queries).
+Against a stored run (one written with --out):
+  --baseline <file>       Compare per query on hit@k; gate on hit@1
+  --max-net-loss <n>      Fail when lost − gained on hit@1 reaches n (default: 2)
+  --must-pass <classes>   Fail when any query in these classes (comma-separated) is lost
+  --allow-set-change      Compare the queries both runs share when the set changed
+  --redact                Leave query text and every path out of the output, --out
+                          and a refusal's details; an error about a path you passed
+                          (--set, --baseline, --out) still repeats it
+
+Exit codes: 0 scored (and the gate passed) · 1 the baseline gate failed · 3 not
+comparable with the baseline (a different set, mode, embedding model or k) ·
+2 refused or misused: a usage error or malformed set (unlike other brain
+commands, so 1 always means a regression), or a validity gate failed (missing
+or empty set, an expected or stale path not on disk or not indexed, a
+selector that selects nothing, the index older than the markdown, a requested
+search lane degraded; with --strict, an indexed document that contains the
+set's queries).
 
 --json envelope: { "schema_version", "meta", "rows", "per_query", "warnings" },
 plus "context": { "budgets", "rows", "per_query" } with --context
@@ -110,7 +124,11 @@ function checkoutSource(): string | null {
   }
 }
 
-function loadSet(path: string, root: string): { header: SetHeader | null; queries: EvalQuery[]; sha256: string } {
+function loadSet(
+  path: string,
+  root: string,
+  redact: boolean
+): { header: SetHeader | null; queries: EvalQuery[]; sha256: string } {
   const shown = displayPath(root, path);
   if (!existsSync(path)) {
     throw new EvalRefused(`no query set at ${shown}. ${DOCS_POINTER}`);
@@ -120,7 +138,10 @@ function loadSet(path: string, root: string): { header: SetHeader | null; querie
   try {
     parsed = parseEvalSet(bytes.toString("utf-8"));
   } catch (e) {
-    if (e instanceof EvalSetError) throw new UsageError(`${shown}: ${e.message}`);
+    if (e instanceof EvalSetError) {
+      // The reason can quote the line, and so the query text.
+      throw new UsageError(redact ? `${shown}: line ${e.line}: malformed (withheld by --redact)` : `${shown}: ${e.message}`);
+    }
     throw e;
   }
   if (parsed.queries.length === 0) {
@@ -385,13 +406,34 @@ function printContext(context: { rows: ContextRow[] }): void {
   for (const row of table) console.log(line(row));
 }
 
+function printBaseline(report: BaselineReport): void {
+  console.log(`\nAgainst the baseline${report.file ? ` ${report.file}` : ""} (recorded with ${report.version}):`);
+  if (!report.comparable) {
+    for (const reason of report.not_comparable) console.log(`  not comparable: ${reason}`);
+    return;
+  }
+  const list = (ids: string[]) => (ids.length ? ids.join(", ") : "-");
+  const flips = (f: { lost: string[]; gained: string[]; unchanged: number }) =>
+    `lost ${f.lost.length} (${list(f.lost)}), gained ${f.gained.length} (${list(f.gained)}), unchanged ${f.unchanged}`;
+  for (const m of report.modes) {
+    for (const [k, f] of Object.entries(m.hit_at)) {
+      console.log(`  [${m.mode}] hit@${k}: ${flips(f)}, sign test p ${f.sign_test_p.toPrecision(3)}`);
+      for (const c of m.per_class) console.log(`      ${c.class}: ${flips(c.hit_at[k])}`);
+    }
+  }
+  console.log(report.gate.failed ? `  FAILED: ${report.gate.reasons.join("; ")}` : "  gate passed");
+}
+
 function pct(value: number | null): string {
   return value === null ? "-" : `${(value * 100).toFixed(1)}%`;
 }
 
+/** A per-query outcome as the output carries it: `--redact` drops `q`, `expected` and `top`. */
+type ShownOutcome = Omit<QueryOutcome, "q" | "expected" | "top"> & { top?: string[] };
+
 function printHuman(
   rows: ScoreRow[],
-  perQuery: QueryOutcome[],
+  perQuery: ShownOutcome[],
   ks: number[],
   meta: Record<string, unknown>,
   warnings: string[]
@@ -420,7 +462,8 @@ function printHuman(
     console.log(`\nMissed at hit@${ks[0]}:`);
     for (const o of misses) {
       const where = o.rank === null ? "not in the pool" : `rank ${o.rank}`;
-      console.log(`  [${o.mode}] ${o.id} (${o.class}): ${where}; top: ${o.top[0] ?? "(nothing)"}`);
+      const top = o.top === undefined ? "(withheld)" : (o.top[0] ?? "(nothing)");
+      console.log(`  [${o.mode}] ${o.id} (${o.class}): ${where}; top: ${top}`);
     }
   }
 }
@@ -449,7 +492,7 @@ function writeOut(root: string, outRel: string, data: string): void {
  * from the markdown files. A malformed set exits 2 naming the line; findings
  * are warnings and exit 0.
  */
-function lintSet(json: boolean, root: string, setPath: string): number {
+function lintSet(json: boolean, root: string, setPath: string, redact: boolean): number {
   const shown = displayPath(root, setPath);
   const refuse = (reason: string) => {
     console.error(`brain eval refused: ${reason}`);
@@ -461,7 +504,9 @@ function lintSet(json: boolean, root: string, setPath: string): number {
   try {
     queries = parseEvalSet(bytes.toString("utf-8")).queries;
   } catch (e) {
-    if (e instanceof EvalSetError) return refuse(`${shown}: ${e.message}`);
+    if (e instanceof EvalSetError) {
+      return refuse(redact ? `${shown}: line ${e.line}: malformed (withheld by --redact)` : `${shown}: ${e.message}`);
+    }
     throw e;
   }
   const titleOf = (path: string): string | null => {
@@ -474,14 +519,20 @@ function lintSet(json: boolean, root: string, setPath: string): number {
       return null;
     }
   };
-  const warnings = titleLeaks(queries, titleOf);
+  const found = titleLeaks(queries, titleOf);
+  // A finding quotes a title and the query's words, so --redact keeps its count.
+  const warnings = redact && found.length > 0 ? [`${found.length} warning(s) withheld by --redact`] : found;
   const envelope = {
     schema_version: EVAL_SCHEMA_VERSION,
-    meta: { set: shown, set_sha256: createHash("sha256").update(bytes).digest("hex"), queries: queries.length },
+    meta: {
+      set: redact ? null : shown,
+      set_sha256: createHash("sha256").update(bytes).digest("hex"),
+      queries: queries.length,
+    },
     warnings,
   };
   emit(json, envelope, () => {
-    if (warnings.length === 0) console.log(`${shown}: ${queries.length} queries, no lint findings.`);
+    if (warnings.length === 0) console.log(`${redact ? "The set" : shown}: ${queries.length} queries, no lint findings.`);
     else for (const warning of warnings) console.log(`Warning: ${warning}`);
   });
   return 0;
@@ -491,123 +542,198 @@ export const evalCommand: CoreCommand = {
   summary: "Score a retrieval query set against this brain's index",
   helpBlock: HELP,
   async run(args, cli) {
-    const { args: pos, flags } = parseArgs(args);
-    if (pos.length > 0) throw new UsageError(`brain eval takes no positional arguments (got "${pos[0]}")`);
-
-    for (const name of ["set", "out", "mode", "rerank", "k", "now", "budgets"]) {
-      if (flags[name] === true) throw new UsageError(`--${name} requires a value`);
-    }
-
-    const modeFlag = typeof flags.mode === "string" ? flags.mode : "hybrid";
-    if (!Object.hasOwn(MODES, modeFlag)) {
-      throw new UsageError(`--mode must be one of fts, vector, hybrid, all (got "${modeFlag}")`);
-    }
-    const modes = MODES[modeFlag];
-    const rerankFlag = typeof flags.rerank === "string" ? flags.rerank : getDefaultRerankerMode();
-    if (rerankFlag !== "none" && rerankFlag !== "heuristic") {
-      throw new UsageError(`--rerank must be none or heuristic (got "${rerankFlag}")`);
-    }
-    let ks: number[];
+    // Eval's own exit codes: 1 is a failed baseline gate, so a usage error
+    // is 2 here, and a CI job can tell a regression from a misuse. Every
+    // other command keeps the CLI's usage-error 1.
     try {
-      ks = parseKs(typeof flags.k === "string" ? flags.k : "1,3,10");
+      return await runEval(args, cli);
     } catch (e) {
-      throw new UsageError((e as Error).message);
-    }
-    if (flags.budgets !== undefined && flags.context !== true) {
-      throw new UsageError("--budgets needs --context");
-    }
-    let budgets: number[] = [];
-    if (flags.context === true) {
-      try {
-        budgets = parseBudgets(typeof flags.budgets === "string" ? flags.budgets : "1000,4000,8000");
-      } catch (e) {
-        throw new UsageError((e as Error).message);
-      }
-    }
-    const nowFlag = typeof flags.now === "string" ? flags.now : undefined;
-    if (nowFlag !== undefined && !parseEvalDate(nowFlag)) {
-      throw new UsageError(`--now takes an ISO date (YYYY-MM-DD) or timestamp, got "${nowFlag}"`);
-    }
-
-    const root = cli.brain.root;
-    const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
-    if (flags.lint === true) return lintSet(cli.json, root, setPath);
-    // Everything the CLI writes stays inside the brain (integration contract,
-    // "Containment"): checked before any search runs, and again at the write.
-    const outRel = typeof flags.out === "string" ? flags.out : undefined;
-    if (outRel !== undefined && !resolveWritable(root, outRel)) {
-      throw new UsageError(`Output path is not inside the brain: ${outRel}`);
-    }
-
-    let db: Database | undefined;
-    try {
-      const { header, queries: written, sha256 } = loadSet(setPath, root);
-      const { now, warnings: nowWarnings } = resolveNow(header, nowFlag);
-      const queries = resolveQueries(cli.brain, written, now);
-      db = openReadonlyDb(cli.brain);
-      checkExpectedPaths(root, db, queries);
-      const scanner = new ContaminationScanner(queries);
-      checkIndexFresh(cli.brain, db, scanner);
-      const contamination = scanner.warnings();
-      if (contamination.length > 0 && flags.strict === true) {
-        throw new EvalRefused(`${contamination.length} indexed document(s) contain the set's queries (--strict)`, contamination);
-      }
-      const warnings = [...nowWarnings, ...contamination];
-      // `brain context` always loads the extension; the context eval must
-      // see the same search it does.
-      if (modes.some((m) => m !== "fts") || budgets.length > 0) await loadVecSupport(db);
-
-      const pool = poolSize(ks);
-      const perQuery: QueryOutcome[] = [];
-      const rows: ScoreRow[] = [];
-      for (const mode of modes) {
-        const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
-        perQuery.push(...outcomes);
-        rows.push(...aggregate(mode, outcomes, ks));
-      }
-
-      const documents = (db.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
-      const meta = {
-        version: packageVersion(),
-        source: checkoutSource(),
-        set: displayPath(root, setPath),
-        set_sha256: sha256,
-        queries: queries.length,
-        documents,
-        // The model that embedded this run's queries. hybridSearch refuses a
-        // provider that differs from the stored vectors' model, so it names
-        // those too. null when no vector lane ran.
-        embedding_model: modes.some((m) => m !== "fts") ? (cli.embeddings?.id ?? null) : null,
-        modes,
-        rerank: rerankFlag,
-        k: ks,
-        pool,
-        now: now.toISOString(),
-      };
-      const context =
-        budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings) : undefined;
-      const envelope = {
-        schema_version: EVAL_SCHEMA_VERSION,
-        meta,
-        rows,
-        per_query: perQuery,
-        warnings,
-        ...(context ? { context } : {}),
-      };
-
-      if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
-      emit(cli.json, envelope, () => {
-        printHuman(rows, perQuery, ks, meta, warnings);
-        if (context) printContext(context);
-      });
-      return 0;
-    } catch (e) {
-      if (!(e instanceof EvalRefused)) throw e;
-      console.error(`brain eval refused: ${e.reason}`);
-      for (const detail of e.details) console.error(`  ${detail}`);
+      if (!(e instanceof UsageError)) throw e;
+      console.error(e.message);
       return 2;
-    } finally {
-      db?.close();
     }
   },
 };
+
+async function runEval(args: string[], cli: CliContext): Promise<number> {
+  const { args: pos, flags } = parseArgs(args);
+  if (pos.length > 0) throw new UsageError(`brain eval takes no positional arguments (got "${pos[0]}")`);
+
+  for (const name of ["set", "out", "mode", "rerank", "k", "now", "budgets", "baseline", "max-net-loss", "must-pass"]) {
+    if (flags[name] === true) throw new UsageError(`--${name} requires a value`);
+  }
+
+  const modeFlag = typeof flags.mode === "string" ? flags.mode : "hybrid";
+  if (!Object.hasOwn(MODES, modeFlag)) {
+    throw new UsageError(`--mode must be one of fts, vector, hybrid, all (got "${modeFlag}")`);
+  }
+  const modes = MODES[modeFlag];
+  const rerankFlag = typeof flags.rerank === "string" ? flags.rerank : getDefaultRerankerMode();
+  if (rerankFlag !== "none" && rerankFlag !== "heuristic") {
+    throw new UsageError(`--rerank must be none or heuristic (got "${rerankFlag}")`);
+  }
+  let ks: number[];
+  try {
+    ks = parseKs(typeof flags.k === "string" ? flags.k : "1,3,10");
+  } catch (e) {
+    throw new UsageError((e as Error).message);
+  }
+  if (flags.budgets !== undefined && flags.context !== true) {
+    throw new UsageError("--budgets needs --context");
+  }
+  let budgets: number[] = [];
+  if (flags.context === true) {
+    try {
+      budgets = parseBudgets(typeof flags.budgets === "string" ? flags.budgets : "1000,4000,8000");
+    } catch (e) {
+      throw new UsageError((e as Error).message);
+    }
+  }
+  const baselineFlag = typeof flags.baseline === "string" ? flags.baseline : undefined;
+  for (const name of ["max-net-loss", "must-pass", "allow-set-change"]) {
+    if (flags[name] !== undefined && baselineFlag === undefined) throw new UsageError(`--${name} needs --baseline`);
+  }
+  if (baselineFlag !== undefined && !ks.includes(1)) {
+    throw new UsageError("--baseline gates on hit@1, so --k must include 1");
+  }
+  let maxNetLoss = 2;
+  if (typeof flags["max-net-loss"] === "string") {
+    const raw = flags["max-net-loss"];
+    if (!/^[1-9]\d{0,5}$/.test(raw)) throw new UsageError(`--max-net-loss takes a positive integer, got "${raw}"`);
+    maxNetLoss = Number(raw);
+  }
+  const mustPass =
+    typeof flags["must-pass"] === "string" ? flags["must-pass"].split(",").map((c) => c.trim()).filter(Boolean) : [];
+  if (flags["must-pass"] !== undefined && mustPass.length === 0) {
+    throw new UsageError("--must-pass takes one or more classes, comma-separated");
+  }
+  const redact = flags.redact === true;
+  const nowFlag = typeof flags.now === "string" ? flags.now : undefined;
+  if (nowFlag !== undefined && !parseEvalDate(nowFlag)) {
+    throw new UsageError(`--now takes an ISO date (YYYY-MM-DD) or timestamp, got "${nowFlag}"`);
+  }
+
+  const root = cli.brain.root;
+  const setPath = resolve(root, typeof flags.set === "string" ? flags.set : join("evals", "retrieval.jsonl"));
+  if (flags.lint === true) return lintSet(cli.json, root, setPath, redact);
+  // Everything the CLI writes stays inside the brain (integration contract,
+  // "Containment"): checked before any search runs, and again at the write.
+  const outRel = typeof flags.out === "string" ? flags.out : undefined;
+  if (outRel !== undefined && !resolveWritable(root, outRel)) {
+    throw new UsageError(`Output path is not inside the brain: ${outRel}`);
+  }
+
+  let db: Database | undefined;
+  try {
+    const { header, queries: written, sha256 } = loadSet(setPath, root, redact);
+    // The baseline is read before any search runs, so a missing or
+    // unreadable one costs nothing.
+    let stored: StoredRun | undefined;
+    if (baselineFlag !== undefined) {
+      const path = resolve(root, baselineFlag);
+      if (!existsSync(path)) throw new EvalRefused(`no baseline at ${displayPath(root, path)}`);
+      try {
+        stored = parseStoredRun(readFileSync(path, "utf-8"));
+      } catch (e) {
+        if (e instanceof BaselineError) {
+          throw new EvalRefused(`${displayPath(root, path)} is ${redact ? e.summary : e.message}`);
+        }
+        throw e;
+      }
+    }
+    const { now, warnings: nowWarnings } = resolveNow(header, nowFlag);
+    const queries = resolveQueries(cli.brain, written, now);
+    db = openReadonlyDb(cli.brain);
+    checkExpectedPaths(root, db, queries);
+    const scanner = new ContaminationScanner(queries);
+    checkIndexFresh(cli.brain, db, scanner);
+    const contamination = scanner.warnings();
+    if (contamination.length > 0 && flags.strict === true) {
+      throw new EvalRefused(`${contamination.length} indexed document(s) contain the set's queries (--strict)`, contamination);
+    }
+    const warnings = [...nowWarnings, ...contamination];
+    // `brain context` always loads the extension; the context eval must
+    // see the same search it does.
+    if (modes.some((m) => m !== "fts") || budgets.length > 0) await loadVecSupport(db);
+
+    const pool = poolSize(ks);
+    const perQuery: QueryOutcome[] = [];
+    const rows: ScoreRow[] = [];
+    for (const mode of modes) {
+      const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
+      perQuery.push(...outcomes);
+      rows.push(...aggregate(mode, outcomes, ks));
+    }
+
+    const documents = (db.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
+    const meta = {
+      version: packageVersion(),
+      source: checkoutSource(),
+      set: displayPath(root, setPath),
+      set_sha256: sha256,
+      queries: queries.length,
+      documents,
+      // The model that embedded this run's queries. hybridSearch refuses a
+      // provider that differs from the stored vectors' model, so it names
+      // those too. null when no vector lane ran.
+      embedding_model: modes.some((m) => m !== "fts") ? (cli.embeddings?.id ?? null) : null,
+      modes,
+      rerank: rerankFlag,
+      k: ks,
+      pool,
+      now: now.toISOString(),
+    };
+    const context =
+      budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings) : undefined;
+    let envelope: Record<string, unknown> = {
+      schema_version: EVAL_SCHEMA_VERSION,
+      meta,
+      rows,
+      per_query: perQuery,
+      warnings,
+      ...(context ? { context } : {}),
+    };
+
+    let baseline: BaselineReport | undefined;
+    if (stored !== undefined) {
+      const current = parseStoredRun(JSON.stringify(envelope));
+      baseline = {
+        file: displayPath(root, resolve(root, baselineFlag!)),
+        ...compareRuns(stored, current, { maxNetLoss, mustPass, allowSetChange: flags["allow-set-change"] === true }),
+      };
+      envelope.baseline = baseline;
+    }
+    if (redact) envelope = redactEnvelope(envelope);
+
+    if (outRel !== undefined) writeOut(root, outRel, JSON.stringify(envelope, null, 2) + "\n");
+    // The human output reads the same, possibly redacted, envelope as --json,
+    // so --redact holds for both.
+    const shown = envelope as {
+      rows: ScoreRow[];
+      per_query: ShownOutcome[];
+      meta: Record<string, unknown>;
+      warnings: string[];
+      baseline?: BaselineReport;
+      context?: { rows: ContextRow[] };
+    };
+    emit(cli.json, envelope, () => {
+      printHuman(shown.rows, shown.per_query, ks, shown.meta, shown.warnings);
+      if (shown.context) printContext(shown.context);
+      if (shown.baseline) printBaseline(shown.baseline);
+    });
+    // 3: not comparable, which is not a pass. 1: the gate failed.
+    if (baseline && !baseline.comparable) return 3;
+    if (baseline?.gate.failed) return 1;
+    return 0;
+  } catch (e) {
+    if (!(e instanceof EvalRefused)) throw e;
+    console.error(`brain eval refused: ${e.reason}`);
+    // A reason carries counts, query IDs and the paths the user passed; the
+    // details name documents and quote search warnings.
+    if (redact && e.details.length > 0) console.error(`  ${e.details.length} detail(s) withheld by --redact`);
+    else for (const detail of e.details) console.error(`  ${detail}`);
+    return 2;
+  } finally {
+    db?.close();
+  }
+}

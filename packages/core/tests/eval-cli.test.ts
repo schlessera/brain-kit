@@ -246,7 +246,7 @@ describe("--out stays inside the brain", () => {
   test("an absolute path outside the brain is refused before anything is written", async () => {
     const target = join(outside, "abs.json");
     const { code, stdout, stderr } = await refusedOut(target);
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(stdout).toBe("");
     expect(stderr).toContain("Output path is not inside the brain");
     expect(existsSync(target)).toBe(false);
@@ -260,12 +260,12 @@ describe("--out stays inside the brain", () => {
       "eval", "--mode", "vector", "--json", "--set", set, "--out", join(outside, "first.json"),
     ]);
     expect(stderr).toContain("Output path is not inside the brain");
-    expect(code).toBe(1);
+    expect(code).toBe(2);
   });
 
   test("a .. traversal out of the brain is refused", async () => {
     const { code, stderr } = await refusedOut(`../${basename(outside)}/traversal.json`);
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(stderr).toContain("Output path is not inside the brain");
     expect(existsSync(join(outside, "traversal.json"))).toBe(false);
   });
@@ -273,7 +273,7 @@ describe("--out stays inside the brain", () => {
   test("a symlinked directory inside the brain does not redirect the write", async () => {
     symlinkSync(outside, join(root, "evals", "linked-dir"));
     const { code, stderr } = await refusedOut("evals/linked-dir/through-dir.json");
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(stderr).toContain("Output path is not inside the brain");
     expect(existsSync(join(outside, "through-dir.json"))).toBe(false);
   });
@@ -283,18 +283,18 @@ describe("--out stays inside the brain", () => {
     writeFileSync(target, "untouched");
     symlinkSync(target, join(root, "evals", "linked-file.json"));
     const { code, stderr } = await refusedOut("evals/linked-file.json");
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(stderr).toContain("Output path is not inside the brain");
     expect(readFileSync(target, "utf-8")).toBe("untouched");
   });
 });
 
-describe("usage errors exit 1", () => {
+describe("usage errors exit 2 under brain eval (1 is kept for a failed gate)", () => {
   test("a malformed line names its line number", async () => {
     const set = join(root, "evals", "malformed.jsonl");
     writeFileSync(set, JSON.stringify(TOP1[0]) + "\n" + JSON.stringify({ id: "x", q: "y", class: "exact" }) + "\n");
     const { code, stdout, stderr } = await runCli(root, ["eval", "--mode", "fts", "--json", "--set", set]);
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(stdout).toBe("");
     expect(stderr).toContain("line 2");
     expect(stderr).toContain("expected");
@@ -303,7 +303,7 @@ describe("usage errors exit 1", () => {
   test("an unknown --mode, including an inherited property name", async () => {
     for (const mode of ["semantic", "toString", "constructor", "__proto__"]) {
       const { code, stderr } = await runCli(root, ["eval", "--mode", mode, "--json"]);
-      expect(code).toBe(1);
+      expect(code).toBe(2);
       expect(stderr).toContain("--mode must be one of");
     }
   });
@@ -312,7 +312,7 @@ describe("usage errors exit 1", () => {
     const set = writeSet("bare.jsonl", TOP1);
     for (const flag of ["--k", "--mode", "--rerank", "--out", "--set"]) {
       const { code, stdout, stderr } = await runCli(root, ["eval", "--set", set, "--mode", "fts", flag, "--json"]);
-      expect(code).toBe(1);
+      expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toContain(`${flag} requires a value`);
     }
@@ -322,7 +322,7 @@ describe("usage errors exit 1", () => {
     const set = writeSet("big-k.jsonl", TOP1);
     for (const k of ["1001", "9007199254740993", "9".repeat(400)]) {
       const { code, stdout, stderr } = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--k", k, "--json"]);
-      expect(code).toBe(1);
+      expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toContain("--k cutoffs go up to 1000");
     }

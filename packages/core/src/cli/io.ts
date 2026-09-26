@@ -52,6 +52,7 @@ export const BOOLEAN_FLAGS = new Set([
   "strict",
   "context",
   "lint",
+  "allow-set-change", "redact",
   "apply", "groups", "redundant",
 ]);
 
@@ -64,6 +65,7 @@ export const VALUE_FLAGS = new Set([
   "format", "as", "width", "allow-host", "extra", "fixed", "state", "only",
   "forget-cache",
   "set", "k", "now", "budgets",
+  "baseline", "max-net-loss", "must-pass",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
 ]);
 

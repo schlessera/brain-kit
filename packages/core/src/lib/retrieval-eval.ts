@@ -113,7 +113,12 @@ const headerSchema = z.object({ now: isoDateSchema.optional() }).strict();
 export type SetHeader = z.infer<typeof headerSchema>;
 
 /** A malformed set: a usage error that names the line. */
-export class EvalSetError extends Error {}
+/** A malformed set or flag value. `line` is the set's line, when it has one. */
+export class EvalSetError extends Error {
+  constructor(message: string, readonly line?: number) {
+    super(message);
+  }
+}
 
 export interface ParsedSet {
   header: SetHeader | null;
@@ -146,10 +151,10 @@ export function parseEvalSet(text: string): ParsedSet {
     try {
       value = JSON.parse(line);
     } catch (e) {
-      throw new EvalSetError(`line ${lineNo}: not valid JSON (${(e as Error).message})`);
+      throw new EvalSetError(`line ${lineNo}: not valid JSON (${(e as Error).message})`, lineNo);
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw new EvalSetError(`line ${lineNo}: expected a JSON object`);
+      throw new EvalSetError(`line ${lineNo}: expected a JSON object`, lineNo);
     }
 
     const isFirst = first;
@@ -157,7 +162,7 @@ export function parseEvalSet(text: string): ParsedSet {
     if (isFirst && !("id" in value) && !("q" in value)) {
       const parsedHeader = headerSchema.safeParse(value);
       if (!parsedHeader.success) {
-        throw new EvalSetError(`line ${lineNo}: header: ${describeIssues(parsedHeader.error)}`);
+        throw new EvalSetError(`line ${lineNo}: header: ${describeIssues(parsedHeader.error)}`, lineNo);
       }
       header = parsedHeader.data;
       continue;
@@ -165,11 +170,11 @@ export function parseEvalSet(text: string): ParsedSet {
 
     const parsed = querySchema.safeParse(value);
     if (!parsed.success) {
-      throw new EvalSetError(`line ${lineNo}: ${describeIssues(parsed.error)}`);
+      throw new EvalSetError(`line ${lineNo}: ${describeIssues(parsed.error)}`, lineNo);
     }
     const earlier = seen.get(parsed.data.id);
     if (earlier !== undefined) {
-      throw new EvalSetError(`line ${lineNo}: duplicate id "${parsed.data.id}" (first on line ${earlier})`);
+      throw new EvalSetError(`line ${lineNo}: duplicate id "${parsed.data.id}" (first on line ${earlier})`, lineNo);
     }
     seen.set(parsed.data.id, lineNo);
     queries.push(parsed.data);
