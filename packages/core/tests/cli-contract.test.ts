@@ -63,6 +63,12 @@ describe("search", () => {
     for (const r of without.results) expect(r).not.toHaveProperty("chunks");
   });
 
+  test("--chunks on a filter-only search gives each result an empty chunks list", async () => {
+    const out = JSON.parse((await runCli(root, ["search", "--type", "note", "--chunks", "--json"])).stdout);
+    expect(out.results.length).toBeGreaterThan(0);
+    for (const r of out.results) expect(r.chunks).toEqual([]);
+  });
+
   test("hybrid mode without a key degrades to FTS with a warning", async () => {
     const { stdout, code } = await runCli(root, ["search", "telescope", "--mode", "hybrid", "--json"]);
     expect(code).toBe(0);

@@ -775,9 +775,11 @@ export async function hybridSearch(
   const mode = opts.mode ?? "hybrid";
   const warnings: string[] = [];
 
-  // No query: delegate to filter search
+  // No query: delegate to filter search. With nothing to match, a result's
+  // chunks are an empty list.
   if (!opts.query) {
-    return { results: markSuperseded(db, filterSearch(db, opts)), warnings };
+    const results = markSuperseded(db, filterSearch(db, opts));
+    return { results: opts.chunks ? results.map((r) => ({ ...r, chunks: [] })) : results, warnings };
   }
 
   const query = opts.query;
@@ -890,61 +892,36 @@ export async function hybridSearch(
   return { results: opts.chunks ? withChunks(db, results, query) : results, warnings };
 }
 
-/** Words too common to tell one chunk from another. */
-const STOP_WORDS = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "by", "do", "does", "for", "from", "has", "have", "how", "i",
-  "in", "is", "it", "its", "my", "of", "on", "or", "that", "the", "this", "to", "was", "what", "when",
-  "where", "which", "who", "why", "with", "you", "your",
-]);
-
 /**
- * A word as chunk matching compares it: lowercase, with a plain English
- * plural or verb ending dropped, so `trails` meets `trail` the way the porter
- * tokenizer behind the full-text lane lets it.
- */
-function stem(word: string): string {
-  const w = word.toLowerCase();
-  if (w.length > 5 && w.endsWith("ies")) return `${w.slice(0, -3)}y`;
-  for (const suffix of ["ing", "ed", "es", "s"]) {
-    if (w.length - suffix.length >= 3 && w.endsWith(suffix)) return w.slice(0, -suffix.length);
-  }
-  return w;
-}
-
-function words(text: string): string[] {
-  return text.match(/[\p{L}\p{N}]+/gu) ?? [];
-}
-
-/**
- * Each result with its chunks that contain a query term, best first: the
- * most distinct query terms, then the most occurrences, then document order.
- * Stop words and one-letter terms do not count. A result none of whose chunks
- * contains a term (a vector-only match) gets an empty list.
+ * Each result with its chunks that match the query, best first, read as the
+ * full-text lane reads it: the same MATCH expression over `chunks_fts`, so
+ * the same tokenizer (stemming, case and accent folding, `search.language`)
+ * and the same stopwords. A chunk matches when it holds a query term; its
+ * score is its BM25 relevance (heading weight 2, content 1), negated so that
+ * higher is better, and ties go to document order. A result with no matching
+ * chunk (a vector-only match), and every result on an index from before the
+ * chunk table (schema 12), gets an empty list.
  */
 function withChunks(db: Database, results: SearchResult[], query: string): SearchResult[] {
-  const terms = new Set(words(query).filter((w) => w.length > 1 && !STOP_WORDS.has(w.toLowerCase())).map(stem));
-  const chunksOf = db.prepare(
-    `SELECT c.chunk_index, c.heading, c.content FROM chunks c
-     JOIN documents d ON d.id = c.document_id
-     WHERE d.path = ? ORDER BY c.chunk_index`
-  );
-  return results.map((result) => {
-    const scored: ChunkMatch[] = [];
-    for (const row of chunksOf.all(result.path) as { chunk_index: number; heading: string; content: string }[]) {
-      const counts = new Map<string, number>();
-      for (const w of words(`${row.heading} ${row.content}`)) {
-        const s = stem(w);
-        if (terms.has(s)) counts.set(s, (counts.get(s) ?? 0) + 1);
-      }
-      if (counts.size === 0) continue;
-      const occurrences = [...counts.values()].reduce((a, b) => a + b, 0);
-      // Distinct terms dominate; occurrences break ties within them.
-      const score = counts.size + occurrences / (occurrences + 1);
-      scored.push({ path: result.path, chunk_index: row.chunk_index, heading: row.heading, content: row.content, score });
-    }
-    scored.sort((a, b) => b.score - a.score || a.chunk_index - b.chunk_index);
-    return { ...result, chunks: scored };
-  });
+  if (results.length === 0) return results;
+  if (!hasChunksFts(db)) return results.map((r) => ({ ...r, chunks: [] }));
+  // The tokenizer is read and the query run in one read transaction, as ftsSearch does.
+  const rows = db.transaction(() => {
+    const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+    return db
+      .prepare(
+        `SELECT d.path, c.chunk_index, c.heading, c.content, -bm25(chunks_fts, 2.0, 1.0) AS score
+         FROM chunks_fts
+         JOIN chunks c ON c.id = chunks_fts.rowid
+         JOIN documents d ON d.id = c.document_id
+         WHERE chunks_fts MATCH ? AND d.path IN (${results.map(() => "?").join(",")})
+         ORDER BY d.path, score DESC, c.chunk_index`
+      )
+      .all(match, ...results.map((r) => r.path)) as ChunkMatch[];
+  })();
+  const byPath = new Map<string, ChunkMatch[]>();
+  for (const row of rows) byPath.set(row.path, [...(byPath.get(row.path) ?? []), row]);
+  return results.map((result) => ({ ...result, chunks: byPath.get(result.path) ?? [] }));
 }
 
 /**

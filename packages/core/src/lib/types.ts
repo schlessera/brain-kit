@@ -69,7 +69,7 @@ export interface ChunkMatch {
   /** The heading of the section the chunk comes from; `(intro)` before the first. */
   heading: string;
   content: string;
-  /** How well the chunk matches the query: distinct query terms it contains, then how often. */
+  /** How well the chunk matches the query: its full-text (BM25) relevance, higher is better. */
   score: number;
 }
 
@@ -97,7 +97,7 @@ export interface SearchOptions {
    * earliest `deadline` first with undated documents last. */
   sort?: SearchSort;
   /** Fill each result's `chunks` with its chunks that match the query, best
-   * first. Off by default; a query-less (filter) search has none to match. */
+   * first. Off by default; a query-less (filter) search gets empty lists. */
   chunks?: boolean;
 }
 
