@@ -92,7 +92,11 @@ for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 `suggestion`, a string present only when the check has one. Core categories are
 `staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
 `verify`, `type-mismatch`, `orphan`, and, added in 0.38.0 additively,
-`budget`, `review-overdue` and `past-date`. `budget` is a canonical document
+`budget`, `review-overdue`, `past-date` and `fact-drift`. `fact-drift` is a
+document that restates a keyed fact (`taxonomy.facts`) with a value other than
+the one in its source's `facts:` frontmatter, one issue per document per fact,
+`warning`, with `message: "<key>: found <x>, canonical <y>"`; the source is
+never reported, nor a document that lists the key in `facts_ignore`. `budget` is a canonical document
 over its `taxonomy.canonicalPolicy.<key>.maxTokens`. `review-overdue` is a
 passed `next_review`, or a lapsed `canonicalPolicy.<key>.reviewDays` cadence.
 `past-date` is a line in a canonical document with a policy that names an

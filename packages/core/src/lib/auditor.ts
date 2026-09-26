@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 import { readFileSync } from "fs";
-import { join } from "path";
+import matter from "gray-matter";
+import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
@@ -278,6 +279,114 @@ function bodyLineOffset(root: string | undefined, doc: AuditDoc): number | null 
   }
 }
 
+export interface FactDrift {
+  doc: AuditDoc;
+  key: string;
+  found: string;
+  canonical: string;
+  source: string;
+}
+
+/** A frontmatter scalar as text: a YAML date back to `YYYY-MM-DD`, anything else trimmed. */
+function factText(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
+  return null;
+}
+
+/** Equal after trimming; as numbers when both parse as numbers. */
+function sameFact(a: string, b: string): boolean {
+  const x = a.trim();
+  const y = b.trim();
+  if (x !== "" && y !== "" && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) return Number(x) === Number(y);
+  return x === y;
+}
+
+/** A document's frontmatter, read from disk; {} when it cannot be read. */
+function frontmatterOf(root: string, path: string): Record<string, unknown> {
+  try {
+    return matter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** A repo-relative path in the form the index stores: no `./`, no doubled or trailing separators. */
+function normalizePath(path: string): string {
+  return posix.normalize(path.replace(/\\/g, "/")).replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+/**
+ * Restatements of a keyed fact that disagree with its canonical value.
+ *
+ * `taxonomy.facts` names, per key, the canonical document and the patterns
+ * that find the value restated in prose. The value is the source's `facts:`
+ * frontmatter entry. Every other non-archived markdown document is scanned,
+ * and one that states another value is reported once per fact, with the first
+ * value found. A capture that touches code (a fence or an inline span) is not
+ * a restatement. A document lists the facts it states on purpose as they were
+ * (a historical piece) under `facts_ignore:`.
+ *
+ * Frontmatter is not in the index, so it is read from the files: without
+ * `root` there is nothing to compare against, and nothing is reported. The
+ * work is lazy: code ranges are computed, and a document's frontmatter read,
+ * only for a document with a disagreeing capture.
+ */
+export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string | undefined): FactDrift[] {
+  const drift: FactDrift[] = [];
+  const keys = Object.keys(taxonomy.facts);
+  if (!root || keys.length === 0) return drift;
+
+  const frontmatter = new Map<string, Record<string, unknown>>();
+  const frontmatterFor = (path: string) => {
+    let data = frontmatter.get(path);
+    if (!data) frontmatter.set(path, (data = frontmatterOf(root, path)));
+    return data;
+  };
+  const ignoresOf = (doc: AuditDoc): Set<string> => {
+    const raw = frontmatterFor(doc.path).facts_ignore;
+    return new Set(Array.isArray(raw) ? raw.map(String) : typeof raw === "string" ? [raw] : []);
+  };
+  const code = new Map<string, [number, number][]>();
+  const codeOf = (doc: AuditDoc) => {
+    let ranges = code.get(doc.path);
+    if (!ranges) code.set(doc.path, (ranges = codeRanges(doc.content)));
+    return ranges;
+  };
+  const touchesCode = (ranges: [number, number][], start: number, end: number) =>
+    ranges.some(([s, e]) => start < e && end > s);
+
+  for (const key of keys) {
+    const rule = taxonomy.facts[key];
+    const source = normalizePath(rule.source);
+    const facts = frontmatterFor(source).facts;
+    const canonical =
+      facts && typeof facts === "object" && !Array.isArray(facts) ? factText((facts as Record<string, unknown>)[key]) : null;
+    if (canonical === null) continue;
+    // `d` gives each capture's offsets, so a capture reaching into code is seen.
+    const patterns = rule.patterns.map((p) => new RegExp(p, "gid"));
+
+    for (const doc of docs) {
+      if (doc.path === source || doc.status === "archived") continue;
+      let found: string | null = null;
+      for (const pattern of patterns) {
+        for (const match of doc.content.matchAll(pattern)) {
+          const value = match[1];
+          // An optional group that did not take part is no statement at all.
+          if (value === undefined || sameFact(value, canonical)) continue;
+          const [start, end] = match.indices![1]!;
+          if (touchesCode(codeOf(doc), Math.min(start, match.index ?? start), end)) continue;
+          found = value.trim();
+          break;
+        }
+        if (found !== null) break;
+      }
+      if (found !== null && !ignoresOf(doc).has(key)) drift.push({ doc, key, found, canonical, source });
+    }
+  }
+  return drift;
+}
+
 /**
  * Run all audit checks against the indexed database.
  *
@@ -530,6 +639,19 @@ export function audit(
         suggestion: "Finish, reschedule or remove the item if that date has passed",
       });
     }
+  }
+
+  // ---------------------------------------------------------------
+  // 9. Fact drift — a keyed fact restated with another value
+  // ---------------------------------------------------------------
+  for (const { doc, key, found, canonical, source } of findFactDrift(docs, taxonomy, opts.root)) {
+    issues.push({
+      path: doc.path,
+      severity: "warning",
+      category: "fact-drift",
+      message: `${key}: found ${found === "" ? '""' : found}, canonical ${canonical}`,
+      suggestion: `Update it to match ${source}, or add ${key} to facts_ignore if it is right as a record of the past`,
+    });
   }
 
   return issues;

@@ -86,6 +86,59 @@ export const propagationRuleSchema = z
 
 export type PropagationRule = z.infer<typeof propagationRuleSchema>;
 
+/**
+ * Capturing groups in a regex source, counted by what an empty match reports.
+ * The source is compiled as it is first: wrapped, a malformed pattern such
+ * as `a)|(b` would turn valid and count as one group.
+ */
+function captureGroups(source: string): number {
+  new RegExp(source, "i");
+  return new RegExp(`(?:${source})|`, "i").exec("")!.length - 1;
+}
+
+/**
+ * How a keyed fact is restated in prose: the canonical document whose
+ * `facts:` frontmatter holds the value, and the patterns that find a
+ * restatement. Each pattern is a case-insensitive regex with exactly one
+ * capture group, the value.
+ */
+export const factRuleSchema = z
+  .object({
+    /** The canonical document (exact path) whose `facts:` map holds the value. */
+    source: repoRelativePathSchema,
+    patterns: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
+
+export type FactRule = z.infer<typeof factRuleSchema>;
+
+const factsConfigSchema = z
+  .record(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "a fact key is a letter, then letters, digits, _ or -"), factRuleSchema)
+  .superRefine((facts, ctx) => {
+    for (const [key, rule] of Object.entries(facts)) {
+      rule.patterns.forEach((pattern, i) => {
+        let groups: number;
+        try {
+          groups = captureGroups(pattern);
+        } catch (e) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key, "patterns", i],
+            message: `fact "${key}": pattern ${JSON.stringify(pattern)} is not a valid regular expression (${(e as Error).message})`,
+          });
+          return;
+        }
+        if (groups !== 1) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key, "patterns", i],
+            message: `fact "${key}": pattern ${JSON.stringify(pattern)} must have exactly one capture group for the value, not ${groups}`,
+          });
+        }
+      });
+    }
+  });
+
 export const assetTitleRuleSchema = z.union([
   z
     .object({
@@ -157,6 +210,12 @@ const taxonomyConfigSchema = z
       )
       .optional(),
     propagation: z.array(propagationRuleSchema).optional(),
+    /**
+     * Keyed facts `brain audit` checks for drift: each names its canonical
+     * document (whose `facts:` frontmatter holds the value) and the patterns
+     * that find a restatement of it elsewhere.
+     */
+    facts: factsConfigSchema.optional(),
     assetTitleRules: z.array(assetTitleRuleSchema).optional(),
     /** type → keyword/phrase list; compiled to word-boundary regexes for heuristic classification. */
     classifierHints: z.record(z.string(), z.array(z.string())).optional(),

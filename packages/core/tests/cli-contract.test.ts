@@ -157,6 +157,15 @@ describe("audit", () => {
     expect(out.warnings).toBe(count("warning"));
     expect(out.infos).toBe(count("info"));
   });
+  test("reports the fixture's one drifted fact, on long-bio.md (#392)", async () => {
+    const { stdout } = await runCli(root, ["audit", "--json"]);
+    const drift = (JSON.parse(stdout).issues as Array<{ category: string; path: string; message: string }>).filter(
+      (i) => i.category === "fact-drift"
+    );
+    expect(drift).toEqual([
+      expect.objectContaining({ path: "me/basics/long-bio.md", message: "ranger_since: found 2018, canonical 2019" }),
+    ]);
+  });
 });
 
 describe("index", () => {

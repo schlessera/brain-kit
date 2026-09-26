@@ -91,7 +91,14 @@ Use `taxonomy.canonical` (e.g. `identity`, `currentFocus`) as the canonical anch
 `taxonomy.propagation` (source → derivative globs) for derivation drift. **If a canonical entry is
 unset, skip that check** — a fresh brain may declare none, and that is normal, not an error.
 
-For each configured canonical file:
+**Keyed facts are checked by the CLI.** For every fact in `taxonomy.facts`, `brain audit --json`
+already reports each document that restates it with another value, as a `fact-drift` issue
+(`message: "<key>: found <x>, canonical <y>"`). Take those issues as they are: log each one, do not
+re-derive them, and do not rewrite the text. A historical piece that is right to state an old value
+lists the key under `facts_ignore:` in its frontmatter.
+
+The judgment pass below is only for canonical files whose frontmatter has **no** `facts:` map.
+For each such file:
 1. Extract short structured anchor facts: dates (`YYYY-MM-DD` or `Month YYYY`), role/title strings,
    named statuses, employer/organization names.
 2. Search secondary files (all `.md` outside the inbox, archived content, and `context/hygiene/`)
@@ -125,7 +132,7 @@ under archived content, inside `context/hygiene/`, or has frontmatter `status: a
    context. If unsure: log instead.
 
 **Log-only (never auto-fix):** staleness past threshold, TODO/VERIFY markers, propagation/derivative
-drift, silent edits, orphans, type/directory mismatches, conflicts with no canonical or a recency
+drift, `fact-drift` from `brain audit` (never rewrite the restated value), silent edits, orphans, type/directory mismatches, conflicts with no canonical or a recency
 gap <30 days, and anything ambiguous.
 
 ## Phase 6 — Reconcile against prior state
@@ -133,13 +140,15 @@ gap <30 days, and anything ambiguous.
 For each issue (new + carried over):
 
 1. **Stable ID** = `{category}-{shortpath}-{hash4}` where `category` ∈ {staleness, conflict,
-   index-lag, propagation, silent-edit, todo, verify, orphan, type-mismatch}; `shortpath` = the
+   index-lag, propagation, fact-drift, silent-edit, todo, verify, orphan, type-mismatch}; `shortpath` = the
    last two path segments of the primary file, slugified (`/` and `.` → `-`, lowercase, no
    extension); and `hash4` = the first 4 hex chars of a SHA-1 over `{category}|{path}|{evidence}`.
    The `evidence` snippet is the smallest stable piece of evidence for the category (staleness →
    threshold class name; conflict → the canonical fact text; index-lag → the row's first-column
-   value; propagation → the derivative path; silent-edit/orphan → the file path; todo/verify → the
-   marker text; type-mismatch → the type name). Compute it deterministically, e.g. inline as
+   value; propagation → the derivative path; fact-drift → `{key}={found}`, both read from the
+   issue's `message` (`<key>: found <found>, canonical <canonical>`), so the ID holds while the
+   document keeps the same wrong value and changes when it states another; silent-edit/orphan →
+   the file path; todo/verify → the marker text; type-mismatch → the type name). Compute it deterministically, e.g. inline as
    `printf '%s' "$s" | { sha1sum 2>/dev/null || shasum; } | cut -c1-4`. GNU systems have
    `sha1sum`; macOS and the BSDs ship `shasum` instead, and both print the digest first, so the
    IDs match either way.
