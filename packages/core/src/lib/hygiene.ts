@@ -15,18 +15,19 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
+import { createHash, randomBytes } from "crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync } from "fs";
 import matter from "gray-matter";
-import { join, posix, resolve } from "path";
+import { basename, dirname, join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 import { auditWithModules, isoDay, loadAuditDocs, type AuditDoc } from "./auditor.js";
 import { topLevelBlocks } from "./document-parts.js";
+import { editFrontmatter } from "./frontmatter-edit.js";
 import type { LoadedModule } from "./module-types.js";
-import { writeFileSafely } from "./safe-path.js";
+import { writeExclusive } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
 import type { AuditIssue } from "./types.js";
 
@@ -65,7 +66,7 @@ export interface ReconcileResult {
   detected: Array<{ id: string; category: string; path: string; message: string }>;
   /** Auto-fixes the skill reported (`--fixed`), recorded in last-run.md. */
   autoFixed: number;
-  /** Modules whose hygiene check threw; entries they may own were left as they were. */
+  /** Checks that could not run: a module whose hygiene check threw, or a core check that could not read its input. */
   failedChecks: string[];
 }
 
@@ -314,7 +315,7 @@ export function indexTableLag(docs: AuditDoc[]): HygieneCandidate[] {
 /** What the CLI detected, and which module checks did not run. */
 export interface Detection {
   candidates: HygieneCandidate[];
-  /** Modules whose hygiene check threw, by name. */
+  /** Checks that could not run: module names, and core categories (`fact-drift`, `tag-noise`). */
   failedChecks: string[];
 }
 
@@ -466,7 +467,8 @@ function renderLogFile(file: LogFile, block: string): string {
     if (piece !== null) out += piece;
     else if (block) out += pieces.slice(i + 1).some((p) => p) ? `${block}\n` : block;
   });
-  if (!placed && block) out = `${out.replace(/\s*$/, "")}\n\n${block}`;
+  // No owned section yet: the block goes after a blank line, and not a byte before it changes.
+  if (!placed && block) out += `${out === "" || out.endsWith("\n\n") ? "" : out.endsWith("\n") ? "\n" : "\n\n"}${block}`;
   return out;
 }
 
@@ -509,33 +511,6 @@ const SECTIONS: Array<[string, string]> = [
 const SECTION_HEADINGS = new Set(SECTIONS.map(([, heading]) => heading));
 const isOpenSection = (heading: string) => SECTION_HEADINGS.has(heading) || heading.startsWith("Other: ");
 const sectionFor = (category: string) => SECTIONS.find(([c]) => c === category)?.[1] ?? `Other: ${category}`;
-
-/**
- * The categories whose detection this command runs itself (core's audit
- * checks, silent edits, the table pass) or that the skill hands in whole
- * (`conflict`). When a module check fails, an entry outside these may be
- * that module's, and is left as it is. An ID is matched by its category
- * prefix, so a module category that starts with one of these reads as core.
- */
-const COMPLETE_CATEGORIES = [
-  "budget",
-  "conflict",
-  "fact-drift",
-  "index-lag",
-  "module-hygiene",
-  "orphan",
-  "past-date",
-  "propagation",
-  "repeated-text",
-  "review-overdue",
-  "silent-edit",
-  "stale-draft",
-  "staleness",
-  "tag-noise",
-  "todo",
-  "type-mismatch",
-  "verify",
-];
 
 /** The generated lines of an open entry, fresh from its detection. */
 function detectionLines(candidate: HygieneCandidate, updated: string | undefined, firstSeen: string, lastSeen: string): string[] {
@@ -592,10 +567,14 @@ function listBlock(file: LogFile, heading: string, entries: HygieneEntry[]): str
   return `${[`## ${heading}`, intro, entries.length > 0 ? renderEntries(entries) : "(empty)"].filter(Boolean).join("\n\n")}\n`;
 }
 
-/** Set `updated:` in a frontmatter block to `today`, touching nothing else. */
+/**
+ * `frontmatter` with `updated:` set to `today`, through `editFrontmatter`,
+ * which keeps every other byte and reads the result back. A block it will not
+ * edit (a form it does not handle, or no frontmatter at all) stays as it is.
+ */
 function withUpdated(frontmatter: string, today: string): string {
-  if (/^updated:.*$/m.test(frontmatter)) return frontmatter.replace(/^updated:.*$/m, `updated: ${today}`);
-  return frontmatter.replace(/\r?\n---[ \t]*(\r?\n|$)/, `\nupdated: ${today}\n---$1`);
+  if (!frontmatter) return frontmatter;
+  return editFrontmatter(frontmatter, { updated: today }) ?? frontmatter;
 }
 
 function template(name: string, today: string, timestamp: string): string {
@@ -629,15 +608,41 @@ export interface ReconcileOptions {
   extra?: HygieneCandidate[];
   /** Auto-fixes the skill applied this run; they go into last-run.md. */
   fixed?: HygieneFix[];
-  /** Modules whose hygiene check threw (`detectCandidates`). */
+  /** Checks that could not run (`detectCandidates`). */
   failedChecks?: string[];
-  /** Writes one file; the default replaces it atomically. Tests inject failures here. */
-  write?: (path: string, text: string) => void;
+  /**
+   * Writes one file whose bytes on disk should still be `expected` (null:
+   * absent); the default is `replaceIfUnchanged`. Tests inject failures here.
+   */
+  write?: (path: string, text: string, expected: string | null) => void;
 }
 
-/** Write through a temporary sibling and a rename, so a file is either old or new, never partial. */
-function atomicWrite(path: string, text: string): void {
-  writeFileSafely(path, text);
+/**
+ * Replace `path` with `text` through a temporary sibling and a rename, so the
+ * file is either old or new, never partial, and only while it still holds
+ * `expected` (null: absent). The comparison is made after the new bytes are
+ * staged, right before the rename, so a person's save while reconcile ran is
+ * seen rather than overwritten. There is no lock: a save that lands between
+ * that last read and the rename is still lost. That window is a residual we
+ * accept, as `brain tags --apply` does (#463). `afterStage` runs between
+ * staging and the comparison, for tests.
+ */
+export function replaceIfUnchanged(path: string, text: string, expected: string | null, afterStage?: () => void): void {
+  const entry = lstatSync(path, { throwIfNoEntry: false });
+  if (entry && !entry.isFile()) throw new HygieneLogError(`${path} is not a regular file; brain hygiene will not replace it`);
+  const tmp = join(dirname(path), `.${basename(path)}.${randomBytes(4).toString("hex")}.tmp`);
+  writeExclusive(tmp, text, entry);
+  try {
+    afterStage?.();
+    const now = existsSync(path) ? readFileSync(path, "utf-8") : null;
+    if (now !== expected) {
+      throw new HygieneLogError(`${path} changed while brain hygiene reconcile ran; it was not overwritten, run it again`);
+    }
+    renameSync(tmp, path);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
+  }
 }
 
 /**
@@ -654,9 +659,10 @@ function atomicWrite(path: string, text: string): void {
  * | resolved | yes | re-open (reopened: today, was resolved-by: prev) |
  * | resolved | no | leave resolved |
  *
- * A snoozed entry with no readable `until:` stays snoozed. When a module check
- * failed, an entry that may be that module's is not resolved: "not detected"
- * means nothing when the detector did not run.
+ * A snoozed entry with no readable `until:` stays snoozed. While any check
+ * failed (`failedChecks`), no entry is resolved unless it was detected again:
+ * an open entry stays open and an expired snooze stays snoozed, since "not
+ * detected" means nothing when a detector did not run.
  *
  * Every log file is read and parsed before anything is written, and one that
  * cannot be parsed safely stops the run. Files are written only when their
@@ -709,9 +715,9 @@ export function reconcile(
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
   }
 
-  const extraCategories = (opts.extra ?? []).map((c) => c.category);
-  const complete = (id: string) =>
-    failedChecks.length === 0 || [...COMPLETE_CATEGORIES, ...extraCategories].some((c) => id.startsWith(`${c}-`));
+  // While any check failed, "not detected" may only mean "not looked for":
+  // an entry that was not detected again is left as it is.
+  const complete = failedChecks.length === 0;
 
   const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], resolved: [] as HygieneEntry[] };
   const categoryOf = new Map<string, string>();
@@ -744,7 +750,7 @@ export function reconcile(
         if (candidate) {
           next.open.push(openFrom(candidate, entry.id, entry.lines, firstSeenOf(entry) ?? today));
           counts.stillOpen++;
-        } else if (!complete(entry.id)) {
+        } else if (!complete) {
           next.open.push(entry);
           counts.stillOpen++;
         } else {
@@ -758,7 +764,7 @@ export function reconcile(
         } else if (candidate) {
           next.open.push(openFrom(candidate, entry.id, withoutFields(entry.lines, ["until"]), firstSeenOf(entry) ?? today));
           counts.reopened++;
-        } else if (!complete(entry.id)) {
+        } else if (!complete) {
           next.snoozed.push(entry);
         } else {
           next.resolved.push(resolve_(entry));
@@ -795,7 +801,7 @@ export function reconcile(
     const category = categoryOf.get(entry.id);
     if (category) return sectionFor(category);
     if (entry.section && isOpenSection(entry.section)) return entry.section;
-    const prefix = [...SECTIONS.map(([c]) => c), ...COMPLETE_CATEGORIES].filter((c) => entry.id.startsWith(`${c}-`)).sort((a, b) => b.length - a.length)[0];
+    const prefix = SECTIONS.map(([c]) => c).filter((c) => entry.id.startsWith(`${c}-`)).sort((a, b) => b.length - a.length)[0];
     return sectionFor(prefix ?? "uncategorised");
   };
   const stateBody = (state: HygieneState, entries: HygieneEntry[]) =>
@@ -840,9 +846,17 @@ export function reconcile(
     final.set("last-run.md", textFor("last-run.md", renderLogFile(lastRun, lastRunBlock)));
   }
   const changedFiles = [...final].filter(([name, text]) => sources[name].from.disk !== text).map(([name]) => rel(name));
+  // The first pass: each state file with its arrivals added and nothing taken away.
+  const firstPass = (["open", "snoozed", "resolved"] as const).map(
+    (state) => [`${state}.md`, textFor(`${state}.md`, stateBody(state, withDepartures(state)))] as const
+  );
+  // Nothing is written that the next run would refuse to read.
+  for (const [name, text] of [...firstPass, ...final]) {
+    if (text !== sources[name].from.disk) parseLogFile(text, rel(name), null, () => false);
+  }
 
   if (!opts.dryRun && changedFiles.length > 0) {
-    const write = opts.write ?? atomicWrite;
+    const write = opts.write ?? replaceIfUnchanged;
     const dir = resolve(root, HYGIENE_DIR);
     mkdirSync(dir, { recursive: true });
     const real = realpathSync(dir);
@@ -854,12 +868,10 @@ export function reconcile(
       if (now !== onDisk.get(name)) {
         throw new HygieneLogError(`${rel(name)} changed while brain hygiene reconcile ran; nothing more was written, run it again`);
       }
-      write(path, text);
+      write(path, text, onDisk.get(name) ?? null);
       onDisk.set(name, text);
     };
-    for (const state of ["open", "snoozed", "resolved"] as const) {
-      commit(`${state}.md`, textFor(`${state}.md`, stateBody(state, withDepartures(state))));
-    }
+    for (const [name, text] of firstPass) commit(name, text);
     for (const [name, text] of final) commit(name, text);
   }
 

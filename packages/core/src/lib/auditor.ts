@@ -31,11 +31,12 @@ export interface AuditOptions {
    */
   exclude?: (path: string) => boolean;
   /**
-   * Called with the module's name when one of its hygiene checks throws
-   * (`auditWithModules`), so a caller can tell a check that found nothing
-   * from one that did not run.
+   * Called when a check could not run, so a caller can tell a check that found
+   * nothing from one that did not look: with a module's name when one of its
+   * hygiene checks throws (`auditWithModules`), and with a core check's
+   * category when it could not read its input (`fact-drift`, `tag-noise`).
    */
-  onCheckFailed?: (module: string) => void;
+  onCheckFailed?: (check: string) => void;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -342,11 +343,18 @@ function sameFact(a: string, b: string): boolean {
   return x === y;
 }
 
-/** A document's frontmatter, read from disk; {} when it cannot be read. */
-function frontmatterOf(root: string, path: string): Record<string, unknown> {
+/**
+ * A document's frontmatter, read from disk; {} when it cannot be read. A
+ * missing file states nothing; any other failure (unreadable, invalid YAML)
+ * also calls `onReadFailed`, since the check could not see its input. The
+ * options object keeps gray-matter from caching a failed parse as a success
+ * (#142).
+ */
+function frontmatterOf(root: string, path: string, onReadFailed: () => void): Record<string, unknown> {
   try {
-    return matter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
-  } catch {
+    return matter(readFileSync(join(root, path), "utf8"), {}).data as Record<string, unknown>;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") onReadFailed();
     return {};
   }
 }
@@ -372,7 +380,12 @@ function normalizePath(path: string): string {
  * work is lazy: code ranges are computed, and a document's frontmatter read,
  * only for a document with a disagreeing capture.
  */
-export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string | undefined): FactDrift[] {
+export function findFactDrift(
+  docs: AuditDoc[],
+  taxonomy: Taxonomy,
+  root: string | undefined,
+  onReadFailed: () => void = () => {}
+): FactDrift[] {
   const drift: FactDrift[] = [];
   const keys = Object.keys(taxonomy.facts);
   if (!root || keys.length === 0) return drift;
@@ -380,7 +393,7 @@ export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string
   const frontmatter = new Map<string, Record<string, unknown>>();
   const frontmatterFor = (path: string) => {
     let data = frontmatter.get(path);
-    if (!data) frontmatter.set(path, (data = frontmatterOf(root, path)));
+    if (!data) frontmatter.set(path, (data = frontmatterOf(root, path, onReadFailed)));
     return data;
   };
   const ignoresOf = (doc: AuditDoc): Set<string> => {
@@ -679,7 +692,8 @@ export function audit(
       });
     }
   } catch {
-    // tags tables may be empty
+    // The tag tables could not be read.
+    opts.onCheckFailed?.("tag-noise");
   }
 
   // ---------------------------------------------------------------
@@ -813,7 +827,11 @@ export function audit(
   // ---------------------------------------------------------------
   // 9. Fact drift — a keyed fact restated with another value
   // ---------------------------------------------------------------
-  for (const { doc, key, found, canonical, source } of findFactDrift(docs, taxonomy, opts.root)) {
+  let factsUnread = false;
+  const drift = findFactDrift(docs, taxonomy, opts.root, () => (factsUnread = true));
+  // Drift it could not look for is not drift that went away.
+  if (factsUnread) opts.onCheckFailed?.("fact-drift");
+  for (const { doc, key, found, canonical, source } of drift) {
     issues.push({
       path: doc.path,
       severity: "warning",

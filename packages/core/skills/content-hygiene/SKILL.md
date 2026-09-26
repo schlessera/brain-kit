@@ -130,8 +130,8 @@ It writes a file only when its content changes, and `last-run.md` only when an i
 state or `--fixed` names a fix (it lists them under "Auto-fixes applied this run"), so a run that
 changes nothing leaves no diff. It keeps `resolved.md` to the newest 200 entries, and any section
 of the log it does not own (your own notes) as written. The log's own files are never detected as
-issues. If a module's hygiene check fails, `failedChecks` names the module and entries it may own
-are left as they are rather than resolved; report it. If a log file cannot be parsed safely (its
+issues. If a check cannot run (a module's check throws, or `fact-drift` cannot read a canonical
+file), `failedChecks` names it and no entry is resolved unless it was detected again; report it. If a log file cannot be parsed safely (its
 frontmatter is broken, say), reconcile exits non-zero and writes nothing: stop and report.
 
 **Stable IDs** are `{category}-{shortpath}-{hash4}`: `shortpath` is the last two path segments,

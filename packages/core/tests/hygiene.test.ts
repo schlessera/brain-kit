@@ -3,9 +3,10 @@
  * policy, moved out of the skill's prose into the CLI (#396).
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
+import * as fs from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -19,6 +20,7 @@ import {
   hygieneId,
   indexTableLag,
   reconcile,
+  replaceIfUnchanged,
   shortPath,
   type HygieneCandidate,
 } from "../src/lib/hygiene";
@@ -493,18 +495,65 @@ describe("writing the log", () => {
     );
   });
 
-  test("when a module check failed, an entry it may own stays; core entries still resolve", () => {
+  test("while a check could not run, nothing that was not detected again resolves", () => {
     const root = tempRoot();
-    const moduleId = hygieneId("mood-drift", "journal/2026-06-01.md", "sad");
+    // A module category that starts like a core one says nothing about who owns it.
+    const moduleId = hygieneId("todo-module", "notes/a.md", "x");
     const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
-    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(goes), seen)}\n\n## Other: mood-drift\n\n${entry(moduleId, seen)}\n`);
-    write(root, "snoozed.md", "Snoozed", `## Snoozed\n\n${entry(hygieneId("mood-drift", "journal/b.md", "x"), "- until: 2026-06-15")}\n`);
-    const result = reconcile(root, [], docs, { now: NOW, failedChecks: ["moods"] });
-    expect(result).toMatchObject({ resolved: 1, stillOpen: 1, snoozed: 1, failedChecks: ["moods"] });
-    expect(read(root, "open.md")).toContain(`## Other: mood-drift\n\n${entry(moduleId, seen)}`);
-    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
-    // Once the check runs again and finds nothing, the entries resolve.
-    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 2, stillOpen: 0 });
+    write(root, "open.md", "Open", `## TODO markers\n\n${entry(idOf(goes), seen)}\n\n${entry(idOf(stays), seen)}\n\n## Other: todo-module\n\n${entry(moduleId, seen)}\n`);
+    write(root, "snoozed.md", "Snoozed", `## Snoozed\n\n${entry(idOf(lapses), "- until: 2026-06-15")}\n`);
+    const before = { open: read(root, "open.md"), snoozed: read(root, "snoozed.md") };
+    const result = reconcile(root, [stays], docs, { now: NOW, failedChecks: ["moods"] });
+    expect(result).toMatchObject({ resolved: 0, stillOpen: 3, snoozed: 1, failedChecks: ["moods"] });
+    // The two entries not detected again are kept as they were, in their sections.
+    expect(read(root, "open.md")).toContain(`## TODO markers\n\n${entry(idOf(goes), seen)}`);
+    expect(read(root, "open.md")).toContain(`## Other: todo-module\n\n${entry(moduleId, seen)}`);
+    expect(read(root, "snoozed.md")).toBe(before.snoozed);
+    expect(existsSync(log(root, "resolved.md")) ? read(root, "resolved.md") : "").not.toContain("### ");
+    // Once every check runs again and still finds nothing, they resolve.
+    expect(reconcile(root, [stays], docs, { now: NOW })).toMatchObject({ resolved: 3, stillOpen: 1 });
+  });
+
+});
+
+describe("writing the log, round 2", () => {
+  const docs = new Map<string, { updated: string }>();
+  const goes: HygieneCandidate = { category: "todo", path: "notes/goes.md", evidence: "[TODO: goes]", message: "Contains marker: [TODO: goes]" };
+  const goesId = hygieneId(goes.category, goes.path, goes.evidence);
+  const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+
+  test("a quoted updated key is set in place, and the file stays readable", () => {
+    const root = tempRoot();
+    mkdirSync(join(root, "context/hygiene"), { recursive: true });
+    writeFileSync(log(root, "open.md"), `---\ntype: context\n"updated": 2026-01-01 # set by the tool\n---\n\n## TODO markers\n\n${entry(goesId, seen)}\n`);
+    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 1 });
+    expect(read(root, "open.md")).toStartWith(`---\ntype: context\n"updated": ${TODAY} # set by the tool\n---\n`);
+    // The next run reads it back.
+    expect(reconcile(root, [], docs, { now: NOW }).changedFiles).toEqual([]);
+  });
+
+  test("the first entry goes after a notes-only open.md without trimming a byte of it", () => {
+    const root = tempRoot();
+    const body = "\n## Operator notes\n\nLeft as is.   \n  \n";
+    mkdirSync(join(root, "context/hygiene"), { recursive: true });
+    writeFileSync(log(root, "open.md"), `---\ntype: context\nupdated: 2026-01-01\n---\n${body}`);
+    reconcile(root, [goes], docs, { now: NOW });
+    expect(read(root, "open.md")).toStartWith(`---\ntype: context\nupdated: ${TODAY}\n---\n${body}\n## TODO markers\n\n### ${goesId}\n`);
+    expect(reconcile(root, [goes], docs, { now: NOW }).changedFiles).toEqual([]);
+  });
+
+  test("a save that lands while the new bytes are staged is not overwritten", () => {
+    const dir = tempRoot();
+    const path = join(dir, "open.md");
+    writeFileSync(path, "old\n");
+    expect(() =>
+      replaceIfUnchanged(path, "new\n", "old\n", () => writeFileSync(path, "old\nA person's note.\n"))
+    ).toThrow("changed while brain hygiene reconcile ran");
+    expect(readFileSync(path, "utf-8")).toBe("old\nA person's note.\n");
+    expect(readdirSync(dir)).toEqual(["open.md"]);
+    // The control: unchanged, it is replaced.
+    replaceIfUnchanged(path, "new\n", "old\nA person's note.\n");
+    expect(readFileSync(path, "utf-8")).toBe("new\n");
   });
 });
 
@@ -601,5 +650,57 @@ describe("detection", () => {
     const detection = await detectCandidates(database, brain, new Date("2026-07-01T12:00:00Z"));
     expect(detection.failedChecks).toEqual(["broken"]);
     expect(detection.candidates.filter((c) => c.category === "mood-drift").map((c) => c.path)).toEqual(["notes/a.md"]);
+  });
+});
+
+describe("a core check that cannot read its input", () => {
+  const taxonomy = buildTaxonomy({
+    user: brainConfigSchema.parse({
+      taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d{4})"] } } },
+    }),
+  });
+
+  test("fact-drift that cannot read the canonical file reports a failed check, and its entry stays open", async () => {
+    const root = tempRoot();
+    const database = openDatabase(":memory:");
+    const files = {
+      "me/basics/FACTS.md": ["---\ntype: identity\ntitle: Facts\nfacts: { ranger_since: 2019 }\n---\n", "Facts.\n"],
+      "me/basics/long-bio.md": ["---\ntype: identity\ntitle: Bio\n---\n", "A ranger since 2018.\n"],
+    };
+    for (const [path, [front, body]] of Object.entries(files)) {
+      mkdirSync(join(root, path, ".."), { recursive: true });
+      writeFileSync(join(root, path), front + body);
+      database.run(
+        `INSERT INTO documents
+           (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, next_review, indexed_at)
+         VALUES (?, ?, 'identity', 'active', 'primary', NULL, '2026-01-01', '2026-06-01', ?, ?, 'markdown', NULL, '2026-01-01')`,
+        [path, path, body, `h-${path}`]
+      );
+    }
+    const brain = { taxonomy, root, modules: [] };
+    const docs = new Map<string, { updated: string }>();
+    const first = await detectCandidates(database, brain, NOW);
+    expect(first.failedChecks).toEqual([]);
+    expect(first.candidates.filter((c) => c.category === "fact-drift").map((c) => c.message)).toEqual(["ranger_since: found 2018, canonical 2019"]);
+    expect(reconcile(root, first.candidates, docs, { now: NOW, failedChecks: first.failedChecks })).toMatchObject({ opened: first.candidates.length });
+
+    const real = fs.readFileSync;
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+      if (String(path).endsWith("me/basics/FACTS.md")) {
+        throw Object.assign(new Error(`EACCES: permission denied, open '${String(path)}'`), { code: "EACCES" });
+      }
+      return (real as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    let second;
+    try {
+      second = await detectCandidates(database, brain, NOW);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(second.failedChecks).toEqual(["fact-drift"]);
+    expect(second.candidates.filter((c) => c.category === "fact-drift")).toEqual([]);
+    const result = reconcile(root, second.candidates, docs, { now: NOW, failedChecks: second.failedChecks });
+    expect(result).toMatchObject({ resolved: 0, failedChecks: ["fact-drift"] });
+    expect(read(root, "open.md")).toContain("ranger_since: found 2018, canonical 2019");
   });
 });

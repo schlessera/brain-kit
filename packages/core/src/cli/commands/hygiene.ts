@@ -22,9 +22,10 @@ const HELP = `brain hygiene <reconcile|list> — the content-hygiene log under c
       open/snoozed/resolved state machine to the log, and write the log's
       files only where they change. --extra is a JSON array of
       { "category", "path", "evidence", "message" }; --fixed is a JSON array of
-      { "path", "fix" }, the auto-fixes to record in last-run.md. When a module's
-      hygiene check fails, entries it may own are left as they are, and the
-      module is named in "failedChecks". --dry-run writes no log file; the
+      { "path", "fix" }, the auto-fixes to record in last-run.md. When a check
+      cannot run (a module's check throws, or fact-drift cannot read a
+      canonical file), it is named in "failedChecks" and no entry is resolved
+      unless it was detected again. --dry-run writes no log file; the
       index is still refreshed.
       --json envelope: { "opened", "reopened", "resolved", "stillOpen", "snoozed", "changedFiles",
       "detected": [{ "id", "category", "path", "message" }], "autoFixed", "failedChecks" }
@@ -116,7 +117,7 @@ export const hygieneCommand: CoreCommand = {
           `${prefix}hygiene: ${result.opened} new, ${result.reopened} reopened, ${result.resolved} resolved, ` +
             `${result.stillOpen} still open, ${result.snoozed} snoozed`
         );
-        for (const name of result.failedChecks) console.log(`  hygiene check from module "${name}" failed; its entries were left as they are`);
+        for (const name of result.failedChecks) console.log(`  check "${name}" could not run; entries not detected again were left as they are`);
         for (const f of result.changedFiles) console.log(`  ${dryRun ? "would write" : "wrote"} ${f}`);
       });
       return 0;
