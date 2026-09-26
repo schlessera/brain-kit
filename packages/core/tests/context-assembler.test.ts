@@ -417,6 +417,44 @@ describe("over a hand-built index", () => {
     );
   });
 
+  describe("a separator is charged with the text it precedes (#522)", () => {
+    // `estimateTokens("\n\n" + text)` can be one token less than the two
+    // rounded apart, so a form that fits by push's own charge must be taken.
+    const write = (identity: string, focus: string) => {
+      mkdirSync(join(dir, "me"), { recursive: true });
+      mkdirSync(join(dir, "context"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${identity}\n`);
+      writeFileSync(join(dir, "context/current-focus.md"), `---\ntype: context\n---\n${focus}\n`);
+    };
+    afterAll(() => rmSync(join(dir, "context/current-focus.md"), { force: true }));
+    const FOCUS = `Short.\n\n${"L".repeat(158)}\n\n## Long\n${"X".repeat(1000)}`;
+
+    test("a focus that fits after a cut identity is included (budget 18)", async () => {
+      write("A".repeat(1000), "F");
+      const report = emptyAssembleReport();
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 18, report });
+      expect(report.focus).toBe("context/current-focus.md");
+      expect(out.endsWith("## Current Focus\nF")).toBe(true);
+      expect(estimateTokens(out)).toBeLessThanOrEqual(18);
+    });
+
+    test("both documents grow whole when they fit exactly (budget 303)", async () => {
+      write("I", FOCUS);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 303 });
+      expect(out).toBe(`## Identity\nI\n\n## Current Focus\n${FOCUS}`);
+      expect(estimateTokens(out)).toBeLessThanOrEqual(303);
+    });
+
+    test("growth never shortens a placed form (budget 63)", async () => {
+      write("I", FOCUS);
+      const out = await assembleContext(db, ctx, { query: "", maxTokens: 63 });
+      // The premise: both minimal forms fit, and the focus lead is one of them.
+      const minimal = `## Identity\nI\n\n## Current Focus\nShort.\n\n${"L".repeat(158)}\n\n(truncated — brain read context/current-focus.md)`;
+      expect(estimateTokens(minimal)).toBeLessThanOrEqual(63);
+      expect(out).toBe(minimal);
+    });
+  });
+
   describe("identity leads with its lead, then whole sections", () => {
     // A 300-character lead, then a 2,000-character section made of short
     // paragraphs (each would fit on its own), then a second section.

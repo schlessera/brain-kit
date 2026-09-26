@@ -67,13 +67,19 @@ const SEPARATOR = "\n\n";
  * even the heading and the marker fit; a body whose first block does not fit
  * is left out, never cut mid-sentence.
  */
-function truncateAtBoundary(heading: string, body: string, marker: string, budget: number): string | null {
+function truncateAtBoundary(
+  heading: string,
+  body: string,
+  marker: string,
+  budget: number,
+  cost: (text: string) => number = estimateTokens
+): string | null {
   const shell = `${heading}\n${marker}`;
-  if (estimateTokens(shell) > budget) return null;
+  if (cost(shell) > budget) return null;
   let kept = "";
   for (const block of topLevelBlocks(body)) {
     const text = body.slice(0, block.end).trimEnd();
-    if (estimateTokens(`${heading}\n${text}\n\n${marker}`) > budget) break;
+    if (cost(`${heading}\n${text}\n\n${marker}`) > budget) break;
     kept = text;
   }
   return kept ? `${heading}\n${kept}\n\n${marker}` : shell;
@@ -188,13 +194,17 @@ function loadCanonical(root: string, slot: Canonical["slot"], path: string | nul
   return { slot, path, heading, whole: `${heading}\n${text}`, hot, sections, marker: `(truncated — brain read ${path})` };
 }
 
-/** The most of a canonical document that fits `room` tokens, or null when not even its heading and pointer fit. */
-function canonicalForm(doc: Canonical, room: number): string | null {
-  if (estimateTokens(doc.whole) <= room) return doc.whole;
+/**
+ * The most of a canonical document that fits `room` tokens, or null when not
+ * even its heading and pointer fit. `cost` is what a form would cost where it
+ * goes, separator included, rounded as one text the way `push` charges it.
+ */
+function canonicalForm(doc: Canonical, room: number, cost: (text: string) => number): string | null {
+  if (cost(doc.whole) <= room) return doc.whole;
   const { heading, hot, marker } = doc;
-  const fits = (blocks: string[]) => estimateTokens(`${heading}\n${[...blocks, marker].join("\n\n")}`) <= room;
+  const fits = (blocks: string[]) => cost(`${heading}\n${[...blocks, marker].join("\n\n")}`) <= room;
   // Only a lead that overflows on its own is cut at a block boundary.
-  if (hot && !fits([hot])) return truncateAtBoundary(heading, hot, marker, room);
+  if (hot && !fits([hot])) return truncateAtBoundary(heading, hot, marker, room, cost);
   const kept = hot ? [hot] : [];
   for (const section of doc.sections) {
     if (!fits([...kept, section])) break;
@@ -257,7 +267,7 @@ export async function assembleContext(
   const minimalFits = minimal.reduce((sum, form, i) => sum + estimateTokens(i > 0 ? SEPARATOR + form : form), 0) <= maxTokens;
   const placed: Array<{ doc: Canonical; index: number }> = [];
   for (const [i, doc] of canonicals.entries()) {
-    const form = minimalFits ? minimal[i]! : canonicalForm(doc, budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0));
+    const form = minimalFits ? minimal[i]! : canonicalForm(doc, budget, costOf);
     if (form !== null && push(form)) {
       included.add(doc.path);
       placed.push({ doc, index: parts.length - 1 });
@@ -275,9 +285,9 @@ export async function assembleContext(
     for (const { doc, index } of placed) {
       const cost = (text: string) => estimateTokens(index > 0 ? SEPARATOR + text : text);
       const current = parts[index]!;
-      const room = budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0);
-      const form = canonicalForm(doc, room);
-      if (form === null || form === current || cost(form) > budget + cost(current)) continue;
+      const form = canonicalForm(doc, budget + cost(current), cost);
+      // Growth only ever adds: a form no longer than the placed one stays out.
+      if (form === null || form.length <= current.length) continue;
       budget -= cost(form) - cost(current);
       parts[index] = form;
     }
