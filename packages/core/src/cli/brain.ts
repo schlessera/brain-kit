@@ -72,6 +72,7 @@ const MUTATING_SUBCOMMAND: Record<string, string> = {
 // frontmatter only with --apply and no --dry-run.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
+  hygiene: (args) => args[0] === "reconcile" && !args.includes("--dry-run"),
 };
 
 /** Env var holding the API key for a named built-in completion provider. */

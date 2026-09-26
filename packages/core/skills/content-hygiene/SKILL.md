@@ -1,7 +1,6 @@
 ---
 name: content-hygiene
 description: Use for a recurring sweep over a brain's content, including scheduled and unattended runs — checking for stale, contradictory, or silently edited documents. Safe to run repeatedly — it fixes only what is mechanically certain and logs the rest as deduplicated issues for a human to judge.
-compatibility: Requires either sha1sum (GNU coreutils) or shasum (macOS and BSD) for the stable issue IDs.
 ---
 
 # Content Hygiene
@@ -10,76 +9,32 @@ Systematic, idempotent scan over the brain. Detects stale and conflicting conten
 only when the truth is mechanically clear, and logs everything else into `context/hygiene/` with
 stable IDs so re-runs never duplicate and never drift.
 
-**This skill orchestrates; `brain audit`/`brain briefing` detect.** The agent applies conservative
-fixes and maintains the issue log — it does not re-implement detection.
+**This skill orchestrates; the CLI detects and keeps the log.** `brain hygiene reconcile` refreshes
+the index, runs every mechanical detection (`brain audit`'s checks, silent edits, the index table
+diff), gives each issue its stable ID, applies the open/snoozed/resolved state machine and writes
+`context/hygiene/` without churn. The agent does what needs judgment: canonical conflicts, and
+which auto-fixes to apply.
 
 ## Input
 
-None. Optional flag in the user message: `--dry-run` (detect and report, no writes anywhere — not
-even to `context/hygiene/`).
+None. Optional flag in the user message: `--dry-run` (detect and report; no brain content is
+written: no fixes, and nothing under `context/hygiene/`. The index is still refreshed, and the
+candidate file goes to the scratch area, `.brain/scratch/`, as on any run).
 
 Work the phases in order. Be conservative: if a fix is not clearly warranted, log it instead.
 
-## Phase 1 — Refresh the index
+## Phase 1 — Detect
 
 ```bash
-brain index --incremental
+brain hygiene reconcile --dry-run --json
+brain hygiene list --json
 ```
 
-Ensure brain.db reflects the current filesystem before any detection. If this fails, stop and report.
+The first refreshes the index and reports every mechanically detected issue under `detected`
+(`id`, `category`, `path`, `message`), writing no log file. The second is the log as it stands, by
+state. If either fails, stop and report.
 
-## Phase 2 — Gather existing detections
-
-```bash
-brain audit --json
-brain briefing --json
-```
-
-`brain audit` already detects staleness (per each type's threshold), propagation drift, TODO/VERIFY
-markers, type/directory mismatches, orphans, and frontmatter-date index lag (any `_index.md` whose
-`updated` trails its newest detail file). Parse it into in-memory issue candidates. Where audit's
-`index-lag` overlaps the table-row pass in Phase 4a, dedupe in favor of the more specific 4a finding.
-
-`brain briefing` includes silently-modified files (filesystem mtime > frontmatter `updated`). Treat
-drift beyond 7 days as a `silent-edit` candidate.
-
-## Phase 3 — Load prior hygiene state
-
-Read the existing hygiene files (create them from the templates in Phase 7 if absent):
-
-- `context/hygiene/open.md`
-- `context/hygiene/snoozed.md`
-- `context/hygiene/resolved.md`
-
-Parse each entry. An entry looks like:
-
-```markdown
-### staleness-context-current-focus-a7f3
-- **Files**: `context/current-focus.md` (updated 2026-05-01)
-- **Issue**: Last updated 40 days ago (threshold: 30 days)
-- **First seen**: 2026-05-15 · **Last seen**: 2026-06-01
-```
-
-Build an in-memory map: `id → { state: open|snoozed|resolved, last_seen, until, resolved_on, resolved_by }`.
-
-## Phase 4 — Run the detection passes
-
-### 4a. Index-vs-detail lag
-
-Enumerate index documents and diff each registry table against its detail files:
-
-```bash
-brain list --type index --json
-```
-
-For each `_index.md` with a pipeline-style table (rows linking to per-item detail files or dirs):
-1. Parse the table; identify the `Status` and `Updated` columns by header text (names vary).
-2. For each row, follow the link to the detail file and read its frontmatter.
-3. If the detail file is newer than the row **and** their `status` or `updated` disagree, emit an
-   `index-lag` issue with the row text plus the detail file's authoritative values.
-4. Skip rows whose detail file is missing (already covered by audit's orphan/structural checks).
-
-### 4b. Canonical-source conflicts
+## Phase 2 — Canonical-source conflicts
 
 Read the canonical files and propagation rules **from config** — do not hardcode paths:
 
@@ -109,17 +64,19 @@ For each such file:
 Be conservative: when the recency gap is small (<7 days) or the texts are paraphrases rather than
 contradictions, log nothing.
 
-### 4c. Silent edits
+Collect each conflict as a candidate for Phase 4:
+`{ "category": "conflict", "path": "<the secondary file>", "evidence": "<the canonical fact text>",
+"message": "<what diverges, and from which canonical file>" }`.
 
-Already gathered in Phase 2 from `brain briefing`. Filter to drift >7 days; emit a `silent-edit`
-issue per file.
+## Phase 3 — Apply moderate auto-fixes
 
-## Phase 5 — Apply moderate auto-fixes
+For each detected issue and conflict, decide auto-fix vs. log. An `index-lag` issue from the
+table diff names the row, its values and the detail file's in its message. **Skip any file that
+is:** in the inbox directory, under archived content, inside `context/hygiene/`, or has frontmatter
+`status: archived`.
 
-For each candidate, decide auto-fix vs. log. **Skip any file that is:** in the inbox directory,
-under archived content, inside `context/hygiene/`, or has frontmatter `status: archived`.
-
-**Auto-fix (edit the file directly, record each in `last-run.md`):**
+**Auto-fix (edit the file directly, and keep a list of what you fixed, one `{ "path", "fix" }`
+per fix, for Phase 4):**
 
 1. **`updated < created`** — set both fields to the later of (created, updated, file mtime as a
    date). Bump `updated` only if the chosen date is newer than the current `updated`.
@@ -135,75 +92,73 @@ under archived content, inside `context/hygiene/`, or has frontmatter `status: a
 drift, `fact-drift` from `brain audit` (never rewrite the restated value), silent edits, orphans, type/directory mismatches, conflicts with no canonical or a recency
 gap <30 days, and anything ambiguous.
 
-## Phase 6 — Reconcile against prior state
+With `--dry-run`, apply none.
 
-For each issue (new + carried over):
+## Phase 4 — Record the log
 
-1. **Stable ID** = `{category}-{shortpath}-{hash4}` where `category` ∈ {staleness, conflict,
-   index-lag, propagation, fact-drift, silent-edit, todo, verify, orphan, type-mismatch}; `shortpath` = the
-   last two path segments of the primary file, slugified (`/` and `.` → `-`, lowercase, no
-   extension); and `hash4` = the first 4 hex chars of a SHA-1 over `{category}|{path}|{evidence}`.
-   The `evidence` snippet is the smallest stable piece of evidence for the category (staleness →
-   threshold class name; conflict → the canonical fact text; index-lag → the row's first-column
-   value; propagation → the derivative path; fact-drift → `{key}={found}`, both read from the
-   issue's `message` (`<key>: found <found>, canonical <canonical>`), so the ID holds while the
-   document keeps the same wrong value and changes when it states another; silent-edit/orphan →
-   the file path; todo/verify → the marker text; type-mismatch → the type name). Compute it deterministically, e.g. inline as
-   `printf '%s' "$s" | { sha1sum 2>/dev/null || shasum; } | cut -c1-4`. GNU systems have
-   `sha1sum`; macOS and the BSDs ship `shasum` instead, and both print the digest first, so the
-   IDs match either way.
+First drop from the Phase 2 conflicts every one a Phase 3 fix cleared, and any other that no
+longer holds when you re-read both files: the CLI cannot detect a conflict itself, so a conflict
+it is handed stays open. Then write two JSON arrays (`[]` when empty):
 
-2. Apply the state machine:
+- `.brain/scratch/hygiene-extra.json`: the conflicts still present.
+- `.brain/scratch/hygiene-fixed.json`: the Phase 3 fixes, e.g.
+  `[{ "path": "work/_index.md", "fix": "Alpha row status active → paused" }]`.
 
-   | Existing state | Detected now? | Action |
-   |---|---|---|
-   | (none) | yes | add to open |
-   | open | yes | update `last-seen`, keep in open |
-   | open | no | move to resolved (`resolved-by: auto-disappeared`) |
-   | snoozed (until > today) | either | leave snoozed |
-   | snoozed (until ≤ today) | yes | move back to open |
-   | snoozed (until ≤ today) | no | move to resolved (`auto-disappeared`) |
-   | resolved | yes | re-open with `reopened: today (was resolved-by: <prev>)` |
-   | resolved | no | leave resolved |
+```bash
+brain hygiene reconcile --extra .brain/scratch/hygiene-extra.json \
+  --fixed .brain/scratch/hygiene-fixed.json --json
+```
 
-3. Issues cleared by Phase 5 fixes will simply not be detected this run and fall to resolved via
-   the "open → no detection → resolved" path.
+With `--dry-run`, there are no fixes: pass `--dry-run` and leave out `--fixed`. It computes the
+same and writes no log file.
 
-## Phase 7 — Write the hygiene files
+This detects again, so issues your fixes cleared are resolved, and then matches everything
+against the log by ID:
 
-Templates for first-time creation live in `templates/` next to this SKILL.md. Read the matching
-template and use its body verbatim when a file is missing, substituting `<TODAY>` (and `<TIMESTAMP>`
-in `last-run.md`):
+| Existing state | Detected now? | Action |
+|---|---|---|
+| (none) | yes | add to open |
+| open | yes | update last seen, keep in open |
+| open | no | move to resolved (`resolved-by: auto-disappeared`) |
+| snoozed (until > today) | either | leave snoozed |
+| snoozed (until ≤ today) | yes | move back to open |
+| snoozed (until ≤ today) | no | move to resolved (`auto-disappeared`) |
+| resolved | yes | re-open (`reopened: today (was resolved-by: <prev>)`) |
+| resolved | no | leave resolved |
 
-| Target | Template |
-|---|---|
-| `context/hygiene/_index.md` | `templates/_index.md` |
-| `context/hygiene/open.md` | `templates/open.md` |
-| `context/hygiene/snoozed.md` | `templates/snoozed.md` |
-| `context/hygiene/resolved.md` | `templates/resolved.md` |
-| `context/hygiene/last-run.md` | `templates/last-run.md` |
+It writes a file only when its content changes, and `last-run.md` only when an issue changed
+state or `--fixed` names a fix (it lists them under "Auto-fixes applied this run"), so a run that
+changes nothing leaves no diff. It keeps `resolved.md` to the newest 200 entries, and any section
+of the log it does not own (your own notes) as written. The log's own files are never detected as
+issues. If a check cannot run (a module's check throws, or `fact-drift` cannot read a canonical
+file), `failedChecks` names it and no entry is resolved unless it was detected again; report it. If a log file cannot be parsed safely (its
+frontmatter is broken, say), reconcile exits non-zero and writes nothing: stop and report.
 
-**Write policy (the idempotency core).** For `open.md`, `snoozed.md`, `resolved.md`, `_index.md`:
-compute the new content, read the existing file, and **if the body below the frontmatter is
-byte-identical, do not write** (do not bump `updated`). Only rewrite — and set `updated` to today —
-when the body actually changed. For `last-run.md`: write only if state changed (a fix applied, an
-issue moved, appeared, or disappeared); on a true no-op run, leave it alone. This preserves the
-"zero git diffs on a no-op heartbeat" invariant. Cap `resolved.md` at 200 entries, dropping the
-oldest by `resolved-on`.
+**Stable IDs** are `{category}-{shortpath}-{hash4}`: `shortpath` is the last two path segments,
+extension dropped, lowercased, with every run of characters outside `a-z0-9_-` (`/` and `.`
+included) turned into one `-`; `hash4` is the first 4 hex characters of a SHA-1 over
+`{category}|{path}|{evidence}`. The evidence is the smallest stable piece for the category:
+staleness → the document's type; conflict → the canonical fact text you gave; index-lag → the
+row's first cell (the whole-file audit finding: the index path); propagation, silent-edit,
+orphan and stale-draft → the file path; todo/verify → the marker text; type-mismatch → the type
+name; budget → the canonical key; past-date → the date and the line's text; fact-drift →
+`{key}={found}`, so the ID holds while the document keeps the same wrong value; repeated-text →
+the paragraph's excerpt; module-hygiene → the module's name; review-overdue and tag-noise →
+empty; any other category (a module's) → its message.
 
-## Phase 8 — Report
+## Phase 5 — Report
 
-Print a terse summary:
+Print a terse summary from the Phase 4 output and your fixes:
 
 ```
 content-hygiene complete
-  auto-fixed: N   new open: M   reopened: R
-  resolved: K (auto-disappeared)   still open: O   snoozed: S
+  auto-fixed: N   new open: {opened}   reopened: {reopened}
+  resolved: {resolved} (auto-disappeared)   still open: {stillOpen}   snoozed: {snoozed}
 ```
 
-If nothing changed and `still open` is unchanged, print one line:
+If nothing changed (`changedFiles` empty and no fixes), print one line:
 `content-hygiene: no changes (N issues still open)`. If `--dry-run`, prefix `[DRY-RUN]` and add
-`(no writes performed)`.
+`(no content written)`.
 
 ## Notes
 
@@ -211,18 +166,16 @@ If nothing changed and `still open` is unchanged, print one line:
 - **Derivative regeneration is never automated** — propagation/derivative drift is logged only.
 - **No interactive prompts** — runs to completion without user input, so it can be scheduled.
 - **Respects manual moves** — if the user moves an issue between files or edits `until:` dates by
-  hand, matching is by ID and those decisions are preserved.
+  hand, `brain hygiene reconcile` matches by ID and keeps those decisions.
 - **`updated` discipline** — bumped only on files whose content actually changed; the skill must
   not churn timestamps just by running.
-- **Failure mode** — if any command fails (e.g. `brain index` errors), stop and report; never write
-  partial state.
+- **Failure mode** — if any command fails (e.g. `brain hygiene reconcile` exits non-zero), stop and
+  report; never write partial state.
 - The interactive `brain audit --fix` suggestion flow is separate and is **not** invoked here.
 
 ## CLI it relies on
 
-- `brain index --incremental` — refresh the DB.
-- `brain audit --json` — existing staleness/lag/propagation/orphan/mismatch detection.
-- `brain briefing --json` — silent-edit data.
-- `brain list --type index --json` — enumerate index documents for the lag pass.
+- `brain hygiene reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run] --json` —
+  refresh the index, detect, and reconcile the log.
+- `brain hygiene list [--state open|snoozed|resolved] --json` — the log as it stands.
 - `brain config check` — read `taxonomy.canonical` and `taxonomy.propagation`.
-- `sha1sum`, or `shasum` where that is what exists — deterministic stable-ID hashing.

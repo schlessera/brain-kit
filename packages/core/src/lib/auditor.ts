@@ -23,6 +23,20 @@ export interface AuditOptions {
    * without it, the line in the document body (after the frontmatter).
    */
   root?: string;
+  /**
+   * Documents to leave out of every check, as if they were not indexed: their
+   * links count for no orphan check, and a module finding on one is dropped.
+   * `brain hygiene reconcile` leaves out its own log, so writing the log
+   * cannot change what the next run detects.
+   */
+  exclude?: (path: string) => boolean;
+  /**
+   * Called when a check could not run, so a caller can tell a check that found
+   * nothing from one that did not look: with a module's name when one of its
+   * hygiene checks throws (`auditWithModules`), and with a core check's
+   * category when it could not read its input (`fact-drift`, `tag-noise`).
+   */
+  onCheckFailed?: (check: string) => void;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -93,7 +107,12 @@ export function findStale(docs: AuditDoc[], taxonomy: Taxonomy, now: number): St
  * link pointing at them, minus orphan-exempt types and `_index.md` anchors.
  * Shared by `brain audit` and `brain stats` for the same reason as findStale.
  */
-export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy): AuditDoc[] {
+export function findOrphans(
+  db: Database,
+  docs: AuditDoc[],
+  taxonomy: Taxonomy,
+  opts: { linksAmongDocs?: boolean } = {}
+): AuditDoc[] {
   // Exclude orphan-exempt types (index/context and any config-declared
   // exemptions) and _index.md files.
   const candidateDocs = docs.filter(
@@ -151,8 +170,24 @@ export function findOrphans(db: Database, docs: AuditDoc[], taxonomy: Taxonomy):
   // either, so dropping the broken links here changes nothing.
   const ids = (sql: string) =>
     new Set((db.prepare(sql).all() as { id: number }[]).map((r) => r.id));
-  const hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
-  const hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+  let hasOutgoing: Set<number>;
+  let hasIncoming: Set<number>;
+  if (opts.linksAmongDocs) {
+    // Only links between the given documents count: a link from a document
+    // left out of `docs` makes nothing un-orphaned, and one to it is broken.
+    const among = new Set(docs.map((d) => d.id));
+    const rows = db.prepare("SELECT source_id, target_id FROM links").all() as { source_id: number; target_id: number | null }[];
+    hasOutgoing = new Set();
+    hasIncoming = new Set();
+    for (const { source_id, target_id } of rows) {
+      if (!among.has(source_id)) continue;
+      hasOutgoing.add(source_id);
+      if (target_id !== null && among.has(target_id)) hasIncoming.add(target_id);
+    }
+  } else {
+    hasOutgoing = ids("SELECT DISTINCT source_id AS id FROM links");
+    hasIncoming = ids("SELECT DISTINCT target_id AS id FROM links WHERE target_id IS NOT NULL");
+  }
 
   const orphans: AuditDoc[] = [];
   for (const doc of candidateDocs) {
@@ -308,11 +343,18 @@ function sameFact(a: string, b: string): boolean {
   return x === y;
 }
 
-/** A document's frontmatter, read from disk; {} when it cannot be read. */
-function frontmatterOf(root: string, path: string): Record<string, unknown> {
+/**
+ * A document's frontmatter, read from disk; {} when it cannot be read. A
+ * missing file states nothing; any other failure (unreadable, invalid YAML)
+ * also calls `onReadFailed`, since the check could not see its input. The
+ * options object keeps gray-matter from caching a failed parse as a success
+ * (#142).
+ */
+function frontmatterOf(root: string, path: string, onReadFailed: () => void): Record<string, unknown> {
   try {
-    return matter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
-  } catch {
+    return matter(readFileSync(join(root, path), "utf8"), {}).data as Record<string, unknown>;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") onReadFailed();
     return {};
   }
 }
@@ -338,7 +380,12 @@ function normalizePath(path: string): string {
  * work is lazy: code ranges are computed, and a document's frontmatter read,
  * only for a document with a disagreeing capture.
  */
-export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string | undefined): FactDrift[] {
+export function findFactDrift(
+  docs: AuditDoc[],
+  taxonomy: Taxonomy,
+  root: string | undefined,
+  onReadFailed: () => void = () => {}
+): FactDrift[] {
   const drift: FactDrift[] = [];
   const keys = Object.keys(taxonomy.facts);
   if (!root || keys.length === 0) return drift;
@@ -346,7 +393,7 @@ export function findFactDrift(docs: AuditDoc[], taxonomy: Taxonomy, root: string
   const frontmatter = new Map<string, Record<string, unknown>>();
   const frontmatterFor = (path: string) => {
     let data = frontmatter.get(path);
-    if (!data) frontmatter.set(path, (data = frontmatterOf(root, path)));
+    if (!data) frontmatter.set(path, (data = frontmatterOf(root, path, onReadFailed)));
     return data;
   };
   const ignoresOf = (doc: AuditDoc): Set<string> => {
@@ -491,7 +538,8 @@ export function audit(
   const issues: AuditIssue[] = [];
   const now = (opts.now ?? new Date()).getTime();
 
-  const docs = loadAuditDocs(db);
+  const exclude = opts.exclude;
+  const docs = exclude ? loadAuditDocs(db).filter((d) => !exclude(d.path)) : loadAuditDocs(db);
 
   // ---------------------------------------------------------------
   // 1. Staleness checks
@@ -616,13 +664,22 @@ export function audit(
   // 2d. Tag vocabulary noise — one aggregate issue, not one per tag
   // ---------------------------------------------------------------
   try {
-    const tagRows = db
+    // Without `exclude`, every tagged document counts, as it always has.
+    const counted = exclude ? new Set(docs.map((d) => d.id)) : null;
+    const tagUses = db
       .prepare(
-        `SELECT t.name, COUNT(dt.document_id) AS n
-         FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
-         GROUP BY t.id`
+        `SELECT t.id, t.name, dt.document_id AS doc
+         FROM tags t JOIN document_tags dt ON dt.tag_id = t.id`
       )
-      .all() as { name: string; n: number }[];
+      .all() as { id: number; name: string; doc: number }[];
+    const byTag = new Map<number, { name: string; n: number }>();
+    for (const use of tagUses) {
+      if (counted && !counted.has(use.doc)) continue;
+      const row = byTag.get(use.id) ?? { name: use.name, n: 0 };
+      row.n++;
+      byTag.set(use.id, row);
+    }
+    const tagRows = [...byTag.values()];
     const singletons = tagRows.filter((r) => r.n === 1);
     if (tagRows.length > 0 && singletons.length / tagRows.length > 0.4) {
       const sample = singletons.slice(0, 8).map((r) => r.name).join(", ");
@@ -635,7 +692,8 @@ export function audit(
       });
     }
   } catch {
-    // tags tables may be empty
+    // The tag tables could not be read.
+    opts.onCheckFailed?.("tag-noise");
   }
 
   // ---------------------------------------------------------------
@@ -707,7 +765,7 @@ export function audit(
   // ---------------------------------------------------------------
   // 5. Orphan detection
   // ---------------------------------------------------------------
-  for (const doc of findOrphans(db, docs, taxonomy)) {
+  for (const doc of findOrphans(db, docs, taxonomy, { linksAmongDocs: exclude !== undefined })) {
     issues.push({
       path: doc.path,
       severity: "info",
@@ -769,7 +827,11 @@ export function audit(
   // ---------------------------------------------------------------
   // 9. Fact drift — a keyed fact restated with another value
   // ---------------------------------------------------------------
-  for (const { doc, key, found, canonical, source } of findFactDrift(docs, taxonomy, opts.root)) {
+  let factsUnread = false;
+  const drift = findFactDrift(docs, taxonomy, opts.root, () => (factsUnread = true));
+  // Drift it could not look for is not drift that went away.
+  if (factsUnread) opts.onCheckFailed?.("fact-drift");
+  for (const { doc, key, found, canonical, source } of drift) {
     issues.push({
       path: doc.path,
       severity: "warning",
@@ -785,9 +847,11 @@ export function audit(
 /**
  * The core audit plus every enabled module's hygiene checks, each run against
  * its own module's config. A check that throws becomes one `module-hygiene`
- * warning instead of failing the audit. `brain audit` and `brain maintain`
- * both count issues through this, so their numbers agree. The brain's root
- * reaches the core audit (`AuditOptions.root`) unless `opts` sets another.
+ * warning instead of failing the audit, and `opts.onCheckFailed` hears of
+ * it. `brain audit` and `brain maintain` both count issues through this, so
+ * their numbers agree. The brain's root reaches the core audit
+ * (`AuditOptions.root`) unless `opts` sets another. A check sees the whole
+ * index, so `opts.exclude` drops its findings on excluded paths.
  */
 export async function auditWithModules(
   db: Database,
@@ -798,8 +862,10 @@ export async function auditWithModules(
   for (const mod of brain.modules) {
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {
-        issues.push(...(await check({ db, root: brain.root, config: mod.config })));
+        const found = await check({ db, root: brain.root, config: mod.config });
+        issues.push(...(opts.exclude ? found.filter((issue) => !opts.exclude!(issue.path)) : found));
       } catch (e) {
+        opts.onCheckFailed?.(mod.manifest.name);
         issues.push({
           path: "(module)",
           severity: "warning",
