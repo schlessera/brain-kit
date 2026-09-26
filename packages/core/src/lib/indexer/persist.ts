@@ -15,6 +15,7 @@
 import type { Database } from "bun:sqlite";
 
 import { CHUNKER_VERSION, chunkDocument } from "../chunker.js";
+import { supersedesTargets } from "../supersedes.js";
 import { chunkContextKey } from "./caches.js";
 import { applyFtsTokenizer } from "./fts.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
@@ -69,6 +70,8 @@ function prepareStatements(db: Database) {
     deleteChunks: db.prepare("DELETE FROM chunks WHERE document_id = ?"),
     deleteTags: db.prepare("DELETE FROM document_tags WHERE document_id = ?"),
     deleteLinks: db.prepare("DELETE FROM links WHERE source_id = ?"),
+    deleteSupersedes: db.prepare("DELETE FROM supersedes WHERE source_id = ?"),
+    insertSupersedes: db.prepare("INSERT OR IGNORE INTO supersedes (source_id, target, target_id) VALUES (?, ?, NULL)"),
     deleteDoc: db.prepare("DELETE FROM documents WHERE id = ?"),
     insertFts: db.prepare(
       "INSERT INTO documents_fts(rowid, title, summary, content, tags) VALUES (?, ?, ?, ?, ?)"
@@ -104,6 +107,7 @@ function wipeMarkdownState(db: Database): void {
     "DELETE FROM chunks WHERE document_id IN (SELECT id FROM documents WHERE asset_type = 'markdown')"
   );
   db.run("DELETE FROM links");
+  db.run("DELETE FROM supersedes");
   db.run("DELETE FROM document_tags");
   db.run("DELETE FROM documents WHERE asset_type = 'markdown'");
 }
@@ -129,6 +133,7 @@ function writeDocument(
     st.deleteFts.run(existing.id);
     st.deleteTags.run(existing.id);
     st.deleteLinks.run(existing.id);
+    st.deleteSupersedes.run(existing.id);
   }
 
   const deadline = data.deadline ? toDateString(data.deadline, "") || null : null;
@@ -159,6 +164,9 @@ function writeDocument(
   if (!docRow) return null;
 
   const tagNames = writeTags(st, docRow.id, data.tags);
+  // Resolved with the links, once every document is written (rebuildLinks).
+  // A value of the wrong shape stores nothing; `brain validate` reports it.
+  for (const target of supersedesTargets(data.supersedes) ?? []) st.insertSupersedes.run(docRow.id, target);
 
   // Aliases ride along in the FTS tags column, so an alternate name is
   // findable by keyword search even though it is not a tag.
@@ -279,6 +287,18 @@ function rebuildLinks(run: IndexRun, st: Statements, parsed: ParseResult): void 
       }
       st.insertLink.run(doc.id, link, targetId);
     }
+  }
+
+  // `supersedes` targets resolve the same way, re-resolved on every run so a
+  // renamed or newly added target is picked up without touching the source.
+  const update = run.db.prepare("UPDATE supersedes SET target_id = ? WHERE source_id = ? AND target = ?");
+  const rows = run.db
+    .prepare("SELECT s.source_id, s.target, d.path FROM supersedes s JOIN documents d ON d.id = s.source_id")
+    .all() as { source_id: number; target: string; path: string }[];
+  for (const row of rows) {
+    const targetPath = resolveLink(row.target, row.path) ?? resolveAlias(row.target, parsed.aliasMap, row.path);
+    const targetId = targetPath ? ((st.getDocId.get(targetPath) as { id: number } | null)?.id ?? null) : null;
+    update.run(targetId === row.source_id ? null : targetId, row.source_id, row.target);
   }
 }
 

@@ -6,6 +6,7 @@ import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 import { ftsIsEnglish } from "./search-language.js";
+import { SUPERSEDED_FACTOR } from "./supersedes.js";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -554,7 +555,7 @@ export async function hybridSearch(
 
   // No query: delegate to filter search
   if (!opts.query) {
-    return { results: filterSearch(db, opts), warnings };
+    return { results: markSuperseded(db, filterSearch(db, opts)), warnings };
   }
 
   const query = opts.query;
@@ -648,11 +649,67 @@ export async function hybridSearch(
     }
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
+  candidates = demoteSuperseded(db, candidates);
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }
 
   return { results: candidates.slice(0, limit), warnings };
+}
+
+/**
+ * A document another one `supersedes` (#412) is demoted, not hidden: its score
+ * is multiplied by SUPERSEDED_FACTOR and it carries `supersededBy`, the path
+ * of the document that replaces it (the first by path when several do). It
+ * runs after fusion and reranking, in every mode and with `rerank: none`, so
+ * no mode ranks a replaced document on equal terms with its replacement. An
+ * index from before schema 12 has no `supersedes` table and is left as it is.
+ */
+function demoteSuperseded(db: Database, candidates: SearchResult[]): SearchResult[] {
+  const supersededBy = supersededByOf(db, candidates);
+  if (supersededBy.size === 0) return candidates;
+  return candidates
+    .map((result) => {
+      const by = supersededBy.get(result.path);
+      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, supersededBy: by } : result;
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * A filter-only search's results with `supersededBy` set on each superseded
+ * one. Nothing is demoted: a filter has no ranking, and its date order stays.
+ */
+function markSuperseded(db: Database, results: SearchResult[]): SearchResult[] {
+  const supersededBy = supersededByOf(db, results);
+  if (supersededBy.size === 0) return results;
+  return results.map((result) => {
+    const by = supersededBy.get(result.path);
+    return by ? { ...result, supersededBy: by } : result;
+  });
+}
+
+/**
+ * For each result another document supersedes, that document's path (the
+ * first by path when several do). Empty on an index from before schema 12,
+ * which has no `supersedes` table.
+ */
+function supersededByOf(db: Database, results: SearchResult[]): Map<string, string> {
+  if (results.length === 0) return new Map();
+  const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supersedes'").get() !== null;
+  if (!hasTable) return new Map();
+  const placeholders = results.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT old.path AS path, MIN(new.path) AS by
+       FROM supersedes s
+       JOIN documents old ON old.id = s.target_id
+       JOIN documents new ON new.id = s.source_id
+       WHERE old.path IN (${placeholders})
+       GROUP BY old.path`
+    )
+    .all(...results.map((r) => r.path)) as { path: string; by: string }[];
+  return new Map(rows.map((row) => [row.path, row.by]));
 }
 
 /** How many query matches each lane retrieves before a date sort. */
