@@ -521,10 +521,15 @@ export function percentile(values: number[], p: number): number {
 /** The class of a query phrased the way someone actually asked it. */
 export const PARAPHRASE_CLASS = "paraphrase";
 
-/** A query's or title's content words: case-folded, stopwords dropped. */
+/**
+ * A query's or title's content words: case-folded, stopwords dropped.
+ * `caseFold` returns decomposed text, so a word keeps its combining marks
+ * (`\p{M}`) or "résumé" would split into "re" and "sume", and "thé" would
+ * lose its accent and be dropped as the stopword "the".
+ */
 function contentWords(text: string): Set<string> {
   return new Set(
-    (caseFold(text).match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => !FTS_STOPWORDS.has(word))
+    (caseFold(text).match(/[\p{L}\p{M}\p{N}]+/gu) ?? []).filter((word) => !FTS_STOPWORDS.has(word))
   );
 }
 
@@ -546,7 +551,7 @@ export function titleLeaks(queries: EvalQuery[], titleOf: (path: string) => stri
       if (title === null) continue;
       const shared = [...contentWords(title)].filter((word) => words.has(word));
       if (shared.length > 0) {
-        findings.push(`${query.id}: shares ${shared.map((w) => `"${w}"`).join(", ")} with the title of ${path}`);
+        findings.push(`${query.id}: shares ${shared.map((w) => `"${w.normalize("NFC")}"`).join(", ")} with the title of ${path}`);
       }
     }
   }

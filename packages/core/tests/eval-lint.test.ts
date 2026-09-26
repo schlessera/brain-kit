@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
+import { PARAPHRASE_CLASS, titleLeaks } from "../src/lib/retrieval-eval";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
@@ -62,4 +63,29 @@ test("a malformed line exits 2 naming the line, without an index", async () => {
   expect(code).toBe(2);
   expect(stderr).toContain("line 2");
   expect(existsSync(join(root, "brain.db"))).toBe(false);
+});
+
+test("a candidate valid on its own is refused when linted with the set it joins (the brain-eval skill's check)", async () => {
+  const candidate = { id: "q1", q: "where is the scope guide", class: "paraphrase", expected: [PATH] };
+  expect((await lint([candidate])).code).toBe(0);
+  const { code, stderr } = await lint([{ id: "q1", q: "fine", class: "keyword", expected: [PATH] }, candidate]);
+  expect(code).toBe(2);
+  expect(stderr).toContain("line 2");
+});
+
+// Accented words (#506 review): caseFold decomposes, so a word must keep its
+// combining marks to be compared whole. Escapes keep the decomposed form visible.
+const leaks = (q: string, title: string) =>
+  titleLeaks([{ id: "q1", q, class: PARAPHRASE_CLASS, expected: ["t.md"] }], () => title);
+
+test("an accented word shared with the title is reported whole, in either Unicode form", () => {
+  const precomposed = "résumé";
+  const decomposed = "résumé";
+  expect(leaks(`where is my ${precomposed}`, `RÉSUMÉ draft`)).toEqual([`q1: shares "${precomposed}" with the title of t.md`]);
+  expect(leaks(`where is my ${decomposed}`, `${precomposed} draft`)).toEqual([`q1: shares "${precomposed}" with the title of t.md`]);
+});
+
+test("an accent is part of the word: thé is not the stopword the", () => {
+  expect(leaks("a cup of thé", "Thé at noon")).toEqual(['q1: shares "thé" with the title of t.md']);
+  expect(leaks("a cup of thé", "The noon break")).toEqual([]);
 });
