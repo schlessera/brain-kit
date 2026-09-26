@@ -80,7 +80,9 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 `status`, `relevance`, `updated` (`YYYY-MM-DD`), `summary` (string or
 `null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0),
 `generatedFrom` (the document's `generated_from`, string or `null`; additive in
-0.38.0), plus ranking metadata. Treat unknown fields as additive; never rely on field order.
+0.38.0), `superseded_by` (present only on a document another one
+`supersedes`: that document's path; additive in 0.38.0), plus ranking
+metadata. Treat unknown fields as additive; never rely on field order.
 
 `ListedDocument` fields: `path`, `title`, `type`, `relevance`, `status` and
 `updated` (strings); `summary` (string or `null`); `deadline` (`YYYY-MM-DD`,
@@ -474,7 +476,7 @@ Tool names and input schemas are stable:
 
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
-| `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0 |
+| `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, superseded_by? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `superseded_by`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
 | `brain_context` | readOnly | `{ context, warnings }` |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
 | `brain_list` | readOnly | `{ documents, warnings }` |
@@ -683,7 +685,7 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **11**),
+- Check `index_metadata` first: `schema_version` (currently **12**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -699,7 +701,11 @@ Prefer the CLI/MCP. If reading directly:
   Schema 11 (0.38.0) adds only the nullable `documents.generated_from`
   column, so a reader that accepts 10 reads 11 unchanged. The migration also
   clears the markdown rows' `content_hash`, so the next index run re-reads
-  every file and fills it.
+  every file and fills it. Schema 12 (0.38.0) adds only the table
+  `supersedes` (source_id, target, target_id): a document's `supersedes`
+  targets as written, and the document each resolves to (`NULL` when none),
+  rebuilt by every index run like `links`. A reader that accepts 11 reads 12
+  unchanged. Its migration clears `content_hash` the same way.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
@@ -873,6 +879,14 @@ Rules a consumer may rely on:
   hand. `brain validate` reports any other value as an error. `brain audit`
   reports a `propagation` issue when it names a markdown document updated
   after this one. The heuristic reranker weights a generated document ×0.85.
+- Optional `supersedes` (additive in 0.38.0): on a newer document, the
+  document or documents it replaces, as a wiki-link target (`"[[plan]]"` or
+  `plan`) or an inline list of them, resolved like a body wiki-link, aliases
+  included. Search multiplies a superseded document's score by 0.85 after
+  fusion and reranking, in every mode and with `rerank: none`, and marks the
+  result with `superseded_by`; the document stays in the results. `brain
+  validate` reports a value of another shape, an unresolved target and a
+  cycle (a document superseding itself through a chain) as errors.
 - `brain archive` / `brain_archive` set `status: archived` and bump `updated`.
   Since 0.38.0 they also set `relevance: historical` when relevance is
   `primary` or missing, and leave an explicit `secondary` or `historical`

@@ -14,7 +14,7 @@ import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -339,6 +339,24 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
       db.run("ALTER TABLE documents ADD COLUMN generated_from TEXT");
       db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
     }
+
+    setSchemaVersion(db, 11);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v12 — `supersedes` frontmatter (#412): which documents a newer one
+    // replaces. Stored like `links`: the target as written, and the document
+    // it resolves to, re-resolved on every index run. Derived, never
+    // authoritative. Clearing the markdown rows' content hash has the next
+    // index run re-read every file, so the table is filled without `--force`.
+    db.run(`CREATE TABLE IF NOT EXISTS supersedes (
+      source_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      target TEXT NOT NULL,
+      target_id INTEGER,
+      PRIMARY KEY (source_id, target)
+    )`);
+    db.run("CREATE INDEX IF NOT EXISTS idx_supersedes_target_id ON supersedes(target_id)");
+    db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }

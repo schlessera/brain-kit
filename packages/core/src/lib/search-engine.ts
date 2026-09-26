@@ -6,6 +6,7 @@ import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { rerank, getDefaultRerankerMode } from "./reranker.js";
 import { ftsIsEnglish } from "./search-language.js";
+import { SUPERSEDED_FACTOR } from "./supersedes.js";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -648,11 +649,45 @@ export async function hybridSearch(
     }
     candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
   }
+  candidates = demoteSuperseded(db, candidates);
   if (opts.sort === "updated" || opts.sort === "deadline") {
     candidates = sortByDate(db, candidates, opts.sort);
   }
 
   return { results: candidates.slice(0, limit), warnings };
+}
+
+/**
+ * A document another one `supersedes` (#412) is demoted, not hidden: its score
+ * is multiplied by SUPERSEDED_FACTOR and it carries `superseded_by`, the path
+ * of the document that replaces it (the first by path when several do). It
+ * runs after fusion and reranking, in every mode and with `rerank: none`, so
+ * no mode ranks a replaced document on equal terms with its replacement. An
+ * index from before schema 12 has no `supersedes` table and is left as it is.
+ */
+function demoteSuperseded(db: Database, candidates: SearchResult[]): SearchResult[] {
+  if (candidates.length === 0) return candidates;
+  const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supersedes'").get() !== null;
+  if (!hasTable) return candidates;
+  const placeholders = candidates.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT old.path AS path, MIN(new.path) AS by
+       FROM supersedes s
+       JOIN documents old ON old.id = s.target_id
+       JOIN documents new ON new.id = s.source_id
+       WHERE old.path IN (${placeholders})
+       GROUP BY old.path`
+    )
+    .all(...candidates.map((r) => r.path)) as { path: string; by: string }[];
+  if (rows.length === 0) return candidates;
+  const supersededBy = new Map(rows.map((row) => [row.path, row.by]));
+  return candidates
+    .map((result) => {
+      const by = supersededBy.get(result.path);
+      return by ? { ...result, score: result.score * SUPERSEDED_FACTOR, superseded_by: by } : result;
+    })
+    .sort((a, b) => b.score - a.score);
 }
 
 /** How many query matches each lane retrieves before a date sort. */

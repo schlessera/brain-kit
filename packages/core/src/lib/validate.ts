@@ -21,6 +21,7 @@ import { resolve } from "path";
 import { VALID_STATUSES, VALID_RELEVANCES } from "./types.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { createWikiLinkResolver } from "./indexer/links.js";
+import { supersedesTargets } from "./supersedes.js";
 import {
   getMarkdownFiles,
   resolveAlias,
@@ -56,12 +57,15 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   const fileMap = new Map<string, string>();
   const aliasMap = new Map<string, string[]>();
   const basenameCounts = new Map<string, number>();
+  // `supersedes` values as written, checked once every file is known.
+  const supersedes = new Map<string, unknown>();
   for (const path of files) {
     fileMap.set(path, path);
     const basename = path.replace(/\.md$/, "").split("/").pop()!;
     basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
     try {
       const { data } = matter(readFileSync(resolve(root, path), "utf-8"));
+      if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
       if (Array.isArray(data.aliases)) {
         for (const alias of data.aliases) {
           const key = String(alias).toLowerCase().trim();
@@ -232,6 +236,69 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
     }
   }
 
+  issues.push(...validateSupersedes(supersedes, (target, from) => resolveLink(target, from) ?? resolveAlias(target, aliasMap, from)));
+  return issues;
+}
+
+/**
+ * `supersedes` (#412): each value must be a wiki-link target or a list of
+ * them, each target must resolve, and no document may end up superseding
+ * itself through a chain. All three are errors: a wrong entry silently
+ * demotes nothing, or the wrong document.
+ */
+function validateSupersedes(
+  values: Map<string, unknown>,
+  resolveTarget: (target: string, from: string) => string | null
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const edges = new Map<string, string[]>();
+  for (const [file, value] of values) {
+    const targets = supersedesTargets(value);
+    if (targets === null) {
+      issues.push({
+        file,
+        level: "error",
+        message: `Invalid supersedes: ${describeValue(value)}. It must be a wiki-link target, "[[target]]", or a list of them`,
+      });
+      continue;
+    }
+    const resolved: string[] = [];
+    for (const target of targets) {
+      const path = resolveTarget(target, file);
+      if (path) resolved.push(path);
+      else issues.push({ file, level: "error", message: `Unresolved supersedes target: [[${target}]]` });
+    }
+    edges.set(file, resolved);
+  }
+
+  // A cycle is reported once, on each document in it, naming the whole loop.
+  const reported = new Set<string>();
+  // Documents whose every chain ends without looping.
+  const acyclic = new Set<string>();
+  for (const start of edges.keys()) {
+    if (reported.has(start)) continue;
+    const path: string[] = [];
+    const walk = (node: string): string[] | null => {
+      if (acyclic.has(node)) return null;
+      const at = path.indexOf(node);
+      if (at !== -1) return path.slice(at);
+      path.push(node);
+      for (const next of edges.get(node) ?? []) {
+        const cycle = walk(next);
+        if (cycle) return cycle;
+      }
+      path.pop();
+      acyclic.add(node);
+      return null;
+    };
+    const cycle = walk(start);
+    if (!cycle || cycle.some((file) => reported.has(file))) continue;
+    const loop = [...cycle, cycle[0]].join(" → ");
+    for (const file of cycle) {
+      reported.add(file);
+      issues.push({ file, level: "error", message: `supersedes cycle: ${loop}` });
+    }
+  }
   return issues;
 }
 
