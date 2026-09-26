@@ -42,11 +42,12 @@ beforeAll(async () => {
     // upcoming, against a clock pinned to NOW (2026-07-01): deadlines
     // yesterday, today and tomorrow, and two later ones whose score order
     // (ember-late matches more strongly) is the reverse of their date order.
-    "notes/ember-yesterday.md": doc("Ember Y", "2020-05-01", "ember", "2026-06-30"),
-    "notes/ember-today.md": doc("Ember T", "2020-05-01", "ember", "2026-07-01"),
-    "notes/ember-tomorrow.md": doc("Ember M", "2020-05-01", "ember", "2026-07-02"),
-    "notes/ember-soon.md": doc("Ember S", "2020-05-01", "ember", "2026-08-01"),
-    "notes/ember-late.md": doc("Ember L", "2020-05-01", "ember ember ember ember ember", "2026-09-01"),
+    // Their titles leave "ember" out, so the score is the body's alone.
+    "notes/ember-yesterday.md": doc("Glow Y", "2020-05-01", "ember", "2026-06-30"),
+    "notes/ember-today.md": doc("Glow T", "2020-05-01", "ember", "2026-07-01"),
+    "notes/ember-tomorrow.md": doc("Glow M", "2020-05-01", "ember", "2026-07-02"),
+    "notes/ember-soon.md": doc("Glow S", "2020-05-01", "ember", "2026-08-01"),
+    "notes/ember-late.md": doc("Glow L", "2020-05-01", "ember ember ember ember ember", "2026-09-01"),
   });
   const list = createBrainTools({
     brain: createBrainAccess(brain.root),
