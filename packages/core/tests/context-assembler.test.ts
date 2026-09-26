@@ -18,7 +18,7 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 import { initContext, type BrainContext } from "../src/lib/context";
-import { assembleContext, estimateTokens } from "../src/lib/context-assembler";
+import { assembleContext, emptyAssembleReport, estimateTokens } from "../src/lib/context-assembler";
 import { openDatabase } from "../src/lib/db";
 import { hybridSearch } from "../src/lib/search-engine";
 import { indexAll } from "../src/lib/indexer";
@@ -105,6 +105,42 @@ describe("over fixtures/corpus", () => {
       "## Identity\nWho Alex Example is — a park ranger tracking health, woodworking, and astronomy\n\n(truncated — brain read me/identity.md)"
     )).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
+  });
+
+  // #518: identity and focus used to take as much as fitted before any hit,
+  // so a budget where the focus fits whole (550) held fewer hits than a
+  // smaller one where it was cut (500). Now they are placed in their minimal
+  // form, hits against the rest, and only what is left grows them.
+  test("a larger budget never drops a search hit, and every budget is kept", async () => {
+    const now = new Date("2026-07-12");
+    for (const query of ["ranger", "knee injury"]) {
+      let previous: string[] = [];
+      const dropped: string[] = [];
+      const over: number[] = [];
+      const missing: number[] = [];
+      for (let budget = 200; budget <= 2000; budget += 10) {
+        const report = emptyAssembleReport();
+        const out = await assembleContext(db, ctx, { query, maxTokens: budget, now, report });
+        for (const path of previous) if (!report.results.includes(path)) dropped.push(`${path} at ${budget}`);
+        if (estimateTokens(out) > budget) over.push(budget);
+        if (!report.identity || !report.focus) missing.push(budget);
+        previous = report.results;
+      }
+      // The sweep is not vacuous: hits arrive as the budget grows.
+      expect(previous.length).toBeGreaterThan(1);
+      expect({ query, dropped }).toEqual({ query, dropped: [] });
+      expect({ query, over }).toEqual({ query, over: [] });
+      expect({ query, missing }).toEqual({ query, missing: [] });
+    }
+  });
+
+  test("with room for them and every hit, identity and focus are whole again", async () => {
+    const report = emptyAssembleReport();
+    const out = await assembleContext(db, ctx, { query: "ranger", maxTokens: 2000, now: new Date("2026-07-12"), report });
+    // The premise: at 2000 tokens "ranger" gets all of its hits.
+    expect(report.results.length).toBe(4);
+    expect(out).not.toContain("(truncated — brain read");
+    expect(out).toContain("## How to Work With Alex");
   });
 });
 
@@ -315,6 +351,31 @@ describe("over a hand-built index", () => {
       writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\nIntro.\n\n` + "```\ncode\n\n" + `${LONG}\n` + "```\n");
       const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
       expect(out).toBe("## Identity\nIntro.\n\n(truncated — brain read me/identity.md)");
+    });
+
+    test("while the lead is cut no hit is placed, so none is dropped as the cut grows (#518)", async () => {
+      // Twelve short paragraphs: the cut keeps a few more with each larger
+      // budget, so the room it leaves behind rises and falls.
+      const paragraphs = Array.from({ length: 12 }, (_, i) => `Paragraph ${i}: ${"steady prose about the preserve ".repeat(6).trim()}.`);
+      mkdirSync(join(dir, "me"), { recursive: true });
+      writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\n---\n${paragraphs.join("\n\n")}\n`);
+      addDoc("notes/quiver.md", "Quiver", "quiver");
+      let previous: string[] = [];
+      const dropped: number[] = [];
+      const hitWhileCut: number[] = [];
+      let firstHit: number | null = null;
+      for (let budget = 60; budget <= 1200; budget += 5) {
+        const report = emptyAssembleReport();
+        const out = await assembleContext(db, ctx, { query: "quiver", maxTokens: budget, includeCurrentFocus: false, report });
+        if (previous.some((path) => !report.results.includes(path))) dropped.push(budget);
+        if (!out.includes(paragraphs[11]!) && report.results.length > 0) hitWhileCut.push(budget);
+        if (firstHit === null && report.results.length > 0) firstHit = budget;
+        previous = report.results;
+      }
+      // The premise: the hit does arrive once the whole lead fits.
+      expect(firstHit).not.toBeNull();
+      expect(dropped).toEqual([]);
+      expect(hitWhileCut).toEqual([]);
     });
   });
 

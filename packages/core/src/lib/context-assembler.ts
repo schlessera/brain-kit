@@ -155,6 +155,65 @@ function splitSections(body: string): { lead: string; sections: string[] } {
 }
 
 /**
+ * Identity or current focus (#381), read for placing: the summary leads,
+ * then the whole body when it fits. Otherwise the lead (the text before the
+ * first top-level `##` heading), then the `##` sections whole, in order, while
+ * they fit, then a pointer to the file. Only a lead that does not fit on its
+ * own is cut, after its last whole block that fits.
+ */
+interface Canonical {
+  slot: "identity" | "focus";
+  path: string;
+  heading: string;
+  /** The heading, summary and whole body. */
+  whole: string;
+  /** The summary and lead. */
+  hot: string;
+  sections: string[];
+  marker: string;
+}
+
+const CANONICAL_HEADINGS = { identity: "## Identity", focus: "## Current Focus" } as const;
+
+/** A canonical document, or null when its path is unset, the file is missing, or it has no text. */
+function loadCanonical(root: string, slot: Canonical["slot"], path: string | null): Canonical | null {
+  const doc = path ? readMarkdownContent(root, path) : null;
+  if (!path || !doc) return null;
+  const heading = CANONICAL_HEADINGS[slot];
+  // The summary leads whether or not the rest fits.
+  const text = [doc.summary, doc.body].filter((part) => !!part).join("\n\n");
+  if (!text) return null;
+  const { lead, sections } = splitSections(doc.body);
+  const hot = [doc.summary, lead].filter((part) => !!part).join("\n\n");
+  return { slot, path, heading, whole: `${heading}\n${text}`, hot, sections, marker: `(truncated — brain read ${path})` };
+}
+
+/** The most of a canonical document that fits `room` tokens, or null when not even its heading and pointer fit. */
+function canonicalForm(doc: Canonical, room: number): string | null {
+  if (estimateTokens(doc.whole) <= room) return doc.whole;
+  const { heading, hot, marker } = doc;
+  const fits = (blocks: string[]) => estimateTokens(`${heading}\n${[...blocks, marker].join("\n\n")}`) <= room;
+  // Only a lead that overflows on its own is cut at a block boundary.
+  if (hot && !fits([hot])) return truncateAtBoundary(heading, hot, marker, room);
+  const kept = hot ? [hot] : [];
+  for (const section of doc.sections) {
+    if (!fits([...kept, section])) break;
+    kept.push(section);
+  }
+  return fits(kept) ? `${heading}\n${[...kept, marker].join("\n\n")}` : null;
+}
+
+/**
+ * A canonical document's minimal form (#518): the summary and lead with the
+ * pointer, or the whole document when that is shorter. It does not depend on
+ * the budget, so what it leaves for search hits grows with the budget.
+ */
+function minimalForm(doc: Canonical): string {
+  const lead = `${doc.heading}\n${[...(doc.hot ? [doc.hot] : []), doc.marker].join("\n\n")}`;
+  return estimateTokens(doc.whole) <= estimateTokens(lead) ? doc.whole : lead;
+}
+
+/**
  * Assemble context for agent consumption by combining identity, current focus,
  * and search results within a token budget.
  *
@@ -183,60 +242,50 @@ export async function assembleContext(
     return true;
   };
 
-  // Identity and focus (#381): the `summary` first, then the whole body when
-  // it fits. Otherwise the lead (the text before the first top-level `##`
-  // heading), then the `##` sections whole, in order, while they fit, then a
-  // pointer to the file. Only a lead that does not fit on its own is cut, after
-  // its last whole block that fits. A small budget is never exceeded before
-  // search results are considered.
-  const pushCanonical = (heading: string, path: string | null): boolean => {
-    const doc = path ? readMarkdownContent(ctx.root, path) : null;
-    if (!path || !doc) return false;
-    // The summary leads whether or not the rest fits.
-    const whole = [doc.summary, doc.body].filter((part) => !!part).join("\n\n");
-    if (!whole) return false;
-    if (push(`${heading}\n${whole}`)) {
-      included.add(path);
-      return true;
-    }
-    const marker = `(truncated — brain read ${path})`;
-    const room = budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0);
-    const { lead, sections } = splitSections(doc.body);
-    const hot = [doc.summary, lead].filter((part) => !!part).join("\n\n");
-    const fits = (blocks: string[]) => estimateTokens(`${heading}\n${[...blocks, marker].join("\n\n")}`) <= room;
-    // Only a lead that overflows on its own is cut at a block boundary.
-    if (hot && !fits([hot])) {
-      const cut = truncateAtBoundary(heading, hot, marker, room);
-      if (cut && push(cut)) {
-        included.add(path);
-        return true;
-      }
-      return false;
-    }
-    const kept = hot ? [hot] : [];
-    for (const section of sections) {
-      if (!fits([...kept, section])) break;
-      kept.push(section);
-    }
-    if (push(`${heading}\n${[...kept, marker].join("\n\n")}`)) {
-      included.add(path);
-      return true;
-    }
-    return false;
-  };
+  const canonicals = [
+    opts.includeIdentity !== false ? loadCanonical(ctx.root, "identity", ctx.taxonomy.canonicalPath("identity")) : null,
+    opts.includeCurrentFocus !== false ? loadCanonical(ctx.root, "focus", ctx.taxonomy.canonicalPath("currentFocus")) : null,
+  ].filter((doc): doc is Canonical => doc !== null);
 
-  if (opts.includeIdentity !== false) {
-    const path = ctx.taxonomy.canonicalPath("identity");
-    if (pushCanonical("## Identity", path) && opts.report) opts.report.identity = path;
+  // Monotone in the budget (#518): search hits are placed against what is
+  // left after each canonical document's minimal form, and only the budget
+  // left after the hits grows those documents towards their whole body. When
+  // the minimal forms do not all fit, the canonical documents fill the budget
+  // on their own, as much of each as fits, and no hit is placed: a hit placed
+  // then would be pushed out again as a cut lead grows with the budget.
+  const minimal = canonicals.map(minimalForm);
+  const minimalFits = minimal.reduce((sum, form, i) => sum + estimateTokens(i > 0 ? SEPARATOR + form : form), 0) <= maxTokens;
+  const placed: Array<{ doc: Canonical; index: number }> = [];
+  for (const [i, doc] of canonicals.entries()) {
+    const form = minimalFits ? minimal[i]! : canonicalForm(doc, budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0));
+    if (form !== null && push(form)) {
+      included.add(doc.path);
+      placed.push({ doc, index: parts.length - 1 });
+      if (opts.report) opts.report[doc.slot] = doc.path;
+    }
   }
-  if (opts.includeCurrentFocus !== false) {
-    const path = ctx.taxonomy.canonicalPath("currentFocus");
-    if (pushCanonical("## Current Focus", path) && opts.report) opts.report.focus = path;
-  }
+
+  // Leftover budget after the hits grows each canonical document, identity
+  // first, from its minimal form towards its whole body. It runs once, before
+  // the related lines take what is left.
+  let grown = false;
+  const growCanonicals = () => {
+    if (grown) return;
+    grown = true;
+    for (const { doc, index } of placed) {
+      const cost = (text: string) => estimateTokens(index > 0 ? SEPARATOR + text : text);
+      const current = parts[index]!;
+      const room = budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0);
+      const form = canonicalForm(doc, room);
+      if (form === null || form === current || cost(form) > budget + cost(current)) continue;
+      budget -= cost(form) - cost(current);
+      parts[index] = form;
+    }
+  };
 
   // Search results: a pool sized to the budget, filled greedily — a hit that
   // does not fit is skipped and the next one tried.
-  if (opts.query && budget > BUDGET_FLOOR) {
+  if (opts.query && minimalFits && budget > BUDGET_FLOOR) {
     const { results, warnings } = await hybridSearch(
       db,
       { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now },
@@ -257,6 +306,8 @@ export async function assembleContext(
       }
     }
 
+    growCanonicals();
+
     // Leftover budget goes to the top hits' neighbours: summary lines only,
     // under their own heading so they read as related, not as search hits.
     // Lines are added while the section still fits, so it stops on its own.
@@ -275,6 +326,8 @@ export async function assembleContext(
       }
     }
   }
+
+  growCanonicals();
 
   return parts.join(SEPARATOR);
 }
