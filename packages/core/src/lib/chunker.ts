@@ -139,9 +139,12 @@ interface LineUnit {
  * The units are the block's lines, except that the lines of
  * a code block (at any depth, a fence inside a list item included) stay
  * together as one unit. With `tables`, a table inside the block (in a list
- * item, a blockquote) keeps its header and separator lines together, and each
- * of its data rows carries those two lines, with the prefix its own line has
- * (`> `, the list indentation, never a list marker), to lead a piece it opens.
+ * item, a blockquote) keeps its header and separator lines together, data
+ * rows or not, and each of its data rows carries those two lines, with the
+ * prefix its own line has (`> `, the list indentation, never a list marker),
+ * to lead a piece it opens. The size exception is the top level's: a header
+ * and separator that pass the limit together while the header line alone
+ * does not are not kept together, and not repeated.
  */
 function lineUnits(block: string, node: MdNode, base: number, tables = false): LineUnit[] {
   const lines = block.split("\n");
@@ -170,10 +173,18 @@ function lineUnits(block: string, node: MdNode, base: number, tables = false): L
   }
   for (const table of tables ? nestedTables(node, []) : []) {
     const rows = table.children ?? [];
-    if (rows.length < 2) continue;
+    if (rows.length === 0) continue;
     const headerLine = lineAt(startOf(rows[0]) - base);
-    const firstRow = lineAt(startOf(rows[1]) - base);
-    joinTo[headerLine] = Math.max(joinTo[headerLine], firstRow - 1);
+    // The separator's last line: before the first data row, or the table's last line when it has none.
+    const separatorEnd = rows.length > 1 ? lineAt(startOf(rows[1]) - base) - 1 : lineAt(endOf(table) - base - 1);
+    // As at the top level, the header and separator pass the limit together
+    // only when the header line alone does; otherwise the table is cut at
+    // lines like any text.
+    const headerRows = lines.slice(headerLine, separatorEnd + 1).join("\n");
+    if (estimateTokens(headerRows) > MAX_TOKENS && estimateTokens(lines[headerLine]) <= MAX_TOKENS) continue;
+    joinTo[headerLine] = Math.max(joinTo[headerLine], separatorEnd);
+    if (rows.length < 2) continue;
+    const firstRow = separatorEnd + 1;
     const prefix = lines[firstRow].slice(0, startOf(rows[1]) - base - starts[firstRow]);
     const header = [
       prefix + lines[headerLine].slice(startOf(rows[0]) - base - starts[headerLine]),
@@ -264,7 +275,15 @@ function splitLines(block: string, node: MdNode, base: number, tables = false): 
       pieces.push(current.join("\n"));
       current = [];
     }
-    if (current.length === 0 && unit.header && fits([unit.header, unit.text])) current.push(unit.header);
+    if (current.length === 0 && unit.header) {
+      // A row too wide to share a piece with the header goes out alone, and
+      // the next row opens a piece of its own, led by the header again.
+      if (!fits([unit.header, unit.text])) {
+        pieces.push(unit.text);
+        continue;
+      }
+      current.push(unit.header);
+    }
     current.push(unit.text);
   }
   if (current.length > 0) pieces.push(current.join("\n"));

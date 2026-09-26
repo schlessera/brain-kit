@@ -411,12 +411,41 @@ describe("a table nested in a list or blockquote (#497)", () => {
   });
 
   test("a cut never falls between the header row and the separator", () => {
-    // Pad the list item so a cut lands on the table's header rows.
+    // Pad the quote so a cut lands on the table's header rows.
     for (let pad = 3700; pad < 4000; pad += 7) {
       const content = `## Registry\n\n> ${"w".repeat(pad)}\n>\n${nested("> ")}`;
       for (const chunk of chunkDocument({ title: "T", documentId: 1, content })) {
         expect(chunk.content.split("\n")[0]).not.toBe(`> ${separator}`);
       }
     }
+  });
+
+  test("nor in a table with no data rows", () => {
+    let cutNearby = false;
+    for (let pad = 3900; pad < 4000; pad += 2) {
+      const content = `## Registry\n\n> ${"w".repeat(pad)}\n>\n> ${header}\n> ${separator}`;
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      cutNearby ||= chunks.length > 1;
+      for (const chunk of chunks) expect(chunk.content.split("\n")[0]).not.toBe(`> ${separator}`);
+    }
+    // The padding really does push a cut onto the table.
+    expect(cutNearby).toBe(true);
+  });
+
+  test("a wide header whose separator tips it over is cut at lines, in a quote or a list", () => {
+    const wide = `| ${"h".repeat(3990)} |`;
+    for (const [lead, prefix] of [["", "> "], ["- Stations:\n\n", "  "]]) {
+      const content = `## Registry\n\n${lead}${[wide, "| ----------- |", "| row |"].map((line) => prefix + line).join("\n")}`;
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      expect({ prefix, over: chunks.map((c) => c.token_estimate).filter((t) => t > MAX_TOKENS) }).toEqual({ prefix, over: [] });
+    }
+  });
+
+  test("the rows after a row too wide for the header are led by the header again", () => {
+    const wideHeader = `| ${"h".repeat(3000)} |`;
+    const lines = [wideHeader, "| --- |", `| ${"r".repeat(1500)} |`, "| short |"].map((line) => `> ${line}`);
+    const chunks = chunkDocument({ title: "T", documentId: 1, content: `## Registry\n\n${lines.join("\n")}` });
+    const holding = chunks.find((c) => c.content.includes("| short |"))!;
+    expect(holding.content.split("\n")).toEqual([`> ${wideHeader}`, "> | --- |", "> | short |"]);
   });
 });
