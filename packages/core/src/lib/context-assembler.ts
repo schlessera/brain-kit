@@ -304,26 +304,38 @@ export async function assembleContext(
     opts.warnings?.push(...warnings);
 
     const hits: string[] = [];
-    // One hit's section may take this much of the budget, so a long section
-    // cannot crowd out every other hit.
+    // One hit may take this much of the budget, as a snippet or a section, so
+    // a long section cannot crowd out every other hit.
     const hitCap = Math.floor(maxTokens * SECTION_BUDGET_SHARE);
+    // Monotone in the budget, as the canonical documents are (#518): every
+    // hit is first placed as its one-line snippet, whose size does not depend
+    // on the budget, and only the budget left after all of them grows each
+    // one, in rank order, into its best chunk's section. A hit whose section
+    // would fit a larger budget therefore never pushes out a later hit.
+    const placedHits: Array<{ result: SearchResult; index: number }> = [];
     for (const result of results) {
       if (budget < BUDGET_FLOOR) break;
       if (included.has(result.path)) continue;
-      // The best-matching chunk's whole section when it fits (within the cap,
-      // cut at a block boundary if it is longer), else the one-line snippet.
-      // The cap holds for both.
-      const best = result.chunks?.[0];
-      const room = Math.min(hitCap, budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0));
       const body = cleanSnippet(result.snippet ?? "");
-      const forms = [best ? hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), ctx.root, room) : null, body ? `${hitHeader(result)}\n${body}` : hitHeader(result)].filter(
-        (form): form is string => form !== null && estimateTokens(form) <= hitCap
-      );
-      if (forms.some((form) => push(form))) {
+      const snippet = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
+      if (estimateTokens(snippet) <= hitCap && push(snippet)) {
         included.add(result.path);
         hits.push(result.path);
+        placedHits.push({ result, index: parts.length - 1 });
         opts.report?.results.push(result.path);
       }
+    }
+    for (const { result, index } of placedHits) {
+      const best = result.chunks?.[0];
+      if (!best) continue;
+      const cost = (text: string) => estimateTokens(index > 0 ? SEPARATOR + text : text);
+      const current = parts[index]!;
+      // Within the cap and what is left, with this hit's snippet given back.
+      const room = Math.min(hitCap, budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0));
+      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), ctx.root, room);
+      if (section === null || cost(section) - cost(current) > budget) continue;
+      budget -= cost(section) - cost(current);
+      parts[index] = section;
     }
 
     growCanonicals();
