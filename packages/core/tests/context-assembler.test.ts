@@ -181,23 +181,28 @@ describe("neighbours over fixtures/corpus", () => {
     expect(out).toContain(`### Related\n${INDEX_LINE}`);
   });
 
+  // A hit's form depends on the budget since #373 (its section, capped at
+  // 40% of the budget, or its snippet), so these walk the budget up rather
+  // than derive a smaller one from a larger run.
+  async function firstBudget(from: number, until: (out: string) => boolean): Promise<{ budget: number; out: string }> {
+    for (let budget = from; budget < 2000; budget++) {
+      const out = await assemble(budget);
+      if (until(out)) return { budget, out };
+    }
+    throw new Error("no budget up to 2000 satisfied the condition");
+  }
+
   test("when the search hit uses up the budget, no neighbour is added", async () => {
-    const full = await assemble(4000);
-    const hitSection = full.split("\n\n### Related")[0]!;
-    // Room for the hit and less than the floor besides.
-    const out = await assemble(estimateTokens(hitSection) + 5);
-    expect(out).toBe(hitSection);
+    // The smallest budget the hit fits in leaves less than the floor.
+    const { out } = await firstBudget(1, (o) => o.includes(`(${PLAN})`));
+    expect(out.startsWith("### ")).toBe(true);
     expect(out).not.toContain("### Related");
   });
 
   test("a budget with room for one related line gets exactly that line", async () => {
-    const full = await assemble(4000);
-    const hitSection = full.split("\n\n### Related")[0]!;
-    const related = `\n\n### Related\n${INDEX_LINE}`;
-    const oneLine = `${hitSection}${related}`;
-    // The budget is charged per section, each rounded up on its own, so the
-    // room this needs is the two sections' costs, not the joined text's.
-    expect(await assemble(estimateTokens(hitSection) + estimateTokens(related))).toBe(oneLine);
+    const { out } = await firstBudget(1, (o) => o.includes("### Related"));
+    expect(out).toContain(`(${PLAN})`);
+    expect(out.split("\n### Related\n")[1]).toBe(INDEX_LINE);
   });
 
   test("an archived neighbour is never offered", async () => {
@@ -594,5 +599,120 @@ describe("over a hand-built index", () => {
       const out = await identity(doc(`${history}\n\n## Later\n\n${LONG}`), 100);
       expect(out).toBe(`## Identity\n${MARKER}`);
     });
+  });
+});
+
+// #373: a hit is its best-matching chunk's section, not its opening.
+describe("sections from chunks", () => {
+  const para = (topic: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `${topic} paragraph ${i + 1} fills out the section with plain field notes.`).join("\n\n");
+  // Three sections, each well over the chunker's 100-token floor, so each is
+  // its own chunk. The query word is only in the third.
+  const FIELD_GUIDE =
+    "---\ntype: study\ntitle: Ranger Field Guide\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n" +
+    "Opening line of the field guide.\n\n" +
+    `## Trail markers\n\n${para("Marker", 8)}\n\n` +
+    `## Water crossings\n\n${para("Crossing", 8)}\n\n` +
+    `## Lichen survey\n\nThe lichen survey runs every spring on the north loop.\n\n${para("Survey", 8)}\n\n### Quadrats\n\n` +
+    "The last line of the lichen section names the quadrat grid.\n";
+
+  async function brainWith(files: Record<string, string>) {
+    const root = mkdtempSync(join(tmpdir(), "brain-context-sections-"));
+    temps.push(root);
+    cpSync(join(CORE_ROOT, "fixtures/corpus"), root, { recursive: true });
+    symlinkSync(resolve(CORE_ROOT, "../../node_modules"), join(root, "node_modules"));
+    for (const [rel, text] of Object.entries(files)) {
+      mkdirSync(join(root, rel, ".."), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    }
+    const ctx = await initContext({ root });
+    const db = openDatabase(ctx.dbPath);
+    await indexAll(db, { root, taxonomy: ctx.taxonomy, quiet: true });
+    return { ctx, db };
+  }
+
+  test("a query answered in a later section brings that section, not the document's opening", async () => {
+    const { ctx, db } = await brainWith({ "studies/field-guide.md": FIELD_GUIDE });
+    try {
+      // The premise: the guide is three chunks, the lichen one last.
+      const chunks = db
+        .prepare("SELECT heading FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+        .all("studies/field-guide.md") as { heading: string }[];
+      expect(chunks.map((c) => c.heading)).toEqual(["Trail markers", "Water crossings", "Lichen survey"]);
+      const out = await assembleContext(db, ctx, { query: "lichen", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+      expect(out).toContain("#### Lichen survey");
+      // A line of the section with no query word in it: only the whole section carries it.
+      expect(out).toContain("Survey paragraph 8 fills out the section with plain field notes.");
+      expect(out).not.toContain("Opening line of the field guide.");
+      expect(out).not.toContain("Marker paragraph 1");
+      // The section's own heading sits below the hit's, never at the output's levels.
+      expect(out).toMatch(/^#{5,6} Quadrats$/m);
+      expect(out).not.toMatch(/^#{1,4} Quadrats$/m);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a section split over several chunks comes back whole, in order", async () => {
+    const long = `## Lichen survey\n\n${para("Survey lichen", 120)}\n`;
+    const { ctx, db } = await brainWith({
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${long}`,
+    });
+    try {
+      // The premise: the one section is more than one chunk, the later ones
+      // named as its continuation.
+      const headings = db
+        .prepare("SELECT heading FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+        .all("studies/lichen-atlas.md") as { heading: string }[];
+      expect(headings.length).toBeGreaterThan(1);
+      expect(headings.map((h) => h.heading.replace(/ \(cont\.\)$/, ""))).toEqual(headings.map(() => "Lichen survey"));
+      const out = await assembleContext(db, ctx, { query: "lichen", maxTokens: 20000, includeIdentity: false, includeCurrentFocus: false });
+      const first = out.indexOf("Survey lichen paragraph 1 fills");
+      const last = out.indexOf("Survey lichen paragraph 120 fills");
+      expect(first).toBeGreaterThan(-1);
+      expect(last).toBeGreaterThan(first);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a section split at its ### subsections gets their headings back", async () => {
+    const long = `## Lichen survey\n\n### North loop\n\n${para("North lichen", 70)}\n\n### South loop\n\n${para("South lichen", 70)}\n`;
+    const { ctx, db } = await brainWith({
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${long}`,
+    });
+    try {
+      // The premise: the chunker split the section at its subsections.
+      const headings = (db
+        .prepare("SELECT heading FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+        .all("studies/lichen-atlas.md") as { heading: string }[]).map((h) => h.heading.replace(/ \(cont\.\)$/, ""));
+      expect(headings).toContain("Lichen survey › North loop");
+      expect(headings).toContain("Lichen survey › South loop");
+      const out = await assembleContext(db, ctx, { query: "lichen", maxTokens: 20000, includeIdentity: false, includeCurrentFocus: false });
+      const north = out.search(/^#{5,6} North loop$/m);
+      const south = out.search(/^#{5,6} South loop$/m);
+      expect(north).toBeGreaterThan(-1);
+      expect(south).toBeGreaterThan(north);
+      expect(out.indexOf("South lichen paragraph 1 fills")).toBeGreaterThan(south);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("one hit's section never takes more than 40% of the budget", async () => {
+    const huge = `## Lichen survey\n\n${para("Survey lichen", 200)}\n`;
+    const { ctx, db } = await brainWith({
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${huge}`,
+    });
+    try {
+      const budget = 2000;
+      const out = await assembleContext(db, ctx, { query: "lichen", maxTokens: budget, includeIdentity: false, includeCurrentFocus: false });
+      const hit = out.split("\n\n### ").find((part) => part.includes("(studies/lichen-atlas.md)"))!;
+      expect(hit).toBeDefined();
+      expect(hit).toContain("(truncated — brain read studies/lichen-atlas.md)");
+      expect(estimateTokens(`### ${hit.replace(/^### /, "")}`)).toBeLessThanOrEqual(budget * 0.4);
+    } finally {
+      db.close();
+    }
   });
 });

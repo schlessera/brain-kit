@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 
-import { SEARCH_SORTS, type SearchResult, type SearchOptions } from "./types.js";
+import { SEARCH_SORTS, type ChunkMatch, type SearchResult, type SearchOptions } from "./types.js";
 import type { EmbeddingProvider } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
@@ -886,7 +886,65 @@ export async function hybridSearch(
     candidates = sortByDate(db, candidates, opts.sort);
   }
 
-  return { results: candidates.slice(0, limit), warnings };
+  const results = candidates.slice(0, limit);
+  return { results: opts.chunks ? withChunks(db, results, query) : results, warnings };
+}
+
+/** Words too common to tell one chunk from another. */
+const STOP_WORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "do", "does", "for", "from", "has", "have", "how", "i",
+  "in", "is", "it", "its", "my", "of", "on", "or", "that", "the", "this", "to", "was", "what", "when",
+  "where", "which", "who", "why", "with", "you", "your",
+]);
+
+/**
+ * A word as chunk matching compares it: lowercase, with a plain English
+ * plural or verb ending dropped, so `trails` meets `trail` the way the porter
+ * tokenizer behind the full-text lane lets it.
+ */
+function stem(word: string): string {
+  const w = word.toLowerCase();
+  if (w.length > 5 && w.endsWith("ies")) return `${w.slice(0, -3)}y`;
+  for (const suffix of ["ing", "ed", "es", "s"]) {
+    if (w.length - suffix.length >= 3 && w.endsWith(suffix)) return w.slice(0, -suffix.length);
+  }
+  return w;
+}
+
+function words(text: string): string[] {
+  return text.match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * Each result with its chunks that contain a query term, best first: the
+ * most distinct query terms, then the most occurrences, then document order.
+ * Stop words and one-letter terms do not count. A result none of whose chunks
+ * contains a term (a vector-only match) gets an empty list.
+ */
+function withChunks(db: Database, results: SearchResult[], query: string): SearchResult[] {
+  const terms = new Set(words(query).filter((w) => w.length > 1 && !STOP_WORDS.has(w.toLowerCase())).map(stem));
+  const chunksOf = db.prepare(
+    `SELECT c.chunk_index, c.heading, c.content FROM chunks c
+     JOIN documents d ON d.id = c.document_id
+     WHERE d.path = ? ORDER BY c.chunk_index`
+  );
+  return results.map((result) => {
+    const scored: ChunkMatch[] = [];
+    for (const row of chunksOf.all(result.path) as { chunk_index: number; heading: string; content: string }[]) {
+      const counts = new Map<string, number>();
+      for (const w of words(`${row.heading} ${row.content}`)) {
+        const s = stem(w);
+        if (terms.has(s)) counts.set(s, (counts.get(s) ?? 0) + 1);
+      }
+      if (counts.size === 0) continue;
+      const occurrences = [...counts.values()].reduce((a, b) => a + b, 0);
+      // Distinct terms dominate; occurrences break ties within them.
+      const score = counts.size + occurrences / (occurrences + 1);
+      scored.push({ path: result.path, chunk_index: row.chunk_index, heading: row.heading, content: row.content, score });
+    }
+    scored.sort((a, b) => b.score - a.score || a.chunk_index - b.chunk_index);
+    return { ...result, chunks: scored };
+  });
 }
 
 /**

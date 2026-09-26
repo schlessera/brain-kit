@@ -62,8 +62,14 @@ export interface SearchResult {
 }
 
 export interface ChunkMatch {
+  /** The document the chunk belongs to (the result's own path). */
+  path: string;
+  /** The chunk's position in its document, from 0. */
+  chunk_index: number;
+  /** The heading of the section the chunk comes from; `(intro)` before the first. */
   heading: string;
   content: string;
+  /** How well the chunk matches the query: distinct query terms it contains, then how often. */
   score: number;
 }
 
@@ -90,6 +96,9 @@ export interface SearchOptions {
   /** Result order: retrieval score (default), newest `updated` first, or
    * earliest `deadline` first with undated documents last. */
   sort?: SearchSort;
+  /** Fill each result's `chunks` with its chunks that match the query, best
+   * first. Off by default; a query-less (filter) search has none to match. */
+  chunks?: boolean;
 }
 
 export const SEARCH_SORTS = ["score", "updated", "deadline"] as const;

@@ -6,8 +6,9 @@ import matter from "gray-matter";
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";
 import { topLevelBlocks } from "./document-parts.js";
+import { codeRanges, inRanges } from "./markdown-code.js";
 import { hybridSearch } from "./search-engine.js";
-import type { SearchResult } from "./types.js";
+import type { ChunkMatch, SearchResult } from "./types.js";
 
 export interface AssembleOptions {
   query: string;
@@ -298,18 +299,32 @@ export async function assembleContext(
   if (opts.query && minimalFits && budget > BUDGET_FLOOR) {
     const { results, warnings } = await hybridSearch(
       db,
-      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now },
+      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now, chunks: true },
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
     );
     opts.warnings?.push(...warnings);
 
     const hits: string[] = [];
+    // One hit's section may take this much of the budget, so a long section
+    // cannot crowd out every other hit.
+    const sectionCap = Math.floor(maxTokens * SECTION_BUDGET_SHARE);
+    const chunksOf = db.prepare(
+      `SELECT c.chunk_index, c.heading, c.content FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE d.path = ? ORDER BY c.chunk_index`
+    );
     for (const result of results) {
       if (budget < BUDGET_FLOOR) break;
       if (included.has(result.path)) continue;
       const body = cleanSnippet(result.snippet ?? "");
-      const section = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
-      if (push(section)) {
+      const snippetForm = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
+      // The best-matching chunk's whole section when it fits (within the cap,
+      // cut at a block boundary if it is longer), else the one-line snippet.
+      const best = result.chunks?.[0];
+      const sectionForm = best
+        ? hitSection(result, best, chunksOf.all(result.path) as SectionChunk[], Math.min(sectionCap, budget - (parts.length > 0 ? estimateTokens(SEPARATOR) : 0)))
+        : null;
+      if ((sectionForm !== null && push(sectionForm)) || push(snippetForm)) {
         included.add(result.path);
         hits.push(result.path);
         opts.report?.results.push(result.path);
@@ -340,6 +355,80 @@ export async function assembleContext(
   growCanonicals();
 
   return parts.join(SEPARATOR);
+}
+
+/** The largest share of the budget one hit's section may take. */
+const SECTION_BUDGET_SHARE = 0.4;
+
+interface SectionChunk {
+  chunk_index: number;
+  heading: string;
+  content: string;
+}
+
+/**
+ * Headings inside a section, moved below the `####` that names it, so the
+ * section cannot open a heading at the output's own `##`/`###` levels. Code
+ * is left as it is.
+ */
+function demoteHeadings(text: string): string {
+  const code = codeRanges(text);
+  let offset = 0;
+  return text
+    .split("\n")
+    .map((line) => {
+      const at = offset;
+      offset += line.length + 1;
+      if (inRanges(code, at)) return line;
+      return line.replace(/^( {0,3})(#{1,6})(?=[ \t]|$)/, (_, indent: string, hashes: string) =>
+        `${indent}${"#".repeat(Math.min(6, Math.max(5, hashes.length + 3)))}`
+      );
+    })
+    .join("\n");
+}
+
+/** The `##` section a chunk heading belongs to: `Section`, `Section (cont.)`, `Section › Sub`… all name `Section`. */
+function sectionName(heading: string): string {
+  return heading.replace(/ \(cont\.\)$/, "").split(" › ")[0]!;
+}
+
+/** The `###` subsection a chunk heading names, if any. */
+function subsectionName(heading: string): string | null {
+  const parts = heading.replace(/ \(cont\.\)$/, "").split(" › ");
+  return parts.length > 1 ? parts[parts.length - 1]! : null;
+}
+
+/**
+ * A hit as its best chunk's section: the chunks of the document under the
+ * best chunk's `##` section (the chunker names the pieces of one section
+ * `Section`, `Section (cont.)` and `Section › Sub`), contiguous around it, in
+ * `chunk_index` order, with each `###` subsection's heading put back where
+ * its chunks start. It comes under the hit's header and a `####` naming the
+ * section. Longer than `cap` tokens, it is cut after its last whole block that
+ * fits, with a pointer to the file; null when not even the header fits.
+ */
+function hitSection(result: SearchResult, best: ChunkMatch, all: SectionChunk[], cap: number): string | null {
+  const at = all.findIndex((c) => c.chunk_index === best.chunk_index);
+  if (at === -1) return null;
+  const name = sectionName(best.heading);
+  let first = at;
+  let last = at;
+  while (first > 0 && sectionName(all[first - 1].heading) === name) first--;
+  while (last + 1 < all.length && sectionName(all[last + 1].heading) === name) last++;
+  const pieces: string[] = [];
+  let sub: string | null = null;
+  for (const chunk of all.slice(first, last + 1)) {
+    const next = subsectionName(chunk.heading);
+    if (next !== null && next !== sub) pieces.push(`### ${next}`);
+    sub = next;
+    pieces.push(chunk.content.trim());
+  }
+  const text = demoteHeadings(pieces.join("\n\n"));
+  const named = name && name !== "(intro)" ? `\n#### ${oneLine(name)}` : "";
+  const head = `${hitHeader(result)}${named}`;
+  const whole = `${head}\n${text}`;
+  if (estimateTokens(whole) <= cap) return whole;
+  return truncateAtBoundary(head, text, `(truncated — brain read ${result.path})`, cap);
 }
 
 interface NeighbourDoc {

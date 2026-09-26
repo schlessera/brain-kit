@@ -37,7 +37,7 @@ export type Flags = Record<string, string | boolean>;
  */
 export const BOOLEAN_FLAGS = new Set([
   "json", "human", "help",
-  "include-archived", "assets-only",
+  "include-archived", "assets-only", "chunks",
   "smart",
   "incremental", "embeddings", "force", "quiet", "compact", "on-commit",
   "fix",
