@@ -20,6 +20,8 @@ if (!process.env[CHILD_MARKER]) {
       proc.exited,
     ]);
     if (exitCode !== 0) throw new Error(`Isolated media fallback tests failed (${exitCode})\n${stdout}${stderr}`);
+    // A child that registered no tests also exits 0.
+    expect(`${stdout}${stderr}`).toMatch(/\b2 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");

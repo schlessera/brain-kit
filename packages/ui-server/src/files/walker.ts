@@ -240,6 +240,10 @@ const KNOWN_TEXT_EXT = new Set([
   ".gitignore", ".gitattributes", ".editorconfig", ".prettierrc",
   ".dockerfile", ".lock",
 ]);
+// Binary by definition, whatever their first bytes look like. A PDF written
+// uncompressed is plain ASCII, and sniffing it as text would show its source
+// instead of its pages.
+const KNOWN_BINARY_EXT = new Set([".pdf", ".mp3", ".wav", ".mp4", ".webm"]);
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -252,6 +256,7 @@ export function classifyKind(name: string, bytes?: Buffer): FileContentKind {
   if (MARKDOWN_EXT.has(ext)) return "markdown";
   if (HTML_EXT.has(ext)) return "html";
   if (KNOWN_TEXT_EXT.has(ext)) return "text";
+  if (KNOWN_BINARY_EXT.has(ext)) return "binary";
   // Bare names like "Dockerfile", "Makefile", "LICENSE", "README"
   const base = name.toLowerCase();
   if (["dockerfile", "makefile", "license", "licence", "readme", "changelog", "authors", "contributors", "notice"].includes(base)) {

@@ -1,14 +1,13 @@
 // Where pdf.js parses (#529): in the shell's worker when `pdfWorkerUrl` starts
 // one, on the main thread in every other case. pdf.js and the Worker are
-// stood in for here; pdf-main-thread.test.ts opens a real document through
-// the real library.
+// stood in for here; pdf-real-library.test.ts runs the real library.
 import { describe, expect, test } from "bun:test";
 
-import { createPdfLoader, type PdfDocument, type PdfjsModule } from "../src/lib/pdf.js";
+import { createPdfLoader, type PdfDocument, type PdfjsModule, type PdfjsWorker } from "../src/lib/pdf.js";
 
 type Behaviour = "ready" | "error" | "silent" | "other-message";
 
-/** A Worker that reports ready, fails to load, or says nothing, the way a browser dispatches it. */
+/** A Worker that reports ready, fails to load, or says something else, the way a browser dispatches it. */
 class FakeWorker extends EventTarget {
   terminated = false;
   constructor(readonly url: string, behaviour: Behaviour) {
@@ -28,41 +27,59 @@ class FakeWorker extends EventTarget {
   }
 }
 
-interface Harness {
-  loader: ReturnType<typeof createPdfLoader>;
-  pdfjs: PdfjsModule & { opened: string[]; portAtOpen: (Worker | null)[] };
-  workers: FakeWorker[];
-  mainThreadLoads: () => number;
+/** pdf.js's worker wrapper: which port it drives, and whether it was destroyed. */
+class FakePdfWorker implements PdfjsWorker {
+  destroyed = false;
+  constructor(readonly port: FakeWorker | null) {}
+  destroy() {
+    this.destroyed = true;
+  }
+}
+
+interface Open {
+  url: string;
+  worker: FakePdfWorker | undefined;
 }
 
 function harness(opts: {
   behaviour?: Behaviour;
   createThrows?: boolean;
-  /** Called per getDocument; return an Error to reject that open. */
-  fail?: (port: Worker | null, call: number) => Error | null;
   readyTimeoutMs?: number;
-} = {}): Harness {
+  /** Per getDocument call: an Error rejects that open, if its worker is still up. */
+  fail?: (open: Open, call: number) => Error | null;
+} = {}) {
   const workers: FakeWorker[] = [];
-  let loads = 0;
-  const opened: string[] = [];
-  const portAtOpen: (Worker | null)[] = [];
-  const pdfjs = {
-    GlobalWorkerOptions: { workerPort: null as Worker | null },
-    opened,
-    portAtOpen,
-    getDocument({ url }: { url: string }) {
-      const port = pdfjs.GlobalWorkerOptions.workerPort;
-      opened.push(url);
-      portAtOpen.push(port);
-      const error = opts.fail?.(port, opened.length) ?? null;
+  const wrappers: FakePdfWorker[] = [];
+  const opens: Open[] = [];
+  let mainThreadLoads = 0;
+  const pdfjs: PdfjsModule = {
+    PDFWorker: {
+      create({ port }) {
+        const wrapper = new FakePdfWorker((port as unknown as FakeWorker | undefined) ?? null);
+        wrappers.push(wrapper);
+        return wrapper;
+      },
+    },
+    getDocument({ url, worker }) {
+      const open = { url, worker: worker as FakePdfWorker | undefined };
+      opens.push(open);
+      const error = opts.fail?.(open, opens.length) ?? null;
       const doc = { numPages: 1, loadingTask: { destroy: async () => {} } } as unknown as PdfDocument;
-      return { promise: error ? Promise.reject(error) : Promise.resolve(doc) };
+      if (!error) return { promise: Promise.resolve(doc) };
+      // A terminated worker never answers, like a real one.
+      return {
+        promise: new Promise<PdfDocument>((_resolve, reject) =>
+          setTimeout(() => {
+            if (!open.worker?.port?.terminated) reject(error);
+          }, 5)
+        ),
+      };
     },
   };
   const loader = createPdfLoader({
     importPdfjs: async () => pdfjs,
     loadMainThreadWorker: async () => {
-      loads++;
+      mainThreadLoads++;
     },
     createWorker: (url) => {
       if (opts.createThrows) throw new SyntaxError("invalid worker URL");
@@ -72,8 +89,12 @@ function harness(opts: {
     },
     readyTimeoutMs: opts.readyTimeoutMs ?? 20,
   });
-  return { loader, pdfjs, workers, mainThreadLoads: () => loads };
+  /** The port each document was opened on: a worker, null for the main thread. */
+  const ports = () => opens.map((o) => (o.worker ? o.worker.port : "no worker passed"));
+  return { loader, workers, wrappers, opens, ports, mainThreadLoads: () => mainThreadLoads };
 }
+
+const MISMATCH = new Error('The API version "6.3.289" does not match the Worker version "5.0.0".');
 
 describe("with no pdfWorkerUrl", () => {
   test("parses on the main thread and never starts a worker", async () => {
@@ -82,7 +103,7 @@ describe("with no pdfWorkerUrl", () => {
 
     expect(h.workers).toHaveLength(0);
     expect(h.mainThreadLoads()).toBe(1);
-    expect(h.pdfjs.portAtOpen).toEqual([null]);
+    expect(h.ports()).toEqual([null]);
   });
 });
 
@@ -93,18 +114,19 @@ describe("with a pdfWorkerUrl", () => {
 
     expect(h.workers).toHaveLength(1);
     expect(h.workers[0]!.url).toBe("/pdf.worker.js");
-    expect(h.pdfjs.portAtOpen).toEqual([h.workers[0] as unknown as Worker]);
+    expect(h.ports()).toEqual([h.workers[0]!]);
     expect(h.workers[0]!.terminated).toBe(false);
     expect(h.mainThreadLoads()).toBe(0);
   });
 
-  test("the choice is made once: a second document reuses the worker", async () => {
+  test("every document gets the one wrapper made for the worker, never one of its own", async () => {
     const h = harness({ behaviour: "ready" });
     await h.loader.open("/a.pdf", "/pdf.worker.js");
     await h.loader.open("/b.pdf", "/pdf.worker.js");
 
     expect(h.workers).toHaveLength(1);
-    expect(h.pdfjs.opened).toEqual(["/a.pdf", "/b.pdf"]);
+    expect(h.wrappers).toHaveLength(1);
+    expect(h.opens.map((o) => o.worker)).toEqual([h.wrappers[0], h.wrappers[0]]);
   });
 
   test("a worker that fails to load is terminated and the main thread takes over at once", async () => {
@@ -114,7 +136,7 @@ describe("with a pdfWorkerUrl", () => {
 
     expect(h.workers[0]!.terminated).toBe(true);
     expect(h.mainThreadLoads()).toBe(1);
-    expect(h.pdfjs.portAtOpen).toEqual([null]);
+    expect(h.ports()).toEqual([null]);
   });
 
   test("a worker that never reports ready is given up on", async () => {
@@ -123,7 +145,7 @@ describe("with a pdfWorkerUrl", () => {
 
     expect(h.workers[0]!.terminated).toBe(true);
     expect(h.mainThreadLoads()).toBe(1);
-    expect(h.pdfjs.portAtOpen).toEqual([null]);
+    expect(h.ports()).toEqual([null]);
   });
 
   test("a message other than ready does not count as ready", async () => {
@@ -131,7 +153,7 @@ describe("with a pdfWorkerUrl", () => {
     await h.loader.open("/a.pdf", "/some-other-worker.js");
 
     expect(h.workers[0]!.terminated).toBe(true);
-    expect(h.pdfjs.portAtOpen).toEqual([null]);
+    expect(h.ports()).toEqual([null]);
   });
 
   test("a URL the Worker constructor rejects falls back too", async () => {
@@ -139,33 +161,53 @@ describe("with a pdfWorkerUrl", () => {
     await h.loader.open("/a.pdf", "not a url");
 
     expect(h.mainThreadLoads()).toBe(1);
-    expect(h.pdfjs.portAtOpen).toEqual([null]);
+    expect(h.ports()).toEqual([null]);
   });
 
-  test("a worker from another pdf.js version moves everything to the main thread", async () => {
-    const mismatch = new Error('The API version "6.3.289" does not match the Worker version "5.0.0".');
-    const h = harness({ behaviour: "ready", fail: (port) => (port ? mismatch : null) });
+  test("each worker URL gets its own worker, so a second root is not bound by the first", async () => {
+    const h = harness({ behaviour: "ready" });
+    await h.loader.open("/a.pdf", "");
+    await h.loader.open("/b.pdf", "/pdf.worker.js");
+
+    expect(h.workers.map((w) => w.url)).toEqual(["/pdf.worker.js"]);
+    expect(h.ports()).toEqual([null, h.workers[0]!]);
+  });
+
+  test("a worker from another pdf.js version moves that URL to the main thread", async () => {
+    const h = harness({ behaviour: "ready", fail: (open) => (open.worker?.port ? MISMATCH : null) });
 
     await h.loader.open("/a.pdf", "/old-worker.js");
     await h.loader.open("/b.pdf", "/old-worker.js");
 
-    const worker = h.workers[0] as unknown as Worker;
     // The first document is tried on the worker, then again on the main
     // thread. The second one goes straight to the main thread.
-    expect(h.pdfjs.opened).toEqual(["/a.pdf", "/a.pdf", "/b.pdf"]);
-    expect(h.pdfjs.portAtOpen).toEqual([worker, null, null]);
+    expect(h.opens.map((o) => o.url)).toEqual(["/a.pdf", "/a.pdf", "/b.pdf"]);
+    expect(h.ports()).toEqual([h.workers[0]!, null, null]);
     expect(h.workers[0]!.terminated).toBe(true);
+    expect(h.wrappers[0]!.destroyed).toBe(true);
     expect(h.mainThreadLoads()).toBe(1);
+  });
+
+  test("documents opening together on a mismatched worker all reach the main thread", async () => {
+    const h = harness({ behaviour: "ready", fail: (open) => (open.worker?.port ? MISMATCH : null) });
+    // The worker must outlive the first rejection: a terminated worker never
+    // delivers the second one, and that document would wait forever.
+    const [a, b] = await Promise.all([h.loader.open("/a.pdf", "/old-worker.js"), h.loader.open("/b.pdf", "/old-worker.js")]);
+
+    expect(a.numPages).toBe(1);
+    expect(b.numPages).toBe(1);
+    expect(h.ports()).toEqual([h.workers[0]!, h.workers[0]!, null, null]);
+    expect(h.workers[0]!.terminated).toBe(true);
   });
 
   test("any other failure is the document's, and the worker stays", async () => {
     const broken = new Error("Invalid PDF structure.");
-    const h = harness({ behaviour: "ready", fail: (_port, call) => (call === 1 ? broken : null) });
+    const h = harness({ behaviour: "ready", fail: (_open, call) => (call === 1 ? broken : null) });
 
     await expect(h.loader.open("/broken.pdf", "/pdf.worker.js")).rejects.toThrow("Invalid PDF structure.");
     await h.loader.open("/good.pdf", "/pdf.worker.js");
 
-    expect(h.pdfjs.opened).toEqual(["/broken.pdf", "/good.pdf"]);
+    expect(h.ports()).toEqual([h.workers[0]!, h.workers[0]!]);
     expect(h.workers[0]!.terminated).toBe(false);
     expect(h.mainThreadLoads()).toBe(0);
   });
@@ -174,7 +216,7 @@ describe("with a pdfWorkerUrl", () => {
 test("a pdf.js that failed to load is loaded again on the next open", async () => {
   let attempts = 0;
   const pdfjs: PdfjsModule = {
-    GlobalWorkerOptions: { workerPort: null },
+    PDFWorker: { create: () => new FakePdfWorker(null) },
     getDocument: () => ({ promise: Promise.resolve({ numPages: 1 } as unknown as PdfDocument) }),
   };
   const loader = createPdfLoader({
@@ -196,20 +238,17 @@ test("a pdf.js that failed to load is loaded again on the next open", async () =
   expect(doc.numPages).toBe(1);
 });
 
-test("opening waits for a close in flight", async () => {
+test("closing a document destroys its loading task and leaves the worker up", async () => {
   const h = harness({ behaviour: "ready" });
-  const first = await h.loader.open("/a.pdf", "/pdf.worker.js");
+  const doc = await h.loader.open("/a.pdf", "/pdf.worker.js");
+  let destroyed = 0;
+  (doc as unknown as { loadingTask: { destroy: () => Promise<void> } }).loadingTask.destroy = async () => {
+    destroyed++;
+  };
 
-  let finishDestroy!: () => void;
-  const destroyed = new Promise<void>((resolve) => (finishDestroy = resolve));
-  (first as unknown as { loadingTask: { destroy: () => Promise<void> } }).loadingTask.destroy = () => destroyed;
-  h.loader.close(first);
+  h.loader.close(doc);
 
-  const second = h.loader.open("/b.pdf", "/pdf.worker.js");
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(h.pdfjs.opened).toEqual(["/a.pdf"]);
-
-  finishDestroy();
-  await second;
-  expect(h.pdfjs.opened).toEqual(["/a.pdf", "/b.pdf"]);
+  expect(destroyed).toBe(1);
+  expect(h.wrappers[0]!.destroyed).toBe(false);
+  expect(h.workers[0]!.terminated).toBe(false);
 });

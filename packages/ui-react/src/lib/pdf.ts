@@ -15,8 +15,10 @@
  * failed, so it is not used: the worker is started here, and handed to
  * pdf.js only once it has said it is ready.
  *
- * The choice is made once per page, by the first document opened, because
- * pdf.js keeps it in module globals.
+ * Each worker is wrapped in one `PDFWorker`, passed to every document
+ * explicitly. A document pdf.js made its own worker wrapper for destroys that
+ * wrapper when it closes, and on a shared port that strands every other
+ * document still opening there.
  */
 
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -25,8 +27,13 @@ export type PdfDocument = PDFDocumentProxy;
 
 /** The part of pdf.js this module drives, so tests can stand in for it. */
 export interface PdfjsModule {
-  GlobalWorkerOptions: { workerPort: Worker | null };
-  getDocument(params: { url: string }): { promise: Promise<PdfDocument> };
+  PDFWorker: { create(params: { port?: Worker }): PdfjsWorker };
+  getDocument(params: { url: string; worker: PdfjsWorker }): { promise: Promise<PdfDocument> };
+}
+
+/** pdf.js's handle on one worker, real or on the main thread. */
+export interface PdfjsWorker {
+  destroy(): void;
 }
 
 export interface PdfLoaderDeps {
@@ -40,30 +47,55 @@ export interface PdfLoaderDeps {
 
 interface Setup {
   pdfjs: PdfjsModule;
-  worker: Worker | null;
+  worker: PdfjsWorker;
+  /** The Worker behind `worker`, or null on the main thread. */
+  port: Worker | null;
+  /** Documents still opening here. A retired worker is terminated when none are left. */
+  opening: number;
+  retired: boolean;
 }
 
 /** pdf.js's own wording when the worker's version differs from the API's. */
 const VERSION_MISMATCH = /does not match the Worker version/;
 
-export function createPdfLoader(deps: PdfLoaderDeps) {
-  let setup: Promise<Setup> | null = null;
-  // pdf.js refuses a new document on a worker port while a previous one is
-  // still being destroyed on it, so opening waits for every close in flight.
-  let closing: Promise<unknown> = Promise.resolve();
+/** Memoize a promise, and forget it if it rejects, so the next caller tries again. */
+function retrying<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null;
+  return () => {
+    if (pending) return pending;
+    const attempt = load();
+    pending = attempt;
+    attempt.catch(() => {
+      if (pending === attempt) pending = null;
+    });
+    return attempt;
+  };
+}
 
-  async function onMainThread(pdfjs: PdfjsModule): Promise<Setup> {
-    pdfjs.GlobalWorkerOptions.workerPort = null;
+export function createPdfLoader(deps: PdfLoaderDeps) {
+  const loadPdfjs = retrying(deps.importPdfjs);
+  const mainThread = retrying(async (): Promise<Setup> => {
+    const pdfjs = await loadPdfjs();
     await deps.loadMainThreadWorker();
-    return { pdfjs, worker: null };
+    return { pdfjs, worker: pdfjs.PDFWorker.create({}), port: null, opening: 0, retired: false };
+  });
+  /** One setup per worker URL, so each root gets the worker it configured. */
+  const setups = new Map<string, () => Promise<Setup>>();
+
+  function setupFor(workerUrl: string): () => Promise<Setup> {
+    let setup = setups.get(workerUrl);
+    if (!setup) {
+      setup = workerUrl ? retrying(() => onWorker(workerUrl)) : mainThread;
+      setups.set(workerUrl, setup);
+    }
+    return setup;
   }
 
-  async function init(workerUrl: string): Promise<Setup> {
-    const pdfjs = await deps.importPdfjs();
-    const worker = workerUrl ? await startWorker(workerUrl) : null;
-    if (!worker) return onMainThread(pdfjs);
-    pdfjs.GlobalWorkerOptions.workerPort = worker;
-    return { pdfjs, worker };
+  async function onWorker(url: string): Promise<Setup> {
+    const pdfjs = await loadPdfjs();
+    const port = await startWorker(url);
+    if (!port) return mainThread();
+    return { pdfjs, worker: pdfjs.PDFWorker.create({ port }), port, opening: 0, retired: false };
   }
 
   /**
@@ -98,44 +130,44 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
 
   return {
     /**
-     * Open the document at `url`. `workerUrl` is read by the first call only.
-     * A worker built from another pdf.js version starts fine and rejects the
-     * first document, so that rejection moves everything to the main thread
-     * and the document is opened again there.
+     * Open the document at `url`, on the worker at `workerUrl` or on the main
+     * thread. A worker built from another pdf.js version starts fine and
+     * rejects every document, so the first rejection moves that URL to the
+     * main thread and each document is opened again there. The worker is
+     * terminated once no document is still waiting on it.
      */
     async open(url: string, workerUrl: string): Promise<PdfDocument> {
-      await closing;
-      const current = (setup ??= init(workerUrl));
-      let pdfjs: PdfjsModule;
-      let worker: Worker | null;
+      const setup = await setupFor(workerUrl)();
+      setup.opening++;
       try {
-        ({ pdfjs, worker } = await current);
+        return await setup.pdfjs.getDocument({ url, worker: setup.worker }).promise;
       } catch (error) {
-        // pdf.js's chunk did not load, e.g. offline. The next open tries again.
-        if (setup === current) setup = null;
-        throw error;
-      }
-      try {
-        return await pdfjs.getDocument({ url }).promise;
-      } catch (error) {
-        if (!worker || !VERSION_MISMATCH.test(String((error as Error)?.message))) throw error;
-        if (setup === current) {
-          worker.terminate();
-          setup = onMainThread(pdfjs);
+        if (!setup.port || !VERSION_MISMATCH.test(String((error as Error)?.message))) throw error;
+        if (!setup.retired) {
+          setup.retired = true;
+          setups.set(workerUrl, mainThread);
         }
-        return (await setup).pdfjs.getDocument({ url }).promise;
+        const fallback = await mainThread();
+        return await fallback.pdfjs.getDocument({ url, worker: fallback.worker }).promise;
+      } finally {
+        setup.opening--;
+        if (setup.retired && setup.opening === 0) {
+          setup.worker.destroy();
+          setup.port?.terminate();
+        }
       }
     },
 
-    /** Release a document opened here. */
+    /** Release a document opened here. Its worker stays up for the next one. */
     close(doc: PdfDocument): void {
-      closing = Promise.all([closing, doc.loadingTask.destroy().catch(() => {})]);
+      doc.loadingTask.destroy().catch(() => {});
     },
   };
 }
 
 const loader = createPdfLoader({
-  importPdfjs: () => import("pdfjs-dist/legacy/build/pdf.mjs"),
+  // pdf.js types a worker wrapper's `port` as null only; a Worker is what it takes.
+  importPdfjs: async () => (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as PdfjsModule,
   async loadMainThreadWorker() {
     const { WorkerMessageHandler } = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs");
     (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = { WorkerMessageHandler };

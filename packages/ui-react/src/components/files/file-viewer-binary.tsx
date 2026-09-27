@@ -33,11 +33,12 @@ export function FileViewerBinary({ content }: { content: FileContentResponse }) 
   const root = useBrainUiRoot();
   const rawUrl = `${root.apiBase()}/files/content?path=${encodeURIComponent(content.path)}&raw=1`;
   const filename = content.path.split("/").pop() ?? content.path;
-  // Keyed by path, so opening another file gets a fresh attempt.
-  const [unsupportedPath, setUnsupportedPath] = useState<string | null>(null);
+  // Keyed by path and mtime, so another file, or this one regenerated, gets a fresh attempt.
+  const revision = `${content.path}\n${content.mtime}`;
+  const [unsupported, setUnsupported] = useState<string | null>(null);
   const Previewer = binaryPreviewerFor(content.mime);
 
-  if (!Previewer || unsupportedPath === content.path) {
+  if (!Previewer || unsupported === revision) {
     return <PreviewUnavailable content={content} rawUrl={rawUrl} filename={filename} />;
   }
   return (
@@ -45,7 +46,7 @@ export function FileViewerBinary({ content }: { content: FileContentResponse }) 
       content={content}
       rawUrl={rawUrl}
       filename={filename}
-      onUnsupported={() => setUnsupportedPath(content.path)}
+      onUnsupported={() => setUnsupported(revision)}
     />
   );
 }

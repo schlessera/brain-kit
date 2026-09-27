@@ -24,6 +24,7 @@ let server: ReturnType<typeof Bun.serve>;
 beforeAll(() => {
   app = createTestApp();
   writeFileSync(join(app.brainPath, "clip.mp4"), BYTES);
+  writeFileSync(join(app.brainPath, "empty.mp4"), new Uint8Array(0));
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req, srv) => app.app.fetch(req, srv as never) });
 });
 
@@ -90,6 +91,30 @@ describe("the raw file route answers a byte range", () => {
     }
   });
 
+  test("a HEAD request ignores Range, which applies to GET only", async () => {
+    const response = await app.fetch(URL_PATH, { method: "HEAD", headers: { Range: "bytes=0-1" } });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-range")).toBeNull();
+  });
+
+  test("an If-Range never matches, since the route sends no validator, so the whole file comes back", async () => {
+    const response = await app.fetch(URL_PATH, { headers: { Range: "bytes=0-1", "If-Range": '"some-etag"' } });
+
+    expect(response.status).toBe(200);
+    expect((await bytesOf(response)).length).toBe(SIZE);
+  });
+
+  test("an empty file answers a suffix range with its whole, empty self and anything else with 416", async () => {
+    const empty = (range: string) => app.fetch("/api/files/content?path=empty.mp4&raw=1", { headers: { Range: range } });
+
+    const suffix = await empty("bytes=-5");
+    expect(suffix.status).toBe(200);
+    expect((await bytesOf(suffix)).length).toBe(0);
+    expect((await empty("bytes=-0")).status).toBe(416);
+    expect((await empty("bytes=0-")).status).toBe(416);
+  });
+
   test("a request without Range gets the whole file and learns ranges are accepted", async () => {
     const response = await inProcess();
 
@@ -118,6 +143,13 @@ describe("over HTTP, through every middleware", () => {
     expect(response.headers.get("content-range")).toBe(`bytes 0-${SIZE - 1}/${SIZE}`);
     expect(response.headers.get("content-length")).toBe(String(SIZE));
     expect(await bytesOf(response)).toEqual([...BYTES]);
+  });
+
+  test("an If-Range gets the whole file here too", async () => {
+    const response = await fetch(`http://127.0.0.1:${server.port}${URL_PATH}`, { headers: { Range: "bytes=0-1", "If-Range": '"some-etag"' } });
+
+    expect(response.status).toBe(200);
+    expect((await bytesOf(response)).length).toBe(SIZE);
   });
 
   test("a range in the middle carries only its own bytes", async () => {

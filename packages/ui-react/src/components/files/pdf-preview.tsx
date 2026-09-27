@@ -20,6 +20,10 @@ import { ViewerLoading } from "./file-viewer-frame.js";
  * option: Android Chrome offers a download instead of rendering one, iOS
  * shows a single page that does not scroll, and the raw route forbids
  * framing (`frame-ancestors 'none'`).
+ *
+ * A document that opens but then fails to give up a page, or to draw one,
+ * falls back to the download card like one that never opened: a blank page
+ * would read as an empty document.
  */
 export function PdfPreview({ content, rawUrl, filename, onUnsupported }: BinaryPreviewProps) {
   const root = useBrainUiRoot();
@@ -60,24 +64,37 @@ export function PdfPreview({ content, rawUrl, filename, onUnsupported }: BinaryP
         filename={filename}
         detail={pages === undefined ? undefined : `${pages} ${pages === 1 ? "page" : "pages"}`}
       />
-      {doc ? <PdfPages doc={doc} filename={filename} /> : <div className="w-full"><ViewerLoading /></div>}
+      {doc ? (
+        <PdfPages doc={doc} filename={filename} onFailed={() => unsupported.current()} />
+      ) : (
+        <div className="w-full">
+          <ViewerLoading />
+        </div>
+      )}
     </div>
   );
 }
 
-function PdfPages({ doc, filename }: { doc: PdfDocument; filename: string }) {
+function PdfPages({ doc, filename, onFailed }: { doc: PdfDocument; filename: string; onFailed: () => void }) {
   const listRef = useRef<HTMLDivElement>(null);
   const width = useWidth(listRef);
   // Height over width of page 1, the shape every page takes until it is drawn.
   const [ratio, setRatio] = useState<number | null>(null);
   const [zoomed, setZoomed] = useState<number | null>(null);
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
 
   useEffect(() => {
     let cancelled = false;
-    void doc.getPage(1).then((page) => {
-      const { width: w, height: h } = page.getViewport({ scale: 1 });
-      if (!cancelled) setRatio(h / w);
-    });
+    doc.getPage(1).then(
+      (page) => {
+        const { width: w, height: h } = page.getViewport({ scale: 1 });
+        if (!cancelled) setRatio(h / w);
+      },
+      () => {
+        if (!cancelled) failed.current();
+      }
+    );
     return () => {
       cancelled = true;
     };
@@ -95,10 +112,17 @@ function PdfPages({ doc, filename }: { doc: PdfDocument; filename: string }) {
             width={width}
             placeholderRatio={ratio}
             onOpen={() => setZoomed(i + 1)}
+            onFailed={onFailed}
           />
         ))}
       {zoomed !== null && (
-        <PdfPageViewer doc={doc} pageNumber={zoomed} filename={filename} onClose={() => setZoomed(null)} />
+        <PdfPageViewer
+          doc={doc}
+          pageNumber={zoomed}
+          filename={filename}
+          onClose={() => setZoomed(null)}
+          onFailed={onFailed}
+        />
       )}
     </div>
   );
@@ -110,34 +134,42 @@ function PdfPage({
   width,
   placeholderRatio,
   onOpen,
+  onFailed,
 }: {
   doc: PdfDocument;
   pageNumber: number;
   width: number;
   placeholderRatio: number;
   onOpen: () => void;
+  onFailed: () => void;
 }) {
   const boxRef = useRef<HTMLButtonElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const near = useNearViewport(boxRef);
   const [ratio, setRatio] = useState(placeholderRatio);
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!near || !canvas) return;
     let cancelled = false;
     let task: RenderTask | null = null;
-    void doc.getPage(pageNumber).then((page) => {
+    const fail = () => {
+      if (!cancelled) failed.current();
+    };
+    doc.getPage(pageNumber).then((page) => {
       if (cancelled) return;
       const base = page.getViewport({ scale: 1 });
       setRatio(base.height / base.width);
       // Device pixels, so text stays sharp on a phone; 3x is the densest screen worth drawing for.
-      const scale = (width / base.width) * Math.min(window.devicePixelRatio || 1, 3);
-      task = draw(page, canvas, scale);
-    });
+      const wanted = (width / base.width) * Math.min(window.devicePixelRatio || 1, 3);
+      task = draw(page, canvas, withinBudget(base, wanted), fail);
+    }, fail);
     return () => {
       cancelled = true;
       task?.cancel();
+      release(canvas);
     };
   }, [doc, pageNumber, width, near]);
 
@@ -160,6 +192,11 @@ const CSS_PX_PER_POINT = 96 / 72;
 /** iOS Safari refuses to draw a canvas above this many pixels. */
 const MAX_CANVAS_PIXELS = 16_777_216;
 
+/** `wanted`, or less if a page drawn at that scale would not fit in MAX_CANVAS_PIXELS. */
+function withinBudget(base: { width: number; height: number }, wanted: number): number {
+  return Math.min(wanted, Math.sqrt(MAX_CANVAS_PIXELS / (base.width * base.height)));
+}
+
 /**
  * One page in the zoom viewer, laid out at its printed size and drawn at up
  * to three times that, so zooming in stays sharp until well past the width
@@ -170,30 +207,37 @@ function PdfPageViewer({
   pageNumber,
   filename,
   onClose,
+  onFailed,
 }: {
   doc: PdfDocument;
   pageNumber: number;
   filename: string;
   onClose: () => void;
+  onFailed: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let cancelled = false;
     let task: RenderTask | null = null;
-    void doc.getPage(pageNumber).then((page) => {
+    const fail = () => {
+      if (!cancelled) failed.current();
+    };
+    doc.getPage(pageNumber).then((page) => {
       if (cancelled) return;
       const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(CSS_PX_PER_POINT * 3, Math.sqrt(MAX_CANVAS_PIXELS / (base.width * base.height)));
-      task = draw(page, canvas, scale);
+      task = draw(page, canvas, withinBudget(base, CSS_PX_PER_POINT * 3), fail);
       setSize({ width: base.width * CSS_PX_PER_POINT, height: base.height * CSS_PX_PER_POINT });
-    });
+    }, fail);
     return () => {
       cancelled = true;
       task?.cancel();
+      release(canvas);
     };
   }, [doc, pageNumber]);
 
@@ -209,14 +253,22 @@ function PdfPageViewer({
   );
 }
 
-function draw(page: PDFPageProxy, canvas: HTMLCanvasElement, scale: number): RenderTask {
+function draw(page: PDFPageProxy, canvas: HTMLCanvasElement, scale: number, onFailed: () => void): RenderTask {
   const viewport = page.getViewport({ scale });
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
   const task = page.render({ canvas, viewport });
-  // A cancelled render rejects; that is the cleanup working, not a failure.
-  task.promise.catch(() => {});
+  task.promise.catch((error: unknown) => {
+    // A cancelled render rejects too; that is the cleanup working, not a failure.
+    if ((error as { name?: unknown } | null)?.name !== "RenderingCancelledException") onFailed();
+  });
   return task;
+}
+
+/** Give a canvas's pixels back now: iOS counts them against the page until it is collected. */
+function release(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
 }
 
 /** The element's content width in CSS pixels, kept current as the panel resizes. */

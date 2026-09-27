@@ -39,9 +39,10 @@ function byteRange(header: string | undefined, size: number): { start: number; e
   const match = header ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
   if (!match || (match[1] === "" && match[2] === "")) return null;
   if (match[1] === "") {
-    // A suffix range: the last N bytes.
+    // A suffix range: the last N bytes. Of an empty file that is all of it.
     const length = Number(match[2]);
-    if (length === 0 || size === 0) return "unsatisfiable";
+    if (length === 0) return "unsatisfiable";
+    if (size === 0) return null;
     return { start: Math.max(0, size - length), end: size - 1 };
   }
   const start = Number(match[1]);
@@ -81,7 +82,13 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
           "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
           "Cache-Control": "private, max-age=0, must-revalidate",
         };
-        const range = byteRange(c.req.header("Range"), size);
+        // Range applies to GET alone (RFC 9110 §14.2). An If-Range can never
+        // match here, because this route sends no validator, and a Range
+        // behind a failed If-Range is ignored (§13.1.5).
+        const range =
+          c.req.method === "GET" && c.req.header("If-Range") === undefined
+            ? byteRange(c.req.header("Range"), size)
+            : null;
         if (range === "unsatisfiable") {
           return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
         }
