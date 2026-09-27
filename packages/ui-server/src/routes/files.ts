@@ -27,6 +27,29 @@ function errorResponse(err: unknown, log?: Logger): { body: { error: string; siz
   return { body: { error: "internal_error" }, status: 500 };
 }
 
+/**
+ * The single byte range a `Range` header asks for, "unsatisfiable" when it
+ * starts past the end, or null to serve the whole file. The whole file is
+ * served when the header is missing, malformed, or asks for several ranges,
+ * which RFC 9110 §14.2 lets a server ignore. Media elements rely on this:
+ * iOS Safari opens a video or audio file with `bytes=0-1` and will not play
+ * it unless the reply is a 206.
+ */
+function byteRange(header: string | undefined, size: number): { start: number; end: number } | "unsatisfiable" | null {
+  const match = header ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  if (match[1] === "") {
+    // A suffix range: the last N bytes.
+    const length = Number(match[2]);
+    if (length === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  if (start >= size) return "unsatisfiable";
+  const end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  return end < start ? null : { start, end };
+}
+
 export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
   const { brainRoot, log } = deps;
   let wikilinkBuild: Promise<void> | null = null;
@@ -50,17 +73,37 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
     try {
       if (raw) {
         const { abs, mime, size } = await resolveForRaw(path, brainRoot);
-        const file = Bun.file(abs);
-        return new Response(file, {
+        const headers = {
+          "Content-Type": mime,
+          "Content-Disposition": "inline",
+          "Accept-Ranges": "bytes",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
+          "Cache-Control": "private, max-age=0, must-revalidate",
+        };
+        const range = byteRange(c.req.header("Range"), size);
+        if (range === "unsatisfiable") {
+          return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
+        }
+        if (range) {
+          // Read into memory (at most FILE_SIZE_CAP_BYTES) rather than hand
+          // over the sliced Bun.file. A header set after `next()` makes Hono
+          // rebuild the response around its `body`. On Bun 1.3.14 the body of
+          // a sliced Bun.file then runs past the slice to the end of the
+          // file, and a stream body loses its Content-Length. Bytes keep both.
+          const bytes = await Bun.file(abs).slice(range.start, range.end + 1).bytes();
+          return new Response(bytes, {
+            status: 206,
+            headers: {
+              ...headers,
+              "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+              "Content-Length": String(bytes.length),
+            },
+          });
+        }
+        return new Response(Bun.file(abs), {
           status: 200,
-          headers: {
-            "Content-Type": mime,
-            "Content-Length": String(size),
-            "Content-Disposition": "inline",
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
-            "Cache-Control": "private, max-age=0, must-revalidate",
-          },
+          headers: { ...headers, "Content-Length": String(size) },
         });
       }
       const result = await readFileContent(path, brainRoot);

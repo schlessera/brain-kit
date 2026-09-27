@@ -90,11 +90,27 @@ passes values in.
 | `composerPlaceholder` | `"Ask your brain anything..."` | Composer placeholder |
 | `backendUrl` | `""` (same-origin) | Origin of the API/WebSocket backend, for a split topology |
 | `devTools` | `false` | Install the `window.__chatStore` / `window.__graphStore` fixture-injection handles |
+| `pdfWorkerUrl` | `""` (main thread) | URL of pdf.js's worker script, for the file viewer's PDF preview |
 
 Same-origin is the default topology: the server serves the built client and the
 API/WS from one origin, so nothing needs configuring. Set `backendUrl` only when
 the client and backend live on different origins — a Vite shell would pass
 `import.meta.env.VITE_BACKEND_URL`, but that read belongs in the shell, not here.
+
+The file viewer draws PDFs with pdf.js, which parses them in a worker. Only
+the shell's bundler knows where that script ends up, so the shell passes its
+URL. With Vite:
+
+```ts
+import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
+
+configureBrainUi({ pdfWorkerUrl });
+```
+
+Import it from the `pdfjs-dist` version this package depends on. Without a URL,
+or with one that does not start a worker of that version, PDFs are parsed on the
+main thread instead. They still open, but a heavy document can stall the page
+while it loads.
 
 Because configuration arrives at boot rather than at import, the API base is a
 function: use `apiBase()`, not a constant.

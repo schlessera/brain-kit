@@ -1,0 +1,130 @@
+// Byte ranges on the raw file route (#529). iOS Safari plays a video or audio
+// file only when the server answers `Range` with a 206, and probes with
+// `bytes=0-1` before it plays anything.
+//
+// Two paths, because they fail differently. `app.fetch` reaches the route with
+// no server in between, so it pins the route's own range handling: Bun.serve
+// slices a `Bun.file` body by itself, which would hide a route that ignored
+// the header. The served app pins what a browser actually receives, after
+// every middleware has run.
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { writeFileSync } from "fs";
+import { join } from "path";
+
+import { createTestApp, type TestApp } from "./helpers/test-app";
+
+// Large enough that Bun sends a stream body chunked, without Content-Length.
+const SIZE = 64 * 1024;
+const BYTES = Uint8Array.from({ length: SIZE }, (_, i) => i % 251);
+const URL_PATH = "/api/files/content?path=clip.mp4&raw=1";
+
+let app: TestApp;
+let server: ReturnType<typeof Bun.serve>;
+
+beforeAll(() => {
+  app = createTestApp();
+  writeFileSync(join(app.brainPath, "clip.mp4"), BYTES);
+  server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req, srv) => app.app.fetch(req, srv as never) });
+});
+
+afterAll(async () => {
+  server.stop(true);
+  await app.teardown();
+});
+
+const inProcess = (range?: string) => app.fetch(URL_PATH, range ? { headers: { Range: range } } : {});
+const overHttp = (range?: string) =>
+  fetch(`http://127.0.0.1:${server.port}${URL_PATH}`, range ? { headers: { Range: range } } : {});
+
+async function bytesOf(response: Response): Promise<number[]> {
+  return [...new Uint8Array(await response.arrayBuffer())];
+}
+
+describe("the raw file route answers a byte range", () => {
+  test("with a 206 carrying exactly the requested bytes", async () => {
+    const response = await inProcess("bytes=100-109");
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes 100-109/${SIZE}`);
+    expect(response.headers.get("content-length")).toBe("10");
+    expect(response.headers.get("content-type")).toBe("video/mp4");
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(100, 110)]);
+  });
+
+  test("an open-ended range runs to the last byte", async () => {
+    const response = await inProcess(`bytes=${SIZE - 5}-`);
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes ${SIZE - 5}-${SIZE - 1}/${SIZE}`);
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(SIZE - 5)]);
+  });
+
+  test("a suffix range is the last N bytes", async () => {
+    const response = await inProcess("bytes=-4");
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes ${SIZE - 4}-${SIZE - 1}/${SIZE}`);
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(SIZE - 4)]);
+  });
+
+  test("an end past the file is clamped to the last byte", async () => {
+    const response = await inProcess(`bytes=${SIZE - 2}-${SIZE + 5000}`);
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes ${SIZE - 2}-${SIZE - 1}/${SIZE}`);
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(SIZE - 2)]);
+  });
+
+  test("a range that starts past the end is a 416 naming the size", async () => {
+    const response = await inProcess(`bytes=${SIZE}-`);
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get("content-range")).toBe(`bytes */${SIZE}`);
+  });
+
+  test("several ranges, or a malformed one, get the whole file", async () => {
+    for (const range of ["bytes=0-1,5-6", "bytes=9-3", "items=0-1", "bytes=-"]) {
+      const response = await inProcess(range);
+      expect(response.status).toBe(200);
+      expect((await bytesOf(response)).length).toBe(SIZE);
+    }
+  });
+
+  test("a request without Range gets the whole file and learns ranges are accepted", async () => {
+    const response = await inProcess();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect((await bytesOf(response)).length).toBe(SIZE);
+  });
+});
+
+describe("over HTTP, through every middleware", () => {
+  test("Safari's two-byte probe gets a 206 with its length, and the frame headers", async () => {
+    const response = await overHttp("bytes=0-1");
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes 0-1/${SIZE}`);
+    expect(response.headers.get("content-length")).toBe("2");
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(0, 2)]);
+  });
+
+  test("a range the size of the whole file keeps its length and its bytes", async () => {
+    const response = await overHttp("bytes=0-");
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes 0-${SIZE - 1}/${SIZE}`);
+    expect(response.headers.get("content-length")).toBe(String(SIZE));
+    expect(await bytesOf(response)).toEqual([...BYTES]);
+  });
+
+  test("a range in the middle carries only its own bytes", async () => {
+    const response = await overHttp("bytes=100-109");
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-length")).toBe("10");
+    expect(await bytesOf(response)).toEqual([...BYTES.slice(100, 110)]);
+  });
+});
