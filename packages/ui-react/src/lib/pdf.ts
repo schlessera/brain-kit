@@ -28,7 +28,13 @@ export type PdfDocument = PDFDocumentProxy;
 /** The part of pdf.js this module drives, so tests can stand in for it. */
 export interface PdfjsModule {
   PDFWorker: { create(params: { port?: Worker }): PdfjsWorker };
-  getDocument(params: { url: string; worker: PdfjsWorker }): { promise: Promise<PdfDocument> };
+  getDocument(params: { url: string; worker: PdfjsWorker }): PdfjsLoadingTask;
+}
+
+/** One document opening. pdf.js keeps its transport on the worker until it is destroyed. */
+export interface PdfjsLoadingTask {
+  promise: Promise<PdfDocument>;
+  destroy(): Promise<void>;
 }
 
 /** pdf.js's handle on one worker, real or on the main thread. */
@@ -50,6 +56,8 @@ interface Setup {
   worker: PdfjsWorker;
   /** The Worker behind `worker`, or null on the main thread. */
   port: Worker | null;
+  /** Rejects if the worker fails after reporting ready. pdf.js would wait on it forever. */
+  died: Promise<never> | null;
   /** Documents still opening here. A retired worker is terminated when none are left. */
   opening: number;
   retired: boolean;
@@ -57,6 +65,8 @@ interface Setup {
 
 /** pdf.js's own wording when the worker's version differs from the API's. */
 const VERSION_MISMATCH = /does not match the Worker version/;
+
+class WorkerDied extends Error {}
 
 /** Memoize a promise, and forget it if it rejects, so the next caller tries again. */
 function retrying<T>(load: () => Promise<T>): () => Promise<T> {
@@ -77,7 +87,7 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
   const mainThread = retrying(async (): Promise<Setup> => {
     const pdfjs = await loadPdfjs();
     await deps.loadMainThreadWorker();
-    return { pdfjs, worker: pdfjs.PDFWorker.create({}), port: null, opening: 0, retired: false };
+    return { pdfjs, worker: pdfjs.PDFWorker.create({}), port: null, died: null, opening: 0, retired: false };
   });
   /** One setup per worker URL, so each root gets the worker it configured. */
   const setups = new Map<string, () => Promise<Setup>>();
@@ -95,7 +105,11 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
     const pdfjs = await loadPdfjs();
     const port = await startWorker(url);
     if (!port) return mainThread();
-    return { pdfjs, worker: pdfjs.PDFWorker.create({ port }), port, opening: 0, retired: false };
+    const died = new Promise<never>((_resolve, reject) =>
+      port.addEventListener("error", () => reject(new WorkerDied("The PDF worker stopped")), { once: true })
+    );
+    died.catch(() => {});
+    return { pdfjs, worker: pdfjs.PDFWorker.create({ port }), port, died, opening: 0, retired: false };
   }
 
   /**
@@ -128,27 +142,40 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
     });
   }
 
+  /** One attempt at a document. A failed one is destroyed, or pdf.js keeps its transport on the worker. */
+  async function load(setup: Setup, url: string): Promise<PdfDocument> {
+    const task = setup.pdfjs.getDocument({ url, worker: setup.worker });
+    try {
+      return await (setup.died ? Promise.race([task.promise, setup.died]) : task.promise);
+    } catch (error) {
+      task.destroy().catch(() => {});
+      throw error;
+    }
+  }
+
   return {
     /**
      * Open the document at `url`, on the worker at `workerUrl` or on the main
      * thread. A worker built from another pdf.js version starts fine and
-     * rejects every document, so the first rejection moves that URL to the
-     * main thread and each document is opened again there. The worker is
-     * terminated once no document is still waiting on it.
+     * rejects every document, and a worker can die after it started. Either
+     * moves that URL to the main thread, and each document waiting on the
+     * worker is opened again there. The worker is terminated once no document
+     * is still waiting on it.
      */
     async open(url: string, workerUrl: string): Promise<PdfDocument> {
       const setup = await setupFor(workerUrl)();
       setup.opening++;
       try {
-        return await setup.pdfjs.getDocument({ url, worker: setup.worker }).promise;
+        return await load(setup, url);
       } catch (error) {
-        if (!setup.port || !VERSION_MISMATCH.test(String((error as Error)?.message))) throw error;
+        const workerFailed =
+          error instanceof WorkerDied || VERSION_MISMATCH.test(String((error as Error)?.message));
+        if (!setup.port || !workerFailed) throw error;
         if (!setup.retired) {
           setup.retired = true;
           setups.set(workerUrl, mainThread);
         }
-        const fallback = await mainThread();
-        return await fallback.pdfjs.getDocument({ url, worker: fallback.worker }).promise;
+        return await load(await mainThread(), url);
       } finally {
         setup.opening--;
         if (setup.retired && setup.opening === 0) {

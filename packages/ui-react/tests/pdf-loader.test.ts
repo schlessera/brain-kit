@@ -39,14 +39,15 @@ class FakePdfWorker implements PdfjsWorker {
 interface Open {
   url: string;
   worker: FakePdfWorker | undefined;
+  destroyed: boolean;
 }
 
 function harness(opts: {
   behaviour?: Behaviour;
   createThrows?: boolean;
   readyTimeoutMs?: number;
-  /** Per getDocument call: an Error rejects that open, if its worker is still up. */
-  fail?: (open: Open, call: number) => Error | null;
+  /** Per getDocument call: an Error rejects that open, if its worker is still up; "hang" never settles. */
+  fail?: (open: Open, call: number) => Error | "hang" | null;
 } = {}) {
   const workers: FakeWorker[] = [];
   const wrappers: FakePdfWorker[] = [];
@@ -61,11 +62,15 @@ function harness(opts: {
       },
     },
     getDocument({ url, worker }) {
-      const open = { url, worker: worker as FakePdfWorker | undefined };
+      const open: Open = { url, worker: worker as FakePdfWorker | undefined, destroyed: false };
       opens.push(open);
       const error = opts.fail?.(open, opens.length) ?? null;
       const doc = { numPages: 1, loadingTask: { destroy: async () => {} } } as unknown as PdfDocument;
-      if (!error) return { promise: Promise.resolve(doc) };
+      const destroy = async () => {
+        open.destroyed = true;
+      };
+      if (!error) return { promise: Promise.resolve(doc), destroy };
+      if (error === "hang") return { promise: new Promise<PdfDocument>(() => {}), destroy };
       // A terminated worker never answers, like a real one.
       return {
         promise: new Promise<PdfDocument>((_resolve, reject) =>
@@ -73,6 +78,7 @@ function harness(opts: {
             if (!open.worker?.port?.terminated) reject(error);
           }, 5)
         ),
+        destroy,
       };
     },
   };
@@ -200,7 +206,7 @@ describe("with a pdfWorkerUrl", () => {
     expect(h.workers[0]!.terminated).toBe(true);
   });
 
-  test("any other failure is the document's, and the worker stays", async () => {
+  test("any other failure is the document's: its loading task is released, and the worker stays", async () => {
     const broken = new Error("Invalid PDF structure.");
     const h = harness({ behaviour: "ready", fail: (_open, call) => (call === 1 ? broken : null) });
 
@@ -208,8 +214,29 @@ describe("with a pdfWorkerUrl", () => {
     await h.loader.open("/good.pdf", "/pdf.worker.js");
 
     expect(h.ports()).toEqual([h.workers[0]!, h.workers[0]!]);
+    // pdf.js keeps a transport and a message handler on the worker for every
+    // loading task until it is destroyed, failed or not.
+    expect(h.opens.map((o) => o.destroyed)).toEqual([true, false]);
     expect(h.workers[0]!.terminated).toBe(false);
     expect(h.mainThreadLoads()).toBe(0);
+  });
+
+  test("a worker that dies after reporting ready moves the documents waiting on it to the main thread", async () => {
+    const h = harness({ behaviour: "ready", fail: (open) => (open.worker?.port ? "hang" : null) });
+    const opening = h.loader.open("/a.pdf", "/pdf.worker.js");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(h.ports()).toEqual([h.workers[0]!]);
+
+    h.workers[0]!.dispatchEvent(new Event("error"));
+    const doc = await opening;
+
+    expect(doc.numPages).toBe(1);
+    expect(h.ports()).toEqual([h.workers[0]!, null]);
+    expect(h.opens[0]!.destroyed).toBe(true);
+    expect(h.workers[0]!.terminated).toBe(true);
+    // And the next document goes straight to the main thread.
+    await h.loader.open("/b.pdf", "/pdf.worker.js");
+    expect(h.ports()).toEqual([h.workers[0]!, null, null]);
   });
 });
 
@@ -217,7 +244,7 @@ test("a pdf.js that failed to load is loaded again on the next open", async () =
   let attempts = 0;
   const pdfjs: PdfjsModule = {
     PDFWorker: { create: () => new FakePdfWorker(null) },
-    getDocument: () => ({ promise: Promise.resolve({ numPages: 1 } as unknown as PdfDocument) }),
+    getDocument: () => ({ promise: Promise.resolve({ numPages: 1 } as unknown as PdfDocument), destroy: async () => {} }),
   };
   const loader = createPdfLoader({
     importPdfjs: async () => {
