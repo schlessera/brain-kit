@@ -1,5 +1,23 @@
 # @schlessera/brain-backend-claude
 
+## 0.38.0
+
+### Patch Changes
+
+- aec3dd8: The container privilege record moved to brain-hosting-template, which builds the container. The exec wrapper's cancellation error message and the comments that cite the record now point there.
+- 4224247: Source comments, the `BRAIN_UI_CHROME_NO_SANDBOX` description, and the `generate-pdf` and `image-gen` skills no longer describe one particular deployment. They say what a deployment may or may not have instead.
+- Updated dependencies [8c1daaa]
+- Updated dependencies [aec3dd8]
+- Updated dependencies [a9094fb]
+- Updated dependencies [1d29fcd]
+- Updated dependencies [94fd8c9]
+- Updated dependencies [70a5502]
+- Updated dependencies [2d985ba]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [4224247]
+  - @schlessera/brain-ui-sdk@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes

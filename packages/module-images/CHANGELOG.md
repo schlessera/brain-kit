@@ -1,5 +1,96 @@
 # @schlessera/brain-module-images
 
+## 0.38.0
+
+### Minor Changes
+
+- d350daa: Transient output now has a place inside the brain: the scratch area, `.brain/scratch/`. `brain render --scratch` and `brain image --scratch` write there, under a name unique to each run, and so does `brain render -` without `--out`. The chat UI can open anything written there, it is never committed, indexed or exported, and it is pruned after 7 days or past 1 GB (after each of these writes, by `brain maintain`, hourly by the chat server, and by the new `brain scratch clean|prune`). Nothing writes there until git excludes the directory itself (`brain doctor --fix` adds the line, new brains have it from the template, and outside a git repository the line is required all the same, read by git), nothing is written to or pruned from a `.brain` or `.brain/scratch` that is a symlink, and every write goes to a temporary sibling renamed onto its name, so it never writes through a planted link. That covers every one of brain's own transient writers, wherever it is pointed: `brain render --out`, `brain image --out`, `brain okf export --out`, and a mask requested beside a draft in scratch, which now prunes like the others.
+
+  Behaviour change: `brain render --out`, `brain image --out` and `brain okf export` never write through a symlink any more: a target whose entry is a link is refused, and every write goes to a temporary sibling renamed onto the name. `brain render` and `brain image` no longer accept paths under the system temp directory. A file there could not be opened from the UI. Use `--scratch` instead. `resolveWritable` now returns the path or `null`.
+
+  `brain scratch clean|prune --json` reports `failed: [{ path, reason }]` (additive) for files the OS would not remove, and exits 2 when there are any; `brain maintain` reports its scratch step as failed the same way. A replaced output file keeps its mode. `BrainUiApp.close()` now returns a promise that resolves once the scratch prune pass in flight, if any, has been killed and has exited; await it before tearing down.
+
+### Patch Changes
+
+- 4224247: Source comments, the `BRAIN_UI_CHROME_NO_SANDBOX` description, and the `generate-pdf` and `image-gen` skills no longer describe one particular deployment. They say what a deployment may or may not have instead.
+- Updated dependencies [1751c05]
+- Updated dependencies [ee55f82]
+- Updated dependencies [6757475]
+- Updated dependencies [e2325b2]
+- Updated dependencies [3c2b20e]
+- Updated dependencies [3bcb130]
+- Updated dependencies [8c6a3f5]
+- Updated dependencies [9ce7d84]
+- Updated dependencies [61d2869]
+- Updated dependencies [93e12bd]
+- Updated dependencies [8c97273]
+- Updated dependencies [60e9fbd]
+- Updated dependencies [bad7650]
+- Updated dependencies [0268bf1]
+- Updated dependencies [7668c7c]
+- Updated dependencies [3c1310c]
+- Updated dependencies [a57da97]
+- Updated dependencies [25e4911]
+- Updated dependencies [00391fd]
+- Updated dependencies [c7aed00]
+- Updated dependencies [2ed2d21]
+- Updated dependencies [a554aa7]
+- Updated dependencies [e499c82]
+- Updated dependencies [e89de6e]
+- Updated dependencies [968d151]
+- Updated dependencies [1c30db2]
+- Updated dependencies [995ed30]
+- Updated dependencies [d176c64]
+- Updated dependencies [5bef3b7]
+- Updated dependencies [ff9ebc2]
+- Updated dependencies [6b30469]
+- Updated dependencies [5d9a179]
+- Updated dependencies [55fe04c]
+- Updated dependencies [a59b3b1]
+- Updated dependencies [548561f]
+- Updated dependencies [2fac781]
+- Updated dependencies [48377ab]
+- Updated dependencies [6f9ab3b]
+- Updated dependencies [82f6b55]
+- Updated dependencies [54b21fe]
+- Updated dependencies [5b9daa4]
+- Updated dependencies [2d59201]
+- Updated dependencies [8e5229a]
+- Updated dependencies [dd5e87f]
+- Updated dependencies [d1ad02b]
+- Updated dependencies [2b02102]
+- Updated dependencies [97baef6]
+- Updated dependencies [f82fc83]
+- Updated dependencies [9c53741]
+- Updated dependencies [8e84ba8]
+- Updated dependencies [d4b62d3]
+- Updated dependencies [acd47da]
+- Updated dependencies [faba978]
+- Updated dependencies [3b71a3a]
+- Updated dependencies [b5bf884]
+- Updated dependencies [ff023f6]
+- Updated dependencies [18c4495]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [51ad062]
+- Updated dependencies [7e5e363]
+- Updated dependencies [bc10acc]
+- Updated dependencies [2025590]
+- Updated dependencies [4224247]
+- Updated dependencies [5b8e614]
+- Updated dependencies [cc5b868]
+- Updated dependencies [cb19184]
+- Updated dependencies [48c4000]
+- Updated dependencies [7c513fb]
+- Updated dependencies [02b3d13]
+- Updated dependencies [2cb91e2]
+- Updated dependencies [4cdb0c3]
+- Updated dependencies [806d061]
+- Updated dependencies [532347f]
+- Updated dependencies [02b2c85]
+- Updated dependencies [803a496]
+  - @schlessera/brain@0.38.0
+
 ## 0.37.0
 
 ### Patch Changes

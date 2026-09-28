@@ -1,5 +1,98 @@
 # @schlessera/brain-module-speaking
 
+## 0.38.0
+
+### Patch Changes
+
+- 7668c7c: The `codex` skill emitter now gives Codex the brain's agent contract, and stops writing files Codex never read. `brain skills sync` with `skills: { emitters: ["codex"] }` copies the body of the installed `CONTRACT.md` into `AGENTS.md` between `<!-- brain-kit:contract:start -->` and `<!-- brain-kit:contract:end -->`, and it no longer writes `.codex/prompts/`. Codex already finds skills in `.agents/skills/`. The first sync after upgrading deletes the `.codex/prompts/<name>.md` files the old "Skills index" block proves it generated, then swaps that block for the contract block in place and removes `.codex/` if it is left empty. A prompt it cannot prove it wrote stays, with a warning. If a prompt or directory cannot be inspected, deleted or removed, the index block stays so the next sync retries. With a missing, repeated or misordered marker, `AGENTS.md` is left untouched and the sync warns. With the emitter on, `/brain-init` writes `CLAUDE.md` as `@AGENTS.md` plus your overlay, so the contract loads only once.
+
+  Manual-only skills are now manual-only for Codex too. The shipped `sync` and `new-submission` skills carry `agents/openai.yaml` with `policy.allow_implicit_invocation: false`, and `brain skills lint` warns when a skill's `disable-model-invocation` and that policy disagree. `runSkillEmitterContract` takes `readsCanonicalHome: true` for an emitter whose agent reads `.agents/skills/` itself. A `SkillEmitter` may now return an optional `warnings` list, and `brain skills sync` reports each entry prefixed with the emitter's agent.
+
+- 1c30db2: Rendered documents get a designed default style and a component system (#530). Every `brain render` and shared PDF now uses a new stylesheet: system sans display type, an accent bar over each `h2`, hairline tables, and a full-bleed A4 page whose footer shows the title and page numbers from page 2. Designed documents are composed from `doc-*` component classes (hero, letterhead, callout, card, badge, buttons, columns, timeline, steps, checklist, stats, bars, compare, line items and more) under per-document switches (`data-accent`, `doc--editorial`, `doc--compact`), never from hand-written CSS.
+
+  `@schlessera/brain-render-template` exports the component list and snippets (`DOCUMENT_CLASSES`, `DOCUMENT_BLOCKS`), `lintDocument`, and eight document kinds with a skeleton each under `@schlessera/brain-render-template/kinds`. A complete HTML document is no longer nested inside the shell: the stylesheet is injected into its `<head>` under the author's own rules, and `<meta name="brain-render" content="bare">` opts out. The package now depends on `parse5`, which reads documents and fragments the way the browser does. `@schlessera/brain-render-puppeteer` takes page size and margins from the document's `@page` rule. Pointing `PUPPETEER_EXECUTABLE_PATH` at `chrome-headless-shell` renders in about half the time of full Chrome.
+
+  `brain render` adds `--kind list`, `--kind <kind> --scaffold`, `--blocks [name…]` and `--no-running-title`, and its JSON envelope adds `pages` and `warnings`. The `generate-pdf` skill is rewritten around picking a kind, scaffolding, filling and rendering until there are no warnings; `plan-travel` renders its day plans as the `itinerary` kind.
+
+- 806d061: Archiving through `brain_update` (MCP and the pi backend) now applies the same relevance rule as `brain archive`: setting `status: "archived"` turns a `primary` or missing relevance into `historical`, and the result's `changes` lists `"relevance"`. The rule reads the effective relevance, so a `primary` passed in the same call is demoted too, and an explicit `secondary` or `historical` (in the document or in the call) stays. Before, a status edit left the document claiming `primary`, and `brain validate` then warned about a state the product had written. The rule is exported from `@schlessera/brain` as `relevanceOnArchive`. The conference-aftermath skill now archives with `brain archive` instead of setting `status: archived` by hand.
+- Updated dependencies [1751c05]
+- Updated dependencies [ee55f82]
+- Updated dependencies [6757475]
+- Updated dependencies [e2325b2]
+- Updated dependencies [3c2b20e]
+- Updated dependencies [3bcb130]
+- Updated dependencies [8c6a3f5]
+- Updated dependencies [9ce7d84]
+- Updated dependencies [61d2869]
+- Updated dependencies [93e12bd]
+- Updated dependencies [8c97273]
+- Updated dependencies [60e9fbd]
+- Updated dependencies [bad7650]
+- Updated dependencies [0268bf1]
+- Updated dependencies [7668c7c]
+- Updated dependencies [3c1310c]
+- Updated dependencies [a57da97]
+- Updated dependencies [25e4911]
+- Updated dependencies [00391fd]
+- Updated dependencies [c7aed00]
+- Updated dependencies [2ed2d21]
+- Updated dependencies [a554aa7]
+- Updated dependencies [e499c82]
+- Updated dependencies [e89de6e]
+- Updated dependencies [968d151]
+- Updated dependencies [1c30db2]
+- Updated dependencies [995ed30]
+- Updated dependencies [d176c64]
+- Updated dependencies [5bef3b7]
+- Updated dependencies [ff9ebc2]
+- Updated dependencies [6b30469]
+- Updated dependencies [5d9a179]
+- Updated dependencies [55fe04c]
+- Updated dependencies [a59b3b1]
+- Updated dependencies [548561f]
+- Updated dependencies [2fac781]
+- Updated dependencies [48377ab]
+- Updated dependencies [6f9ab3b]
+- Updated dependencies [82f6b55]
+- Updated dependencies [54b21fe]
+- Updated dependencies [5b9daa4]
+- Updated dependencies [2d59201]
+- Updated dependencies [8e5229a]
+- Updated dependencies [dd5e87f]
+- Updated dependencies [d1ad02b]
+- Updated dependencies [2b02102]
+- Updated dependencies [97baef6]
+- Updated dependencies [f82fc83]
+- Updated dependencies [9c53741]
+- Updated dependencies [8e84ba8]
+- Updated dependencies [d4b62d3]
+- Updated dependencies [acd47da]
+- Updated dependencies [faba978]
+- Updated dependencies [3b71a3a]
+- Updated dependencies [b5bf884]
+- Updated dependencies [ff023f6]
+- Updated dependencies [18c4495]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [51ad062]
+- Updated dependencies [7e5e363]
+- Updated dependencies [bc10acc]
+- Updated dependencies [2025590]
+- Updated dependencies [4224247]
+- Updated dependencies [5b8e614]
+- Updated dependencies [cc5b868]
+- Updated dependencies [cb19184]
+- Updated dependencies [48c4000]
+- Updated dependencies [7c513fb]
+- Updated dependencies [02b3d13]
+- Updated dependencies [2cb91e2]
+- Updated dependencies [4cdb0c3]
+- Updated dependencies [806d061]
+- Updated dependencies [532347f]
+- Updated dependencies [02b2c85]
+- Updated dependencies [803a496]
+  - @schlessera/brain@0.38.0
+
 ## 0.37.0
 
 ### Patch Changes

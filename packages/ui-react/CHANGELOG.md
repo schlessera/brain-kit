@@ -1,5 +1,33 @@
 # @schlessera/brain-ui-react
 
+## 0.38.0
+
+### Minor Changes
+
+- 0230c6c: The file viewer previews PDFs, audio and video inline instead of offering only a download. A PDF is drawn by pdf.js, one page per canvas down the panel, and tapping a page opens it in the zoom viewer. MP3 and WAV play in a native `<audio>` element, and MP4 and WebM in an inline `<video>`. A PDF, audio or video file the browser cannot open, or a PDF page it cannot draw, falls back to the "Preview not available" card, which any other binary still gets. The binary viewer picks its previewer from a table keyed by MIME type.
+
+  New config field `pdfWorkerUrl`: the URL of pdf.js's worker script, `pdfjs-dist/legacy/build/pdf.worker.min.mjs`, imported by the shell (with Vite, `?url`). Without it, or when it does not start a worker of the bundled pdf.js version, PDFs are parsed on the main thread. `@schlessera/brain-ui-react` now depends on `pdfjs-dist`.
+
+  The raw file route (`/api/files/content?raw=1`) answers a single byte range on a GET with `206 Partial Content`, and a range past the end with `416`. Every raw file response carries `Accept-Ranges: bytes`. iOS Safari plays video and audio only from a server that does this. `/api/files/content` now reports `.pdf`, `.mp3`, `.wav`, `.mp4` and `.webm` files as `binary` whatever their bytes: an uncompressed PDF is plain ASCII, and used to come back as `text`, with its source as the content.
+
+- fe0041f: A shared answer (PNG or PDF) now draws its answer blocks, in a new print theme, where before it contained only the message's markdown. `@schlessera/brain-ui-kit` adds `PRINT_TOKENS`, `printThemeCss()` and a `[data-theme="print"]` block in its stylesheet: a white ground, no washes, and borders that carry the structure. `@schlessera/brain-ui-react` renders each `show_block` block and each classified block to static HTML in the print theme, in the order the answer shows them. A message with no block shares exactly as before.
+
+### Patch Changes
+
+- Updated dependencies [8c1daaa]
+- Updated dependencies [aec3dd8]
+- Updated dependencies [a9094fb]
+- Updated dependencies [1d29fcd]
+- Updated dependencies [94fd8c9]
+- Updated dependencies [70a5502]
+- Updated dependencies [2d985ba]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [fe0041f]
+- Updated dependencies [4224247]
+  - @schlessera/brain-ui-sdk@0.38.0
+  - @schlessera/brain-ui-kit@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes

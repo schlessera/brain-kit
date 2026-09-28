@@ -1,5 +1,40 @@
 # @schlessera/brain-ui-server
 
+## 0.38.0
+
+### Minor Changes
+
+- 0230c6c: The file viewer previews PDFs, audio and video inline instead of offering only a download. A PDF is drawn by pdf.js, one page per canvas down the panel, and tapping a page opens it in the zoom viewer. MP3 and WAV play in a native `<audio>` element, and MP4 and WebM in an inline `<video>`. A PDF, audio or video file the browser cannot open, or a PDF page it cannot draw, falls back to the "Preview not available" card, which any other binary still gets. The binary viewer picks its previewer from a table keyed by MIME type.
+
+  New config field `pdfWorkerUrl`: the URL of pdf.js's worker script, `pdfjs-dist/legacy/build/pdf.worker.min.mjs`, imported by the shell (with Vite, `?url`). Without it, or when it does not start a worker of the bundled pdf.js version, PDFs are parsed on the main thread. `@schlessera/brain-ui-react` now depends on `pdfjs-dist`.
+
+  The raw file route (`/api/files/content?raw=1`) answers a single byte range on a GET with `206 Partial Content`, and a range past the end with `416`. Every raw file response carries `Accept-Ranges: bytes`. iOS Safari plays video and audio only from a server that does this. `/api/files/content` now reports `.pdf`, `.mp3`, `.wav`, `.mp4` and `.webm` files as `binary` whatever their bytes: an uncompressed PDF is plain ASCII, and used to come back as `text`, with its source as the content.
+
+- 0b4f955: The generated crontab gains a weekly base job, `hygiene` (Mondays 06:00). It runs `brain hygiene reconcile` through the same wrapper and `cron_runs` recording as `sync`, `validate` and `maintain`, so the content-hygiene log's backlog and last-run date keep moving without anyone running the skill. It edits no content. Set `BRAIN_UI_CRON_HYGIENE=off` to leave it out.
+- 564d7a1: A cron `sync` run whose `brain sync` exits non-zero is now recorded as an error in the run history and the job log, instead of as a success. `BrainClient.sync()` throws on a failed sync, like the client's other commands, and on success returns `{ message }` holding what `brain sync` printed. The `success`, `commits` and `conflicts` fields are gone: `brain sync` prints the agent's text, so nothing could fill them.
+- d350daa: Transient output now has a place inside the brain: the scratch area, `.brain/scratch/`. `brain render --scratch` and `brain image --scratch` write there, under a name unique to each run, and so does `brain render -` without `--out`. The chat UI can open anything written there, it is never committed, indexed or exported, and it is pruned after 7 days or past 1 GB (after each of these writes, by `brain maintain`, hourly by the chat server, and by the new `brain scratch clean|prune`). Nothing writes there until git excludes the directory itself (`brain doctor --fix` adds the line, new brains have it from the template, and outside a git repository the line is required all the same, read by git), nothing is written to or pruned from a `.brain` or `.brain/scratch` that is a symlink, and every write goes to a temporary sibling renamed onto its name, so it never writes through a planted link. That covers every one of brain's own transient writers, wherever it is pointed: `brain render --out`, `brain image --out`, `brain okf export --out`, and a mask requested beside a draft in scratch, which now prunes like the others.
+
+  Behaviour change: `brain render --out`, `brain image --out` and `brain okf export` never write through a symlink any more: a target whose entry is a link is refused, and every write goes to a temporary sibling renamed onto the name. `brain render` and `brain image` no longer accept paths under the system temp directory. A file there could not be opened from the UI. Use `--scratch` instead. `resolveWritable` now returns the path or `null`.
+
+  `brain scratch clean|prune --json` reports `failed: [{ path, reason }]` (additive) for files the OS would not remove, and exits 2 when there are any; `brain maintain` reports its scratch step as failed the same way. A replaced output file keeps its mode. `BrainUiApp.close()` now returns a promise that resolves once the scratch prune pass in flight, if any, has been killed and has exited; await it before tearing down.
+
+### Patch Changes
+
+- 4224247: Source comments, the `BRAIN_UI_CHROME_NO_SANDBOX` description, and the `generate-pdf` and `image-gen` skills no longer describe one particular deployment. They say what a deployment may or may not have instead.
+- Updated dependencies [8c1daaa]
+- Updated dependencies [aec3dd8]
+- Updated dependencies [a9094fb]
+- Updated dependencies [1c30db2]
+- Updated dependencies [1d29fcd]
+- Updated dependencies [94fd8c9]
+- Updated dependencies [70a5502]
+- Updated dependencies [2d985ba]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [4224247]
+  - @schlessera/brain-ui-sdk@0.38.0
+  - @schlessera/brain-render-template@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes

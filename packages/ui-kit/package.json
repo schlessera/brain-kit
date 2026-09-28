@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-kit",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "description": "brain-kit design kit: presentational React components, design tokens, and the Storybook that documents them",
   "license": "MIT",
   "keywords": [

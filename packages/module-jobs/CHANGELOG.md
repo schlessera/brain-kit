@@ -1,5 +1,103 @@
 # @schlessera/brain-module-jobs
 
+## 0.38.0
+
+### Minor Changes
+
+- 8e5229a: The job pipeline now lives in frontmatter. An opportunity's `status.md` records `stage` (`researching` to `offer`, or `closed`), `fit`, `applied`, `next_step` (with its date in `deadline`) and `closed_reason`.
+  - `brain jobs scaffold` writes `stage: researching`, `tags: [job-search]` and the research-opportunity section set.
+  - The `research-opportunity` and `interview-scheduled` skills set these fields instead of editing prose and the index table.
+  - New `brain jobs pipeline` gives the opportunities' `_index.md` a registry spec, with an Active and a Closed table by `stage`, and regenerates it. From then on `brain registry` and `brain maintain` keep it current. It refuses, with the file untouched, an index whose frontmatter it cannot extend safely, and a path outside the brain root.
+  - Two `jobs-stage` audit checks flag an opportunity without a stage and one still researching after 60 days.
+  - A registry `split` can now be `{ key, tables: { Label: [values] } }`, one table per label.
+  - `runRegistry` and `registrySpecSchema` are exported from `@schlessera/brain`.
+
+### Patch Changes
+
+- 12bed13: The Built In and NoDesk boards now read the company from each job card instead of storing it as `Unknown`. Built In reads the card's company link; NoDesk reads the result card's company heading and no longer takes a neighbouring card's company. Rows already stored pick up the company on the next scrape.
+- 35d8fe3: The reasons recorded for the jobs boards that are off by default no longer say "Cloudflare 403 or empty responses" for three boards where that is no longer true. `builtin` now gives the browser reason `nodesk` and `dice` give, `simplyhired` names the intermittent rate limiting that was measured, and `jobgether` names the robots.txt rule that limits a run to one page.
+- ddbaaa9: The `research-opportunity` and `interview-scheduled` skills now resolve the opportunity directory before writing, as `brain jobs scaffold` does: `taxonomy.types.opportunity.dir` from `brain config check --json`, else the module's `opportunitiesDir` from `brain config get`. They stop when the config is invalid or the module is not enabled, and every path they name goes through the resolved directory. A brain that moved its opportunities with `opportunitiesDir` no longer gets new files in `career/opportunities`.
+- 259c934: The NoDesk board no longer stores category pages such as `full-time-remote` as jobs. It reads only the title link of each result card, and waits for the result cards rather than the page's navigation before reading.
+- Updated dependencies [1751c05]
+- Updated dependencies [ee55f82]
+- Updated dependencies [6757475]
+- Updated dependencies [e2325b2]
+- Updated dependencies [3c2b20e]
+- Updated dependencies [3bcb130]
+- Updated dependencies [8c6a3f5]
+- Updated dependencies [9ce7d84]
+- Updated dependencies [61d2869]
+- Updated dependencies [93e12bd]
+- Updated dependencies [8c97273]
+- Updated dependencies [60e9fbd]
+- Updated dependencies [bad7650]
+- Updated dependencies [0268bf1]
+- Updated dependencies [7668c7c]
+- Updated dependencies [3c1310c]
+- Updated dependencies [a57da97]
+- Updated dependencies [25e4911]
+- Updated dependencies [00391fd]
+- Updated dependencies [c7aed00]
+- Updated dependencies [2ed2d21]
+- Updated dependencies [a554aa7]
+- Updated dependencies [e499c82]
+- Updated dependencies [e89de6e]
+- Updated dependencies [968d151]
+- Updated dependencies [1c30db2]
+- Updated dependencies [995ed30]
+- Updated dependencies [d176c64]
+- Updated dependencies [5bef3b7]
+- Updated dependencies [ff9ebc2]
+- Updated dependencies [6b30469]
+- Updated dependencies [5d9a179]
+- Updated dependencies [55fe04c]
+- Updated dependencies [a59b3b1]
+- Updated dependencies [548561f]
+- Updated dependencies [2fac781]
+- Updated dependencies [48377ab]
+- Updated dependencies [6f9ab3b]
+- Updated dependencies [82f6b55]
+- Updated dependencies [54b21fe]
+- Updated dependencies [5b9daa4]
+- Updated dependencies [2d59201]
+- Updated dependencies [8e5229a]
+- Updated dependencies [dd5e87f]
+- Updated dependencies [d1ad02b]
+- Updated dependencies [2b02102]
+- Updated dependencies [97baef6]
+- Updated dependencies [f82fc83]
+- Updated dependencies [9c53741]
+- Updated dependencies [8e84ba8]
+- Updated dependencies [d4b62d3]
+- Updated dependencies [acd47da]
+- Updated dependencies [faba978]
+- Updated dependencies [3b71a3a]
+- Updated dependencies [b5bf884]
+- Updated dependencies [ff023f6]
+- Updated dependencies [18c4495]
+- Updated dependencies [550a41e]
+- Updated dependencies [d350daa]
+- Updated dependencies [e4b5251]
+- Updated dependencies [51ad062]
+- Updated dependencies [7e5e363]
+- Updated dependencies [bc10acc]
+- Updated dependencies [2025590]
+- Updated dependencies [4224247]
+- Updated dependencies [5b8e614]
+- Updated dependencies [cc5b868]
+- Updated dependencies [cb19184]
+- Updated dependencies [48c4000]
+- Updated dependencies [7c513fb]
+- Updated dependencies [02b3d13]
+- Updated dependencies [2cb91e2]
+- Updated dependencies [4cdb0c3]
+- Updated dependencies [806d061]
+- Updated dependencies [532347f]
+- Updated dependencies [02b2c85]
+- Updated dependencies [803a496]
+  - @schlessera/brain@0.38.0
+  - @schlessera/brain-scrape@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes
