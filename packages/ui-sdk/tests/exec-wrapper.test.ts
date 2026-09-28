@@ -4,7 +4,7 @@
  * not a property an argv array can demonstrate.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -116,14 +116,7 @@ describe("aborting a wrapped spawn kills the process group", () => {
     });
 
     // Wait for the wrapper to have started its child.
-    const deadline = Date.now() + 10_000;
-    while (!existsSync(childPidFile) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    const childPid = Number(
-      (await Bun.file(childPidFile).text()).trim()
-    );
-    expect(Number.isInteger(childPid)).toBe(true);
+    const childPid = await childPidFrom(childPidFile);
     expect(alive(childPid)).toBe(true);
 
     // The wrapper saw the program as its own argument, unsplit.
@@ -158,6 +151,22 @@ describe("aborting a wrapped spawn kills the process group", () => {
 test("the environment variable name is the one the packages document", () => {
   expect(EXEC_WRAPPER_ENV).toBe("BRAIN_UI_EXEC_WRAPPER");
 });
+
+/**
+ * The pid the wrapper wrote, once it has written one. The shell creates the
+ * file when it opens the redirect and writes the pid after, so a file that
+ * exists can still be empty — and `Number("")` is 0, which `kill(0, 0)`
+ * reports alive for as long as this test's own process group lives.
+ */
+async function childPidFrom(path: string): Promise<number> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const text = existsSync(path) ? readFileSync(path, "utf-8").trim() : "";
+    if (/^[1-9]\d*$/.test(text)) return Number(text);
+    if (Date.now() > deadline) throw new Error(`no pid in ${path} after 10 s`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 /** `kill -0`: is this pid still there? */
 function alive(pid: number): boolean {
@@ -200,11 +209,7 @@ describe("the cancellation helper", () => {
       ...execWrapperSpawnOptions(wrapper),
     });
 
-    const deadline = Date.now() + 10_000;
-    while (!existsSync(childPidFile) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    const childPid = Number((await Bun.file(childPidFile).text()).trim());
+    const childPid = await childPidFrom(childPidFile);
     expect(alive(childPid)).toBe(true);
 
     killWrapped(proc, { wrapper, killer });
