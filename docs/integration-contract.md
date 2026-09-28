@@ -342,9 +342,8 @@ partition one another:
   the previous tables. The JSON alone does not tell those two apart.
 
 `brain stats --json` grew two nested blocks in 0.37.0. Nothing was removed or
-renamed, so a consumer reading only the flat counts other than `embeddings`
-needs no change. The PWA's `/stats` answer types the whole shape, `embeddings`
-as nullable (`CorpusStats`, `packages/ui-react/src/lib/api-client.ts`).
+renamed, so a consumer reading only the flat counts other than `embeddings` (as
+`packages/ui-react/src/lib/api-client.ts` does) needs no change.
 
 One flat count changed in 0.37.0, and it is the one breaking change in this
 shape: `embeddings`, which was a `number` and is now `number | null`.
