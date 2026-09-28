@@ -254,8 +254,22 @@ class Merge {
     }
     const timeline = this.strategy === "timeline-append" && isTimelineHeading(ours.path[ours.path.length - 1] ?? "");
     const units = timeline ? this.timeline(base, ours, theirs, context) : this.blocks(base, ours, theirs, context);
-    const text = emitSection(ours.heading, ours.lead, units);
+    const heading = this.written(`section "${context}"`, "heading", base?.heading ?? null, ours.heading, theirs.heading);
+    const text = emitSection(heading, ours.lead, units);
     return { key: ours.key, norm: normalizeText(text), text, section: ours };
+  }
+
+  /**
+   * One line of source both versions key the same way (a heading, a table's
+   * header): the key reads it as a reader sees it, so a new link target or
+   * markup leaves it aligned but is still a change. Three-way by the bytes;
+   * both changed, or both wrote it differently with no base, keeps OURS.
+   */
+  private written(context: string, what: string, base: string | null, ours: string, theirs: string): string {
+    if (ours === theirs || theirs === base) return ours;
+    if (ours === base) return theirs;
+    this.notes.push(`${context}: both sides wrote the ${what} differently; kept ours: "${snippet(ours)}" / "${snippet(theirs)}"`);
+    return ours;
   }
 
   private blocks(base: Section | null, ours: Section, theirs: Section, context: string): Unit[] {
@@ -309,26 +323,29 @@ class Merge {
   private table(base: Unit | null, ours: Unit, theirs: Unit, context: string): Unit {
     const header = ours.table!.header;
     const updatedColumn = header.findIndex((cell) => nameKey(cell) === "updated");
+    // A row is its key and which of that key's rows it is, as a tuple: a
+    // spelled-out `a#1` would be the second `a` and the first `a#1` at once.
     const keyed = (rows: TableRow[] = []) => {
       const byKey = new Map<string, TableRow>();
       const seen = new Map<string, number>();
       for (const row of rows) {
         const n = seen.get(row.key) ?? 0;
         seen.set(row.key, n + 1);
-        byKey.set(n === 0 ? row.key : `${row.key}#${n}`, row);
+        byKey.set(JSON.stringify([row.key, n]), row);
       }
       return byKey;
     };
     const B = keyed(base?.rows);
     const O = keyed(ours.rows);
     const T = keyed(theirs.rows);
-    const same = (a?: TableRow, b?: TableRow) => (a && b ? JSON.stringify(a.cells) === JSON.stringify(b.cells) : a === b);
+    // Cells as written: a new link target changes a row even where its text does not.
+    const same = (a?: TableRow, b?: TableRow) => (a && b ? JSON.stringify(a.source) === JSON.stringify(b.source) : a === b);
 
     const resolveRow = (key: string): TableRow[] => {
       const b = B.get(key);
       const o = O.get(key);
       const t = T.get(key);
-      const label = `${context} > ${header.join(" | ")} > ${(o ?? t)?.cells[0] ?? key}`;
+      const label = `${context} > ${header.join(" | ")} > ${(o ?? t)?.cells[0] ?? ""}`;
       if (o && t) {
         if (same(o, t) || same(t, b)) return [o];
         if (same(o, b)) return [t];
@@ -354,7 +371,8 @@ class Merge {
 
     const rows = [...O.keys()].flatMap(resolveRow);
     for (const key of T.keys()) if (!O.has(key)) rows.push(...resolveRow(key));
-    const text = [ours.table!.head, ...rows.map((row) => row.text)].join("\n");
+    const head = this.written(`${context} > ${header.join(" | ")}`, "table header", base?.table?.head ?? null, ours.table!.head, theirs.table!.head);
+    const text = [head, ...rows.map((row) => row.text)].join("\n");
     return { ...ours, text, norm: normalizeText(text), origin: null, rows };
   }
 

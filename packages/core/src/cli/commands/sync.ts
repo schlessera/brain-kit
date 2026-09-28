@@ -40,13 +40,17 @@ structured result use \`brain sync run --json\`.
 
   run          The whole sync: stash, assess --fix, commit, pull, resolve,
                conclude, push (re-pulling up to 3 times), post-sync.
-               Exit 0 complete, 3 needs-judgment (nothing pushed), 1 failed
+               Exit 0 complete, 3 needs-judgment (an open conflict or conflict
+               markers in HEAD push nothing), 1 failed
   assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|MEDIA|LARGE|UNKNOWN;
                MEDIA and LARGE carry their size in bytes)
-    --fix      Also ignore ARTIFACT and SENSITIVE files in one .gitignore
-               commit, and ask the judge about UNKNOWN files when it is on
+    --fix      Also ignore ARTIFACT files and unmistakable secrets (.env,
+               .env.*, *.key, *.pem) in one .gitignore commit, hold other
+               SENSITIVE files back as UNKNOWN, and ask the judge about
+               UNKNOWN files when it is on
   group        Group tracked changes by taxonomy domain
-  commit       Commit TRACK files, one commit per domain, bumping \`updated\`
+  commit       Commit TRACK files, one commit per domain, bumping \`updated\`;
+               a file holding conflict markers is left uncommitted (exit 1)
     --plan     Print the commit plan as JSON and change nothing
     --plan-file <path>  Apply an edited plan (messages as given, files checked)
   stash        Drop stash entries the tree already holds; pop a clean autostash
@@ -308,8 +312,9 @@ export const syncCommand: CoreCommand = {
           for (const c of result.commits) console.log("sha" in c ? `COMMIT=${c.sha} ${c.subject}` : `FAILED=${c.subject}: ${c.error}`);
           for (const b of result.bumped) console.log(`BUMPED=${b}`);
           for (const r of result.refused) console.log(`NOT_BUMPED=${r}`);
+          for (const c of result.conflicted) console.log(`CONFLICT_MARKERS=${c}`);
         });
-        return result.commits.some((c) => "error" in c) ? 1 : 0;
+        return result.commits.some((c) => "error" in c) || result.conflicted.length > 0 ? 1 : 0;
       }
 
       case "stash": {

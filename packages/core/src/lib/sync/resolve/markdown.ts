@@ -52,6 +52,8 @@ export interface TableRow {
   text: string;
   /** Each cell as a reader sees it. */
   cells: string[];
+  /** Each cell as written, trimmed: what "unchanged" compares, so a new link target is a change. */
+  source: string[];
   /** The first cell, normalized: what the row is keyed by. */
   key: string;
 }
@@ -133,9 +135,12 @@ function span(node: MdNode): [number, number] | null {
   return start === undefined || end === undefined ? null : [start, end];
 }
 
-/** Lines stripped of trailing blanks: a trailing space never changes what a block says. */
+/**
+ * Lines stripped of trailing blanks, except that two or more spaces before a
+ * line ending stay as two: that is a hard line break, which a reader sees.
+ */
 export function normalizeText(text: string): string {
-  return text.replace(/[ \t]+$/gm, "").replace(/\s+$/, "");
+  return text.replace(/[ \t]+$/gm, (blanks) => (/ {2}$/.test(blanks) ? "  " : "")).replace(/\s+$/, "");
 }
 
 /** A heading or cell as a reader sees it: markup resolved, wiki-links read as their label. */
@@ -155,6 +160,12 @@ function visibleText(node: MdNode): string {
 function rowKey(cell: MdNode): string {
   const text = mdastToString(cell, { includeHtml: false }).replace(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g, "$1");
   return nameKey(text);
+}
+
+/** A cell's source without its pipes: `| [a](b) |` is `[a](b)`. */
+function cellSource(body: string, cell: MdNode): string {
+  const r = span(cell);
+  return r ? body.slice(r[0], r[1]).replace(/^\|/, "").replace(/(?<!\\)\|$/, "").trim() : "";
 }
 
 function listMarker(body: string, item: MdNode, ordered: boolean): string {
@@ -203,8 +214,9 @@ function piecesOf(body: string, node: MdNode, tables: ParseOptions["tables"]): P
       if (!r) continue;
       const rowStart = lineStart(body, r[0]);
       const cells = (row.children ?? []).map(visibleText);
+      const source = (row.children ?? []).map((cell) => cellSource(body, cell));
       const text = body.slice(rowStart, trimEndOffset(body, rowStart, r[1]));
-      bodyRows.push({ text, cells, key: row.children?.[0] ? rowKey(row.children[0]) : "" });
+      bodyRows.push({ text, cells, source, key: row.children?.[0] ? rowKey(row.children[0]) : "" });
       rowPieces.push({ kind: "row", start: rowStart, end: r[1], extra: { table: shape, cells } });
     }
     if (tables === "whole") {
@@ -239,12 +251,64 @@ function topNodes(body: string): MdNode[] {
   return ((parser.parse(body) as MdNode).children ?? []).filter((node) => span(node) !== null);
 }
 
-/** The visible text of every top-level heading in `text` (frontmatter skipped). */
+/**
+ * `read` run on a side's body, with the parser's recursion limit as an
+ * `UnparseableError`: mdast walks nest one call per level, so a body nested
+ * a few thousand blockquotes deep overflows the stack.
+ */
+function withinDepth<T>(label: string, read: () => T): T {
+  try {
+    return read();
+  } catch (e) {
+    if (e instanceof RangeError) throw new UnparseableError(`${label}: the body nests too deeply to parse`);
+    throw e;
+  }
+}
+
+/**
+ * The visible text of every top-level heading in `text` (frontmatter
+ * skipped). Throws `UnparseableError` when the body nests too deeply to parse.
+ */
 export function headingTexts(text: string): string[] {
   const body = text.slice(frontmatterLength(text));
-  return topNodes(body)
-    .filter((node) => node.type === "heading")
-    .map(visibleText);
+  return withinDepth("text", () =>
+    topNodes(body)
+      .filter((node) => node.type === "heading")
+      .map(visibleText)
+  );
+}
+
+/** Frontmatter nested deeper than this is left for a human. */
+export const MAX_FRONTMATTER_DEPTH = 64;
+/** Nor one whose aliases expand it past this many values ("billion laughs"). */
+export const MAX_FRONTMATTER_VALUES = 100_000;
+
+/**
+ * Why a frontmatter value cannot be merged, or null when it can. YAML
+ * aliases make the parsed value a graph: `x: &x [*x]` contains itself, and
+ * every recursive walk of it (comparison, the serializer) would never end;
+ * and aliases of aliases can expand a short block into billions of values.
+ * Walked with an explicit stack, so the check itself cannot overflow.
+ */
+function unsupportedStructure(data: Record<string, unknown>): string | null {
+  const stack: { value: unknown; depth: number; exit?: true }[] = [{ value: data, depth: 0 }];
+  const open = new Set<unknown>();
+  let values = 0;
+  while (stack.length > 0) {
+    const { value, depth, exit } = stack.pop()!;
+    if (exit) {
+      open.delete(value);
+      continue;
+    }
+    if (++values > MAX_FRONTMATTER_VALUES) return `frontmatter expands to more than ${MAX_FRONTMATTER_VALUES} values through YAML aliases`;
+    if (!value || typeof value !== "object" || value instanceof Date) continue;
+    if (open.has(value)) return "frontmatter refers to itself through a YAML alias";
+    if (depth > MAX_FRONTMATTER_DEPTH) return `frontmatter nests deeper than ${MAX_FRONTMATTER_DEPTH} levels`;
+    open.add(value);
+    stack.push({ value, depth, exit: true });
+    for (const child of Object.values(value)) stack.push({ value: child, depth: depth + 1 });
+  }
+  return null;
 }
 
 /** True when a heading's text names the timeline section. */
@@ -330,7 +394,10 @@ function foldTimelines(sections: Section[]): Section[] {
   return out;
 }
 
-/** Parse one side. Throws `UnparseableError` when its frontmatter is not a YAML map. */
+/**
+ * Parse one side. Throws `UnparseableError` when its frontmatter is not a
+ * YAML map, or is one no comparison can walk, or its body nests too deeply.
+ */
 export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
   const length = frontmatterLength(raw);
   let data: Record<string, unknown> = {};
@@ -347,9 +414,11 @@ export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
       throw new UnparseableError(`${side}: frontmatter is not a map of fields`);
     }
     data = parsed as Record<string, unknown>;
+    const unsupported = unsupportedStructure(data);
+    if (unsupported) throw new UnparseableError(`${side}: ${unsupported}`);
   }
   const body = raw.slice(length);
-  const sections = sectionize(body, side, opts);
+  const sections = withinDepth(side, () => sectionize(body, side, opts));
   for (const section of sections) {
     const rebuilt = section.heading + section.lead + section.units.map((unit) => unit.text + unit.sep).join("");
     if (rebuilt !== section.text) {

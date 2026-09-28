@@ -9,7 +9,7 @@ import { resolve } from "path";
 
 import { classifyPostSyncDirt, DERIVED_CACHES, workingTreeDirt } from "./assess.js";
 import { git, isAncestor, unmergedPaths } from "./git.js";
-import { conclude, pendingState, rememberStash, type PendingKind } from "./merge-state.js";
+import { conclude, foreignReason, pendingState, rememberStash, type PendingKind } from "./merge-state.js";
 
 /** What `brain sync pull` reports. */
 export interface PullEnvelope {
@@ -191,8 +191,9 @@ function mergeOriginMain(root: string): PullPass {
 /**
  * `pull` after its fetch. Merge state already pending when it runs is dealt
  * with first (#328): a rebase, cherry-pick, revert or am is never touched,
- * nor is a merge or squash with nothing unmerged, which is its owner's to
- * commit; unmerged derived caches are unioned from their stages, as in a merge this
+ * nor is a merge or squash a sync did not start (`foreignReason`, judged
+ * against origin/main as just fetched), nor one with nothing unmerged, which
+ * is its owner's to commit; unmerged derived caches are unioned from their stages, as in a merge this
  * pull starts; any other unmerged path is reported for resolution before a
  * merge is tried, since git would refuse one over it. With nothing left
  * unmerged the pending state is finished by its kind (`conclude`).
@@ -206,6 +207,12 @@ function pullOriginMain(root: string): { pass: PullPass; concluded: PendingKind 
   if (pending.kind === "blocked") {
     const reason = `a ${pending.blocker} is in progress`;
     return { pass: { status: "merge-failed", conflicts: [], mergedCaches: [], reason }, concluded: null };
+  }
+
+  // Not even its caches are touched: their stages are the owner's.
+  if (pending.kind === "merge" || pending.kind === "squash") {
+    const reason = foreignReason(root, pending.kind);
+    if (reason) return { pass: { status: "merge-failed", conflicts: [], mergedCaches: [], reason }, concluded: null };
   }
 
   // A merge or squash with nothing unmerged is its owner's to commit (a

@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conclude, pendingState } from "../src/lib/sync/merge-state.js";
@@ -84,16 +84,28 @@ describe("pendingState and conclude", () => {
     return root;
   }
 
-  /** A branch `side` and `main` that both edited `NOTE`, with main checked out. */
+  /**
+   * A branch `side` and `main` that both edited `NOTE`, with main checked out.
+   * `side` is also origin/main as a pull fetched it, so a merge of it is a
+   * sync's; `feature`, which origin/main lacks, edits `NOTE` too.
+   */
   function diverged(): string {
     const root = repo();
-    git(root, "switch", "-q", "-c", "side");
+    git(root, "switch", "-q", "-c", "feature");
+    write(root, NOTE, "# Ranger log\n\nTrail open, feature branch.\n");
+    commitAll(root, "feature edit");
+    git(root, "switch", "-q", "-c", "side", "main");
     write(root, NOTE, "# Ranger log\n\nTrail closed for rockfall.\n");
     commitAll(root, "side edit");
+    git(root, "update-ref", "refs/remotes/origin/main", "side");
     git(root, "switch", "-q", "main");
     write(root, NOTE, "# Ranger log\n\nTrail open, bridge repaired.\n");
     commitAll(root, "main edit");
     return root;
+  }
+
+  function staged(root: string, file: string): string {
+    return git(root, "show", `:${file}`);
   }
 
   /** A `git stash pop` that conflicts on `NOTE`, as after a pull moved it. */
@@ -202,6 +214,81 @@ describe("pendingState and conclude", () => {
     expect(pendingState(root).kind).toBe("none");
     expect(conclude(root).outcome).toBe("nothing");
     expect(git(root, "diff", "--cached", "--name-only")).toBe("staged.md");
+  });
+
+  test("a merge someone started of a branch origin/main lacks is blocked, never committed", () => {
+    const root = diverged();
+    expect(gitMayFail(root, "merge", "feature", "--no-edit")).not.toBe(0);
+    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    git(root, "add", NOTE);
+    const head = git(root, "rev-parse", "HEAD");
+
+    const done = conclude(root);
+    expect(done.outcome).toBe("blocked");
+    expect(done.kind).toBe("merge");
+    expect(done.detail).toContain("which is not in origin/main");
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+    expect(hasRef(root, "MERGE_HEAD")).toBe(true);
+  });
+
+  test("a squash of a branch origin/main lacks is blocked, read from the commits SQUASH_MSG names", () => {
+    const root = diverged();
+    expect(gitMayFail(root, "merge", "--squash", "feature")).not.toBe(0);
+    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    git(root, "add", NOTE);
+    const head = git(root, "rev-parse", "HEAD");
+    // The format `incoming` reads: a `commit <sha>` header at column 0.
+    const msg = readFileSync(join(root, ".git", "SQUASH_MSG"), "utf-8");
+    expect(msg).toContain(`\ncommit ${git(root, "rev-parse", "feature")}\n`);
+
+    const done = conclude(root);
+    expect(done.outcome).toBe("blocked");
+    expect(done.detail).toContain("which is not in origin/main");
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("a sync's merge with a secret staged beside it is blocked, and the secret stays staged", () => {
+    const root = diverged();
+    gitMayFail(root, "merge", "side", "--no-edit");
+    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, ".env", "TOKEN=synthetic\n");
+    git(root, "add", NOTE, ".env");
+    const head = git(root, "rev-parse", "HEAD");
+
+    const done = conclude(root);
+    expect(done.outcome).toBe("blocked");
+    expect(done.detail).toContain("the index stages .env, which origin/main does not hold");
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+    expect(staged(root, ".env")).toBe("TOKEN=synthetic");
+  });
+
+  test("a sync's merge with other work staged beside it is blocked: a commit would take the whole index", () => {
+    const root = diverged();
+    gitMayFail(root, "merge", "side", "--no-edit");
+    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, "notes/private.md", "# Private\n");
+    git(root, "add", NOTE, "notes/private.md");
+    const head = git(root, "rev-parse", "HEAD");
+
+    const done = conclude(root);
+    expect(done.outcome).toBe("blocked");
+    expect(done.detail).toContain("the index stages notes/private.md beside the merge");
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("a stash leftover whose staged resolution the working file no longer has fails, and nothing is unstaged", () => {
+    const root = stashPopConflict();
+    expect(conclude(root).outcome).toBe("unresolved");
+    const resolution = "# Ranger log\n\nTrail open, both notes.\n";
+    write(root, NOTE, resolution);
+    git(root, "add", NOTE);
+    write(root, NOTE, "# Ranger log\n\nEdited again, not staged.\n");
+
+    const done = conclude(root);
+    expect(done.outcome).toBe("failed");
+    expect(done.detail).toContain(`no longer has the version staged for ${NOTE}`);
+    expect(staged(root, NOTE)).toBe(resolution.trimEnd());
+    expect(pendingState(root)).toEqual({ kind: "stash", unmerged: [], stashPaths: [NOTE] });
   });
 
   const blockers: [label: string, blocker: string, start: (root: string) => void][] = [
@@ -456,6 +543,57 @@ describe("sync pull over state that was already pending", () => {
         expect(originInHead(root)).toBe(true);
       }
     }
+  });
+
+  /**
+   * `git merge feature`, started by hand, where `feature` is a local branch
+   * origin/main lacks: it conflicts only on the cache, and `.env` is staged
+   * beside it. HEAD before the merge is returned.
+   */
+  function foreignCacheMerge(root: string): string {
+    git(root, "switch", "-q", "-c", "feature");
+    write(root, CACHE, '{"k":"a","v":"feature"}\n{"k":"b","v":"base"}\n');
+    write(root, "notes/feature.md", "# Feature\n");
+    commitAll(root, "feature work");
+    git(root, "switch", "-q", "main");
+    write(root, CACHE, '{"k":"a","v":"main"}\n{"k":"b","v":"base"}\n');
+    commitAll(root, "main cache");
+    const head = git(root, "rev-parse", "HEAD");
+    expect(gitMayFail(root, "merge", "feature", "--no-edit")).not.toBe(0);
+    expect(unmerged(root)).toBe(CACHE);
+    write(root, ".env", "TOKEN=synthetic\n");
+    git(root, "add", ".env");
+    return head;
+  }
+
+  test("a merge the user started, with only a cache conflict, is merge-failed and untouched: not concluded, not unioned", async () => {
+    const { root } = brainWithRemote();
+    const head = foreignCacheMerge(root);
+
+    const { code, body } = await pull(root);
+    expect(body.status).toBe("merge-failed");
+    expect(body.reason).toContain("which is not in origin/main");
+    expect(body.concluded).toBe(null);
+    expect(code).toBe(1);
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+    expect(unmerged(root)).toBe(CACHE);
+    expect(git(root, "show", ":.env")).toBe("TOKEN=synthetic");
+  });
+
+  test("sync run over a merge the user started and finished resolving pushes nothing", async () => {
+    const { root, remote } = brainWithRemote();
+    const head = foreignCacheMerge(root);
+    write(root, CACHE, '{"k":"a","v":"main"}\n{"k":"b","v":"base"}\n');
+    git(root, "add", CACHE);
+    const remoteMain = git(remote, "rev-parse", "main");
+
+    const result = await runCli(root, ["sync", "run", "--json"]);
+    const body = JSON.parse(result.stdout);
+    expect(git(remote, "rev-parse", "main")).toBe(remoteMain);
+    expect(git(root, "rev-parse", "HEAD")).toBe(head);
+    expect(git(root, "show", ":.env")).toBe("TOKEN=synthetic");
+    expect(body.status).toBe("failed");
+    expect(body.reason).toContain("which is not in origin/main");
   });
 
   test("a squash git stopped before committing is not merged over: merge-failed with a reason, and it stays a squash", async () => {

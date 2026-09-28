@@ -28,7 +28,17 @@ import {
   type IgnoreCommit,
   type IgnoreReason,
 } from "./artifacts.js";
-import { ARTIFACT_PATTERNS, assess, DERIVED_CACHES, domainFor, SENSITIVE_PATTERNS } from "./assess.js";
+import { matchesAnyPattern } from "../tool-leftovers.js";
+import {
+  ARTIFACT_PATTERNS,
+  assess,
+  conflictMarked,
+  DERIVED_CACHES,
+  domainFor,
+  hasConflictMarkers,
+  SENSITIVE_PATTERNS,
+  UNAMBIGUOUS_SENSITIVE_PATTERNS,
+} from "./assess.js";
 import {
   applyCommitPlan,
   bumpUpdated,
@@ -43,7 +53,7 @@ import { conclude, pendingState, type Conclusion } from "./merge-state.js";
 import { pull, type PullEnvelope } from "./pull.js";
 import { renderReport } from "./report.js";
 import { planMerge, type MergeInput } from "./resolve/plan.js";
-import { strategyFor } from "./resolve/strategy.js";
+import { strategyFor, type MergeSides } from "./resolve/strategy.js";
 import { reconcileStashes, type StashReport } from "./stash.js";
 import type { FileDecision, MergeStrategy, PairDecision, UnknownFile } from "./types.js";
 
@@ -96,6 +106,11 @@ export interface AssessFixEnvelope {
     trackedArtifacts: { path: string; reason: IgnoreReason }[];
     /** UNKNOWN files the judge decided, at or above its line. */
     judged: { path: string; decision: FileDecision; confidence: number }[];
+    /**
+     * SENSITIVE files whose name only may be a secret's (`*_token*` also
+     * names notes): made UNKNOWN, so neither ignored nor committed, with why.
+     */
+    heldBack: { path: string; reason: string }[];
     /** Planned paths git still does not ignore. */
     notIgnored: string[];
     /** Why nothing was written, when `.gitignore` could not be changed safely. */
@@ -123,8 +138,10 @@ function readHead(root: string, path: string): { head: string; bytes: number } |
 /**
  * `assess`, then settle what it can: an UNKNOWN file the judge calls an
  * artifact is ignored by its exact path, one it calls content becomes TRACK,
- * and any other stays UNKNOWN. ARTIFACT and SENSITIVE files are ignored
- * (`planIgnores` / `applyIgnores`), all in one `.gitignore` commit.
+ * and any other stays UNKNOWN. ARTIFACT files and SENSITIVE files whose name
+ * settles it (`UNAMBIGUOUS_SENSITIVE_PATTERNS`) are ignored (`planIgnores` /
+ * `applyIgnores`), all in one `.gitignore` commit. Any other SENSITIVE file
+ * becomes UNKNOWN, held back for someone to decide; the judge never sees it.
  */
 export async function assessFix(env: SyncEnv): Promise<AssessFixEnvelope> {
   const { root } = env;
@@ -144,6 +161,13 @@ export async function assessFix(env: SyncEnv): Promise<AssessFixEnvelope> {
     file.class = judgment.decision === "artifact" ? "ARTIFACT" : "TRACK";
     judged.push({ path: file.path, decision: judgment.decision, confidence: judgment.confidence });
   }
+  const heldBack: AssessFixEnvelope["fixed"]["heldBack"] = [];
+  for (const file of files) {
+    if (file.class !== "SENSITIVE" || matchesAnyPattern(file.path, UNAMBIGUOUS_SENSITIVE_PATTERNS)) continue;
+    file.class = "UNKNOWN";
+    const pattern = SENSITIVE_PATTERNS.find((p) => matchesAnyPattern(file.path, [p]));
+    heldBack.push({ path: file.path, reason: `its name matches ${pattern}, so it may be a secret: not ignored, not committed` });
+  }
 
   const plan = planIgnores(files, { artifact: ARTIFACT_PATTERNS, sensitive: SENSITIVE_PATTERNS });
   const applied = applyIgnores(root, plan);
@@ -152,6 +176,7 @@ export async function assessFix(env: SyncEnv): Promise<AssessFixEnvelope> {
     committed: applied.commit,
     trackedArtifacts: plan.tracked,
     judged,
+    heldBack,
     notIgnored: applied.notIgnored,
   };
   if (applied.refused !== undefined) fixed.refused = applied.refused;
@@ -168,14 +193,25 @@ export interface CommitEnvelope {
   bumped: string[];
   /** Files whose `updated` could not be set without rewriting other frontmatter. */
   refused: string[];
+  /** TRACK files left uncommitted because they hold a conflict-marker block. */
+  conflicted: string[];
 }
 
-/** The TRACK files of an assessment as `group` lists them, and the set a plan may commit. */
-export function trackedGroups(env: SyncEnv, files: AssessedFile[]): { groups: GroupedFile[]; allowed: Set<string> } {
-  const groups = files
-    .filter((file) => file.class === "TRACK")
+/**
+ * The TRACK files of an assessment as `group` lists them, and the set a plan
+ * may commit. A file holding a conflict-marker block is in neither: it is
+ * returned as `conflicted`, never committed.
+ */
+export function trackedGroups(
+  env: SyncEnv,
+  files: AssessedFile[]
+): { groups: GroupedFile[]; allowed: Set<string>; conflicted: string[] } {
+  const track = files.filter((file) => file.class === "TRACK");
+  const conflicted = new Set(conflictMarked(env.root, track.filter((file) => file.status !== "D").map((file) => file.path)));
+  const groups = track
+    .filter((file) => !conflicted.has(file.path))
     .map((file) => ({ domain: domainFor(file.path, env.taxonomy), status: file.status, path: file.path }));
-  return { groups, allowed: new Set(groups.map((group) => group.path)) };
+  return { groups, allowed: new Set(groups.map((group) => group.path)), conflicted: [...conflicted] };
 }
 
 /** The plan `commit` would apply to `files`, changing nothing (`commit --plan`). */
@@ -188,15 +224,16 @@ export function planTracked(env: SyncEnv, files: AssessedFile[]): CommitPlan {
  * changed, then one commit per domain (`planCommits`). With `plan`, that plan
  * is applied instead, its messages as given and its files checked against the
  * TRACK set; `updated` is bumped only when every file it names is in that set.
+ * A file holding conflict markers is left out of the TRACK set (`trackedGroups`).
  */
 export function commitTracked(env: SyncEnv, files: AssessedFile[], plan?: CommitPlan): CommitEnvelope {
-  const { groups, allowed } = trackedGroups(env, files);
+  const { groups, allowed, conflicted } = trackedGroups(env, files);
   const planned = plan ? plan.commits.flatMap((commit) => commit.files) : groups;
   const bump = planned.every((file) => allowed.has(file.path))
     ? bumpUpdated(env.root, planned, env.today)
     : { bumped: [], refused: [] };
   const commits = applyCommitPlan(env.root, plan ?? planCommits(env.root, groups), allowed);
-  return { commits, bumped: bump.bumped, refused: bump.refused };
+  return { commits, bumped: bump.bumped, refused: bump.refused, conflicted };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,12 +277,16 @@ function taken(root: string, path: string): boolean {
  * (`strategyFor` → `planMerge`). The passage pairs of all files go to the
  * judge in one call; a pair it does not decide keeps both sides, newer first.
  * A resolved file is written and staged (a deleted one removed); an unresolved
- * one is left exactly as git left it. Nothing is committed.
+ * one is left exactly as git left it. Nothing is committed. A strategy that
+ * throws leaves its file unresolved with the error as the reason; nothing
+ * here throws into the run.
  */
 export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
   const { root } = env;
   const envelope: ResolveEnvelope = { status: "resolved", resolved: [], unresolved: [], skipped: [], judge: env.judge.report() };
-  const files: { input: MergeInput; strategy: MergeStrategy }[] = [];
+  const files: { input: MergeInput; strategy: MergeStrategy; pairs: ReturnType<typeof planMerge>["pairs"] }[] = [];
+  const failed = (path: string, strategy: MergeStrategy, e: unknown) =>
+    envelope.unresolved.push({ path, strategy, reason: `the ${strategy} merge failed: ${(e as Error)?.message ?? String(e)}` });
   for (const path of unmergedPaths(root)) {
     if (DERIVED_CACHES.has(path)) {
       envelope.skipped.push({ path, reason: "a derived cache: pull merges it by key" });
@@ -258,21 +299,28 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
       theirs: stage(root, 3, path),
       exists: (candidate) => taken(root, candidate),
     };
-    files.push({ input, strategy: strategyFor(path, env.taxonomy, input) });
+    let strategy: MergeStrategy = "code-merge";
+    try {
+      strategy = strategyFor(path, env.taxonomy, input);
+      // Planned once here to collect its pairs; one that throws goes no further.
+      files.push({ input, strategy, pairs: planMerge(input, strategy).pairs });
+    } catch (e) {
+      failed(path, strategy, e);
+    }
   }
 
-  const pairs = files.flatMap(({ input, strategy }) => planMerge(input, strategy).pairs);
+  const pairs = files.flatMap((file) => file.pairs);
   const judged = pairs.length > 0 ? await env.judge.decidePairs(pairs) : new Map();
   const decisions = new Map<string, PairDecision>([...judged].map(([id, j]) => [id, j.decision]));
 
-  for (const { input, strategy } of files) {
+  const writeResolution = (input: MergeInput, strategy: MergeStrategy): void => {
     // Planned again at write time: a keep-both copy written for an earlier
     // file now counts as taken.
     const plan = planMerge(input, strategy);
     const outcome = plan.render(decisions);
     if (outcome.status === "unresolved") {
       envelope.unresolved.push({ path: input.path, strategy, reason: outcome.reason });
-      continue;
+      return;
     }
     const jev = plan.pairs.filter((pair) => decisions.has(pair.id)).length;
     const unjudged = plan.pairs.length - jev;
@@ -291,12 +339,16 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
     }
     if (staged.code !== 0) {
       envelope.unresolved.push({ path: input.path, strategy, reason: `could not stage the merge: ${staged.stderr || staged.stdout}` });
-      continue;
+      return;
     }
     for (const extra of outcome.extraFiles) {
       mkdirSync(dirname(resolve(root, extra.path)), { recursive: true });
       writeFileSync(resolve(root, extra.path), extra.content, "utf-8");
-      git(root, ["--literal-pathspecs", "add", "--", extra.path]);
+      const added = git(root, ["--literal-pathspecs", "add", "--", extra.path]);
+      if (added.code !== 0) {
+        envelope.unresolved.push({ path: input.path, strategy, reason: `could not stage ${extra.path}: ${added.stderr || added.stdout}` });
+        return;
+      }
     }
     envelope.resolved.push({
       path: input.path,
@@ -306,6 +358,14 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
       extraFiles: outcome.extraFiles.map((extra) => extra.path),
       deleted: outcome.content === null,
     });
+  };
+
+  for (const { input, strategy } of files) {
+    try {
+      writeResolution(input, strategy);
+    } catch (e) {
+      failed(input.path, strategy, e);
+    }
   }
   if (envelope.unresolved.length > 0 || unmergedPaths(root).some((path) => !DERIVED_CACHES.has(path))) {
     envelope.status = "needs-judgment";
@@ -363,6 +423,63 @@ function pushMain(root: string): PushEnvelope {
   return { status: pushed.code === 0 ? "pushed" : "rejected", detail: pushed.stderr || pushed.stdout };
 }
 
+type Unresolved = ResolveEnvelope["unresolved"][number];
+
+/** An unresolved leftover for `path`, under the strategy its text would be merged by. */
+function leftover(env: SyncEnv, path: string, sides: MergeSides, reason: string): Unresolved {
+  let strategy: MergeStrategy = "code-merge";
+  try {
+    strategy = strategyFor(path, env.taxonomy, sides);
+  } catch {
+    // The reason is what matters here; code-merge is the strategy that assumes nothing.
+  }
+  return { path, strategy, reason };
+}
+
+/**
+ * What stops HEAD from being pushed: a path the index still holds unmerged,
+ * or a file HEAD changes from origin/main that holds a conflict-marker block.
+ * `error` when git could not say.
+ */
+function unpushable(env: SyncEnv): { unresolved: Unresolved[] } | { error: string } {
+  const { root } = env;
+  const unresolved = unmergedPaths(root).map((path) =>
+    leftover(env, path, { base: stage(root, 1, path), ours: stage(root, 2, path), theirs: stage(root, 3, path) }, "still unmerged in the index")
+  );
+  const changed = git(root, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=d", "origin/main", "HEAD"], true);
+  if (changed.code !== 0) return { error: `could not list what the push carries: ${changed.stderr}` };
+  const paths = changed.stdout.split("\0").filter(Boolean);
+  if (paths.length === 0) return { unresolved };
+  // git grep narrows the candidates; `hasConflictMarkers` decides on the whole file.
+  const found = git(root, ["--literal-pathspecs", "grep", "-l", "-z", "-E", "^<<<<<<< ", "HEAD", "--", ...paths], true);
+  if (found.code > 1) return { error: `could not search what the push carries: ${found.stderr}` };
+  for (const hit of found.stdout.split("\0").filter(Boolean)) {
+    const path = hit.slice("HEAD:".length);
+    const text = git(root, ["cat-file", "blob", `HEAD:${path}`], true);
+    if (text.code !== 0 || !hasConflictMarkers(text.stdout)) continue;
+    unresolved.push(leftover(env, path, { base: null, ours: text.stdout, theirs: null }, "committed with conflict markers; nothing is pushed until it is fixed"));
+  }
+  return { unresolved };
+}
+
+/**
+ * Why a post-sync failed the run, or null: a step it reports FAILED, heads
+ * that disagree, or working-tree dirt the run did not already list as a
+ * leftover (`listed`).
+ */
+function postSyncFailure(post: PostSyncResult, listed: ReadonlySet<string>): string | null {
+  const failures: string[] = [];
+  if (post.skills.startsWith("FAILED")) failures.push(`skills ${post.skills}`);
+  if (post.index.startsWith("FAILED")) failures.push(`index ${post.index}`);
+  if (post.cacheCommit.startsWith("FAILED") || post.cacheCommit.startsWith("skipped") || post.cacheCommit.includes("push rejected")) {
+    failures.push(`caches ${post.cacheCommit}`);
+  }
+  if (post.sync === "diverged") failures.push(`local ${post.localHead} and remote ${post.remoteHead} diverged`);
+  const stray = post.treeDirty.filter((path) => !listed.has(path));
+  if (stray.length > 0) failures.push(`left uncommitted: ${stray.join(", ")}`);
+  return failures.length > 0 ? `post-sync: ${failures.join("; ")}` : null;
+}
+
 /**
  * The whole sync, in order:
  * 1. on main only; settle the stash;
@@ -373,10 +490,18 @@ function pushMain(root: string): PushEnvelope {
  *    stops the run with the merge in progress (`needs-judgment`); resolved,
  *    it is concluded, and a stash leftover's files are committed like any
  *    local change;
- * 4. the stash again, since a resolution can make an entry redundant;
- * 5. `push`; rejected (the remote moved) → back to 3, pulling at most
- *    MAX_PULLS times in all;
+ * 4. the stash again, since a resolution can make an entry redundant; what
+ *    an autostash pop puts back is committed like any local change;
+ * 5. `push`, unless the index holds an unmerged path or HEAD carries a file
+ *    with conflict markers (`needs-judgment`); rejected (the remote moved) →
+ *    back to 3, pulling at most MAX_PULLS times in all;
  * 6. `post-sync`.
+ *
+ * A TRACK file holding conflict markers is never committed: it is left as an
+ * unresolved leftover, the rest syncs, and the run ends `needs-judgment`. A
+ * step that fails — a commit or the `.gitignore` commit, a post-sync step,
+ * heads left apart, dirt no leftover names, or a step that throws — ends it
+ * `failed`.
  */
 export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
   const { root } = env;
@@ -384,9 +509,12 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
     stash: [], assess: [], commit: [], pull: [], resolve: [], conclude: [], push: [], postSync: [],
   };
   let lastAssess: AssessFixEnvelope | null = null;
+  const unresolved: Unresolved[] = [];
   const timings: RunEnvelope["timings"] = {};
+  let running: keyof RunEnvelope["steps"] | null = null;
   const timed = async <T>(step: keyof RunEnvelope["steps"], fn: () => T | Promise<T>): Promise<T> => {
     const start = performance.now();
+    running = step;
     try {
       return await fn();
     } finally {
@@ -395,14 +523,13 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
   };
 
   const finish = (status: RunStatus, reason?: string): RunEnvelope => {
-    const last = steps.resolve[steps.resolve.length - 1];
     const files = lastAssess?.files ?? [];
     const envelope: RunEnvelope = {
       status,
       ...(reason === undefined ? {} : { reason }),
       steps,
       leftovers: {
-        unresolved: status === "needs-judgment" && last ? last.unresolved : [],
+        unresolved: unresolved.filter((file, i) => unresolved.findIndex((other) => other.path === file.path) === i),
         unknown: files.filter((file) => file.class === "UNKNOWN").map((file) => file.path),
         media: files
           .filter((file) => (file.class === "MEDIA" || file.class === "LARGE") && file.status !== "D")
@@ -416,76 +543,117 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
     return envelope;
   };
 
-  const commitLocal = async (): Promise<void> => {
+  /** Assess, fix and commit the local work; why it failed, or null. */
+  const commitLocal = async (): Promise<string | null> => {
     const assessed = await timed("assess", () => assessFix(env));
     lastAssess = assessed;
     steps.assess.push(assessed);
-    steps.commit.push(await timed("commit", () => commitTracked(env, assessed.files)));
+    if (assessed.fixed.committed?.status === "failed") return `the .gitignore commit failed: ${assessed.fixed.committed.reason}`;
+    const committed = await timed("commit", () => commitTracked(env, assessed.files));
+    steps.commit.push(committed);
+    for (const path of committed.conflicted) {
+      const text = readHead(root, path)?.head ?? null;
+      unresolved.push(leftover(env, path, { base: null, ours: text, theirs: null }, "holds conflict markers; left uncommitted"));
+    }
+    const failed = committed.commits.flatMap((result) => ("error" in result ? [`${result.subject}: ${result.error}`] : []));
+    return failed.length > 0 ? `commit failed: ${failed.join("; ")}` : null;
   };
 
   const branch = currentBranch(root);
   if (branch !== "main") return finish("failed", `not on main branch (current: ${branch})`);
 
-  steps.stash.push(await timed("stash", () => reconcileStashes(root)));
-  const pendingAtStart = pendingState(root);
-  let commitAfterPull = false;
-  if (pendingAtStart.kind === "none") {
-    await commitLocal();
-  } else {
-    steps.assess.push({ skipped: `merge state is pending (${pendingAtStart.kind}); pull finishes it first` });
-    // Whatever it was, finishing it leaves this clone's own work to commit:
-    // a stash leftover's resolved files are unstaged, not committed. It is
-    // also the only way to one; nothing this run does leaves a stash leftover.
-    commitAfterPull = pendingAtStart.kind !== "blocked";
-  }
-
-  let concludedPending = false;
-  for (let pulls = 0; ; ) {
-    if (pulls >= MAX_PULLS) return finish("failed", `still not pushed after ${MAX_PULLS} pulls`);
-
-    // A merge or squash with nothing left unmerged: finished once, the way
-    // `pull` asks for, before pulling over it.
-    const pending = pendingState(root);
-    if (!concludedPending && (pending.kind === "merge" || pending.kind === "squash") && pending.unmerged.length === 0) {
-      concludedPending = true;
-      const done = await timed("conclude", () => conclude(root, pending));
-      steps.conclude.push(done);
-      if (done.outcome !== "committed") return finish("failed", `could not finish the pending ${pending.kind}: ${done.detail ?? done.outcome}`);
-    }
-
-    pulls++;
-    const pulled = await timed("pull", () => pull(root));
-    steps.pull.push(pulled);
-    if (pulled.status === "fetch-failed" || pulled.status === "merge-failed") {
-      return finish("failed", `pull: ${pulled.status}${pulled.reason ? ` — ${pulled.reason}` : ""}`);
-    }
-
-    if (pulled.status === "conflicted") {
-      const resolved = await timed("resolve", () => resolveConflicts(env));
-      steps.resolve.push(resolved);
-      if (resolved.status === "needs-judgment") {
-        return finish("needs-judgment", "a conflict no strategy resolves; the merge is left in progress");
-      }
-      const done = await timed("conclude", () => conclude(root));
-      steps.conclude.push(done);
-      if (done.outcome !== "committed" && done.outcome !== "unstaged") {
-        return finish("failed", `could not conclude the resolved merge: ${done.detail ?? done.outcome}`);
-      }
-    }
-
-    if (commitAfterPull) {
-      commitAfterPull = false;
-      await commitLocal();
-    }
-    // A conflict pull found already pending was resolved without a fetch-merge.
-    if (!isAncestor(root, "origin/main", "HEAD")) continue;
-
+  try {
     steps.stash.push(await timed("stash", () => reconcileStashes(root)));
-    const pushed = await timed("push", () => pushMain(root));
-    steps.push.push(pushed);
-    if (pushed.status !== "rejected") break;
-  }
+    const pendingAtStart = pendingState(root);
+    let commitAfterPull = false;
+    if (pendingAtStart.kind === "none") {
+      const failed = await commitLocal();
+      if (failed) return finish("failed", failed);
+    } else {
+      steps.assess.push({ skipped: `merge state is pending (${pendingAtStart.kind}); pull finishes it first` });
+      // Whatever it was, finishing it leaves this clone's own work to commit:
+      // a stash leftover's resolved files are unstaged, not committed. It is
+      // also the only way to one; nothing this run does leaves a stash leftover.
+      commitAfterPull = pendingAtStart.kind !== "blocked";
+    }
 
-  steps.postSync.push(await timed("postSync", () => env.postSync()));
-  return finish("complete");
+    let concludedPending = false;
+    for (let pulls = 0; ; ) {
+      if (pulls >= MAX_PULLS) {
+        const last = steps.push[steps.push.length - 1];
+        return finish("failed", `still not pushed after ${MAX_PULLS} pulls${last ? `: ${last.detail}` : ""}`);
+      }
+
+      // A merge or squash with nothing left unmerged: finished once, the way
+      // `pull` asks for, before pulling over it.
+      const pending = pendingState(root);
+      if (!concludedPending && (pending.kind === "merge" || pending.kind === "squash") && pending.unmerged.length === 0) {
+        concludedPending = true;
+        const done = await timed("conclude", () => conclude(root, pending));
+        steps.conclude.push(done);
+        if (done.outcome !== "committed") return finish("failed", `could not finish the pending ${pending.kind}: ${done.detail ?? done.outcome}`);
+      }
+
+      pulls++;
+      const pulled = await timed("pull", () => pull(root));
+      steps.pull.push(pulled);
+      if (pulled.status === "fetch-failed" || pulled.status === "merge-failed") {
+        return finish("failed", `pull: ${pulled.status}${pulled.reason ? ` — ${pulled.reason}` : ""}`);
+      }
+
+      if (pulled.status === "conflicted") {
+        const resolved = await timed("resolve", () => resolveConflicts(env));
+        steps.resolve.push(resolved);
+        if (resolved.status === "needs-judgment") {
+          unresolved.push(...resolved.unresolved);
+          return finish("needs-judgment", "a conflict no strategy resolves; the merge is left in progress");
+        }
+        const done = await timed("conclude", () => conclude(root));
+        steps.conclude.push(done);
+        if (done.outcome !== "committed" && done.outcome !== "unstaged") {
+          return finish("failed", `could not conclude the resolved merge: ${done.detail ?? done.outcome}`);
+        }
+      }
+
+      if (commitAfterPull) {
+        commitAfterPull = false;
+        const failed = await commitLocal();
+        if (failed) return finish("failed", failed);
+      }
+      // A conflict pull found already pending was resolved without a fetch-merge.
+      if (!isAncestor(root, "origin/main", "HEAD")) continue;
+
+      const stashed = await timed("stash", () => reconcileStashes(root));
+      steps.stash.push(stashed);
+      if (stashed.popped.length > 0) {
+        const failed = await commitLocal();
+        if (failed) return finish("failed", failed);
+      }
+      const blocked = unpushable(env);
+      if ("error" in blocked) return finish("failed", blocked.error);
+      if (blocked.unresolved.length > 0) {
+        unresolved.push(...blocked.unresolved);
+        return finish("needs-judgment", "HEAD is not pushed: it carries conflict markers or unmerged paths");
+      }
+      const pushed = await timed("push", () => pushMain(root));
+      steps.push.push(pushed);
+      if (pushed.status !== "rejected") break;
+    }
+
+    const post = await timed("postSync", () => env.postSync());
+    steps.postSync.push(post);
+    const listed = new Set([
+      ...unresolved.map((file) => file.path),
+      // Every file an assessment did not take for a commit is named in the report.
+      ...steps.assess.flatMap((assess) => ("skipped" in assess ? [] : assess.files))
+        .filter((file) => file.class !== "TRACK" && file.class !== "DERIVED")
+        .map((file) => file.path),
+    ]);
+    const failure = postSyncFailure(post, listed);
+    if (failure) return finish("failed", failure);
+    if (unresolved.length > 0) return finish("needs-judgment", "files with conflict markers were left uncommitted");
+    return finish("complete");
+  } catch (e) {
+    return finish("failed", `${running ?? "run"} threw: ${(e as Error)?.message ?? String(e)}`);
+  }
 }

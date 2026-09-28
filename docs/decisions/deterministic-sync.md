@@ -21,9 +21,9 @@ back.
    left by `branch.main.mergeOptions=--squash`, or a conflicted stash pop used
    to leave the next pull reporting `synced` while `origin/main` was not in
    HEAD. `pull` now reads the pending state first (`pendingState`,
-   `packages/core/src/lib/sync/merge-state.ts:67-79`), unions the caches among
+   `packages/core/src/lib/sync/merge-state.ts:69-81`), unions the caches among
    the unmerged paths, and concludes it by kind once nothing is unmerged
-   (`conclude`, `packages/core/src/lib/sync/merge-state.ts:127-159`): a merge
+   (`conclude`, `packages/core/src/lib/sync/merge-state.ts:197-241`): a merge
    or a squash is committed, a stash-pop leftover is unstaged and never
    committed, and its stash entry is left for stash reconciliation. A rebase,
    cherry-pick, revert or am in progress is never finished: the pull reports
@@ -84,7 +84,7 @@ back.
 
 5. **Unjudged means keep both.** A pair nobody decided keeps both passages,
    the newer side first by frontmatter `updated`, ours first on a tie
-   (`private judge`, `packages/core/src/lib/sync/resolve/plan.ts:276-297`). An
+   (`private judge`, `packages/core/src/lib/sync/resolve/plan.ts:290-311`). An
    unjudged file stays `UNKNOWN` and is left for the agent or the report. The
    inbox type (`note`) uses `keep-both` for the whole file, as the old skill's
    table did: theirs is written beside ours as `<name>-remote.md`.
@@ -121,7 +121,17 @@ files in the body. An agent may rewrite them through `commit --plan` and
 (`applyCommitPlan`, `packages/core/src/lib/sync/commit.ts:274`). Stash
 entries are dropped only when the working tree already contains them, and
 popped only when they are autostashes that apply cleanly
-(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:274`).
+(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:281`).
+
+Because `run` works unattended, it refuses anything it cannot prove is its
+own. It concludes only a merge or squash of commits `origin/main` already
+holds, and only when nothing else is staged beside it. It never commits or
+pushes a file that holds conflict markers. It ignores only unmistakable
+secrets (`.env`, `.env.*`, `*.key`, `*.pem`); a name that merely looks like
+one is left for the agent. It keeps a stash entry unless the working tree
+already holds its change in context. A failed commit, post-sync failure or
+diverged heads end the run `failed`, never `complete`. These rules came out
+of an adversarial review of the first cut, which found each of them missing.
 
 ## What was measured
 

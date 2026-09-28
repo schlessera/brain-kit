@@ -47,7 +47,10 @@ describe("assess --fix", () => {
     expect(body.fixed.committed.status).toBe("committed");
     expect(git(root, "log", "-1", "--format=%s")).toBe(IGNORE_SUBJECT);
     expect(git(root, "show", "--name-only", "--format=", "HEAD")).toBe(".gitignore");
-    expect(body.fixed.trackedArtifacts).toEqual([{ path: "credentials.json", reason: "sensitive" }]);
+    // `credentials*` also names notes: held back, never ignored or committed unattended.
+    expect(body.fixed.trackedArtifacts).toEqual([]);
+    expect(body.fixed.heldBack).toEqual([{ path: "credentials.json", reason: expect.stringContaining("credentials*") }]);
+    expect(body.files).toContainEqual({ status: "M", class: "UNKNOWN", path: "credentials.json" });
     expect(body.fixed.judged).toEqual([]);
     expect(body.files).toContainEqual({ status: "?", class: "UNKNOWN", path: "survey.xyz" });
     // Ignored, never deleted; the rest is left for commit.
@@ -150,6 +153,28 @@ describe("commit", () => {
     expect(refused.body.commits[0].error).toContain("not in the assessed set");
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
     expect(readFileSync(join(root, OWL), "utf-8")).toBe(owl);
+  });
+
+  test("a file holding conflict markers is left uncommitted, named, and exits 1; a plan naming it is refused", async () => {
+    const { root, base } = brainWithRemote();
+    const MARKED = "notes/ridge-plan.md";
+    write(root, MARKED, "# Ridge plan\n\n<<<<<<< HEAD\nGo at dawn.\n=======\nGo at dusk.\n>>>>>>> origin/main\n");
+    write(root, HYDRATION, "---\ntitle: Ranger hydration\ntype: health\n---\n\nTwo litres on patrol days.\n");
+
+    const plan = (await syncJson(root, "commit", "--plan")).body;
+    expect(plan.commits.flatMap((c: { files: { path: string }[] }) => c.files.map((f) => f.path))).toEqual([HYDRATION]);
+
+    const { code, body } = await syncJson(root, "commit");
+    expect(git(root, "status", "--porcelain", "--", MARKED)).toBe(`?? ${MARKED}`);
+    expect(body.conflicted).toEqual([MARKED]);
+    expect(code).toBe(1);
+    expect(git(root, "status", "--porcelain", "--", HYDRATION)).toBe("");
+
+    const file = join(base, "plan.json");
+    writeFileSync(file, JSON.stringify({ commits: [{ domains: ["note"], files: [{ path: MARKED, status: "?" }], subject: "Keep both plans", body: "" }] }));
+    const refused = await syncJson(root, "commit", "--plan-file", file);
+    expect(refused.body.commits[0].error).toContain("not in the assessed set");
+    expect(git(root, "status", "--porcelain", "--", MARKED)).toBe(`?? ${MARKED}`);
   });
 });
 

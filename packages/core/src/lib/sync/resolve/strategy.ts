@@ -17,7 +17,7 @@ import { SIDECAR_CACHES } from "../../cache-attributes.js";
 import { frontmatterLength } from "../../document-parts.js";
 import type { Taxonomy } from "../../taxonomy.js";
 import type { MergeStrategy } from "../types.js";
-import { headingTexts, isTimelineHeading } from "./markdown.js";
+import { headingTexts, isTimelineHeading, UnparseableError } from "./markdown.js";
 
 export interface MergeSides {
   base: string | null;
@@ -62,7 +62,17 @@ export function strategyFor(path: string, taxonomy: Taxonomy, sides: MergeSides)
   if (configured) return configured;
   if (name === "_index.md") return "table-union";
   for (const text of [sides.base, sides.ours, sides.theirs]) {
-    if (text !== null && !text.includes("\u0000") && headingTexts(text).some(isTimelineHeading)) return "timeline-append";
+    if (text !== null && !text.includes("\u0000") && timelineIn(text)) return "timeline-append";
   }
   return "synthesize";
+}
+
+/** Whether `text` has a Timeline heading; a body too deep to parse has none, and its merge reports why. */
+function timelineIn(text: string): boolean {
+  try {
+    return headingTexts(text).some(isTimelineHeading);
+  } catch (e) {
+    if (e instanceof UnparseableError) return false;
+    throw e;
+  }
 }

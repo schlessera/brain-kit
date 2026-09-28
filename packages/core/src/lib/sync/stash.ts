@@ -7,14 +7,15 @@
  * its paths has local changes.
  *
  * "Holds" is judged per path against the working tree, never the index, and
- * errs toward keeping: an entry is dropped only when applying it could not
- * add anything the tree lacks.
+ * errs toward keeping: an entry is dropped only when the tree has the stash's
+ * version of each path, or its change in the same context (see `unheld`).
  */
 
-import { existsSync, lstatSync, readFileSync, readlinkSync, type Stats } from "fs";
+import { lstatSync, readFileSync, readlinkSync, type Stats } from "fs";
 import { resolve } from "path";
 
-import { git, gitPath, unmergedPaths } from "./git.js";
+import { git, unmergedPaths } from "./git.js";
+import { pendingState } from "./merge-state.js";
 
 export interface StashEntry {
   /** The entry's ref when the run started, e.g. `stash@{2}`. Later entries shift down as earlier ones go. */
@@ -37,34 +38,35 @@ const AUTOSTASH = "autostash";
 /** The sidecars lib/sync/assess.ts treats as derived (`DERIVED_CACHES` there): merged by key, not by line. */
 const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
 
-/** Git-dir entries that mean an operation owns the index and working tree. */
-const IN_PROGRESS: [string, string][] = [
-  ["MERGE_HEAD", "merge"],
-  ["CHERRY_PICK_HEAD", "cherry-pick"],
-  ["REVERT_HEAD", "revert"],
-  ["rebase-merge", "rebase"],
-  ["rebase-apply", "rebase or am"],
-];
-
 /** One side of a path in a stash: its tree entry. */
 interface Blob {
   mode: string;
   oid: string;
 }
 
-/** A path the stash changes: as the stash's base had it, and as the stash has it (null: absent). */
+/**
+ * A path the stash changes: as the stash's base had it, and as the stash has
+ * it (null: absent), with the two commits whose trees differ there.
+ */
 interface Claim {
   path: string;
+  from: string;
+  to: string;
   base: Blob | null;
   version: Blob | null;
 }
 
-/** Why no entry may be touched now, or null. */
+/**
+ * Why no entry may be touched now, or null: unmerged paths, or an operation
+ * that owns the index and working tree (a merge, a squash with something
+ * staged, a rebase, cherry-pick, revert or am, as `pendingState` reads them).
+ * A stash leftover is not one: judging its resolution is what this is for.
+ */
 function blocker(root: string): string | null {
   if (unmergedPaths(root).length > 0) return "the index has unmerged paths";
-  for (const [name, label] of IN_PROGRESS) {
-    if (existsSync(gitPath(root, name))) return `a ${label} is in progress`;
-  }
+  const pending = pendingState(root);
+  if (pending.kind === "blocked") return `a ${pending.blocker} is in progress`;
+  if (pending.kind === "merge" || pending.kind === "squash") return `a ${pending.kind} is in progress`;
   return null;
 }
 
@@ -95,6 +97,8 @@ function treeChanges(root: string, from: string, to: string): Map<string, Claim>
     const path = fields[i + 1]!;
     changes.set(path, {
       path,
+      from,
+      to,
       base: m[1] === NO_ENTRY ? null : { mode: m[1]!, oid: m[3]! },
       version: m[2] === NO_ENTRY ? null : { mode: m[2]!, oid: m[4]! },
     });
@@ -123,7 +127,7 @@ function claimsOf(root: string, sha: string): Claim[] | null {
     for (const record of listed.stdout.split("\0").filter(Boolean)) {
       const m = /^(\d{6}) \w+ ([0-9a-f]+)\t([\s\S]+)$/.exec(record);
       if (!m) return null;
-      claims.push({ path: m[3]!, base: null, version: { mode: m[1]!, oid: m[2]! } });
+      claims.push({ path: m[3]!, from: `${sha}^1`, to: `${sha}^3`, base: null, version: { mode: m[1]!, oid: m[2]! } });
     }
   }
   return claims;
@@ -146,40 +150,32 @@ function blobBytes(root: string, blob: Blob, path: string): Uint8Array | null {
   return proc.exitCode === 0 ? proc.stdout : null;
 }
 
-/** Lines of `text` with how often each occurs; a final line break ends a line, it does not start one. */
-function lineCounts(text: string): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (text === "") return counts;
-  const lines = text.split("\n");
-  if (text.endsWith("\n")) lines.pop();
-  for (const line of lines) counts.set(line, (counts.get(line) ?? 0) + 1);
-  return counts;
-}
-
 const CONFLICT_MARKER = /^(?:<{7}|>{7}|\|{7})(?: |$)|^={7}$/;
 
+function markerLines(text: string): number {
+  return text.split("\n").filter((line) => CONFLICT_MARKER.test(line)).length;
+}
+
 /**
- * Whether `current` holds the change `base` → `stashed`, by lines counted
- * with multiplicity: a line the stash has more of than its base, the current
- * text has at least as often as the stash; a line the stash has fewer of, the
- * current text has no more often than the stash. Conflict markers the stash
- * did not have mean a resolution is unfinished, and its text proves nothing.
+ * Whether the stash's change to this path is in the working file in its
+ * context: its diff reverses cleanly there (`git apply --reverse --check`),
+ * so every hunk's result, with the lines around it, is in the file. A line
+ * count would call a reordered or moved line held while the file still has
+ * it where it was. Fixed context and prefixes, and no external diff, textconv
+ * or whitespace leniency: a user's config must not change what is compared.
  */
-function linesHeld(path: string, base: string, stashed: string, current: string): string | null {
-  const before = lineCounts(base);
-  const after = lineCounts(stashed);
-  const now = lineCounts(current);
-  for (const [line, count] of now) {
-    if (CONFLICT_MARKER.test(line) && count > (after.get(line) ?? 0)) return `${path} holds conflict markers`;
-  }
-  for (const line of new Set([...before.keys(), ...after.keys()])) {
-    const inBase = before.get(line) ?? 0;
-    const inStash = after.get(line) ?? 0;
-    const inTree = now.get(line) ?? 0;
-    if (inStash > inBase && inTree < inStash) return `${path} lacks a line the stash adds`;
-    if (inStash < inBase && inTree > inStash) return `${path} still has a line the stash removes`;
-  }
-  return null;
+function changeInContext(root: string, claim: Claim): boolean {
+  const patch = Bun.spawnSync([
+    "git", "-C", root, "-c", "diff.suppressBlankEmpty=false", "--literal-pathspecs", "diff",
+    "-U3", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-relative",
+    "--src-prefix=a/", "--dst-prefix=b/", claim.from, claim.to, "--", claim.path,
+  ]);
+  if (patch.exitCode !== 0 || patch.stdout.length === 0) return false;
+  const check = Bun.spawnSync(
+    ["git", "-C", root, "-c", "apply.ignoreWhitespace=false", "apply", "--reverse", "--check", "--whitespace=nowarn"],
+    { stdin: patch.stdout }
+  );
+  return check.exitCode === 0;
 }
 
 function cacheKey(line: string): string | null {
@@ -227,11 +223,22 @@ function unheld(root: string, claim: Claim): string | null {
     return `${path} lacks the stash's file mode`;
   }
   if (git(root, ["hash-object", "--", path]).stdout === version.oid) return null;
-  const stashed = textOf(blobBytes(root, version, path));
-  const before = base === null ? "" : textOf(blobBytes(root, base, path));
+  if (DERIVED_CACHES.has(path)) {
+    const stashed = textOf(blobBytes(root, version, path));
+    const current = textOf(readFileSync(file));
+    if (stashed === null || current === null) return `${path} differs and is not text`;
+    return cacheHeld(path, stashed, current);
+  }
+  // A file the stash adds is held only as the stash has it.
+  if (base === null) return `${path} is not the file the stash adds`;
+  // Conflict markers the stash did not have mean a resolution is unfinished,
+  // and its text proves nothing.
   const current = textOf(readFileSync(file));
-  if (stashed === null || before === null || current === null) return `${path} differs and is not text`;
-  return DERIVED_CACHES.has(path) ? cacheHeld(path, stashed, current) : linesHeld(path, before, stashed, current);
+  const stashed = textOf(blobBytes(root, version, path));
+  if (current !== null && markerLines(current) > (stashed === null ? 0 : markerLines(stashed))) {
+    return `${path} holds conflict markers`;
+  }
+  return changeInContext(root, claim) ? null : `${path} lacks the stash's change in its context`;
 }
 
 /** Why `entry` would not apply cleanly now, or null when it would. */

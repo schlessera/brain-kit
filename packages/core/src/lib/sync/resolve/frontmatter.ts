@@ -37,10 +37,16 @@ export function dateValue(value: unknown): number | null {
   return Number.isNaN(time) ? null : time;
 }
 
-/** A value as comparison sees it: a date and the string it prints as are the same value. */
+/**
+ * A value as comparison sees it: a date and the string it prints as are the
+ * same value. `.nan` and `.inf` keep their names, which JSON would print as
+ * `null`. The walk recurses: `parseDoc` has refused a value that refers to
+ * itself or nests too deeply.
+ */
 function canonical(value: unknown): string {
   const walk = (v: unknown): unknown => {
     if (v instanceof Date) return { $date: v.toISOString().replace("T00:00:00.000Z", "") };
+    if (typeof v === "number" && !Number.isFinite(v)) return { $number: String(v) };
     if (typeof v === "string" && dateValue(v) !== null && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) return { $date: v.trim() };
     if (Array.isArray(v)) return v.map(walk);
     if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));

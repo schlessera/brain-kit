@@ -4,7 +4,7 @@
  * filesystem; changes nothing.
  */
 
-import { lstatSync } from "fs";
+import { lstatSync, readFileSync } from "fs";
 import { resolve } from "path";
 
 import { isMediaPath, mediaPolicyClass, type MediaPolicy } from "../media.js";
@@ -26,6 +26,12 @@ export const ARTIFACT_PATTERNS = [
 export const SENSITIVE_PATTERNS = [
   ".env", ".env.*", "credentials*", "*.key", "*.pem", "*.secret", "*_secret*", "*_token*",
 ];
+/**
+ * The SENSITIVE patterns a name alone settles. Every other one (`*_token*`,
+ * `credentials*`, …) also matches notes (`design_token_ideas.md`), so a file
+ * it matches is neither ignored nor committed unattended: someone decides.
+ */
+export const UNAMBIGUOUS_SENSITIVE_PATTERNS = [".env", ".env.*", "*.key", "*.pem"];
 const TRACKABLE_EXTS = new Set([
   "md", "ts", "sh", "js", "json", "yaml", "yml", "toml", "css", "html", "py", "txt",
 ]);
@@ -147,6 +153,28 @@ export function assess(root: string, media: MediaPolicy): AssessedFile[] {
     );
   }
   return files;
+}
+
+/**
+ * True when `text` holds a conflict-marker block: a line starting `<<<<<<< `
+ * and a later one starting `>>>>>>> `. A `=======` line alone is a setext
+ * heading underline, not a conflict.
+ */
+export function hasConflictMarkers(text: string): boolean {
+  const open = text.search(/^<<<<<<< /m);
+  return open !== -1 && /^>>>>>>> /m.test(text.slice(open));
+}
+
+/** The paths among `paths` whose working-tree file holds a conflict-marker block. */
+export function conflictMarked(root: string, paths: string[]): string[] {
+  return paths.filter((path) => {
+    try {
+      const file = resolve(root, path);
+      return lstatSync(file).isFile() && hasConflictMarkers(readFileSync(file, "utf-8"));
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function workingTreeDirt(root: string): string[] {

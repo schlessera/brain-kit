@@ -48,7 +48,7 @@ export function renderReport(run: RunEnvelope): string {
   const pull = steps.pull[steps.pull.length - 1];
   if (pull) {
     const rounds = steps.pull.length > 1 ? ` after ${steps.pull.length} pulls` : "";
-    const settled = pull.status === "conflicted" && run.status !== "needs-judgment" ? ", resolved" : "";
+    const settled = pull.status === "conflicted" && steps.resolve[steps.resolve.length - 1]?.status === "resolved" ? ", resolved" : "";
     lines.push(`Pull: ${pull.status}${settled}${rounds} (local +${pull.localAhead}, remote +${pull.remoteAhead})`);
   }
   const push = steps.push[steps.push.length - 1];
@@ -59,21 +59,25 @@ export function renderReport(run: RunEnvelope): string {
     lines.push(`Sync: ${post.sync} (local ${post.localHead}, remote ${post.remoteHead})`);
   }
 
-  // Ignoring is never silent: a note whose name only looks like a secret
-  // (`*_token*`) would otherwise drop out of the brain without a word.
-  const ignored = steps.assess.flatMap((assess) => ("skipped" in assess || assess.fixed.refused !== undefined ? [] : assess.fixed.ignored));
+  // Ignoring is never silent: a file that drops out of the brain is named.
+  const fixes = steps.assess.flatMap((assess) => ("skipped" in assess ? [] : [assess.fixed]));
+  const ignored = fixes.flatMap((fixed) => (fixed.refused !== undefined ? [] : fixed.ignored));
   if (ignored.length > 0) {
-    lines.push("Ignored:", ...ignored.flatMap((add) => add.paths.map((path) => `  ${path} (${add.reason === "sensitive" ? "looks like a secret" : "artifact"}; .gitignore: ${add.line})`)));
+    lines.push("Ignored:", ...ignored.flatMap((add) => add.paths.map((path) => `  ${path} (${add.reason === "sensitive" ? "a secret" : "artifact"}; .gitignore: ${add.line})`)));
   }
-  const tracked = steps.assess.flatMap((assess) => ("skipped" in assess ? [] : assess.fixed.trackedArtifacts));
+  const heldBack = new Map(fixes.flatMap((fixed) => fixed.heldBack.map((file) => [file.path, file.reason] as const)));
+  // Kept as the last reconcile left it: a stash only a person can settle.
+  const kept = steps.stash[steps.stash.length - 1]?.kept ?? [];
   const left: string[] = [
     ...leftovers.unresolved.map((file) => `unresolved: ${file.path} — ${file.reason}`),
-    ...leftovers.unknown.map((path) => `unknown: ${path}`),
+    ...leftovers.unknown.map((path) => `unknown: ${path}${heldBack.has(path) ? ` — ${heldBack.get(path)}` : ""}`),
     ...leftovers.media.map((file) => `media: ${file.path} (${size(file.bytes)})`),
-    ...tracked.map((file) => `tracked ${file.reason === "sensitive" ? "secret" : "artifact"}: ${file.path}`),
-    ...ignored
-      .filter((add) => add.reason === "sensitive")
-      .flatMap((add) => add.paths.map((path) => `ignored as a secret, check it is one: ${path}`)),
+    ...fixes.flatMap((fixed) => fixed.trackedArtifacts).map((file) => `tracked ${file.reason === "sensitive" ? "secret" : "artifact"}: ${file.path}`),
+    ...fixes.flatMap((fixed) =>
+      fixed.refused === undefined ? [] : fixed.ignored.flatMap((add) => add.paths.map((path) => `not ignored: ${path} — ${fixed.refused}`))
+    ),
+    ...fixes.flatMap((fixed) => fixed.notIgnored).map((path) => `not ignored: ${path} — git still does not ignore it`),
+    ...kept.map((entry) => `stash kept: ${entry.ref} — ${entry.reason}`),
   ];
   if (left.length > 0) lines.push("Left for you:", ...left.map((line) => `  ${line}`));
   return lines.join("\n");

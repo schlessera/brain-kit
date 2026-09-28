@@ -47,13 +47,15 @@ judge, timings, report }`. Use the JSON form: bare `brain sync` prints only the 
   `leftovers.media` are both empty, print `report` and stop. Otherwise go to Step 3.
 - `status: "needs-judgment"` (exit 3) — a conflict no rule could merge. The merge is still in
   progress and nothing was pushed. Go to Step 2.
-- `status: "failed"` (exit 1) — a fetch failed, git would not merge, or the push was rejected
-  three times; `reason` says which. Print `report`, run `git status` to show what blocks it, and stop. Do not retry,
+- `status: "failed"` (exit 1) — a fetch failed, git would not merge (including a merge someone
+  started by hand, which `run` never concludes), a commit or the `.gitignore` commit failed,
+  post-sync failed or left the heads diverged, or the push was rejected three times; `reason`
+  says which. Print `report`, run `git status` to show what blocks it, and stop. Do not retry,
   and do not commit, stash, abort or discard anything for the user.
 
 What `run` already did, so you do not redo it: reconciled stash entries (dropped the ones the
-tree already contains, popped clean autostashes), ignored artifacts and secrets in one
-`.gitignore` commit, bumped `updated` on edited notes, committed tracked changes grouped by
+tree already contains, popped clean autostashes), ignored artifacts and unmistakable secrets (`.env`,
+`.env.*`, `*.key`, `*.pem`) in one `.gitignore` commit, bumped `updated` on edited notes, committed tracked changes grouped by
 domain, pulled (unioning the derived caches and finishing any merge an earlier sync left
 behind), merged every conflicted note by the strategy table below, pushed, and ran
 `post-sync`. Each key under `steps` (`stash`, `assess`, `commit`, `pull`, `resolve`, `conclude`,
@@ -65,8 +67,9 @@ A push with nothing to send is `{ status: "up-to-date" }`.
 ## Step 2 — Conflicts `run` could not merge
 
 `leftovers.unresolved` lists each one as `{ path, strategy, reason }`. The reason says why:
-`code-merge` (code, config, `CLAUDE.md`, `AGENTS.md`), a binary side, a side over 100 KB, or
-markdown that does not parse. Every other conflicted file is already merged and staged.
+`code-merge` (code, config, `CLAUDE.md`, `AGENTS.md`), a binary side, a side over 100 KB,
+markdown that does not parse, or a file that holds conflict markers (never committed or pushed;
+remove the markers, then run again). Every other conflicted file is already merged and staged.
 
 ```bash
 brain sync conflicts --json
@@ -95,7 +98,12 @@ Step 1 and run `brain sync run --json` again: it commits what is left, pushes an
 ## Step 3 — Leftover files
 
 **UNKNOWN** (`leftovers.unknown`) — a file `assess` could not classify, and that the Jev judge
-(when `TYPESAFE_API_KEY` is set) did not decide with enough confidence. Read it.
+(when `TYPESAFE_API_KEY` is set) did not decide with enough confidence. A file whose name only
+looks like a secret (`credentials*`, `*_token*`, `*_secret*`, `*.secret`) lands here too, never
+sent to the judge and never ignored automatically. Read it.
+
+- A real secret → append its exact path to `.gitignore`, commit `.gitignore` alone, and warn
+  the user.
 
 - Generated output, an export, a scratch log, test data → it is an artifact. Append its exact
   path to `.gitignore` and commit `.gitignore` alone:

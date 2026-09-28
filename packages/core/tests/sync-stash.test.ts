@@ -63,6 +63,8 @@ function autostash(root: string): string {
 }
 
 const TRAIL = "# Ridge Loop\n\nStatus: open\n\nWashout at mile 3.\n";
+/** Twelve lines, so that edits at lines 2-3 and 10-11 have separate contexts. */
+const LONG = Array.from({ length: 12 }, (_, i) => `Line ${i + 1}.`).join("\n") + "\n";
 
 describe("reconcileStashes: the F8 shape", () => {
   /**
@@ -84,7 +86,7 @@ describe("reconcileStashes: the F8 shape", () => {
 
   test("a pop resolved by hand to keep the stash's change leaves the entry subsumed, and it is dropped", () => {
     const root = conflictedPop();
-    const resolved = TRAIL.replace("Status: open", "Status: open, detour at mile 2\nStatus: closed for bears");
+    const resolved = TRAIL.replace("Status: open", "Status: closed for bears");
     write(root, "trails/ridge.md", resolved);
     git(root, "restore", "--staged", "trails/ridge.md");
 
@@ -92,6 +94,22 @@ describe("reconcileStashes: the F8 shape", () => {
     expect(report.dropped.map((e) => e.ref)).toEqual(["stash@{0}"]);
     expect(report.kept).toEqual([]);
     expect(stashes(root)).toEqual([]);
+    expect(read(root, "trails/ridge.md")).toBe(resolved);
+  });
+
+  // Its line is there, but not where the stash put it: the line above it is
+  // new. Keeping an entry costs a stash entry; dropping a wrong one, a change.
+  test("a pop resolved to both sides' lines keeps the entry: the stash's change is not in its context", () => {
+    const root = conflictedPop();
+    const resolved = TRAIL.replace("Status: open", "Status: open, detour at mile 2\nStatus: closed for bears");
+    write(root, "trails/ridge.md", resolved);
+    git(root, "restore", "--staged", "trails/ridge.md");
+
+    const report = reconcileStashes(root);
+    expect(report.dropped).toEqual([]);
+    expect(report.kept.map((e) => e.reason)).toEqual([
+      "not an autostash, and trails/ridge.md lacks the stash's change in its context",
+    ]);
     expect(read(root, "trails/ridge.md")).toBe(resolved);
   });
 
@@ -103,7 +121,7 @@ describe("reconcileStashes: the F8 shape", () => {
 
     const report = reconcileStashes(root);
     expect(report.dropped).toEqual([]);
-    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/ridge.md lacks a line the stash adds"]);
+    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/ridge.md lacks the stash's change in its context"]);
     expect(stashes(root)).toHaveLength(1);
     expect(read(root, "trails/ridge.md")).toBe(resolved);
   });
@@ -135,7 +153,7 @@ describe("reconcileStashes", () => {
     const report = reconcileStashes(root);
     expect(report.popped).toEqual([]);
     expect(report.kept.map((e) => [e.message, e.reason])).toEqual([
-      ["On main: bridge notes", "not an autostash, and trails/ridge.md lacks a line the stash adds"],
+      ["On main: bridge notes", "not an autostash, and trails/ridge.md lacks the stash's change in its context"],
     ]);
     expect(stashes(root)).toHaveLength(1);
     expect(read(root, "trails/ridge.md")).toBe(TRAIL);
@@ -196,15 +214,19 @@ describe("reconcileStashes", () => {
     expect(existsSync(join(again, "trails/old.md"))).toBe(true);
   });
 
-  test("an untracked file in the entry is held when the tree has it", () => {
+  test("an untracked file in the entry is held only while the tree has it as the stash does", () => {
     const root = repo({ "trails/ridge.md": TRAIL });
     write(root, "trails/lake.md", "# Lake Path\n");
     git(root, "stash", "push", "-q", "--include-untracked");
     expect(existsSync(join(root, "trails/lake.md"))).toBe(false);
     write(root, "trails/lake.md", "# Lake Path\n\nAdded later.\n");
+    expect(reconcileStashes(root).kept.map((e) => e.reason)).toEqual([
+      "not an autostash, and trails/lake.md is not the file the stash adds",
+    ]);
 
+    write(root, "trails/lake.md", "# Lake Path\n");
     expect(reconcileStashes(root).dropped).toHaveLength(1);
-    expect(read(root, "trails/lake.md")).toBe("# Lake Path\n\nAdded later.\n");
+    expect(read(root, "trails/lake.md")).toBe("# Lake Path\n");
   });
 
   test("an untracked file in the entry that the tree lacks keeps it", () => {
@@ -238,19 +260,49 @@ describe("reconcileStashes", () => {
     write(root, "trails/ridge.md", TRAIL.replace("Washout at mile 3.\n", ""));
     git(root, "stash", "-q");
     const report = reconcileStashes(root);
-    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/ridge.md still has a line the stash removes"]);
+    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/ridge.md lacks the stash's change in its context"]);
+  });
+
+  // A line count calls both of these held: every line is there as often.
+  test("a stash that reorders lines is kept while the tree has them in the old order", () => {
+    const root = repo({ "trails/order.md": "first\nsecond\n" });
+    write(root, "trails/order.md", "second\nfirst\n");
+    git(root, "stash", "-q");
+    const report = reconcileStashes(root);
+    expect(report.dropped).toEqual([]);
+    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/order.md lacks the stash's change in its context"]);
+    expect(stashes(root)).toHaveLength(1);
+  });
+
+  test("a stash that moves a line to another section is kept while the tree has it where it was", () => {
+    const before = "# Old\nvalue\n# New\n";
+    const root = repo({ "trails/moved.md": before });
+    write(root, "trails/moved.md", "# Old\n# New\nvalue\n");
+    git(root, "stash", "-q");
+    const report = reconcileStashes(root);
+    expect(report.dropped).toEqual([]);
+    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/moved.md lacks the stash's change in its context"]);
+    expect(read(root, "trails/moved.md")).toBe(before);
+  });
+
+  test("a stash's change is held where the tree has it in context, whatever changed elsewhere", () => {
+    const root = repo({ "trails/long.md": LONG });
+    write(root, "trails/long.md", LONG.replace("Line 3.", "Line 3, stashed."));
+    git(root, "stash", "-q");
+    write(root, "trails/long.md", LONG.replace("Line 3.", "Line 3, stashed.").replace("Line 10.", "Line 10, later."));
+    expect(reconcileStashes(root).dropped).toHaveLength(1);
   });
 
   test("entries are settled from the highest index down, each by its own ref", () => {
-    const root = repo({ "trails/ridge.md": TRAIL, "trails/lake.md": "# Lake Path\n" });
+    const root = repo({ "trails/long.md": LONG, "trails/lake.md": "# Lake Path\n" });
     // stash@{2}: subsumed once committed; stash@{1}: a user's, kept; stash@{0}: subsumed.
-    write(root, "trails/ridge.md", TRAIL + "\nOne.\n");
+    write(root, "trails/long.md", LONG.replace("Line 2.", "Line 2, one."));
     git(root, "stash", "-q");
     write(root, "trails/lake.md", "# Lake Path\n\nKeep me.\n");
     git(root, "stash", "push", "-q", "-m", "keep");
-    write(root, "trails/ridge.md", TRAIL + "\nTwo.\n");
+    write(root, "trails/long.md", LONG.replace("Line 11.", "Line 11, two."));
     git(root, "stash", "-q");
-    write(root, "trails/ridge.md", TRAIL + "\nOne.\n\nTwo.\n");
+    write(root, "trails/long.md", LONG.replace("Line 2.", "Line 2, one.").replace("Line 11.", "Line 11, two."));
     git(root, "commit", "-qam", "both");
     const kept = git(root, "rev-parse", "stash@{1}");
 
@@ -290,6 +342,46 @@ describe("reconcileStashes", () => {
 
     const report = reconcileStashes(root);
     expect(report.kept.map((e) => e.reason)).toEqual(["a merge is in progress"]);
+    expect(stashes(root)).toHaveLength(1);
+  });
+
+  /** A branch `side` with one commit adding `file`, and main checked out, with an autostash that would pop cleanly. */
+  function sideAndAutostash(files: Record<string, string>): string {
+    const root = repo({ "trails/ridge.md": TRAIL, "trails/lake.md": "# Lake Path\n" });
+    write(root, "trails/ridge.md", TRAIL + "\nBridge planks loose.\n");
+    autostash(root);
+    git(root, "checkout", "-qb", "side");
+    for (const [path, text] of Object.entries(files)) write(root, path, text);
+    git(root, "commit", "-qam", "side");
+    git(root, "checkout", "-q", "main");
+    return root;
+  }
+
+  test("during a squash with something staged every entry is kept, though it leaves no MERGE_HEAD", () => {
+    const root = sideAndAutostash({ "trails/lake.md": "# Lake Path\n\nSide.\n" });
+    git(root, "merge", "-q", "--squash", "side");
+
+    const report = reconcileStashes(root);
+    expect(report.kept.map((e) => e.reason)).toEqual(["a squash is in progress"]);
+    expect(stashes(root)).toHaveLength(1);
+  });
+
+  test("between the stops of a cherry-pick of several commits every entry is kept, though CHERRY_PICK_HEAD is gone", () => {
+    const root = sideAndAutostash({ "trails/lake.md": "# Lake Path\n\nSide.\n" });
+    git(root, "checkout", "-q", "side");
+    write(root, "trails/lake.md", "# Lake Path\n\nSide, again.\n");
+    git(root, "commit", "-qam", "side again");
+    git(root, "checkout", "-q", "main");
+    write(root, "trails/lake.md", "# Lake Path\n\nMain.\n");
+    git(root, "commit", "-qam", "main");
+    expect(run(root, "cherry-pick", "side~1", "side").code).not.toBe(0);
+    write(root, "trails/lake.md", "# Lake Path\n\nResolved.\n");
+    git(root, "add", "trails/lake.md");
+    git(root, "commit", "-q", "--no-edit");
+    expect(run(root, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD").code).not.toBe(0);
+
+    const report = reconcileStashes(root);
+    expect(report.kept.map((e) => e.reason)).toEqual(["a cherry-pick is in progress"]);
     expect(stashes(root)).toHaveLength(1);
   });
 });

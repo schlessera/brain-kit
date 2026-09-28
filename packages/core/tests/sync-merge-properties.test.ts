@@ -12,7 +12,11 @@
  *     and when OURS changed only the body and THEIRS only the frontmatter,
  *     the result is THEIRS' frontmatter over OURS' body;
  * (d) the result always parses: frontmatter a YAML map, body split into
- *     blocks cleanly.
+ *     blocks cleanly;
+ * (e) planning and rendering never throw, whatever a side holds: a YAML alias
+ *     that contains itself, frontmatter or a body nested deep, `.nan`, broken
+ *     YAML, CRLF, a missing side, link cells and duplicate row keys. What
+ *     cannot be merged comes back `unresolved`.
  *
  * Each checker is also run against a deliberately broken merge, which it must
  * catch, so none of them can pass by having nothing to observe.
@@ -390,6 +394,59 @@ function propertyD(merge: Merge): Failure[] {
   return failures;
 }
 
+/** A generated side with one thing a stranger's file may hold that the generator above never writes. */
+function hostile(g: Gen, text: string): string {
+  const intoFrontmatter = (line: string) => text.replace(/^---\n/, `---\n${line}\n`);
+  switch (g.int(10)) {
+    case 0:
+      return intoFrontmatter(g.pick(["loop: &l [*l]", "loop: &l {self: *l}", "a: &a [x]\nb: [*a, *a]"]));
+    case 1: {
+      const n = 40 + g.int(120);
+      return intoFrontmatter(`deep: ${"[".repeat(n)}${"]".repeat(n)}`);
+    }
+    case 2:
+      return intoFrontmatter(`reading: ${g.pick([".nan", ".inf", "-.inf", "null", "~"])}`);
+    case 3:
+      return intoFrontmatter(g.pick(["broken: [", "a: b: c", "- a list"]));
+    case 4: {
+      const key = g.pick(["A", "a", "A#1", "a#2", "[[a]]"]);
+      const link = g.pick(["old", "new", "other"]);
+      return `${text}\n| Key | Note |\n|-----|------|\n| ${key} | [${g.words()}](${link}) |\n| A | ${g.token()} |\n`;
+    }
+    case 5:
+      return `${text}\n${g.words()}${g.chance(0.5) ? "  " : " "}\n${g.words()}\n`;
+    case 6:
+      return `${text}\n${"> ".repeat(50 + g.int(3000))}${g.words()}\n`;
+    case 7:
+      return text.replace(/\n/g, "\r\n");
+    case 8:
+      return `${text}\n## ${g.pick(["[Ideas](a.md)", "[Ideas](b.md)", "IDEAS", "Ideas"])}\n\n${g.words()}\n`;
+    default:
+      return text;
+  }
+}
+
+const EVERY_STRATEGY: MergeStrategy[] = [...ALL_STRATEGIES, "code-merge", "cache-union"];
+
+function propertyE(merge: Merge): Failure[] {
+  const failures: Failure[] = [];
+  for (let seed = 1; seed <= PROPERTY_CASES; seed++) {
+    const g = new Gen(seed);
+    const strategy = EVERY_STRATEGY[seed % EVERY_STRATEGY.length]!;
+    const baseModel = newModel(g, strategy);
+    const side = (model: Model) => (g.chance(0.05) ? null : g.chance(0.6) ? hostile(g, render(model)) : render(model));
+    const base = side(baseModel);
+    const ours = side(edited(g, baseModel, g.chance(0.8), g.chance(0.7)));
+    const theirs = side(edited(g, baseModel, g.chance(0.8), g.chance(0.7)));
+    try {
+      merge({ path: "notes/field.md", base, ours, theirs }, strategy, () => g.pick([...PAIR_DECISIONS, undefined]));
+    } catch (e) {
+      failures.push({ seed, why: `${strategy}: threw ${(e as Error).message.split("\n")[0]}` });
+    }
+  }
+  return failures;
+}
+
 // ---------------------------------------------------------------------------
 // Broken merges each checker must catch. Each models a real bug.
 
@@ -419,6 +476,19 @@ const unclosed: Merge = (input, strategy, decide) => {
   return { ...real, outcome: { ...real.outcome, content: real.outcome.content.replace(/\n---\n/, "\n") } };
 };
 
+/** Frontmatter compared by walking it, aliases and all: a value that contains itself never ends. */
+const walksAliases: Merge = (input, strategy, decide) => {
+  for (const text of [input.base, input.ours, input.theirs]) {
+    if (text === null) continue;
+    try {
+      JSON.stringify(matter(text, {}).data);
+    } catch (e) {
+      if (e instanceof TypeError) throw e;
+    }
+  }
+  return realMerge(input, strategy, decide);
+};
+
 /** Failing cases (seeds), not failures: one case can fail more than one check. */
 const failing = (failures: Failure[]) => new Set(failures.map((failure) => failure.seed)).size;
 const report = (failures: Failure[]) =>
@@ -437,6 +507,9 @@ describe("sync merge properties", () => {
   test("(d) the result parses, frontmatter included", () => {
     expect(report(propertyD(realMerge))).toBe("");
   });
+  test("(e) planning and rendering never throw, whatever a side holds", () => {
+    expect(report(propertyE(realMerge))).toBe("");
+  });
 
   test("each checker catches a broken merge", () => {
     const counts = {
@@ -444,11 +517,13 @@ describe("sync merge properties", () => {
       b: failing(propertyB(reserialized)),
       c: failing(propertyC(reserialized)),
       d: failing(propertyD(unclosed)),
+      e: failing(propertyE(walksAliases)),
     };
     console.log(`broken-merge failure counts (of ${PROPERTY_CASES} each): ${JSON.stringify(counts)}`);
     expect(counts.a).toBeGreaterThan(0);
     expect(counts.b).toBeGreaterThan(0);
     expect(counts.c).toBeGreaterThan(0);
     expect(counts.d).toBeGreaterThan(0);
+    expect(counts.e).toBeGreaterThan(0);
   });
 });

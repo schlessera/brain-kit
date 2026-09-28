@@ -11,7 +11,9 @@
  */
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { git, gitPath, refExists, unmergedPaths } from "./git.js";
+import { matchesAnyPattern } from "../tool-leftovers.js";
+import { SENSITIVE_PATTERNS } from "./assess.js";
+import { git, gitPath, isAncestor, refExists, unmergedPaths } from "./git.js";
 
 /**
  * The stash leftover's paths, under the git directory beside git's own
@@ -106,6 +108,71 @@ export function rememberStash(root: string, state: PendingState): void {
   writeFileSync(gitPath(root, STASH_MARKER), JSON.stringify({ head: headSha(root), paths }) + "\n", "utf-8");
 }
 
+const ORIGIN_MAIN = "refs/remotes/origin/main";
+
+/**
+ * The commits a merge or squash brings in: every line of MERGE_HEAD, or every
+ * `commit <sha>` line of SQUASH_MSG. Git writes SQUASH_MSG as "Squashed commit
+ * of the following:", then one `git log`-style block per commit, newest
+ * first, whose header line is `commit <full sha>` at column 0 and whose
+ * message is indented four spaces, so no message line can pose as one.
+ */
+function incoming(root: string, kind: "merge" | "squash"): string[] {
+  const file = gitPath(root, kind === "merge" ? "MERGE_HEAD" : "SQUASH_MSG");
+  if (!existsSync(file)) return [];
+  const line = kind === "merge" ? /^([0-9a-f]{40,64})$/ : /^commit ([0-9a-f]{40,64})$/;
+  const shas: string[] = [];
+  for (const text of readFileSync(file, "utf-8").split("\n")) {
+    const m = line.exec(text.trimEnd());
+    if (m) shas.push(m[1]!);
+  }
+  return shas;
+}
+
+function nulSeparated(root: string, args: string[]): string[] {
+  return git(root, args, true).stdout.split("\0").filter(Boolean);
+}
+
+/**
+ * Why a sync must not commit this merge or squash, or null when it may. A
+ * sync commits only what a pull started: a merge or squash of origin/main,
+ * known by every commit it brings in being in origin/main as fetched. One
+ * someone started of their own branch is theirs to finish. And a commit takes
+ * the whole index, so it is refused while the index stages a secret-shaped
+ * path at other than origin/main's version, or any path the merge does not
+ * bring in (work staged beside it, which no merge of origin/main put there).
+ */
+export function foreignReason(root: string, kind: "merge" | "squash"): string | null {
+  const shas = incoming(root, kind);
+  const record = kind === "merge" ? "MERGE_HEAD" : "SQUASH_MSG";
+  if (shas.length === 0) return `the pending ${kind}'s ${record} names no commit`;
+  if (!refExists(root, ORIGIN_MAIN)) return `there is no origin/main to tell this ${kind} is a sync's`;
+  const foreign = shas.filter((sha) => !isAncestor(root, sha, ORIGIN_MAIN));
+  if (foreign.length > 0) {
+    const names = foreign.map((sha) => sha.slice(0, 12)).join(", ");
+    return `a ${kind} of ${names}, which is not in origin/main, is in progress; sync did not start it, so finish or abort it with git`;
+  }
+
+  const staged = nulSeparated(root, ["diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD"]);
+  const secrets = staged.filter(
+    (path) =>
+      matchesAnyPattern(path, SENSITIVE_PATTERNS) &&
+      git(root, ["rev-parse", "-q", "--verify", `:0:${path}`]).stdout !==
+        git(root, ["rev-parse", "-q", "--verify", `${ORIGIN_MAIN}:${path}`]).stdout
+  );
+  if (secrets.length > 0) return `the index stages ${secrets.join(", ")}, which origin/main does not hold; unstage it before the ${kind} is committed`;
+
+  const brought = new Set<string>();
+  for (const sha of shas) {
+    const base = git(root, ["merge-base", "HEAD", sha]).stdout;
+    if (!base) return `the pending ${kind} shares no history with HEAD`;
+    for (const path of nulSeparated(root, ["diff", "--name-only", "-z", "--no-renames", base, sha])) brought.add(path);
+  }
+  const stray = staged.filter((path) => !brought.has(path));
+  if (stray.length > 0) return `the index stages ${stray.join(", ")} beside the ${kind}, which does not bring it in; unstage it before the ${kind} is committed`;
+  return null;
+}
+
 export type ConcludeOutcome = "committed" | "unstaged" | "nothing" | "blocked" | "unresolved" | "failed";
 
 export interface Conclusion {
@@ -116,10 +183,13 @@ export interface Conclusion {
 
 /**
  * Finish `state` by its kind once nothing is unmerged. A merge or a squash is
- * committed with the message git prepared. A stash leftover is never
+ * committed with the message git prepared, and only when a sync started it
+ * (`foreignReason`); one it did not is blocked. A stash leftover is never
  * committed: the paths it had unmerged are unstaged, so they become ordinary
  * working-tree changes, and its stash entry is left for whoever reconciles
- * stashes. A blocked operation is never finished here.
+ * stashes. A path whose staged version the working tree no longer has is
+ * never unstaged, since that version would be lost: the leftover then fails
+ * and nothing changes. A blocked operation is never finished here.
  *
  * `state` defaults to the repository's state now. A stash leftover left
  * unresolved is remembered (`rememberStash`), so a later call still finds it.
@@ -143,6 +213,16 @@ export function conclude(root: string, state: PendingState = pendingState(root))
         refExists(root, `HEAD:${path}`) ||
         git(root, ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", path]).code === 0
     );
+    const drifted = known.filter(
+      (path) => git(root, ["--literal-pathspecs", "diff", "--quiet", "--", path]).code !== 0
+    );
+    if (drifted.length > 0) {
+      return {
+        outcome: "failed",
+        kind,
+        detail: `the working tree no longer has the version staged for ${drifted.join(", ")}; unstaging would lose it`,
+      };
+    }
     const restored =
       known.length === 0 ? null : git(root, ["--literal-pathspecs", "restore", "--staged", "--", ...known]);
     if (restored && restored.code !== 0) {
@@ -152,6 +232,8 @@ export function conclude(root: string, state: PendingState = pendingState(root))
     return { outcome: "unstaged", kind };
   }
 
+  const foreign = foreignReason(root, kind);
+  if (foreign) return { outcome: "blocked", kind, detail: foreign };
   const committed = git(root, ["commit", "--no-edit"]);
   return committed.code === 0
     ? { outcome: "committed", kind }

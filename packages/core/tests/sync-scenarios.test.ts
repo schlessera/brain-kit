@@ -153,7 +153,7 @@ const ROWS: Row[] = [
     },
   },
   {
-    name: "(h) a stash-pop leftover: resolved, committed as local work, the entry dropped",
+    name: "(h) a stash-pop leftover: resolved, committed as local work, the entry kept and named",
     setup: SCENARIO_SETUPS.stashPopLeftover,
     code: 0,
     status: "complete",
@@ -166,7 +166,10 @@ const ROWS: Row[] = [
       const merged = pushedFile(brain, FIELD_NOTE);
       expect(merged).toContain(OURS_RIDGE);
       expect(merged).toContain(THEIRS_RIDGE);
-      expect(git(brain.root, "stash", "list")).toBe("");
+      // The merge put a new neighbour beside the stash's line, so its change is
+      // not provably held: when uncertain, keep.
+      expect(git(brain.root, "stash", "list").split("\n")).toHaveLength(1);
+      expect(body.report).toContain("stash kept: stash@{0} — not an autostash");
       inSync(brain, body);
     },
   },
