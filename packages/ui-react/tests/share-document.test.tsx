@@ -134,7 +134,7 @@ describe("a message with blocks", () => {
 
   test("draws every block kind, in order, in the print theme", async () => {
     const kinds = Object.keys(BLOCKS) as AnswerBlockKind[];
-    expect(kinds).toHaveLength(12);
+    expect(kinds).toHaveLength(13);
     store().startAssistantMessage(null);
     store().appendText(null, "All of them.");
     kinds.forEach((kind, i) => showBlock(`s${i}`, BLOCKS[kind])());

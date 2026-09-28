@@ -2864,7 +2864,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:461`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:492`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3291,7 +3291,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:461`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:492`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3465,7 +3465,7 @@ it in the pinned image.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:423-437`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:453-468`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -3943,8 +3943,8 @@ way D41's "Built" note does, and supersedes a point here if the code
 disagrees.
 
 **Question.** `LinkPreviewCard` is in the kit and D41 §2 left it out of
-`show_block`, because its props carry no URL (`LinkPreviewCardProps`,
-`packages/ui-kit/src/blocks/LinkPreviewCard.tsx:31-41`). Giving it one is not
+`show_block`, because its props carried no URL (`LinkPreviewCardProps`,
+`packages/ui-kit/src/blocks/LinkPreviewCard.tsx:67-97`, where they now do). Giving it one is not
 just a missing prop. The model chooses the URL, the title and the
 description, and it may have read untrusted content before choosing them. A
 card like that, drawn inside an answer the user trusts, is a phishing shape:
@@ -3991,7 +3991,7 @@ goes and fetches nothing.
    default-ignorable or bidi-control code point, is refused. Other IDNs are
    not refused wholesale.
 6. **A new package edge: ui-sdk → ui-kit.** The `show_block` handler
-   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:13-15`)
+   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`)
    has to call `classifyLink`, and the two packages did not depend on each other. ui-sdk
    takes a workspace dependency on ui-kit, and only on its React-free `links`
    export. That gives one implementation and one test suite. The edge goes
@@ -4024,6 +4024,44 @@ goes and fetches nothing.
 
 **Not decided here.** Markdown links in prose are D49. Links in a shared PNG
 or PDF are #558.
+
+**Built 2026-09-28 (#43).** The build held to the ruling above. What it
+found, and what the ruling did not say:
+
+- **Where each part landed.** The handler throws with the reason
+  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`).
+  The payload parse on the client stays structural, and the card classifies
+  again. The card's link mode calls `classifyLink` itself
+  (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
+  there is no `host` prop and no `host` field. The payload
+  (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
+  mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:249-308`)
+  is pure. The edge table records the new dependency
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and ui-kit now
+  builds and publishes ahead of ui-sdk. The kit's own row is unchanged. It
+  still depends on nothing internal, and D13's purity gate still holds over
+  everything under `src/`, `links.ts` included.
+- **One reading of the spec, stated.** The spec says "UTS #39 Highly
+  Restrictive" and lists the allowed mixes as Han with Hiragana and Katakana,
+  with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
+  three sets, so a Japanese brand name with Latin letters in it is not
+  refused. The implementation follows the standard
+  (`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:212-216`). Latin with any
+  other script (Cyrillic, Greek, …) is still refused.
+- **How "nothing is fetched" is proved, and its measured blind spot.** The
+  browser test reads every request from Playwright on the Node side
+  (`startRequestLog`, `packages/ui-kit/tests/visual/request-log.ts:20-32`),
+  across the whole browser context so a new tab is seen. An in-page spy
+  misses an `<img>` and a navigation, and Resource Timing misses a failed
+  request, which is every request to `.example`. Mutating a `/preview.png`
+  image or a scripted prefetch into the card turns the test red on that log.
+  A `/favicon.ico` image did not: Chromium routes it so that Playwright
+  reports no request. So the test also asserts that the card contains no
+  element or style that can load anything, and that assertion is the one
+  that fails for the favicon.
+- **One more alternative refused.** *Take a derived `destination` prop* (the
+  spec's §8): the kit would trust its caller for the host, and the payload
+  would stop mirroring the props.
 
 ## 2026-09-28 — D49: a prose link goes through D48's classifier on every markdown surface, and `mailto:` stays live (#551)
 
@@ -4126,7 +4164,7 @@ does a replayed session show?
    two suggestions per answer. None is a valid answer, and generic filler is
    not offered.
 2. **The payload is the kit's data, minus tone.** The schema
-   (`SUGGESTIONS_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:395-420`) carries the row's
+   (`SUGGESTIONS_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:425-450`) carries the row's
    `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
    which is a callback, and without `tone`, because a suggestion carries no
    effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`

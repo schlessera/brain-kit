@@ -1,7 +1,7 @@
 /**
  * `show_block` — the answer blocks, as one tool (D41).
  *
- * The kit draws a comparison table, stat tiles, a trend chart and eight more
+ * The kit draws a comparison table, stat tiles, a trend chart and ten more
  * blocks that belong INSIDE an answer, and until this contract nothing told
  * the model they existed. One tool with a discriminated union of blocks keeps
  * the system prompt to one paragraph and the contract count at five; the
@@ -84,7 +84,7 @@ const icon = z
   );
 
 // ---------------------------------------------------------------------------
-// The twelve blocks
+// The thirteen answer blocks
 // ---------------------------------------------------------------------------
 
 export const COMPARISON_BLOCK_SCHEMA = z.object({
@@ -321,6 +321,36 @@ export const CONTACT_BLOCK_SCHEMA = z.object({
 });
 
 /**
+ * A page the reader may want to open (#43). The schema bounds the shape; what
+ * the address may BE is `classifyLink`'s call (`@schlessera/brain-ui-kit/links`),
+ * made by the handler, which rejects a refused address, and again by the
+ * card, which draws a refused one as withheld. The host is deliberately not a
+ * field: it is derived from `url`, so the model cannot state one that
+ * disagrees with where the link goes. Nothing is fetched to render it.
+ */
+export const LINK_BLOCK_SCHEMA = z.object({
+  kind: z.literal("link"),
+  url: z
+    .string()
+    .min(1)
+    .max(2048)
+    .describe(
+      "The absolute http(s) address, exactly as the reader should open it. No user:password@. Brain does not open or check it."
+    ),
+  title: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("What the page is, in your words. Plain text; shown as written by you."),
+  description: z
+    .string()
+    .max(240)
+    .optional()
+    .describe("One or two sentences on why it is relevant. Plain text; shown as written by you."),
+});
+
+/**
  * Several named places, drawn on real geography with a numbered list under
  * them (#44). The model says WHICH places; the surface decides HOW they are
  * drawn. That is why nothing that shapes the drawing is here: no span, zoom,
@@ -433,6 +463,7 @@ export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   QUOTE_BLOCK_SCHEMA,
   CONTACT_BLOCK_SCHEMA,
   MAP_BLOCK_SCHEMA,
+  LINK_BLOCK_SCHEMA,
   SUGGESTIONS_BLOCK_SCHEMA,
 ]);
 
@@ -451,7 +482,7 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card or a map of places. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places or a link card. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -460,8 +491,9 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "receipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).",
   "timeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.",
   "map: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.",
+  "link: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.",
   "suggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.",
-  "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, so fix the shape rather than retrying it unchanged.",
+  "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's address was refused, so fix the shape or the address rather than retrying it unchanged.",
 ].join("\n");
 
 export const SHOW_BLOCK_INPUT_SCHEMA = z.object({
@@ -496,7 +528,7 @@ export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   for shares of a whole; a \`receipt\` for what a tool or a change did;
   \`steps\` for a procedure; a \`timeline\` for what happened when; a
   \`schedule\` for what is coming; a \`quote\` when the words are the
-  evidence; a \`contact\` when the answer is a person, a company or a
-  project; a \`map\` for several places. Write the prose around the block,
+  evidence; a \`contact\` when the answer is who; a \`map\` for several
+  places; a \`link\` for a page to open. Write the prose around the block,
   never its contents again.`,
 });

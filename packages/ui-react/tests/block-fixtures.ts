@@ -117,6 +117,12 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
       { label: "Raft timber stand" },
     ],
   },
+  link: {
+    kind: "link",
+    url: "https://ithaca-harbour.example/tides/week-39",
+    title: "Harbour tide tables, week 39",
+    description: "High water before dawn all week; the pass is safest Tuesday.",
+  },
 };
 
 /** The follow-ups the model offers under its answer (#40), drawn in the closing row. */

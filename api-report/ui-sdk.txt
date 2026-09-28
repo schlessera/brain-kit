@@ -250,6 +250,7 @@ export "./client" (./src/client/index.ts)
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
   type Keyterm
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
   MAP_BLOCK_SCHEMA
@@ -770,6 +771,7 @@ export "./server" (./src/server/index.ts)
   type KeyedLock
   type Keyterm
   type KillableProcess
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
   type LocationFix
@@ -1070,6 +1072,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GetCurrentLocationInput
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
   MAP_BLOCK_SCHEMA
@@ -1476,6 +1479,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             source: z.ZodOptional<z.ZodString>;
             accuracyM: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"link">;
+        url: z.ZodString;
+        title: z.ZodOptional<z.ZodString>;
+        description: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>, z.ZodObject<{
         kind: z.ZodLiteral<"suggestions">;
         label: z.ZodOptional<z.ZodString>;
