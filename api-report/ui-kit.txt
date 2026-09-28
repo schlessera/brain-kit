@@ -112,11 +112,14 @@ export "." (./src/index.ts)
   type LaneSegment
   LinkPreviewCard
   type LinkPreviewCardProps
+  type LinkRefusal
   type LinkRefusalReason
   type LinkVerdict
   ListRow
   type ListRowProps
   type ListRowVariant
+  MAILTO_ADDRESSES_MAX
+  type MailVerdict
   type MapCluster
   type MapLand
   type MapPath
@@ -218,6 +221,7 @@ export "." (./src/index.ts)
   type ViewState
   canvas
   classifyLink
+  classifyMailto
   clusterLetter
   color
   font
@@ -227,9 +231,13 @@ export "." (./src/index.ts)
 
 export "./links" (./src/links.ts)
   LINK_URL_MAX
+  type LinkRefusal
   type LinkRefusalReason
   type LinkVerdict
+  MAILTO_ADDRESSES_MAX
+  type MailVerdict
   classifyLink
+  classifyMailto
   decodePunycode
   highlyRestrictive
   refusalSentence

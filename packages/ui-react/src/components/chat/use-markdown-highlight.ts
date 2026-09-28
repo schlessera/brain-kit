@@ -2,6 +2,8 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { Options as MarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { remarkRawHref } from "./prose-link.js";
+
 /**
  * Plugin lists, hoisted out of render.
  *
@@ -10,7 +12,7 @@ import remarkGfm from "remark-gfm";
  * literals in the JSX made that unavoidable; module constants let the memo
  * below actually hold.
  */
-export const REMARK_PLUGINS = [remarkGfm];
+export const REMARK_PLUGINS = [remarkGfm, remarkRawHref];
 const NO_REHYPE_PLUGINS: NonNullable<MarkdownOptions["rehypePlugins"]> = [];
 
 /**

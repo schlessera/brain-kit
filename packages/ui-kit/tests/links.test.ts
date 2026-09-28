@@ -6,7 +6,15 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { classifyLink, decodePunycode, highlyRestrictive, refusalSentence, type LinkVerdict } from "../src/links.js";
+import {
+  classifyLink,
+  classifyMailto,
+  decodePunycode,
+  highlyRestrictive,
+  refusalSentence,
+  type LinkVerdict,
+  type MailVerdict,
+} from "../src/links.js";
 
 function refused(url: string): Extract<LinkVerdict, { ok: false }> {
   const verdict = classifyLink(url);
@@ -129,5 +137,91 @@ describe("decodePunycode", () => {
     // RFC 3492 7.1 (B), Chinese (simplified).
     expect(decodePunycode("ihqwcrb4cv8a8dqg056pqjye")).toBe("他们为什么不说中文");
     expect(decodePunycode("!!")).toBeNull();
+  });
+});
+
+/**
+ * `classifyMailto`, the one scheme prose keeps live (#551, D49 §5). Criteria
+ * 2 and 3 of the design comment on #551.
+ */
+describe("classifyMailto", () => {
+  function mail(raw: string): Extract<MailVerdict, { ok: true }> {
+    const verdict = classifyMailto(raw);
+    if (!verdict.ok) throw new Error(`expected ${JSON.stringify(raw)} to be accepted, got ${JSON.stringify(verdict)}`);
+    return verdict;
+  }
+  function refusedMail(raw: string): Extract<MailVerdict, { ok: false }> {
+    const verdict = classifyMailto(raw);
+    if (verdict.ok) throw new Error(`expected ${JSON.stringify(raw)} to be refused, got ${JSON.stringify(verdict)}`);
+    return verdict;
+  }
+
+  test("one address: the href is mailto: and the address, and the address is what is shown", () => {
+    expect(mail("mailto:penelope@ithaca.example")).toEqual({
+      ok: true,
+      href: "mailto:penelope@ithaca.example",
+      display: "penelope@ithaca.example",
+      addresses: ["penelope@ithaca.example"],
+    });
+    expect(mail("MAILTO:penelope@ithaca.example").href).toBe("mailto:penelope@ithaca.example");
+  });
+
+  test("every query parameter is dropped from the href, recipients included", () => {
+    const v = mail("mailto:penelope@ithaca.example?subject=Supplies&bcc=x@y.example&cc=z@y.example&body=Send%20it");
+    expect(v.href).toBe("mailto:penelope@ithaca.example");
+    expect(v.display).toBe("penelope@ithaca.example");
+  });
+
+  test("several addresses are all shown, up to ten", () => {
+    const v = mail("mailto:penelope@ithaca.example,telemachus@ithaca.example");
+    expect(v.display).toBe("penelope@ithaca.example,telemachus@ithaca.example");
+    expect(v.href).toBe("mailto:penelope@ithaca.example,telemachus@ithaca.example");
+    const ten = Array.from({ length: 10 }, (_, i) => `crew${i}@ithaca.example`).join(",");
+    expect(mail(`mailto:${ten}`).addresses).toHaveLength(10);
+    expect(refusedMail(`mailto:${ten},crew10@ithaca.example`).reason).toBe("too-long");
+  });
+
+  test("a percent-encoded address is decoded before it is checked and shown", () => {
+    expect(mail("mailto:penelope%40ithaca.example").display).toBe("penelope@ithaca.example");
+    // A `?` in the local part is legal and must not end the address in the href.
+    expect(mail("mailto:who%3F@ithaca.example").href).toBe("mailto:who%3F@ithaca.example");
+  });
+
+  test("the domain meets the web host's rules: ASCII shown, mixed script refused", () => {
+    expect(mail("mailto:odysseus@bücher.example").display).toBe("odysseus@xn--bcher-kva.example");
+    expect(refusedMail("mailto:odysseus@аpple.example").reason).toBe("mixed-script");
+  });
+
+  test("hidden and bidi characters are refused, raw or percent-encoded", () => {
+    expect(refusedMail("mailto:penelope@ithaca.example\u202E").reason).toBe("hidden-characters");
+    expect(refusedMail("mailto:pene\u200Blope@ithaca.example").reason).toBe("hidden-characters");
+    expect(refusedMail("mailto:penelope%E2%80%AE@ithaca.example").reason).toBe("hidden-characters");
+    expect(refusedMail(" mailto:penelope@ithaca.example").reason).toBe("hidden-characters");
+  });
+
+  test("no address, or a malformed one, is unparseable", () => {
+    for (const raw of [
+      "mailto:",
+      "mailto:?subject=hi",
+      "mailto:penelope",
+      "mailto:@ithaca.example",
+      "mailto:penelope@",
+      "mailto:penelope@ithaca.example/inbox",
+      "mailto:penelope@ithaca.example:25",
+      "mailto:a b@ithaca.example",
+      "mailto:penelope@ithaca.example,",
+      "mailto:%E0%A4%A",
+    ]) {
+      expect(refusedMail(raw).reason).toBe("unparseable");
+    }
+  });
+
+  test("the raw checks run first, as classifyLink's do", () => {
+    expect(refusedMail(`mailto:${"a".repeat(2050)}@ithaca.example`).reason).toBe("too-long");
+  });
+
+  test("it classifies mailto: only; the link block still refuses mailto:", () => {
+    expect(refusedMail("https://ithaca.example/")).toMatchObject({ reason: "scheme", scheme: "https:" });
+    expect(classifyLink("mailto:penelope@ithaca.example")).toMatchObject({ ok: false, reason: "scheme" });
   });
 });

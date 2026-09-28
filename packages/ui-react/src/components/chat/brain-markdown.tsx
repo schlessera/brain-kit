@@ -1,5 +1,5 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import React, { memo, useEffect, useMemo } from "react";
+import React, { memo, useContext, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
 
 import {
@@ -19,6 +19,7 @@ import {
   repoImageSrc,
 } from "./brain-markdown-links.js";
 import { splitShareBlocks } from "./brain-markdown-share.js";
+import { InsideProseLink, ProseLink } from "./prose-link.js";
 import {
   REMARK_PLUGINS,
   useRehypePlugins,
@@ -38,14 +39,21 @@ interface BrainMarkdownProps {
   entityTags?: boolean;
   fileLinks?: boolean;
 }
-/** Wrap any element's render to process entity markers + file paths in its text children */
+/**
+ * Wrap any element's render to process entity markers + file paths in its text
+ * children. Inside a prose link no path or wikilink is linkified: a withheld
+ * link's text is final (D49 §4), and an anchor inside an anchor is not HTML.
+ */
 function withTextProcessing<T extends keyof React.JSX.IntrinsicElements>(
   Tag: T,
   opts: { entityTags: boolean; fileLinks: boolean }
 ) {
-  return ({ children, ...props }: React.ComponentPropsWithoutRef<T> & { children?: React.ReactNode }) => (
-    React.createElement(Tag, props as any, processChildText(children, opts))
-  );
+  const inLink = { ...opts, fileLinks: false };
+  // `node` is react-markdown's hast node, not an attribute.
+  return function TextProcessed({ children, node: _node, ...props }: React.ComponentPropsWithoutRef<T> & { children?: React.ReactNode; node?: unknown }) {
+    const inside = useContext(InsideProseLink);
+    return React.createElement(Tag, props as any, processChildText(children, inside ? inLink : opts));
+  };
 }
 /**
  * Memoized because rendering it means parsing markdown, and the transcript
@@ -151,7 +159,15 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
           />
         );
       },
-      a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<"a">) => {
+      /**
+       * Repo paths open in the file viewer and never leave the app. Every
+       * other link goes through `ProseLink`, which classifies the address the
+       * author wrote (`data-raw-href`, from `remarkRawHref`) and shows its
+       * host (#551, D49). The markdown title attribute is dropped: it is the
+       * author's words in a hover-only tooltip, beside a destination that is
+       * now on screen.
+       */
+      a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<"a"> & { "data-raw-href"?: string }) => {
         if (fileLinks) {
           const kind = classifyRepoPath(href);
           if (kind === "file") {
@@ -161,11 +177,7 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
             return <DirLink path={href as string}>{children}</DirLink>;
           }
         }
-        return (
-          <a target="_blank" rel="noopener noreferrer" href={href} {...props}>
-            {children}
-          </a>
-        );
+        return <ProseLink href={props["data-raw-href"] ?? href ?? ""}>{children}</ProseLink>;
       },
     };
   }, [entityTags, fileLinks, root]);

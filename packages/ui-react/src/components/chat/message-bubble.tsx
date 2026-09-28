@@ -320,7 +320,11 @@ function AssistantContent({
                     wrapper: content-visibility implies paint containment,
                     which would clip a dropdown that opens past the box. */}
                 <div className="chat-message-body">
-                  <MarkdownContent content={group.text} blocks={blocksFor(message, group.textIndex)} />
+                  <MarkdownContent
+                    content={group.text}
+                    blocks={blocksFor(message, group.textIndex)}
+                    streaming={message.isStreaming && group.isLast}
+                  />
                 </div>
                 {showShare && shareOptions.length > 0 && (
                   <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -330,7 +334,11 @@ function AssistantContent({
               </div>
             ) : (
               <div key={i} className="chat-message-body">
-                <MarkdownContent content={group.text} blocks={blocksFor(message, group.textIndex)} />
+                <MarkdownContent
+                  content={group.text}
+                  blocks={blocksFor(message, group.textIndex)}
+                  streaming={message.isStreaming && group.isLast}
+                />
               </div>
             );
         }

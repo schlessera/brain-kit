@@ -1,6 +1,7 @@
 import type { MessageBlock } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainMarkdown } from "./brain-markdown.js";
 import { BlockCard } from "./tool-cards/block-card.js";
+import { holdOpenLink } from "../../lib/stream-link-hold.js";
 
 /**
  * A text part of an assistant message, with the blocks the surface
@@ -12,14 +13,22 @@ import { BlockCard } from "./tool-cards/block-card.js";
  * the markdown renderer, and a message with no blocks renders exactly as it
  * did before this prop existed. A span that does not fit the text (an
  * anchor from a text that has since changed) is ignored, never a blank.
+ *
+ * While the part is still streaming, a link that has not closed yet is held
+ * back (`holdOpenLink`, #551), so no raw address is painted and no autolink
+ * to a half-typed host exists for a frame. The anchor and its host appear
+ * together once the link closes.
  */
 export function MarkdownContent({
-  content,
+  content: buffer,
   blocks,
+  streaming = false,
 }: {
   content: string;
   blocks?: MessageBlock[];
+  streaming?: boolean;
 }) {
+  const content = streaming ? holdOpenLink(buffer).shown : buffer;
   const cuts = usableBlocks(content, blocks);
   if (cuts.length === 0) return <BrainMarkdown content={content} fileLinks />;
   const pieces: React.ReactNode[] = [];

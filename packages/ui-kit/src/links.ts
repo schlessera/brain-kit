@@ -61,6 +61,9 @@ export type LinkVerdict =
       shown: string;
     };
 
+/** A refused verdict, the same shape for a web link and a mail link. */
+export type LinkRefusal = Extract<LinkVerdict, { ok: false }>;
+
 /** The longest address accepted, matching the `link` block's schema. */
 export const LINK_URL_MAX = 2048;
 
@@ -96,7 +99,7 @@ function shown(raw: string): string {
   return chars.length > SHOWN_MAX ? `${chars.slice(0, SHOWN_MAX - 1).join("")}…` : text;
 }
 
-function refuse(raw: string, reason: LinkRefusalReason, scheme?: string): LinkVerdict {
+function refuse(raw: string, reason: LinkRefusalReason, scheme?: string): LinkRefusal {
   return scheme ? { ok: false, reason, scheme, shown: shown(raw) } : { ok: false, reason, shown: shown(raw) };
 }
 
@@ -325,4 +328,85 @@ export function refusalSentence(verdict: { reason: LinkRefusalReason; scheme?: s
     case "too-long":
       return `the address is longer than ${LINK_URL_MAX.toLocaleString("en")} characters`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// classifyMailto
+// ---------------------------------------------------------------------------
+
+export type MailVerdict =
+  | {
+      ok: true;
+      /** `mailto:` and the addresses, and nothing else: every query parameter is dropped. */
+      href: string;
+      /** The addresses as shown beside the link text, comma-joined, domains in ASCII. */
+      display: string;
+      addresses: string[];
+    }
+  | LinkRefusal;
+
+/** The most addresses one `mailto:` may carry before it reads as a mailing. */
+export const MAILTO_ADDRESSES_MAX = 10;
+
+/** RFC 5322 `dot-atom` characters for the local part. ASCII only. */
+const LOCAL_PART = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/;
+
+/** Characters that would let a domain smuggle a path, a port, credentials or a second host. */
+const DOMAIN_FORBIDDEN = /[\s/?#@:[\]\\%,;<>()"]/;
+
+/**
+ * Classify a `mailto:` address in prose (#551, D49 §5).
+ *
+ * This is the one scheme `classifyLink` refuses that prose keeps live, and it
+ * is a check beside `classifyLink`, not a loosening of it: the `link` block
+ * still refuses `mailto:`. The raw-string checks are `classifyLink`'s, run
+ * first for the same reason. Each address's domain goes through
+ * `classifyLink` itself, as the host of an `https:` address, so a mail domain
+ * meets exactly the web host's rules (mixed script refused, shown in ASCII).
+ *
+ * Every query parameter is dropped from the href rather than shown or
+ * refused: `cc`, `bcc` and `to` add recipients the shown address would not
+ * name, and a `body` is a message the model writes for the reader to send.
+ */
+export function classifyMailto(raw: string): MailVerdict {
+  if (raw.length > LINK_URL_MAX) return refuse(raw, "too-long");
+  if (HIDDEN.test(raw) || raw !== raw.trim()) return refuse(raw, "hidden-characters");
+  const scheme = SCHEME.exec(raw);
+  if (!scheme) return refuse(raw, colonless(raw) ? "relative" : "unparseable");
+  if (scheme[1]!.toLowerCase() !== "mailto") return refuse(raw, "scheme", `${scheme[1]!.toLowerCase()}:`);
+
+  const rest = raw.slice(scheme[0].length);
+  const query = rest.indexOf("?");
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(query === -1 ? rest : rest.slice(0, query));
+  } catch {
+    return refuse(raw, "unparseable");
+  }
+  // Percent-encoding is how a bidi control would get past the raw check.
+  if (HIDDEN.test(decoded)) return refuse(raw, "hidden-characters");
+
+  const parts = decoded.split(",");
+  if (parts.length > MAILTO_ADDRESSES_MAX) return refuse(raw, "too-long");
+  const addresses: string[] = [];
+  for (const part of parts) {
+    const at = part.lastIndexOf("@");
+    const local = part.slice(0, at);
+    const domain = part.slice(at + 1);
+    if (at <= 0 || !LOCAL_PART.test(local) || domain === "" || DOMAIN_FORBIDDEN.test(domain)) {
+      return refuse(raw, "unparseable");
+    }
+    const host = classifyLink(`https://${domain}/`);
+    if (!host.ok) return refuse(raw, host.reason === "credentials" ? "unparseable" : host.reason);
+    addresses.push(`${local}@${host.host}`);
+  }
+  const encoded = addresses.map((address) => address.replace(/[%?#&]/g, (ch) => encodeURIComponent(ch)));
+  return { ok: true, href: `mailto:${encoded.join(",")}`, display: addresses.join(","), addresses };
+}
+
+/** No colon before the first `/`, `?` or `#`, as `classifyLink` reads "relative". */
+function colonless(raw: string): boolean {
+  const firstDelimiter = raw.search(/[/?#]/);
+  const colon = raw.indexOf(":");
+  return colon === -1 || (firstDelimiter !== -1 && firstDelimiter < colon);
 }
