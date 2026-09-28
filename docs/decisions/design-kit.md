@@ -2864,7 +2864,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:410`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3291,7 +3291,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:410`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3465,7 +3465,7 @@ it in the pinned image.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:324-336`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:373-386`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -4091,3 +4091,20 @@ in the place it is easiest to produce.
 `render-template` (D46), not through this override, so it keeps
 hidden-destination links until #558 is ruled. "Copy as rich text" copies the
 rendered DOM, so it inherits this treatment.
+
+## 2026-09-28 — the `map` block: the model names places, the surface draws them (#44)
+
+D41 §2 held agent-authored pins back as "a later variant". This is that
+variant. `show_block` gains `map`: 1 to 30 places with optional
+coordinates. The kit gains `PlaceMap`, which is one frame, two, or none,
+with a numbered list that always carries every place. `MapView` gains a
+numbered pin mode whose merges are lettered. The payload is data only, as
+D41 requires, and it carries nothing that shapes the drawing. The geometry
+ruling, the rules that came with it, the design and the two points the
+build changed are recorded in [map-geometry.md §8](map-geometry.md#8-places-the-model-names-on-the-same-geometry--2026-09-28-44),
+which is where anything about maps is decided.
+
+The classification pass does not route to `map`. Its figures are
+coordinates, and a coordinate the text does not state is exactly what the
+block must never invent. That is D45's reason for leaving `trend` and `bars`
+to the tool, and it applies here for the same reason.

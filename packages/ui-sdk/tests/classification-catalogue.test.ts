@@ -545,7 +545,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend` and `bars` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars` and `map` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -562,7 +562,10 @@ describe("the kinds the catalogue can draw", () => {
     // routing them, so it is read off the schemas rather than listed here: a
     // twelfth variant carrying a figure has to be argued, not absorbed.
     const leftOver = BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind));
-    expect(leftOver).toEqual(["trend", "bars"]);
+    // `map` is the twelfth, argued in #44: its figures are coordinates, and a
+    // coordinate the text does not state is exactly what the block must never
+    // invent, so there is nothing for the pass to route.
+    expect(leftOver).toEqual(["trend", "bars", "map"]);
     expect(leftOver).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });
 });
