@@ -315,6 +315,17 @@ test("paints: bar list", async () => {
   await looksRight(barList.Default, "paints-bar-list");
 });
 
+// A label is the record and wraps (#174): what a wrapped row looks like —
+// bar and figure on its first line, continuation lines in the label column
+// alone — is geometry, so it is a baseline, in both themes.
+test("paints: bar list, long labels wrap", async () => {
+  await looksRight(barList.LongTaxonomyWraps, "paints-bar-list-long-labels");
+});
+
+test("paints: bar list, long labels wrap, on paper", async () => {
+  await looksRightOnPaper(barList.LongTaxonomyWraps, "paints-bar-list-long-labels");
+});
+
 test("paints: meter, every tone", async () => {
   await looksRight(meter.Tones, "paints-meter-tones");
 });

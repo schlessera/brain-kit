@@ -51,6 +51,9 @@ const FALLBACK: BarListRow[] = [
   { label: "state compaction", pct: 3, value: "$0.10", tone: "neutral" },
 ];
 
+/** The label's line height, which the track and the value align to. */
+const LINE = 1.4;
+
 export function BarList(p: BarListProps) {
   const src = p.rows || FALLBACK;
 
@@ -62,19 +65,26 @@ export function BarList(p: BarListProps) {
     width: "100%",
     font: `500 11px/1 ${font.mono}`,
   };
-  const rowStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 8 };
+  // A label is the record, so it wraps rather than ellipsizing
+  // (`docs/decisions/design-feedback.md`, "where truncation is allowed";
+  // #174). It breaks at spaces and hyphens, and mid-word only when one word
+  // cannot fit. The bar and the figure sit on the label's first line, so a
+  // continuation line fills the label column alone and can only belong to the
+  // row above it.
+  const rowStyle: CSSProperties = { display: "flex", alignItems: "flex-start", gap: 8 };
   const labelStyle: CSSProperties = {
     flex: 1,
     minWidth: 0,
     color: color.inkDim,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    lineHeight: LINE,
+    overflowWrap: "anywhere",
   };
   const trackStyle: CSSProperties = {
     width: Number(p.barWidth) || 74,
     flex: "none",
     height: 5,
+    // Centred on the first line: (11px x 1.4 - 5px) / 2.
+    marginTop: (11 * LINE - 5) / 2,
     borderRadius: 99,
     background: color.line,
     overflow: "hidden",
@@ -85,6 +95,7 @@ export function BarList(p: BarListProps) {
     flex: "none",
     textAlign: "right",
     color: color.inkMute,
+    lineHeight: LINE,
   };
 
   return (

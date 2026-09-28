@@ -1,10 +1,11 @@
 import preview from "#.storybook/preview";
+import { expect } from "storybook/test";
 
 import { quarantine } from "../../fixtures/actions.js";
 import { fetchReceipt, forecastDiff } from "../../fixtures/runs.js";
 import { Receipt } from "../../src/evidence/Receipt.js";
 import type { Tone } from "../../src/types.js";
-import { stage, wide } from "../_stage.js";
+import { overflowing, stage, wide } from "../_stage.js";
 
 const TONES: Tone[] = ["amber", "teal", "red", "purple", "gold", "blue", "neutral"];
 
@@ -78,3 +79,58 @@ export const Provenance = Default.extend({
 export const RowsOnly = Default.extend({ args: { title: "", footnote: "" } });
 
 export const Wide = Default.extend({ parameters: wide });
+
+/**
+ * A receipt in a 320px transcript, with the key column the stats answer uses
+ * (#174). It needs no new prop: rows hold one figure each, so every value fits
+ * beside its key, and the one value that cannot — an unbroken sha256 — keeps
+ * the ruled `break-all` and runs over three lines complete, inside its column
+ * (`docs/decisions/design-feedback.md`, "where truncation is allowed").
+ */
+const sha256 = "9f2c4e7a1b0d3c85e6f4a2917b3d0c5e8a1f4b7c2d9e0a3f6b8c1d4e7a0b3c6f";
+const narrowRows = [
+  { k: "file", v: "voyage/aeaea-landing.md" },
+  { k: "sha256", v: sha256 },
+  { k: "indexed", v: "22 Sep 2026 · 14:02" },
+  { k: "links", v: "612" },
+  { k: "broken", v: "23 · 3.8%", tone: "red" as const },
+];
+
+export const NarrowHash = meta.story({
+  args: {
+    title: "Provenance",
+    titleIcon: "trust",
+    titleTone: "purple",
+    rows: narrowRows,
+    footnote: "",
+    keyWidth: 78,
+  },
+  // The box a block gets in the chat on a 320px phone: 320 - 2 x 16 of the
+  // message list's padding (`tests/visual/receipt-value-budget.visual.tsx`).
+  parameters: { stageWidth: 288 },
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(window.innerWidth).toBe(320);
+    await expect(sha256.length).toBe(64);
+
+    const card = canvasElement.firstElementChild!.firstElementChild as HTMLElement;
+    await expect(overflowing(card)).toEqual([]);
+
+    for (const { k, v } of narrowRows) {
+      const key = canvas.getByText(k);
+      const value = canvas.getByText(v, { exact: false });
+      await expect(value.textContent).toContain(v);
+      await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth + 1);
+      // Side by side: a value never runs under its key.
+      await expect(value.getBoundingClientRect().left).toBeGreaterThanOrEqual(key.getBoundingClientRect().right);
+      const lineHeight = parseFloat(getComputedStyle(value).lineHeight);
+      const lines = Math.round(value.getBoundingClientRect().height / lineHeight);
+      // Only the hash wraps; a one-figure row fits on one line.
+      if (v === sha256) await expect(lines).toBeGreaterThanOrEqual(2);
+      else await expect(lines).toBe(1);
+    }
+
+    const doc = document.documentElement;
+    await expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth);
+  },
+});
