@@ -69,6 +69,7 @@ Homer's arithmetic**, which does not close either.
 | `time.ts` | the pinned clock and four date helpers | everything dated |
 | `people.ts` | 16 people, their standing and their relationship notes | `ContactCard`, `ListRow`, `RelatedFiles` |
 | `places.ts` | 20 real coordinates, the voyage polyline, three map scenes | `MapView` |
+| `place-maps.ts` | six `map` block scenes: places, the plan `planPlaces` makes of them, and the geometry each frame is drawn over | `PlaceMap`, `PlaceList` |
 | `projects.ts` | one goal, four projects, five threads, the strait decision | `StepList`, `ComparisonTable`, `Label` |
 | `notes.ts` | 18 documents across six kinds, with a closed link graph | `QuoteCard`, `CodeBlock`, `Chip(kv)`, `SearchResultCard` |
 | `events.ts` | overnight timeline, today's schedule, reminders, notifications | `TimelineList`, `ScheduleList`, `DigestCard`, `NotificationCard` |

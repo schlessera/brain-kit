@@ -550,8 +550,9 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
 `show_block` (side-effect free, always registered) renders one of the kit's
-answer blocks inline in the answer; it validates its argument and echoes it,
-and rejects a `link` block whose address the link policy refuses.
+answer blocks inline in the answer, or the follow-ups the model offers under
+it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
+address the link policy refuses.
 The five bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
@@ -567,7 +568,7 @@ tool's result is meant to be rendered as a component rather than read as text:
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
-| `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer |
+| `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
 
 `show_block`'s `block` is a discriminated union on `kind`. Each variant
 mirrors the props of the kit component that draws it; tone values are the
@@ -587,7 +588,9 @@ pre-formatted string because the blocks do no arithmetic:
 | `schedule` | `groups[]{day, meta?, items[]{time, title, detail?, tag?, tone?}}` | `ScheduleList` |
 | `quote` | `quote`, `source?`, `locator?`, `note?`, `tone?`, `icon?` | `QuoteCard` |
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
-| `link` | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
+| `map` | `title?` (≤60), `places[1..30]{label (1-80), lat? (-90..90), lon? (-180..180), meta? (≤40), source? (≤80), accuracyM? (>0, ≤100000)}`; `lat` and `lon` come together or not at all (additive in 0.39.0) | `PlaceMap`, planned by `planPlaces` |
+| `link` (0.39.0) | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
+| `suggestions` (0.39.0) | `label?` (1-24), `items[1..2]{label (4-80, trimmed, one line), icon?}` | the app's closing row, from `SuggestionChips`' data minus `tone` |
 
 A `link` block's address passes `classifyLink` (`@schlessera/brain-ui-kit/links`)
 twice. The handler rejects the call when it refuses the address, naming the
@@ -606,11 +609,55 @@ anchor (`target="_blank"`, `rel="noopener noreferrer nofollow"`, no referrer).
 
 Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
 `timeWidth`, …) are not part of the contract: the surface decides them.
+
+`map` is the one variant that is not handed to its component as it stands.
+The model names places; how they are drawn is the surface's, and nothing in
+the payload can set a span, zoom, box, height, tone, geometry or number.
+`planPlaces` (`@schlessera/brain-ui-sdk/client`) turns the places into the
+drawing, as a pure function a consumer may rely on:
+
+- **Every place is a row, numbered 1..N in payload order**, in every mode.
+  A place without `lat`/`lon`, at exactly `0, 0`, or past ±85° latitude is a
+  row with a reason (`no position`, `0, 0 is usually a missing value`,
+  `beyond the map's ±85°`) and no pin; a missing coordinate is never
+  estimated. More than 30 places is a schema rejection, never a truncation.
+- **The mode comes from the coordinates**: `list` when nothing is pinned or
+  the pins' tightest arc crosses ±180°; `map` when one frame's envelope fits
+  the geometry route's 5°; `pair` when the pins form exactly two groups
+  (single linkage at 5° on both axes) that each fit; `list` otherwise. The
+  reason line's distance is a haversine of the given coordinates, to three
+  significant figures.
+- **Each frame's geometry comes from `GET /api/geo/coastline`**, with the
+  frame's `bbox` and `width=495`, the location card's route and cache. An
+  empty answer or a failed request draws no frame, only
+  `No map for this area · places listed below`; the list is unchanged.
+- **Positions are the brain's claim.** Whenever a place is pinned the card
+  says `Positions as given by the brain · the map does not check them`, and
+  the OpenStreetMap credit appears once, exactly when OSM geometry is drawn.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
 is dropped rather than rejected. `show_block` is the one payload parsed with
 its **input** schema rather than a loose one: the payload is the model's own
 argument echoed back, so a field the client's schema does not know is dropped
 from the rendered block rather than kept, and the block still renders.
+
+`suggestions` (additive in 0.39.0, D50) is the one kind that is not part of
+the answer. It is follow-ups the model offers the reader, and a consumer
+that draws it holds to these rules:
+
+- **Not at the call's position.** It is drawn after the answer, as the
+  turn's closing row, from the turn's **last** call that parses. An earlier
+  or rejected call draws nothing, and a share or print of the answer leaves
+  it out.
+- **Taking one never sends.** A chip puts its `label` in the reader's
+  composer, below any draft, to edit or leave. It is never a message, an
+  answer to a pending question or an approval.
+- **The row is gone once the reader sends anything**, and it is not drawn
+  while the turn runs, while an `ask_user` question in the turn is
+  unanswered, or when the answer's last text ends in a question. The
+  decision reads only the transcript and current state, so a replayed
+  session draws what the live one did.
+- **An older client** has no variant for it: the payload fails its parse
+  and falls back to the generic tool view, as any unparsed payload does.
 
 Rules a consumer may rely on:
 

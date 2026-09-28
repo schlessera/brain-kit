@@ -10,7 +10,7 @@ import { renderBlockHtml, shareMarkdown, shareSegments } from "../src/components
 import { inlineMermaidDiagrams } from "../src/lib/mermaid.js";
 import { useChatStore } from "../src/stores/chat-store.js";
 import type { ChatMessage } from "../src/stores/chat-state.js";
-import { BLOCKS } from "./block-fixtures.js";
+import { BLOCKS, SUGGESTIONS, type AnswerBlockKind } from "./block-fixtures.js";
 
 const SHOW_BLOCK = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
 const identity = { renderBlock: renderBlockHtml, inlineMermaid: async (md: string) => md };
@@ -133,8 +133,8 @@ describe("a message with blocks", () => {
   });
 
   test("draws every block kind, in order, in the print theme", async () => {
-    const kinds = Object.keys(BLOCKS) as Block["kind"][];
-    expect(kinds).toHaveLength(12);
+    const kinds = Object.keys(BLOCKS) as AnswerBlockKind[];
+    expect(kinds).toHaveLength(13);
     store().startAssistantMessage(null);
     store().appendText(null, "All of them.");
     kinds.forEach((kind, i) => showBlock(`s${i}`, BLOCKS[kind])());
@@ -147,6 +147,35 @@ describe("a message with blocks", () => {
     expect(markdown).toContain("--bk-color-canvas:#ffffff;");
     expect(markdown).toContain("color-scheme:light;");
     expect(markdown.startsWith("<style>")).toBe(true);
+  });
+
+  test("leaves answer suggestions out: they are an offer in the app, not the answer (D50)", async () => {
+    store().startAssistantMessage(null);
+    store().appendText(null, "Before the quote.");
+    showBlock("s1", BLOCKS.quote)();
+    store().appendText(null, "After the quote.");
+    showBlock("s2", SUGGESTIONS)();
+    store().finishAssistantMessage(null);
+
+    const segments = shareSegments(lastMessage());
+    expect(segments.map((s) => (s.kind === "block" ? `block:${s.block.kind}` : s.text))).toEqual([
+      "Before the quote.",
+      "block:quote",
+      "After the quote.",
+    ]);
+    const markdown = await shareMarkdown(lastMessage(), identity);
+    expect(markdown).not.toContain("Charybdis");
+  });
+
+  test("a classified span is never swapped for suggestions, so the prose stays", () => {
+    store().startAssistantMessage(null, "turn-s");
+    store().appendText(null, "Intro. The prose that must stay. Outro.");
+    store().finishAssistantMessage(null);
+    const text = lastMessage().content;
+    const start = text.indexOf("The prose");
+    store().setMessageBlocks(null, [{ partIndex: 0, start, end: start + 23, block: SUGGESTIONS, confidence: 0.9 }], "turn-s");
+    expect(lastMessage().blocks).toHaveLength(1);
+    expect(shareSegments(lastMessage())).toEqual([{ kind: "markdown", text }]);
   });
 
   test("cuts a classified block in at its span, as the transcript does", async () => {

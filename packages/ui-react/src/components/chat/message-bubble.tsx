@@ -14,6 +14,7 @@ import { AskUserCard } from "./ask-user-card.js";
 import { isAskUserTool, isShowBlockTool } from "../../lib/tool-names.js";
 import { StatsAnswer } from "./stats/stats-answer.js";
 import { BlockCard } from "./tool-cards/block-card.js";
+import { AnswerSuggestions } from "./answer-suggestions.js";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 import { motion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
@@ -43,6 +44,7 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserSubmit,
   onAskUserCancel,
   onAskUserReask,
+  closing = false,
 }: {
   message: ChatMessage;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
@@ -54,6 +56,11 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  /**
+   * This is the session's last message, so it may carry the answer's
+   * closing row (#40). False for every other message, so the memo holds.
+   */
+  closing?: boolean;
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
@@ -89,6 +96,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserSubmit={onAskUserSubmit}
           onAskUserCancel={onAskUserCancel}
           onAskUserReask={onAskUserReask}
+          closing={closing}
         />
       )}
     </motion.div>
@@ -169,6 +177,10 @@ function groupParts(
         // when it does not parse (a rejected call, an older server), the
         // call stays in the timeline, where its bound fallback states why.
         const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
+        // Suggestions are the one exception (D50): not part of the answer
+        // but an offer after it, drawn in the closing row, so their call
+        // position draws nothing — neither a block nor a trace step.
+        if (payload?.block.kind === "suggestions") continue;
         if (payload) {
           groups.push({ kind: "block", payload, isLast: false });
           continue;
@@ -216,6 +228,7 @@ function AssistantContent({
   onAskUserSubmit,
   onAskUserCancel,
   onAskUserReask,
+  closing,
 }: {
   message: ChatMessage;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
@@ -227,6 +240,7 @@ function AssistantContent({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  closing: boolean;
 }) {
   const root = useBrainUiRoot();
   const contentRef = useRef<HTMLDivElement>(null);
@@ -338,6 +352,10 @@ function AssistantContent({
       ))}
 
       {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && <ThinkingIndicator />}
+
+      {/* One closing row per answer (D37 §8, D50): the follow-ups the model
+          offered, after everything else, until the next user message. */}
+      {closing && <AnswerSuggestions message={message} />}
     </div>
   );
 }

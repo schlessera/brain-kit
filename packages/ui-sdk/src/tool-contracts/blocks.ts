@@ -1,7 +1,7 @@
 /**
  * `show_block` — the answer blocks, as one tool (D41).
  *
- * The kit draws a comparison table, stat tiles, a trend chart and nine more
+ * The kit draws a comparison table, stat tiles, a trend chart and ten more
  * blocks that belong INSIDE an answer, and until this contract nothing told
  * the model they existed. One tool with a discriminated union of blocks keeps
  * the system prompt to one paragraph and the contract count at five; the
@@ -84,7 +84,7 @@ const icon = z
   );
 
 // ---------------------------------------------------------------------------
-// The twelve blocks
+// The thirteen answer blocks
 // ---------------------------------------------------------------------------
 
 export const COMPARISON_BLOCK_SCHEMA = z.object({
@@ -350,6 +350,105 @@ export const LINK_BLOCK_SCHEMA = z.object({
     .describe("One or two sentences on why it is relevant. Plain text; shown as written by you."),
 });
 
+/**
+ * Several named places, drawn on real geography with a numbered list under
+ * them (#44). The model says WHICH places; the surface decides HOW they are
+ * drawn. That is why nothing that shapes the drawing is here: no span, zoom,
+ * bbox, height, paths, tone or numbering. Those are the levers that would let
+ * a map claim more than it knows. A coordinate is the brain's claim, never
+ * something the background geography verifies, and a place with no position
+ * is listed without one rather than given an estimated pin.
+ *
+ * The cap is a schema rejection the model sees and must fix. Nothing is ever
+ * cut on the client: every place is a row in the list, numbered in payload
+ * order, whatever the map could fit.
+ */
+export const MAP_PLACE_SCHEMA = z
+  .object({
+    label: z.string().min(1).max(80).describe("The place's name. Wraps; never cut."),
+    lat: z.number().min(-90).max(90).optional(),
+    lon: z.number().min(-180).max(180).optional(),
+    meta: z.string().max(40).optional().describe("A short fact: a time, a day, a count."),
+    source: z
+      .string()
+      .max(80)
+      .optional()
+      .describe("Where you got the position: a note path, a document."),
+    accuracyM: z
+      .number()
+      .positive()
+      .max(100_000)
+      .optional()
+      .describe("How sure the position is, in metres, if a source says so. Omit rather than guess."),
+  })
+  .refine((place) => (place.lat === undefined) === (place.lon === undefined), {
+    message: "lat and lon come together",
+  });
+
+export const MAP_BLOCK_SCHEMA = z.object({
+  kind: z.literal("map"),
+  title: z.string().max(60).optional().describe("What the set is: 'Where the crew went ashore'."),
+  places: z
+    .array(MAP_PLACE_SCHEMA)
+    .min(1)
+    .max(30)
+    .describe(
+      "In the order the reader should read them; the numbers follow this order. A place with no known position goes in WITHOUT lat/lon; never estimate one."
+    ),
+});
+
+export type MapPlace = z.infer<typeof MAP_PLACE_SCHEMA>;
+
+// ---------------------------------------------------------------------------
+// The one block that is not part of the answer
+// ---------------------------------------------------------------------------
+
+/** The longest follow-up a chip holds: two lines at 320px, never ellipsised. */
+export const SUGGESTION_MAX_LENGTH = 80;
+
+/** The shortest one worth offering. */
+export const SUGGESTION_MIN_LENGTH = 4;
+
+/** At most two: past that it is a menu of the model's ideas. */
+export const SUGGESTIONS_MAX_ITEMS = 2;
+
+/**
+ * Follow-ups the model offers after its own answer (#40). The data projection
+ * of the kit's `SuggestionChips` minus `onClick` (a callback) and `tone` (a
+ * suggestion never carries an effect, so it is never amber), asserted in both
+ * directions by `packages/ui-react/tests/block-contract.test-d.ts`.
+ *
+ * Unlike every other kind it is not drawn where it is called: the client
+ * lifts the turn's last valid call to the answer's closing row (D50), and a
+ * chip fills the composer; it never sends.
+ */
+export const SUGGESTIONS_BLOCK_SCHEMA = z.object({
+  kind: z.literal("suggestions"),
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(24)
+    .optional()
+    .describe('The uppercase mono line above the chips. Omit for the default, "Ask next".'),
+  items: z
+    .array(
+      z.object({
+        label: z
+          .string()
+          .trim()
+          .min(SUGGESTION_MIN_LENGTH)
+          .max(SUGGESTION_MAX_LENGTH)
+          .regex(/^[^\r\n]*$/, "one line")
+          .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
+        icon,
+      })
+    )
+    .min(1)
+    .max(SUGGESTIONS_MAX_ITEMS)
+    .describe("One or two follow-ups grounded in this answer."),
+});
+
 /** The union the tool's `block` argument carries. */
 export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   COMPARISON_BLOCK_SCHEMA,
@@ -363,7 +462,9 @@ export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   SCHEDULE_BLOCK_SCHEMA,
   QUOTE_BLOCK_SCHEMA,
   CONTACT_BLOCK_SCHEMA,
+  MAP_BLOCK_SCHEMA,
   LINK_BLOCK_SCHEMA,
+  SUGGESTIONS_BLOCK_SCHEMA,
 ]);
 
 export type Block = z.infer<typeof BLOCK_SCHEMA>;
@@ -381,7 +482,7 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card or a link card.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places or a link card. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -389,7 +490,9 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "stats: 3-4 headline figures with a one-line meta each; they wrap in threes. trend: one figure over time, values oldest first, a delta pill only when there is a comparison. table: records with 2-6 columns, right-align numbers. bars: shares of a whole, pct 0-100; tone is the class of work (the same class draws the same colour on every chart), not a judgement of the row.",
   "receipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).",
   "timeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.",
+  "map: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.",
   "link: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.",
+  "suggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.",
   "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's address was refused, so fix the shape or the address rather than retrying it unchanged.",
 ].join("\n");
 
@@ -424,8 +527,8 @@ export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   or four headline figures; a \`trend\` for one figure over time; \`bars\`
   for shares of a whole; a \`receipt\` for what a tool or a change did;
   \`steps\` for a procedure; a \`timeline\` for what happened when; a
-  \`schedule\` for what is coming; a \`quote\` when the words themselves are
-  the evidence; a \`contact\` when the answer is who; a \`link\` for a
-  page to open. Write the prose around the block, never the block's
-  contents again in prose.`,
+  \`schedule\` for what is coming; a \`quote\` when the words are the
+  evidence; a \`contact\` when the answer is who; a \`map\` for several
+  places; a \`link\` for a page to open. Write the prose around the block,
+  never its contents again.`,
 });

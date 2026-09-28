@@ -266,6 +266,17 @@ export interface ChatState {
   ) => void;
   /** Record which backend owns a session (idempotent). */
   setSessionBackend: (sessionId: string, backendId: string) => void;
+
+  /**
+   * Text waiting to be put into the composer: an answer suggestion the reader
+   * took (#40). The draft lives in the composer, not here, so a taker posts
+   * the text and the composer merges it into its draft and clears the
+   * request. `seq` tells two takes of the same text apart. Nothing is sent.
+   */
+  composerInsert: { seq: number; text: string } | null;
+  requestComposerInsert: (text: string) => void;
+  /** Clear the request the composer has applied; a newer one is kept. */
+  clearComposerInsert: (seq: number) => void;
 }
 
 function emptyChat(): SessionChat {
@@ -415,6 +426,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         };
       });
     }
+
+    /** Monotonic per store, so every take is a new request. */
+    let composerInsertSeq = 0;
 
     /** Update the last message of a buffer when it is an assistant message. */
     function mutateLastAssistant(
@@ -819,6 +833,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             ? state
             : { backendIds: { ...state.backendIds, [sessionId]: backendId } }
         ),
+
+      composerInsert: null,
+      requestComposerInsert: (text) =>
+        set({ composerInsert: { seq: ++composerInsertSeq, text } }),
+      clearComposerInsert: (seq) =>
+        set((state) => (state.composerInsert?.seq === seq ? { composerInsert: null } : state)),
 
       clearMessages: () => {
         const state = get();

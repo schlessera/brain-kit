@@ -117,6 +117,7 @@ export "." (./src/index.ts)
   ListRow
   type ListRowProps
   type ListRowVariant
+  type MapCluster
   type MapLand
   type MapPath
   type MapPin
@@ -131,11 +132,19 @@ export "." (./src/index.ts)
   NotificationCard
   type NotificationCardProps
   type OrbitAgent
+  PLACE_MAP_NO_GEOMETRY
+  PLACE_MAP_POSITIONS_LINE
   PRINT_TOKENS
   type PaletteGroup
   type PaletteItem
   PathRef
   type PathRefProps
+  PlaceList
+  type PlaceListProps
+  type PlaceListRow
+  PlaceMap
+  type PlaceMapFrame
+  type PlaceMapProps
   Placeholder
   type PlaceholderProps
   QueueItemRow
@@ -209,8 +218,10 @@ export "." (./src/index.ts)
   type ViewState
   canvas
   classifyLink
+  clusterLetter
   color
   font
+  mapViewBounds
   printThemeCss
   refusalSentence
 

@@ -40,3 +40,7 @@ export type {
 export * from "../tool-contracts/index.js";
 
 export * from "../protocol.js";
+
+// How a `map` block is drawn (#44): a pure plan from its places, so the
+// renderer only fetches geometry and hands the kit literal data.
+export * from "../places.js";

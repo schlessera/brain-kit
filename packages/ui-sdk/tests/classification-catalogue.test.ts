@@ -545,7 +545,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend`, `bars` and `link` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map` and `link` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -561,12 +561,24 @@ describe("the kinds the catalogue can draw", () => {
     // rather than the answer's own strings. That is D45's reason for not
     // routing them, so it is read off the schemas rather than listed here: a
     // twelfth variant carrying a figure has to be argued, not absorbed.
-    const leftOver = BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind));
-    expect(leftOver).toEqual(["trend", "bars", "link"]);
-    // `link` is left for another reason: whether a link typed in prose is
-    // routed through the link policy at all is #551's decision (D48), so the
-    // pass does not turn one into a block before that is ruled.
-    const figures: string[] = leftOver.filter((kind) => kind !== "link");
+    //
+    // `map` is the twelfth, argued in #44: its figures are coordinates, and a
+    // coordinate the text does not state is exactly what the block must never
+    // invent, so there is nothing for the pass to route. `suggestions` is
+    // outside that question altogether: it is not the answer's text in another
+    // shape but an offer drawn after the answer (#40), so no span of prose can
+    // classify into it.
+    const NOT_ANSWER_CONTENT: readonly string[] = ["suggestions"];
+    //
+    // `link` is left for a third reason: a link typed in prose stays a prose
+    // anchor, and D49 puts THAT anchor through the link policy where it
+    // stands, so the pass never lifts one into a block.
+    const LINKS_STAY_IN_PROSE: readonly string[] = ["link"];
+    const leftOver = BLOCK_KINDS.filter(
+      (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
+    );
+    expect(leftOver).toEqual(["trend", "bars", "map", "link"]);
+    const figures: string[] = leftOver.filter((kind) => !LINKS_STAY_IN_PROSE.includes(kind));
     expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });
 });

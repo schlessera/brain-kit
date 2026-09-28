@@ -131,7 +131,26 @@ export {
  * here: they are the projection's internals, `tests/mapview-projection.test.ts`
  * imports them directly, and `step` is far too generic a name to put into a
  * published package's top-level namespace. */
-export { MapView, type MapLand, type MapPath, type MapPin, type MapViewProps } from "./blocks/MapView.js";
+export {
+  MapView,
+  clusterLetter,
+  mapViewBounds,
+  type MapCluster,
+  type MapLand,
+  type MapPath,
+  type MapPin,
+  type MapViewProps,
+} from "./blocks/MapView.js";
+export {
+  PLACE_MAP_NO_GEOMETRY,
+  PLACE_MAP_POSITIONS_LINE,
+  PlaceList,
+  PlaceMap,
+  type PlaceListProps,
+  type PlaceListRow,
+  type PlaceMapFrame,
+  type PlaceMapProps,
+} from "./blocks/PlaceMap.js";
 export { QuoteCard, type QuoteCardProps } from "./blocks/QuoteCard.js";
 export {
   ScheduleList,
