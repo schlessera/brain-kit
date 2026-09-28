@@ -12,6 +12,8 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { BrainApi } from "../../src/lib/api-client.js";
 import { runStats } from "../../src/components/chat/use-chat-commands.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
+import { StatsAnswer } from "../../src/components/chat/stats/stats-answer.js";
+import { composeStatsAnswer } from "../../src/components/chat/stats/compose-stats.js";
 import { corpusStats, runtimeStats } from "../stats-fixtures.js";
 
 afterEach(cleanup);
@@ -142,5 +144,39 @@ describe("/stats", () => {
     } finally {
       root.dispose();
     }
+  });
+});
+
+describe("the bar track follows the width", () => {
+  /** Every bar list's track width, read from what was drawn. */
+  function trackWidths(wide: boolean): string[] {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: wide && query === "(min-width: 640px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const sections = composeStatsAnswer({
+        corpus: { ok: true, value: corpusStats() },
+        runtime: { ok: true, value: runtimeStats() },
+      });
+      const { container } = render(<StatsAnswer sections={sections} />);
+      const bars = [...container.querySelectorAll('[data-stats-section="bars"]')];
+      // The track is the one fixed-width span beside each label.
+      return bars.map((b) => {
+        const track = [...b.querySelectorAll<HTMLElement>("span")].find((el) => el.style.height === "5px");
+        return track?.style.width ?? "none";
+      });
+    } finally {
+      window.matchMedia = original;
+      cleanup();
+    }
+  }
+
+  test("a phone gets the 56px track, a desktop column the 120px one", () => {
+    expect(trackWidths(false)).toEqual(["56px", "56px", "56px"]);
+    expect(trackWidths(true)).toEqual(["120px", "120px", "120px"]);
   });
 });
