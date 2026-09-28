@@ -154,6 +154,17 @@ describe("runSync", () => {
     expect(remoteHead(brain)).toBe(head(brain.root));
   });
 
+  test("a note ignored because its name looks like a secret is named in the report, not dropped silently", async () => {
+    const brain = brainWithRemote();
+    write(brain.root, "notes/design_token_ideas.md", "# Design token ideas\n\nColour names for the trail signs.\n");
+    const env = await envFor(brain.root, judgeWith(null));
+
+    const run = await runSync(env);
+    expect(run.steps.assess[0]).toMatchObject({ fixed: { ignored: [{ reason: "sensitive", paths: ["notes/design_token_ideas.md"] }] } });
+    expect(run.report).toContain("notes/design_token_ideas.md (looks like a secret; .gitignore: /notes/design_token_ideas.md)");
+    expect(run.report).toContain("ignored as a secret, check it is one: notes/design_token_ideas.md");
+  });
+
   test("off main nothing runs", async () => {
     const brain = brainWithRemote();
     git(brain.root, "switch", "-q", "-c", "draft");

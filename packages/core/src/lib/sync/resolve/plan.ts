@@ -93,7 +93,33 @@ export function remotePath(path: string, exists: (path: string) => boolean = () 
   }
 }
 
+/**
+ * Merge with line endings taken out of the comparison: a side checked out
+ * with CRLF differs from an LF side on every line, which would turn one edit
+ * into a whole-file conflict. Every side is compared as LF, and the result is
+ * written back in OURS' line ending, so the file keeps the ending it has here.
+ */
 export function planMerge(input: MergeInput, strategy: MergeStrategy): MergePlan {
+  const lf = (side: string | null) => (side === null ? null : side.replace(/\r\n/g, "\n"));
+  const crlf = input.ours !== null ? input.ours.includes("\r\n") : (input.theirs ?? "").includes("\r\n");
+  const plan = planMergeLF({ ...input, base: lf(input.base), ours: lf(input.ours), theirs: lf(input.theirs) }, strategy);
+  if (!crlf) return plan;
+  const back = (text: string) => text.replace(/\n/g, "\r\n");
+  return {
+    pairs: plan.pairs,
+    render(decisions) {
+      const outcome = plan.render(decisions);
+      if (outcome.status !== "resolved") return outcome;
+      return {
+        ...outcome,
+        content: outcome.content === null ? null : back(outcome.content),
+        extraFiles: outcome.extraFiles.map((file) => ({ ...file, content: back(file.content) })),
+      };
+    },
+  };
+}
+
+function planMergeLF(input: MergeInput, strategy: MergeStrategy): MergePlan {
   const { base, ours, theirs } = input;
   if (strategy === "code-merge") return fixed({ status: "unresolved", reason: "code-merge: needs an agent to combine the edits" });
   if (strategy === "cache-union") return fixed({ status: "unresolved", reason: "cache-union: handled by pull" });

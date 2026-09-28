@@ -293,3 +293,24 @@ describe("remotePath", () => {
     expect(remotePath("notes/OWL.MD")).toBe("notes/OWL-remote.MD");
   });
 });
+
+describe("line endings", () => {
+  const base = doc("2026-07-01", "# Log\n\nSaturn low in the south.\n\nClouds after ten.\n");
+  const ours = base.replace("Saturn low in the south.", "Saturn low in the south, rings clear.");
+  const theirs = base.replace("Clouds after ten.", "Clouds after ten, then clear.");
+  const toCrlf = (text: string) => text.replace(/\n/g, "\r\n");
+
+  test("a CRLF side merges line by line with an LF side, and the result keeps ours' LF", () => {
+    const content = resolvedContent(planMerge({ path: "studies/log.md", base, ours, theirs: toCrlf(theirs) }, "synthesize").render(new Map()));
+    expect(content).toContain("rings clear.");
+    expect(content).toContain("then clear.");
+    expect(content).not.toContain("\r");
+  });
+
+  test("a CRLF ours keeps CRLF throughout", () => {
+    const content = resolvedContent(planMerge({ path: "studies/log.md", base, ours: toCrlf(ours), theirs }, "synthesize").render(new Map()));
+    expect(content).toContain("rings clear.");
+    expect(content).toContain("then clear.");
+    expect(content.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+});

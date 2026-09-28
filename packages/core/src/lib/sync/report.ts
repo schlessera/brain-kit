@@ -59,12 +59,21 @@ export function renderReport(run: RunEnvelope): string {
     lines.push(`Sync: ${post.sync} (local ${post.localHead}, remote ${post.remoteHead})`);
   }
 
+  // Ignoring is never silent: a note whose name only looks like a secret
+  // (`*_token*`) would otherwise drop out of the brain without a word.
+  const ignored = steps.assess.flatMap((assess) => ("skipped" in assess || assess.fixed.refused !== undefined ? [] : assess.fixed.ignored));
+  if (ignored.length > 0) {
+    lines.push("Ignored:", ...ignored.flatMap((add) => add.paths.map((path) => `  ${path} (${add.reason === "sensitive" ? "looks like a secret" : "artifact"}; .gitignore: ${add.line})`)));
+  }
   const tracked = steps.assess.flatMap((assess) => ("skipped" in assess ? [] : assess.fixed.trackedArtifacts));
   const left: string[] = [
     ...leftovers.unresolved.map((file) => `unresolved: ${file.path} — ${file.reason}`),
     ...leftovers.unknown.map((path) => `unknown: ${path}`),
     ...leftovers.media.map((file) => `media: ${file.path} (${size(file.bytes)})`),
     ...tracked.map((file) => `tracked ${file.reason === "sensitive" ? "secret" : "artifact"}: ${file.path}`),
+    ...ignored
+      .filter((add) => add.reason === "sensitive")
+      .flatMap((add) => add.paths.map((path) => `ignored as a secret, check it is one: ${path}`)),
   ];
   if (left.length > 0) lines.push("Left for you:", ...left.map((line) => `  ${line}`));
   return lines.join("\n");

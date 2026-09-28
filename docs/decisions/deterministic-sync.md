@@ -45,8 +45,8 @@ back.
    section, then per block, with every block of the output taken verbatim from
    a side. The merge never writes text neither side wrote, so there is no
    generated sentence to review. Code, binaries, files over 100 KB and
-   markdown that does not parse are left unresolved (`planMerge`,
-   `packages/core/src/lib/sync/resolve/plan.ts:96-119`).
+   markdown that does not parse are left unresolved (`planMergeLF`,
+   `packages/core/src/lib/sync/resolve/plan.ts:122-145`).
    - *Rejected: let an LLM write the merged note.* It is the only option that
      can drop a fact silently, and a sync's first rule is that it never drops
      content. A merge built from verbatim blocks can at worst keep a
@@ -84,7 +84,7 @@ back.
 
 5. **Unjudged means keep both.** A pair nobody decided keeps both passages,
    the newer side first by frontmatter `updated`, ours first on a tie
-   (`private judge`, `packages/core/src/lib/sync/resolve/plan.ts:250-271`). An
+   (`private judge`, `packages/core/src/lib/sync/resolve/plan.ts:276-297`). An
    unjudged file stays `UNKNOWN` and is left for the agent or the report. The
    inbox type (`note`) uses `keep-both` for the whole file, as the old skill's
    table did: theirs is written beside ours as `<name>-remote.md`.
