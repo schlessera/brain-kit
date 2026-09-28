@@ -24,6 +24,13 @@ describe("buildHtmlDocument", () => {
     expect(html).not.toContain("<p>");
   });
 
+  test("keeps markdown's column alignment, which the cell rule would otherwise override", () => {
+    const html = buildHtmlDocument({ content: "| a | b |\n|:-:|--:|\n| 1 | 2 |", contentType: "markdown" });
+    expect(html).toContain('<td align="right">2</td>');
+    expect(html).toContain('th[align="right"], td[align="right"] { text-align: right; }');
+    expect(html).toContain('th[align="center"], td[align="center"] { text-align: center; }');
+  });
+
   test("renders GFM tables", () => {
     const html = buildHtmlDocument({
       content: "| a | b |\n|---|---|\n| 1 | 2 |",

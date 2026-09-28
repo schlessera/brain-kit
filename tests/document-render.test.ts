@@ -133,6 +133,19 @@ describe.skipIf(!chromePath)("the document shell in real Chrome", () => {
     }
   }, 60_000);
 
+  test("markdown's column alignment survives the shell's cell rule", async () => {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(buildHtmlDocument({ content: "| a | b | c |\n|---|:-:|--:|\n| 1 | 2 | 3 |", contentType: "markdown" }));
+      const aligns = await page.evaluate(() =>
+        Array.from(document.querySelectorAll("tbody td")).map((td) => getComputedStyle(td).textAlign)
+      );
+      expect(aligns).toEqual(["left", "center", "right"]);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
   test("the footer's margin rules parse as written: title and count, none on page 1 or a cover", async () => {
     const rules = await pageRules(browser, buildHtmlDocument({ content: "# x", contentType: "markdown", title: "Launch day" }));
     expect(rules).toEqual([

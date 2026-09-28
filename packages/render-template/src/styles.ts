@@ -142,6 +142,10 @@ export const STYLES = String.raw`
   thead th { font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--doc-ink-mute); border-bottom: 1.5px solid var(--doc-ink); padding-top: 0; }
   tbody tr:last-child td { border-bottom: 0; }
   td.num, th.num { text-align: right; }
+  /* Markdown's column alignment (|:-:| and |--:|) arrives as align attributes,
+     which the rule above would otherwise override. */
+  th[align="center"], td[align="center"] { text-align: center; }
+  th[align="right"], td[align="right"] { text-align: right; }
   tr { break-inside: avoid; }
   table.doc-zebra th, table.doc-zebra td { border-bottom: 0; padding-left: 12px; padding-right: 12px; }
   table.doc-zebra tbody tr:nth-child(odd) { background: var(--doc-tint); }

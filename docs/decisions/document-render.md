@@ -55,7 +55,7 @@ remove. The price of injecting is that an element default the author never set
 
 The drop specified Puppeteer's `displayHeaderFooter` with a footer template.
 The build draws the footer with `@page` margin boxes instead
-(`export function pageFooter`, `packages/render-template/src/styles.ts:403-416`):
+(`export function pageFooter`, `packages/render-template/src/styles.ts:407-420`):
 the running title bottom left and "2 / 5" bottom right, on every page but the
 first.
 
@@ -78,7 +78,7 @@ the opener identifies the document on page 1.
 The drop's cover was `min-height: 279mm` inside the page margins, which leaves
 a white 16 mm strip under the accent ground. The build puts the cover on a
 named page, `doc-cover`, with no margins and no footer, so it bleeds on all
-four sides (`@media print { .doc-hero--cover`, `packages/render-template/src/styles.ts:197`).
+four sides (`@media print { .doc-hero--cover`, `packages/render-template/src/styles.ts:201`).
 Its height is 296 mm rather than 297 mm, because a box exactly one page tall
 can round over and push an empty page after it. The invitation skeleton
 renders as two pages, cover and programme, under both binaries.
