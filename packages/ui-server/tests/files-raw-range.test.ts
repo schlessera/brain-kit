@@ -123,20 +123,45 @@ describe("the raw file route answers a byte range", () => {
     expect((await empty("bytes=0-")).status).toBe(416);
   });
 
-  test("a file that shrank after it was measured is never promised bytes it did not send", async () => {
-    // Stand in for a file cut short between the size check and the read.
+  /**
+   * Stand in for a writer that cuts `shrinking.mp4` to `keep` bytes between
+   * the route's size check and its first read. The read itself is real.
+   * With `alwaysShort`, every read comes back cut short instead, as from a
+   * file that keeps changing.
+   */
+  function shrinkOnRead(keep: number, alwaysShort = false) {
     const realFile = Bun.file;
-    const file = spyOn(Bun, "file").mockImplementation(((path: string, ...rest: never[]) => {
+    let cut = false;
+    return spyOn(Bun, "file").mockImplementation(((path: string, ...rest: never[]) => {
       const real = realFile(path, ...rest);
-      if (!path.endsWith("clip.mp4")) return real;
-      return Object.assign(Object.create(real), { slice: () => ({ bytes: async () => BYTES.slice(0, 4) }) });
+      if (!path.endsWith("shrinking.mp4")) return real;
+      return Object.assign(Object.create(real), {
+        slice: (start: number, end: number) => ({
+          bytes: async () => {
+            if (alwaysShort) return BYTES.slice(start, start + keep);
+            if (!cut) {
+              writeFileSync(path, BYTES.slice(0, keep));
+              cut = true;
+            }
+            return realFile(path, ...rest).slice(start, end).bytes();
+          },
+        }),
+      });
     }) as typeof Bun.file);
+  }
+
+  const shrinking = (range: string) => {
+    writeFileSync(join(app.brainPath, "shrinking.mp4"), BYTES);
+    return app.fetch("/api/files/content?path=shrinking.mp4&raw=1", { headers: { Range: range } });
+  };
+
+  test("a file that shrank after it was measured is answered at its new size", async () => {
+    const file = shrinkOnRead(4);
     try {
-      const response = await inProcess("bytes=0-99");
+      const response = await shrinking("bytes=0-99");
 
       expect(response.status).toBe(206);
-      // The total is no longer known, and the range is the four bytes sent.
-      expect(response.headers.get("content-range")).toBe("bytes 0-3/*");
+      expect(response.headers.get("content-range")).toBe("bytes 0-3/4");
       expect(response.headers.get("content-length")).toBe("4");
       expect(await bytesOf(response)).toEqual([...BYTES.slice(0, 4)]);
     } finally {
@@ -144,18 +169,41 @@ describe("the raw file route answers a byte range", () => {
     }
   });
 
-  test("a file that shrank below the range's start is a 416", async () => {
-    const realFile = Bun.file;
-    const file = spyOn(Bun, "file").mockImplementation(((path: string, ...rest: never[]) => {
-      const real = realFile(path, ...rest);
-      if (!path.endsWith("clip.mp4")) return real;
-      return Object.assign(Object.create(real), { slice: () => ({ bytes: async () => new Uint8Array(0) }) });
-    }) as typeof Bun.file);
+  test("a suffix range the shrunk file still has is served from it", async () => {
+    const file = shrinkOnRead(4);
     try {
-      const response = await inProcess("bytes=500-599");
+      const response = await shrinking("bytes=-4");
+
+      expect(response.status).toBe(206);
+      expect(response.headers.get("content-range")).toBe("bytes 0-3/4");
+      expect(await bytesOf(response)).toEqual([...BYTES.slice(0, 4)]);
+    } finally {
+      file.mockRestore();
+    }
+  });
+
+  test("a range that starts past the shrunk file is a 416 naming its new size", async () => {
+    const file = shrinkOnRead(4);
+    try {
+      const response = await shrinking("bytes=500-599");
 
       expect(response.status).toBe(416);
+      expect(response.headers.get("content-range")).toBe("bytes */4");
       expect(await bytesOf(response)).toEqual([]);
+    } finally {
+      file.mockRestore();
+    }
+  });
+
+  test("a file still changing on the second read gets what was read, total unknown", async () => {
+    const file = shrinkOnRead(4, true);
+    try {
+      const response = await shrinking("bytes=0-99");
+
+      expect(response.status).toBe(206);
+      expect(response.headers.get("content-range")).toBe("bytes 0-3/*");
+      expect(response.headers.get("content-length")).toBe("4");
+      expect(await bytesOf(response)).toEqual([...BYTES.slice(0, 4)]);
     } finally {
       file.mockRestore();
     }
