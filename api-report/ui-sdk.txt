@@ -307,6 +307,7 @@ export "./client" (./src/client/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SHIPPED_SHOW_BLOCK_SCHEMA_FORM
   SHOW_BLOCK_CONTRACT
   SHOW_BLOCK_DESCRIPTION
   SHOW_BLOCK_INPUT_SCHEMA
@@ -355,6 +356,7 @@ export "./client" (./src/client/index.ts)
   type SharedFileMeta
   type ShowBlockInput
   type ShowBlockPayload
+  type ShowBlockSchemaForm
   type SpeechCapabilities
   type SystemStatus
   TABLE_BLOCK_SCHEMA
@@ -405,6 +407,7 @@ export "./client" (./src/client/index.ts)
   resetAsrClients
   resetToolRenderers
   resolveToolRenderer
+  showBlockInputSchema
   speechUiHints
   sumModelUsage
   toolBriefLines
@@ -833,6 +836,7 @@ export "./server" (./src/server/index.ts)
   SHARE_STAGING_DIR
   SHARE_STAGING_TTL_MS
   SHARE_STASH_TTL_MS
+  SHIPPED_SHOW_BLOCK_SCHEMA_FORM
   SHOW_BLOCK_CONTRACT
   SHOW_BLOCK_DESCRIPTION
   SHOW_BLOCK_INPUT_SCHEMA
@@ -883,6 +887,7 @@ export "./server" (./src/server/index.ts)
   type SharedFileMeta
   type ShowBlockInput
   type ShowBlockPayload
+  type ShowBlockSchemaForm
   type SpeechCapabilities
   type SpeechProvider
   type SpeechSession
@@ -977,6 +982,7 @@ export "./server" (./src/server/index.ts)
   reverseGeocode
   rtkAvailable
   rtkRewriteCommand
+  showBlockInputSchema
   signedArea
   simplify
   stitch
@@ -1088,6 +1094,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   REQUEST_IMAGE_MASK_TOOL_NAME
   type RequestImageMaskInput
   SCHEDULE_BLOCK_SCHEMA
+  SHIPPED_SHOW_BLOCK_SCHEMA_FORM
   SHOW_BLOCK_CONTRACT
   SHOW_BLOCK_DESCRIPTION
   SHOW_BLOCK_INPUT_SCHEMA
@@ -1101,6 +1108,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   SUGGESTION_MIN_LENGTH
   type ShowBlockInput
   type ShowBlockPayload
+  type ShowBlockSchemaForm
   TABLE_BLOCK_SCHEMA
   TIMELINE_BLOCK_SCHEMA
   TREND_BLOCK_SCHEMA
@@ -1113,6 +1121,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   defineToolComponentContract
   defineToolContract
   parseToolPayload
+  showBlockInputSchema
   toolBriefLines
   toolInputJsonSchema
   visibleToolName

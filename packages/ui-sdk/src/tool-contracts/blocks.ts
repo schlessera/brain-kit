@@ -76,249 +76,347 @@ const valueToneDoc =
  * carry because it lives next to React components. The client drops a key
  * the kit does not know rather than rendering an empty box.
  */
-const icon = z
-  .string()
-  .optional()
-  .describe(
-    'A kit icon key such as "wallet", "calendar", "deadline", "ledger", "health", "link", "file", "agent". Omit when unsure: an unknown key is dropped.'
-  );
+const iconDoc =
+  'A kit icon key such as "wallet", "calendar", "deadline", "ledger", "health", "link", "file", "agent". Omit when unsure: an unknown key is dropped.';
+
+// ---------------------------------------------------------------------------
+// How the schema is written for the model (#336)
+// ---------------------------------------------------------------------------
+
+/**
+ * Two ways to write the same accepted input in fewer characters, D47's two
+ * reductions. Neither changes what a variant accepts: an id is metadata, not
+ * a check, and a description is never one. What they change is what the
+ * model reads on every turn, so neither ships until #336's A/B says the API
+ * and the model accept it. Until then `SHOW_BLOCK_INPUT_SCHEMA` is the
+ * shipped form, and the other forms exist so that the A/B measures exactly
+ * what would ship.
+ */
+export interface ShowBlockSchemaForm {
+  /**
+   * Reduction 1: `tone` and `valueTone`, each with its description, and
+   * `icon` get a registry id, so the Agent SDK's draft-7 conversion emits
+   * each once under `definitions` and references it at every site.
+   */
+  readonly sharedDefinitions: boolean;
+  /**
+   * Reduction 2: `false` drops the field descriptions that say what
+   * `SHOW_BLOCK_DESCRIPTION` already says (the `restated` sites below).
+   */
+  readonly restatedProse: boolean;
+}
+
+/** The form that ships. */
+export const SHIPPED_SHOW_BLOCK_SCHEMA_FORM: ShowBlockSchemaForm = {
+  sharedDefinitions: false,
+  restatedProse: true,
+};
+
+/** What varies between forms; everything else is the same code in all of them. */
+interface BlockFields {
+  readonly tone: z.ZodOptional<typeof tone>;
+  readonly valueTone: z.ZodOptional<typeof valueTone>;
+  readonly icon: z.ZodOptional<z.ZodString>;
+  /** A description that restates `SHOW_BLOCK_DESCRIPTION`, kept or dropped. */
+  readonly restated: <T extends z.ZodType>(schema: T, doc: string) => T;
+}
+
+/**
+ * The fields for one form. The registry ids are process-global
+ * (`z.globalRegistry`), but they only collide when two DIFFERENT schemas with
+ * the same id meet in one conversion, and `showBlockInputSchema` builds each
+ * form once, so the ids below always name these objects.
+ */
+function blockFields(form: ShowBlockSchemaForm): BlockFields {
+  const restated = <T extends z.ZodType>(schema: T, doc: string): T =>
+    form.restatedProse ? schema.describe(doc) : schema;
+  if (!form.sharedDefinitions) {
+    return {
+      tone: tone.optional().describe(toneDoc),
+      valueTone: valueTone.optional().describe(valueToneDoc),
+      icon: z.string().optional().describe(iconDoc),
+      restated,
+    };
+  }
+  return {
+    tone: tone.describe(toneDoc).meta({ id: "tone" }).optional(),
+    valueTone: valueTone.describe(valueToneDoc).meta({ id: "valueTone" }).optional(),
+    icon: z.string().describe(iconDoc).meta({ id: "icon" }).optional(),
+    restated,
+  };
+}
+
+const SHIPPED_FIELDS = blockFields(SHIPPED_SHOW_BLOCK_SCHEMA_FORM);
 
 // ---------------------------------------------------------------------------
 // The twelve blocks
 // ---------------------------------------------------------------------------
 
-export const COMPARISON_BLOCK_SCHEMA = z.object({
-  kind: z.literal("comparison"),
-  columns: z
-    .array(
-      z.object({
-        label: z.string().describe("The option's name."),
-        note: z
-          .string()
-          .optional()
-          .describe("A quiet mono line under the label: provenance, not a second value."),
-        tone: valueTone.optional().describe(valueToneDoc),
-        recommended: z
-          .boolean()
-          .optional()
-          .describe("Tints the whole column. At most one column, and only with a footnote."),
-      })
-    )
-    .min(2)
-    .max(4)
-    .describe("The options being compared. Three fit a phone; four only on a wide screen."),
-  rows: z
-    .array(
-      z.object({
-        label: z.string().describe("The criterion."),
-        cells: z
-          .array(
-            z.union([
-              z.string(),
-              z.object({ v: z.string(), tone: valueTone.optional().describe(valueToneDoc) }),
-            ])
-          )
-          .describe("One cell per column, in column order. A string, or {v, tone} to colour it."),
-      })
-    )
-    .min(1)
-    .describe("The criteria, one row each."),
-  corner: z.string().optional().describe("The top-left cell. Usually empty."),
-  footnote: z
-    .string()
-    .optional()
-    .describe("Why the recommendation is the recommendation, stated as a cost. Required when a column is recommended."),
-});
+const comparisonBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("comparison"),
+    columns: z
+      .array(
+        z.object({
+          label: z.string().describe("The option's name."),
+          note: z
+            .string()
+            .optional()
+            .describe("A quiet mono line under the label: provenance, not a second value."),
+          tone: f.valueTone,
+          recommended: z
+            .boolean()
+            .optional()
+            .apply(f.restated, "Tints the whole column. At most one column, and only with a footnote."),
+        })
+      )
+      .min(2)
+      .max(4)
+      .apply(f.restated, "The options being compared. Three fit a phone; four only on a wide screen."),
+    rows: z
+      .array(
+        z.object({
+          label: z.string().describe("The criterion."),
+          cells: z
+            .array(
+              z.union([
+                z.string(),
+                z.object({ v: z.string(), tone: f.valueTone }),
+              ])
+            )
+            .describe("One cell per column, in column order. A string, or {v, tone} to colour it."),
+        })
+      )
+      .min(1)
+      .describe("The criteria, one row each."),
+    corner: z.string().optional().describe("The top-left cell. Usually empty."),
+    footnote: z
+      .string()
+      .optional()
+      .apply(f.restated, "Why the recommendation is the recommendation, stated as a cost. Required when a column is recommended."),
+  });
 
-export const STATS_BLOCK_SCHEMA = z.object({
-  kind: z.literal("stats"),
-  tiles: z
-    .array(
-      z.object({
-        label: z.string().describe("Short uppercase-able label."),
-        value: z.string().describe("The figure, pre-formatted with its unit."),
-        meta: z.string().optional().describe("A line under the value: the comparison or the period."),
-        icon,
-        tone: valueTone.optional().describe(valueToneDoc),
-      })
-    )
-    .min(1)
-    .max(8)
-    .describe("Headline figures. Three or four read best; they wrap in threes on a phone."),
-});
+export const COMPARISON_BLOCK_SCHEMA = comparisonBlock(SHIPPED_FIELDS);
 
-export const TREND_BLOCK_SCHEMA = z.object({
-  kind: z.literal("trend"),
-  label: z.string().optional().describe("The uppercase mono line above the number."),
-  value: z.string().optional().describe("The headline figure, pre-formatted. The chart does no arithmetic."),
-  delta: z.string().optional().describe('The change pill, e.g. "+12%" or "−3 days". Omit when there is no comparison.'),
-  deltaTone: deltaTone.optional().describe('"teal" for a good change, "red" for a bad one.'),
-  values: z
-    .array(z.number())
-    .min(2)
-    .describe("The series in its own unit, oldest first. Scaled against its own maximum."),
-  ticks: z
-    .array(z.string())
-    .optional()
-    .describe("One label per bucket; empty strings are unlabelled slots. Same length as values."),
-  tone: tone.optional().describe(toneDoc),
-});
+const statsBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("stats"),
+    tiles: z
+      .array(
+        z.object({
+          label: z.string().describe("Short uppercase-able label."),
+          value: z.string().apply(f.restated, "The figure, pre-formatted with its unit."),
+          meta: z.string().optional().describe("A line under the value: the comparison or the period."),
+          icon: f.icon,
+          tone: f.valueTone,
+        })
+      )
+      .min(1)
+      .max(8)
+      .apply(f.restated, "Headline figures. Three or four read best; they wrap in threes on a phone."),
+  });
 
-export const TABLE_BLOCK_SCHEMA = z.object({
-  kind: z.literal("table"),
-  columns: z
-    .array(
-      z.object({
-        label: z.string(),
-        align: z.enum(["left", "right"]).optional().describe("Right-align numbers."),
-      })
-    )
-    .min(1)
-    .max(6),
-  rows: z
-    .array(
-      z.object({
-        cells: z
-          .array(
-            z.object({
-              v: z.string(),
-              tone: tone.optional().describe(toneDoc),
-              mono: z.boolean().optional().describe("Monospace, for ids and figures."),
-              bold: z.boolean().optional(),
-            })
-          )
-          .describe("One cell per column, in column order."),
-      })
-    )
-    .min(1)
-    .describe("Records, one row each."),
-});
+export const STATS_BLOCK_SCHEMA = statsBlock(SHIPPED_FIELDS);
 
-export const BARS_BLOCK_SCHEMA = z.object({
-  kind: z.literal("bars"),
-  rows: z
-    .array(
-      z.object({
-        label: z.string(),
-        pct: z.number().min(0).max(100).describe("The bar length, 0-100."),
-        value: z.string().describe("The figure shown beside the bar, pre-formatted."),
-        tone: tone
-          .optional()
-          .describe("The class of work this row is, not a judgement of it; the same class draws the same colour on every chart. Omit for the default."),
-      })
-    )
-    .min(1)
-    .max(12)
-    .describe("Shares of a whole, largest first unless the order means something."),
-});
+const trendBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("trend"),
+    label: z.string().optional().describe("The uppercase mono line above the number."),
+    value: z.string().optional().apply(f.restated, "The headline figure, pre-formatted. The chart does no arithmetic."),
+    delta: z.string().optional().apply(f.restated, 'The change pill, e.g. "+12%" or "−3 days". Omit when there is no comparison.'),
+    deltaTone: deltaTone.optional().describe('"teal" for a good change, "red" for a bad one.'),
+    values: z
+      .array(z.number())
+      .min(2)
+      .apply(f.restated, "The series in its own unit, oldest first. Scaled against its own maximum."),
+    ticks: z
+      .array(z.string())
+      .optional()
+      .describe("One label per bucket; empty strings are unlabelled slots. Same length as values."),
+    tone: f.tone,
+  });
 
-export const RECEIPT_BLOCK_SCHEMA = z.object({
-  kind: z.literal("receipt"),
-  title: z.string().optional().describe("The uppercase mono header. Omit for a bare row list."),
-  titleIcon: icon,
-  titleTone: tone.optional().describe(toneDoc),
-  rows: z
-    .array(
-      z.object({
-        k: z.string().describe("The key, short."),
-        v: z.string().describe("The value, pre-formatted."),
-        tone: valueTone.optional().describe(valueToneDoc),
-      })
-    )
-    .min(1),
-  diff: z.string().optional().describe("A unified diff, rendered inset under the rows."),
-  footnote: z.string().optional().describe("The scope line: what this receipt covers."),
-});
+export const TREND_BLOCK_SCHEMA = trendBlock(SHIPPED_FIELDS);
 
-export const STEPS_BLOCK_SCHEMA = z.object({
-  kind: z.literal("steps"),
-  steps: z
-    .array(
-      z.object({
-        title: z.string(),
-        detail: z.string().optional(),
-        meta: z.string().optional().describe("A short right-aligned note: a duration, a place."),
-        code: z.string().optional().describe("A mono line under the detail: a command, a bearing."),
-        state: z.enum(BLOCK_STEP_STATES).optional().describe('For "progress": exactly one "current".'),
-      })
-    )
-    .min(1),
-  variant: z
-    .enum(BLOCK_STEP_VARIANTS)
-    .optional()
-    .describe("numbered = a recipe to follow, checklist = things to tick off, progress = something being done for the reader."),
-});
+const tableBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("table"),
+    columns: z
+      .array(
+        z.object({
+          label: z.string(),
+          align: z.enum(["left", "right"]).optional().apply(f.restated, "Right-align numbers."),
+        })
+      )
+      .min(1)
+      .max(6),
+    rows: z
+      .array(
+        z.object({
+          cells: z
+            .array(
+              z.object({
+                v: z.string(),
+                tone: f.tone,
+                mono: z.boolean().optional().describe("Monospace, for ids and figures."),
+                bold: z.boolean().optional(),
+              })
+            )
+            .describe("One cell per column, in column order."),
+        })
+      )
+      .min(1)
+      .describe("Records, one row each."),
+  });
 
-export const TIMELINE_BLOCK_SCHEMA = z.object({
-  kind: z.literal("timeline"),
-  items: z
-    .array(
-      z.object({
-        time: z.string().describe('Short, mono: "09:40", "Tue", "2019".'),
-        title: z.string(),
-        detail: z.string().optional(),
-        meta: z.string().optional(),
-        tone: tone.optional().describe(toneDoc),
-        pulse: z.boolean().optional().describe("Reserved for the one event still happening."),
-      })
-    )
-    .min(1)
-    .describe("What happened, in order."),
-});
+export const TABLE_BLOCK_SCHEMA = tableBlock(SHIPPED_FIELDS);
 
-export const SCHEDULE_BLOCK_SCHEMA = z.object({
-  kind: z.literal("schedule"),
-  groups: z
-    .array(
-      z.object({
-        day: z.string().describe('"Today", "Tomorrow", "Thu 24".'),
-        meta: z.string().optional().describe("A note beside the day: a count, a place."),
-        items: z
-          .array(
-            z.object({
-              time: z.string(),
-              title: z.string(),
-              detail: z.string().optional(),
-              tag: z.string().optional().describe('A small pill. "conflict" is drawn gold.'),
-              tone: tone.optional().describe(toneDoc),
-            })
-          )
-          .min(1),
-      })
-    )
-    .min(1)
-    .describe("What is coming, grouped by day."),
-});
+const barsBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("bars"),
+    rows: z
+      .array(
+        z.object({
+          label: z.string(),
+          pct: z.number().min(0).max(100).apply(f.restated, "The bar length, 0-100."),
+          value: z.string().apply(f.restated, "The figure shown beside the bar, pre-formatted."),
+          tone: tone
+            .optional()
+            .apply(f.restated, "The class of work this row is, not a judgement of it; the same class draws the same colour on every chart. Omit for the default."),
+        })
+      )
+      .min(1)
+      .max(12)
+      .apply(f.restated, "Shares of a whole, largest first unless the order means something."),
+  });
 
-export const QUOTE_BLOCK_SCHEMA = z.object({
-  kind: z.literal("quote"),
-  quote: z.string().describe("The words themselves, verbatim."),
-  source: z.string().optional().describe("Whose words: a document title, a person, a page."),
-  locator: z.string().optional().describe("Line or section, so the reader can check it."),
-  note: z.string().optional().describe("Why this is being surfaced."),
-  tone: z.enum(BLOCK_QUOTE_TONES).optional().describe("Provenance colour; omit for the default."),
-  icon,
-});
+export const BARS_BLOCK_SCHEMA = barsBlock(SHIPPED_FIELDS);
 
-export const CONTACT_BLOCK_SCHEMA = z.object({
-  kind: z.literal("contact"),
-  label: z.string().describe("The display name."),
-  role: z.string().optional().describe("What they are to the reader, or their title."),
-  contactKind: z.enum(BLOCK_CONTACT_KINDS).optional().describe("Decides the avatar shape and the default colour."),
-  badge: z.string().optional().describe("A soft chip beside the name: standing, not status."),
-  tone: z.enum(BLOCK_CONTACT_TONES).optional().describe("The entity colour; omit for the kind's default."),
-  facts: z
-    .array(
-      z.object({
-        k: z.string(),
-        v: z.string(),
-        tone: valueTone.optional().describe(valueToneDoc),
-      })
-    )
-    .optional()
-    .describe("Key-value facts: last contact, company, city."),
-  initials: z.string().optional().describe("Derived from the label when absent."),
-});
+const receiptBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("receipt"),
+    title: z.string().optional().describe("The uppercase mono header. Omit for a bare row list."),
+    titleIcon: f.icon,
+    titleTone: f.tone,
+    rows: z
+      .array(
+        z.object({
+          k: z.string().describe("The key, short."),
+          v: z.string().apply(f.restated, "The value, pre-formatted."),
+          tone: f.valueTone,
+        })
+      )
+      .min(1),
+    diff: z.string().optional().describe("A unified diff, rendered inset under the rows."),
+    footnote: z.string().optional().apply(f.restated, "The scope line: what this receipt covers."),
+  });
+
+export const RECEIPT_BLOCK_SCHEMA = receiptBlock(SHIPPED_FIELDS);
+
+const stepsBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("steps"),
+    steps: z
+      .array(
+        z.object({
+          title: z.string(),
+          detail: z.string().optional(),
+          meta: z.string().optional().describe("A short right-aligned note: a duration, a place."),
+          code: z.string().optional().describe("A mono line under the detail: a command, a bearing."),
+          state: z.enum(BLOCK_STEP_STATES).optional().apply(f.restated, 'For "progress": exactly one "current".'),
+        })
+      )
+      .min(1),
+    variant: z
+      .enum(BLOCK_STEP_VARIANTS)
+      .optional()
+      .apply(f.restated, "numbered = a recipe to follow, checklist = things to tick off, progress = something being done for the reader."),
+  });
+
+export const STEPS_BLOCK_SCHEMA = stepsBlock(SHIPPED_FIELDS);
+
+const timelineBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("timeline"),
+    items: z
+      .array(
+        z.object({
+          time: z.string().describe('Short, mono: "09:40", "Tue", "2019".'),
+          title: z.string(),
+          detail: z.string().optional(),
+          meta: z.string().optional(),
+          tone: f.tone,
+          pulse: z.boolean().optional().apply(f.restated, "Reserved for the one event still happening."),
+        })
+      )
+      .min(1)
+      .apply(f.restated, "What happened, in order."),
+  });
+
+export const TIMELINE_BLOCK_SCHEMA = timelineBlock(SHIPPED_FIELDS);
+
+const scheduleBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("schedule"),
+    groups: z
+      .array(
+        z.object({
+          day: z.string().describe('"Today", "Tomorrow", "Thu 24".'),
+          meta: z.string().optional().describe("A note beside the day: a count, a place."),
+          items: z
+            .array(
+              z.object({
+                time: z.string(),
+                title: z.string(),
+                detail: z.string().optional(),
+                tag: z.string().optional().describe('A small pill. "conflict" is drawn gold.'),
+                tone: f.tone,
+              })
+            )
+            .min(1),
+        })
+      )
+      .min(1)
+      .apply(f.restated, "What is coming, grouped by day."),
+  });
+
+export const SCHEDULE_BLOCK_SCHEMA = scheduleBlock(SHIPPED_FIELDS);
+
+const quoteBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("quote"),
+    quote: z.string().apply(f.restated, "The words themselves, verbatim."),
+    source: z.string().optional().describe("Whose words: a document title, a person, a page."),
+    locator: z.string().optional().describe("Line or section, so the reader can check it."),
+    note: z.string().optional().describe("Why this is being surfaced."),
+    tone: z.enum(BLOCK_QUOTE_TONES).optional().describe("Provenance colour; omit for the default."),
+    icon: f.icon,
+  });
+
+export const QUOTE_BLOCK_SCHEMA = quoteBlock(SHIPPED_FIELDS);
+
+const contactBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("contact"),
+    label: z.string().describe("The display name."),
+    role: z.string().optional().describe("What they are to the reader, or their title."),
+    contactKind: z.enum(BLOCK_CONTACT_KINDS).optional().describe("Decides the avatar shape and the default colour."),
+    badge: z.string().optional().describe("A soft chip beside the name: standing, not status."),
+    tone: z.enum(BLOCK_CONTACT_TONES).optional().describe("The entity colour; omit for the kind's default."),
+    facts: z
+      .array(
+        z.object({
+          k: z.string(),
+          v: z.string(),
+          tone: f.valueTone,
+        })
+      )
+      .optional()
+      .describe("Key-value facts: last contact, company, city."),
+    initials: z.string().optional().describe("Derived from the label when absent."),
+  });
+
+export const CONTACT_BLOCK_SCHEMA = contactBlock(SHIPPED_FIELDS);
 
 /**
  * Several named places, drawn on real geography with a numbered list under
@@ -355,17 +453,21 @@ export const MAP_PLACE_SCHEMA = z
     message: "lat and lon come together",
   });
 
-export const MAP_BLOCK_SCHEMA = z.object({
-  kind: z.literal("map"),
-  title: z.string().max(60).optional().describe("What the set is: 'Where the crew went ashore'."),
-  places: z
-    .array(MAP_PLACE_SCHEMA)
-    .min(1)
-    .max(30)
-    .describe(
-      "In the order the reader should read them; the numbers follow this order. A place with no known position goes in WITHOUT lat/lon; never estimate one."
-    ),
-});
+const mapBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("map"),
+    title: z.string().max(60).optional().describe("What the set is: 'Where the crew went ashore'."),
+    places: z
+      .array(MAP_PLACE_SCHEMA)
+      .min(1)
+      .max(30)
+      .apply(
+        f.restated,
+        "In the order the reader should read them; the numbers follow this order. A place with no known position goes in WITHOUT lat/lon; never estimate one."
+      ),
+  });
+
+export const MAP_BLOCK_SCHEMA = mapBlock(SHIPPED_FIELDS);
 
 export type MapPlace = z.infer<typeof MAP_PLACE_SCHEMA>;
 
@@ -392,32 +494,35 @@ export const SUGGESTIONS_MAX_ITEMS = 2;
  * lifts the turn's last valid call to the answer's closing row (D50), and a
  * chip fills the composer; it never sends.
  */
-export const SUGGESTIONS_BLOCK_SCHEMA = z.object({
-  kind: z.literal("suggestions"),
-  label: z
-    .string()
-    .trim()
-    .min(1)
-    .max(24)
-    .optional()
-    .describe('The uppercase mono line above the chips. Omit for the default, "Ask next".'),
-  items: z
-    .array(
-      z.object({
-        label: z
-          .string()
-          .trim()
-          .min(SUGGESTION_MIN_LENGTH)
-          .max(SUGGESTION_MAX_LENGTH)
-          .regex(/^[^\r\n]*$/, "one line")
-          .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
-        icon,
-      })
-    )
-    .min(1)
-    .max(SUGGESTIONS_MAX_ITEMS)
-    .describe("One or two follow-ups grounded in this answer."),
-});
+const suggestionsBlock = (f: BlockFields) =>
+  z.object({
+    kind: z.literal("suggestions"),
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(24)
+      .optional()
+      .describe('The uppercase mono line above the chips. Omit for the default, "Ask next".'),
+    items: z
+      .array(
+        z.object({
+          label: z
+            .string()
+            .trim()
+            .min(SUGGESTION_MIN_LENGTH)
+            .max(SUGGESTION_MAX_LENGTH)
+            .regex(/^[^\r\n]*$/, "one line")
+            .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
+          icon: f.icon,
+        })
+      )
+      .min(1)
+      .max(SUGGESTIONS_MAX_ITEMS)
+      .apply(f.restated, "One or two follow-ups grounded in this answer."),
+  });
+
+export const SUGGESTIONS_BLOCK_SCHEMA = suggestionsBlock(SHIPPED_FIELDS);
 
 /** The union the tool's `block` argument carries. */
 export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
@@ -469,6 +574,48 @@ export const SHOW_BLOCK_INPUT_SCHEMA = z.object({
 });
 
 export type ShowBlockInput = z.infer<typeof SHOW_BLOCK_INPUT_SCHEMA>;
+
+const FORMS = new Map<string, typeof SHOW_BLOCK_INPUT_SCHEMA>();
+
+/**
+ * `show_block`'s input schema written in `form` (#336). The shipped form is
+ * `SHOW_BLOCK_INPUT_SCHEMA` itself. Any other form is built once per process,
+ * so its registry ids are registered once, and it accepts exactly the input
+ * the shipped form accepts; `tests/show-block-schema-forms.test.ts` holds it
+ * to that.
+ */
+export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLOCK_INPUT_SCHEMA {
+  if (
+    form.sharedDefinitions === SHIPPED_SHOW_BLOCK_SCHEMA_FORM.sharedDefinitions &&
+    form.restatedProse === SHIPPED_SHOW_BLOCK_SCHEMA_FORM.restatedProse
+  ) {
+    return SHOW_BLOCK_INPUT_SCHEMA;
+  }
+  const key = `${form.sharedDefinitions}/${form.restatedProse}`;
+  let schema = FORMS.get(key);
+  if (!schema) {
+    const f = blockFields(form);
+    schema = z.object({
+      block: z.discriminatedUnion("kind", [
+        comparisonBlock(f),
+        statsBlock(f),
+        trendBlock(f),
+        tableBlock(f),
+        barsBlock(f),
+        receiptBlock(f),
+        stepsBlock(f),
+        timelineBlock(f),
+        scheduleBlock(f),
+        quoteBlock(f),
+        contactBlock(f),
+        mapBlock(f),
+        suggestionsBlock(f),
+      ]),
+    });
+    FORMS.set(key, schema);
+  }
+  return schema;
+}
 
 /**
  * The payload is the input: the handler validates and echoes. That makes this
