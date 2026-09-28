@@ -156,14 +156,38 @@ export function assess(root: string, media: MediaPolicy): AssessedFile[] {
 }
 
 /**
- * True when `text` holds a conflict-marker block: a line starting `<<<<<<< `
- * and a later one starting `>>>>>>> `. A `=======` line alone is a setext
- * heading underline, not a conflict.
+ * Which conflict-marker line `line` is, or null. Git writes a marker as
+ * `conflict-marker-size` characters (7 unless an attribute says more), then a
+ * space and a label or the line's end: `<`, `|` (diff3's base) and `>` take a
+ * label, `=` never does. A CR before the line's end is the file's line
+ * ending, not part of the marker.
+ */
+export function conflictMarkerLine(line: string): "<" | "|" | "=" | ">" | null {
+  const m = /^(?:(<{7,}|\|{7,}|>{7,})(?: |$)|(={7,})$)/.exec(line.endsWith("\r") ? line.slice(0, -1) : line);
+  return m ? ((m[1] ?? m[2])![0] as "<" | "|" | "=" | ">") : null;
+}
+
+/**
+ * True when `text` holds a conflict-marker block: an opening `<` marker line
+ * and a later closing `>` one (`conflictMarkerLine`). A `=======` line alone
+ * is a setext heading underline, not a conflict.
  */
 export function hasConflictMarkers(text: string): boolean {
-  const open = text.search(/^<<<<<<< /m);
-  return open !== -1 && /^>>>>>>> /m.test(text.slice(open));
+  let open = false;
+  for (const line of text.split("\n")) {
+    const kind = conflictMarkerLine(line);
+    if (kind === "<") open = true;
+    else if (kind === ">" && open) return true;
+  }
+  return false;
 }
+
+/**
+ * A `git grep -E` pattern for the lines that can open a conflict block: every
+ * line `conflictMarkerLine` calls `<` matches it. It only narrows the
+ * candidates; `hasConflictMarkers` decides on the whole text.
+ */
+export const CONFLICT_OPEN_GREP = "^<{7}";
 
 /** The paths among `paths` whose working-tree file holds a conflict-marker block. */
 export function conflictMarked(root: string, paths: string[]): string[] {

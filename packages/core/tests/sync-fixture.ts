@@ -97,6 +97,24 @@ export function brainWithRemote(): Brain {
   return { root, remote, base };
 }
 
+/**
+ * `ours` and `theirs` merged against `base` by `git merge-file` with
+ * `size`-character conflict markers, as git writes them under a
+ * `conflict-marker-size` attribute. Throws unless they conflict.
+ */
+export function mergeFileMarkers(base: string, ours: string, theirs: string, size: number): string {
+  const dir = mkdtempSync(join(tmpdir(), "brain-merge-file-"));
+  dirs.push(dir);
+  for (const [name, text] of Object.entries({ base, ours, theirs })) writeFileSync(join(dir, name), text);
+  const proc = Bun.spawnSync([
+    "git", "merge-file", "-p", `--marker-size=${size}`, "-L", "HEAD", "-L", "base", "-L", "origin/main",
+    join(dir, "ours"), join(dir, "base"), join(dir, "theirs"),
+  ], { cwd: dir });
+  // The exit code is the number of conflicts; a negative one (255 and up) is an error.
+  if (!proc.exitCode || proc.exitCode > 127) throw new Error(`git merge-file did not conflict: ${proc.stderr.toString()}`);
+  return proc.stdout.toString();
+}
+
 /** A plain clone of the remote: the brain on another machine. */
 export function otherClone(brain: Brain, name = "other"): string {
   const other = join(brain.base, name);

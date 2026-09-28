@@ -3,8 +3,9 @@
  * tree already holds is dropped, whoever made it; an autostash that applies
  * cleanly to paths nobody has touched is popped; anything else is kept, with
  * the reason. Nothing here clears the stash, resets, or overwrites a file:
- * a pop happens only where `git apply --check` says it applies and none of
- * its paths has local changes.
+ * a pop happens only where `git apply --check` says it applies, none of
+ * its paths has local changes, and the entry stages no version a pop without
+ * `--index` would lose.
  *
  * "Holds" is judged per path against the working tree, never the index, and
  * errs toward keeping: an entry is dropped only when the tree has the stash's
@@ -14,6 +15,7 @@
 import { lstatSync, readFileSync, readlinkSync, type Stats } from "fs";
 import { resolve } from "path";
 
+import { conflictMarkerLine } from "./assess.js";
 import { git, refExists, unmergedPaths } from "./git.js";
 import { pendingState } from "./merge-state.js";
 
@@ -29,7 +31,14 @@ export interface StashEntry {
 export interface StashReport {
   dropped: (StashEntry & { reason: string })[];
   popped: StashEntry[];
+  /** Left alone on purpose, with why. */
   kept: (StashEntry & { reason: string })[];
+  /**
+   * A drop or pop git refused (a locked `refs/stash`, say). The entry is
+   * still in the stash, and a failed pop may have put its changes back
+   * already: someone has to look.
+   */
+  failed: (StashEntry & { reason: string })[];
 }
 
 /** The subject git gives the entry it saves when an autostash cannot be re-applied (`git stash store -m autostash`). */
@@ -150,10 +159,8 @@ function blobBytes(root: string, blob: Blob, path: string): Uint8Array | null {
   return proc.exitCode === 0 ? proc.stdout : null;
 }
 
-const CONFLICT_MARKER = /^(?:<{7}|>{7}|\|{7})(?: |$)|^={7}$/;
-
 function markerLines(text: string): number {
-  return text.split("\n").filter((line) => CONFLICT_MARKER.test(line)).length;
+  return text.split("\n").filter((line) => conflictMarkerLine(line) !== null).length;
 }
 
 /**
@@ -271,11 +278,28 @@ function unclean(root: string, entry: StashEntry, paths: string[]): string | nul
   return null;
 }
 
-/** Run `git stash <verb> <ref>` only while `ref` still names the entry that was assessed. Returns why not, or null. */
-function onEntry(root: string, entry: StashEntry, verb: "drop" | "pop"): string | null {
-  if (git(root, ["rev-parse", "-q", "--verify", entry.ref]).stdout !== entry.sha) return "the stash changed during the run";
+/**
+ * Run `git stash <verb> <ref>` only while `ref` still names the entry that was
+ * assessed. Null when it ran; `kept` when the entry moved, which is no fault;
+ * `failed` when git refused the command.
+ */
+function onEntry(root: string, entry: StashEntry, verb: "drop" | "pop"): { kept: string } | { failed: string } | null {
+  if (git(root, ["rev-parse", "-q", "--verify", entry.ref]).stdout !== entry.sha) return { kept: "the stash changed during the run" };
   const result = git(root, ["stash", verb, "-q", entry.ref]);
-  return result.code === 0 ? null : `${verb} failed: ${result.stderr || result.stdout}`;
+  return result.code === 0 ? null : { failed: `${verb} failed: ${result.stderr || result.stdout}` };
+}
+
+/**
+ * The paths the entry stages a version of (`<sha>^2` differs from its base,
+ * `<sha>^1`) that is not its working-tree version (`<sha>`). `git stash pop`
+ * without `--index` puts back only the working-tree one, then drops the entry
+ * that held the other. Null when git cannot say.
+ */
+function stagedApart(root: string, sha: string): string[] | null {
+  const staged = treeChanges(root, `${sha}^1`, `${sha}^2`);
+  const apart = treeChanges(root, `${sha}^2`, sha);
+  if (staged === null || apart === null) return null;
+  return [...staged.keys()].filter((path) => apart.has(path));
 }
 
 /**
@@ -284,15 +308,23 @@ function onEntry(root: string, entry: StashEntry, verb: "drop" | "pop"): string 
  * - its every change is already in the working tree (see `unheld`) → drop it,
  *   whatever made it;
  * - an autostash (subject exactly `autostash`) whose paths have no local
- *   changes and whose patch passes `git apply --check` → pop it;
+ *   changes, whose patch passes `git apply --check`, and which stages no
+ *   version of a path other than its working-tree one → pop it;
  * - otherwise keep it, with the reason.
+ * A drop or pop git refuses is reported as `failed`, not kept.
  * While the index has unmerged paths, or a merge, rebase, cherry-pick, revert
  * or am is in progress, every entry is kept: a half-resolved file can look as
  * if it held a change it is about to lose. `dryRun` reports what would happen
  * without dropping or popping, judging every entry against the tree as it is.
  */
 export function reconcileStashes(root: string, opts: { dryRun?: boolean } = {}): StashReport {
-  const report: StashReport = { dropped: [], popped: [], kept: [] };
+  const report: StashReport = { dropped: [], popped: [], kept: [], failed: [] };
+  const settle = (entry: StashEntry, outcome: ReturnType<typeof onEntry>): boolean => {
+    if (outcome === null) return true;
+    if ("kept" in outcome) report.kept.push({ ...entry, reason: outcome.kept });
+    else report.failed.push({ ...entry, reason: outcome.failed });
+    return false;
+  };
   const entries = listStashes(root);
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]!;
@@ -309,13 +341,19 @@ export function reconcileStashes(root: string, opts: { dryRun?: boolean } = {}):
     let missing: string | null = null;
     for (const claim of claims) if ((missing = unheld(root, claim)) !== null) break;
     if (missing === null) {
-      const failed = opts.dryRun ? null : onEntry(root, entry, "drop");
-      if (failed) report.kept.push({ ...entry, reason: failed });
-      else report.dropped.push({ ...entry, reason: "every change it holds is already in the working tree" });
+      if (settle(entry, opts.dryRun ? null : onEntry(root, entry, "drop"))) {
+        report.dropped.push({ ...entry, reason: "every change it holds is already in the working tree" });
+      }
       continue;
     }
     if (entry.message !== AUTOSTASH) {
       report.kept.push({ ...entry, reason: `not an autostash, and ${missing}` });
+      continue;
+    }
+    const apart = stagedApart(root, entry.sha);
+    if (apart === null || apart.length > 0) {
+      const what = apart === null ? "git cannot tell its staged versions from its working ones" : `it stages a version of ${apart.join(", ")} that a pop would lose`;
+      report.kept.push({ ...entry, reason: `${missing}, and ${what}` });
       continue;
     }
     const refused = unclean(root, entry, [...new Set(claims.map((claim) => claim.path))]);
@@ -323,9 +361,7 @@ export function reconcileStashes(root: string, opts: { dryRun?: boolean } = {}):
       report.kept.push({ ...entry, reason: `${missing}, and ${refused}` });
       continue;
     }
-    const failed = opts.dryRun ? null : onEntry(root, entry, "pop");
-    if (failed) report.kept.push({ ...entry, reason: failed });
-    else report.popped.push(entry);
+    if (settle(entry, opts.dryRun ? null : onEntry(root, entry, "pop"))) report.popped.push(entry);
   }
   return report;
 }

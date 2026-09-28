@@ -32,6 +32,7 @@ import { matchesAnyPattern } from "../tool-leftovers.js";
 import {
   ARTIFACT_PATTERNS,
   assess,
+  CONFLICT_OPEN_GREP,
   conflictMarked,
   DERIVED_CACHES,
   domainFor,
@@ -49,7 +50,7 @@ import {
 } from "./commit.js";
 import { currentBranch, git, isAncestor, unmergedPaths } from "./git.js";
 import { FILE_HEAD_MAX_BYTES, type SyncJudge, type SyncJudgeReport } from "./judge.js";
-import { conclude, pendingState, type Conclusion } from "./merge-state.js";
+import { conclude, pendingState, rememberResolvedExtras, type Conclusion } from "./merge-state.js";
 import { pull, type PullEnvelope } from "./pull.js";
 import { renderReport } from "./report.js";
 import { planMerge, type MergeInput } from "./resolve/plan.js";
@@ -115,6 +116,8 @@ export interface AssessFixEnvelope {
     notIgnored: string[];
     /** Why nothing was written, when `.gitignore` could not be changed safely. */
     refused?: string;
+    /** Why nothing was written, when git or the file system failed (`IgnoreResult.failed`); the run fails. */
+    failed?: string;
   };
 }
 
@@ -180,6 +183,7 @@ export async function assessFix(env: SyncEnv): Promise<AssessFixEnvelope> {
     notIgnored: applied.notIgnored,
   };
   if (applied.refused !== undefined) fixed.refused = applied.refused;
+  if (applied.failed !== undefined) fixed.failed = applied.failed;
   return { branch: currentBranch(root), files, fixed };
 }
 
@@ -367,6 +371,8 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
       failed(input.path, strategy, e);
     }
   }
+  // Whoever concludes the merge, this run or a later verb, takes them as the sync's own.
+  rememberResolvedExtras(root, envelope.resolved.flatMap((file) => file.extraFiles));
   if (envelope.unresolved.length > 0 || unmergedPaths(root).some((path) => !DERIVED_CACHES.has(path))) {
     envelope.status = "needs-judgment";
   }
@@ -451,7 +457,7 @@ function unpushable(env: SyncEnv): { unresolved: Unresolved[] } | { error: strin
   const paths = changed.stdout.split("\0").filter(Boolean);
   if (paths.length === 0) return { unresolved };
   // git grep narrows the candidates; `hasConflictMarkers` decides on the whole file.
-  const found = git(root, ["--literal-pathspecs", "grep", "-l", "-z", "-E", "^<<<<<<< ", "HEAD", "--", ...paths], true);
+  const found = git(root, ["--literal-pathspecs", "grep", "-l", "-z", "-E", CONFLICT_OPEN_GREP, "HEAD", "--", ...paths], true);
   if (found.code > 1) return { error: `could not search what the push carries: ${found.stderr}` };
   for (const hit of found.stdout.split("\0").filter(Boolean)) {
     const path = hit.slice("HEAD:".length);
@@ -460,6 +466,11 @@ function unpushable(env: SyncEnv): { unresolved: Unresolved[] } | { error: strin
     unresolved.push(leftover(env, path, { base: null, ours: text.stdout, theirs: null }, "committed with conflict markers; nothing is pushed until it is fixed"));
   }
   return { unresolved };
+}
+
+/** Why a stash drop or pop that git refused fails the run. */
+function stashFailure(report: StashReport): string {
+  return `stash: ${report.failed.map((entry) => `${entry.ref} (${entry.sha.slice(0, 12)}) ${entry.reason}`).join("; ")}`;
 }
 
 /**
@@ -548,6 +559,7 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
     const assessed = await timed("assess", () => assessFix(env));
     lastAssess = assessed;
     steps.assess.push(assessed);
+    if (assessed.fixed.failed !== undefined) return `the .gitignore lines could not be checked: ${assessed.fixed.failed}`;
     if (assessed.fixed.committed?.status === "failed") return `the .gitignore commit failed: ${assessed.fixed.committed.reason}`;
     const committed = await timed("commit", () => commitTracked(env, assessed.files));
     steps.commit.push(committed);
@@ -563,7 +575,9 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
   if (branch !== "main") return finish("failed", `not on main branch (current: ${branch})`);
 
   try {
-    steps.stash.push(await timed("stash", () => reconcileStashes(root)));
+    const settled = await timed("stash", () => reconcileStashes(root));
+    steps.stash.push(settled);
+    if (settled.failed.length > 0) return finish("failed", stashFailure(settled));
     const pendingAtStart = pendingState(root);
     let commitAfterPull = false;
     if (pendingAtStart.kind === "none") {
@@ -625,6 +639,7 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
 
       const stashed = await timed("stash", () => reconcileStashes(root));
       steps.stash.push(stashed);
+      if (stashed.failed.length > 0) return finish("failed", stashFailure(stashed));
       if (stashed.popped.length > 0) {
         const failed = await commitLocal();
         if (failed) return finish("failed", failed);

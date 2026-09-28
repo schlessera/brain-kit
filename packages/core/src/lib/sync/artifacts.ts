@@ -62,6 +62,13 @@ export interface IgnoreResult {
   commit: IgnoreCommit | null;
   /** Why nothing was written, when the write was refused or undone. */
   refused?: string;
+  /**
+   * Why nothing was written, when git or the file system failed while the
+   * lines were read, written or checked. Unlike `refused`, which is the
+   * check doing its job, this is a failure: nothing tells what the lines
+   * would have ignored.
+   */
+  failed?: string;
 }
 
 const HEADER = "# brain sync";
@@ -153,14 +160,16 @@ export function appendIgnoreLines(text: string, lines: string[]): string {
 /** Decoded without dropping a leading U+FEFF, which in a path is part of the name. */
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
-/** Which of `paths` git ignores, by the rules alone (`--no-index`, so tracked files are asked too). Null when git fails. */
-function ignoredBy(root: string, paths: string[]): Set<string> | null {
+/** Which of `paths` git ignores, by the rules alone (`--no-index`, so tracked files are asked too), or why git could not say. */
+function ignoredBy(root: string, paths: string[]): Set<string> | { error: string } {
   if (paths.length === 0) return new Set();
   const proc = Bun.spawnSync(["git", "-C", root, "check-ignore", "--no-index", "-z", "--stdin"], {
     stdin: new TextEncoder().encode(paths.map((path) => `${path}\0`).join("")),
   });
   // 1 is "none of them ignored"; anything else but 0 is a failure.
-  if (proc.exitCode !== 0 && proc.exitCode !== 1) return null;
+  if (proc.exitCode !== 0 && proc.exitCode !== 1) {
+    return { error: `git check-ignore failed: ${decoder.decode(proc.stderr).trim() || `exit ${proc.exitCode}`}` };
+  }
   return new Set(decoder.decode(proc.stdout).split("\0").filter(Boolean));
 }
 
@@ -171,9 +180,10 @@ function ignoredBy(root: string, paths: string[]): Set<string> | null {
  * `.gitignore`, and leaves anything else already staged out of the commit.
  *
  * A write that would hide one of the plan's visible files is undone and
- * reported as refused. When `.gitignore` already had uncommitted changes, the
- * lines stay written but are not committed here: the commit would carry
- * someone else's edits under this message.
+ * reported as refused; one git cannot check is undone and reported as
+ * failed. When `.gitignore` already had uncommitted changes, the lines stay
+ * written but are not committed here: the commit would carry someone else's
+ * edits under this message.
  */
 export function applyIgnores(root: string, plan: IgnorePlan): IgnoreResult {
   const result: IgnoreResult = { added: [], present: [], notIgnored: [], commit: null };
@@ -184,27 +194,31 @@ export function applyIgnores(root: string, plan: IgnorePlan): IgnoreResult {
     if (!lstatSync(file).isFile()) return { ...result, refused: ".gitignore is not a regular file" };
     before = readFileSync(file, "utf-8");
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return { ...result, refused: `.gitignore unreadable: ${(e as Error).message}` };
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return { ...result, failed: `.gitignore unreadable: ${(e as Error).message}` };
   }
   const existing = new Set((before ?? "").split(/\r?\n/));
   for (const { line } of plan.additions) (existing.has(line) ? result.present : result.added).push(line);
   const dirtyBefore = git(root, ["status", "--porcelain", "-z", "--", ".gitignore"], true).stdout !== "";
 
+  // Put the file back as it was; one this call created is removed again.
+  const undo = (outcome: { refused: string } | { failed: string }): IgnoreResult => {
+    if (result.added.length > 0) {
+      if (before === null) rmSync(file, { force: true });
+      else writeFileSync(file, before, "utf-8");
+    }
+    return { added: [], present: result.present, notIgnored: [], commit: null, ...outcome };
+  };
   if (result.added.length > 0) {
     writeFileSync(file, appendIgnoreLines(before ?? "", result.added), "utf-8");
     const hidden = ignoredBy(root, plan.visible);
-    if (hidden === null || hidden.size > 0) {
-      // Put the file back as it was; one this call created is removed again.
-      if (before === null) rmSync(file, { force: true });
-      else writeFileSync(file, before, "utf-8");
-      const reason = hidden === null ? "git check-ignore failed" : `the lines would hide ${[...hidden].join(", ")}`;
-      return { added: [], present: result.present, notIgnored: [], commit: null, refused: reason };
-    }
+    if (!(hidden instanceof Set)) return undo({ failed: hidden.error });
+    if (hidden.size > 0) return undo({ refused: `the lines would hide ${[...hidden].join(", ")}` });
   }
 
   const planned = plan.additions.flatMap((addition) => addition.paths);
   const ignored = ignoredBy(root, planned);
-  result.notIgnored = planned.filter((path) => !ignored?.has(path));
+  if (!(ignored instanceof Set)) return undo({ failed: ignored.error });
+  result.notIgnored = planned.filter((path) => !ignored.has(path));
   if (result.added.length === 0) return result;
 
   if (dirtyBefore) {

@@ -261,7 +261,7 @@ export const syncCommand: CoreCommand = {
             }
             printFields(result.fixed);
           });
-          return result.fixed.committed?.status === "failed" ? 1 : 0;
+          return result.fixed.committed?.status === "failed" || result.fixed.failed !== undefined ? 1 : 0;
         }
         const files = assessTree(cli);
         emit(cli.json, { branch: "main", files }, () => {
@@ -323,8 +323,9 @@ export const syncCommand: CoreCommand = {
           for (const e of result.dropped) console.log(`DROPPED=${e.ref} ${e.reason}`);
           for (const e of result.popped) console.log(`POPPED=${e.ref}`);
           for (const e of result.kept) console.log(`KEPT=${e.ref} ${e.reason}`);
+          for (const e of result.failed) console.log(`FAILED=${e.ref} ${e.reason}`);
         });
-        return 0;
+        return result.failed.length > 0 ? 1 : 0;
       }
 
       case "pull": {

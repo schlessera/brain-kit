@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { matchesAnyPattern } from "../tool-leftovers.js";
-import { SENSITIVE_PATTERNS } from "./assess.js";
+import { DERIVED_CACHES, SENSITIVE_PATTERNS } from "./assess.js";
 import { git, gitPath, isAncestor, refExists, unmergedPaths } from "./git.js";
 
 /**
@@ -111,6 +111,59 @@ export function rememberStash(root: string, state: PendingState): void {
 const ORIGIN_MAIN = "refs/remotes/origin/main";
 
 /**
+ * The files a sync's resolution wrote beside a conflicted one (keep-both's
+ * `<name>-remote.md`), under the git directory: the merge they belong to
+ * (HEAD and the commits it brings in) and the blob each was staged as.
+ */
+const EXTRAS_MARKER = "BRAIN_SYNC_EXTRAS";
+
+interface ExtrasRecord {
+  head: string;
+  incoming: string[];
+  files: Record<string, string>;
+}
+
+function stagedBlob(root: string, path: string): string {
+  return git(root, ["rev-parse", "-q", "--verify", `:0:${path}`]).stdout;
+}
+
+function readExtras(root: string, kind: "merge" | "squash"): ExtrasRecord | null {
+  const marker = gitPath(root, EXTRAS_MARKER);
+  if (!existsSync(marker)) return null;
+  try {
+    const saved = JSON.parse(readFileSync(marker, "utf-8")) as Partial<ExtrasRecord>;
+    const files = saved.files;
+    if (saved.head !== headSha(root) || typeof files !== "object" || files === null) return null;
+    if (JSON.stringify(saved.incoming) !== JSON.stringify(incoming(root, kind))) return null;
+    return { head: saved.head, incoming: saved.incoming!, files };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record `paths`, which a resolution of the pending merge or squash has just
+ * written and staged beside its conflicted files, so that `foreignReason`
+ * takes them as the sync's own. Kept per merge: a record for another HEAD or
+ * other incoming commits describes nothing and is replaced.
+ */
+export function rememberResolvedExtras(root: string, paths: readonly string[]): void {
+  if (paths.length === 0) return;
+  const pending = pendingState(root);
+  if (pending.kind !== "merge" && pending.kind !== "squash") return;
+  const record = readExtras(root, pending.kind) ?? { head: headSha(root), incoming: incoming(root, pending.kind), files: {} };
+  for (const path of paths) record.files[path] = stagedBlob(root, path);
+  writeFileSync(gitPath(root, EXTRAS_MARKER), JSON.stringify(record) + "\n", "utf-8");
+}
+
+/** The recorded extras of this merge that the index still stages as they were written. */
+function resolvedExtras(root: string, kind: "merge" | "squash"): Set<string> {
+  const record = readExtras(root, kind);
+  if (record === null) return new Set();
+  return new Set(Object.entries(record.files).filter(([path, blob]) => blob !== "" && stagedBlob(root, path) === blob).map(([path]) => path));
+}
+
+/**
  * The commits a merge or squash brings in: every line of MERGE_HEAD, or every
  * `commit <sha>` line of SQUASH_MSG. Git writes SQUASH_MSG as "Squashed commit
  * of the following:", then one `git log`-style block per commit, newest
@@ -141,6 +194,10 @@ function nulSeparated(root: string, args: string[]): string[] {
  * the whole index, so it is refused while the index stages a secret-shaped
  * path at other than origin/main's version, or any path the merge does not
  * bring in (work staged beside it, which no merge of origin/main put there).
+ * Two kinds of path are exempt from that last check: a file the sync's own
+ * resolution wrote beside a conflicted one, still staged as it wrote it
+ * (`rememberResolvedExtras`), and the derived caches, which post-sync
+ * rewrites and commits whatever the merge carries.
  */
 export function foreignReason(root: string, kind: "merge" | "squash"): string | null {
   const shas = incoming(root, kind);
@@ -168,7 +225,8 @@ export function foreignReason(root: string, kind: "merge" | "squash"): string | 
     if (!base) return `the pending ${kind} shares no history with HEAD`;
     for (const path of nulSeparated(root, ["diff", "--name-only", "-z", "--no-renames", base, sha])) brought.add(path);
   }
-  const stray = staged.filter((path) => !brought.has(path));
+  const own = resolvedExtras(root, kind);
+  const stray = staged.filter((path) => !brought.has(path) && !own.has(path) && !DERIVED_CACHES.has(path));
   if (stray.length > 0) return `the index stages ${stray.join(", ")} beside the ${kind}, which does not bring it in; unstage it before the ${kind} is committed`;
   return null;
 }
@@ -235,7 +293,7 @@ export function conclude(root: string, state: PendingState = pendingState(root))
   const foreign = foreignReason(root, kind);
   if (foreign) return { outcome: "blocked", kind, detail: foreign };
   const committed = git(root, ["commit", "--no-edit"]);
-  return committed.code === 0
-    ? { outcome: "committed", kind }
-    : { outcome: "failed", kind, detail: committed.stderr || committed.stdout };
+  if (committed.code !== 0) return { outcome: "failed", kind, detail: committed.stderr || committed.stdout };
+  rmSync(gitPath(root, EXTRAS_MARKER), { force: true });
+  return { outcome: "committed", kind };
 }

@@ -61,23 +61,26 @@ export function renderReport(run: RunEnvelope): string {
 
   // Ignoring is never silent: a file that drops out of the brain is named.
   const fixes = steps.assess.flatMap((assess) => ("skipped" in assess ? [] : [assess.fixed]));
-  const ignored = fixes.flatMap((fixed) => (fixed.refused !== undefined ? [] : fixed.ignored));
+  const unwritten = (fixed: (typeof fixes)[number]) => fixed.refused ?? fixed.failed;
+  const ignored = fixes.flatMap((fixed) => (unwritten(fixed) !== undefined ? [] : fixed.ignored));
   if (ignored.length > 0) {
     lines.push("Ignored:", ...ignored.flatMap((add) => add.paths.map((path) => `  ${path} (${add.reason === "sensitive" ? "a secret" : "artifact"}; .gitignore: ${add.line})`)));
   }
   const heldBack = new Map(fixes.flatMap((fixed) => fixed.heldBack.map((file) => [file.path, file.reason] as const)));
   // Kept as the last reconcile left it: a stash only a person can settle.
   const kept = steps.stash[steps.stash.length - 1]?.kept ?? [];
+  const stashFailed = steps.stash.flatMap((stash) => stash.failed);
   const left: string[] = [
     ...leftovers.unresolved.map((file) => `unresolved: ${file.path} — ${file.reason}`),
     ...leftovers.unknown.map((path) => `unknown: ${path}${heldBack.has(path) ? ` — ${heldBack.get(path)}` : ""}`),
     ...leftovers.media.map((file) => `media: ${file.path} (${size(file.bytes)})`),
     ...fixes.flatMap((fixed) => fixed.trackedArtifacts).map((file) => `tracked ${file.reason === "sensitive" ? "secret" : "artifact"}: ${file.path}`),
     ...fixes.flatMap((fixed) =>
-      fixed.refused === undefined ? [] : fixed.ignored.flatMap((add) => add.paths.map((path) => `not ignored: ${path} — ${fixed.refused}`))
+      unwritten(fixed) === undefined ? [] : fixed.ignored.flatMap((add) => add.paths.map((path) => `not ignored: ${path} — ${unwritten(fixed)}`))
     ),
     ...fixes.flatMap((fixed) => fixed.notIgnored).map((path) => `not ignored: ${path} — git still does not ignore it`),
     ...kept.map((entry) => `stash kept: ${entry.ref} — ${entry.reason}`),
+    ...stashFailed.map((entry) => `stash failed: ${entry.ref} — ${entry.reason}`),
   ];
   if (left.length > 0) lines.push("Left for you:", ...left.map((line) => `  ${line}`));
   return lines.join("\n");

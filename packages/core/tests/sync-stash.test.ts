@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { reconcileStashes } from "../src/lib/sync/stash.js";
+import { mergeFileMarkers } from "./sync-fixture";
 
 const dirs: string[] = [];
 
@@ -133,6 +134,19 @@ describe("reconcileStashes: the F8 shape", () => {
     expect(stashes(root)).toHaveLength(1);
   });
 
+  test("markers of another size (conflict-marker-size=10) prove nothing either", () => {
+    const root = conflictedPop();
+    const upstream = TRAIL.replace("Status: open", "Status: open, detour at mile 2");
+    const marked = mergeFileMarkers(TRAIL, upstream, TRAIL.replace("Status: open", "Status: closed for bears"), 10);
+    expect(marked).toContain(`${"<".repeat(10)} HEAD\n`);
+    write(root, "trails/ridge.md", marked);
+    git(root, "restore", "--staged", "trails/ridge.md");
+
+    const report = reconcileStashes(root);
+    expect(report.dropped).toEqual([]);
+    expect(report.kept.map((e) => e.reason)).toEqual(["not an autostash, and trails/ridge.md holds conflict markers"]);
+  });
+
   test("a resolution that still holds conflict markers proves nothing", () => {
     const root = conflictedPop();
     // The file as the conflicted pop left it: both lines, between markers.
@@ -168,6 +182,57 @@ describe("reconcileStashes", () => {
     expect(report.popped).toEqual([{ ref: "stash@{0}", sha, message: "autostash" }]);
     expect(stashes(root)).toEqual([]);
     expect(read(root, "trails/ridge.md")).toBe(TRAIL + "\nBridge planks loose.\n");
+  });
+
+  // `git stash pop` without `--index` would restore the working version and
+  // drop the entry holding the staged one.
+  test("an autostash that stages a version other than its working one is kept, not popped", () => {
+    const root = repo({ "trails/ridge.md": TRAIL });
+    write(root, "trails/ridge.md", TRAIL.replace("Status: open", "Status: closed"));
+    git(root, "add", "trails/ridge.md");
+    write(root, "trails/ridge.md", TRAIL.replace("Status: open", "Status: flooded"));
+    const sha = autostash(root);
+    expect(git(root, "show", `${sha}^2:trails/ridge.md`)).toContain("Status: closed");
+
+    const report = reconcileStashes(root);
+    expect(report.popped).toEqual([]);
+    expect(report.kept.map((e) => [e.sha, e.reason])).toEqual([
+      [sha, "trails/ridge.md lacks the stash's change in its context, and it stages a version of trails/ridge.md that a pop would lose"],
+    ]);
+    expect(stashes(root)).toHaveLength(1);
+    expect(read(root, "trails/ridge.md")).toBe(TRAIL);
+  });
+
+  test("an autostash whose staged version is its working one is popped", () => {
+    const root = repo({ "trails/ridge.md": TRAIL });
+    write(root, "trails/ridge.md", TRAIL.replace("Status: open", "Status: closed"));
+    git(root, "add", "trails/ridge.md");
+    autostash(root);
+
+    const report = reconcileStashes(root);
+    expect(report.popped).toHaveLength(1);
+    expect(read(root, "trails/ridge.md")).toBe(TRAIL.replace("Status: open", "Status: closed"));
+  });
+
+  test("a drop or pop git refuses (refs/stash locked) is failed, not kept", () => {
+    const root = repo({ "trails/ridge.md": TRAIL, "trails/lake.md": "# Lake Path\n" });
+    write(root, "trails/ridge.md", TRAIL + "\nBridge planks loose.\n");
+    autostash(root);
+    write(root, "trails/lake.md", "# Lake Path\n\nIce out.\n");
+    git(root, "stash", "push", "-q", "-m", "lake");
+    // The tree holds the lake entry's change again, so it is dropped.
+    write(root, "trails/lake.md", "# Lake Path\n\nIce out.\n");
+    writeFileSync(join(root, ".git", "refs", "stash.lock"), "");
+
+    const report = reconcileStashes(root);
+    expect(report.kept).toEqual([]);
+    expect(report.dropped).toEqual([]);
+    expect(report.popped).toEqual([]);
+    expect(report.failed.map((e) => [e.ref, e.reason.split(":")[0]])).toEqual([
+      ["stash@{1}", "pop failed"],
+      ["stash@{0}", "drop failed"],
+    ]);
+    expect(stashes(root)).toHaveLength(2);
   });
 
   test("an autostash whose path has local changes is kept, and the file is not touched", () => {

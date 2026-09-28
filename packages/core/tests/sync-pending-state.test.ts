@@ -276,6 +276,19 @@ describe("pendingState and conclude", () => {
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
   });
 
+  test("a sync's merge with a derived cache staged beside it is committed: post-sync owns the caches", () => {
+    const root = diverged();
+    gitMayFail(root, "merge", "side", "--no-edit");
+    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, CACHE, '{"k":"ranger-log","v":"local"}\n');
+    git(root, "add", NOTE, CACHE);
+
+    const done = conclude(root);
+    expect(done).toEqual({ outcome: "committed", kind: "merge" });
+    expect(hasRef(root, "MERGE_HEAD")).toBe(false);
+    expect(git(root, "show", `HEAD:${CACHE}`)).toBe('{"k":"ranger-log","v":"local"}');
+  });
+
   test("a stash leftover whose staged resolution the working file no longer has fails, and nothing is unstaged", () => {
     const root = stashPopConflict();
     expect(conclude(root).outcome).toBe("unresolved");

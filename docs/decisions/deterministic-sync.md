@@ -23,7 +23,7 @@ back.
    HEAD. `pull` now reads the pending state first (`pendingState`,
    `packages/core/src/lib/sync/merge-state.ts:69-81`), unions the caches among
    the unmerged paths, and concludes it by kind once nothing is unmerged
-   (`conclude`, `packages/core/src/lib/sync/merge-state.ts:197-241`): a merge
+   (`conclude`, `packages/core/src/lib/sync/merge-state.ts:255-299`): a merge
    or a squash is committed, a stash-pop leftover is unstaged and never
    committed, and its stash entry is left for stash reconciliation. A rebase,
    cherry-pick, revert or am in progress is never finished: the pull reports
@@ -121,17 +121,22 @@ files in the body. An agent may rewrite them through `commit --plan` and
 `commit --plan-file`, which re-check the files against the tracked set
 (`applyCommitPlan`, `packages/core/src/lib/sync/commit.ts:274`). Stash
 entries are dropped only when the working tree already contains them, and
-popped only when they are autostashes that apply cleanly
-(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:281`).
+popped only when they are autostashes that apply cleanly and stage no
+version a pop without `--index` would lose
+(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:320`).
 
 Because `run` works unattended, it refuses anything it cannot prove is its
 own. It concludes only a merge or squash of commits `origin/main` already
-holds, and only when nothing else is staged beside it. It never commits or
-pushes a file that holds conflict markers. It ignores only unmistakable
+holds, and only when nothing else is staged beside it but the copies its own
+resolution wrote (keep-both's `<name>-remote.md`, still as written) and the
+derived caches post-sync rewrites. It never commits or pushes a file that
+holds conflict markers, of git's default size or a larger
+`conflict-marker-size`. It ignores only unmistakable
 secrets (`.env`, `.env.*`, `*.key`, `*.pem`); a name that merely looks like
 one is left for the agent. It keeps a stash entry unless the working tree
-already holds its change in context. A failed commit, post-sync failure or
-diverged heads end the run `failed`, never `complete`. These rules came out
+already holds its change in context. A failed commit, post-sync failure,
+diverged heads, a stash drop or pop git refuses, or an ignore check git
+cannot run end the run `failed`, never `complete`. These rules came out
 of an adversarial review of the first cut, which found each of them missing.
 
 ## What was measured
