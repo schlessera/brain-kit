@@ -315,7 +315,7 @@ describe("brain_read", () => {
     const file = readFileSync(join(root, "me/identity.md"), "utf-8");
     const headings = file.split("\n").filter((l) => l.startsWith("## "));
     expect(headings.length).toBeGreaterThan(1);
-    expect(headings).toEqual(["## Current Identity", "## How to Work With Alex"]);
+    expect(headings).toEqual(["## Current Identity", "## How to Work With Alex", "## Reaching Alex"]);
     expect(first.text).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
     expect(first.text).toContain('section: "<heading>"');
     expect(first.text).not.toContain("park ranger** at a mid-sized");

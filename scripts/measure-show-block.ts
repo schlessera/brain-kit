@@ -90,6 +90,7 @@ import {
   SHOW_BLOCK_TOOL_NAME as BLOCK_TOOL,
 } from "../packages/ui-backend-claude/src/show-block-tool.js";
 import { createAgentHook } from "../packages/ui-backend-claude/src/input-rewrite-hooks.js";
+import { kvRunColumns, kvRunRows, type KvRunColumns } from "./measure-kv-runs.ts";
 
 /**
  * Pinned rather than left to the CLI default, so a later re-run compares
@@ -164,6 +165,7 @@ const CLASSIFIABLE_KINDS = [
   "quote",
   "receipt",
   "stats",
+  "contact",
 ] as const;
 
 /**
@@ -201,7 +203,10 @@ const PROMPTS: readonly {
   {
     id: "contact",
     invites: "contact",
-    classifiable: false,
+    // A key-and-value run can come back as a `contact` block (#132), and
+    // `me/identity.md` carries one with an address for this prompt to find
+    // (#208).
+    classifiable: true,
     text: "Who is the person this brain belongs to?",
   },
   {
@@ -264,6 +269,11 @@ interface TurnResult {
   otherTools: string[];
   /** Candidate kinds `planClassification` found across the turn's text parts. */
   candidates: string[];
+  /**
+   * Key-and-value runs the turn typed, the ones carrying an address, and the
+   * `kv_run` candidates detected (#208).
+   */
+  kvRuns: KvRunColumns;
   answerChars: number;
   durationMs: number;
   /** What this turn cost, as the SDK priced it. Summed into the report. */
@@ -498,6 +508,7 @@ async function runTurn(
     rejectedCalls,
     otherTools: [...otherTools].sort(),
     candidates: (plan?.candidates ?? []).map((planned) => planned.candidate.kind),
+    kvRuns: kvRunColumns(textParts),
     answerChars: textParts.join("").length,
     durationMs: Date.now() - started,
     costUsd,
@@ -870,13 +881,26 @@ function report(
     "",
     "## Split by whether the classification pass can reach the kind",
     "",
-    `The pass reaches ${CLASSIFIABLE_KINDS.join(", ")}. It cannot reach \`trend\`, \`bars\` or \`contact\`: no markdown shape maps to them.`,
+    `The pass reaches ${CLASSIFIABLE_KINDS.join(", ")}. It cannot reach \`trend\` or \`bars\`: no markdown shape maps to them.`,
     "",
     ...splitRows(runs),
     "",
     "## Per prompt",
     "",
     ...promptRows(runs),
+    "",
+    "## Key-and-value runs",
+    "",
+    "Completed turns. `written` counts the shape the model typed, without the detector's rules; `detected` is what the classification pass found. The middle column is set by what the corpus carries (`me/identity.md` holds one run with an address), not by how often a real answer holds one.",
+    "",
+    ...kvRunRows(
+      ARMS.map((arm) => ({
+        label: arm,
+        turns: completed(runs)
+          .filter((run) => run.arm === arm)
+          .map((run) => run.kvRuns),
+      }))
+    ),
     "",
     "## What a turn billed, and how fast it started",
     "",
