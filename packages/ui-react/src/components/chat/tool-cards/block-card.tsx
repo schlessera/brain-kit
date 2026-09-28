@@ -29,6 +29,7 @@ import {
   ContactCard,
   DataTable,
   ICONS,
+  LinkPreviewCard,
   QuoteCard,
   Receipt,
   ScheduleList,
@@ -38,6 +39,7 @@ import {
   TrendChart,
   type IconName,
 } from "@schlessera/brain-ui-kit";
+import { classifyLink } from "@schlessera/brain-ui-kit/links";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 
 import { MapBlockCard } from "./map-block.js";
@@ -48,6 +50,11 @@ export function kitIcon(name: string | undefined): IconName | undefined {
   // prototype, and the kit would then try to render a function that is not
   // a component.
   return name !== undefined && Object.hasOwn(ICONS, name) ? (name as IconName) : undefined;
+}
+
+/** The link card's Copy control: the exact href, to the clipboard, and nowhere else. */
+function copyAddress(href: string): void {
+  void navigator.clipboard?.writeText(href).catch(() => undefined);
 }
 
 /** An omitted optional text prop, cleared rather than left to the kit's demo default. */
@@ -81,6 +88,10 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `contact · ${block.label}`;
     case "map":
       return `map · ${block.title ?? count(block.places.length, "place")}`;
+    case "link": {
+      const verdict = classifyLink(block.url);
+      return verdict.ok ? `link · ${verdict.host}` : "link · withheld";
+    }
     case "suggestions":
       return `suggestions · ${block.items.length}`;
   }
@@ -145,6 +156,12 @@ function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
     }
     case "map":
       return <MapBlockCard block={block} isStatic={isStatic} />;
+    case "link": {
+      // The card classifies `url` itself: it derives the host and the href
+      // from one parse, and draws a refused address as withheld (#43).
+      const { kind: _kind, ...props } = block;
+      return <LinkPreviewCard {...props} onCopy={copyAddress} />;
+    }
     case "suggestions":
       // Never drawn in the answer: the closing row takes the turn's last
       // valid call (D50), and a share or a print leaves them out.

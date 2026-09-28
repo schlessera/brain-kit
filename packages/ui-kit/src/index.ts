@@ -120,6 +120,17 @@ export { ContactCard, type ContactAction, type ContactCardProps, type ContactFac
 export { Disclosure, type DisclosureProps } from "./blocks/Disclosure.js";
 export { FeedbackRow, type FeedbackRowProps } from "./blocks/FeedbackRow.js";
 export { LinkPreviewCard, type LinkPreviewCardProps } from "./blocks/LinkPreviewCard.js";
+export {
+  classifyLink,
+  classifyMailto,
+  refusalSentence,
+  LINK_URL_MAX,
+  MAILTO_ADDRESSES_MAX,
+  type LinkRefusal,
+  type LinkRefusalReason,
+  type LinkVerdict,
+  type MailVerdict,
+} from "./links.js";
 /* `mercY` and `step` are exported from the module but deliberately NOT from
  * here: they are the projection's internals, `tests/mapview-projection.test.ts`
  * imports them directly, and `step` is far too generic a name to put into a

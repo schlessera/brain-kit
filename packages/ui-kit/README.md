@@ -25,6 +25,17 @@ accessibility gate — is in `docs/decisions/design-kit.md`, and the measured
 design divergences several components ship on purpose are in
 `docs/decisions/design-feedback.md`.
 
+## Link policy
+
+`@schlessera/brain-ui-kit/links` exports `classifyLink`, the one decision about
+what an address a model chose may do: absolute `http(s)` only, no credentials,
+no invisible or bidi characters, and no hostname label that mixes scripts
+(UTS #39 Highly Restrictive). It is pure and imports no React, so a server can
+use it: `@schlessera/brain-ui-sdk`'s `show_block` handler rejects a refused
+link with it. `LinkPreviewCard` calls it on its own `url` prop, so the host a
+card shows and the address it opens always come from the same parse. The
+reasoning is D48 in `docs/decisions/design-kit.md`.
+
 ## Styles
 
 Two forms, both generated from `src/styles.css`:

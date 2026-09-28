@@ -15,6 +15,22 @@ afterEach(() => {
   while (temps.length) rmSync(temps.pop()!, { recursive: true, force: true });
 });
 
+/**
+ * The pid the wrapper wrote, once it has written one. The shell creates the
+ * file when it opens the redirect and writes the pid after, so a file that
+ * exists can still be empty — and `Number("")` is 0, which `kill(0, 0)`
+ * reports alive for as long as this test's own process group lives.
+ */
+async function childPidFrom(path: string): Promise<number> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const text = existsSync(path) ? readFileSync(path, "utf-8").trim() : "";
+    if (/^[1-9]\d*$/.test(text)) return Number(text);
+    if (Date.now() > deadline) throw new Error(`no pid in ${path} after 10 s`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -51,11 +67,7 @@ test("the wrapper receives the SDK's command as an argument, and abort kills the
 
   const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
 
-  const deadline = Date.now() + 10_000;
-  while (!existsSync(childPidFile) && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
+  const childPid = await childPidFrom(childPidFile);
   expect(alive(childPid)).toBe(true);
 
   // argv[0] is the wrapper; the SDK's command and args follow it unsplit, with

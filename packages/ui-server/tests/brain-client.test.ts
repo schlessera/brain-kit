@@ -118,6 +118,16 @@ describe("search cancellation and deadlines", () => {
     }
   }
 
+  /**
+   * The pid the stalled CLI wrote, or null until it has written one:
+   * `writeFileSync` creates the file before it writes, and `Number("")` is 0,
+   * which `kill(0, 0)` reports running for as long as this test lives.
+   */
+  function pidIn(path: string): number | null {
+    const text = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+    return /^[1-9]\d*$/.test(text) ? Number(text) : null;
+  }
+
   function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
   }
@@ -148,8 +158,8 @@ describe("search cancellation and deadlines", () => {
     const result = createBrainClient({ brainPath: root }).search("query", { signal: controller.signal })
       .then(() => null, (error: Error) => error);
     try {
-      await waitUntil(() => existsSync(pidPath));
-      const pid = Number(readFileSync(pidPath, "utf8"));
+      await waitUntil(() => pidIn(pidPath) !== null);
+      const pid = pidIn(pidPath)!;
       controller.abort();
       expect(await result).toHaveProperty("name", "AbortError");
       expect(running(pid)).toBe(false);
@@ -166,7 +176,9 @@ describe("search cancellation and deadlines", () => {
     const response = await app.request("/brain/search?q=query");
     expect(response.status).toBe(504);
     expect(await response.json()).toHaveProperty("error", expect.stringContaining("timed out"));
-    expect(running(Number(readFileSync(pidPath, "utf8")))).toBe(false);
+    const pid = pidIn(pidPath);
+    expect(pid).not.toBeNull();
+    expect(running(pid!)).toBe(false);
   });
 
   test("a real HTTP disconnect propagates through Hono to the search process", async () => {
@@ -178,8 +190,8 @@ describe("search cancellation and deadlines", () => {
     const response = fetch(`http://127.0.0.1:${server.port}/brain/search?q=query`, { signal: controller.signal })
       .catch((error: Error) => error);
     try {
-      await waitUntil(() => existsSync(pidPath));
-      const pid = Number(readFileSync(pidPath, "utf8"));
+      await waitUntil(() => pidIn(pidPath) !== null);
+      const pid = pidIn(pidPath)!;
       controller.abort();
       await response;
       await waitUntil(() => !running(pid));

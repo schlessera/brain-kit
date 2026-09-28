@@ -91,6 +91,7 @@ const EXPECTED_TEXT: Record<AnswerBlockKind, string[]> = {
   quote: ["Sing to me of the man, Muse.", "Book 1, line 1"],
   contact: ["Eumaeus", "swineherd", "20 years ago"],
   map: ["Where the crew went ashore", "Harbour steps", "Agora well", "Raft timber stand", "no position"],
+  link: ["ithaca-harbour.", "example", "Harbour tide tables, week 39", "Title and summary by the brain"],
 };
 
 describe("BlockCard", () => {

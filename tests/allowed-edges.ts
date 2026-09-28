@@ -40,7 +40,12 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // Leaves: no internal edges at all.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   "@schlessera/brain-render-puppeteer": { dependencies: [], optionalPeers: [] },
-  "@schlessera/brain-ui-sdk": { dependencies: [], optionalPeers: [] },
+  // The SDK's `show_block` handler rejects a link block whose address the
+  // kit's link policy refuses, and it calls the kit's own `classifyLink` to do
+  // it, so the handler and the card that draws the link can never disagree
+  // (maintainer ruling on schlessera/brain-kit#43, D48). The edge reaches only
+  // `@schlessera/brain-ui-kit/links`, which is pure and imports no React.
+  "@schlessera/brain-ui-sdk": { dependencies: ["@schlessera/brain-ui-kit"], optionalPeers: [] },
   // The scraping base is infrastructure, not a content domain: it knows
   // nothing about documents, taxonomy or the index, so it must NEVER depend on
   // core. An edge here would mean scraping logic had started reasoning about

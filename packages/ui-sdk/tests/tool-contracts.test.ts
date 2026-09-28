@@ -156,7 +156,7 @@ describe("show_block", () => {
     });
   });
 
-  test("the thirteen kinds, in brief order", () => {
+  test("the fourteen kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -170,6 +170,7 @@ describe("show_block", () => {
       "quote",
       "contact",
       "map",
+      "link",
       "suggestions",
     ]);
   });

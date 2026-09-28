@@ -545,7 +545,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend`, `bars` and `map` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map` and `link` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -569,11 +569,17 @@ describe("the kinds the catalogue can draw", () => {
     // shape but an offer drawn after the answer (#40), so no span of prose can
     // classify into it.
     const NOT_ANSWER_CONTENT: readonly string[] = ["suggestions"];
+    //
+    // `link` is left for a third reason: a link typed in prose stays a prose
+    // anchor, and D49 puts THAT anchor through the link policy where it
+    // stands, so the pass never lifts one into a block.
+    const LINKS_STAY_IN_PROSE: readonly string[] = ["link"];
     const leftOver = BLOCK_KINDS.filter(
       (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
     );
-    expect(leftOver).toEqual(["trend", "bars", "map"]);
-    expect(leftOver).toEqual(BLOCK_KINDS.filter(carriesAFigure));
+    expect(leftOver).toEqual(["trend", "bars", "map", "link"]);
+    const figures: string[] = leftOver.filter((kind) => !LINKS_STAY_IN_PROSE.includes(kind));
+    expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });
 });
 

@@ -28,3 +28,8 @@ what is active right now and [[short-bio]] for the public-facing summary.
 - Lead with the field-notebook framing: everything here is observational and dated.
 - Prefer concrete, checklist-shaped guidance over abstractions.
 - Health entries are private and time-sensitive; surface stale ones early.
+
+## Reaching Alex
+
+- **Email:** alex@example.com
+- **Web:** https://example.com/alex

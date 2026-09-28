@@ -101,6 +101,7 @@ export "." (./src/index.ts)
   InlineToast
   type InlineToastProps
   LIGHT_TOKENS
+  LINK_URL_MAX
   Label
   type LabelProps
   type LabelTone
@@ -111,9 +112,14 @@ export "." (./src/index.ts)
   type LaneSegment
   LinkPreviewCard
   type LinkPreviewCardProps
+  type LinkRefusal
+  type LinkRefusalReason
+  type LinkVerdict
   ListRow
   type ListRowProps
   type ListRowVariant
+  MAILTO_ADDRESSES_MAX
+  type MailVerdict
   type MapCluster
   type MapLand
   type MapPath
@@ -214,11 +220,27 @@ export "." (./src/index.ts)
   type ValueTone
   type ViewState
   canvas
+  classifyLink
+  classifyMailto
   clusterLetter
   color
   font
   mapViewBounds
   printThemeCss
+  refusalSentence
+
+export "./links" (./src/links.ts)
+  LINK_URL_MAX
+  type LinkRefusal
+  type LinkRefusalReason
+  type LinkVerdict
+  MAILTO_ADDRESSES_MAX
+  type MailVerdict
+  classifyLink
+  classifyMailto
+  decodePunycode
+  highlyRestrictive
+  refusalSentence
 
 export "./package.json" (./package.json) [asset]
 

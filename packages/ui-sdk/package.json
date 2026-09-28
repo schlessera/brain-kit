@@ -86,6 +86,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
+    "@schlessera/brain-ui-kit": "workspace:*",
     "mdast-util-to-string": "^4.0.0",
     "micromark-util-decode-string": "^2.0.0",
     "remark-gfm": "^4.0.1",
