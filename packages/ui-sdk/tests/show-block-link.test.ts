@@ -32,8 +32,8 @@ describe("show_block: link", () => {
       ["data:text/html,hi", "scheme"],
       ["/tides", "relative"],
       ["https://odysseus:nobody@ithaca-harbour.example/", "credentials"],
-      ["https://аpple.example/", "mixed-script"],
-      ["https://ithaca-harbour.example/‮", "hidden-characters"],
+      ["https://\u0430pple.example/", "mixed-script"],
+      ["https://ithaca-harbour.example/\u202E", "hidden-characters"],
     ];
     for (const [url, reason] of cases) {
       expect(() => handleShowBlock(link(url))).toThrow(`refused the link: ${reason}`);

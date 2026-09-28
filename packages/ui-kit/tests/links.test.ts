@@ -66,7 +66,7 @@ describe("classifyLink", () => {
   });
 
   test("5. invisible and control characters are refused before the parser can strip them", () => {
-    for (const ch of ["\t", "\n", "‮", "​", "﻿", "⁦", "­"]) {
+    for (const ch of ["\t", "\n", "\u202E", "\u200B", "\uFEFF", "\u2066", "\u00AD"]) {
       const v = refused(`https://ithaca-harbour.example/ti${ch}des`);
       expect(v.reason).toBe("hidden-characters");
       // Spelled out, so the reader sees the character that was there.
