@@ -99,11 +99,17 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
           // a sliced Bun.file then runs past the slice to the end of the
           // file, and a stream body loses its Content-Length. Bytes keep both.
           const bytes = await Bun.file(abs).slice(range.start, range.end + 1).bytes();
+          if (bytes.length === 0) {
+            return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
+          }
+          // A file cut short since it was measured: describe the bytes that
+          // were read, and say the total is no longer known (RFC 9110 §14.4).
+          const whole = bytes.length === range.end - range.start + 1;
           return new Response(bytes, {
             status: 206,
             headers: {
               ...headers,
-              "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+              "Content-Range": `bytes ${range.start}-${range.start + bytes.length - 1}/${whole ? size : "*"}`,
               "Content-Length": String(bytes.length),
             },
           });

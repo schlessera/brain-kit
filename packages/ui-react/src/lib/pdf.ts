@@ -61,6 +61,8 @@ interface Setup {
   /** Documents still opening here. A retired worker is terminated when none are left. */
   opening: number;
   retired: boolean;
+  /** Documents open on this worker, each with what to call if the worker goes away under it. */
+  documents: Map<PdfDocument, () => void>;
 }
 
 /** pdf.js's own wording when the worker's version differs from the API's. */
@@ -87,7 +89,7 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
   const mainThread = retrying(async (): Promise<Setup> => {
     const pdfjs = await loadPdfjs();
     await deps.loadMainThreadWorker();
-    return { pdfjs, worker: pdfjs.PDFWorker.create({}), port: null, died: null, opening: 0, retired: false };
+    return { pdfjs, worker: pdfjs.PDFWorker.create({}), port: null, died: null, opening: 0, retired: false, documents: new Map() };
   });
   /** One setup per worker URL, so each root gets the worker it configured. */
   const setups = new Map<string, () => Promise<Setup>>();
@@ -101,15 +103,54 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
     return setup;
   }
 
+  /** Documents opened on a worker, so closing one can forget it there. */
+  const owners = new WeakMap<PdfDocument, Setup>();
+
   async function onWorker(url: string): Promise<Setup> {
     const pdfjs = await loadPdfjs();
     const port = await startWorker(url);
     if (!port) return mainThread();
-    const died = new Promise<never>((_resolve, reject) =>
-      port.addEventListener("error", () => reject(new WorkerDied("The PDF worker stopped")), { once: true })
-    );
+    let die!: (error: Error) => void;
+    const died = new Promise<never>((_resolve, reject) => (die = reject));
     died.catch(() => {});
-    return { pdfjs, worker: pdfjs.PDFWorker.create({ port }), port, died, opening: 0, retired: false };
+    const setup: Setup = {
+      pdfjs,
+      worker: pdfjs.PDFWorker.create({ port }),
+      port,
+      died,
+      opening: 0,
+      retired: false,
+      documents: new Map(),
+    };
+    port.addEventListener(
+      "error",
+      () => {
+        die(new WorkerDied("The PDF worker stopped"));
+        retire(setup, url);
+      },
+      { once: true }
+    );
+    return setup;
+  }
+
+  /**
+   * Stop using a worker: its URL goes to the main thread, and each document
+   * open on it is told, because pdf.js would leave its next request waiting
+   * forever. The worker itself goes once nothing is still opening on it.
+   */
+  function retire(setup: Setup, workerUrl: string): void {
+    if (setup.retired) return;
+    setup.retired = true;
+    setups.set(workerUrl, mainThread);
+    for (const lost of setup.documents.values()) lost();
+    setup.documents.clear();
+    terminateIfIdle(setup);
+  }
+
+  function terminateIfIdle(setup: Setup): void {
+    if (!setup.retired || setup.opening > 0) return;
+    setup.worker.destroy();
+    setup.port?.terminate();
   }
 
   /**
@@ -158,42 +199,46 @@ export function createPdfLoader(deps: PdfLoaderDeps) {
      * Open the document at `url`, on the worker at `workerUrl` or on the main
      * thread. A worker built from another pdf.js version starts fine and
      * rejects every document, and a worker can die after it started. Either
-     * moves that URL to the main thread, and each document waiting on the
-     * worker is opened again there. The worker is terminated once no document
-     * is still waiting on it.
+     * moves that URL to the main thread: a document still opening is opened
+     * again there, and one already open gets `onLost`, so its viewer can open
+     * it again too.
      */
-    async open(url: string, workerUrl: string): Promise<PdfDocument> {
+    async open(url: string, workerUrl: string, onLost?: () => void): Promise<PdfDocument> {
       const setup = await setupFor(workerUrl)();
       setup.opening++;
       try {
-        return await load(setup, url);
+        const doc = await load(setup, url);
+        if (setup.port) {
+          owners.set(doc, setup);
+          // A worker that died after answering leaves this document without one.
+          if (setup.retired) queueMicrotask(() => onLost?.());
+          else if (onLost) setup.documents.set(doc, onLost);
+        }
+        return doc;
       } catch (error) {
         const workerFailed =
           error instanceof WorkerDied || VERSION_MISMATCH.test(String((error as Error)?.message));
         if (!setup.port || !workerFailed) throw error;
-        if (!setup.retired) {
-          setup.retired = true;
-          setups.set(workerUrl, mainThread);
-        }
-        return await load(await mainThread(), url);
+        retire(setup, workerUrl);
       } finally {
         setup.opening--;
-        if (setup.retired && setup.opening === 0) {
-          setup.worker.destroy();
-          setup.port?.terminate();
-        }
+        terminateIfIdle(setup);
       }
+      return load(await mainThread(), url);
     },
 
     /** Release a document opened here. Its worker stays up for the next one. */
     close(doc: PdfDocument): void {
+      owners.get(doc)?.documents.delete(doc);
       doc.loadingTask.destroy().catch(() => {});
     },
   };
 }
 
 const loader = createPdfLoader({
-  // pdf.js types a worker wrapper's `port` as null only; a Worker is what it takes.
+  // `PdfjsModule` names a worker handle by the one method used here, where
+  // pdf.js's `getDocument` asks for its full `PDFWorker`. The handle passed is
+  // always one `PDFWorker.create` made.
   importPdfjs: async () => (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as PdfjsModule,
   async loadMainThreadWorker() {
     const { WorkerMessageHandler } = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs");

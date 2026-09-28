@@ -156,6 +156,7 @@ if (!process.env[CHILD_MARKER]) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     loader.close(first);
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(first.loadingTask.destroyed).toBe(true);
     expect(scope.held.length).toBeGreaterThan(0);
     scope.release();
 

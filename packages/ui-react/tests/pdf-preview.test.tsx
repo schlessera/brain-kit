@@ -23,7 +23,7 @@ if (!process.env[CHILD_MARKER]) {
     const output = `${stdout}${stderr}`;
     if (exitCode !== 0) throw new Error(`Isolated PDF previewer tests failed (${exitCode})\n${output}`);
     // A child that registered no tests also exits 0.
-    expect(output).toMatch(/\b12 pass\b/);
+    expect(output).toMatch(/\b15 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -61,6 +61,8 @@ if (!process.env[CHILD_MARKER]) {
   let draws: Draw[] = [];
   let closed: unknown[] = [];
   let opening: () => Promise<unknown> = async () => null;
+  /** What the previewer asked to hear if its document's worker goes away. */
+  let onLost: (() => void) | undefined;
   /** When set, draws stay in flight until the document is closed. */
   let holdDraws = false;
 
@@ -101,7 +103,10 @@ if (!process.env[CHILD_MARKER]) {
   }
 
   mock.module("../src/lib/pdf.js", () => ({
-    openPdf: () => opening(),
+    openPdf: (_url: string, _workerUrl: string, lost?: () => void) => {
+      onLost = lost;
+      return opening();
+    },
     closePdf: (doc: { cancelDraws?: () => void }) => {
       closed.push(doc);
       doc.cancelDraws?.();
@@ -181,6 +186,22 @@ if (!process.env[CHILD_MARKER]) {
       expect(page.querySelector("canvas")).toBeNull();
       // A cancelled draw is the cleanup working, not a failure.
       expect(container.textContent).not.toContain("Preview not available");
+    });
+
+    test("a page too big for the budget at zoom is drawn smaller there too", async () => {
+      const receipt = { width: 612, height: 9000 };
+      const { container } = await opened(fakeDoc([receipt]), 1);
+
+      await act(async () => {
+        fireEvent.click(pageButton(container, 1, 1));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const dialog = document.querySelector('[role="dialog"]')!;
+      const zoomed = draws.find((d) => dialog.contains(d.canvas))!;
+      // At three times its printed size this page would be 2448 x 36000 pixels.
+      expect(zoomed.width * zoomed.height).toBeGreaterThan(0);
+      expect(zoomed.width * zoomed.height).toBeLessThanOrEqual(16_777_216);
     });
 
     test("tapping a page opens it in the zoom viewer, drawn sharper and inside the budget", async () => {
@@ -265,6 +286,44 @@ if (!process.env[CHILD_MARKER]) {
   });
 
   describe("lifetime", () => {
+    test("a late failure of the file shown before never marks the file shown now", async () => {
+      // Outside act(), as in a browser: passive effects run in a later task
+      // than the commit, so a promise that settles right after the commit
+      // reaches the previous file's previewer before its cleanup has run.
+      const { createRoot } = await import("react-dom/client");
+      const { useLayoutEffect } = await import("react");
+      const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      env.IS_REACT_ACT_ENVIRONMENT = false;
+      const container = document.createElement("div");
+      document.body.append(container);
+      const reactRoot = createRoot(container);
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+      let failOld: ((error: Error) => void) | null = null;
+      function FailOnCommit({ fire }: { fire: boolean }) {
+        useLayoutEffect(() => {
+          if (fire) failOld!(new Error("Invalid PDF structure."));
+        }, [fire]);
+        return null;
+      }
+      try {
+        opening = () => new Promise((_resolve, reject) => (failOld = reject));
+        reactRoot.render(<>{view(0, "out/old.pdf")}<FailOnCommit fire={false} /></>);
+        await settle();
+        expect(failOld).not.toBeNull();
+
+        opening = async () => fakeDoc([LETTER]);
+        reactRoot.render(<>{view(0, "out/new.pdf")}<FailOnCommit fire={true} /></>);
+        await settle();
+
+        expect(container.textContent).not.toContain("Preview not available");
+        expect(container.querySelector('button[aria-label="Page 1 of 1, open zoomed"]')).not.toBeNull();
+      } finally {
+        reactRoot.unmount();
+        container.remove();
+        env.IS_REACT_ACT_ENVIRONMENT = true;
+      }
+    });
+
     test("opening another PDF while a page is still drawing shows the new one, not the card", async () => {
       holdDraws = true;
       const first = fakeDoc([LETTER]);
@@ -283,6 +342,22 @@ if (!process.env[CHILD_MARKER]) {
       expect(closed).toEqual([first]);
       expect(draws[0]!.cancelled).toBe(true);
       await waitFor(() => expect(pageButton(container, 1, 2)).not.toBeNull());
+      expect(container.textContent).not.toContain("Preview not available");
+    });
+
+    test("a document whose worker went away is opened again", async () => {
+      const first = fakeDoc([LETTER]);
+      const { container } = await opened(first, 1);
+      expect(onLost).toBeDefined();
+
+      opening = async () => fakeDoc([LETTER, LETTER]);
+      await act(async () => {
+        onLost!();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(closed).toEqual([first]);
+      await waitFor(() => expect(pageButton(container, 2, 2)).not.toBeNull());
       expect(container.textContent).not.toContain("Preview not available");
     });
 

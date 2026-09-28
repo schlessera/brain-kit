@@ -7,7 +7,7 @@
 // slices a `Bun.file` body by itself, which would hide a route that ignored
 // the header. The served app pins what a browser actually receives, after
 // every middleware has run.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -68,6 +68,14 @@ describe("the raw file route answers a byte range", () => {
     expect(await bytesOf(response)).toEqual([...BYTES.slice(SIZE - 4)]);
   });
 
+  test("a suffix longer than the file is the whole file", async () => {
+    const response = await inProcess(`bytes=-${SIZE + 500}`);
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes 0-${SIZE - 1}/${SIZE}`);
+    expect((await bytesOf(response)).length).toBe(SIZE);
+  });
+
   test("an end past the file is clamped to the last byte", async () => {
     const response = await inProcess(`bytes=${SIZE - 2}-${SIZE + 5000}`);
 
@@ -113,6 +121,44 @@ describe("the raw file route answers a byte range", () => {
     expect((await bytesOf(suffix)).length).toBe(0);
     expect((await empty("bytes=-0")).status).toBe(416);
     expect((await empty("bytes=0-")).status).toBe(416);
+  });
+
+  test("a file that shrank after it was measured is never promised bytes it did not send", async () => {
+    // Stand in for a file cut short between the size check and the read.
+    const realFile = Bun.file;
+    const file = spyOn(Bun, "file").mockImplementation(((path: string, ...rest: never[]) => {
+      const real = realFile(path, ...rest);
+      if (!path.endsWith("clip.mp4")) return real;
+      return Object.assign(Object.create(real), { slice: () => ({ bytes: async () => BYTES.slice(0, 4) }) });
+    }) as typeof Bun.file);
+    try {
+      const response = await inProcess("bytes=0-99");
+
+      expect(response.status).toBe(206);
+      // The total is no longer known, and the range is the four bytes sent.
+      expect(response.headers.get("content-range")).toBe("bytes 0-3/*");
+      expect(response.headers.get("content-length")).toBe("4");
+      expect(await bytesOf(response)).toEqual([...BYTES.slice(0, 4)]);
+    } finally {
+      file.mockRestore();
+    }
+  });
+
+  test("a file that shrank below the range's start is a 416", async () => {
+    const realFile = Bun.file;
+    const file = spyOn(Bun, "file").mockImplementation(((path: string, ...rest: never[]) => {
+      const real = realFile(path, ...rest);
+      if (!path.endsWith("clip.mp4")) return real;
+      return Object.assign(Object.create(real), { slice: () => ({ bytes: async () => new Uint8Array(0) }) });
+    }) as typeof Bun.file);
+    try {
+      const response = await inProcess("bytes=500-599");
+
+      expect(response.status).toBe(416);
+      expect(await bytesOf(response)).toEqual([]);
+    } finally {
+      file.mockRestore();
+    }
   });
 
   test("a request without Range gets the whole file and learns ranges are accepted", async () => {

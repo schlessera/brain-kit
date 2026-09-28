@@ -41,8 +41,11 @@ export function FileViewerBinary({ content }: { content: FileContentResponse }) 
   if (!Previewer || unsupported === revision) {
     return <PreviewUnavailable content={content} rawUrl={rawUrl} filename={filename} />;
   }
+  // One previewer per revision: a late failure from the file shown before can
+  // only mark that file, never the one that replaced it.
   return (
     <Previewer
+      key={revision}
       content={content}
       rawUrl={rawUrl}
       filename={filename}

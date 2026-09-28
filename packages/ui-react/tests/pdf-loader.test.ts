@@ -56,6 +56,9 @@ function harness(opts: {
   const pdfjs: PdfjsModule = {
     PDFWorker: {
       create({ port }) {
+        // In a browser, pdf.js picks the main thread only if its worker code is
+        // already registered when the wrapper is made.
+        if (!port && mainThreadLoads === 0) throw new Error("main-thread wrapper made before the worker code was registered");
         const wrapper = new FakePdfWorker((port as unknown as FakeWorker | undefined) ?? null);
         wrappers.push(wrapper);
         return wrapper;
@@ -237,6 +240,46 @@ describe("with a pdfWorkerUrl", () => {
     // And the next document goes straight to the main thread.
     await h.loader.open("/b.pdf", "/pdf.worker.js");
     expect(h.ports()).toEqual([h.workers[0]!, null, null]);
+  });
+});
+
+describe("a worker that goes away under open documents", () => {
+  test("tells each document open on it, and goes once nothing is opening there", async () => {
+    const h = harness({ behaviour: "ready" });
+    const lost: string[] = [];
+    await h.loader.open("/a.pdf", "/pdf.worker.js", () => lost.push("a"));
+    await h.loader.open("/b.pdf", "/pdf.worker.js", () => lost.push("b"));
+
+    h.workers[0]!.dispatchEvent(new Event("error"));
+
+    expect(lost).toEqual(["a", "b"]);
+    expect(h.workers[0]!.terminated).toBe(true);
+    await h.loader.open("/a.pdf", "/pdf.worker.js");
+    expect(h.ports()).toEqual([h.workers[0]!, h.workers[0]!, null]);
+  });
+
+  test("does not tell a document that was already closed", async () => {
+    const h = harness({ behaviour: "ready" });
+    const lost: string[] = [];
+    const a = await h.loader.open("/a.pdf", "/pdf.worker.js", () => lost.push("a"));
+    await h.loader.open("/b.pdf", "/pdf.worker.js", () => lost.push("b"));
+    h.loader.close(a);
+
+    h.workers[0]!.dispatchEvent(new Event("error"));
+
+    expect(lost).toEqual(["b"]);
+  });
+
+  test("a retired worker goes even while the retry on the main thread is still opening", async () => {
+    const h = harness({
+      behaviour: "ready",
+      fail: (open) => (open.worker?.port ? MISMATCH : "hang"),
+    });
+    void h.loader.open("/a.pdf", "/old-worker.js");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(h.ports()).toEqual([h.workers[0]!, null]);
+    expect(h.workers[0]!.terminated).toBe(true);
   });
 });
 

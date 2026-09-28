@@ -321,6 +321,8 @@ describe("classifyKind by extension", () => {
   test("README is text", () => expect(classifyKind("README")).toBe("text"));
   test("a PDF is binary even when its bytes are plain ASCII", () =>
     expect(classifyKind("scan.pdf", Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"))).toBe("binary"));
+  test("the extension is matched whatever its case", () =>
+    expect(classifyKind("REPORT.PDF", Buffer.from("%PDF-1.4\n"))).toBe("binary"));
   test("audio and video are binary whatever their bytes", () => {
     for (const name of ["a.mp3", "a.wav", "a.mp4", "a.webm"]) expect(classifyKind(name, Buffer.from("ascii"))).toBe("binary");
   });

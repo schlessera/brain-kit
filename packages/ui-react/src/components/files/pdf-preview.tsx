@@ -28,6 +28,8 @@ import { ViewerLoading } from "./file-viewer-frame.js";
 export function PdfPreview({ content, rawUrl, filename, onUnsupported }: BinaryPreviewProps) {
   const root = useBrainUiRoot();
   const [doc, setDoc] = useState<PdfDocument | null>(null);
+  // Bumped when the worker under the open document goes away, to open it again.
+  const [attempt, setAttempt] = useState(0);
   const unsupported = useRef(onUnsupported);
   unsupported.current = onUnsupported;
 
@@ -35,7 +37,10 @@ export function PdfPreview({ content, rawUrl, filename, onUnsupported }: BinaryP
     let cancelled = false;
     let opened: PdfDocument | null = null;
     setDoc(null);
-    openPdf(rawUrl, root.config.pdfWorkerUrl).then(
+    const reopen = () => {
+      if (!cancelled) setAttempt((n) => n + 1);
+    };
+    openPdf(rawUrl, root.config.pdfWorkerUrl, reopen).then(
       (loaded) => {
         if (cancelled) {
           closePdf(loaded);
@@ -53,7 +58,7 @@ export function PdfPreview({ content, rawUrl, filename, onUnsupported }: BinaryP
       if (opened) closePdf(opened);
     };
     // mtime: a regenerated file keeps its path and URL, and must still redraw.
-  }, [rawUrl, content.mtime, root]);
+  }, [rawUrl, content.mtime, root, attempt]);
 
   const pages = doc?.numPages;
   return (
