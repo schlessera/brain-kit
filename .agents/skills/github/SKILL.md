@@ -313,6 +313,17 @@ any acceptance criterion is not met, name it in "Anything left open" — a
 silently dropped criterion is the failure this whole structure exists to
 prevent.
 
+A PR that changes `docs/integration-contract.md` needs the `contract` label
+when it is opened, as well as the `CONTRACT:` title. The contract gate
+(`scripts/check-contract-pr.ts`) fails without the label, and the commit
+prefix does not count. `--fill` and the MCP `create_pull_request` tool add no
+labels, so add them in the same step. The gate re-runs on `labeled`.
+Give the PR the `type:` and `area:` labels of its issue too:
+
+```sh
+gh pr edit <n> --repo schlessera/brain-kit --add-label contract --add-label "type: feat"
+```
+
 An epic closes when its last sub-issue closes **and** its definition of done is
 met. Those are not the same thing, and the gap between them is usually docs.
 
