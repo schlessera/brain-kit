@@ -45,6 +45,15 @@ export interface BrainUiConfig {
    * not infer it from a bundler's DEV flag.
    */
   devTools: boolean;
+  /**
+   * URL of pdf.js's worker script, `pdfjs-dist/legacy/build/pdf.worker.min.mjs`
+   * from the same pdf.js version this package depends on. The file viewer
+   * parses PDFs in that worker. Empty — the default — or a URL that does not
+   * start a matching worker parses them on the main thread, which still works
+   * but can stall the page on a heavy document. A library cannot name the
+   * URL itself, because only the shell's bundler knows where the asset ends up.
+   */
+  pdfWorkerUrl: string;
 }
 
 const DEFAULT_CONFIG: Readonly<BrainUiConfig> = {
@@ -54,6 +63,7 @@ const DEFAULT_CONFIG: Readonly<BrainUiConfig> = {
   composerPlaceholder: "Ask your brain anything...",
   backendUrl: "",
   devTools: false,
+  pdfWorkerUrl: "",
 };
 
 /** Fresh values for one UI root; never reads or mutates the default instance. */

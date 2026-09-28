@@ -201,6 +201,14 @@ describe("readFileContent", () => {
     expect(r.content).toContain("<h1>");
   });
 
+  test("an uncompressed, all-ASCII PDF is served as binary, not as its source", async () => {
+    await writeFile(join(root, "plain.pdf"), "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+    const r = await readFileContent("plain.pdf", root);
+    expect(r.kind).toBe("binary");
+    expect(r.mime).toBe("application/pdf");
+    expect(r.content).toBeUndefined();
+  });
+
   test("reads plain text", async () => {
     const r = await readFileContent("notes.txt", root);
     expect(r.kind).toBe("text");
@@ -311,6 +319,13 @@ describe("classifyKind by extension", () => {
   test("unknown w/o bytes", () => expect(classifyKind("foo.xyz")).toBe("binary"));
   test("Dockerfile is text", () => expect(classifyKind("Dockerfile")).toBe("text"));
   test("README is text", () => expect(classifyKind("README")).toBe("text"));
+  test("a PDF is binary even when its bytes are plain ASCII", () =>
+    expect(classifyKind("scan.pdf", Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"))).toBe("binary"));
+  test("the extension is matched whatever its case", () =>
+    expect(classifyKind("REPORT.PDF", Buffer.from("%PDF-1.4\n"))).toBe("binary"));
+  test("audio and video are binary whatever their bytes", () => {
+    for (const name of ["a.mp3", "a.wav", "a.mp4", "a.webm"]) expect(classifyKind(name, Buffer.from("ascii"))).toBe("binary");
+  });
 });
 
 describe("buildWikilinkMap", () => {

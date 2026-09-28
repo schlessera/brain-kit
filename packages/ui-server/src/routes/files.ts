@@ -1,5 +1,7 @@
 import type { Logger } from "@opentelemetry/api-logs";
+import { stat } from "node:fs/promises";
 import { Hono } from "hono";
+import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import {
   listDirectory,
   readFileContent,
@@ -27,6 +29,80 @@ function errorResponse(err: unknown, log?: Logger): { body: { error: string; siz
   return { body: { error: "internal_error" }, status: 500 };
 }
 
+/**
+ * The single byte range a `Range` header asks for, "unsatisfiable" when it
+ * starts past the end, or null to serve the whole file. The whole file is
+ * served when the header is missing, malformed, or asks for several ranges,
+ * which RFC 9110 §14.2 lets a server ignore. Media elements rely on this:
+ * iOS Safari opens a video or audio file with `bytes=0-1` and will not play
+ * it unless the reply is a 206.
+ */
+function byteRange(header: string | undefined, size: number): { start: number; end: number } | "unsatisfiable" | null {
+  const match = header ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  if (match[1] === "") {
+    // A suffix range: the last N bytes. Of an empty file that is all of it.
+    const length = Number(match[2]);
+    if (length === 0) return "unsatisfiable";
+    if (size === 0) return null;
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  if (start >= size) return "unsatisfiable";
+  const end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  return end < start ? null : { start, end };
+}
+
+/**
+ * The answer to a `Range` request, or null to serve the whole file.
+ *
+ * The body is read into memory (at most FILE_SIZE_CAP_BYTES) rather than
+ * handed over as a sliced Bun.file. A header set after `next()` makes Hono
+ * rebuild the response around its `body`. On Bun 1.3.14 the body of a sliced
+ * Bun.file then runs past the slice to the end of the file, and a stream body
+ * loses its Content-Length. Bytes keep both.
+ *
+ * A read that comes back short means the file changed after it was measured.
+ * It is measured again and the range answered once more at its new size. A
+ * file still changing after that gets the bytes that were read, with its
+ * total marked unknown (RFC 9110 §14.4).
+ */
+async function rangeResponse(
+  rel: string,
+  abs: string,
+  header: string | undefined,
+  size: number,
+  headers: Record<string, string>
+): Promise<Response | null> {
+  let known = size;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const range = byteRange(header, known);
+    if (range === null) return null;
+    if (range === "unsatisfiable") {
+      return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${known}` } });
+    }
+    const bytes = await Bun.file(abs).slice(range.start, range.end + 1).bytes();
+    const whole = bytes.length === range.end - range.start + 1;
+    if (whole || (attempt === 1 && bytes.length > 0)) {
+      return new Response(bytes, {
+        status: 206,
+        headers: {
+          ...headers,
+          "Content-Range": `bytes ${range.start}-${range.start + bytes.length - 1}/${whole ? known : "*"}`,
+          "Content-Length": String(bytes.length),
+        },
+      });
+    }
+    try {
+      known = (await stat(abs)).size;
+    } catch {
+      throw new NotFoundError(rel);
+    }
+    if (known > FILE_SIZE_CAP_BYTES) throw new TooLargeError(known);
+  }
+  return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${known}` } });
+}
+
 export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
   const { brainRoot, log } = deps;
   let wikilinkBuild: Promise<void> | null = null;
@@ -50,17 +126,24 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
     try {
       if (raw) {
         const { abs, mime, size } = await resolveForRaw(path, brainRoot);
-        const file = Bun.file(abs);
-        return new Response(file, {
+        const headers = {
+          "Content-Type": mime,
+          "Content-Disposition": "inline",
+          "Accept-Ranges": "bytes",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
+          "Cache-Control": "private, max-age=0, must-revalidate",
+        };
+        // Range applies to GET alone (RFC 9110 §14.2). An If-Range can never
+        // match here, because this route sends no validator, and a Range
+        // behind a failed If-Range is ignored (§13.1.5).
+        if (c.req.method === "GET" && c.req.header("If-Range") === undefined) {
+          const partial = await rangeResponse(path, abs, c.req.header("Range"), size, headers);
+          if (partial) return partial;
+        }
+        return new Response(Bun.file(abs), {
           status: 200,
-          headers: {
-            "Content-Type": mime,
-            "Content-Length": String(size),
-            "Content-Disposition": "inline",
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'",
-            "Cache-Control": "private, max-age=0, must-revalidate",
-          },
+          headers: { ...headers, "Content-Length": String(size) },
         });
       }
       const result = await readFileContent(path, brainRoot);
