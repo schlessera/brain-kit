@@ -358,7 +358,8 @@ async function runContext(
   budgets: number[],
   now: Date,
   embeddings: EmbeddingProvider | undefined,
-  warnings: string[]
+  warnings: string[],
+  rerank: RerankSetup
 ): Promise<{ budgets: number[]; rows: ContextRow[]; per_query: ContextOutcome[] }> {
   const searchWarnings = new Set<string>();
   const perQuery: ContextOutcome[] = [];
@@ -368,7 +369,7 @@ async function runContext(
     for (const query of queries) {
       const found: string[] = [];
       const report = emptyAssembleReport();
-      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found, report });
+      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found, report, rerank });
       found.forEach((w) => searchWarnings.add(w));
       outcomes.push({
         budget,
@@ -709,7 +710,13 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
       now: now.toISOString(),
     };
     const context =
-      budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings) : undefined;
+      budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings, {
+          ...setup,
+          warning: undefined,
+          deps: setup.deps.reranker
+            ? { ...setup.deps, rerankTimeoutMs: Math.max(setup.deps.rerankTimeoutMs ?? 0, EVAL_RERANK_TIMEOUT_MS) }
+            : setup.deps,
+        }) : undefined;
     let envelope: Record<string, unknown> = {
       schema_version: EVAL_SCHEMA_VERSION,
       meta,

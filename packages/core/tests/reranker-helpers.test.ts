@@ -90,7 +90,7 @@ describe("assertPermutation", () => {
 
   test("rejects duplicates and strangers", () => {
     expect(() => assertPermutation(input, [{ item: input[0], score: 1 }, { item: input[0], score: 1 }])).toThrow(/duplicate/);
-    expect(() => assertPermutation(input, [{ item: input[0], score: 1 }, { item: candidate({ id: "zzz" }), score: 1 }])).toThrow(/unexpected/);
+    expect(() => assertPermutation(input, [{ item: input[0], score: 1 }, { item: candidate({ id: "zzz" }), score: 1 }])).toThrow(/not one it was given/);
   });
 
   test("identity is source + id, so the same id from two sources is two candidates", () => {
@@ -99,6 +99,11 @@ describe("assertPermutation", () => {
     expect(candidateKey(a)).toBe("brain:x");
     expect(candidateKey(b)).toBe("calendar:x");
     expect(() => assertPermutation([a, b], [{ item: b, score: 1 }, { item: a, score: 0 }])).not.toThrow();
+  });
+
+  test("rejects an equal copy: the caller's objects must come back by reference", () => {
+    const copy = { ...input[0] };
+    expect(() => assertPermutation(input, [{ item: copy, score: 1 }, { item: input[1], score: 0 }])).toThrow(/not one it was given/);
   });
 
   test("rejects non-finite scores", () => {

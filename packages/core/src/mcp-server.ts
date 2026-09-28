@@ -331,6 +331,7 @@ export async function startMcpServer(
       try {
         await ensureVec();
 
+        const searchWarnings: string[] = [];
         const context = await assembleContext(db, brain, {
           query: params.query,
           maxTokens: params.max_tokens,
@@ -338,10 +339,12 @@ export async function startMcpServer(
           includeCurrentFocus: params.include_current_focus,
           embeddings,
           rerank: rerankSetup(brain.config?.reranker),
+          warnings: searchWarnings,
         });
 
         const stale = indexStalenessWarning();
-        const warnings = toolWarnings(stale);
+        // A degraded lane or a reranker that did not run is part of the answer.
+        const warnings = toolWarnings(...searchWarnings, stale);
 
         return {
           content: textContent(context, warnings),

@@ -644,6 +644,17 @@ describe("output mode + exit codes", () => {
     expect(out.warnings.some((w: string) => /rerank "jev" unavailable: TYPESAFE_API_KEY not set/.test(w))).toBe(true);
   });
 
+  test("--rerank-dry-run prints the jev request without a key and sends nothing", async () => {
+    const res = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--rerank-dry-run", "--json"]);
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout);
+    expect(out.warnings.some((w: string) => /rerank dry run \(jev:/.test(w))).toBe(true);
+    const preview = JSON.parse(res.stderr.slice(res.stderr.indexOf("{")));
+    expect(preview.url).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(preview.apiKeyEnv).toBe("TYPESAFE_API_KEY");
+    expect(preview.questions.ranking.type).toBe("choice");
+  });
+
   test("brain eval refuses --rerank jev it cannot run instead of scoring the fallback", async () => {
     const dir = mkdtempSync(join(tmpdir(), "brain-eval-set-"));
     try {

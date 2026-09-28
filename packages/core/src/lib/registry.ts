@@ -199,7 +199,11 @@ export interface RerankerSelection {
  * - A custom Reranker value is used as-is; its key handling is its own.
  * - An unknown requested name throws, for the caller to report as a usage error.
  */
-export function selectReranker(config?: RerankerSettings, requested?: string): RerankerSelection {
+export function selectReranker(
+  config?: RerankerSettings,
+  requested?: string,
+  opts: { preview?: boolean } = {}
+): RerankerSelection {
   if (requested !== undefined && !isRerankMode(requested)) {
     throw new Error(`Unknown rerank mode "${requested}". Expected one of: ${RERANK_MODES.join(", ")}.`);
   }
@@ -218,7 +222,16 @@ export function selectReranker(config?: RerankerSettings, requested?: string): R
     name = provider;
   }
   if (name === "none" || name === "heuristic") return { rerank: name, warning };
-  if (!readEnvVar(rerankerKeyEnv(config))) {
+  if (!RERANKERS[name]) {
+    // Only a configured name can get here (a requested one was validated
+    // above). Search keeps working, and says why it is not reranking.
+    return {
+      rerank: "heuristic",
+      warning: `reranker.provider "${name}" is not one of ${RERANK_MODES.join(", ")}; results are in heuristic order`,
+    };
+  }
+  // A dry run builds the request without sending it, so it needs no key.
+  if (!opts.preview && !readEnvVar(rerankerKeyEnv(config))) {
     return {
       rerank: "heuristic",
       warning: explicit
@@ -253,8 +266,12 @@ export interface RerankSetup {
  * `selectReranker` plus the configured bounds, ready to spread into
  * SearchOptions and SearchDeps. Throws on an unknown requested mode.
  */
-export function rerankSetup(config?: RerankerSettings, requested?: string): RerankSetup {
-  const selection = selectReranker(config, requested);
+export function rerankSetup(
+  config?: RerankerSettings,
+  requested?: string,
+  opts: { preview?: boolean } = {}
+): RerankSetup {
+  const selection = selectReranker(config, requested, opts);
   return {
     rerank: selection.rerank,
     warning: selection.warning,

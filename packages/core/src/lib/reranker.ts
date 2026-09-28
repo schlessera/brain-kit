@@ -227,17 +227,21 @@ export function assertPermutation<C extends RerankCandidate>(
   if (output.length !== input.length) {
     throw new Error(`reranker returned ${output.length} of ${input.length} candidates`);
   }
-  const expected = new Set(input.map(candidateKey));
-  const seen = new Set<string>();
+  const given = new Set<RerankCandidate>(input);
+  const seen = new Set<RerankCandidate>();
   for (const { item, score } of output) {
-    const key = candidateKey(item);
-    if (!expected.has(key) || seen.has(key)) {
-      throw new Error(`reranker returned an unexpected or duplicate candidate: ${key}`);
+    const key = item && typeof item === "object" ? candidateKey(item) : String(item);
+    // By reference: a copy would lose whatever the caller attached to it.
+    if (!given.has(item)) {
+      throw new Error(`reranker returned a candidate that is not one it was given (a copy?): ${key}`);
+    }
+    if (seen.has(item)) {
+      throw new Error(`reranker returned a duplicate candidate: ${key}`);
     }
     if (typeof score !== "number" || !Number.isFinite(score)) {
       throw new Error(`reranker returned a non-finite score for ${key}`);
     }
-    seen.add(key);
+    seen.add(item);
   }
 }
 

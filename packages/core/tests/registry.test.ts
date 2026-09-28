@@ -211,6 +211,19 @@ describe("rerankers", () => {
     expect(keyless(() => rerankSetup(full)).deps).toEqual({});
   });
 
+  test("a misspelled configured provider keeps search working and says why", () => {
+    const s = keyed(() => selectReranker({ provider: "jve", apiKeyEnv: KEY_ENV }));
+    expect(s.rerank).toBe("heuristic");
+    expect(s.warning).toMatch(/reranker.provider "jve" is not one of none, heuristic, jev/);
+  });
+
+  test("a dry run resolves jev without its key, since nothing is sent", () => {
+    const s = keyless(() => selectReranker(cfg, "jev", { preview: true }));
+    expect(s.rerank).toBe("jev");
+    expect(s.reranker!.id).toMatch(/^jev:/);
+    expect(s.warning).toBeUndefined();
+  });
+
   test("rerankerKeyEnv honours apiKeyEnv and defaults to TYPESAFE_API_KEY", () => {
     expect(rerankerKeyEnv(undefined)).toBe("TYPESAFE_API_KEY");
     expect(rerankerKeyEnv({ provider: "jev", apiKeyEnv: "X" })).toBe("X");

@@ -54,7 +54,9 @@ export const searchCommand: CoreCommand = {
 
     let setup;
     try {
-      setup = rerankSetup(cli.brain.config?.reranker, typeof flags.rerank === "string" ? flags.rerank : undefined);
+      setup = rerankSetup(cli.brain.config?.reranker, typeof flags.rerank === "string" ? flags.rerank : undefined, {
+        preview: flags["rerank-dry-run"] === true,
+      });
     } catch (e) {
       throw new UsageError((e as Error).message);
     }
