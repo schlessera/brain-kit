@@ -288,6 +288,16 @@ export class WsHost {
     return this.classifier ? this.classifier.attach(sessionId, messages) : messages;
   }
 
+  /**
+   * Replayed history as the host sends it: each user message's recorded
+   * source joined on, with or without a classifier, then its classified
+   * blocks.
+   */
+  prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+    const withSources = this.catalog.attachMessageSources?.(sessionId, messages) ?? messages;
+    return this.attachMessageBlocks(sessionId, withSources);
+  }
+
   /** A turn's backend call resolved: counted, and logged with its duration. */
   reportTurnCompleted(turn: TurnLogContext, durationMs: number): void {
     this.turnsCompleted.add(1);

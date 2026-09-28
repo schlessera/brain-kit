@@ -19,7 +19,13 @@ export function makeBridge(
   turn: RunningTurn,
   promptText: string,
   backendId: string,
-  recorder?: TurnRecorder
+  recorder?: TurnRecorder,
+  /**
+   * Called once, with the first session id `session_info` names. A new
+   * conversation has no id until then, so anything keyed by the session
+   * that must be written for this turn's prompt waits for it here.
+   */
+  onSessionNamed?: (sessionId: string) => void
 ): BackendBridge {
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -27,6 +33,7 @@ export function makeBridge(
   // through this bridge after its startTurn resolved. Stamping from the live
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
+  let pendingSessionNamed = onSessionNamed;
   const queryActivity = host.activity?.query;
   // The assistant text, kept as the client numbers its parts, for the
   // classification pass that runs after the result (D42). Cheap when no
@@ -53,6 +60,11 @@ export function makeBridge(
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        if (pendingSessionNamed) {
+          const named = pendingSessionNamed;
+          pendingSessionNamed = undefined;
+          named(msg.sessionId);
+        }
       }
       // Persist-then-emit: the span write commits before the frame goes out,
       // so a subscriber's snapshot can never be behind what it just saw live.

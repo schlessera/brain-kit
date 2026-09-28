@@ -186,7 +186,7 @@ export function ChatPage() {
       if (!(sessionId === null ? chat.draft : chat.buffers[sessionId])?.isStreaming) {
         chat.startAssistantMessage(sessionId);
       }
-      send({ type: "chat_message", text, sessionId: sessionId ?? undefined });
+      send({ type: "chat_message", text, sessionId: sessionId ?? undefined, source: "typed" });
     },
     [send, sessionId, root]
   );
