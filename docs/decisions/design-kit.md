@@ -4035,7 +4035,7 @@ found, and what the ruling did not say:
   (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
   there is no `host` prop and no `host` field. The payload
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
-  mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:249-308`)
+  mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
   (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and ui-kit now
   builds and publishes ahead of ui-sdk. The kit's own row is unchanged. It
@@ -4046,7 +4046,7 @@ found, and what the ruling did not say:
   with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
   three sets, so a Japanese brand name with Latin letters in it is not
   refused. The implementation follows the standard
-  (`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:212-216`). Latin with any
+  (`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:215-219`). Latin with any
   other script (Cyrillic, Greek, …) is still refused.
 - **How "nothing is fetched" is proved, and its measured blind spot.** The
   browser test reads every request from Playwright on the Node side
@@ -4072,7 +4072,7 @@ issue, so this entry fixes the behaviour and not the look.
 
 **Question.** D48 puts every model-authored link card behind `classifyLink`.
 A markdown link in the answer's prose gets none of it. The `a` override
-(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:154-169`)
+(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:170-181`)
 draws every link that is not a repo path as a bare
 `<a target="_blank" rel="noopener noreferrer">`. The only filter is
 react-markdown's default `urlTransform`, which strips `javascript:` and
@@ -4129,6 +4129,58 @@ in the place it is easiest to produce.
 `render-template` (D46), not through this override, so it keeps
 hidden-destination links until #558 is ruled. "Copy as rich text" copies the
 rendered DOM, so it inherits this treatment.
+
+**Built 2026-09-28 (#551).** The presentation is the design comment on
+#551, approved there, and the build held to it and to the ruling above. What
+it found, and what neither said:
+
+- **Where each part landed.** Every non-repo anchor the override draws is a
+  `ProseLink` (`ProseLink`, `packages/ui-react/src/components/chat/prose-link.tsx:27-57`),
+  which makes the one `classifyLink` or `classifyMailto` call its `href` and
+  its host both come from. The mail check sits beside `classifyLink`
+  (`classifyMailto`, `packages/ui-kit/src/links.ts:371-405`), and the
+  streaming hold is a pure function applied to the answer's last text part
+  while it streams (`holdOpenLink`, `packages/ui-react/src/lib/stream-link-hold.ts:104-112`).
+- **The override never saw what the author sent.** mdast-util-to-hast
+  percent-encodes a link's URL before react-markdown's `urlTransform` blanks
+  any scheme it dislikes. A U+202E in a path arrived as `%E2%80%AE`, which
+  `classifyLink` accepts, and `javascript:` arrived as `""`, which reads as
+  relative. A remark plugin now carries the address as written beside the
+  `href` (`remarkRawHref`, `packages/ui-react/src/components/chat/prose-link.tsx:156-178`),
+  and a reference link takes its definition's. Deleting the plugin from the
+  list turns the refused-link tests red.
+- **Chrome breaks a host at a `-`.** A `<wbr>` after each "." adds break
+  opportunities but removes none, and real Chrome at 288px broke
+  `harbour-master` at its hyphen. Each label is an inline block, as the
+  card's host is (`.bk-plink-label`, `packages/ui-react/src/theme.css:327-331`),
+  with "(" in the first label and ")" in the last. Only a label wider than
+  the line wraps within itself.
+- **A mail address's local part is ASCII `dot-atom`.** The design gave the
+  domain the web host's rules and said nothing of the local part beyond
+  hidden characters. A non-ASCII local part is refused as `unparseable`,
+  because there is no ASCII form to show for it. The domain goes through
+  `classifyLink` itself, as the host of an `https:` address.
+- **A withheld link's text inherits its ink** rather than taking
+  `--bk-color-ink`, so inside an amber `h2` or a dim `em` it still reads as
+  the words around it. In a paragraph the two are the same colour, which the
+  Chrome test asserts.
+- **Link text is never linkified, accepted or withheld.** The text passes
+  that turn repo paths and wikilinks into links stand down inside any prose
+  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:47-57`),
+  because an anchor inside an anchor is not HTML either. The same wrapper
+  had been writing react-markdown's `node` object into the DOM as
+  `node="[object Object]"`, and no longer does.
+- **Three edges the design did not list.** A markdown link title is dropped:
+  it was the author's words in a hover-only tooltip. The streaming hold also
+  holds a closed `[text]` that ends the buffer, since `(` may be the next
+  token, and an image's `!` goes with its `[`. The `bk-sr` class the design
+  names did not exist, and is defined beside the link rules.
+- **How "nothing is fetched" is proved.** In real Chrome, Puppeteer's
+  `request` event and the browser's `targetcreated` event see nothing while
+  the fixture renders, every link is hovered and every withheld link is
+  clicked. Clicking an accepted link then opens a tab to its destination,
+  which the same listeners see, so the harness is shown able to observe what
+  the first half says never happens.
 
 ## 2026-09-28 — the `map` block: the model names places, the surface draws them (#44)
 
@@ -4213,7 +4265,7 @@ does a replayed session show?
 
 **Targets.** A one-line chip paints about 29px. Its target reaches 8px past
 the paint on every side (`.answer-chip::before`,
-`packages/ui-react/src/theme.css:557-561`), and the chips sit 16px apart on
+`packages/ui-react/src/theme.css:615-619`), and the chips sit 16px apart on
 both axes, which is D34's half-the-gap limit. The hairline is an inset shadow,
 not a border, so the reach is measured from the paint.
 `tests/answer-suggestions-targets.test.tsx` lays the row out in real Chrome

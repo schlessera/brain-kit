@@ -290,6 +290,64 @@
   color: color-mix(in srgb, var(--bk-color-amber) 80%, transparent);
 }
 
+/* Prose links (#551, D49). The author's words are the link and carry the
+ * underline; the host Brain derived sits after them inside the anchor, in
+ * mono ink-mute with no underline, so text and destination differ by family,
+ * decoration and delimiters, not by colour alone. The underline moves from
+ * the anchor to `.bk-plink-text` because a child cannot switch off a
+ * decoration its inline parent draws. Nothing here hides the host on any
+ * state: it is painted at rest and never ellipsised. `a.bk-plink` matches
+ * `.brain-prose a` in specificity and comes after it. */
+a.bk-plink {
+  text-decoration: none;
+}
+a.bk-plink .bk-plink-text {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--bk-color-amber) 30%, transparent);
+  text-underline-offset: 2px;
+}
+a.bk-plink:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.bk-plink-host,
+.bk-plink-withheld {
+  color: var(--bk-color-ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 500;
+  font-variant-ligatures: none;
+  text-decoration: none;
+}
+/* One label per inline block, with a `<wbr>` after each ".": the line breaks
+ * between labels, never at a "-" inside one. A label wider than the line is
+ * the one case that wraps within itself, anywhere, rather than overflow. */
+.bk-plink-label {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+/* A withheld link reads as the sentence around it: not a link, not broken. */
+.bk-plink-refused-text {
+  color: inherit;
+  text-decoration: none;
+  cursor: text;
+}
+/* Visually hidden, still read: clipped, never `display: none`. */
+.bk-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Lists */
 .brain-prose ul {
   list-style-type: disc;
