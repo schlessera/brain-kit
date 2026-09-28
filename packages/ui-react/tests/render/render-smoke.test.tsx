@@ -3688,10 +3688,10 @@ describe("MobileTabBar on the kit TabBar", () => {
     expect(view.queryByRole("dialog")).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     const sheet = view.getByRole("dialog", { name: "More" });
-    // Settings, then the acts. Disconnected, so the three that need the host
+    // Settings, then the acts. Disconnected, so the two that need the host
     // are rows without a handler — listed with the reason, never omitted.
     const rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent?.split("Resume")[0]?.split("needs")[0]);
-    expect(rows).toEqual(["Settings", "Sessions"]);
+    expect(rows).toEqual(["Settings", "Sessions", "Brain statisticsDocuments and software versions"]);
     expect(sheet.textContent).toContain("Sync the brain");
     expect(sheet.textContent).toContain("needs the host");
     // While the sheet is open, More is the amber slot.

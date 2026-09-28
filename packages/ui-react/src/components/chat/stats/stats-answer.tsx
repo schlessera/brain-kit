@@ -29,6 +29,22 @@ export function StatsAnswer({ sections }: { sections: StatsSection[] }) {
 
 function draw(section: StatsSection, wide: boolean): ReactNode {
   switch (section.kind) {
+    case "software": {
+      const { client, server, state, detail, tone } = section.details;
+      return (
+        <section aria-label="Software versions" style={{ minWidth: 0, userSelect: "text" }}>
+          <Receipt title="Software" titleIcon="health" titleTone={tone} keyWidth={RECEIPT_KEY_WIDTH}
+            rows={[
+              { k: "Client release", v: client.release ?? "Unknown" },
+              { k: "Client build", v: client.sourceCommit ?? "Unknown" },
+              { k: "Server release", v: server.release ?? "Unknown" },
+              { k: "Server build", v: server.sourceCommit ?? "Unknown" },
+            ]}
+            footnote={`${state}. ${detail}`} footIcon="scope" footTone={tone}
+          />
+        </section>
+      );
+    }
     case "callout":
       return (
         <Callout tone={section.tone} variant={section.variant}>

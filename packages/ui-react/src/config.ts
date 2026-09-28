@@ -54,6 +54,8 @@ export interface BrainUiConfig {
    * URL itself, because only the shell's bundler knows where the asset ends up.
    */
   pdfWorkerUrl: string;
+  /** Application revision baked into the loaded bundle by the shell. Never fetched from the server. */
+  sourceCommit: string;
 }
 
 const DEFAULT_CONFIG: Readonly<BrainUiConfig> = {
@@ -64,6 +66,7 @@ const DEFAULT_CONFIG: Readonly<BrainUiConfig> = {
   backendUrl: "",
   devTools: false,
   pdfWorkerUrl: "",
+  sourceCommit: "",
 };
 
 /** Fresh values for one UI root; never reads or mutates the default instance. */

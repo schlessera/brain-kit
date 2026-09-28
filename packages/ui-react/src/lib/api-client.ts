@@ -273,6 +273,9 @@ export function createBrainApi(
 
     status: () =>
       fetchJson<{
+        /** Optional for servers predating software identity reporting. */
+        software?: { release: string; sourceCommit: string };
+        version?: string;
         healthy: boolean;
         uptime: number;
         cronJobs: Array<{
@@ -281,7 +284,7 @@ export function createBrainApi(
           lastStatus: string | null;
         }>;
         activeSession: boolean;
-      }>("/status"),
+      }>("/status", { cache: "no-store" }),
 
     brainSearch: (
       q: string,

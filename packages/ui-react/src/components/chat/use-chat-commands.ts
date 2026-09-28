@@ -1,3 +1,4 @@
+import { CLIENT_RELEASE, softwareDetails, type SoftwareInput } from "./stats/software.js";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback } from "react";
@@ -32,6 +33,10 @@ export function useChatCommands(): (command: string) => void {
     const chat = root.stores.chat.getState();
     const sessionId = chat.activeSessionId;
     const buffer = sessionId ? chat.buffers[sessionId] : chat.draft;
+    if (command === "stats" && !buffer?.isStreaming) {
+      void runStats(root, sessionId);
+      return;
+    }
     const disabled =
       root.stores.connection.getState().wsStatus !== "connected" ||
       Boolean(buffer?.isStreaming);
@@ -44,34 +49,40 @@ export function useChatCommands(): (command: string) => void {
       case "whatsup":
         ui.setWhatsupPanelOpen(true);
         break;
-      case "stats":
-        void runStats(root, sessionId);
-        break;
     }
   }, [root]);
 }
 
 /**
  * Brain statistics, answered into the transcript from the kit (#97). Both
- * channels are asked at once and either may fail alone: the corpus from
- * `brain stats`, the runtime from the server's own database. Only when both
- * fail does the answer fall back to one error line.
+ * channels and software status are asked at once and may fail alone: the corpus from
+ * `brain stats`, the runtime from the server's own database. Local software
+ * identity remains visible even when the server cannot be reached.
  */
 export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {
   const chat = root.stores.chat.getState();
   chat.addUserMessage(sessionId, "Stats");
   chat.startAssistantMessage(sessionId);
+  const client = { release: CLIENT_RELEASE, sourceCommit: root.config.sourceCommit };
+  // Local identity is useful even while every network request is still pending.
+  chat.setStatsAnswer(sessionId, [{ kind: "software", details: { ...softwareDetails({
+    client, server: { ok: false, error: "checking server" },
+  }), state: "Checking server", detail: "The client identity below belongs to this loaded bundle." } }]);
   try {
-    const [corpus, runtime] = await Promise.all([
+    const [corpus, runtime, status] = await Promise.all([
       settle(root.api.brainStats(), (v) => typeof v.health === "object" && v.health !== null),
       settle(root.api.activityStats(), (v) => typeof v.window === "object" && v.window !== null),
+      settle(root.api.status(), () => true),
     ]);
-    const store = root.stores.chat.getState();
-    if (!corpus.ok && !runtime.ok) {
-      store.appendText(sessionId, `**Error:** ${corpus.error}`);
-    } else {
-      store.setStatsAnswer(sessionId, composeStatsAnswer({ corpus, runtime }));
-    }
+    const server: SoftwareInput["server"] = status.ok ? {
+      ok: true, value: {
+        release: status.value.software?.release ?? null,
+        sourceCommit: status.value.software?.sourceCommit ?? status.value.version ?? null,
+      },
+    } : status;
+    root.stores.chat.getState().setStatsAnswer(sessionId, composeStatsAnswer({
+      corpus, runtime, software: { client, server },
+    }));
   } catch (err) {
     // A figure the composer could not read: say so rather than leave a
     // finished message with nothing in it.

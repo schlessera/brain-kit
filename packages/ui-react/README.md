@@ -238,3 +238,24 @@ The Add panel shows the saved path and whether indexing completed. If indexing
 failed, it keeps the saved confirmation visible and offers **Retry indexing**.
 That action updates the index without creating or appending the note again.
 Older servers that omit the indexing outcome are shown as unconfirmed.
+
+## Software identity in stats
+
+`/stats` includes a Software receipt. Client release is read from the
+`brain-ui-react` package bundled into the page; server release comes from the
+running `brain-ui-server` package via authenticated `/api/status`. Neither is
+looked up in the registry. They describe these two packages, not an inventory
+of every installed module.
+
+The shell may pass `sourceCommit` to `configureBrainUi` or the root's `config`.
+Bake this application revision into the client bundle at build time; never
+fetch it from the server. Use the same application revision as the server's
+`SOURCE_COMMIT` when both are built from the same application checkout. Package
+versions and application revisions identify different things. Without a build
+revision (or with `dev`), the receipt says the build match is unverified even
+when package releases match. A difference is diagnostic, not a claim of
+protocol incompatibility.
+
+The stats shortcuts work without a WebSocket connection when no turn is
+streaming. Local identity appears immediately; failed server requests leave
+it visible. Full revision strings wrap and can be selected for a report.

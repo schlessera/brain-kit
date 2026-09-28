@@ -308,3 +308,12 @@ New-conversation frames retain the client's `draftId` for reply correlation.
 
 Wikilink scans visit each canonical directory once, including when directories
 have symlink aliases or cycles. Concurrent refresh requests share a rebuild.
+
+## Software status
+
+Authenticated `GET /api/status` includes `software: { release, sourceCommit }`.
+`release` is the running `brain-ui-server` package version; `sourceCommit` is
+its configured application `SOURCE_COMMIT` (or `dev` when unset). The existing
+`version` field retains its source-commit meaning. This metadata is diagnostic,
+not proof of protocol compatibility or a check against the latest npm release.
+Public `/api/health` deliberately exposes neither release nor commit.
