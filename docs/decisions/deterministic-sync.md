@@ -92,8 +92,9 @@ back.
 6. **The agent keeps three things.** A `code-merge` conflict, which needs
    written code; an `UNKNOWN` file the judge did not decide; and a
    `MEDIA`/`LARGE` file, which a person must approve because git keeps it
-   forever. `run` reports `needs-judgment` for an unresolved conflict and
-   leaves the merge in progress with nothing pushed; unknown and media files
+   forever. `run` reports `needs-judgment` for an unresolved conflict, which it
+   leaves in progress with nothing pushed, and for a file holding conflict
+   markers, which it leaves uncommitted; unknown and media files
    are listed as leftovers of a `complete` sync, never committed. `run`
    exits `0` complete, `1` failed and `3` needs-judgment. `3`, not `2`,
    because the CLI's contract reserves `2` for an internal failure, and a

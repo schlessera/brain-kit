@@ -45,11 +45,14 @@ judge, timings, report }`. Use the JSON form: bare `brain sync` prints only the 
 
 - `status: "complete"` (exit 0) — pushed and reindexed. If `leftovers.unknown` and
   `leftovers.media` are both empty, print `report` and stop. Otherwise go to Step 3.
-- `status: "needs-judgment"` (exit 3) — a conflict no rule could merge. The merge is still in
-  progress and nothing was pushed. Go to Step 2.
+- `status: "needs-judgment"` (exit 3) — something only you can settle, listed in
+  `leftovers.unresolved`: a conflict no rule could merge (the merge is still in progress and
+  nothing was pushed), or a file holding conflict markers (left uncommitted; the rest may have
+  been pushed, but never a commit that carries markers or an unmerged path). Go to Step 2.
 - `status: "failed"` (exit 1) — a fetch failed, git would not merge (including a merge someone
   started by hand, which `run` never concludes), a commit or the `.gitignore` commit failed,
-  post-sync failed or left the heads diverged, or the push was rejected three times; `reason`
+  post-sync failed or left the heads diverged or uncommitted dirt no leftover lists, a step threw,
+  or the push was rejected three times; `reason`
   says which. Print `report`, run `git status` to show what blocks it, and stop. Do not retry,
   and do not commit, stash, abort or discard anything for the user.
 
