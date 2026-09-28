@@ -130,6 +130,13 @@ export interface ClientChatMessage {
    * a phone rotates, a PWA gets installed, a laptop is plugged into a monitor.
    */
   client?: ClientEnvironment;
+  /**
+   * How the user produced this message (additive). The host keeps it beside
+   * the session and returns it on the replayed message, so a dictated
+   * message still reads as dictated after a reload or on another device.
+   * Absent means `typed`, which is what every older client meant.
+   */
+  source?: MessageSource;
 }
 
 /**
@@ -332,6 +339,13 @@ export interface SessionHistoryMessage {
    * history renders as the live turn did without a second pass.
    */
   blocks?: MessageBlock[];
+  /**
+   * How a `user` message was produced, as its client reported it on
+   * `chat_message` (additive). Absent means `typed`: the message was typed,
+   * was sent by a client that did not say, or was replayed by its backend
+   * as text the host cannot match to what was sent.
+   */
+  source?: MessageSource;
 }
 
 /**
