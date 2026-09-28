@@ -12,6 +12,7 @@ import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
 import { isAskUserTool, isShowBlockTool } from "../../lib/tool-names.js";
+import { StatsAnswer } from "./stats/stats-answer.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 import { motion } from "framer-motion";
@@ -259,6 +260,7 @@ function AssistantContent({
 
   return (
     <div className="space-y-3">
+      {message.statsAnswer ? <StatsAnswer sections={message.statsAnswer} /> : null}
       {groups.map((group, i) => {
         switch (group.kind) {
           case "thinking":

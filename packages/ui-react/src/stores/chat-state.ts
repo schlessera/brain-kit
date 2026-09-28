@@ -7,6 +7,7 @@ import type {
   AskUserAnnotation,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
+import type { StatsSection } from "../components/chat/stats/compose-stats.js";
 import type { ProviderState } from "./provider-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
@@ -45,6 +46,12 @@ export interface ChatMessage {
   blocks?: MessageBlock[];
   /** The host-minted turn that produced this assistant message, when known. */
   turnId?: string;
+  /**
+   * The /stats answer (#97), drawn from the kit in place of text. Local to
+   * this client: the command answers from REST, not from a turn, so the
+   * server never sees it and history never replays it.
+   */
+  statsAnswer?: StatsSection[];
 }
 
 export interface MessageAttachment {
@@ -189,6 +196,8 @@ export interface ChatState {
   startAssistantMessage: (key: ChatKey, turnId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;
   appendThinking: (key: ChatKey, text: string) => void;
+  /** Attach the /stats answer to the assistant message being written. */
+  setStatsAnswer: (key: ChatKey, sections: StatsSection[]) => void;
   startToolCall: (key: ChatKey, toolUseId: string, toolName: string) => void;
   appendToolInput: (key: ChatKey, partialJson: string) => void;
   completeToolCall: (
@@ -504,6 +513,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           content: last.content + text,
           parts: appendPart(last.parts, "text", text),
         })),
+
+      setStatsAnswer: (key, sections) =>
+        mutateLastAssistant(key, (last) => ({ ...last, statsAnswer: sections })),
 
       appendThinking: (key, text) =>
         mutateLastAssistant(key, (last) => ({
