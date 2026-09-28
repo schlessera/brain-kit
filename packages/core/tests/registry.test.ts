@@ -217,6 +217,15 @@ describe("rerankers", () => {
     expect(s.warning).toMatch(/reranker.provider "jve" is not one of none, heuristic, jev/);
   });
 
+  test("an inherited property name is not a built-in", () => {
+    for (const provider of ["toString", "constructor", "__proto__"]) {
+      const s = keyed(() => selectReranker({ provider, apiKeyEnv: KEY_ENV }));
+      expect(s.rerank).toBe("heuristic");
+      expect(s.warning).toMatch(/is not one of/);
+      expect(() => resolveReranker({ provider })).toThrow(/Unknown reranker/);
+    }
+  });
+
   test("a dry run resolves jev without its key, since nothing is sent", () => {
     const s = keyless(() => selectReranker(cfg, "jev", { preview: true }));
     expect(s.rerank).toBe("jev");

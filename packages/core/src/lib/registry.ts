@@ -166,7 +166,7 @@ export function resolveReranker(config?: RerankerSettings): Reranker | undefined
   const provider = config?.provider ?? "jev";
   if (typeof provider !== "string") return provider; // custom value, used as-is
   if (provider === "heuristic" || provider === "none") return undefined;
-  const factory = RERANKERS[provider];
+  const factory = Object.hasOwn(RERANKERS, provider) ? RERANKERS[provider] : undefined;
   if (!factory) {
     throw new Error(
       `Unknown reranker "${provider}". Available: ${RERANK_MODES.join(", ")}. Pass a custom Reranker instead.`
@@ -222,7 +222,7 @@ export function selectReranker(
     name = provider;
   }
   if (name === "none" || name === "heuristic") return { rerank: name, warning };
-  if (!RERANKERS[name]) {
+  if (!Object.hasOwn(RERANKERS, name)) {
     // Only a configured name can get here (a requested one was validated
     // above). Search keeps working, and says why it is not reranking.
     return {
