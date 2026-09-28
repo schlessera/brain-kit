@@ -99,7 +99,17 @@ describe("show_block", () => {
     // reported as "the brief is too long". The test failed either way, but it
     // named the wrong cause. Cheapest fix is the ordering: the semantic
     // assertion reports before the two that measure size.
-    for (const kind of BLOCK_KINDS) expect(brief).toContain(`\`${kind}\``);
+    //
+    // `suggestions` is the one kind the brief does not name, by ruling (#40,
+    // D50): the brief sits at this ceiling, and under D44 it measured no
+    // effect on the call rate, so its rule rides in the always-loaded
+    // description instead. #550 measures whether that holds. Any OTHER kind
+    // the brief stops naming still fails here.
+    const BRIEF_EXEMPT: readonly string[] = ["suggestions"];
+    for (const kind of BLOCK_KINDS) {
+      if (BRIEF_EXEMPT.includes(kind)) expect(brief).not.toContain(`\`${kind}\``);
+      else expect(brief).toContain(`\`${kind}\``);
+    }
     expect(brief.split("\n").length).toBeLessThanOrEqual(11);
     // Lines alone do not bound it — eleven long ones cost more than twelve
     // short ones, and tokens are what ride the turn. 749 characters is what
@@ -118,7 +128,35 @@ describe("show_block", () => {
     expect(description).toContain("a toned value fits one phone line at 25 characters");
   });
 
-  test("the twelve kinds, in brief order", () => {
+  test("suggestions: one or two one-line follow-ups, never a third, never a tone", () => {
+    const parse = (block: unknown) =>
+      parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block }));
+    const one = { label: "Who was on watch then?" };
+    expect(parse({ kind: "suggestions", items: [one] })).toEqual({
+      block: { kind: "suggestions", items: [one] },
+    });
+    expect(
+      parse({ kind: "suggestions", label: "Ask next", items: [one, { label: "What did Circe say?", icon: "ask" }] })
+    ).not.toBeNull();
+    // Trimmed before the bounds apply, so padding cannot smuggle a short one in.
+    expect(parse({ kind: "suggestions", items: [{ label: "  Hi?  " }] })).toBeNull();
+    expect(parse({ kind: "suggestions", items: [{ label: "  Why not?  " }] })).toEqual({
+      block: { kind: "suggestions", items: [{ label: "Why not?" }] },
+    });
+    expect(parse({ kind: "suggestions", items: [] })).toBeNull();
+    expect(parse({ kind: "suggestions", items: [one, one, one] })).toBeNull();
+    expect(parse({ kind: "suggestions", items: [{ label: "x".repeat(81) }] })).toBeNull();
+    expect(parse({ kind: "suggestions", items: [{ label: "x".repeat(80) }] })).not.toBeNull();
+    expect(parse({ kind: "suggestions", items: [{ label: "line one\nline two" }] })).toBeNull();
+    expect(parse({ kind: "suggestions", label: "", items: [one] })).toBeNull();
+    // A tone is not part of the shape: the strict tree strips it, so no chip
+    // is ever drawn amber.
+    expect(parse({ kind: "suggestions", items: [{ ...one, tone: "amber" }] })).toEqual({
+      block: { kind: "suggestions", items: [one] },
+    });
+  });
+
+  test("the thirteen kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -132,6 +170,7 @@ describe("show_block", () => {
       "quote",
       "contact",
       "map",
+      "suggestions",
     ]);
   });
 

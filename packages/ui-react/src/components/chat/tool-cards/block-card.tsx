@@ -81,6 +81,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `contact · ${block.label}`;
     case "map":
       return `map · ${block.title ?? count(block.places.length, "place")}`;
+    case "suggestions":
+      return `suggestions · ${block.items.length}`;
   }
 }
 
@@ -143,6 +145,10 @@ function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
     }
     case "map":
       return <MapBlockCard block={block} isStatic={isStatic} />;
+    case "suggestions":
+      // Never drawn in the answer: the closing row takes the turn's last
+      // valid call (D50), and a share or a print leaves them out.
+      return null;
   }
 }
 

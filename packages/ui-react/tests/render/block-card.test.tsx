@@ -36,7 +36,7 @@ afterAll(() => {
   unregisterBlockCardDom();
 });
 
-import { BLOCKS } from "../block-fixtures.js";
+import { BLOCKS, SUGGESTIONS, type AnswerBlockKind } from "../block-fixtures.js";
 
 /**
  * Every request the rendered blocks make, answered here and nowhere else.
@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 /** Text each variant must put on the page, from the payload's own words. */
-const EXPECTED_TEXT: Record<Block["kind"], string[]> = {
+const EXPECTED_TEXT: Record<AnswerBlockKind, string[]> = {
   comparison: ["Ithaca", "Days at sea", "Home costs a longer crossing."],
   stats: ["Ships", "600"],
   trend: ["Ships remaining", "−11", "Thrinacia"],
@@ -94,7 +94,7 @@ const EXPECTED_TEXT: Record<Block["kind"], string[]> = {
 };
 
 describe("BlockCard", () => {
-  for (const kind of Object.keys(BLOCKS) as Block["kind"][]) {
+  for (const kind of Object.keys(BLOCKS) as AnswerBlockKind[]) {
     test(`${kind}: the contract accepts the payload and the kit draws its words`, () => {
       const payload = parseToolPayload(
         SHOW_BLOCK_CONTRACT,
@@ -162,6 +162,12 @@ describe("BlockCard", () => {
     expect(blockSummary({ block: BLOCKS.contact })).toBe("contact · Eumaeus");
     expect(blockSummary({ block: BLOCKS.map })).toBe("map · Where the crew went ashore");
     expect(blockSummary({ block: { kind: "map", places: [{ label: "Vathy" }] } })).toBe("map · 1 place");
+    expect(blockSummary({ block: SUGGESTIONS })).toBe("suggestions · 2");
+  });
+
+  test("suggestions draw nothing where they are called: the closing row takes them (D50)", () => {
+    const { container } = render(<BlockCard block={SUGGESTIONS} />);
+    expect(container.querySelector('[data-block="suggestions"]')?.textContent).toBe("");
   });
 });
 

@@ -11,7 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
-| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D49, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show. |
+| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D50, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |
 | [container-privilege.md](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (in brain-hosting-template) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. Moved to the hosting template, which builds the container (#303). |
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |

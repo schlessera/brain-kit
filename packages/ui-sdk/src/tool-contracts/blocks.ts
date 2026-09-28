@@ -369,6 +369,56 @@ export const MAP_BLOCK_SCHEMA = z.object({
 
 export type MapPlace = z.infer<typeof MAP_PLACE_SCHEMA>;
 
+// ---------------------------------------------------------------------------
+// The one block that is not part of the answer
+// ---------------------------------------------------------------------------
+
+/** The longest follow-up a chip holds: two lines at 320px, never ellipsised. */
+export const SUGGESTION_MAX_LENGTH = 80;
+
+/** The shortest one worth offering. */
+export const SUGGESTION_MIN_LENGTH = 4;
+
+/** At most two: past that it is a menu of the model's ideas. */
+export const SUGGESTIONS_MAX_ITEMS = 2;
+
+/**
+ * Follow-ups the model offers after its own answer (#40). The data projection
+ * of the kit's `SuggestionChips` minus `onClick` (a callback) and `tone` (a
+ * suggestion never carries an effect, so it is never amber), asserted in both
+ * directions by `packages/ui-react/tests/block-contract.test-d.ts`.
+ *
+ * Unlike every other kind it is not drawn where it is called: the client
+ * lifts the turn's last valid call to the answer's closing row (D50), and a
+ * chip fills the composer; it never sends.
+ */
+export const SUGGESTIONS_BLOCK_SCHEMA = z.object({
+  kind: z.literal("suggestions"),
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(24)
+    .optional()
+    .describe('The uppercase mono line above the chips. Omit for the default, "Ask next".'),
+  items: z
+    .array(
+      z.object({
+        label: z
+          .string()
+          .trim()
+          .min(SUGGESTION_MIN_LENGTH)
+          .max(SUGGESTION_MAX_LENGTH)
+          .regex(/^[^\r\n]*$/, "one line")
+          .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
+        icon,
+      })
+    )
+    .min(1)
+    .max(SUGGESTIONS_MAX_ITEMS)
+    .describe("One or two follow-ups grounded in this answer."),
+});
+
 /** The union the tool's `block` argument carries. */
 export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   COMPARISON_BLOCK_SCHEMA,
@@ -383,6 +433,7 @@ export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   QUOTE_BLOCK_SCHEMA,
   CONTACT_BLOCK_SCHEMA,
   MAP_BLOCK_SCHEMA,
+  SUGGESTIONS_BLOCK_SCHEMA,
 ]);
 
 export type Block = z.infer<typeof BLOCK_SCHEMA>;
@@ -400,7 +451,7 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card or a map of places.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card or a map of places. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -409,6 +460,7 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "receipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).",
   "timeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.",
   "map: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.",
+  "suggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.",
   "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, so fix the shape rather than retrying it unchanged.",
 ].join("\n");
 

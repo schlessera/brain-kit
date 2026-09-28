@@ -317,6 +317,10 @@ export "./client" (./src/client/index.ts)
   SPAN_TOOL_NAME_PREFIX
   STATS_BLOCK_SCHEMA
   STEPS_BLOCK_SCHEMA
+  SUGGESTIONS_BLOCK_SCHEMA
+  SUGGESTIONS_MAX_ITEMS
+  SUGGESTION_MAX_LENGTH
+  SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -842,6 +846,10 @@ export "./server" (./src/server/index.ts)
   SUBPROCESS_ENV
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  SUGGESTIONS_BLOCK_SCHEMA
+  SUGGESTIONS_MAX_ITEMS
+  SUGGESTION_MAX_LENGTH
+  SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserRequest
@@ -1087,6 +1095,10 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   SHOW_BLOCK_TOOL_NAME
   STATS_BLOCK_SCHEMA
   STEPS_BLOCK_SCHEMA
+  SUGGESTIONS_BLOCK_SCHEMA
+  SUGGESTIONS_MAX_ITEMS
+  SUGGESTION_MAX_LENGTH
+  SUGGESTION_MIN_LENGTH
   type ShowBlockInput
   type ShowBlockPayload
   TABLE_BLOCK_SCHEMA
@@ -1463,6 +1475,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             meta: z.ZodOptional<z.ZodString>;
             source: z.ZodOptional<z.ZodString>;
             accuracyM: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"suggestions">;
+        label: z.ZodOptional<z.ZodString>;
+        items: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            icon: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>>;
     }, z.core.$strip>], "kind">;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
