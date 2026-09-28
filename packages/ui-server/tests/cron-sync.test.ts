@@ -82,4 +82,15 @@ describe("brain client sync", () => {
 
     await expect(brain.sync()).rejects.toThrow("brain sync failed (exit 2): sync could not finish");
   });
+
+  test("a sync a conflict stopped (exit 3, report on stdout) rejects with the report", async () => {
+    const root = brainWithCli(
+      `console.log("brain sync: needs-judgment — a conflict no strategy resolves"); process.exit(3);\n`
+    );
+    const brain = createBrainClient({ brainPath: root });
+
+    await expect(brain.sync()).rejects.toThrow(
+      "brain sync failed (exit 3): brain sync: needs-judgment — a conflict no strategy resolves"
+    );
+  });
 });

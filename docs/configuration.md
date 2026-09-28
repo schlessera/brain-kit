@@ -76,6 +76,7 @@ Each type spec (`TypeSpec`) accepts:
 | `orphanExempt`  | `boolean`                         | `false`                     | Exempt from the "no wiki-links point here" orphan audit.                                                    |
 | `appendMatch`   | `boolean`                         | `false`                     | `brain add` content titled exactly like an existing doc of this type appends into it instead of creating a new file. |
 | `halfLifeDays`  | `number` (positive int)           | `staleDays`, else `365`     | Search recency half-life: a doc of this type loses half its recency boost per `halfLifeDays` since its `updated` date. |
+| `mergeStrategy` | `"synthesize" \| "table-union" \| "timeline-append" \| "keep-both" \| "latest-wins-additive" \| "code-merge" \| "cache-union"` | chosen from the file | How `brain sync` merges a document of this type that both sides changed. See [`sync`](#sync). |
 
 Search's heuristic reranker multiplies each result's score by a recency factor
 between 0.7 (very old) and 1.0 (updated today), and `halfLifeDays` sets how fast
@@ -91,6 +92,11 @@ of half-lives for type names like `project` (180 days), `travel` (60),
 `expertise` (730). That table is gone. A type of yours with one of those names
 now decays over its `staleDays`, else 365 days, so set `halfLifeDays` on it to
 keep the old ranking.
+
+Three core types set `mergeStrategy`: `identity` is `latest-wins-additive`,
+`note` is `keep-both`, and `index` is `table-union`. Overriding a core type
+keeps its strategy unless you set `mergeStrategy` again. What each strategy
+does, and how a file without one gets its strategy, is under [`sync`](#sync).
 
 ### `taxonomy.dirAnchors`
 
@@ -601,6 +607,65 @@ characters, and a glob with no `/` also matches the file name alone.
 media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
 ```
 
+## `sync`
+
+How `brain sync` settles what git cannot: a note both clones changed, and a
+changed file its classifier has no rule for.
+
+| Key     | Type              | Default | Means |
+| ------- | ----------------- | ------- | ----- |
+| `judge` | `"jev" \| "off"` | `"jev"` | Who answers the two judgments a sync needs. `"jev"` asks TypeSafe AI's Jev classifier when `TYPESAFE_API_KEY` is set. `"off"` never calls it. |
+
+```ts
+sync: { judge: "off" }
+```
+
+The two judgments are whether an `UNKNOWN` file is an artifact or content to
+track, and how two edits of one passage relate: the same fact, one replacing
+the other, or both worth keeping. Each answer is used only when its
+confidence clears a fixed line: 0.8 for a file, 0.8 for "same fact", 0.85
+for a replacement, and 0.6 for "keep both". A passage pair is asked in both
+orders and used only when the two answers agree. Anything else takes the
+conservative default: the file stays `UNKNOWN` and is left for the agent or
+the report, and both passages are kept, the newer first. The key missing,
+`judge: "off"`, a timeout or any error all mean the same defaults. A request
+has a 10-second budget, and after the first one that fails the sync stops
+asking for the rest of that run.
+
+### Merge strategies
+
+`brain sync resolve` (and `brain sync run`) picks one strategy for each
+conflicted file. The first match wins:
+
+1. A derived cache (`.context-cache.jsonl`, `.asset-cache.jsonl`) is
+   `cache-union`. `brain sync pull` has already unioned it.
+2. A file that is not markdown, and `CLAUDE.md` or `AGENTS.md`, is
+   `code-merge`.
+3. The document's type sets `mergeStrategy`. The type is the one its
+   frontmatter `type` names (ours, then theirs, then base), else the type
+   whose directory holds the file.
+4. An `_index.md` is `table-union`.
+5. A document with a `Timeline` heading on any side is `timeline-append`.
+6. Anything else is `synthesize`.
+
+| Strategy | What it does |
+| -------- | ------------ |
+| `synthesize` | Sections and blocks (paragraphs, list items, table rows, fenced code) merge three-way. A section either side added is kept. A block both sides changed is a judgment; unjudged, both are kept, the newer first. |
+| `table-union` | Table rows keyed by their first cell, merged row by row. A row both sides changed goes to its later `Updated` date, else to a judgment. Our header and row order, then the rows only theirs has. The rest of the document as `synthesize`. |
+| `timeline-append` | Timeline entries merged by date, exact duplicates dropped, both kept when one date has different text, in the direction ours uses. The rest as `synthesize`. |
+| `keep-both` | When both sides changed the file, ours stays in place and theirs is written beside it as `<name>-remote.md`. When only one side changed it, that side. |
+| `latest-wins-additive` | Per section, the side with the later `updated`; a section either side added is kept. |
+| `code-merge` | Not merged by rule. Left in conflict for the agent. |
+| `cache-union` | Handled by `brain sync pull`, never by `resolve`. |
+
+Every strategy merges frontmatter the same way: a field only one side changed
+takes that side; when both changed it, `updated` is the later date, `created`
+the earlier, `tags` the sorted union, `status` theirs when ours left it
+alone, and any other field ours. A field only one side added is kept. The
+merged text is always made of blocks the two sides wrote, never new text. A
+binary file, a side over 100 KB, or markdown that does not parse is left in
+conflict, like `code-merge`.
+
 ## `modules`
 
 Enables workflow modules. A key is either an npm package name
@@ -629,6 +694,7 @@ path and says so, rather than failing at the call.
 | `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
 | `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
+| `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
 | `BRAIN_RERANK_MODE` | search | Overrides the configured reranker: `jev`, `heuristic` or `none`. An explicit `--rerank` still wins. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Absent → the `heuristic` ordering. |

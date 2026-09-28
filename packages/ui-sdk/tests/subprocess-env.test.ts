@@ -60,6 +60,14 @@ describe("subprocess environment descriptor", () => {
     }
   });
 
+  test.each(["cron", "agent", "brainCli"] as const)(
+    "the sync judge's key reaches %s, where `brain sync run` can be started",
+    (audience) => {
+      const filtered = filterSubprocessEnv({ TYPESAFE_API_KEY: "jev-test-key" }, audience);
+      expect(filtered).toEqual({ TYPESAFE_API_KEY: "jev-test-key" });
+    }
+  );
+
   test.each([
     ["cron", "DB_PATH", "HOME"],
     ["agent", "HOME", "DB_PATH"],

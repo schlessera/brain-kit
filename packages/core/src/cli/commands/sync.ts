@@ -1,308 +1,82 @@
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { syncSkills } from "../../lib/skills/index.js";
-import { matchesAnyPattern, TOOL_LEFTOVER_PATTERNS } from "../../lib/tool-leftovers.js";
-import { isMediaPath, mediaPolicy, mediaPolicyClass, type MediaPolicy } from "../../lib/media.js";
-import type { Taxonomy } from "../../lib/taxonomy.js";
+import { mediaPolicy } from "../../lib/media.js";
+import { resolveEnv } from "../../config/env.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
-import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { assess, classifyPostSyncDirt, domainFor, workingTreeDirt } from "../../lib/sync/assess.js";
+import { currentBranch, git, unmergedPaths } from "../../lib/sync/git.js";
+import { createSyncJudge, type SyncJudge } from "../../lib/sync/judge.js";
+import { conclude } from "../../lib/sync/merge-state.js";
+import { pull } from "../../lib/sync/pull.js";
+import { planFromFile, serializePlan } from "../../lib/sync/commit.js";
+import { reconcileStashes } from "../../lib/sync/stash.js";
+import {
+  assessFix,
+  commitTracked,
+  localDate,
+  planTracked,
+  resolveConflicts,
+  runSync,
+  type PostSyncResult,
+  type RunEnvelope,
+  type SyncEnv,
+} from "../../lib/sync/run.js";
+import { existsSync } from "fs";
 import { resolve } from "path";
+
+export { classifyPostSyncDirt, type DirtDisposition } from "../../lib/sync/assess.js";
 
 const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 
-With no verb, delegates the full workflow to the coding agent (/sync skill).
-Mechanical verbs (structured output for the skill to drive):
+With no verb, runs the whole sync (\`run\`) and prints its report; then, when
+an agent runner is configured, hands the agent (/sync skill) what the rules
+could not settle: a conflict no strategy resolves, a file nothing could
+classify, or media to ask about (interactive terminals only). For the
+structured result use \`brain sync run --json\`.
 
+  run          The whole sync: stash, assess --fix, commit, pull, resolve,
+               conclude, push (re-pulling up to 3 times), post-sync.
+               Exit 0 complete, 3 needs-judgment (an open conflict or conflict
+               markers in HEAD push nothing), 1 failed
   assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|MEDIA|LARGE|UNKNOWN;
                MEDIA and LARGE carry their size in bytes)
+    --fix      Also ignore ARTIFACT files and unmistakable secrets (.env,
+               .env.*, *.key, *.pem) in one .gitignore commit, hold other
+               SENSITIVE files back as UNKNOWN, and ask the judge about
+               UNKNOWN files when it is on
   group        Group tracked changes by taxonomy domain
-  pull         Fetch origin/main and fast-forward or merge
+  commit       Commit TRACK files, one commit per domain, bumping \`updated\`;
+               a file holding conflict markers is left uncommitted (exit 1)
+    --plan     Print the commit plan as JSON and change nothing
+    --plan-file <path>  Apply an edited plan (messages as given, files checked)
+  stash        Drop stash entries the tree already holds; pop a clean autostash
+    --dry-run  Report what it would do
+  pull         Fetch origin/main and fast-forward or merge, first finishing a
+               merge left pending whose only conflicts are the derived caches
+  resolve      Merge each conflicted file by its strategy (Jev judges passage
+               pairs when TYPESAFE_API_KEY is set); leaves the rest for an agent
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
+  conclude     Once nothing is unmerged, commit a pending merge or squash, or
+               unstage what a conflicted stash pop left (its entry stays)
   push         Push to origin/main
   post-sync    Re-sync skills + reindex, commit the derived caches it rewrote,
                then report head parity and any remaining working-tree dirt`;
 
-// Artifact + sensitive path globs (ported from sync.sh). No personal patterns.
-// The tool leftovers are shared with brain doctor and the template .gitignore.
-const ARTIFACT_PATTERNS = [
-  ...TOOL_LEFTOVER_PATTERNS,
-  // No office formats: a presentation is media, and the MEDIA/LARGE classes
-  // (with `media.ignore` for generated ones) decide it.
-  "*.pyc", "__pycache__/*", "*.db-shm", "*.db-wal", "tmp/*", "*.log",
-];
-const SENSITIVE_PATTERNS = [
-  ".env", ".env.*", "credentials*", "*.key", "*.pem", "*.secret", "*_secret*", "*_token*",
-];
-const TRACKABLE_EXTS = new Set([
-  "md", "ts", "sh", "js", "json", "yaml", "yml", "toml", "css", "html", "py", "txt",
-]);
-const CONFIG_FILES = new Set([
-  ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
-]);
+const VERBS = "run|assess|group|commit|stash|pull|resolve|conflicts|conclude|push|post-sync";
 
-/**
- * Sidecars that an embeddings index run rewrites (see `saveContextCache` /
- * `saveAssetCache` in lib/indexer). They are derived from brain.db but are
- * committed so fresh clones and rebuilds skip regeneration — which means the
- * reindex at the end of a sync routinely dirties the tree *after* the push.
- * post-sync owns that dirt and commits it itself.
- */
-const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
-
-interface GitResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-function git(root: string, args: string[], raw = false): GitResult {
-  const proc = Bun.spawnSync(["git", "-C", root, ...args]);
-  return {
-    stdout: raw ? new TextDecoder().decode(proc.stdout) : new TextDecoder().decode(proc.stdout).trim(),
-    stderr: new TextDecoder().decode(proc.stderr).trim(),
-    code: proc.exitCode ?? 0,
-  };
-}
-
-/**
- * One record per `git status` entry: the two-character code and the path.
- *
- * `--porcelain=v1 -z` rather than the default: NUL-separated records keep the
- * leading space of an unstaged code (` M path`) that trimming would eat, and
- * paths arrive literal — no quoting, no ` -> ` arrow to re-split, so a path
- * containing either is not mis-parsed. Renames and copies emit the destination
- * first and the original as the following record, which is skipped.
- */
-function porcelainRecords(root: string): { xy: string; file: string }[] {
-  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], true);
-  if (result.code !== 0) throw new UsageError(`Git status failed: ${result.stderr}`);
-  const records = result.stdout.split("\0");
-  const entries: { xy: string; file: string }[] = [];
-  for (let i = 0; i < records.length; i++) {
-    const line = records[i]!;
-    if (!line) continue;
-    const xy = line.slice(0, 2);
-    entries.push({ xy, file: line.slice(3) });
-    if (xy.includes("R") || xy.includes("C")) i++;
-  }
-  return entries;
-}
-
-/**
- * The paths the index holds unmerged, once each. `-z` for the same reason as
- * `porcelainRecords`: without it git quotes and escapes a non-ASCII or unusual
- * path (`core.quotePath`), and the quoted form names no file `git show` can find.
- */
-function unmergedPaths(root: string): string[] {
-  return git(root, ["diff", "--name-only", "-z", "--diff-filter=U"], true).stdout.split("\0").filter(Boolean);
-}
-
-
-function isTrackable(file: string): boolean {
-  const ext = file.includes(".") ? file.split(".").pop()! : "";
-  if (TRACKABLE_EXTS.has(ext)) return true;
-  if (file.startsWith(".claude/skills/") || file.startsWith(".agents/skills/") || file.startsWith("scripts/")) {
-    return true;
-  }
-  return CONFIG_FILES.has(file);
-}
-
-/** Domain for a tracked path: special dirs → skills/config, else the doc type. */
-function domainFor(path: string, taxonomy: Taxonomy): string {
-  if (path.startsWith(".agents/skills/") || path.startsWith(".claude/skills/") || path.startsWith("scripts/")) {
-    return "skills";
-  }
-  if (CONFIG_FILES.has(path)) return "config";
-  return taxonomy.typeForPath(path);
-}
-
-function currentBranch(root: string): string {
-  return git(root, ["branch", "--show-current"]).stdout || "(detached HEAD)";
-}
-
-interface AssessedFile {
-  status: string;
-  class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "MEDIA" | "LARGE" | "UNKNOWN";
-  path: string;
-  /** Size on disk, for MEDIA and LARGE only. */
-  bytes?: number;
-}
-
-/**
- * Size of `file` under `root` as git would store it: a regular file's bytes,
- * or null for a deletion or a symlink (git stores the link, not its target).
- * "unreadable" when the size could not be read, which is never a reason to
- * treat a file as small.
- */
-function sizeOf(root: string, file: string): number | null | "unreadable" {
+/** `assess` over the brain, a git failure as a usage error. */
+function assessTree(cli: CliContext) {
   try {
-    const stat = lstatSync(resolve(root, file));
-    return stat.isFile() ? stat.size : null;
+    return assess(cli.brain.root, mediaPolicy(cli.brain.config));
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "ENOENT" ? null : "unreadable";
+    throw new UsageError((e as Error).message);
   }
 }
 
-/**
- * Classes, first match wins:
- * - SENSITIVE: a secret-shaped name, whatever the media policy says.
- * - `media.ignore` → ARTIFACT, `media.track` → TRACK.
- * - ARTIFACT: tool leftovers and generated output.
- * - DERIVED: the sidecar caches.
- * - LARGE: anything over `media.maxTrackedBytes`. An ARTIFACT or DERIVED
- *   match wins over it: those are never committed, whatever their size.
- * - MEDIA: an image, PDF, audio, video or office file.
- * - UNKNOWN when the size could not be read; otherwise TRACK for text, or UNKNOWN.
- */
-function assess(root: string, media: MediaPolicy): AssessedFile[] {
-  const files: AssessedFile[] = [];
-  for (const { xy, file } of porcelainRecords(root)) {
-
-    let status: string;
-    const trimmed = xy.trim();
-    if (xy === "??") status = "?";
-    else if (trimmed.startsWith("A")) status = "A";
-    else if (trimmed.startsWith("M") || xy === "MM") status = "M";
-    else if (trimmed.startsWith("D")) status = "D";
-    else if (trimmed.startsWith("R")) status = "R";
-    else status = trimmed;
-
-    // Skip already-ignored files silently.
-    if (git(root, ["check-ignore", "-q", "--", file]).code === 0) continue;
-
-    let klass: AssessedFile["class"];
-    let bytes: number | null = null;
-    let size: number | null | "unreadable" = null;
-    const policy = mediaPolicyClass(file, media);
-    if (matchesAnyPattern(file, SENSITIVE_PATTERNS)) klass = "SENSITIVE";
-    else if (policy) klass = policy;
-    else if (matchesAnyPattern(file, ARTIFACT_PATTERNS)) klass = "ARTIFACT";
-    // Committed on purpose, but post-sync commits them after its reindex —
-    // taking them here too would just commit a stale copy and duplicate work.
-    else if (DERIVED_CACHES.has(file)) klass = "DERIVED";
-    else if ((size = sizeOf(root, file)) === "unreadable") klass = "UNKNOWN";
-    else if ((bytes = size) !== null && bytes > media.maxTrackedBytes) klass = "LARGE";
-    else if (bytes !== null && isMediaPath(file)) klass = "MEDIA";
-    else if (isTrackable(file)) klass = "TRACK";
-    else klass = "UNKNOWN";
-
-    files.push(
-      klass === "MEDIA" || klass === "LARGE" ? { status, class: klass, path: file, bytes: bytes! } : { status, class: klass, path: file }
-    );
-  }
-  return files;
-}
-
-function workingTreeDirt(root: string): string[] {
-  return porcelainRecords(root).map((record) => record.file);
-}
-
-export interface DirtDisposition {
-  /** Derived sidecars post-sync rewrote — safe for it to commit unattended. */
-  caches: string[];
-  /** Everything else — reported, never auto-committed. */
-  other: string[];
-}
-
-/**
- * Split post-reindex working-tree dirt into what post-sync may commit itself
- * and what only a human/agent should decide about. Pure so the policy is
- * testable without a git fixture or an API key.
- */
-export function classifyPostSyncDirt(dirty: string[]): DirtDisposition {
-  const caches: string[] = [];
-  const other: string[] = [];
-  for (const file of dirty) (DERIVED_CACHES.has(file) ? caches : other).push(file);
-  return { caches, other };
-}
-
-/** A cache as this clone had it: the file (null when gone) and its index entry (`ls-files -s`). */
-interface CacheAside {
-  file: string | null;
-  index: string;
-}
-
-/**
- * Set local changes to the derived caches aside so a merge can touch them.
- * Hooks off: restoring a file fires post-checkout, whose reindex can rewrite
- * it right back.
- */
-function setDerivedCachesAside(root: string): Map<string, CacheAside> {
-  const aside = new Map<string, CacheAside>();
-  for (const file of classifyPostSyncDirt(workingTreeDirt(root)).caches) {
-    const path = resolve(root, file);
-    aside.set(file, {
-      file: existsSync(path) ? readFileSync(path, "utf-8") : null,
-      index: git(root, ["ls-files", "-s", "--", file]).stdout,
-    });
-    if (git(root, ["cat-file", "-e", `HEAD:${file}`]).code === 0) {
-      git(root, ["-c", "core.hooksPath=/dev/null", "restore", "--source=HEAD", "--staged", "--worktree", "--", file]);
-    } else {
-      git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
-      rmSync(path, { force: true });
-    }
-  }
-  return aside;
-}
-
-/** Put the caches back exactly as they were, index and file, for when no merge happened. */
-function putDerivedCachesBack(root: string, aside: Map<string, CacheAside>): void {
-  for (const [file, saved] of aside) {
-    const entry = /^(\d+) ([0-9a-f]+) 0\t/.exec(saved.index);
-    if (entry) git(root, ["update-index", "--add", "--cacheinfo", `${entry[1]},${entry[2]},${file}`]);
-    else git(root, ["rm", "--cached", "-q", "--ignore-unmatch", "--", file]);
-    const path = resolve(root, file);
-    if (saved.file === null) rmSync(path, { force: true });
-    else writeFileSync(path, saved.file, "utf-8");
-  }
-}
-
-/**
- * Union each cache's entries into one sorted file: what this clone set aside,
- * and the merge's result. A key both carry keeps its first line in sorted
- * order, the rule every sidecar reader applies, so two clones that generated
- * different text for one key settle on the same line instead of each keeping
- * its own and committing it back on every sync. For a conflicted cache
- * the result is read from the two sides' index stages, not the working file,
- * whose conflict rendering can carry the ancestor's stale lines (diff3). An
- * entry only this clone has may belong to a chunk the merge re-chunks, and the
- * reindex can recover it only from the file.
- */
-function unionDerivedCaches(
-  root: string,
-  files: Iterable<string>,
-  aside: Map<string, CacheAside>,
-  conflicted: ReadonlySet<string>
-): void {
-  for (const file of files) {
-    const path = resolve(root, file);
-    const sources = [aside.get(file)?.file ?? ""];
-    if (conflicted.has(file)) {
-      for (const stage of [2, 3]) sources.push(git(root, ["show", `:${stage}:${file}`], true).stdout);
-    } else if (existsSync(path)) {
-      sources.push(readFileSync(path, "utf-8"));
-    }
-    const byKey = new Map<string, string>();
-    const all = sources.join("\n").split("\n").filter((line) => line.trim());
-    all.sort();
-    for (const line of all) {
-      // Only a line a reader would accept may compete for its key. A line
-      // with no string value can sort first and would win, then every
-      // reader rejects it and the key is lost.
-      try {
-        const { k, v } = JSON.parse(line) as { k?: unknown; v?: unknown };
-        if (typeof k === "string" && k && typeof v === "string" && !byKey.has(k)) byKey.set(k, line);
-      } catch {
-        // skip malformed line
-      }
-    }
-    const lines = [...byKey.values()]; // already in sorted order
-    writeFileSync(path, lines.length ? lines.join("\n") + "\n" : "", "utf-8");
-  }
-}
 
 /**
  * Commit and push the derived caches post-sync rewrote, and nothing else.
@@ -329,7 +103,7 @@ export function commitDerivedCaches(root: string, caches: string[], branch: stri
     : `committed, push rejected — ${pushed.stderr || pushed.stdout}`;
 }
 
-async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
+async function postSync(cli: CliContext): Promise<PostSyncResult> {
   const root = cli.brain.root;
   const { emitters, warnings } = resolveEmitters(cli.brain);
   let skills: string;
@@ -375,7 +149,7 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
   // "complete" must mean complete: heads agree *and* nothing is left behind.
   // Anything the caches step could not finish leaves the tree dirty too.
   const cacheUnresolved = cacheCommit.startsWith("FAILED") || cacheCommit.startsWith("skipped");
-  let sync: string;
+  let sync: PostSyncResult["sync"];
   if (localHead !== remoteHead) sync = "diverged";
   else if (other.length > 0 || cacheUnresolved) sync = "dirty";
   else sync = "complete";
@@ -393,22 +167,55 @@ async function postSync(cli: CliContext): Promise<Record<string, unknown>> {
   };
 }
 
+
+/** The judge one sync holds: Jev with TYPESAFE_API_KEY unless `sync.judge` is "off". */
+function syncJudge(cli: CliContext): SyncJudge {
+  return createSyncJudge({ apiKey: resolveEnv().typesafeApiKey ?? null, mode: cli.brain.config?.sync?.judge });
+}
+
+function syncEnv(cli: CliContext, judge: SyncJudge = syncJudge(cli)): SyncEnv {
+  return {
+    root: cli.brain.root,
+    taxonomy: cli.brain.taxonomy,
+    media: mediaPolicy(cli.brain.config),
+    judge,
+    today: localDate(),
+    postSync: () => postSync(cli),
+  };
+}
+
+/** `KEY=value` lines for an object: arrays joined, nested objects as JSON. */
+function printFields(result: object): void {
+  for (const [k, v] of Object.entries(result)) {
+    const text = Array.isArray(v) ? v.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(",") : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
+    console.log(`${k}=${text}`);
+  }
+}
+
+const RUN_EXIT: Record<RunEnvelope["status"], number> = { complete: 0, "needs-judgment": 3, failed: 1 };
+
+/**
+ * Whether bare `brain sync` hands on to the agent after `run`: a conflict
+ * blocked the push, a file nothing classified, or media, which only a person
+ * at a terminal can be asked about.
+ */
+export function needsAgent(run: RunEnvelope, interactive: boolean): boolean {
+  return (
+    run.status === "needs-judgment" ||
+    run.leftovers.unknown.length > 0 ||
+    (run.leftovers.media.length > 0 && interactive)
+  );
+}
+
 export const syncCommand: CoreCommand = {
-  summary: "Sync the brain with its git remote (mechanical verbs for the /sync skill)",
+  summary: "Sync the brain with its git remote (run the whole sync, or one verb of it)",
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const root = cli.brain.root;
     // The argv remainder still carries the output-mode flags; the verb is the
     // first positional, so `brain sync --json assess` routes like `assess --json`.
-    const verb = parseArgs(args).args[0];
-
-    if (!verb) {
-      if (!cli.agentRunner) {
-        throw new UsageError("`brain sync` (no verb) requires an agent runner. Try a mechanical verb: assess|group|pull|conflicts|push|post-sync.");
-      }
-      await runAgent(cli.agentRunner, "/sync", root);
-      return;
-    }
+    const { args: positional, flags } = parseArgs(args);
+    const verb = positional[0];
 
     const requireMain = (): number | null => {
       const branch = currentBranch(root);
@@ -421,11 +228,42 @@ export const syncCommand: CoreCommand = {
       return null;
     };
 
+    if (!verb) {
+      // Always the report as text, never JSON: callers read it as the sync's
+      // message (ui-server's BrainClient.sync), as they read the agent's
+      // before. `brain sync run --json` is the structured form.
+      const result = await runSync(syncEnv(cli));
+      console.log(result.report);
+      const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY;
+      if (cli.agentRunner && needsAgent(result, interactive)) {
+        await runAgent(cli.agentRunner, "/sync", root);
+        return;
+      }
+      return RUN_EXIT[result.status];
+    }
+
     switch (verb) {
+      case "run": {
+        const result = await runSync(syncEnv(cli));
+        emit(cli.json, result, () => console.log(result.report));
+        return RUN_EXIT[result.status];
+      }
+
       case "assess": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const files = assess(root, mediaPolicy(cli.brain.config));
+        if (flags.fix === true) {
+          const result = await assessFix(syncEnv(cli));
+          emit(cli.json, result, () => {
+            console.log("# sync assess --fix — file classification");
+            for (const f of result.files) {
+              console.log(`${f.status}\t${f.class}\t${f.path}${f.bytes === undefined ? "" : `\t${f.bytes}`}`);
+            }
+            printFields(result.fixed);
+          });
+          return result.fixed.committed?.status === "failed" || result.fixed.failed !== undefined ? 1 : 0;
+        }
+        const files = assessTree(cli);
         emit(cli.json, { branch: "main", files }, () => {
           console.log("# sync assess — file classification");
           for (const f of files) {
@@ -439,7 +277,7 @@ export const syncCommand: CoreCommand = {
       case "group": {
         const guard = requireMain();
         if (guard !== null) return guard;
-        const groups = assess(root, mediaPolicy(cli.brain.config))
+        const groups = assessTree(cli)
           .filter((f) => f.class === "TRACK")
           .map((f) => ({ domain: domainFor(f.path, cli.brain.taxonomy), status: f.status, path: f.path }))
           .sort((a, b) => a.domain.localeCompare(b.domain) || a.path.localeCompare(b.path));
@@ -450,73 +288,77 @@ export const syncCommand: CoreCommand = {
         return 0;
       }
 
+      case "commit": {
+        const guard = requireMain();
+        if (guard !== null) return guard;
+        const env = syncEnv(cli);
+        const files = assessTree(cli);
+        if (flags.plan === true) {
+          const plan = planTracked(env, files);
+          // The plan is JSON in both modes: it is meant to be edited and fed back.
+          process.stdout.write(serializePlan(plan));
+          return 0;
+        }
+        let plan;
+        if (typeof flags["plan-file"] === "string") {
+          const read = planFromFile(resolve(process.cwd(), flags["plan-file"]));
+          if ("error" in read) throw new UsageError(`--plan-file: ${read.error}`);
+          plan = read.plan;
+        } else if (flags["plan-file"] !== undefined) {
+          throw new UsageError("--plan-file needs a path");
+        }
+        const result = commitTracked(env, files, plan);
+        emit(cli.json, result, () => {
+          for (const c of result.commits) console.log("sha" in c ? `COMMIT=${c.sha} ${c.subject}` : `FAILED=${c.subject}: ${c.error}`);
+          for (const b of result.bumped) console.log(`BUMPED=${b}`);
+          for (const r of result.refused) console.log(`NOT_BUMPED=${r}`);
+          for (const c of result.conflicted) console.log(`CONFLICT_MARKERS=${c}`);
+        });
+        return result.commits.some((c) => "error" in c) || result.conflicted.length > 0 ? 1 : 0;
+      }
+
+      case "stash": {
+        const result = reconcileStashes(root, { dryRun: flags["dry-run"] === true });
+        emit(cli.json, result, () => {
+          for (const e of result.dropped) console.log(`DROPPED=${e.ref} ${e.reason}`);
+          for (const e of result.popped) console.log(`POPPED=${e.ref}`);
+          for (const e of result.kept) console.log(`KEPT=${e.ref} ${e.reason}`);
+          for (const e of result.failed) console.log(`FAILED=${e.ref} ${e.reason}`);
+        });
+        return result.failed.length > 0 ? 1 : 0;
+      }
+
       case "pull": {
-        const fetch = git(root, ["fetch", "origin", "main"]);
-        if (fetch.code !== 0) {
-          emit(cli.json, { status: "fetch-failed" }, () => console.log("STATUS=fetch-failed"));
-          return 1;
-        }
-        const localAhead = parseInt(git(root, ["rev-list", "--count", "origin/main..HEAD"]).stdout || "0", 10);
-        const remoteAhead = parseInt(git(root, ["rev-list", "--count", "HEAD..origin/main"]).stdout || "0", 10);
-
-        // A cache this clone's reindex rewrote blocks a merge that touches it,
-        // and post-sync pushes caches, so the other clone's commit usually does.
-        // Set it aside for the merge and union it back after.
-        // A merge already in progress owns the caches' index stages; setting
-        // them aside would erase a cache conflict before it is resolved. A
-        // squash merge leaves its stages without a MERGE_HEAD.
-        const alreadyMerging =
-          git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0 ||
-          git(root, ["ls-files", "--unmerged"]).stdout !== "";
-        const aside =
-          remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
-
-        let status: string;
-        let conflicts: string[] = [];
-        if (remoteAhead === 0) {
-          status = "synced";
-        } else if (localAhead === 0) {
-          status = git(root, ["merge", "--ff-only", "origin/main"]).code === 0 ? "fast-forwarded" : "merge-failed";
-        } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
-          status = "merged";
-        } else {
-          // Classify on what the failed merge left in the index, not on
-          // MERGE_HEAD: a squash merge (branch.main.mergeOptions) stops on
-          // conflicts without one, and a merge left unfinished before this pull
-          // keeps one with nothing to resolve. Unmerged paths are Phase 4's
-          // work; none means git refused, which is only to report.
-          conflicts = unmergedPaths(root);
-          status = conflicts.length > 0 ? "conflicted" : "merge-failed";
-        }
-
-        // No merge started (git refused before touching the tree): put the
-        // caches back as they were. Otherwise union them, which also resolves
-        // a cache conflict, so Phase 4 never sees one.
-        const merging =
-          conflicts.length > 0 || git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
-        const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
-        const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
-        if (status === "fast-forwarded" || status === "merged" || merging) {
-          unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
-          if (cacheConflicts.length > 0) {
-            git(root, ["add", "--", ...cacheConflicts]);
-            conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
-            if (conflicts.length === 0) {
-              status = git(root, ["commit", "--no-edit"]).code === 0 ? "merged" : "merge-failed";
-            }
+        const result = pull(root);
+        const { status, localAhead, remoteAhead, conflicts, mergedCaches, concluded, reason } = result;
+        emit(cli.json, status === "fetch-failed" ? { status, ...(reason ? { reason } : {}) } : result, () => {
+          if (status === "fetch-failed") {
+            console.log("STATUS=fetch-failed");
+            return;
           }
-        } else {
-          putDerivedCachesBack(root, aside);
-        }
-
-        emit(cli.json, { status, localAhead, remoteAhead, conflicts, mergedCaches }, () => {
           console.log(`LOCAL_AHEAD=${localAhead}`);
           console.log(`REMOTE_AHEAD=${remoteAhead}`);
           console.log(`STATUS=${status}`);
+          if (concluded) console.log(`CONCLUDED=${concluded}`);
+          if (reason !== undefined) console.log(`REASON=${reason}`);
           for (const c of conflicts) console.log(`CONFLICT=${c}`);
           for (const c of mergedCaches) console.log(`MERGED_CACHE=${c}`);
         });
-        return status === "merge-failed" ? 1 : 0;
+        return status === "merge-failed" || status === "fetch-failed" ? 1 : 0;
+      }
+
+      case "resolve": {
+        const result = await resolveConflicts(syncEnv(cli));
+        emit(cli.json, result, () => {
+          console.log(`STATUS=${result.status}`);
+          for (const r of result.resolved) {
+            console.log(`RESOLVED=${r.path}\t${r.strategy}`);
+            for (const note of r.notes) console.log(`NOTE=${r.path}: ${note}`);
+          }
+          for (const u of result.unresolved) console.log(`UNRESOLVED=${u.path}\t${u.strategy}\t${u.reason}`);
+          for (const s of result.skipped) console.log(`SKIPPED=${s.path}\t${s.reason}`);
+        });
+        return 0;
       }
 
       case "conflicts": {
@@ -541,6 +383,16 @@ export const syncCommand: CoreCommand = {
         return 0;
       }
 
+      case "conclude": {
+        const done = conclude(root);
+        emit(cli.json, done, () => {
+          console.log(`OUTCOME=${done.outcome}`);
+          console.log(`KIND=${done.kind}`);
+          if (done.detail !== undefined) console.log(`DETAIL=${done.detail}`);
+        });
+        return done.outcome === "committed" || done.outcome === "unstaged" || done.outcome === "nothing" ? 0 : 1;
+      }
+
       case "push": {
         const res = git(root, ["push", "origin", "main"]);
         const status = res.code === 0 ? "pushed" : "rejected";
@@ -550,14 +402,12 @@ export const syncCommand: CoreCommand = {
 
       case "post-sync": {
         const result = await postSync(cli);
-        emit(cli.json, result, () => {
-          for (const [k, v] of Object.entries(result)) console.log(`${k}=${Array.isArray(v) ? v.join(",") : v}`);
-        });
+        emit(cli.json, result, () => printFields(result));
         return 0;
       }
 
       default:
-        throw new UsageError(`Unknown sync verb: ${verb}. Use assess|group|pull|conflicts|push|post-sync.`);
+        throw new UsageError(`Unknown sync verb: ${verb}. Use ${VERBS}.`);
     }
   },
 };

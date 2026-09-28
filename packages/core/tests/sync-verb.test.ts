@@ -21,16 +21,22 @@ describe("sync verb selection", () => {
     } finally { cleanup(root); }
   });
 
-  test("`brain sync --json` with no verb hands off to the agent", async () => {
+  test("`brain sync --json` with no verb is the bare sync, not a verb", async () => {
+    // Off main the run fails before it touches anything, and a failure is
+    // not something the agent is handed: only what the rules left is.
     const prompts: string[] = [];
     const agentRunner: AgentRunner = {
       id: "stub",
       capabilities: { streaming: false, skills: true },
       async run(prompt) { prompts.push(prompt); return ""; },
     };
-    const cli = { brain: { root: "/nonexistent-brain" }, json: true, agentRunner } as never;
-    const error = await syncCommand.run(["--json"], cli).then(() => undefined, (e: Error) => e.message);
-    expect(prompts).toEqual(["/sync"]);
-    expect(error).toBeUndefined();
+    const cli = { brain: { root: "/nonexistent-brain", config: null }, json: true, agentRunner } as never;
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => lines.push(line);
+    const code = await syncCommand.run(["--json"], cli).finally(() => (console.log = log));
+    expect(code).toBe(1);
+    expect(lines.join("\n")).toStartWith("brain sync: failed — not on main branch");
+    expect(prompts).toEqual([]);
   });
 });

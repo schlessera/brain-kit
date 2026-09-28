@@ -6,6 +6,7 @@ import { resolveEnv } from "../config/env.js";
 
 import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { SCRATCH_DIR } from "./scratch.js";
+import { MERGE_STRATEGIES } from "./sync/types.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -69,6 +70,13 @@ export const typeSpecSchema = z
      * type appends into that document instead of creating a new file.
      */
     appendMatch: z.boolean().optional(),
+    /**
+     * How `brain sync` merges a document of this type that both sides
+     * changed. Unset → chosen from the file itself: `_index.md` is
+     * `table-union`, a `## Timeline` heading is `timeline-append`, anything
+     * else `synthesize`.
+     */
+    mergeStrategy: z.enum(MERGE_STRATEGIES).optional(),
   })
   .strict();
 
@@ -396,6 +404,19 @@ export const brainConfigSchema = z
       })
       .strict()
       .optional(),
+    /** How `brain sync` resolves what git cannot. */
+    sync: z
+      .object({
+        /**
+         * Who answers the judgments a merge or an unclassified file needs.
+         * `jev` (the default): TypeSafe's classifier, when `TYPESAFE_API_KEY`
+         * is set; without the key, or on any failure, the conservative
+         * default applies. `off`: always the conservative default.
+         */
+        judge: z.enum(["jev", "off"]).optional(),
+      })
+      .strict()
+      .optional(),
     /**
      * package name or ./local/path → module config block (validated by the
      * module's configSchema). Keys lead to import() — constrain them: a
@@ -435,10 +456,10 @@ export function defineConfig(config: BrainConfig): BrainConfig {
 
 /** Types every brain has, regardless of configuration. */
 export const CORE_TYPES: Record<string, TypeSpec> = {
-  identity: { dir: "me", halfLifeDays: 1095 },
+  identity: { dir: "me", halfLifeDays: 1095, mergeStrategy: "latest-wins-additive" },
   context: { dir: "context", staleDays: 30, staleSeverity: "warning", orphanExempt: true, halfLifeDays: 30 },
-  note: { dir: "notes", inbox: true, halfLifeDays: 60 },
-  index: { dir: null, orphanExempt: true, halfLifeDays: 365 },
+  note: { dir: "notes", inbox: true, halfLifeDays: 60, mergeStrategy: "keep-both" },
+  index: { dir: null, orphanExempt: true, halfLifeDays: 365, mergeStrategy: "table-union" },
 };
 
 export const DEFAULT_EXCLUDE = {

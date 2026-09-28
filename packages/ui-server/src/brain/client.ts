@@ -314,8 +314,10 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     },
 
     async sync() {
-      // Bare `brain sync` runs the /sync skill through the coding agent and
-      // prints the agent's text, never JSON, so the text is the whole result.
+      // Bare `brain sync` runs the whole sync and prints its report as text,
+      // never JSON, then the /sync agent's text when it handed anything on;
+      // the text is the whole result. Any non-zero exit is a failure here,
+      // including 3: a conflict blocked the push and no agent took it.
       const result = await execBrain(["sync"]);
       if (result.exitCode !== 0) {
         throw new Error(

@@ -70,6 +70,19 @@ The shipped allowlist includes the core CLI's `BRAIN_ROOT`,
 and `GEMINI_BASE_URL`. These capability settings are available to agents,
 direct brain CLI children, and scheduled jobs.
 
+## Sync
+
+A sync from the UI runs `brain sync`, which commits, pulls, merges and pushes
+without a coding agent, and starts the agent (the `/sync` skill) only for a
+conflict no merge strategy handles or files it could not classify. Media
+leftovers are listed in the report and never committed, since nobody is at a
+terminal to approve them. Most syncs therefore cost no agent session.
+
+The sync asks TypeSafe AI's Jev two narrow questions when `TYPESAFE_API_KEY`
+is set; the server passes the key through to the brain CLI. Without it the
+sync takes the conservative defaults. See
+[configuration.md](../configuration.md#sync).
+
 ## Recovery and partial availability
 
 The UI server permits one HTTP sync at a time per canonical brain root.

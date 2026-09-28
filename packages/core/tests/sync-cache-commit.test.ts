@@ -475,6 +475,9 @@ describe("sync pull when the merge does not finish", () => {
     expect(body.conflicts).toEqual([]);
     expect(await Bun.file(join(root, CACHE)).text()).toBe('{"k":"a","v":"theirs"}\n{"k":"b","v":"base"}\n');
     expect(body.status).toBe("merged");
+    // A squash commit has no second parent, so "merged" needs the pull to
+    // merge origin/main after committing it (#328).
+    expect(Bun.spawnSync(["git", "-C", root, "merge-base", "--is-ancestor", "origin/main", "HEAD"]).exitCode).toBe(0);
   });
 });
 

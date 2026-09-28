@@ -37,9 +37,10 @@ A brain usually hits the pain well before those limits.
 - **`brain sync assess`** classes a new binary (an image, PDF, audio, video or
   office file) as `MEDIA`, and any file over the size limit as `LARGE`, each
   with its size in bytes. A presentation (`.pptx`) is media like any other.
-  The `/sync` skill asks you before committing either. An unattended sync
-  leaves them untouched and lists them in its report. Nothing is committed
-  silently.
+  `brain sync run` never commits either: it leaves them untouched and lists
+  them in its report. When bare `brain sync` runs with a terminal and an
+  agent, it hands them to the `/sync` skill, which asks you. Nothing is
+  committed silently.
 - **`brain doctor`** has a `tracked-media` check. It lists the five largest
   binaries already tracked, and warns when any tracked file is over the limit.
   It weighs the blobs in git's index, which is what a clone downloads, not

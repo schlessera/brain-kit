@@ -1,0 +1,10 @@
+{
+  "path": "context/current-focus.md",
+  "pairs": 1,
+  "decisions": [
+    {
+      "ours": "22:30",
+      "decision": "theirs-supersedes"
+    }
+  ]
+}
