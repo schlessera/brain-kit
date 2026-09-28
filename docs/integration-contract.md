@@ -906,6 +906,27 @@ Rules a consumer may rely on:
 - **Blocks contain only what the text carried.** The classifier chooses a
   shape and a tone; it never invents a footnote, a figure, or a source line.
 
+### Message source (additive in 0.39.0)
+
+`chat_message` may carry `source` — `typed` | `voice-dictate` |
+`voice-conversation` — saying how the user produced the message. The host
+keeps it beside the session and returns it as `source` on the replayed
+`role: "user"` `SessionHistoryMessage`, so a dictated message still reads as
+dictated after a reload or on another device.
+
+- **Absent means `typed`**, in both directions: a client that does not send
+  it is stored as typed, and a consumer that finds no `source` on a history
+  message treats it as typed. A consumer that does not know the field
+  ignores it.
+- **A value the receiver does not know reads as absent.** It never costs the
+  frame: a host still runs the message, and a client still renders the
+  history.
+- **The join is by text.** The host matches a replayed message to what it
+  stored by the session, the exact text the backend replays, and the
+  message's ordinal among identical texts. A message whose replayed text is
+  not what the client sent (a pi `/skill:` or prompt-template command, which
+  pi stores expanded) comes back without `source`.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

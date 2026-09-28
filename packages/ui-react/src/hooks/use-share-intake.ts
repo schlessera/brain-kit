@@ -180,6 +180,7 @@ export function useShareIntake(): {
             ? { attachments: attachments.map((a) => a.attachment) }
             : {}),
           ...(detectClientEnvironment() ? { client: detectClientEnvironment() } : {}),
+          source: "typed",
         });
         if (!sent) {
           setError("The connection dropped before that could be sent.");

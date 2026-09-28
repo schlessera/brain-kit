@@ -313,6 +313,12 @@ any acceptance criterion is not met, name it in "Anything left open" — a
 silently dropped criterion is the failure this whole structure exists to
 prevent.
 
+A PR that touches `docs/integration-contract.md` also carries the `contract`
+label, not only the `CONTRACT:` title. The `contract` check
+(`scripts/check-contract-pr.ts`) fails without it, and an issue body that says
+"no contract impact" does not make it optional. Add it when opening the PR
+(`--label contract`); the check re-runs on `labeled`.
+
 An epic closes when its last sub-issue closes **and** its definition of done is
 met. Those are not the same thing, and the gap between them is usually docs.
 
