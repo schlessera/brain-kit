@@ -544,3 +544,42 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 6rem;
 }
+
+/* Answer suggestions (#40, D48): a chip the reader takes into the composer.
+ *
+ * The chip's hairline is an INSET SHADOW, not a border, so the target below is
+ * measured from the paint (D34). The reach is 8px on every side: the chips
+ * sit 16px apart on both axes, and D34 caps reach per side at half the
+ * distance to the nearest interactive neighbour. A one-line chip paints about
+ * 29px tall, so 8px above and below makes it 45px; a two-line chip is taller
+ * still. `.bk-control:hover` moves a border this chip does not have, so the
+ * shadow is moved here, from the same --hv-bd. */
+.answer-chip::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.answer-chip:hover {
+  box-shadow: inset 0 0 0 1px var(--hv-bd);
+}
+
+/* At phone widths a chip past half the row takes the whole row, so two long
+ * chips never sit side by side as tall, narrow boxes. */
+@media (max-width: 479px) {
+  .answer-chip[data-long] {
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .answer-suggestions {
+    animation: answer-suggestions-in 150ms ease-out;
+  }
+}
+
+@keyframes answer-suggestions-in {
+  from {
+    opacity: 0;
+  }
+}

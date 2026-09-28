@@ -3,8 +3,11 @@
 // draw the same eleven blocks.
 import type { Block } from "@schlessera/brain-ui-sdk/client";
 
-/** One payload per kind, each in the Odysseus world. */
-export const BLOCKS: Record<Block["kind"], Block> = {
+/** The kinds drawn inside the answer: every kind but `suggestions` (D48). */
+export type AnswerBlockKind = Exclude<Block["kind"], "suggestions">;
+
+/** One payload per kind drawn in the answer, each in the Odysseus world. */
+export const BLOCKS: Record<AnswerBlockKind, Block> = {
   comparison: {
     kind: "comparison",
     columns: [
@@ -105,4 +108,13 @@ export const BLOCKS: Record<Block["kind"], Block> = {
     badge: "loyal",
     facts: [{ k: "last seen", v: "20 years ago", tone: "red" }],
   },
+};
+
+/** The follow-ups the model offers under its answer (#40), drawn in the closing row. */
+export const SUGGESTIONS: Extract<Block, { kind: "suggestions" }> = {
+  kind: "suggestions",
+  items: [
+    { label: "What did Circe say about Charybdis?" },
+    { label: "Who was on watch then?", icon: "ask" },
+  ],
 };

@@ -12,14 +12,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import puppeteer, { type Browser } from "puppeteer-core";
-import { SHOW_BLOCK_CONTRACT, visibleToolName, type Block } from "@schlessera/brain-ui-sdk/client";
+import { SHOW_BLOCK_CONTRACT, visibleToolName } from "@schlessera/brain-ui-sdk/client";
 import { PRINT_TOKENS } from "@schlessera/brain-ui-kit";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
 
 import { createRenderer, type Renderer } from "../packages/ui-render-puppeteer/src/renderer.ts";
 import { renderBlockHtml, shareMarkdown } from "../packages/ui-react/src/components/chat/share-document.tsx";
 import type { ChatMessage } from "../packages/ui-react/src/stores/chat-state.ts";
-import { BLOCKS } from "../packages/ui-react/tests/block-fixtures.ts";
+import { BLOCKS, type AnswerBlockKind } from "../packages/ui-react/tests/block-fixtures.ts";
 
 const chromePath = [
   process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -34,7 +34,7 @@ if (!chromePath && process.env.BRAIN_REQUIRE_CHROME === "1") {
 }
 
 const SHOW_BLOCK = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
-const KINDS = Object.keys(BLOCKS) as Block["kind"][];
+const KINDS = Object.keys(BLOCKS) as AnswerBlockKind[];
 const noMermaid = { renderBlock: renderBlockHtml, inlineMermaid: async (md: string) => md };
 
 /**

@@ -43,6 +43,10 @@ export function MarkdownContent({
 export function usableBlocks(content: string, blocks: MessageBlock[] | undefined): MessageBlock[] {
   if (!blocks || blocks.length === 0) return [];
   const sorted = [...blocks]
+    // A span of the answer's prose is never swapped for suggestions: they
+    // are drawn under the answer (D48), so the prose would simply vanish.
+    // The pass cannot produce one; this keeps a forged frame from trying.
+    .filter((b) => b.block.kind !== "suggestions")
     .filter((b) => b.start >= 0 && b.end > b.start && b.end <= content.length)
     .sort((a, b) => a.start - b.start);
   const out: MessageBlock[] = [];

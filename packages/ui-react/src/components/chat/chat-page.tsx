@@ -314,6 +314,7 @@ export function ChatPage() {
                   onAskUserSubmit={handleAskUserSubmit}
                   onAskUserCancel={handleAskUserCancel}
                   onAskUserReask={handleAskUserReask}
+                  closing={msg === messages[messages.length - 1]}
                 />
               ))}
             </div>

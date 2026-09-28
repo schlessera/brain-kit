@@ -561,7 +561,14 @@ describe("the kinds the catalogue can draw", () => {
     // rather than the answer's own strings. That is D45's reason for not
     // routing them, so it is read off the schemas rather than listed here: a
     // twelfth variant carrying a figure has to be argued, not absorbed.
-    const leftOver = BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind));
+    //
+    // `suggestions` is outside that question altogether: it is not the
+    // answer's text in another shape but an offer drawn after the answer
+    // (#40), so no span of prose can classify into it.
+    const NOT_ANSWER_CONTENT: readonly string[] = ["suggestions"];
+    const leftOver = BLOCK_KINDS.filter(
+      (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
+    );
     expect(leftOver).toEqual(["trend", "bars"]);
     expect(leftOver).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });

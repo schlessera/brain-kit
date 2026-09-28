@@ -30,8 +30,10 @@ export type ShareSegment = { kind: "markdown"; text: string } | { kind: "block";
  * is where the model wrote each piece, not when its payload arrived.
  *
  * Left out, as the transcript's answer leaves them out: thinking, the tool
- * trace, `ask_user` exchanges, and a `show_block` call whose payload does not
- * parse (the transcript shows that one only inside the trace).
+ * trace, `ask_user` exchanges, a `show_block` call whose payload does not
+ * parse (the transcript shows that one only inside the trace), and answer
+ * suggestions, which are an offer to the reader in the app rather than part
+ * of the answer (D48).
  */
 export function shareSegments(message: Pick<ChatMessage, "parts" | "toolCalls" | "blocks">): ShareSegment[] {
   const segments: ShareSegment[] = [];
@@ -46,7 +48,7 @@ export function shareSegments(message: Pick<ChatMessage, "parts" | "toolCalls" |
       const tool = message.toolCalls[part.toolIndex];
       if (!tool || !isShowBlockTool(tool.name)) continue;
       const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
-      if (payload) segments.push({ kind: "block", block: payload.block });
+      if (payload && payload.block.kind !== "suggestions") segments.push({ kind: "block", block: payload.block });
       continue;
     }
     if (part.kind !== "text") continue;

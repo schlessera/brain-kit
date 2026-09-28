@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D47, dated, with the alternatives that were rejected
+way they are. D1 through D48, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -2864,7 +2864,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:411`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3291,7 +3291,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:411`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3465,7 +3465,7 @@ it in the pinned image.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:324-336`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:374-387`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -3934,3 +3934,90 @@ larger, and on prompts 3–7 the model stopped reading the brain through a
 shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
 and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
 `contact` and `quote` smaller than these counts can see.
+
+## 2026-09-28 — D48: the model may offer two follow-ups, drawn under the answer, that fill the composer and never send (#40)
+
+**Question.** `SuggestionChips` was used only for the welcome state, a fixed
+set the app chooses. Should the model author chips as follow-ups to its own
+answer, and if so, what does taking one do, where does the row sit, and what
+does a replayed session show?
+
+**Ruling (maintainer, recorded on #40).** Yes, within these limits.
+
+1. **A chip fills the composer and never sends.** Its words go below the
+   reader's draft, which is kept byte for byte, and the caret goes to the end.
+   It is never a `chat_message`, never the answer to a pending question and
+   never an approval. *Rejected: sending on tap.* The model wrote the words,
+   and a tap would run them before the reader could change them. Zero, one or
+   two suggestions per answer. None is a valid answer, and generic filler is
+   not offered.
+2. **The payload is the kit's data, minus tone.** The schema
+   (`SUGGESTIONS_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:346-371`) carries the row's
+   `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
+   which is a callback, and without `tone`, because a suggestion carries no
+   effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`
+   asserts the keys equal in both directions. Adding `tone` to the schema turns
+   that test red, and the PR that added it recorded the mutation.
+3. **A separate app component draws it.** `AnswerSuggestions` in ui-react uses
+   the kit's `Icon`, its untoned chip colours and `.bk-control`. It adds what
+   the kit's welcome chip lacks: a real `<button>`, a 44px target, and text
+   that wraps instead of ellipsising, because the chip IS the prompt. The
+   welcome chips do not change.
+4. **An exception to D41 §3: it is not drawn where it is called.** The turn's
+   last call that parses is lifted to the answer's closing row, after the text
+   and the share menu. At its call position `groupParts` draws nothing
+   (`payload?.block.kind === "suggestions"`,
+   `packages/ui-react/src/components/chat/message-bubble.tsx:183`), and shares
+   and prints leave it out. This also amends D37 §8's "chips while live,
+   `FeedbackRow` later": #41 closed as not planned, so the closing row is
+   suggestions or nothing.
+5. **Replay draws what live drew.** One pure function decides the row
+   (`visibleSuggestions`, `packages/ui-react/src/lib/answer-suggestions.ts:118-138`).
+   It reads only the transcript and state that is current either way. The
+   flip (D38 §8) is any message after this one. S1 is the session's run
+   state, which a resume sets from the status frame the server sends after
+   the history. S3 is an `ask_user` exchange without answers, which history
+   rebuilds from the tool calls. S4 is the answer's last text ending in `?`.
+   S5 and S6 are the voice store. S8 means no parsed call, or nothing
+   surviving the drops.
+6. **A voice-conversation turn is suppressed by its user message's `source`.**
+   ui-server keeps a message's source and joins it onto the replayed history
+   (#549), so the rule holds on replay as well.
+7. **Errors are suppressed only by #191's error card, live and on replay
+   alike.** Until it lands there is no error suppression. A cancelled turn is
+   never suppressed: the model calls suggestions last, so a turn that reached
+   the call has an answer.
+8. **The rule rides in the tool description, not the brief.** The brief sits
+   at its pinned eleven lines and 749 characters, and with the tools always
+   loaded (D44) it measured no effect on the call rate. The description, which
+   D44 puts in every prompt, carries a `suggestions:` line. The brief's
+   "names every kind" assertion exempts `suggestions` by name
+   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:108-112`).
+9. **It merges before it is measured, and the release waits.** #550 runs the
+   keyed measurement on both backends: the suggestion rate, the rate when the
+   answer ends in a question, the drop rate, the added tokens, and a read of
+   the kept suggestions as grounded or filler. The release that first ships
+   this is not cut until #550 closes.
+
+**Targets.** A one-line chip paints about 29px. Its target reaches 8px past
+the paint on every side (`.answer-chip::before`,
+`packages/ui-react/src/theme.css:557-561`), and the chips sit 16px apart on
+both axes, which is D34's half-the-gap limit. The hairline is an inset shadow,
+not a border, so the reach is measured from the paint.
+`tests/answer-suggestions-targets.test.tsx` lays the row out in real Chrome
+at 320px and 1280px. It asks `elementFromPoint` for the point 1px inside each
+edge of each target and asserts the border is zero. With the reach removed,
+all four edges read false. The same file runs axe on the row in both themes.
+A first axe run failed on colour contrast because it measured mid-fade,
+which is why the test now waits for animations to finish.
+
+**Proof.** `packages/ui-react/tests/render/answer-suggestions.test.tsx` mounts
+the real `ChatPage` and `Composer` on a root with a fake socket. It asserts
+each suppression rule twice, once on a turn built from live frames and once
+on the same turn replayed from `session_history` followed by its status
+frame. Every row of #40's
+composer table is covered, with the assertion that nothing was sent. For each
+guard, the test named for it failed when the guard was removed: S1, S3, S4,
+S5 and S6, S7 (in the decision itself; ChatPage's `closing` prop is only a
+render filter), S8, S9, the drops, the last call winning, the empty call
+position, the kept draft, the share omission, and the classified-span filter.

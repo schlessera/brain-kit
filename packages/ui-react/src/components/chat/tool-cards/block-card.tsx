@@ -72,6 +72,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `quote · ${block.source ?? "unattributed"}`;
     case "contact":
       return `contact · ${block.label}`;
+    case "suggestions":
+      return `suggestions · ${block.items.length}`;
   }
 }
 
@@ -132,6 +134,10 @@ function BlockView({ block }: { block: Block }) {
       const { kind: _kind, contactKind, role, facts, ...props } = block;
       return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
     }
+    case "suggestions":
+      // Never drawn in the answer: the closing row takes the turn's last
+      // valid call (D48), and a share or a print leaves them out.
+      return null;
   }
 }
 
