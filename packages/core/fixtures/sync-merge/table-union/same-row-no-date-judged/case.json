@@ -1,0 +1,13 @@
+{
+  "path": "_index.md",
+  "pairs": 1,
+  "decisions": [
+    {
+      "ours": "sharpened",
+      "decision": "theirs-supersedes"
+    }
+  ],
+  "notes": [
+    "theirs supersedes ours"
+  ]
+}

@@ -102,9 +102,10 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "TYPESAFE_API_KEY",
     description:
-      "Default API key for the built-in jev search reranker (default name only " +
-      "— a config `apiKeyEnv` can point elsewhere). Absent key keeps the " +
-      "lifecycle (heuristic) ordering.",
+      "Default TypeSafe AI key for Jev: the built-in jev search reranker (default " +
+      "name only — a config `apiKeyEnv` can point elsewhere) and the judgments " +
+      "`brain sync` asks. Absent key keeps the lifecycle (heuristic) search " +
+      "ordering, and every sync judgment takes its conservative default.",
     required: false,
   },
   {
@@ -140,6 +141,8 @@ export interface CoreEnv {
   chromeNoSandbox: boolean;
   /** CLAUDE_CODE_PATH, or undefined to run the Agent SDK's built-in binary. */
   claudeCodePath: string | undefined;
+  /** TYPESAFE_API_KEY, trimmed, or undefined when unset or blank (the sync judge is then off). */
+  typesafeApiKey: string | undefined;
 }
 
 /**
@@ -164,5 +167,6 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
       envFlag(env.BRAIN_CHROME_NO_SANDBOX, false) ||
       envFlag(env.BRAIN_UI_CHROME_NO_SANDBOX, false),
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
+    typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
   };
 }

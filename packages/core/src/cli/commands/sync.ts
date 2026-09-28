@@ -8,6 +8,8 @@ import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
+import { currentBranch, git, isAncestor, unmergedPaths } from "../../lib/sync/git.js";
+import { conclude, pendingState, rememberStash, type PendingKind } from "../../lib/sync/merge-state.js";
 import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
@@ -19,8 +21,11 @@ Mechanical verbs (structured output for the skill to drive):
   assess       Classify local changes (SENSITIVE|ARTIFACT|DERIVED|TRACK|MEDIA|LARGE|UNKNOWN;
                MEDIA and LARGE carry their size in bytes)
   group        Group tracked changes by taxonomy domain
-  pull         Fetch origin/main and fast-forward or merge
+  pull         Fetch origin/main and fast-forward or merge, first finishing a
+               merge left pending whose only conflicts are the derived caches
   conflicts    Emit BASE/OURS/THEIRS for each conflicted file
+  conclude     Once nothing is unmerged, commit a pending merge or squash, or
+               unstage what a conflicted stash pop left (its entry stays)
   push         Push to origin/main
   post-sync    Re-sync skills + reindex, commit the derived caches it rewrote,
                then report head parity and any remaining working-tree dirt`;
@@ -52,21 +57,6 @@ const CONFIG_FILES = new Set([
  */
 const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
 
-interface GitResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-function git(root: string, args: string[], raw = false): GitResult {
-  const proc = Bun.spawnSync(["git", "-C", root, ...args]);
-  return {
-    stdout: raw ? new TextDecoder().decode(proc.stdout) : new TextDecoder().decode(proc.stdout).trim(),
-    stderr: new TextDecoder().decode(proc.stderr).trim(),
-    code: proc.exitCode ?? 0,
-  };
-}
-
 /**
  * One record per `git status` entry: the two-character code and the path.
  *
@@ -91,16 +81,6 @@ function porcelainRecords(root: string): { xy: string; file: string }[] {
   return entries;
 }
 
-/**
- * The paths the index holds unmerged, once each. `-z` for the same reason as
- * `porcelainRecords`: without it git quotes and escapes a non-ASCII or unusual
- * path (`core.quotePath`), and the quoted form names no file `git show` can find.
- */
-function unmergedPaths(root: string): string[] {
-  return git(root, ["diff", "--name-only", "-z", "--diff-filter=U"], true).stdout.split("\0").filter(Boolean);
-}
-
-
 function isTrackable(file: string): boolean {
   const ext = file.includes(".") ? file.split(".").pop()! : "";
   if (TRACKABLE_EXTS.has(ext)) return true;
@@ -117,10 +97,6 @@ function domainFor(path: string, taxonomy: Taxonomy): string {
   }
   if (CONFIG_FILES.has(path)) return "config";
   return taxonomy.typeForPath(path);
-}
-
-function currentBranch(root: string): string {
-  return git(root, ["branch", "--show-current"]).stdout || "(detached HEAD)";
 }
 
 interface AssessedFile {
@@ -304,6 +280,153 @@ function unionDerivedCaches(
   }
 }
 
+/** What one pass of `pull` left, in the shape `pull` reports. */
+interface PullPass {
+  status: string;
+  conflicts: string[];
+  mergedCaches: string[];
+  reason?: string;
+}
+
+/** The statuses that claim origin/main is in HEAD. */
+const INTEGRATED = new Set(["synced", "fast-forwarded", "merged"]);
+
+function countCommits(root: string, range: string): number {
+  return parseInt(git(root, ["rev-list", "--count", range]).stdout || "0", 10);
+}
+
+/**
+ * Bring origin/main into HEAD once: synced when it is there already, else a
+ * fast-forward or a merge. The counts are taken afresh on each pass, because
+ * concluding a pending merge before it moves HEAD.
+ */
+function mergeOriginMain(root: string): PullPass {
+  const localAhead = countCommits(root, "origin/main..HEAD");
+  const remoteAhead = countCommits(root, "HEAD..origin/main");
+
+  // A cache this clone's reindex rewrote blocks a merge that touches it,
+  // and post-sync pushes caches, so the other clone's commit usually does.
+  // Set it aside for the merge and union it back after.
+  // A merge already in progress owns the caches' index stages; setting
+  // them aside would erase a cache conflict before it is resolved. A
+  // squash merge leaves its stages without a MERGE_HEAD.
+  const alreadyMerging =
+    git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0 ||
+    git(root, ["ls-files", "--unmerged"]).stdout !== "";
+  const aside =
+    remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
+
+  let status: string;
+  let conflicts: string[] = [];
+  let reason: string | undefined;
+  if (remoteAhead === 0) {
+    status = "synced";
+  } else if (localAhead === 0) {
+    status = git(root, ["merge", "--ff-only", "origin/main"]).code === 0 ? "fast-forwarded" : "merge-failed";
+  } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
+    status = "merged";
+  } else {
+    // Classify on what the failed merge left in the index, not on
+    // MERGE_HEAD: a squash merge (branch.main.mergeOptions) stops on
+    // conflicts without one, and a merge left unfinished before this pull
+    // keeps one with nothing to resolve. Unmerged paths are Phase 4's
+    // work; none means git refused, which is only to report.
+    conflicts = unmergedPaths(root);
+    status = conflicts.length > 0 ? "conflicted" : "merge-failed";
+  }
+
+  // No merge started (git refused before touching the tree): put the
+  // caches back as they were. Otherwise union them, which also resolves
+  // a cache conflict, so Phase 4 never sees one.
+  const merging =
+    conflicts.length > 0 || git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
+  const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
+  const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
+  if (status === "fast-forwarded" || status === "merged" || merging) {
+    unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
+    if (cacheConflicts.length > 0) {
+      git(root, ["add", "--", ...cacheConflicts]);
+      conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
+      if (conflicts.length === 0) {
+        const done = conclude(root);
+        status = done.outcome === "committed" ? "merged" : "merge-failed";
+        reason = done.detail;
+      }
+    }
+  } else {
+    putDerivedCachesBack(root, aside);
+  }
+  return reason === undefined ? { status, conflicts, mergedCaches } : { status, conflicts, mergedCaches, reason };
+}
+
+/**
+ * `pull` after its fetch. Merge state already pending when it runs is dealt
+ * with first (#328): a rebase, cherry-pick, revert or am is never touched,
+ * nor is a merge or squash with nothing unmerged, which is its owner's to
+ * commit; unmerged derived caches are unioned from their stages, as in a merge this
+ * pull starts; any other unmerged path is reported for resolution before a
+ * merge is tried, since git would refuse one over it. With nothing left
+ * unmerged the pending state is finished by its kind (`conclude`).
+ *
+ * A status in INTEGRATED claims origin/main is in HEAD, and must be true. A
+ * pass can leave it out (a squash merge never records it as a parent), so a
+ * pass that does gets one more, and after that the pull is merge-failed.
+ */
+function pullOriginMain(root: string): { pass: PullPass; concluded: PendingKind | null } {
+  const pending = pendingState(root);
+  if (pending.kind === "blocked") {
+    const reason = `a ${pending.blocker} is in progress`;
+    return { pass: { status: "merge-failed", conflicts: [], mergedCaches: [], reason }, concluded: null };
+  }
+
+  // A merge or squash with nothing unmerged is its owner's to commit (a
+  // `--no-commit` merge, or a squash git stopped before committing). A merge
+  // over it is refused, and a refused squash merge deletes SQUASH_MSG, which
+  // turns the squash into staged work nothing tells from anyone else's.
+  if ((pending.kind === "merge" || pending.kind === "squash") && pending.unmerged.length === 0) {
+    const reason = `a ${pending.kind} is pending with nothing unmerged; finish it with \`brain sync conclude\``;
+    return { pass: { status: "merge-failed", conflicts: [], mergedCaches: [], reason }, concluded: null };
+  }
+
+  const resolvedCaches = pending.unmerged.filter((file) => DERIVED_CACHES.has(file));
+  let concluded: PendingKind | null = null;
+  let committed = false;
+  // A stash leftover resolved since it was remembered has nothing unmerged
+  // and is still unstaged here.
+  if (pending.unmerged.length > 0 || pending.kind === "stash") {
+    unionDerivedCaches(root, resolvedCaches, new Map(), new Set(resolvedCaches));
+    if (resolvedCaches.length > 0) git(root, ["add", "--", ...resolvedCaches]);
+    const conflicts = pending.unmerged.filter((file) => !DERIVED_CACHES.has(file));
+    if (conflicts.length > 0) {
+      rememberStash(root, pending);
+      return { pass: { status: "conflicted", conflicts, mergedCaches: resolvedCaches }, concluded: null };
+    }
+    const done = conclude(root, pending);
+    if (done.outcome !== "committed" && done.outcome !== "unstaged") {
+      const reason = done.detail ?? done.outcome;
+      return { pass: { status: "merge-failed", conflicts: [], mergedCaches: resolvedCaches, reason }, concluded: null };
+    }
+    concluded = pending.kind;
+    committed = done.outcome === "committed";
+  }
+
+  let pass = mergeOriginMain(root);
+  if (INTEGRATED.has(pass.status) && !isAncestor(root, "origin/main", "HEAD")) {
+    // A pass that left state pending (a squash merge git did not commit)
+    // would only be refused by a second merge.
+    if (pendingState(root).kind === "none") {
+      const again = mergeOriginMain(root);
+      pass = { ...again, mergedCaches: [...new Set([...pass.mergedCaches, ...again.mergedCaches])] };
+    }
+    if (INTEGRATED.has(pass.status) && !isAncestor(root, "origin/main", "HEAD")) {
+      pass = { ...pass, status: "merge-failed", reason: "origin/main is not in HEAD" };
+    }
+  }
+  // Nothing new to fetch, but the pull did finish a merge.
+  if (committed && pass.status === "synced") pass = { ...pass, status: "merged" };
+  return { pass: { ...pass, mergedCaches: [...new Set([...resolvedCaches, ...pass.mergedCaches])] }, concluded };
+}
+
 /**
  * Commit and push the derived caches post-sync rewrote, and nothing else.
  * Returns the outcome reported as `cacheCommit`.
@@ -404,7 +527,7 @@ export const syncCommand: CoreCommand = {
 
     if (!verb) {
       if (!cli.agentRunner) {
-        throw new UsageError("`brain sync` (no verb) requires an agent runner. Try a mechanical verb: assess|group|pull|conflicts|push|post-sync.");
+        throw new UsageError("`brain sync` (no verb) requires an agent runner. Try a mechanical verb: assess|group|pull|conflicts|conclude|push|post-sync.");
       }
       await runAgent(cli.agentRunner, "/sync", root);
       return;
@@ -456,66 +579,25 @@ export const syncCommand: CoreCommand = {
           emit(cli.json, { status: "fetch-failed" }, () => console.log("STATUS=fetch-failed"));
           return 1;
         }
-        const localAhead = parseInt(git(root, ["rev-list", "--count", "origin/main..HEAD"]).stdout || "0", 10);
-        const remoteAhead = parseInt(git(root, ["rev-list", "--count", "HEAD..origin/main"]).stdout || "0", 10);
+        // Measured before anything below moves HEAD.
+        const localAhead = countCommits(root, "origin/main..HEAD");
+        const remoteAhead = countCommits(root, "HEAD..origin/main");
+        const { pass, concluded } = pullOriginMain(root);
+        const { status, conflicts, mergedCaches, reason } = pass;
 
-        // A cache this clone's reindex rewrote blocks a merge that touches it,
-        // and post-sync pushes caches, so the other clone's commit usually does.
-        // Set it aside for the merge and union it back after.
-        // A merge already in progress owns the caches' index stages; setting
-        // them aside would erase a cache conflict before it is resolved. A
-        // squash merge leaves its stages without a MERGE_HEAD.
-        const alreadyMerging =
-          git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0 ||
-          git(root, ["ls-files", "--unmerged"]).stdout !== "";
-        const aside =
-          remoteAhead > 0 && !alreadyMerging ? setDerivedCachesAside(root) : new Map<string, CacheAside>();
-
-        let status: string;
-        let conflicts: string[] = [];
-        if (remoteAhead === 0) {
-          status = "synced";
-        } else if (localAhead === 0) {
-          status = git(root, ["merge", "--ff-only", "origin/main"]).code === 0 ? "fast-forwarded" : "merge-failed";
-        } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
-          status = "merged";
-        } else {
-          // Classify on what the failed merge left in the index, not on
-          // MERGE_HEAD: a squash merge (branch.main.mergeOptions) stops on
-          // conflicts without one, and a merge left unfinished before this pull
-          // keeps one with nothing to resolve. Unmerged paths are Phase 4's
-          // work; none means git refused, which is only to report.
-          conflicts = unmergedPaths(root);
-          status = conflicts.length > 0 ? "conflicted" : "merge-failed";
-        }
-
-        // No merge started (git refused before touching the tree): put the
-        // caches back as they were. Otherwise union them, which also resolves
-        // a cache conflict, so Phase 4 never sees one.
-        const merging =
-          conflicts.length > 0 || git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
-        const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
-        const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
-        if (status === "fast-forwarded" || status === "merged" || merging) {
-          unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
-          if (cacheConflicts.length > 0) {
-            git(root, ["add", "--", ...cacheConflicts]);
-            conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
-            if (conflicts.length === 0) {
-              status = git(root, ["commit", "--no-edit"]).code === 0 ? "merged" : "merge-failed";
-            }
+        emit(
+          cli.json,
+          { status, localAhead, remoteAhead, conflicts, mergedCaches, concluded, ...(reason === undefined ? {} : { reason }) },
+          () => {
+            console.log(`LOCAL_AHEAD=${localAhead}`);
+            console.log(`REMOTE_AHEAD=${remoteAhead}`);
+            console.log(`STATUS=${status}`);
+            if (concluded) console.log(`CONCLUDED=${concluded}`);
+            if (reason !== undefined) console.log(`REASON=${reason}`);
+            for (const c of conflicts) console.log(`CONFLICT=${c}`);
+            for (const c of mergedCaches) console.log(`MERGED_CACHE=${c}`);
           }
-        } else {
-          putDerivedCachesBack(root, aside);
-        }
-
-        emit(cli.json, { status, localAhead, remoteAhead, conflicts, mergedCaches }, () => {
-          console.log(`LOCAL_AHEAD=${localAhead}`);
-          console.log(`REMOTE_AHEAD=${remoteAhead}`);
-          console.log(`STATUS=${status}`);
-          for (const c of conflicts) console.log(`CONFLICT=${c}`);
-          for (const c of mergedCaches) console.log(`MERGED_CACHE=${c}`);
-        });
+        );
         return status === "merge-failed" ? 1 : 0;
       }
 
@@ -541,6 +623,16 @@ export const syncCommand: CoreCommand = {
         return 0;
       }
 
+      case "conclude": {
+        const done = conclude(root);
+        emit(cli.json, done, () => {
+          console.log(`OUTCOME=${done.outcome}`);
+          console.log(`KIND=${done.kind}`);
+          if (done.detail !== undefined) console.log(`DETAIL=${done.detail}`);
+        });
+        return done.outcome === "committed" || done.outcome === "unstaged" || done.outcome === "nothing" ? 0 : 1;
+      }
+
       case "push": {
         const res = git(root, ["push", "origin", "main"]);
         const status = res.code === 0 ? "pushed" : "rejected";
@@ -557,7 +649,7 @@ export const syncCommand: CoreCommand = {
       }
 
       default:
-        throw new UsageError(`Unknown sync verb: ${verb}. Use assess|group|pull|conflicts|push|post-sync.`);
+        throw new UsageError(`Unknown sync verb: ${verb}. Use assess|group|pull|conflicts|conclude|push|post-sync.`);
     }
   },
 };

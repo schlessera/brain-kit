@@ -61,6 +61,7 @@ export function keylessEnv(root: string): Record<string, string> {
   env.BRAIN_ROOT = root;
   env.XDG_BIN_HOME = testBinHome();
   delete env.GEMINI_API_KEY;
+  delete env.TYPESAFE_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.GOOGLE_API_KEY;
   // The jev reranker is the default with its key: a developer key would
