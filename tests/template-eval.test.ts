@@ -64,6 +64,10 @@ describe("bun run eval in a brain generated from the template", () => {
     delete e.GEMINI_API_KEY;
     delete e.ANTHROPIC_API_KEY;
     delete e.GOOGLE_API_KEY;
+    // The jev reranker is the default with its key: a developer key would
+    // turn these runs into paid network calls.
+    delete e.TYPESAFE_API_KEY;
+    delete e.BRAIN_RERANK_MODE;
     e.BRAIN_ROOT = brain;
     return e;
   }

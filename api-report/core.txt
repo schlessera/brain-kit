@@ -49,6 +49,7 @@ export "." (./src/index.ts)
   type IngestInput
   type IngestOutcome
   type InitContextOptions
+  type JevRerankerConfig
   type LoadedConfig
   type LoadedModule
   type ModuleCronEntry
@@ -60,10 +61,18 @@ export "." (./src/index.ts)
   type OkfExportOptions
   type OkfExportReport
   type PropagationRule
+  RERANK_MODES
+  type Ranked
   type ReadPartOptions
   type RegistryRun
   type RegistrySpec
+  type RerankCandidate
+  type RerankMode
+  type RerankRequest
+  type RerankSetup
+  type Reranker
   type RerankerConfig
+  type RerankerSelection
   type ResolvedTypeSpec
   SCHEMA_VERSION
   SCRATCH_DIR
@@ -77,6 +86,7 @@ export "." (./src/index.ts)
   type ScratchRemoval
   type ScratchReport
   type SearchDeps
+  type SearchMode
   type SearchOptions
   type SearchResponse
   type SearchResult
@@ -97,10 +107,13 @@ export "." (./src/index.ts)
   WriteRefusedError
   archiveDocument
   assembleContext
+  assertPermutation
   assertScratchWritable
   audit
   brainConfigSchema
+  buildPathMatcher
   buildTaxonomy
+  candidateKey
   checkIndexDrift
   checkOkfBundle
   chunkDocument
@@ -114,6 +127,7 @@ export "." (./src/index.ts)
   defineConfig
   defineEmbeddingProvider
   defineModule
+  defineReranker
   defineSkillEmitter
   discoverSkills
   editFrontmatter
@@ -139,13 +153,16 @@ export "." (./src/index.ts)
   isInScratch
   isIsoDate
   isWriteRefusal
+  jevReranker
   lintSkills
   loadModules
   loadUserConfig
   loadVecSupport
+  mergeWithheld
   migrateVecSchema
   normalizeFrontmatterDates
   openDatabase
+  partitionForRerank
   pruneScratch
   readDocumentPart
   readEnvVar
@@ -155,10 +172,13 @@ export "." (./src/index.ts)
   replaceGeneratedRegion
   repoRelativePathSchema
   rerank
+  rerankSetup
+  rerankerKeyEnv
   resolveAgentRunner
   resolveCompletionProvider
   resolveEmbeddingProvider
   resolveEnv
+  resolveReranker
   resolveRoot
   resolveWikiLink
   resolveWritable
@@ -168,6 +188,7 @@ export "." (./src/index.ts)
   scratchDir
   scratchIgnored
   scratchName
+  selectReranker
   setContext
   setMeta
   splitFrontmatterBlock
@@ -186,11 +207,13 @@ export "./testing" (./src/testing/index.ts)
   type CompletionProviderContractHarness
   type ContractTestPrimitives
   type EmbeddingProviderContractHarness
+  type RerankerContractHarness
   type SkillEmitterContractHarness
   TOOL_EVENT_SEEN_FILE
   runAgentRunnerContract
   runCompletionProviderContract
   runEmbeddingProviderContract
+  runRerankerContract
   runSkillEmitterContract
 
 signatures (the seams in docs/extending/README.md and the types they are made of)

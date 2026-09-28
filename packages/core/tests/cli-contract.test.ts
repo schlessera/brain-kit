@@ -533,7 +533,7 @@ describe("eval", () => {
       expect(out.schema_version).toBe(1);
       expect(Object.keys(out.meta).sort()).toEqual([
         "documents", "embedding_model", "k", "modes", "now", "pool", "queries",
-        "rerank", "set", "set_sha256", "source", "version",
+        "rerank", "reranker", "set", "set_sha256", "source", "version",
       ]);
       expect(out.meta).toMatchObject({ version: packageVersion(), queries: 2, modes: ["fts"], k: [1, 3, 10] });
       expect(out.rows.length).toBeGreaterThan(0);
@@ -628,5 +628,32 @@ describe("output mode + exit codes", () => {
   test("unknown flag exits 1", async () => {
     const { code } = await runCli(root, ["search", "x", "--not-a-flag"]);
     expect(code).toBe(1);
+  });
+
+  test("an unknown rerank mode is a usage error, not a silent fallback", async () => {
+    const { code, stderr } = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "title", "--json"]);
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/Unknown rerank mode "title"/);
+  });
+
+  test("--rerank jev without a key keeps the lifecycle ordering and says so", async () => {
+    const res = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--json"]);
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout);
+    expect(out.results.length).toBeGreaterThan(0);
+    expect(out.warnings.some((w: string) => /rerank "jev" unavailable: TYPESAFE_API_KEY not set/.test(w))).toBe(true);
+  });
+
+  test("brain eval refuses --rerank jev it cannot run instead of scoring the fallback", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-eval-set-"));
+    try {
+      const set = join(dir, "retrieval.jsonl");
+      writeFileSync(set, JSON.stringify({ id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] }));
+      const res = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--rerank", "jev", "--json"]);
+      expect(res.code).toBe(2);
+      expect(res.stderr).toMatch(/--rerank jev cannot run/);
+    } finally {
+      cleanup(dir);
+    }
   });
 });

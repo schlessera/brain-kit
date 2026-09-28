@@ -326,7 +326,7 @@ way. `brain stats` `size.corpus` follows the same rule.
 
 ## Providers
 
-Three provider seams, all following the same **dual convention**: a config value
+Four provider seams, all following the same **dual convention**: a config value
 is either a **string** (the name of a built-in, resolved against a static
 registry compiled into core) or a **passed-in implementation** (a value you
 import and hand over). See [extending/README.md](extending/README.md).
@@ -409,6 +409,37 @@ See [extending/agent-runners.md](extending/agent-runners.md).
 ```ts
 agentRunner: "claude"
 ```
+
+### `reranker`
+
+How search orders what it retrieves, for `brain search`, `brain context`,
+`brain eval`, the MCP tools and the chat backends. When omitted, the `jev`
+built-in is used but stays dormant until `TYPESAFE_API_KEY` is present;
+without it, search keeps the `heuristic` ordering.
+
+| Key          | Type                   | Default            | Notes |
+| ------------ | ---------------------- | ------------------ | ----- |
+| `provider`   | `string \| Reranker`   | `"jev"`            | `jev` (relevance judgment), `heuristic` (lifecycle multipliers only), `none`, or a custom value. |
+| `model`      | `string`               | `jev-1.13.0`       | Pinned on purpose; `jev-latest` moves and `brain doctor` warns on it. |
+| `apiKeyEnv`  | `string`               | `TYPESAFE_API_KEY` | Env var holding the key. |
+| `exclude`    | `string[]`             | —                  | Paths never sent to a network reranker: a bare name is a directory or file prefix, anything else a glob. Withheld results keep their retrieval rank. |
+| `timeoutMs`  | `number` (positive)    | `3000`             | Deadline for the rerank call; past it, the retrieval order stands. |
+| `depth`      | `number` (≥ 2)         | `50`               | How many top candidates are judged; the rest follow in retrieval order. |
+| `skipMargin` | `number` (≥ 0)         | —                  | Skip the judgment when the vector lane's top result leads the second by this similarity margin. A cost lever, off by default; derive it with `brain eval`. |
+
+```ts
+reranker: { provider: "jev", exclude: ["career", "clients/**/ledger.md"] }
+```
+
+`jev` does not apply the `heuristic` lifecycle multipliers on top of its
+order. It sends each candidate's `status`, `relevance` and `updated` as
+evidence instead: measured, the multipliers after a judgment undid most of its
+gain. `supersedes` demotion still applies in every mode.
+
+Per request, `brain search --rerank none|heuristic|jev` overrides the default,
+and `--rerank-dry-run` prints the exact outbound request to stderr without
+sending it. See [extending/rerankers.md](extending/rerankers.md) for the
+interface, the measurements and how to add your own.
 
 ## `skills`
 
@@ -599,7 +630,8 @@ path and says so, rather than failing at the call.
 | `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
-| `BRAIN_RERANK_MODE` | search | Overrides the configured rerank mode. |
+| `BRAIN_RERANK_MODE` | search | Overrides the configured reranker: `jev`, `heuristic` or `none`. An explicit `--rerank` still wins. |
+| `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Absent → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |

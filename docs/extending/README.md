@@ -40,7 +40,7 @@ export default defineConfig({
 ### The contributor story (≤3 steps)
 
 1. **Implement the interface** via its typed helper — `defineEmbeddingProvider`,
-   `defineCompletionProvider`, `defineAgentRunner`, or `defineSkillEmitter` from
+   `defineCompletionProvider`, `defineAgentRunner`, `defineReranker`, or `defineSkillEmitter` from
    `@schlessera/brain` (identity functions that give you inference and
    excess-property checking) — or as a plain object typed as the interface.
 2. **Reference it in config** by value — it works immediately, no registration.
@@ -68,8 +68,8 @@ version bump from 1.0). See [integration-contract.md](../integration-contract.md
 
 ## The seams
 
-There are nine. This table is the list; the integration contract's
-"Extension interfaces" table names the same nine, and `tests/seam-list.test.ts`
+There are ten. This table is the list; the integration contract's
+"Extension interfaces" table names the same ten, and `tests/seam-list.test.ts`
 fails when the two or the `@experimental` tags in the source disagree.
 
 | Seam                                | Interface            | Imported from                     | What it swaps                            |
@@ -78,13 +78,14 @@ fails when the two or the `@experimental` tags in the source disagree.
 | [Completions](completions.md)       | `CompletionProvider` | `@schlessera/brain`               | Plain LLM calls for enrichment           |
 | [Agent runners](agent-runners.md)   | `AgentRunner`        | `@schlessera/brain`               | The coding-agent CLI skills shell out to |
 | [Skill emitters](skill-emitters.md) | `SkillEmitter`       | `@schlessera/brain`               | The agent format skills are emitted for  |
+| [Rerankers](rerankers.md)           | `Reranker`           | `@schlessera/brain`               | The relevance judgment that orders results |
 | [Agent backends](agent-backends.md) | `AgentBackend`       | `@schlessera/brain-ui-sdk/server` | The runtime that drives a chat session   |
 | Speech                              | `SpeechProvider`     | `@schlessera/brain-ui-sdk/server` | Who mints a dictation session            |
 | Speech                              | `AsrClient`          | `@schlessera/brain-ui-sdk/client` | The browser end of that session          |
 | Tool renderers                      | `ToolRenderer`       | `@schlessera/brain-ui-sdk/client` | How one tool call looks in the timeline  |
 | Site adapters                       | `SiteAdapter`        | `@schlessera/brain-scrape`        | The site a module fetches from           |
 
-The first four live in core. The self-hosted chat UI adds four in
+The first five live in core. The self-hosted chat UI adds four in
 `@schlessera/brain-ui-sdk` (`packages/ui-sdk` in this monorepo).
 
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
@@ -131,7 +132,7 @@ here, before there is a candidate, rather than negotiated with one.
 
 Nothing has been promoted. Every name a seam resolves today resolves to
 first-party code: `EMBEDDING_PROVIDERS`, `COMPLETION_PROVIDERS` and
-`AGENT_RUNNERS` in `packages/core/src/lib/registry.ts`, `BUILTIN_EMITTERS` in
+`AGENT_RUNNERS` and `RERANKERS` in `packages/core/src/lib/registry.ts`, `BUILTIN_EMITTERS` in
 `packages/core/src/lib/skills/index.ts`, the `FIRST_PARTY_BACKENDS` table in
 `packages/ui-server/src/agent/backend.ts`, and — the same thing written by hand
 rather than as a registry — the two `VOICE_PROVIDER` names `pickSpeechProvider`
@@ -206,8 +207,8 @@ there is no vote and no score.
    `@schlessera/brain-ui-sdk/testing`, the harness both first-party backends
    run. For a core seam it means the seam's suite from
    `@schlessera/brain/testing` (`runEmbeddingProviderContract`,
-   `runCompletionProviderContract`, `runAgentRunnerContract` or
-   `runSkillEmitterContract`), run against the real provider code driven
+   `runCompletionProviderContract`, `runAgentRunnerContract`,
+   `runRerankerContract` or `runSkillEmitterContract`), run against the real provider code driven
    through an isolated `fetch` or a fake binary, as
    `packages/core/tests/seam-contracts.test.ts` and
    `agent-runner-contracts.test.ts` beside it run every built-in. The suite
@@ -290,7 +291,12 @@ there is no ambiguity:
 - Markdown files + git as the source of truth, including the frontmatter model —
   modules may extend taxonomy values, but the file-first model is fixed.
 - The chunking strategy and hybrid-search ranking pipeline (fusion weights,
-  heuristic reranker). Tunable constants, not interfaces.
+  the heuristic reranker's lifecycle factors). Tunable constants, not
+  interfaces. The relevance *judgment* that can order the fused list is a seam
+  of its own, [`Reranker`](rerankers.md), since 0.39.0: a judgment reranker
+  more than doubled hit@1 over the heuristic in `brain eval`, and rerankers are
+  a commodity API category (Cohere, Voyage, Jina, local cross-encoders) with a
+  second implementation plainly within a year.
 - The wire protocol (`packages/ui-sdk/src/protocol.ts`, published as
   `@schlessera/brain-ui-sdk/protocol`) — it is the contract every backend
   targets.

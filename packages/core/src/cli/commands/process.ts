@@ -1,3 +1,4 @@
+import { rerankSetup } from "../../lib/registry.js";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
@@ -158,7 +159,7 @@ export const processCommand: CoreCommand = {
         const results: Array<{ path: string; result: ProcessResult }> = [];
         for (const notePath of noteFiles) {
           if (!cli.json) console.log(`Processing: ${notePath}...`);
-          const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
+          const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy, ...rerankSetup(cli.brain.config?.reranker).deps }, keepNote);
           results.push({ path: notePath, result });
           if (!cli.json) {
             console.log(`  Action: ${result.action} — ${result.reasoning}`);
@@ -179,7 +180,7 @@ export const processCommand: CoreCommand = {
         throw new UsageError(`File not found: ${notePath}`);
       }
 
-      const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
+      const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy, ...rerankSetup(cli.brain.config?.reranker).deps }, keepNote);
       emit(cli.json, result, () => {
         console.log(`Action: ${result.action}`);
         console.log(`Reasoning: ${result.reasoning}`);

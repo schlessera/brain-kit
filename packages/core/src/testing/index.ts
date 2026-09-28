@@ -1,5 +1,5 @@
 /**
- * `@schlessera/brain/testing` — contract suites for the four core seams.
+ * `@schlessera/brain/testing` — contract suites for the five core seams.
  *
  * One suite per seam: the promises each seam's page under docs/extending/
  * makes, as tests a provider outside this repository can run against its own
@@ -27,3 +27,4 @@ export {
   type AgentRunnerContractHarness,
 } from "./agent-runners.js";
 export { runSkillEmitterContract, type SkillEmitterContractHarness } from "./skill-emitters.js";
+export { runRerankerContract, type RerankerContractHarness } from "./rerankers.js";

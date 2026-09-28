@@ -18,3 +18,10 @@ export const GEMINI_FLASH_MODEL = "gemini-3-flash-preview";
 
 /** Fast Claude model for plain completions via the Anthropic API. */
 export const CLAUDE_FAST_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Pinned Jev model for the built-in reranker. `jev-latest` moves and the
+ * measured ordering quality does not transfer across versions, so this stays
+ * explicit; bump it deliberately, after re-running `brain eval --rerank jev`.
+ */
+export const JEV_MODEL = "jev-1.13.0";

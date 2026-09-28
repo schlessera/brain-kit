@@ -76,7 +76,13 @@ export interface ChunkMatch {
 export interface SearchOptions {
   query?: string;
   mode?: "fts" | "vector" | "hybrid";
-  rerank?: "none" | "heuristic";
+  /**
+   * `none` keeps the retrieval order; `heuristic` applies the lifecycle
+   * factors; `jev` runs the Reranker injected through SearchDeps first, then
+   * the lifecycle factors. Unset: BRAIN_RERANK_MODE, else `jev` when a
+   * Reranker is injected, else `heuristic`.
+   */
+  rerank?: "none" | "heuristic" | "jev";
   type?: string;
   tag?: string;
   relevance?: string;

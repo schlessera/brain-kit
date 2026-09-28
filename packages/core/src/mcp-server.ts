@@ -25,6 +25,7 @@ import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
 import { assembleContext } from "./lib/context-assembler.js";
+import { rerankSetup } from "./lib/registry.js";
 import { walkLinks } from "./lib/link-walk.js";
 import { readDocumentPart } from "./lib/document-parts.js";
 import { ingest } from "./lib/ingestion.js";
@@ -228,7 +229,12 @@ export async function startMcpServer(
         tag: z.string().optional().describe("Filter by tag"),
         relevance: z.string().optional().describe("Filter by relevance (primary, secondary, historical)"),
         mode: z.enum(["fts", "vector", "hybrid"]).default("hybrid").describe("Search mode: fts, vector, or hybrid"),
-        rerank: z.enum(["none", "heuristic"]).default("heuristic").describe("Reranking mode: none or heuristic"),
+        rerank: z
+          .enum(["none", "heuristic", "jev"])
+          .optional()
+          .describe(
+            "Reranking: jev (relevance judgment, then lifecycle factors), heuristic (lifecycle factors only) or none. Omit for the brain's configured default."
+          ),
         include_archived: z.boolean().default(false).describe("Include archived documents"),
         assets_only: z.boolean().default(false).describe("Only return non-markdown assets (images, PDFs)"),
         limit: z.number().default(10).describe("Max results to return"),
@@ -249,10 +255,11 @@ export async function startMcpServer(
       try {
         if (params.mode !== "fts") await ensureVec();
 
+        const setup = rerankSetup(brain.config?.reranker, params.rerank);
         const opts: SearchOptions = {
           query: params.query,
           mode: params.mode,
-          rerank: params.rerank,
+          rerank: setup.rerank,
           type: params.type,
           tag: params.tag,
           relevance: params.relevance,
@@ -266,7 +273,8 @@ export async function startMcpServer(
           sort: params.sort ?? (params.upcoming ? "deadline" : undefined),
         };
 
-        const { results, warnings } = await hybridSearch(db, opts, { embeddings, taxonomy: brain.taxonomy });
+        const { results, warnings } = await hybridSearch(db, opts, { embeddings, taxonomy: brain.taxonomy, ...setup.deps });
+        if (setup.warning) warnings.unshift(setup.warning);
         const stale = indexStalenessWarning();
         if (stale) warnings.push(stale);
         if (configWarning) warnings.unshift(configWarning);
@@ -329,6 +337,7 @@ export async function startMcpServer(
           includeIdentity: params.include_identity,
           includeCurrentFocus: params.include_current_focus,
           embeddings,
+          rerank: rerankSetup(brain.config?.reranker),
         });
 
         const stale = indexStalenessWarning();
