@@ -1,7 +1,15 @@
 import { existsSync, readFileSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
 import matter from "gray-matter";
-import { buildHtmlDocument, type RenderContentType } from "@schlessera/brain-render-template";
+import {
+  buildHtmlDocument,
+  DOCUMENT_BLOCKS,
+  documentTitle,
+  isFullDocument,
+  lintDocument,
+  type RenderContentType,
+} from "@schlessera/brain-render-template";
+import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
 
 import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import {
@@ -34,17 +42,31 @@ const HELP = `brain render <path|-> — render a document to PDF, PNG, or standa
   --as <type>           Treat input as markdown or html. Default: from the file
                         extension; markdown for stdin.
   --title <text>        Document title. Default: the frontmatter title, else the
-                        file name.
+                        file name. A complete HTML document keeps its own.
+  --no-running-title    PDF footer shows page numbers only, not the title.
   --width <px>          Layout width, 320-4096. Default 768.
   --allow-host <host>   Let the page load images from this host (repeatable).
                         Off by default: the page resolves no hostname at all.
 
-Frontmatter is stripped before rendering — it is metadata, not content.
+Designed documents are composed from the shell's components, never from CSS:
+
+  --kind list               The document kinds, and when to use each.
+  --kind <kind> --scaffold  Print that kind's skeleton, a complete example to
+                            fill in (HTML, or markdown for "note").
+  --blocks [name...]        Print the component snippets, all or the named ones.
+
+These three print text and need no input path.
+
+Frontmatter is stripped before rendering — it is metadata, not content. Every
+render is checked for what would come out wrong (unknown component classes, an
+opener that is not first, images or stylesheets that cannot load, placeholders
+left from a skeleton); the findings are printed and listed in \`warnings\`.
 
 PDF and PNG need the optional @schlessera/brain-render-puppeteer package and a
 Chrome binary; --format html needs neither and produces the same document.
 
---json envelope: { input, output, format, bytes, title, allowHosts }`;
+--json envelope: { input, output, format, bytes, pages, title, allowHosts, warnings }
+--kind list --json: { kinds: [{ name, aliases, label, use, opener, blocks, accent, switches, format }] }`;
 
 const FORMATS = new Set(["pdf", "png", "html"]);
 
@@ -78,11 +100,102 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * Pages in a PDF Chrome wrote. Skia writes a plain cross-reference table and
+ * no object streams, so every page object is visible as `/Type /Page`; the
+ * `(?![A-Za-z])` keeps `/Type /Pages` tree nodes out of the count.
+ */
+export function countPdfPages(pdf: Uint8Array): number {
+  return Buffer.from(pdf).toString("latin1").match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
+}
+
+function kindsTable(): string {
+  const rows = DOCUMENT_KINDS.map((k) => [
+    k.name,
+    k.aliases.join(", "),
+    k.use,
+    k.opener,
+    k.accent + (k.switches.length ? ` + ${k.switches.join(" ")}` : ""),
+  ]);
+  const lines = [
+    "kind | also | use when | opener | accent",
+    ...rows.map((r) => r.join(" | ")),
+    "",
+    "Print one with: brain render --kind <kind> --scaffold",
+  ];
+  return lines.join("\n");
+}
+
+function blocksText(names: string[]): string {
+  const unknown = names.filter((n) => !DOCUMENT_BLOCKS.some((b) => b.name === n));
+  if (unknown.length > 0) {
+    throw new UsageError(
+      `Unknown block: ${unknown.join(", ")}. Blocks: ${DOCUMENT_BLOCKS.map((b) => b.name).join(", ")}`
+    );
+  }
+  const chosen = names.length ? DOCUMENT_BLOCKS.filter((b) => names.includes(b.name)) : DOCUMENT_BLOCKS;
+  const header = names.length
+    ? []
+    : [
+        "Switches on <body>: data-accent=\"amber|teal|blue|purple|graphite\", class=\"doc--editorial\" (serif display), class=\"doc--compact\" (tighter).",
+        "One opener at most, as the first element in <body>. Blocks keep together across pages; long lists and tables split only between items. Columns stack under 600px.",
+        "",
+      ];
+  return [
+    ...header,
+    ...chosen.map((b) => `## ${b.name} (${b.group})\n${b.use}\n${b.html}\n`),
+  ].join("\n");
+}
+
+/**
+ * `--kind` and `--blocks`: reference output for composing a designed
+ * document. No input, no rendering. A skeleton and the block snippets print
+ * as text even when stdout is not a TTY, because they are documents to fill
+ * in, not reports; `--kind list` is data and follows the usual JSON rule.
+ */
+function runReference(pos: string[], flags: Record<string, string | boolean>, json: boolean): void {
+  if (flags.blocks === true) {
+    if (flags.kind !== undefined) throw new UsageError("--blocks and --kind are exclusive");
+    if (flags.scaffold === true) throw new UsageError("--blocks takes no --scaffold");
+    process.stdout.write(blocksText(pos));
+    return;
+  }
+  const name = flags.kind;
+  if (typeof name !== "string") throw new UsageError("--kind requires a value: a kind, or list");
+  if (pos.length > 0) throw new UsageError("--kind takes no input path");
+  if (name === "list") {
+    if (flags.scaffold === true) throw new UsageError("--kind list takes no --scaffold");
+    emit(
+      json,
+      {
+        kinds: DOCUMENT_KINDS.map(({ name, aliases, label, use, opener, blocks, accent, switches, format }) => ({
+          name, aliases, label, use, opener, blocks, accent, switches, format,
+        })),
+      },
+      () => console.log(kindsTable())
+    );
+    return;
+  }
+  const kind = resolveKind(name);
+  if (!kind) {
+    throw new UsageError(`Unknown kind "${name}". Kinds: ${DOCUMENT_KINDS.map((k) => k.name).join(", ")}`);
+  }
+  if (flags.scaffold !== true) {
+    throw new UsageError(`--kind ${kind.name} needs --scaffold to print its skeleton`);
+  }
+  process.stdout.write(readSkeleton(kind));
+}
+
 export const renderCommand: CoreCommand = {
   summary: "Render a document to PDF, PNG, or standalone HTML",
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
+    if (flags.kind !== undefined || flags.blocks === true) {
+      runReference(pos, flags, cli.json);
+      return;
+    }
+    if (flags.scaffold === true) throw new UsageError("--scaffold needs --kind <kind>");
     const input = pos[0];
     if (!input) {
       throw new UsageError("Usage: brain render <path|-> [--format pdf|png|html] [--out <path>]");
@@ -167,7 +280,12 @@ export const renderCommand: CoreCommand = {
       throw new UsageError(`--width must be a number, got "${String(flags.width)}"`);
     }
 
-    const html = buildHtmlDocument({ content, contentType, title, allowHosts });
+    // A complete HTML document keeps its own <title>, and the envelope says so.
+    const ownTitle = contentType === "html" && isFullDocument(content) ? documentTitle(content) : undefined;
+    const runningTitle = flags["no-running-title"] === true ? false : undefined;
+
+    const html = buildHtmlDocument({ content, contentType, title, allowHosts, runningTitle });
+    const warnings = lintDocument(html).map((w) => w.message);
 
     // --- write. The destination is classified again now, from its name and
     // its freshly resolved directory: the renderer ran in between, and a
@@ -194,6 +312,7 @@ export const renderCommand: CoreCommand = {
         throw error;
       }
     };
+    let pages: number | null = null;
     if (format === "html") {
       write(html);
     } else {
@@ -212,6 +331,7 @@ export const renderCommand: CoreCommand = {
           format === "png"
             ? await renderer.renderPng({ html, width })
             : await renderer.renderPdf({ html, width });
+        if (format === "pdf") pages = countPdfPages(buf);
         write(buf);
       } finally {
         await renderer.shutdown();
@@ -229,17 +349,21 @@ export const renderCommand: CoreCommand = {
         output: outputRel,
         format,
         bytes,
-        title: title ?? null,
+        pages,
+        title: ownTitle ?? title ?? null,
         allowHosts,
+        warnings,
       },
       () => {
-        console.log(`Rendered ${sourceLabel} → ${outputRel} (${format}, ${formatBytes(bytes)})`);
+        const size = pages === null ? formatBytes(bytes) : `${pages} page${pages === 1 ? "" : "s"}, ${formatBytes(bytes)}`;
+        console.log(`Rendered ${sourceLabel} → ${outputRel} (${format}, ${size})`);
         if (scratchOutput) {
           console.log("  in the scratch area: openable in the UI, never committed, pruned after 7 days");
         }
         if (allowHosts.length > 0) {
           console.log(`  Images allowed from: ${allowHosts.join(", ")}`);
         }
+        for (const warning of warnings) console.log(`  warning: ${warning}`);
       }
     );
   },

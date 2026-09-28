@@ -159,8 +159,11 @@ describe.skipIf(!chromePath)("a shared answer in real Chrome", () => {
 
     expect(png.subarray(1, 4).toString()).toBe("PNG");
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
-    // A4, in points, as the renderer asks for.
-    expect(pdf.toString("latin1")).toMatch(/\/MediaBox \[0 0 595\.9\d* 841\.9\d*\]/);
+    // A4 (595.3 x 841.9 pt), as the shell's @page rule asks for, to within the
+    // point Skia rounds away.
+    const [w, h] = /\/MediaBox \[0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)\]/.exec(pdf.toString("latin1"))!.slice(1).map(Number);
+    expect(Math.abs(w - 595.3)).toBeLessThan(1);
+    expect(Math.abs(h - 841.9)).toBeLessThan(1);
     // The listener heard the inlined image, so an empty list cannot pass for "none".
     expect(requested.some((url) => url.startsWith("data:image/png"))).toBe(true);
     expect(requested.filter((url) => !url.startsWith("data:") && url !== "about:blank")).toEqual([]);

@@ -97,4 +97,4 @@ requirements into the itinerary.
 - The `deadline` frontmatter (departure date) makes the trip surface in `/whatsup` — keep it accurate if dates shift
 - Flights are the high-friction mode for travelers with an assistance animal or accessibility need — carrier policies differ; flag this early so notification happens at booking, not at check-in
 - Don't guess an unconfirmed traveler's availability — list it under Open Items until confirmed
-- For shareable day plans, render the itinerary to PDF if you have a PDF workflow, output to `travel/{trip-slug}/`
+- For a shareable day plan, follow `generate-pdf` and render as kind `itinerary` (`brain render --kind itinerary --scaffold`). Sections in this order: The day (timeline), The route, Pack (checklist, one per traveler with requirements), Food and stays. Write the HTML and the PDF to `travel/{trip-slug}/`. No CSS of your own

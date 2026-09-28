@@ -1,87 +1,26 @@
 import { marked } from "marked";
 
+import {
+  attribute,
+  childElements,
+  documentParts,
+  elements,
+  leadingBom,
+  parseDocument,
+  parseHtmlFragment,
+  startsAsDocument,
+  textOf,
+  titleElement,
+} from "./html.js";
+import { pageFooter, STYLES } from "./styles.js";
+
 marked.setOptions({ gfm: true, breaks: false });
 
 /** What `content` holds — markdown to parse, or HTML to pass through. */
 export type RenderContentType = "markdown" | "html";
 
-const STYLES = `
-  :root {
-    color-scheme: light;
-    --bg: #ffffff;
-    --fg: #1f2937;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --surface: #f8fafc;
-    --primary: #2563eb;
-    --code-bg: #f3f4f6;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: var(--bg); }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji";
-    color: var(--fg);
-    font-size: 16px;
-    line-height: 1.6;
-    padding: 28px 32px;
-    word-wrap: break-word;
-  }
-  h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.6em; color: var(--fg); }
-  h1 { font-size: 1.75em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-  h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
-  h3 { font-size: 1.2em; }
-  h4 { font-size: 1.05em; }
-  p { margin: 0.7em 0; }
-  a { color: var(--primary); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  ul, ol { padding-left: 1.6em; margin: 0.6em 0; }
-  li { margin: 0.2em 0; }
-  blockquote {
-    margin: 0.8em 0;
-    padding: 0.4em 1em;
-    border-left: 3px solid var(--border);
-    color: var(--muted);
-    background: var(--surface);
-    border-radius: 0 6px 6px 0;
-  }
-  code {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 0.9em;
-    background: var(--code-bg);
-    padding: 0.15em 0.35em;
-    border-radius: 4px;
-  }
-  pre {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.8em 1em;
-    overflow-x: auto;
-    font-size: 0.88em;
-    line-height: 1.5;
-  }
-  pre code { background: transparent; padding: 0; border-radius: 0; }
-  hr { border: 0; border-top: 1px solid var(--border); margin: 1.6em 0; }
-  table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
-  th, td { border: 1px solid var(--border); padding: 0.45em 0.7em; text-align: left; }
-  th { background: var(--surface); font-weight: 600; }
-  img { max-width: 100%; height: auto; }
-  /* Mermaid diagrams arrive pre-rendered as inline SVG (the page runs no JS) */
-  .mermaid-figure { margin: 1em 0; text-align: center; }
-  .mermaid-figure svg { max-width: 100%; height: auto; }
-  .remote-image {
-    display: inline-block; padding: 2px 8px; border: 1px dashed #b0b0b0;
-    border-radius: 4px; color: #6b6b6b; font-size: 0.9em;
-  }
-  /* Keep cards and table rows from splitting across printed pages */
-  @media print {
-    table, blockquote, pre, .mermaid-figure { break-inside: avoid; }
-    h1, h2, h3, h4 { break-after: avoid; }
-  }
-  /* Trim trailing whitespace at the bottom so screenshots crop tightly */
-  body > *:last-child { margin-bottom: 0; }
-  body > *:first-child { margin-top: 0; }
-`;
+/** The title a document gets when neither the caller nor the content names one. */
+export const DEFAULT_TITLE = "Shared from Brain";
 
 function escapeHtml(s: string): string {
   return s
@@ -111,61 +50,144 @@ function hostOf(url: string): string | null {
  * passing the same list to the renderer produces broken images, not
  * placeholders — the two lists belong together.
  */
-function placeholderRemoteImages(html: string, allowHosts: string[]): string {
+function placeholderRemoteImages(html: string, allowHosts: string[], full: boolean): string {
   const allowed = new Set(allowHosts.map((h) => h.toLowerCase()));
-  // Attributes are consumed quote-aware rather than as `[^>]*`: an earlier
-  // attribute may legitimately contain `>` (`alt="<b>x</b>"`), and a bare
-  // `[^>]*` would end the match there, letting the image slip through
-  // unplaceholdered and render as a broken-image box.
-  return html.replace(
-    /<img\b((?:[^>"']|"[^"]*"|'[^']*')*)\/?>/gi,
-    (tag, attrs: string) => {
-      const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-      const value = src?.[1] ?? src?.[2];
-      if (!value) return tag;
-      if (/^data:/i.test(value)) return tag;
-      const host = hostOf(value);
-      if (host && allowed.has(host)) return tag;
-      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-      const label = alt?.[1] ?? alt?.[2];
-      return `<span class="remote-image">[${label ? escapeHtml(label) : "remote image"} — not embedded]</span>`;
-    }
+  // Real <img> elements only, as the parser sees them: one inside an
+  // attribute value, a comment or a <textarea> is text and stays text. The
+  // parser also decodes the src, so `data&#58;` is inline data.
+  const root = full ? parseDocument(html) : parseHtmlFragment(html);
+  const shift = leadingBom(html);
+  const out: string[] = [];
+  let copied = 0;
+  for (const el of elements(root)) {
+    if (el.tagName !== "img" || el.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    const loc = el.sourceCodeLocation;
+    const value = attribute(el, "src");
+    if (!loc || !value || /^\s*data:/i.test(value)) continue;
+    const host = hostOf(value.trim());
+    if (host && allowed.has(host)) continue;
+    const label = attribute(el, "alt");
+    out.push(
+      html.slice(copied, loc.startOffset + shift),
+      `<span class="remote-image">[${label ? escapeHtml(label) : "remote image"} — not embedded]</span>`
+    );
+    copied = loc.endOffset + shift;
+  }
+  if (copied === 0) return html;
+  out.push(html.slice(copied));
+  return out.join("");
+}
+
+/**
+ * Whether `html` is a complete document rather than a fragment: after a BOM,
+ * whitespace and comments it opens with a doctype or an `<html>` tag.
+ */
+export function isFullDocument(html: string): boolean {
+  return startsAsDocument(html);
+}
+
+/**
+ * Inject the shell into a complete document instead of nesting it (#530): the
+ * stylesheet becomes the first child of its `<head>`, so every rule the author
+ * wrote comes later and, being outside `@layer brain-document`, wins. Its own
+ * `<title>` stands; `title` only fills one in when there is none.
+ * `<meta name="brain-render" content="bare">` in its head leaves it as it is.
+ */
+function injectShell(doc: string, title: string | undefined, runningTitle: string | false | undefined): string {
+  const parsed = parseDocument(doc);
+  const shift = leadingBom(doc);
+  const { html, head, doctype } = documentParts(parsed);
+  const inHead = head ? childElements(head) : [];
+  const bare = inHead.some(
+    (e) =>
+      e.tagName === "meta" &&
+      attribute(e, "name")?.toLowerCase() === "brain-render" &&
+      attribute(e, "content")?.trim().toLowerCase() === "bare"
   );
+  if (bare) return doc;
+  const titleEl = titleElement(parsed);
+  const own = titleEl ? textOf(titleEl).trim() || undefined : undefined;
+  const running = runningTitle === false ? undefined : (runningTitle ?? own ?? title);
+  const insert =
+    `<style>${STYLES}${pageFooter(running === DEFAULT_TITLE ? undefined : running)}</style>` +
+    (!titleEl && title ? `<title>${escapeHtml(title)}</title>` : "");
+  // An element the parser opened by itself has no location; only a tag the
+  // author wrote is a place to insert after.
+  const headTag = head?.sourceCodeLocation?.startTag;
+  if (headTag) return splice(doc, headTag.endOffset + shift, insert);
+  const htmlTag = html?.sourceCodeLocation?.startTag;
+  if (htmlTag) return splice(doc, htmlTag.endOffset + shift, `<head>${insert}</head>`);
+  // A doctype with no <html> tag: the parser opens html and head itself, and a
+  // <style> straight after the doctype lands in that head.
+  return splice(doc, (doctype?.sourceCodeLocation?.endOffset ?? 0) + shift, insert);
+}
+
+function splice(doc: string, at: number, insert: string): string {
+  return doc.slice(0, at) + insert + doc.slice(at);
 }
 
 export interface BuildHtmlDocumentOptions {
   content: string;
   contentType: RenderContentType;
+  /**
+   * `<title>` for markdown and fragments, default "Shared from Brain". A
+   * complete HTML document keeps its own; this only fills one in if it has none.
+   */
   title?: string;
   /**
    * Image hosts the renderer has been told to resolve. Images on these hosts
    * survive; every other remote image becomes a placeholder. Default: none.
    */
   allowHosts?: string[];
+  /**
+   * The title in the PDF footer, from page 2 on. Default: the document's
+   * title, unless that is the "Shared from Brain" fallback. `false` shows the
+   * page numbers alone.
+   */
+  runningTitle?: string | false;
 }
 
 /**
  * Wrap markdown or HTML in the shared print-ready document shell.
+ *
+ * A complete HTML document (`<!doctype html>` or `<html>` first) is not
+ * wrapped: the stylesheet is injected into its `<head>` instead, and
+ * `<meta name="brain-render" content="bare">` skips even that.
  *
  * The same function backs the UI's `/api/render` and the CLI's `brain render`,
  * so a page shared from the app and a PDF produced on the command line are
  * byte-identical for identical input.
  */
 export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
+  const allowHosts = opts.allowHosts ?? [];
+  if (opts.contentType === "html" && isFullDocument(opts.content)) {
+    return injectShell(placeholderRemoteImages(opts.content, allowHosts, true), opts.title, opts.runningTitle);
+  }
   const rendered =
     opts.contentType === "markdown"
       ? (marked.parse(opts.content, { async: false }) as string)
       : opts.content;
-  const inner = placeholderRemoteImages(rendered, opts.allowHosts ?? []);
-  const title = opts.title ?? "Shared from Brain";
+  const inner = placeholderRemoteImages(rendered, allowHosts, false);
+  const title = opts.title ?? DEFAULT_TITLE;
+  const running = opts.runningTitle === false ? undefined : (opts.runningTitle ?? title);
+  const footer = pageFooter(running === DEFAULT_TITLE ? undefined : running);
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${escapeHtml(title)}</title>
-  <style>${STYLES}</style>
+  <style>${STYLES}${footer}</style>
 </head>
 <body>${inner}</body>
 </html>`;
+}
+
+/**
+ * A document's title as the browser reads it, decoded, or undefined when it
+ * has none. An `<svg>`'s `<title>` is not the document's.
+ */
+export function documentTitle(html: string): string | undefined {
+  const title = titleElement(parseDocument(html));
+  return title ? textOf(title).trim() || undefined : undefined;
 }

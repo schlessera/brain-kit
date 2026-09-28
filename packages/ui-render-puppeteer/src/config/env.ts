@@ -30,7 +30,9 @@ export interface EnvVarSpec {
 export const ENV_VARS: readonly EnvVarSpec[] = [
   {
     name: "PUPPETEER_EXECUTABLE_PATH",
-    description: "Chrome/Chromium executable to launch (checked first).",
+    description:
+      "Chrome/Chromium executable to launch (checked first). Point it at " +
+      "chrome-headless-shell to render in about half the time of full Chrome.",
     default: "well-known system install paths",
     required: false,
   },

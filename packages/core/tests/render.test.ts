@@ -11,6 +11,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { DOCUMENT_BLOCKS } from "@schlessera/brain-render-template";
+import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
+
+import { countPdfPages } from "../src/cli/commands/render";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
@@ -221,5 +225,107 @@ describe("brain render", () => {
       expect(res.code).toBe(1);
       expect(res.stderr + res.stdout).toContain("Usage: brain render");
     });
+  });
+
+  describe("designed documents (#530)", () => {
+    test("--kind list is data: a JSON list of kinds when stdout is not a TTY", async () => {
+      const res = await render(["--kind", "list"]);
+      expect(res.code).toBe(0);
+      const { kinds } = JSON.parse(res.stdout);
+      expect(kinds.map((k: { name: string }) => k.name)).toEqual(
+        DOCUMENT_KINDS.map((k) => k.name)
+      );
+      expect(kinds.find((k: { name: string }) => k.name === "how-to")).toMatchObject({
+        aliases: expect.arrayContaining(["recipe"]),
+        opener: "hero--split",
+        format: "html",
+      });
+    });
+
+    test("--kind <kind> --scaffold prints the skeleton verbatim, as text, by name or alias", async () => {
+      const res = await render(["--kind", "recipe", "--scaffold"]);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toBe(readSkeleton(resolveKind("how-to")!));
+      expect(res.stdout).toStartWith("<!doctype html>");
+      const note = await render(["--kind", "note", "--scaffold"]);
+      expect(note.stdout).toStartWith("# ");
+    });
+
+    test("--blocks prints the snippets, all or the named ones", async () => {
+      const all = await render(["--blocks"]);
+      expect(all.code).toBe(0);
+      for (const block of DOCUMENT_BLOCKS) expect(all.stdout).toContain(`## ${block.name} (`);
+      const two = await render(["--blocks", "callout", "stats"]);
+      expect(two.stdout).toContain("## callout (block)");
+      expect(two.stdout).toContain('class="doc-stats"');
+      expect(two.stdout).not.toContain("## timeline");
+    });
+
+    test("refuses what it cannot print", async () => {
+      for (const args of [
+        ["--kind", "poster", "--scaffold"],
+        ["--kind", "report"],
+        ["--kind", "list", "--scaffold"],
+        ["--kind", "report", "--scaffold", "notes/trip.md"],
+        ["--blocks", "nope"],
+        ["--blocks", "--scaffold"],
+        ["--scaffold"],
+      ]) {
+        const res = await render(args);
+        expect(res.code).toBe(1);
+      }
+    });
+
+    test("a filled skeleton renders, keeps its own title, and names what is left to fill in", async () => {
+      writeFileSync(join(root, "notes/plan.html"), readSkeleton(resolveKind("itinerary")!));
+      const res = await render(["notes/plan.html", "--format", "html"]);
+      expect(res.code).toBe(0);
+      const envelope = JSON.parse(res.stdout);
+      expect(envelope.title).toBe("Launch day: Ogygia to open water");
+      expect(envelope.pages).toBeNull();
+      expect(envelope.warnings).toHaveLength(2);
+      expect(envelope.warnings[0]).toContain("placeholder image");
+      expect(envelope.warnings[1]).toContain('"#" href');
+      const html = readFileSync(join(root, "notes/plan.html"), "utf8");
+      expect(html.match(/<body\b/g)).toHaveLength(1);
+      expect(html).toContain('@bottom-left { content: "Launch day: Ogygia to open water"');
+    });
+
+    test("a clean document has no warnings", async () => {
+      const res = await render(["notes/trip.md", "--format", "html", "--out", "notes/t8.html", "--allow-host", "upload.wikimedia.org"]);
+      expect(JSON.parse(res.stdout).warnings).toEqual([]);
+    });
+
+    test("the footer carries the document's title unless --no-running-title", async () => {
+      await render(["notes/trip.md", "--format", "html", "--out", "notes/t9.html"]);
+      expect(readFileSync(join(root, "notes/t9.html"), "utf8")).toContain('@bottom-left { content: "Wallis Day Plan"');
+      // An untitled note's title is its path, in the footer as in <title>.
+      await render(["notes/plain.md", "--format", "html", "--out", "notes/t10.html"]);
+      expect(readFileSync(join(root, "notes/t10.html"), "utf8")).toContain('@bottom-left { content: "notes/plain.md"');
+      await render(["notes/trip.md", "--format", "html", "--out", "notes/t11.html", "--no-running-title"]);
+      expect(readFileSync(join(root, "notes/t11.html"), "utf8")).toContain('@bottom-left { content: ""');
+    });
+
+    test("the envelope's title keeps its meaning: the caller's, verbatim, or null for untitled stdin", async () => {
+      writeFileSync(join(root, "notes/spaced.md"), "---\ntitle: '  T  '\n---\nx\n");
+      const spaced = await render(["notes/spaced.md", "--format", "html"]);
+      expect(JSON.parse(spaced.stdout).title).toBe("  T  ");
+      const proc = Bun.spawn(["bun", BRAIN_BIN, "render", "-", "--format", "html", "--out", "notes/t12.html"], {
+        cwd: root,
+        env: keylessEnv(root),
+        stdin: new TextEncoder().encode("# From stdin\n"),
+        stdout: "pipe",
+      });
+      expect(JSON.parse(await new Response(proc.stdout).text()).title).toBeNull();
+    });
+  });
+
+  test("countPdfPages counts page objects, not page-tree nodes", () => {
+    const pdf = new TextEncoder().encode(
+      "%PDF-1.4\n1 0 obj << /Type /Pages /Kids [2 0 R 3 0 R] /Count 2 >> endobj\n" +
+        "2 0 obj << /Type /Page /Parent 1 0 R >> endobj\n3 0 obj <</Type/Page/Parent 1 0 R>> endobj\n" +
+        "4 0 obj << /Type /Outlines /Count 5 >> endobj\n%%EOF"
+    );
+    expect(countPdfPages(pdf)).toBe(2);
   });
 });
