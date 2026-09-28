@@ -1,5 +1,29 @@
 # @schlessera/brain-ui-kit
 
+## 0.39.0
+
+### Minor Changes
+
+- cf94a81: `show_block` gains a `link` block (#43): one external page the reader may want to open, as `{ kind: "link", url, title?, description? }`.
+
+  - **ui-kit:** `LinkPreviewCard` gains a link mode, switched on by a new `url` prop, with `description`, `expanded`, `onExpandedChange` and `onCopy`. The card derives the host it shows and the `href` it opens from one parse of `url`, so no caller can supply a host that disagrees with the destination. The host is the first line and is never ellipsised; an internationalised name leads with its ASCII (`xn--`) form and adds a "reads as" line. The title and description render as the brain's words, with an attribution line on every card. Nothing is fetched. The card opens the page only from its `Open ↗` anchor (new tab, no opener, no referrer), and the full address sits behind a disclosure. A refused address draws a "Link withheld" card with no anchor. Without `url` the card is unchanged. The policy is `classifyLink`, exported from `@schlessera/brain-ui-kit` and from the new React-free `@schlessera/brain-ui-kit/links` entry.
+  - **ui-sdk:** the `show_block` handler rejects a `link` block whose address `classifyLink` refuses (relative, not `http(s)`, carrying credentials, containing invisible or bidi characters, mixing scripts in one hostname label, or longer than 2,048 characters), naming the reason. ui-sdk now depends on `@schlessera/brain-ui-kit` for that function.
+  - **ui-react:** the block renderer draws `link` blocks and copies the exact address to the clipboard from the card's Copy control.
+
+- b1805ee: A markdown link in prose shows where it goes (#551, D49). Every link `BrainMarkdown` draws, apart from repo file and directory links, is classified by `classifyLink` on every surface: answers, share blocks, `ask_user`, the briefing and the file viewer, autolinks included. An accepted link keeps its text and shows the ASCII host beside it, `your bank (account-check.example)`, with `rel="noopener noreferrer nofollow"` and `referrerpolicy="no-referrer"`. A refused link is inert text followed by `[link withheld — <reason>]`. A `mailto:` link stays live with its address shown, and its query parameters (`subject`, `body`, `cc`, `bcc`) are dropped from the href. While an answer streams, a link that has not closed yet is held back, so no raw address or half-typed autolink is ever drawn.
+
+  `@schlessera/brain-ui-kit/links` gains `classifyMailto`, a check beside `classifyLink` for the one scheme prose keeps live. `classifyLink` is unchanged, and the `link` block still refuses `mailto:`.
+
+- b8c355d: `show_block` gains a `map` block: 1 to 30 named places, drawn on real geography with a numbered list under them that always carries every place (#44). The model supplies places and, when a source states them, coordinates. The surface decides everything the drawing needs: one map, a pair of maps for two groups too far apart for one, or only the list, with a line that says why. The payload has no span, zoom, box, tone or numbering field.
+
+  - **ui-sdk**: `MAP_BLOCK_SCHEMA` joins the block union, and the tool's description and brief name it. `planPlaces` (from `/client`) is the pure plan behind the drawing: rows in payload order, the mode, each frame's geometry box, and whether names fit on the map. A place with no coordinates, at `0, 0` or past ±85° is listed with the reason and never pinned.
+  - **ui-kit**: new `PlaceMap` and `PlaceList` blocks. `MapView` gains additive props: `pinMode="number"` (numbered badges, lettered clusters such as `A·5`), `onClusters`, `letterFrom`, `coordChip`, `describe` (an accessible name, with the list as its description), `framed`, and `MapPin.n`. `mapViewBounds` exports the box the view draws. Existing `MapView` output is unchanged.
+  - **ui-react**: `BlockCard` draws the `map` block. It fetches each frame's geometry through the existing `/geo/coastline` route and cache. When geometry is empty or unavailable, the frame becomes a one-line note and the list still carries every place. A shared answer draws the list and asks for no geometry. `BlockCard` takes an optional `isStatic` prop for renders nothing will update.
+
+### Patch Changes
+
+- c1ac8c9: `BarList` labels wrap instead of being cut off with an ellipsis (#174). A bar list row is the record, so a long document type or agent name is now shown in full: it breaks at spaces and hyphens, and mid-word only when a single word cannot fit. The bar and the figure stay on the label's first line, and continuation lines fill the label column alone. Rows are about 4px taller than before, including single-line ones. No prop changes.
+
 ## 0.38.0
 
 ### Minor Changes

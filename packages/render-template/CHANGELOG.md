@@ -1,5 +1,7 @@
 # @schlessera/brain-render-template
 
+## 0.39.0
+
 ## 0.38.0
 
 ### Minor Changes

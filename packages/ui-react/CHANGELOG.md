@@ -1,5 +1,46 @@
 # @schlessera/brain-ui-react
 
+## 0.39.0
+
+### Minor Changes
+
+- f5a8f81: The model can offer up to two follow-ups under its answer (#40). `show_block` gains a thirteenth kind, `suggestions`: `label?` and `items[1..2]{label, icon?}`, each label one line of 4-80 characters. That is the data of the kit's `SuggestionChips` without `tone`, and a type test holds the two together in both directions. Both backends offer it through the tool description; the per-turn brief is unchanged.
+
+  `@schlessera/brain-ui-react` draws the turn's last valid call as the answer's closing row, a row of chips after the text and share menu, never where the call was made. A chip puts its words in the composer, below any draft, and never sends: no message, no answer to a pending question, no approval. The row is gone once the reader sends anything. It is not drawn while the turn runs, while a question in the turn is unanswered, when the answer ends in a question, while voice holds the composer, or on a turn spoken in a voice conversation. The client also drops duplicates, a restatement of the reader's own question, and generic filler. The decision reads only the transcript and current state, so a replayed session draws what the live one did. Shares and prints leave suggestions out, and the welcome chips are unchanged.
+
+- cf94a81: `show_block` gains a `link` block (#43): one external page the reader may want to open, as `{ kind: "link", url, title?, description? }`.
+
+  - **ui-kit:** `LinkPreviewCard` gains a link mode, switched on by a new `url` prop, with `description`, `expanded`, `onExpandedChange` and `onCopy`. The card derives the host it shows and the `href` it opens from one parse of `url`, so no caller can supply a host that disagrees with the destination. The host is the first line and is never ellipsised; an internationalised name leads with its ASCII (`xn--`) form and adds a "reads as" line. The title and description render as the brain's words, with an attribution line on every card. Nothing is fetched. The card opens the page only from its `Open ↗` anchor (new tab, no opener, no referrer), and the full address sits behind a disclosure. A refused address draws a "Link withheld" card with no anchor. Without `url` the card is unchanged. The policy is `classifyLink`, exported from `@schlessera/brain-ui-kit` and from the new React-free `@schlessera/brain-ui-kit/links` entry.
+  - **ui-sdk:** the `show_block` handler rejects a `link` block whose address `classifyLink` refuses (relative, not `http(s)`, carrying credentials, containing invisible or bidi characters, mixing scripts in one hostname label, or longer than 2,048 characters), naming the reason. ui-sdk now depends on `@schlessera/brain-ui-kit` for that function.
+  - **ui-react:** the block renderer draws `link` blocks and copies the exact address to the clipboard from the card's Copy control.
+
+- e5d3cc0: A dictated message keeps its dictation badge after a reload or on another device (#549). The composer, the ask-user re-ask and share intake send `source` on every `chat_message`, and a replayed user message takes its `source` from history, defaulting to `typed`.
+- b1805ee: A markdown link in prose shows where it goes (#551, D49). Every link `BrainMarkdown` draws, apart from repo file and directory links, is classified by `classifyLink` on every surface: answers, share blocks, `ask_user`, the briefing and the file viewer, autolinks included. An accepted link keeps its text and shows the ASCII host beside it, `your bank (account-check.example)`, with `rel="noopener noreferrer nofollow"` and `referrerpolicy="no-referrer"`. A refused link is inert text followed by `[link withheld — <reason>]`. A `mailto:` link stays live with its address shown, and its query parameters (`subject`, `body`, `cc`, `bcc`) are dropped from the href. While an answer streams, a link that has not closed yet is held back, so no raw address or half-typed autolink is ever drawn.
+
+  `@schlessera/brain-ui-kit/links` gains `classifyMailto`, a check beside `classifyLink` for the one scheme prose keeps live. `classifyLink` is unchanged, and the `link` block still refuses `mailto:`.
+
+- b8c355d: `show_block` gains a `map` block: 1 to 30 named places, drawn on real geography with a numbered list under them that always carries every place (#44). The model supplies places and, when a source states them, coordinates. The surface decides everything the drawing needs: one map, a pair of maps for two groups too far apart for one, or only the list, with a line that says why. The payload has no span, zoom, box, tone or numbering field.
+
+  - **ui-sdk**: `MAP_BLOCK_SCHEMA` joins the block union, and the tool's description and brief name it. `planPlaces` (from `/client`) is the pure plan behind the drawing: rows in payload order, the mode, each frame's geometry box, and whether names fit on the map. A place with no coordinates, at `0, 0` or past ±85° is listed with the reason and never pinned.
+  - **ui-kit**: new `PlaceMap` and `PlaceList` blocks. `MapView` gains additive props: `pinMode="number"` (numbered badges, lettered clusters such as `A·5`), `onClusters`, `letterFrom`, `coordChip`, `describe` (an accessible name, with the list as its description), `framed`, and `MapPin.n`. `mapViewBounds` exports the box the view draws. Existing `MapView` output is unchanged.
+  - **ui-react**: `BlockCard` draws the `map` block. It fetches each frame's geometry through the existing `/geo/coastline` route and cache. When geometry is empty or unavailable, the frame becomes a one-line note and the list still carries every place. A shared answer draws the list and asks for no geometry. `BlockCard` takes an optional `isStatic` prop for renders nothing will update.
+
+- 4f43158: Show client and server releases and application revisions in stats, including mismatched and unavailable identities.
+- 826152e: `/stats` answers with kit blocks instead of a markdown bullet list (#97). It asks both channels at once: the corpus over `GET /api/brain/stats` and the runtime over `GET /api/activity/stats`. Each answers in its own blocks, and either can fail without taking the other down. The answer shows two tile rows (corpus, then runtime), bar lists for documents by type, status and relevance, and receipts for the corpus, the runtime window, the lifetime record and what is on disk. A notice appears above them when a health threshold is crossed or runs failed. The relevance breakdown, broken links, chunks and embeddings, which the old answer dropped, are now shown, along with the health and size figures. The index's per-table row counts and vector slots stay in `brain stats --json`. Costs keep their unpriced runs visible: a partly priced sum reads as a floor (`≥ $4.10`), a wholly unpriced one reads `unknown`, and neither ever reads `$0`. `api.brainStats()` is typed with the full corpus shape (`CorpusStats`), and `api.activityStats(days?)` is new.
+
+### Patch Changes
+
+- Updated dependencies [f5a8f81]
+- Updated dependencies [c1ac8c9]
+- Updated dependencies [ba23fcc]
+- Updated dependencies [cf94a81]
+- Updated dependencies [e5d3cc0]
+- Updated dependencies [b1805ee]
+- Updated dependencies [b8c355d]
+- Updated dependencies [9342cd2]
+  - @schlessera/brain-ui-sdk@0.39.0
+  - @schlessera/brain-ui-kit@0.39.0
+
 ## 0.38.0
 
 ### Minor Changes

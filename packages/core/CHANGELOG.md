@@ -1,5 +1,31 @@
 # @schlessera/brain
 
+## 0.39.0
+
+### Minor Changes
+
+- 0c19962: `brain sync` runs without an agent. The new `brain sync run` does the whole sync the `/sync` skill used to walk an agent through: it reconciles stash entries, ignores artifacts and unmistakable secrets (`.env`, `.env.*`, `*.key`, `*.pem`) in one `.gitignore` commit, bumps `updated` on edited notes, commits tracked changes grouped by domain with templated messages, pulls, merges conflicted notes by rule, pushes (re-pulling up to three times when the push is rejected), and reindexes. It reports `complete` (exit 0), `failed` (exit 1) or `needs-judgment` (exit 3: a conflict no rule merges, left in progress with nothing pushed, or a file holding conflict markers, never committed), with a terse report. Files it cannot classify, names that only look like secrets, and media are listed as leftovers, never committed. Bare `brain sync` now runs `run`, prints its report, and hands over to the coding agent only for what needs one: a conflict, a file it could not classify, or media to approve when a terminal is attached.
+
+  New verbs, each usable on its own: `assess --fix`, `commit` (with `--plan` to print the plan and `--plan-file` to apply an edited one), `stash [--dry-run]`, `resolve` and `conclude`. `pull` now finishes a merge, squash or conflicted stash pop an earlier sync left pending before it pulls, and `synced`, `fast-forwarded` and `merged` now guarantee that HEAD contains `origin/main` (#328). A rebase, cherry-pick, revert or am in progress is reported as `merge-failed` with a `reason`, never finished.
+
+  Conflicted notes are merged by a strategy chosen from the file: `synthesize`, `table-union`, `timeline-append`, `keep-both`, `latest-wins-additive`, with code left to the agent. The merged text is always made of blocks one side wrote. A type can choose its strategy with the new `taxonomy.types.<name>.mergeStrategy`; the core types `identity`, `note` and `index` set `latest-wins-additive`, `keep-both` and `table-union`.
+
+  With `TYPESAFE_API_KEY` set, TypeSafe AI's Jev classifier answers two judgments: whether an unclassified file is an artifact, and how two edits of one passage relate. An answer is used only above a fixed confidence line, and a passage pair only when Jev gives the same answer with the sides in either order. Otherwise, and without the key, a timeout or an error, the conservative default applies: the file stays unclassified, and both passages are kept, newer first. The new `sync.judge: "off"` turns the calls off.
+
+  **Breaking (contract):** bare `brain sync` changes. It used to run the `/sync` agent unconditionally, print only the agent's final text, and exit `1` when no agent runner was configured. It now prints `run`'s report first, followed by the agent's text only when it hands over, and without an agent runner it runs the sync and exits with `run`'s code (`0`, `1` or `3`). The maintainer approved this on #328; `docs/integration-contract.md` records it. `ui-server`'s `sync()` keeps calling bare `brain sync` and reading its stdout as text, so it needs no change: most syncs now finish without an agent session. The new config keys (`sync.judge`, `taxonomy.types.<name>.mergeStrategy`) and the shapes of the `brain sync` verbs are not part of the contract.
+
+- ba23fcc: Search can order results by relevance judgment. A new `Reranker` seam (`defineReranker`, `RerankCandidate`, `Ranked`, and `runRerankerContract` in `@schlessera/brain/testing`) has one built-in, `jev`: one TypeSafe System One Choice over the candidates per search, with each candidate's title, type, tags, summary, matched excerpt and lifecycle fields (status, relevance, updated) as evidence. It is the default rerank mode when `TYPESAFE_API_KEY` is set; without the key, search keeps the `heuristic` ordering. Measured with `brain eval` on a 1,133-document brain, hybrid hit@1 went from 0.407 (heuristic) and 0.556 (none) to 0.741 on 27 hand-written queries.
+
+  `rerank` accepts `none | heuristic | jev` on `brain search`, `brain eval`, the MCP `brain_search` tool and `BRAIN_RERANK_MODE`. `heuristic` and `none` keep their meaning. The MCP input's default of `heuristic` is gone: an omitted `rerank` now follows the brain's `reranker.provider`. `jev` does not apply the lifecycle multipliers after its order. Applied there, they undid most of its gain.
+
+  A new `reranker` config block sets `provider`, `model` (pinned to `jev-1.13.0`), `apiKeyEnv`, `exclude` (paths never sent, which keep their retrieval rank), `timeoutMs`, `depth` and an opt-in `skipMargin`. A reranker that fails, times out, or returns anything but a permutation leaves the retrieval order and says so in `warnings`. `brain search --rerank-dry-run` prints the outbound request and sends nothing. `brain eval` records `meta.reranker` and refuses a `--rerank jev` it cannot run. `brain doctor` gains a `reranker` check. `TYPESAFE_API_KEY` is forwarded to brain subprocesses and cron jobs.
+
+  The helpers a search fanning out over several sources needs to rerank the union are exported: `partitionForRerank`, `mergeWithheld`, `assertPermutation`, `buildPathMatcher`, `candidateKey`, `selectReranker` and `rerankSetup`.
+
+### Patch Changes
+
+- @schlessera/brain-render-template@0.39.0
+
 ## 0.38.0
 
 ### Minor Changes

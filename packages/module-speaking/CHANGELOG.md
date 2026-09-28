@@ -1,5 +1,13 @@
 # @schlessera/brain-module-speaking
 
+## 0.39.0
+
+### Patch Changes
+
+- Updated dependencies [0c19962]
+- Updated dependencies [ba23fcc]
+  - @schlessera/brain@0.39.0
+
 ## 0.38.0
 
 ### Patch Changes
