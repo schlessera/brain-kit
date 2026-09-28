@@ -1,7 +1,25 @@
 import { resolveEnv } from "../config/env.js";
+import type { Ranked, RerankCandidate, Reranker, SearchMode } from "./seams.js";
 import { buildTaxonomy, type Taxonomy } from "./taxonomy.js";
 import type { SearchResult } from "./types.js";
 
+/**
+ * How a search reranks: `none` keeps the retrieval order untouched,
+ * `heuristic` multiplies it by the lifecycle factors below, and `jev` orders
+ * the candidates by a relevance judgment (a `Reranker`, TypeSafe's Jev by
+ * default) that sees each candidate's lifecycle fields as evidence. `jev`
+ * does not apply the multipliers on top: measured on a 1,133-document brain,
+ * they undid the judgment (hand-set vector hit@1 0.852 → 0.444) because on a
+ * rank-derived scale a ×0.85 factor moves a result about ten places.
+ */
+export const RERANK_MODES = ["none", "heuristic", "jev"] as const;
+export type RerankMode = (typeof RERANK_MODES)[number];
+
+export function isRerankMode(value: unknown): value is RerankMode {
+  return typeof value === "string" && (RERANK_MODES as readonly string[]).includes(value);
+}
+
+/** The lifecycle-factor pass (`heuristic`); `mode` is `none` or `heuristic`. */
 export interface RerankerConfig {
   mode: "none" | "heuristic";
   /** The moment recency is measured from. Defaults to the wall clock. */
@@ -38,10 +56,14 @@ const MS_PER_DAY = 86_400_000;
 /**
  * Get the default reranker mode based on environment.
  */
-export function getDefaultRerankerMode(): RerankerConfig["mode"] {
+export function getDefaultRerankerMode(): RerankMode {
+  return envRerankMode() ?? "heuristic";
+}
+
+/** BRAIN_RERANK_MODE when it names a mode, else undefined. */
+export function envRerankMode(): RerankMode | undefined {
   const envMode = resolveEnv().rerankMode;
-  if (envMode === "none" || envMode === "heuristic") return envMode;
-  return "heuristic";
+  return isRerankMode(envMode) ? envMode : undefined;
 }
 
 let coreTaxonomy: Taxonomy | undefined;
@@ -123,4 +145,107 @@ export function rerank(
   }
 
   return heuristicRerank(candidates, now, halfLifeTable(config.taxonomy));
+}
+
+// ---------------------------------------------------------------------------
+// Running a Reranker safely: exclusion, placement, validation. hybridSearch
+// uses these, and they are exported so a search that fans out over several
+// sources can rerank the union the same way.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a path matcher from the `reranker.exclude` config. A pattern with no
+ * glob characters is a directory or file prefix (`career` matches
+ * `career/x.md`); anything else is a Bun.Glob matched against the whole path.
+ */
+export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined {
+  if (!patterns || patterns.length === 0) return undefined;
+  const prefixes: string[] = [];
+  const globs: Bun.Glob[] = [];
+  for (const raw of patterns) {
+    const p = raw.replace(/^\.?\//, "").replace(/\/+$/, "");
+    if (!p) continue;
+    if (/[*?[\]{}]/.test(p)) globs.push(new Bun.Glob(p));
+    else prefixes.push(p);
+  }
+  return (path) =>
+    prefixes.some((p) => path === p || path.startsWith(p + "/")) ||
+    globs.some((g) => g.match(path));
+}
+
+export interface RerankPartition<T> {
+  /** Candidates the reranker may see, in retrieval order. */
+  sendable: T[];
+  /** Retrieval index → withheld candidate. */
+  withheld: Map<number, T>;
+}
+
+/** Split candidates into what a network reranker may see and what stays home. */
+export function partitionForRerank<T>(
+  candidates: readonly T[],
+  isExcluded: ((candidate: T) => boolean) | undefined
+): RerankPartition<T> {
+  const sendable: T[] = [];
+  const withheld = new Map<number, T>();
+  candidates.forEach((c, i) => {
+    if (isExcluded?.(c)) withheld.set(i, c);
+    else sendable.push(c);
+  });
+  return { sendable, withheld };
+}
+
+/**
+ * Placement policy for withheld candidates: each keeps its retrieval rank, and
+ * the reranked remainder fills the other positions in the reranker's order.
+ */
+export function mergeWithheld<T>(ranked: readonly T[], withheld: Map<number, T>, total: number): T[] {
+  const out: T[] = new Array(total);
+  for (const [i, c] of withheld) out[i] = c;
+  let next = 0;
+  for (let i = 0; i < total; i++) {
+    if (out[i] !== undefined) continue;
+    out[i] = ranked[next++];
+  }
+  return out;
+}
+
+/** The identity a reranker must preserve: `source` + `id`. */
+export function candidateKey(c: RerankCandidate): string {
+  return c.source ? `${c.source}:${c.id}` : c.id;
+}
+
+/**
+ * A reranker must return a permutation of what it was given. Anything else —
+ * dropped, duplicated or invented candidates, a non-finite score — is treated
+ * as a failed call so the caller falls back to retrieval order instead of
+ * returning a partial list.
+ */
+export function assertPermutation<C extends RerankCandidate>(
+  input: readonly C[],
+  output: readonly Ranked<C>[]
+): void {
+  if (output.length !== input.length) {
+    throw new Error(`reranker returned ${output.length} of ${input.length} candidates`);
+  }
+  const given = new Set<RerankCandidate>(input);
+  const seen = new Set<RerankCandidate>();
+  for (const { item, score } of output) {
+    const key = item && typeof item === "object" ? candidateKey(item) : String(item);
+    // By reference: a copy would lose whatever the caller attached to it.
+    if (!given.has(item)) {
+      throw new Error(`reranker returned a candidate that is not one it was given (a copy?): ${key}`);
+    }
+    if (seen.has(item)) {
+      throw new Error(`reranker returned a duplicate candidate: ${key}`);
+    }
+    if (typeof score !== "number" || !Number.isFinite(score)) {
+      throw new Error(`reranker returned a non-finite score for ${key}`);
+    }
+    seen.add(item);
+  }
+}
+
+/** True when the reranker serves the lane the search ran in (a union has no lane). */
+export function supportsMode(reranker: Reranker, mode: SearchMode | undefined): boolean {
+  return mode === undefined || reranker.capabilities.modes.includes(mode);
 }

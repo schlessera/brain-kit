@@ -66,6 +66,7 @@ export {
   defineCompletionProvider,
   defineAgentRunner,
   defineSkillEmitter,
+  defineReranker,
 } from "./lib/seams.js";
 export type {
   CompletionProvider,
@@ -74,6 +75,11 @@ export type {
   SkillEmitter,
   SkillManifest,
   ContentPart,
+  Reranker,
+  RerankCandidate,
+  RerankRequest,
+  Ranked,
+  SearchMode,
 } from "./lib/seams.js";
 
 // Database + search
@@ -95,9 +101,22 @@ export type { SearchDeps, SearchResponse } from "./lib/search-engine.js";
 export { assembleContext, estimateTokens } from "./lib/context-assembler.js";
 export type { AssembleOptions } from "./lib/context-assembler.js";
 // Exported so a retrieval-quality harness can score rerank-on and rerank-off
-// orderings from one candidate list instead of re-embedding the query.
-export { rerank, getDefaultRerankerMode } from "./lib/reranker.js";
-export type { RerankerConfig } from "./lib/reranker.js";
+// orderings from one candidate list instead of re-embedding the query, and so
+// a search that fans out over several sources can run a Reranker over the
+// union the way hybridSearch does (exclusion, placement, validation).
+export {
+  rerank,
+  getDefaultRerankerMode,
+  RERANK_MODES,
+  buildPathMatcher,
+  partitionForRerank,
+  mergeWithheld,
+  assertPermutation,
+  candidateKey,
+} from "./lib/reranker.js";
+export type { RerankerConfig, RerankMode } from "./lib/reranker.js";
+export { jevReranker } from "./providers/rerankers/jev.js";
+export type { JevRerankerConfig } from "./providers/rerankers/jev.js";
 
 // Indexing + content pipeline
 export {
@@ -160,7 +179,12 @@ export {
   resolveEmbeddingProvider,
   resolveCompletionProvider,
   resolveAgentRunner,
+  resolveReranker,
+  selectReranker,
+  rerankSetup,
+  rerankerKeyEnv,
 } from "./lib/registry.js";
+export type { RerankerSelection, RerankSetup } from "./lib/registry.js";
 
 // Skills distribution
 export { discoverSkills } from "./lib/skills/discover.js";

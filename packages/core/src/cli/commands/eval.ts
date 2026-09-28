@@ -5,10 +5,9 @@ import matter from "gray-matter";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";
-import type { Taxonomy } from "../../lib/taxonomy.js";
 import { loadVecSupport } from "../../lib/db.js";
 import { getMarkdownFiles } from "../../lib/indexer.js";
-import { getDefaultRerankerMode } from "../../lib/reranker.js";
+import { rerankSetup, type RerankSetup } from "../../lib/registry.js";
 import {
   aggregate,
   EVAL_SCHEMA_VERSION,
@@ -38,7 +37,7 @@ import type {
 } from "../../lib/retrieval-eval.js";
 import { resolveWritable, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch.js";
-import { hybridSearch } from "../../lib/search-engine.js";
+import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { packageRoot, packageVersion } from "../../package-version.js";
 import { assembleContext, emptyAssembleReport, estimateTokens } from "../../lib/context-assembler.js";
@@ -55,7 +54,8 @@ const HELP = `brain eval — score a retrieval query set against this brain's in
 
   --set <file>            JSONL query set (default: evals/retrieval.jsonl)
   --mode <mode>           fts|vector|hybrid|all (default: hybrid)
-  --rerank <mode>         none|heuristic (default: the search default)
+  --rerank <mode>         none|heuristic|jev (default: the search default);
+                          meta.reranker names the judgment reranker, if any
   --k <list>              hit@k cutoffs, comma-separated (default: 1,3,10)
   --out <file>            Also write the JSON result to <file>, inside the brain
   --strict                Refuse (exit 2) when an indexed document quotes the set's queries
@@ -292,12 +292,16 @@ function checkIndexFresh(brain: BrainContext, db: Database, scanner: Contaminati
   }
 }
 
+
+/** The rerank deadline a scoring run allows (it measures order, not latency). */
+const EVAL_RERANK_TIMEOUT_MS = 20_000;
+
 async function runMode(
   db: Database,
   mode: EvalMode,
   queries: ResolvedQuery[],
-  opts: { rerank: "none" | "heuristic"; ks: number[]; pool: number; now: Date },
-  deps: { embeddings: EmbeddingProvider | undefined; taxonomy: Taxonomy }
+  opts: { rerank: "none" | "heuristic" | "jev"; ks: number[]; pool: number; now: Date },
+  deps: SearchDeps
 ): Promise<QueryOutcome[]> {
   const outcomes: QueryOutcome[] = [];
   for (const query of queries) {
@@ -354,7 +358,8 @@ async function runContext(
   budgets: number[],
   now: Date,
   embeddings: EmbeddingProvider | undefined,
-  warnings: string[]
+  warnings: string[],
+  rerank: RerankSetup
 ): Promise<{ budgets: number[]; rows: ContextRow[]; per_query: ContextOutcome[] }> {
   const searchWarnings = new Set<string>();
   const perQuery: ContextOutcome[] = [];
@@ -364,7 +369,7 @@ async function runContext(
     for (const query of queries) {
       const found: string[] = [];
       const report = emptyAssembleReport();
-      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found, report });
+      const output = await assembleContext(db, brain, { query: query.q, maxTokens: budget, embeddings, now, warnings: found, report, rerank });
       found.forEach((w) => searchWarnings.add(w));
       outcomes.push({
         budget,
@@ -568,10 +573,17 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
     throw new UsageError(`--mode must be one of fts, vector, hybrid, all (got "${modeFlag}")`);
   }
   const modes = MODES[modeFlag];
-  const rerankFlag = typeof flags.rerank === "string" ? flags.rerank : getDefaultRerankerMode();
-  if (rerankFlag !== "none" && rerankFlag !== "heuristic") {
-    throw new UsageError(`--rerank must be none or heuristic (got "${rerankFlag}")`);
+  // The same selection `brain search` makes: --rerank, else BRAIN_RERANK_MODE,
+  // else the configured reranker. An explicit jev without its key is a
+  // warning, which refuses the run below rather than scoring the fallback
+  // under jev's name.
+  let setup: RerankSetup;
+  try {
+    setup = rerankSetup(cli.brain.config?.reranker, typeof flags.rerank === "string" ? flags.rerank : undefined);
+  } catch (e) {
+    throw new UsageError((e as Error).message);
   }
+  const rerankFlag = setup.rerank;
   let ks: number[];
   try {
     ks = parseKs(typeof flags.k === "string" ? flags.k : "1,3,10");
@@ -656,11 +668,22 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
     // see the same search it does.
     if (modes.some((m) => m !== "fts") || budgets.length > 0) await loadVecSupport(db);
 
+    // A requested reranking that cannot run (jev without its key) would
+    // score the fallback under the requested name: refuse, like a degraded lane.
+    if (setup.warning && typeof flags.rerank === "string" && flags.rerank !== setup.rerank) {
+      throw new EvalRefused(`--rerank ${flags.rerank} cannot run`, [setup.warning]);
+    }
+    if (setup.warning) warnings.push(setup.warning);
     const pool = poolSize(ks);
     const perQuery: QueryOutcome[] = [];
     const rows: ScoreRow[] = [];
     for (const mode of modes) {
-      const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
+      // The eval measures ranking, not latency: a reranker gets a generous
+      // deadline, so a slow call is not scored as a degraded lane.
+      const rerankDeps = setup.deps.reranker
+        ? { ...setup.deps, rerankTimeoutMs: Math.max(setup.deps.rerankTimeoutMs ?? 0, EVAL_RERANK_TIMEOUT_MS) }
+        : {};
+      const outcomes = await runMode(db, mode, queries, { rerank: rerankFlag, ks, pool, now }, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy, ...rerankDeps });
       perQuery.push(...outcomes);
       rows.push(...aggregate(mode, outcomes, ks));
     }
@@ -679,12 +702,21 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
       embedding_model: modes.some((m) => m !== "fts") ? (cli.embeddings?.id ?? null) : null,
       modes,
       rerank: rerankFlag,
+      // Which judgment reranker ordered the results (with its pinned model),
+      // null when none did.
+      reranker: setup.deps.reranker?.id ?? null,
       k: ks,
       pool,
       now: now.toISOString(),
     };
     const context =
-      budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings) : undefined;
+      budgets.length > 0 ? await runContext(db, cli.brain, queries, budgets, now, cli.embeddings, warnings, {
+          ...setup,
+          warning: undefined,
+          deps: setup.deps.reranker
+            ? { ...setup.deps, rerankTimeoutMs: Math.max(setup.deps.rerankTimeoutMs ?? 0, EVAL_RERANK_TIMEOUT_MS) }
+            : setup.deps,
+        }) : undefined;
     let envelope: Record<string, unknown> = {
       schema_version: EVAL_SCHEMA_VERSION,
       meta,

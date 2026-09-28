@@ -1,3 +1,4 @@
+import { rerankSetup } from "../../lib/registry.js";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
@@ -8,7 +9,8 @@ import type { CompletionProvider } from "../../lib/seams.js";
 import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";
 import { safeResolve } from "../../lib/safe-path.js";
 import { openDatabase } from "../../lib/db.js";
-import type { CoreCommand } from "../types.js";
+import type { CliContext, CoreCommand } from "../types.js";
+import type { SearchOptions } from "../../lib/types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain process <path> — assimilate a note into proper brain content
@@ -52,9 +54,20 @@ function extractJSON<T>(text: string): T | null {
   return null;
 }
 
-async function searchRelated(query: string, db: Database, deps: SearchDeps): Promise<string> {
+/** The search a note's related documents come from: the brain's own reranking, as `brain search` does it. */
+interface RelatedSearch {
+  rerank: SearchOptions["rerank"];
+  deps: SearchDeps;
+}
+
+function relatedSearch(cli: CliContext): RelatedSearch {
+  const setup = rerankSetup(cli.brain.config?.reranker);
+  return { rerank: setup.rerank, deps: { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy, ...setup.deps } };
+}
+
+async function searchRelated(query: string, db: Database, search: RelatedSearch): Promise<string> {
   try {
-    const { results } = await hybridSearch(db, { query, limit: 5 }, deps);
+    const { results } = await hybridSearch(db, { query, limit: 5, rerank: search.rerank }, search.deps);
     return results
       .map((r) => `- [${r.type}] ${r.title} (${r.path}): ${r.snippet || r.summary || ""}`)
       .join("\n");
@@ -68,7 +81,7 @@ async function processNote(
   notePath: string,
   db: Database,
   completions: CompletionProvider,
-  search: SearchDeps,
+  search: RelatedSearch,
   keepNote: boolean
 ): Promise<ProcessResult> {
   // notePath is caller/scan-supplied — canonicalize + contain before reading
@@ -158,7 +171,7 @@ export const processCommand: CoreCommand = {
         const results: Array<{ path: string; result: ProcessResult }> = [];
         for (const notePath of noteFiles) {
           if (!cli.json) console.log(`Processing: ${notePath}...`);
-          const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
+          const result = await processNote(cli.brain.root, notePath, db, cli.completions, relatedSearch(cli), keepNote);
           results.push({ path: notePath, result });
           if (!cli.json) {
             console.log(`  Action: ${result.action} — ${result.reasoning}`);
@@ -179,7 +192,7 @@ export const processCommand: CoreCommand = {
         throw new UsageError(`File not found: ${notePath}`);
       }
 
-      const result = await processNote(cli.brain.root, notePath, db, cli.completions, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy }, keepNote);
+      const result = await processNote(cli.brain.root, notePath, db, cli.completions, relatedSearch(cli), keepNote);
       emit(cli.json, result, () => {
         console.log(`Action: ${result.action}`);
         console.log(`Reasoning: ${result.reasoning}`);

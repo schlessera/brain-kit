@@ -1,11 +1,19 @@
 import { Database } from "bun:sqlite";
 
 import { SEARCH_SORTS, type ChunkMatch, type SearchResult, type SearchOptions } from "./types.js";
-import type { EmbeddingProvider } from "./seams.js";
+import type { EmbeddingProvider, RerankCandidate, Reranker } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { nameKey } from "./name-key.js";
-import { rerank, getDefaultRerankerMode } from "./reranker.js";
+import {
+  assertPermutation,
+  envRerankMode,
+  mergeWithheld,
+  partitionForRerank,
+  rerank,
+  supportsMode,
+  type RerankMode,
+} from "./reranker.js";
 import { ftsIsEnglish } from "./search-language.js";
 import { SUPERSEDED_FACTOR } from "./supersedes.js";
 
@@ -27,6 +35,39 @@ export interface SearchDeps {
   taxonomy?: Taxonomy;
   /** Interactive vector budget; must finish before the UI CLI deadline. */
   queryTimeoutMs?: number;
+  /**
+   * The judgment reranker `rerank: "jev"` runs before the lifecycle factors.
+   * Absent → the lifecycle factors alone. Resolve it with `selectReranker`,
+   * which applies the config, BRAIN_RERANK_MODE and key availability.
+   */
+  reranker?: Reranker;
+  /**
+   * Paths a network reranker must never see (`reranker.exclude`, compiled by
+   * `buildPathMatcher`). Withheld candidates keep their retrieval rank.
+   */
+  rerankExclude?: (path: string) => boolean;
+  /** Deadline for the rerank call (default 3 s); past it, retrieval order stands. */
+  rerankTimeoutMs?: number;
+  /**
+   * How many of the top candidates the reranker judges (default 50); the rest
+   * follow in retrieval order. Judging 30 or 50 ranked the same in the eval,
+   * while sending a whole pre-truncation pool cost latency for nothing.
+   */
+  rerankDepth?: number;
+  /**
+   * Skip the reranker when the vector lane's top result already leads the
+   * second by at least this similarity margin (the `1 / (1 + distance)`
+   * scores). A cost lever, off by default: a margin at the median roughly
+   * halves the calls for about one query in thirty on the vector lane, and
+   * costs more on hybrid. It depends on the embedding model; derive it from
+   * `brain eval` before relying on it.
+   */
+  rerankSkipMargin?: number;
+  /**
+   * Dry run: receives the reranker's exact outbound request and nothing is
+   * sent; the lifecycle factors still apply, and a warning says so.
+   */
+  rerankPreview?: (request: unknown) => void;
 }
 
 /** `documents.generated_from`, or NULL on a schema-9 index a read-only connection has not migrated. */
@@ -864,14 +905,30 @@ export async function hybridSearch(
   // vector mode the factors multiply a rank-derived score, 1/(RRF_K + rank),
   // instead: the scale hybrid's fused scores already have, where a factor
   // nudges a document a few places rather than across the list.
-  const rerankMode = opts.rerank ?? getDefaultRerankerMode();
-  // Every non-empty set, one result included, so a result's score does not
-  // change scale with how many others came back.
-  if (rerankMode !== "none" && candidates.length > 0) {
+  //
+  // `jev` replaces that pass: a judgment reranker orders the candidates, with
+  // each one's lifecycle fields (status, relevance, updated) in its evidence.
+  // The multipliers are not applied on top — on a rank-derived scale a ×0.85
+  // factor moves a result about ten places, and measured after the judgment
+  // they undid it. A judgment that does not run (gated, failed, dry run)
+  // leaves the retrieval order, which measured better than the multipliers.
+  const rerankMode: RerankMode = opts.rerank ?? envRerankMode() ?? (deps.reranker ? "jev" : "heuristic");
+  if (rerankMode === "jev") {
+    if (!deps.reranker) {
+      warnings.push('rerank "jev" requested but no reranker is configured; results are in retrieval order');
+    } else if (candidates.length > 1) {
+      const ordered = await applyReranker(query, candidates, mode, vecResults, deps, warnings);
+      if (ordered) candidates = ordered;
+    }
+    // One score scale for every jev result, judged or not: rank-derived.
+    candidates = candidates.map((result, i) => ({ ...result, score: 1 / (RRF_K + i + 1) }));
+  } else if (rerankMode !== "none" && candidates.length > 0) {
+    // Every non-empty set, one result included, so a result's score does not
+    // change scale with how many others came back.
     if (mode === "vector") {
       candidates = candidates.map((result, i) => ({ ...result, score: 1 / (RRF_K + i + 1) }));
     }
-    candidates = rerank(query, candidates, { mode: rerankMode, now: opts.now, taxonomy: deps.taxonomy });
+    candidates = rerank(query, candidates, { mode: "heuristic", now: opts.now, taxonomy: deps.taxonomy });
   }
   candidates = demoteSuperseded(db, candidates);
   // A full-text result found only across its sections stays after every one
@@ -1056,4 +1113,105 @@ function sortByDate(db: Database, candidates: SearchResult[], sort: "updated" | 
     if (right === null) return -1;
     return (left < right ? -1 : 1) * direction;
   });
+}
+
+const DEFAULT_RERANK_TIMEOUT_MS = 3_000;
+const DEFAULT_RERANK_DEPTH = 50;
+
+/** The view of a search result a reranker judges. */
+function toRerankCandidate(r: SearchResult): RerankCandidate {
+  return {
+    id: r.path,
+    source: "brain",
+    title: r.title,
+    type: r.type,
+    tags: r.tags,
+    summary: r.summary,
+    excerpt: r.snippet,
+    attributes: lifecycleAttributes(r),
+    score: r.score,
+  };
+}
+
+/** The lifecycle fields a judgment reranker weighs, where the document has them. */
+function lifecycleAttributes(r: SearchResult): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (r.status) out.status = r.status;
+  if (r.relevance) out.relevance = r.relevance;
+  if (r.updated) out.updated = r.updated;
+  return out;
+}
+
+/**
+ * Order candidates with the injected reranker, as a degraded-mode step: any
+ * failure — deadline, network, a malformed or partial answer — returns null
+ * so the retrieval order stands, and `warnings` says why; the search never
+ * fails on it. A network reranker sees only the candidates the exclusion
+ * policy allows, within the depth cap; the rest keep their rank.
+ */
+async function applyReranker(
+  query: string,
+  candidates: SearchResult[],
+  mode: NonNullable<SearchOptions["mode"]>,
+  vecResults: SearchResult[] | null,
+  deps: SearchDeps,
+  warnings: string[]
+): Promise<SearchResult[] | null> {
+  const reranker = deps.reranker!;
+  if (!supportsMode(reranker, mode)) return null;
+
+  // Confidence gate: a vector lane that already has a clear winner.
+  const skip = deps.rerankSkipMargin;
+  if (skip !== undefined && vecResults && vecResults.length > 1 && !deps.rerankPreview) {
+    if (vecResults[0].score - vecResults[1].score >= skip) return null;
+  }
+
+  const depth = deps.rerankDepth ?? DEFAULT_RERANK_DEPTH;
+  if (!Number.isInteger(depth) || depth < 2) throw new Error("rerankDepth must be an integer of at least 2");
+  const head = candidates.slice(0, depth);
+  const tail = candidates.slice(depth);
+
+  const exclude = reranker.capabilities.network ? deps.rerankExclude : undefined;
+  const { sendable, withheld } = partitionForRerank(head, exclude ? (r) => exclude(r.path) : undefined);
+  if (sendable.length < 2) return null;
+  const input = sendable.map(toRerankCandidate);
+
+  if (deps.rerankPreview) {
+    const request = reranker.preview
+      ? reranker.preview({ query, candidates: input, mode })
+      : { reranker: reranker.id, note: "this reranker exposes no request preview" };
+    deps.rerankPreview(request);
+    warnings.push(`rerank dry run (${reranker.id}): nothing was sent; results are in retrieval order`);
+    return null;
+  }
+
+  const timeoutMs = deps.rerankTimeoutMs ?? DEFAULT_RERANK_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("rerankTimeoutMs must be a positive finite number");
+  }
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      // Reject first so the deadline is the reason reported, then abort so a
+      // cooperative reranker stops its request.
+      reject(new Error(`rerank timed out after ${timeoutMs}ms`));
+      controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    const ranked = await Promise.race([
+      reranker.rerank({ query, candidates: input, mode, signal: controller.signal }),
+      deadline,
+    ]);
+    assertPermutation(input, ranked);
+    const byPath = new Map(sendable.map((r) => [r.path, r]));
+    const ordered = ranked.map(({ item }) => byPath.get(item.id)!);
+    return [...mergeWithheld(ordered, withheld, head.length), ...tail];
+  } catch (e) {
+    warnings.push(`rerank skipped (${reranker.id}): ${(e as Error).message}; results are in retrieval order`);
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

@@ -53,8 +53,10 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   },
   {
     name: "BRAIN_RERANK_MODE",
-    description: 'Search reranker mode: "heuristic" or "none".',
-    default: "heuristic",
+    description:
+      'Search reranker mode: "jev", "heuristic" or "none". Overrides the ' +
+      "configured `reranker.provider`; an explicit --rerank still wins.",
+    default: "the configured reranker (jev with its key, else heuristic)",
     required: false,
   },
   {
@@ -98,6 +100,14 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "TYPESAFE_API_KEY",
+    description:
+      "Default API key for the built-in jev search reranker (default name only " +
+      "— a config `apiKeyEnv` can point elsewhere). Absent key keeps the " +
+      "lifecycle (heuristic) ordering.",
+    required: false,
+  },
+  {
     name: "ANTHROPIC_API_KEY",
     description:
       "Default API key for the built-in Anthropic completion provider " +
@@ -108,10 +118,11 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
   {
-    source: "brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv`",
+    source: "brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `reranker.apiKeyEnv`",
     description:
       "API key for a built-in provider, read at call time under whatever " +
-      "name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY).",
+      "name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, " +
+      "TYPESAFE_API_KEY).",
   },
 ];
 

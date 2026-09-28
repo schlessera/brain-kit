@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { resolveEnv } from "../config/env.js";
 
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "./seams.js";
+import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { SCRATCH_DIR } from "./scratch.js";
 
 // ---------------------------------------------------------------------------
@@ -246,6 +246,10 @@ const completionProviderValue = z.custom<CompletionProvider>(
   (v) => !!v && typeof v === "object" && typeof (v as CompletionProvider).complete === "function",
   { message: "expected a CompletionProvider implementation" }
 );
+const rerankerValue = z.custom<Reranker>(
+  (v) => !!v && typeof v === "object" && typeof (v as Reranker).rerank === "function",
+  { message: "expected a Reranker implementation" }
+);
 const agentRunnerValue = z.custom<AgentRunner>(
   (v) => !!v && typeof v === "object" && typeof (v as AgentRunner).run === "function",
   { message: "expected an AgentRunner implementation" }
@@ -284,6 +288,25 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     agentRunner: z.union([z.string(), agentRunnerValue]).optional(),
+    /**
+     * Search reranking. `provider`: "jev" (default; judgment ordering, needs
+     * its key, else the lifecycle ordering), "heuristic" (lifecycle factors
+     * only), "none", or a Reranker value. `exclude` lists paths (prefixes or
+     * globs) a network reranker never receives; they keep their retrieval
+     * rank. `depth`, `skipMargin` and `timeoutMs` bound the call.
+     */
+    reranker: z
+      .object({
+        provider: z.union([z.string(), rerankerValue]),
+        model: z.string().optional(),
+        apiKeyEnv: z.string().optional(),
+        exclude: z.array(z.string()).optional(),
+        timeoutMs: z.number().int().positive().optional(),
+        depth: z.number().int().min(2).optional(),
+        skipMargin: z.number().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
     graph: z
       .object({
         /**

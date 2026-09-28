@@ -18,6 +18,8 @@ import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
 import { measureInstructions } from "../../lib/instructions-weight.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
+import { rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
+import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
@@ -332,6 +334,52 @@ function checkDb(cli: CliContext): Check {
   } finally {
     db.close();
   }
+}
+
+/**
+ * The configured search reranker: resolved through the same registry search
+ * uses, so a misspelled name fails here instead of quietly searching without
+ * one. Warns on a missing key (search keeps the lifecycle ordering) and on a
+ * moving model alias (the measured ordering was for a pinned version).
+ */
+function checkReranker(cli: CliContext): Check {
+  const cfg = cli.brain.config?.reranker;
+  let resolved;
+  try {
+    resolved = resolveReranker(cfg);
+  } catch (e) {
+    return { id: "reranker", status: "fail", detail: (e as Error).message, fix: "fix `reranker.provider` in brain.config" };
+  }
+  if (cfg && typeof cfg.provider === "object") {
+    return { id: "reranker", status: "pass", detail: `custom reranker '${resolved?.id ?? "(unresolved)"}'` };
+  }
+  if (!resolved) {
+    return { id: "reranker", status: "pass", detail: `reranking by ${cfg?.provider === "none" ? "retrieval order (none)" : "lifecycle factors (heuristic)"}, set in config` };
+  }
+  const keyEnv = rerankerKeyEnv(cfg);
+  if (!readEnvVar(keyEnv)) {
+    return {
+      id: "reranker",
+      status: "warn",
+      detail: `${keyEnv} not set — search keeps the lifecycle (heuristic) ordering`,
+      fix: `set ${keyEnv} to enable jev reranking, or set reranker.provider to "heuristic"`,
+    };
+  }
+  const model = cfg?.model ?? JEV_MODEL;
+  if (/-latest$|-preview$/.test(model)) {
+    return {
+      id: "reranker",
+      status: "warn",
+      detail: `reranker model '${model}' is a moving alias — ranking was measured on ${JEV_MODEL}`,
+      fix: `pin reranker.model to a version such as ${JEV_MODEL}`,
+    };
+  }
+  const excluded = cfg?.exclude?.length ?? 0;
+  return {
+    id: "reranker",
+    status: "pass",
+    detail: `jev reranker, model ${model}${excluded ? `, ${excluded} exclusion pattern(s)` : ""}`,
+  };
 }
 
 async function checkEmbeddings(cli: CliContext): Promise<Check> {
@@ -774,6 +822,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["config", () => checkConfig(cli)],
     ["db", () => checkDb(cli)],
     ["embeddings", () => checkEmbeddings(cli)],
+    ["reranker", () => checkReranker(cli)],
     ["mcp", () => checkMcp(root)],
     ["deps", () => checkDeps(root)],
     ["version", () => checkVersion()],

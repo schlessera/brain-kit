@@ -42,7 +42,7 @@ export const BOOLEAN_FLAGS = new Set([
   "incremental", "embeddings", "force", "quiet", "compact", "on-commit",
   "fix",
   "keep-note", "all",
-  "dry-run",
+  "dry-run", "rerank-dry-run",
   "check", "default",
   "no-assets",
   "no-isolates",

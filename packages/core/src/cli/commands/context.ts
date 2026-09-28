@@ -1,3 +1,4 @@
+import { rerankSetup } from "../../lib/registry.js";
 import { assembleContext } from "../../lib/context-assembler.js";
 import { loadVecSupport } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
@@ -29,6 +30,7 @@ export const contextCommand: CoreCommand = {
         query,
         maxTokens,
         embeddings: cli.embeddings,
+        rerank: rerankSetup(cli.brain.config?.reranker),
       });
       // Context is always plain-text output (contract: markdown, not an envelope).
       console.log(context);

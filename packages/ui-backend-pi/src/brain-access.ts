@@ -30,6 +30,7 @@ import {
   openDatabase,
   relevanceOnArchive,
   resolveEmbeddingProvider,
+  rerankSetup,
   safeResolve,
   updateDocument,
   type ArchiveResult,
@@ -192,7 +193,12 @@ export function createBrainAccess(brainPath: string): BrainAccess {
         // this connection. Without an embedding provider we stay FTS-only
         // (hybridSearch degrades + warns).
         await loadVecSupport(db);
-        return await hybridSearch(db, opts, { embeddings, taxonomy: c.taxonomy });
+        // The brain's reranker as `brain search` selects it (config,
+        // BRAIN_RERANK_MODE, key availability); a caller's explicit mode wins.
+        const setup = rerankSetup(c.config?.reranker, opts.rerank);
+        const response = await hybridSearch(db, { ...opts, rerank: setup.rerank }, { embeddings, taxonomy: c.taxonomy, ...setup.deps });
+        if (setup.warning) response.warnings.unshift(setup.warning);
+        return response;
       } finally {
         db.close();
       }
@@ -215,6 +221,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
           includeIdentity: false,
           includeCurrentFocus: false,
           embeddings,
+          rerank: rerankSetup(c.config?.reranker),
           warnings,
         });
         // Warnings lead the block, in whatever budget the block left over.

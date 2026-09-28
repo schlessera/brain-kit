@@ -1,6 +1,7 @@
 import { SEARCH_SORTS, type SearchOptions } from "../../lib/types.js";
 import { hybridSearch, isIsoDate } from "../../lib/search-engine.js";
 import { loadVecSupport } from "../../lib/db.js";
+import { rerankSetup } from "../../lib/registry.js";
 import type { CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs, today, UsageError } from "../io.js";
 
@@ -13,7 +14,12 @@ const HELP = `brain search <query> — hybrid FTS5 + vector search
   --relevance <level>     Filter by relevance (primary|secondary|historical)
   --status <status>       Filter by status (active|archived|draft)
   --mode <mode>           Search mode: fts|vector|hybrid (default: hybrid)
-  --rerank <mode>         Rerank mode: none|heuristic (default: heuristic)
+  --rerank <mode>         none|heuristic|jev (default: the configured reranker,
+                          jev when its key is set, else heuristic). jev orders
+                          by relevance judgment, then applies the lifecycle
+                          factors heuristic applies alone
+  --rerank-dry-run        Print the exact rerank request to stderr, send
+                          nothing, and return the lifecycle ordering
   --include-archived      Include archived documents
   --assets-only           Only return non-markdown assets (images, PDFs)
   --chunks                Add each result's chunks that match the query, best
@@ -46,10 +52,18 @@ export const searchCommand: CoreCommand = {
       throw new UsageError(`--sort must be one of ${SEARCH_SORTS.join(", ")}, got ${JSON.stringify(flags.sort)}`);
     }
 
+    let setup;
+    try {
+      setup = rerankSetup(cli.brain.config?.reranker, typeof flags.rerank === "string" ? flags.rerank : undefined, {
+        preview: flags["rerank-dry-run"] === true,
+      });
+    } catch (e) {
+      throw new UsageError((e as Error).message);
+    }
     const opts: SearchOptions = {
       query,
       mode: (flags.mode as SearchOptions["mode"]) || "hybrid",
-      rerank: flags.rerank ? (flags.rerank as SearchOptions["rerank"]) : undefined,
+      rerank: setup.rerank,
       type: flags.type as string | undefined,
       tag: flags.tag as string | undefined,
       relevance: flags.relevance as string | undefined,
@@ -81,7 +95,16 @@ export const searchCommand: CoreCommand = {
         await loadVecSupport(db);
       }
 
-      const { results, warnings } = await hybridSearch(db, opts, { embeddings: cli.embeddings, taxonomy: cli.brain.taxonomy });
+      const response = await hybridSearch(db, opts, {
+        embeddings: cli.embeddings,
+        taxonomy: cli.brain.taxonomy,
+        ...setup.deps,
+        ...(flags["rerank-dry-run"] === true
+          ? { rerankPreview: (request: unknown) => console.error(JSON.stringify(request, null, 2)) }
+          : {}),
+      });
+      const results = response.results;
+      const warnings = setup.warning ? [setup.warning, ...response.warnings] : response.warnings;
 
       emit(cli.json, { results, warnings }, () => {
         for (const warning of warnings) console.log(`Warning: ${warning}`);

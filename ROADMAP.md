@@ -66,7 +66,7 @@ when it was made — not a preference.
    --force` regenerates everything. This is also the upgrade story: there is no
    such thing as a data migration for derived state.
 2. **A seam only where a second implementation is plausible within a year.**
-   Seams exist for embeddings, completions, agent runners, agent backends,
+   Seams exist for embeddings, completions, rerankers, agent runners, agent backends,
    speech, tool renderers, and skill emitters. Everywhere else, concrete code
    stays concrete. The not-pluggable list in
    [docs/extending/README.md](docs/extending/README.md) is final.

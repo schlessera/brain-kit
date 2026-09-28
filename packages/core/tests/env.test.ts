@@ -55,6 +55,7 @@ describe("config/env descriptor", () => {
         "CLAUDE_CODE_PATH",
         "GEMINI_API_KEY",
         "NO_COLOR",
+        "TYPESAFE_API_KEY",
         "XDG_BIN_HOME",
       ].sort()
     );

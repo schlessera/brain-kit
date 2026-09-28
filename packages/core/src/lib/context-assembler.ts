@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import type { RerankSetup } from "./registry.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import matter from "gray-matter";
@@ -16,6 +17,11 @@ export interface AssembleOptions {
   includeCurrentFocus?: boolean;
   /** Embedding provider forwarded to vector search; absent → FTS-only results. */
   embeddings?: EmbeddingProvider;
+  /**
+   * How the search reranks (`rerankSetup`): its mode and the reranker deps.
+   * Absent → the engine default, lifecycle factors only.
+   */
+  rerank?: RerankSetup;
   /** When given, the search's warnings (a degraded lane, for example) are
    * appended to it, so a caller can report them beside the text. */
   warnings?: string[];
@@ -298,9 +304,10 @@ export async function assembleContext(
   if (opts.query && minimalFits && budget > BUDGET_FLOOR) {
     const { results, warnings } = await hybridSearch(
       db,
-      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now, chunks: true },
-      { embeddings: opts.embeddings, taxonomy: ctx.taxonomy }
+      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now, chunks: true, rerank: opts.rerank?.rerank },
+      { embeddings: opts.embeddings, taxonomy: ctx.taxonomy, ...opts.rerank?.deps }
     );
+    if (opts.rerank?.warning) opts.warnings?.push(opts.rerank.warning);
     opts.warnings?.push(...warnings);
 
     const hits: string[] = [];

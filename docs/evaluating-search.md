@@ -194,11 +194,16 @@ agent reading the top result is most likely to be misled.
 
 Scores are only comparable within one mode and one rerank setting:
 
-| Mode | `--rerank none` | `--rerank heuristic` (the default) |
-| --- | --- | --- |
-| `fts` | the BM25 value, larger is better | BM25 times the lifecycle factors |
-| `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors |
-| `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors |
+| Mode | `--rerank none` | `--rerank heuristic` | `--rerank jev` |
+| --- | --- | --- | --- |
+| `fts` | the BM25 value, larger is better | BM25 times the lifecycle factors | `1 / (60 + rank)` of the judged order |
+| `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors | `1 / (60 + rank)` of the judged order |
+| `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors | `1 / (60 + rank)` of the judged order |
+
+The default is the brain's configured reranker: `jev` when its key is set,
+else `heuristic`. `meta.rerank` records which one ran and `meta.reranker` its
+model. Comparing `--rerank heuristic` with `--rerank jev` through
+`--baseline` shows which queries a judgment wins and loses on your brain.
 
 The lifecycle factors are relevance (`primary` ×1.15, `historical` ×0.85),
 draft status (×0.9), a `generated_from` document (×0.85) and recency (between

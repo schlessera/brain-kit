@@ -192,6 +192,16 @@ test("input schemas match the checked-in snapshot", async () => {
 });
 
 describe("brain_search", () => {
+  test("rerank is an optional none|heuristic|jev and an unknown value is rejected", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "brain_search")!;
+    const rerank = (tool.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties.rerank;
+    expect(rerank.enum).toEqual(["none", "heuristic", "jev"]);
+    expect((tool.inputSchema as { required?: string[] }).required ?? []).not.toContain("rerank");
+    const res = await client.callTool({ name: "brain_search", arguments: { query: "astronomy", mode: "fts", rerank: "title" } });
+    expect(res.isError).toBe(true);
+  });
+
   test("returns { results, warnings } structuredContent", async () => {
     const res = await client.callTool({
       name: "brain_search",

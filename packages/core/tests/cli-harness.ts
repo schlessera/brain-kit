@@ -63,6 +63,10 @@ export function keylessEnv(root: string): Record<string, string> {
   delete env.GEMINI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.GOOGLE_API_KEY;
+  // The jev reranker is the default with its key: a developer key would
+  // turn these runs into paid network calls.
+  delete env.TYPESAFE_API_KEY;
+  delete env.BRAIN_RERANK_MODE;
   return env;
 }
 
