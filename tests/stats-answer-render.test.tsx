@@ -151,3 +151,41 @@ describe.skipIf(!chromePath)("the /stats answer at 320px", () => {
     }, 60_000);
   }
 });
+
+const identity = { release: "0.38.0", sourceCommit: "a".repeat(40) };
+const SOFTWARE_CASES = [
+  ["matching", { client: identity, server: { ok: true, value: identity } }],
+  ["different", { client: identity, server: { ok: true, value: { release: "0.39.0", sourceCommit: "b".repeat(40) } } }],
+  ["unknown", { client: { release: "0.38.0", sourceCommit: "dev" }, server: { ok: false, error: "offline" } }],
+] as const;
+
+describe.skipIf(!chromePath)("software identity in real Chrome", () => {
+  for (const width of [320, 1024]) for (const [name, software] of SOFTWARE_CASES) {
+    test(`${name} at ${width}px: complete selectable identities without overflow`, async () => {
+      const p = await browser!.newPage();
+      try {
+        await p.setViewport({ width, height: 900 });
+        await p.setContent(page({ ...big, software }));
+        const result = await p.evaluate(() => {
+          const section = document.querySelector('[aria-label="Software versions"]')!;
+          const values = [...section.querySelectorAll<HTMLElement>("[data-tone]")];
+          const range = document.createRange();
+          range.selectNodeContents(values[1]);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges(); selection.addRange(range);
+          return {
+            values: values.map((el) => el.textContent), selected: selection.toString(),
+            overflow: document.documentElement.scrollWidth > window.innerWidth,
+            clipped: values.some((el) => el.scrollWidth > el.clientWidth + 1),
+          };
+        });
+        expect(result.values).toHaveLength(4);
+        expect(result.values[0]).toBe(identity.release);
+        expect(result.selected).toBe(name === "unknown" ? "Unknown" : identity.sourceCommit);
+        expect(result.overflow).toBe(false);
+        expect(result.clipped).toBe(false);
+        await p.screenshot({ path: `/tmp/brain-kit-software-${name}-${width}.png`, fullPage: true });
+      } finally { await p.close(); }
+    });
+  }
+});

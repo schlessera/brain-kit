@@ -1,3 +1,4 @@
+import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
@@ -56,6 +57,7 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       healthy: true,
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,
+      software: { release: packageInfo.version, sourceCommit: deps.sourceCommit },
       cronJobs: deps.getCronStatus(),
       activeSession: deps.isTurnActive(),
       // Counters the server recorded this process lifetime — dropped frames,

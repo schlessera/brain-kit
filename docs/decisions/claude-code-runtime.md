@@ -246,9 +246,9 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:49-64`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:50-66`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:10-12`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:11-13`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is

@@ -1,3 +1,4 @@
+import { softwareDetails, type SoftwareInput } from "./software.js";
 import type { BarListRow, ReceiptRow, StatTile, Tone } from "@schlessera/brain-ui-kit";
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
 import type { CorpusStats } from "../../../lib/api-client.js";
@@ -22,6 +23,7 @@ import type { CorpusStats } from "../../../lib/api-client.js";
 export type Fetched<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type StatsSection =
+  | { kind: "software"; details: ReturnType<typeof softwareDetails> }
   | { kind: "callout"; tone: Tone; variant: "boxed" | "plain"; title: string; body: string }
   | { kind: "tiles"; source: "corpus" | "runtime"; tiles: StatTile[] }
   | { kind: "bars"; title: string; meta: string; rows: BarListRow[] }
@@ -54,11 +56,12 @@ export const VALUE_BUDGET = { plain: 24, toned: 21 } as const;
 export const BAR_CAP = 6;
 
 export interface StatsInput {
+  software?: SoftwareInput;
   corpus: Fetched<CorpusStats>;
   runtime: Fetched<ActivityRuntimeStats>;
 }
 
-export function composeStatsAnswer({ corpus, runtime }: StatsInput): StatsSection[] {
+export function composeStatsAnswer({ corpus, runtime, software }: StatsInput): StatsSection[] {
   const c = corpus.ok ? corpus.value : null;
   const r = runtime.ok ? runtime.value : null;
   const out: StatsSection[] = [];
@@ -117,6 +120,7 @@ export function composeStatsAnswer({ corpus, runtime }: StatsInput): StatsSectio
   }
 
   if (c || r) out.push(diskReceipt(c, r, runtime.ok));
+  if (software) out.push({ kind: "software", details: softwareDetails(software) });
   return out;
 }
 

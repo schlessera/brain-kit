@@ -72,8 +72,8 @@ export function DesktopPalette() {
   }
 
   // The reason a row cannot run right now, printed in the row rather than
-  // hiding it. Sync, the briefing and stats talk to the agent over the socket
-  // and need a quiet turn; search and add go over REST and always work.
+  // hiding it. Sync and the briefing need a live connection and a quiet turn.
+  // Stats uses REST and can show the loaded client identity offline.
   const why = !connected ? "needs the host" : isStreaming ? "a turn is running" : undefined;
   const jumpTo: PaletteItem[] = [
     { icon: "brain", label: "Chat", tone: "amber", shortcut: "⌘1", onClick: run(() => setActiveView("chat")) },
@@ -86,7 +86,7 @@ export function DesktopPalette() {
   ];
   const ask: PaletteItem[] = [
     { icon: "search", label: "Search the brain", tone: "teal", onClick: inChat(() => runCommand("search")) },
-    { icon: "ledger", label: "Brain statistics", tone: "neutral", why, onClick: inChat(() => runCommand("stats")) },
+    { icon: "ledger", label: "Brain statistics", tone: "neutral", why: isStreaming ? "a turn is running" : undefined, onClick: inChat(() => runCommand("stats")) },
   ];
   const runGroup: PaletteItem[] = [
     { icon: "repeat", label: "Sync the brain", tone: "amber", effect: "sync", why, onClick: inChat(() => runCommand("sync")) },

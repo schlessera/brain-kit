@@ -95,7 +95,7 @@ export function MobileTabBar() {
                 <ListRow variant="group" icon="history" iconTone="blue" title="Sessions" subtitle="Resume an earlier conversation" chevron onClick={act(() => setSessionPanelOpen(true))} />
                 <ListRow variant="group" icon="repeat" iconTone="amber" title="Sync the brain" subtitle={quiet ? "Pull and push the repository" : "needs the host"} value={quiet ? "sync" : undefined} valueTone="amber" onClick={quiet ? act(() => runCommand("sync")) : undefined} />
                 <ListRow variant="group" icon="sunrise" iconTone="gold" title="Daily briefing" subtitle={quiet ? "What happened since you looked" : "needs the host"} onClick={quiet ? act(() => runCommand("whatsup")) : undefined} />
-                <ListRow variant="group" icon="ledger" iconTone="neutral" title="Brain statistics" subtitle={quiet ? "Documents, tags and links" : "needs the host"} last onClick={quiet ? act(() => runCommand("stats")) : undefined} />
+                <ListRow variant="group" icon="ledger" iconTone="neutral" title="Brain statistics" subtitle={isStreaming ? "a turn is running" : "Documents and software versions"} last onClick={!isStreaming ? act(() => runCommand("stats")) : undefined} />
               </div>
             </BottomSheet>
           </div>
