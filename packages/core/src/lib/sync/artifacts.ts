@@ -16,7 +16,7 @@ import { resolve } from "path";
 import { matchesAnyPattern } from "../tool-leftovers.js";
 import { git } from "./git.js";
 
-/** One `brain sync assess` entry, the shape `assess` in cli/commands/sync.ts returns. */
+/** One `brain sync assess` entry, the shape `assess` in lib/sync/assess.ts returns. */
 export interface AssessedFile {
   status: string;
   class: "SENSITIVE" | "ARTIFACT" | "DERIVED" | "TRACK" | "MEDIA" | "LARGE" | "UNKNOWN";

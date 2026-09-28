@@ -34,7 +34,7 @@ export interface StashReport {
 /** The subject git gives the entry it saves when an autostash cannot be re-applied (`git stash store -m autostash`). */
 const AUTOSTASH = "autostash";
 
-/** The sidecars sync.ts treats as derived (`DERIVED_CACHES` there): merged by key, not by line. */
+/** The sidecars lib/sync/assess.ts treats as derived (`DERIVED_CACHES` there): merged by key, not by line. */
 const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
 
 /** Git-dir entries that mean an operation owns the index and working tree. */

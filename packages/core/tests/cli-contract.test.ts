@@ -296,10 +296,16 @@ describe("add", () => {
 });
 
 describe("sync", () => {
-  // Bare `brain sync` hands the whole workflow to the coding agent and prints
-  // its final text. A stub runner stands in so nothing real is launched.
-  test("prints the agent's text, not JSON", async () => {
+  // Bare `brain sync` runs the whole sync, prints its report as text, and
+  // hands the agent only what the rules left — here a file nothing could
+  // classify. A stub runner stands in so nothing real is launched.
+  test("prints the report, then the agent's text, never JSON", async () => {
     const brain = makeTempBrain({ empty: true });
+    const remote = mkdtempSync(join(tmpdir(), "brain-contract-remote-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-C", brain, ...args]);
+      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+    };
     try {
       writeFileSync(
         join(brain, "brain.config.ts"),
@@ -313,17 +319,26 @@ export default defineConfig({
 });
 `
       );
-      const { stdout, code } = await runCli(brain, ["sync"]);
-      expect(code).toBe(0);
-      expect(stdout).toBe("stub agent ran /sync\n");
-      expect(() => JSON.parse(stdout)).toThrow();
+      writeFileSync(join(brain, ".gitignore"), "node_modules\nbrain.db\nbrain.db-*\n.agents/skills/\n.claude/skills/\n");
+      Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
+      git("init", "-q", "-b", "main");
+      git("config", "user.name", "Alex Example");
+      git("config", "user.email", "alex@example.test");
+      git("config", "commit.gpgsign", "false");
+      git("add", "-A");
+      git("commit", "-qm", "fixture");
+      git("remote", "add", "origin", remote);
+      git("push", "-q", "origin", "main");
+      writeFileSync(join(brain, "survey.xyz"), "owl survey grid\n");
 
-      // An output flag is not a verb: it still takes the agent path and
-      // still prints the agent's text, whatever mode it asks for.
-      for (const flag of ["--json", "--human"]) {
-        const flagged = await runCli(brain, ["sync", flag]);
-        expect(flagged.code).toBe(0);
-        expect(flagged.stdout).toBe("stub agent ran /sync\n");
+      for (const flags of [[], ["--json"], ["--human"]]) {
+        // An output flag is not a verb: the same text, whatever mode it asks for.
+        const { stdout, code } = await runCli(brain, ["sync", ...flags]);
+        expect(code).toBe(0);
+        expect(stdout).toStartWith("brain sync: complete\n");
+        expect(stdout).toContain("  unknown: survey.xyz\n");
+        expect(stdout).toEndWith("\nstub agent ran /sync\n");
+        expect(() => JSON.parse(stdout)).toThrow();
       }
 
       const unknown = await runCli(brain, ["sync", "--not-a-flag"]);
@@ -331,6 +346,7 @@ export default defineConfig({
       expect(unknown.stderr).toContain("Unknown flag: --not-a-flag");
     } finally {
       cleanup(brain);
+      cleanup(remote);
     }
   });
 });
