@@ -265,7 +265,7 @@ describe("refused prose links", () => {
     expect(credentials!.text).toBe("https://•••@x.example/roster");
     const [bidi] = withheld(html("[https://x.example/&#x202E;fdp.exe](https://x.example/&#x202E;fdp.exe)"));
     expect(bidi!.text).toBe("https://x.example/⟨U+202E⟩fdp.exe");
-    expect(bidi!.text).not.toContain("‮");
+    expect(bidi!.text).not.toContain("\u202E");
   });
 
   test("15. the text of a withheld link is never linkified afterwards", () => {
