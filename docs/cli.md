@@ -20,7 +20,7 @@ Usage: brain <command> [args] [flags]
 | `list` | List/browse documents | `--type/--tag/--status`, `--json` = bare array |
 | `process` | Assimilate an inbox note into proper brain content | uses the configured completions provider; degrades keyless |
 | `archive <path>` | Set `status: archived`, move per convention, reindex | Refuses an occupied archive destination before modifying the source |
-| `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--scratch` (into `.brain/scratch/`, the default for stdin), `--as markdown\|html`, `--title`, `--width`, repeatable `--allow-host`; frontmatter is stripped |
+| `render <path\|->` | Render a document to PDF, PNG, or standalone HTML | `--format pdf\|png\|html` (default pdf), `--out`, `--scratch` (into `.brain/scratch/`, the default for stdin), `--as markdown\|html`, `--title`, `--no-running-title`, `--width`, repeatable `--allow-host`; frontmatter is stripped; `{input, output, format, bytes, pages, title, allowHosts, warnings}` (`pages` is `null` unless PDF). `--kind list`, `--kind <kind> --scaffold` and `--blocks [name…]` print the document kinds, a kind's skeleton and the component snippets instead of rendering |
 
 ### Rendering
 
@@ -39,6 +39,26 @@ Chrome available. Without it the command explains what is missing and
 The page resolves no hostname by default, so remote images become a visible
 `[alt — not embedded]` placeholder. `--allow-host <host>` opens specific image
 hosts; `data:` URIs always render.
+
+The shell's stylesheet lays a PDF out as full-bleed A4, with the title and
+"2 / 5" in the footer from page 2, and styles plain markdown into a finished
+document. A designed document is composed from its components, never from CSS:
+`brain render --kind list` names the kinds (itinerary, brief, report, how-to,
+comparison, invoice, invitation, note), `--kind <kind> --scaffold` prints a
+kind's skeleton to fill in, and `--blocks` prints every component's snippet.
+The three print text and take no input path; `--kind list` follows the usual
+JSON rule. A complete HTML document is not wrapped: the stylesheet is injected
+into its `<head>` under the author's own rules, and `<meta name="brain-render"
+content="bare">` opts out.
+
+Every render is checked for what would come out wrong: a component class that
+does not exist, an opener that is not first, a remote image or a stylesheet
+that cannot load, a script, a placeholder left from a skeleton, a link to `#`.
+The findings are printed and listed in `warnings`; `pages` counts the PDF's
+pages. The `generate-pdf` skill treats zero warnings as done.
+
+`chrome-headless-shell` renders in about half the time of full Chrome; point
+`PUPPETEER_EXECUTABLE_PATH` at it to use it.
 
 ## Search + context
 

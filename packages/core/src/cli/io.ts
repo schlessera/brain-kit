@@ -54,6 +54,7 @@ export const BOOLEAN_FLAGS = new Set([
   "lint",
   "allow-set-change", "redact",
   "apply", "groups", "redundant",
+  "scaffold", "blocks", "no-running-title",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -67,6 +68,7 @@ export const VALUE_FLAGS = new Set([
   "set", "k", "now", "budgets",
   "baseline", "max-net-loss", "must-pass",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
+  "kind",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

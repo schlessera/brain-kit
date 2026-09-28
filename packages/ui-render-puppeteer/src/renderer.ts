@@ -340,8 +340,13 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
 
     renderPdf(opts: RenderOptions): Promise<Buffer> {
       return withPage(opts, async (page) => {
+        // The document's @page rule owns size and margins: the shell's is A4
+        // with no side margins, so its opener bleeds to the page edge, and a
+        // footer in its margin boxes. A document with no @page rule of its own
+        // (a bare one) gets A4 and these margins instead.
         const pdf = await page.pdf({
           format: "A4",
+          preferCSSPageSize: true,
           printBackground: true,
           pageRanges: `1-${MAX_PDF_PAGES}`,
           margin: { top: "16mm", bottom: "16mm", left: "16mm", right: "16mm" },

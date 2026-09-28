@@ -4,8 +4,26 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  ACCENTS
+  type Accent
   type BuildHtmlDocumentOptions
+  DEFAULT_TITLE
+  DOCUMENT_BLOCKS
+  DOCUMENT_CLASSES
+  type DocumentBlock
+  type DocumentWarning
+  OPENER_CLASSES
   type RenderContentType
+  SWITCH_CLASSES
   buildHtmlDocument
+  documentTitle
+  isFullDocument
+  lintDocument
+
+export "./kinds" (./src/kinds.ts)
+  DOCUMENT_KINDS
+  type DocumentKind
+  readSkeleton
+  resolveKind
 
 export "./package.json" (./package.json) [asset]

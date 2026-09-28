@@ -120,6 +120,19 @@ describe.skipIf(!hasChrome)("renderer runtime policy", () => {
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   }, 60_000);
 
+  test("the document's @page rule decides the PDF page size; without one it is A4", async () => {
+    const r = renderer();
+    // Points, to within one: A5 is 419.5 x 595.3, A4 595.3 x 841.9, and Skia rounds.
+    const mediaBox = (pdf: Buffer) =>
+      /\/MediaBox \[0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)\]/.exec(pdf.toString("latin1"))!.slice(1).map(Number);
+    const [w5, h5] = mediaBox(await r.renderPdf({ html: "<html><head><style>@page { size: A5; }</style></head><body>x</body></html>" }));
+    expect(Math.abs(w5 - 419.5)).toBeLessThan(1);
+    expect(Math.abs(h5 - 595.3)).toBeLessThan(1);
+    const [w4, h4] = mediaBox(await r.renderPdf({ html: "<html><body>x</body></html>" }));
+    expect(Math.abs(w4 - 595.3)).toBeLessThan(1);
+    expect(Math.abs(h4 - 841.9)).toBeLessThan(1);
+  }, 60_000);
+
   test("scripts do not execute by default, so no channel (incl. WebSocket) can open", async () => {
     // A live local listener the page would reach if scripts ran. Any request
     // — HTTP or WS upgrade — flips `touched`.

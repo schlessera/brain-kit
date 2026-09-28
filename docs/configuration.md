@@ -604,7 +604,7 @@ path and says so, rather than failing at the call.
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
 | `CHROME_CDP_URL` | `brain jobs scrape --browser` | Headless-Chrome DevTools endpoint. Default `http://127.0.0.1:9222`. |
-| `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. |
+| `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. Point it at `chrome-headless-shell` to render in about half the time of full Chrome. |
 | `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX` | `brain render` | `=1` launches Chrome without its sandbox. Required when running as root, as in a container; strictly weaker, so it is opt-in. |
 | `OPENAI_BASE_URL`, `GEMINI_BASE_URL` | images | Point a provider at a proxy or a compatible endpoint. |
 
