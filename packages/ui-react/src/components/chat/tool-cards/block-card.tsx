@@ -136,7 +136,7 @@ function BlockView({ block }: { block: Block }) {
     }
     case "suggestions":
       // Never drawn in the answer: the closing row takes the turn's last
-      // valid call (D48), and a share or a print leaves them out.
+      // valid call (D50), and a share or a print leaves them out.
       return null;
   }
 }

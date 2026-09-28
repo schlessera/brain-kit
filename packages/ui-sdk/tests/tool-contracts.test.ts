@@ -101,7 +101,7 @@ describe("show_block", () => {
     // assertion reports before the two that measure size.
     //
     // `suggestions` is the one kind the brief does not name, by ruling (#40,
-    // D48): the brief sits at this ceiling, and under D44 it measured no
+    // D50): the brief sits at this ceiling, and under D44 it measured no
     // effect on the call rate, so its rule rides in the always-loaded
     // description instead. #550 measures whether that holds. Any OTHER kind
     // the brief stops naming still fails here.

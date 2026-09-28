@@ -597,7 +597,7 @@ its **input** schema rather than a loose one: the payload is the model's own
 argument echoed back, so a field the client's schema does not know is dropped
 from the rendered block rather than kept, and the block still renders.
 
-`suggestions` (additive in 0.39.0, D48) is the one kind that is not part of
+`suggestions` (additive in 0.39.0, D50) is the one kind that is not part of
 the answer. It is follow-ups the model offers the reader, and a consumer
 that draws it holds to these rules:
 

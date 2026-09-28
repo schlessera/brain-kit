@@ -3,7 +3,7 @@
 // draw the same eleven blocks.
 import type { Block } from "@schlessera/brain-ui-sdk/client";
 
-/** The kinds drawn inside the answer: every kind but `suggestions` (D48). */
+/** The kinds drawn inside the answer: every kind but `suggestions` (D50). */
 export type AnswerBlockKind = Exclude<Block["kind"], "suggestions">;
 
 /** One payload per kind drawn in the answer, each in the Odysseus world. */

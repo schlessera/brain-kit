@@ -149,7 +149,7 @@ describe("a message with blocks", () => {
     expect(markdown.startsWith("<style>")).toBe(true);
   });
 
-  test("leaves answer suggestions out: they are an offer in the app, not the answer (D48)", async () => {
+  test("leaves answer suggestions out: they are an offer in the app, not the answer (D50)", async () => {
     store().startAssistantMessage(null);
     store().appendText(null, "Before the quote.");
     showBlock("s1", BLOCKS.quote)();

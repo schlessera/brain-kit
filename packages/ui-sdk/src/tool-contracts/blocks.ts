@@ -340,7 +340,7 @@ export const SUGGESTIONS_MAX_ITEMS = 2;
  * directions by `packages/ui-react/tests/block-contract.test-d.ts`.
  *
  * Unlike every other kind it is not drawn where it is called: the client
- * lifts the turn's last valid call to the answer's closing row (D48), and a
+ * lifts the turn's last valid call to the answer's closing row (D50), and a
  * chip fills the composer; it never sends.
  */
 export const SUGGESTIONS_BLOCK_SCHEMA = z.object({

@@ -177,7 +177,7 @@ function groupParts(
         // when it does not parse (a rejected call, an older server), the
         // call stays in the timeline, where its bound fallback states why.
         const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
-        // Suggestions are the one exception (D48): not part of the answer
+        // Suggestions are the one exception (D50): not part of the answer
         // but an offer after it, drawn in the closing row, so their call
         // position draws nothing — neither a block nor a trace step.
         if (payload?.block.kind === "suggestions") continue;
@@ -353,7 +353,7 @@ function AssistantContent({
 
       {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && <ThinkingIndicator />}
 
-      {/* One closing row per answer (D37 §8, D48): the follow-ups the model
+      {/* One closing row per answer (D37 §8, D50): the follow-ups the model
           offered, after everything else, until the next user message. */}
       {closing && <AnswerSuggestions message={message} />}
     </div>

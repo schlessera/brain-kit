@@ -16,7 +16,7 @@ import { kitIcon } from "./tool-cards/block-card.js";
 
 /**
  * The answer's closing row: the follow-ups the model offered, as chips the
- * reader can take into the composer (#40, D48). A chip never sends — it puts
+ * reader can take into the composer (#40, D50). A chip never sends — it puts
  * its words in the composer below the reader's draft, where they can be
  * edited or left unsent.
  *

@@ -104,7 +104,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const showCommandPalette = input.startsWith("/") && !paletteDismissed;
 
-  // An answer suggestion the reader took (#40, D48): merged into the draft,
+  // An answer suggestion the reader took (#40, D50): merged into the draft,
   // never sent. The draft is kept byte for byte, the suggestion lands on its
   // own line, and the caret goes to the end so the reader can edit straight
   // away. A draft that is a command keeps its text but closes the palette:

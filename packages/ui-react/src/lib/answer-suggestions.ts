@@ -1,5 +1,5 @@
 /**
- * Answer suggestions (#40, D48): the follow-ups the model offers under its
+ * Answer suggestions (#40, D50): the follow-ups the model offers under its
  * own answer, as pure functions so the live transcript and a replayed one go
  * through exactly the same decisions.
  *

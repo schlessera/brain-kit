@@ -118,7 +118,7 @@ describe("BlockCard", () => {
     expect(blockSummary({ block: SUGGESTIONS })).toBe("suggestions · 2");
   });
 
-  test("suggestions draw nothing where they are called: the closing row takes them (D48)", () => {
+  test("suggestions draw nothing where they are called: the closing row takes them (D50)", () => {
     const { container } = render(<BlockCard block={SUGGESTIONS} />);
     expect(container.querySelector('[data-block="suggestions"]')?.textContent).toBe("");
   });

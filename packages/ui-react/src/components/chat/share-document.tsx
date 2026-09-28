@@ -33,7 +33,7 @@ export type ShareSegment = { kind: "markdown"; text: string } | { kind: "block";
  * trace, `ask_user` exchanges, a `show_block` call whose payload does not
  * parse (the transcript shows that one only inside the trace), and answer
  * suggestions, which are an offer to the reader in the app rather than part
- * of the answer (D48).
+ * of the answer (D50).
  */
 export function shareSegments(message: Pick<ChatMessage, "parts" | "toolCalls" | "blocks">): ShareSegment[] {
   const segments: ShareSegment[] = [];

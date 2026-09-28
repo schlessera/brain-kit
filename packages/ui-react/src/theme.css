@@ -545,7 +545,7 @@
   contain-intrinsic-size: auto 6rem;
 }
 
-/* Answer suggestions (#40, D48): a chip the reader takes into the composer.
+/* Answer suggestions (#40, D50): a chip the reader takes into the composer.
  *
  * The chip's hairline is an INSET SHADOW, not a border, so the target below is
  * measured from the paint (D34). The reach is 8px on every side: the chips

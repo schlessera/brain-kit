@@ -48,7 +48,7 @@ type ContactKindsMatch = Assert<Equal<Member<typeof BLOCK_CONTACT_KINDS>, Contac
 type ContactTonesMatch = Assert<Equal<Member<typeof BLOCK_CONTACT_TONES>, ContactTone>>;
 
 /*
- * `suggestions` (#40, D48) is the one block not drawn by the kit component it
+ * `suggestions` (#40, D50) is the one block not drawn by the kit component it
  * mirrors — the app's closing row draws it — so `BlockCard`'s typing cannot
  * catch a drift. Its payload is the DATA projection of `SuggestionChips`: the
  * item carries every `SuggestionItem` field except `onClick` (a callback) and

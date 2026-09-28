@@ -1,4 +1,4 @@
-// Answer suggestions (#40, D48): the follow-ups the model offers under its own
+// Answer suggestions (#40, D50): the follow-ups the model offers under its own
 // answer, drawn as the turn's closing row, taken into the composer and never
 // sent. Mounted as the app mounts them — the real ChatPage and Composer on a
 // root with a fake socket — so what is asserted is the page, not a predicate.
