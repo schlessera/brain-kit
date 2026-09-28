@@ -2,6 +2,7 @@ import type {
   BillingMode,
   ChatImageAttachment,
   ClientEnvironment,
+  MessageSource,
   PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
@@ -71,6 +72,7 @@ type RunSessionInput = {
   attachments: ChatImageAttachment[];
   providerId?: string;
   client?: ClientEnvironment;
+  source?: MessageSource;
   /** Client correlation id for a new conversation; echoed on session_info. */
   draftId?: string;
 };
@@ -159,6 +161,7 @@ async function runRetainedSession(
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.client ? { client: initial.client } : {}),
+    ...(initial.source ? { source: initial.source } : {}),
     releaseAuthorization: () => {},
   };
   let releaseActiveAuthorization: (() => void) | undefined;
@@ -178,7 +181,7 @@ async function runRetainedSession(
         }
         continue;
       }
-      const { text, attachments, client } = next;
+      const { text, attachments, client, source } = next;
       next = null;
 
       const abortController = new AbortController();
@@ -256,7 +259,20 @@ async function runRetainedSession(
         recorder?.recordCancellation(principalId);
       }
       turn.pendingCancellationPrincipalIds.length = 0;
-      const bridge = makeBridge(host, turn, text, backend.id, recorder);
+      // The message's source is recorded in the order the backend receives
+      // its text, which is the order replay counts identical texts in. A
+      // resumed session is known now; a new one is named by session_info.
+      const recordSource = (sid: string): void =>
+        host.catalog.recordMessageSource?.(sid, text, source ?? "typed");
+      if (resumeId) recordSource(resumeId);
+      const bridge = makeBridge(
+        host,
+        turn,
+        text,
+        backend.id,
+        recorder,
+        resumeId ? undefined : recordSource
+      );
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
       try {
@@ -438,6 +454,7 @@ export async function handleChatMessage(
     attachments: ChatImageAttachment[];
     providerId?: string;
     client?: ClientEnvironment;
+    source?: MessageSource;
     draftId?: string;
   }
 ): Promise<void> {
@@ -448,6 +465,7 @@ export async function handleChatMessage(
     sessionId,
     providerId: requestedProviderId,
     client,
+    source,
     draftId,
   } = msg;
   const { coordinator } = host;
@@ -464,6 +482,7 @@ export async function handleChatMessage(
         text,
         attachments,
         ...(client ? { client } : {}),
+        ...(source ? { source } : {}),
         releaseAuthorization: authorization.retain(),
       });
     }
@@ -479,6 +498,9 @@ export async function handleChatMessage(
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
       runningTurn.recorder?.recordFollowUp(authorization.principalId);
+      // Recorded before the hand-off: the running turn's own prompt was
+      // recorded before its startTurn, so identical texts keep their order.
+      host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed");
       void (async () => {
         const releaseFollowUp = authorization.retain();
         try {
@@ -500,6 +522,7 @@ export async function handleChatMessage(
         text,
         attachments,
         ...(client ? { client } : {}),
+        ...(source ? { source } : {}),
         releaseAuthorization: authorization.retain(),
       });
     }
@@ -528,6 +551,7 @@ export async function handleChatMessage(
     attachments,
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
+    ...(source ? { source } : {}),
     ...(draftId ? { draftId } : {}),
   });
 }

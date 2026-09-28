@@ -58,6 +58,9 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     ...(askUserExchanges ? { askUserExchanges } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
     ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
+    // Absent means typed: an older host never sends it, and a newer one
+    // leaves it off typed messages.
+    ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
   };
 }
 

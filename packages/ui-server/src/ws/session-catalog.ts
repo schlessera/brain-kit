@@ -1,10 +1,16 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
-import type { ServerResultMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type {
+  MessageSource,
+  ServerResultMessage,
+  SessionHistoryMessage,
+} from "@schlessera/brain-ui-sdk/protocol";
+
+import { attachMessageSources, saveMessageSource } from "./message-sources.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
- * talks to this interface — swapping the store means implementing four
+ * talks to this interface — swapping the store means implementing its
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
@@ -31,6 +37,15 @@ export interface SessionCatalog {
     providerId: string | null,
     backendId: string
   ): void;
+  /**
+   * Record how a user message was produced, at the moment its text is handed
+   * to the backend for a known session, so replay can say so again. Optional
+   * so a catalog written before it still type-checks; without it every
+   * replayed message reads as typed.
+   */
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource): void;
+  /** Replayed history with each user message's recorded source joined on. */
+  attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -108,6 +123,33 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
           );
       } catch (err) {
         reportWriteFailure(msg.sessionId, err);
+      }
+    },
+
+    recordMessageSource(sessionId, text, source) {
+      try {
+        saveMessageSource(db(), sessionId, text, source);
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+      }
+    },
+
+    attachMessageSources(sessionId, messages) {
+      try {
+        return attachMessageSources(db(), sessionId, messages);
+      } catch (err) {
+        // A replay without sources renders every message as typed, which is
+        // what it rendered before sources were kept; losing the history over
+        // it would not be.
+        log?.emit({
+          severityText: "WARN",
+          body: "message sources could not be joined onto history",
+          attributes: {
+            "session.id": sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        return messages;
       }
     },
   };

@@ -11,6 +11,7 @@ import type {
   AskUserQuestion,
   ChatImageAttachment,
   ClientEnvironment,
+  MessageSource,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnRecorder } from "../activity/recorder.js";
 
@@ -35,6 +36,8 @@ export interface QueuedFollowUp {
   attachments: ChatImageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
+  /** How the user produced the message; absent means typed. */
+  source?: MessageSource;
   /** Queue-owned authorization lease, transferred to the runner on dequeue. */
   releaseAuthorization: () => void;
 }

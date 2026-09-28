@@ -94,6 +94,7 @@ export async function handleClientMessage(
         attachments: attachmentResult.attachments,
         providerId: msg.providerId,
         client: msg.client,
+        source: msg.source,
         draftId: msg.draftId,
       });
       break;
@@ -338,7 +339,7 @@ export async function handleClientMessage(
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         const messages = await backend.getHistory(msg.sessionId);
         if (!connection.authorization.valid) return;
-        sendSessionHistory(ws, msg.sessionId, host.attachMessageBlocks(msg.sessionId, messages));
+        sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming
         // message mid-turn. Mirror the snapshot-on-connect status instead.

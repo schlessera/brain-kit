@@ -578,6 +578,7 @@ export "./schemas" (./src/schemas.ts)
   clientToolApprovalSchema
   clientToolDenialSchema
   messageBlockSchema
+  messageSourceSchema
   parseClientMessage
   parseServerMessage
   serverActivityDeltaSchema
@@ -1738,6 +1739,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         kind: "tool";
         toolIndex: number;
     };
+  MessageSource (packages/ui-sdk/src/protocol.ts)
+    export type MessageSource = "typed" | "voice-dictate" | "voice-conversation";
   ModelUsage (packages/ui-sdk/src/protocol.ts)
     export interface ModelUsage {
         inputTokens?: number;
@@ -1942,6 +1945,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         parts?: MessagePart[];
         attachmentCount?: number;
         blocks?: MessageBlock[];
+        source?: MessageSource;
     }
   SessionScoped (packages/ui-sdk/src/protocol.ts)
     export interface SessionScoped {
