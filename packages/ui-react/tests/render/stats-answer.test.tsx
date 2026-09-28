@@ -83,9 +83,43 @@ describe("/stats", () => {
       const text = container.textContent ?? "";
       expect(text).toContain("Runtime figures unavailable.");
       expect(text).toContain("timeout");
-      expect(text).toContain("Corpus");
+      // The corpus half in full: its receipt keeps all nine rows.
+      const corpus = [...container.querySelectorAll('[data-stats-section="receipt"]')].find((el) =>
+        el.textContent?.startsWith("Corpus")
+      )!;
+      expect(corpus.querySelectorAll("[data-tone]")).toHaveLength(9);
+      expect(sections(container).filter((s) => s === "bars")).toHaveLength(3);
       expect(text).not.toMatch(/NaN|\$0\.00/);
       expect(sections(container).filter((s) => s === "tiles")).toHaveLength(1);
+    } finally {
+      root.dispose();
+    }
+  });
+
+  test("a runtime that answers with nothing is unavailable, not silently absent", async () => {
+    const root = rootWith({
+      brainStats: async () => corpusStats(),
+      activityStats: async () => null as never,
+    });
+    try {
+      const { container } = await answer(root);
+      expect(container.textContent).toContain("Runtime figures unavailable.");
+      expect(container.textContent).toContain("the server returned no figures");
+    } finally {
+      root.dispose();
+    }
+  });
+
+  test("a figure the composer cannot read ends in an error line, not a blank answer", async () => {
+    const root = rootWith({
+      brainStats: async () => ({ ...corpusStats(), byType: undefined as never }),
+      activityStats: async () => runtimeStats(),
+    });
+    try {
+      const { message } = await answer(root);
+      expect(message.isStreaming).toBe(false);
+      expect(message.content).toStartWith("**Error:** ");
+      expect(message.statsAnswer).toBeUndefined();
     } finally {
       root.dispose();
     }

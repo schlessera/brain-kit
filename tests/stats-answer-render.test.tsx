@@ -139,8 +139,11 @@ describe.skipIf(!chromePath)("the /stats answer at 320px", () => {
       try {
         await p.setViewport({ width: 320, height: 800 });
         await p.setContent(page(input));
+        // Something to measure in each kind the checks cover.
         const values = await p.$$eval('[data-stats-section="receipt"] [data-tone]', (els) => els.length);
         expect(values).toBeGreaterThan(10);
+        const tileRows = await p.$$eval('[data-stats-section="tiles"]', (els) => els.length);
+        expect(tileRows).toBe(name === "runtime unavailable" ? 1 : 2);
         expect(await misfits(p)).toEqual([]);
       } finally {
         await p.close();

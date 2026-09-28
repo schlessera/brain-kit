@@ -63,8 +63,8 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
   chat.startAssistantMessage(sessionId);
   try {
     const [corpus, runtime] = await Promise.all([
-      settle(root.api.brainStats()),
-      settle(root.api.activityStats()),
+      settle(root.api.brainStats(), (v) => typeof v.health === "object" && v.health !== null),
+      settle(root.api.activityStats(), (v) => typeof v.window === "object" && v.window !== null),
     ]);
     const store = root.stores.chat.getState();
     if (!corpus.ok && !runtime.ok) {
@@ -72,14 +72,26 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
     } else {
       store.setStatsAnswer(sessionId, composeStatsAnswer({ corpus, runtime }));
     }
+  } catch (err) {
+    // A figure the composer could not read: say so rather than leave a
+    // finished message with nothing in it.
+    root.stores.chat.getState().appendText(
+      sessionId,
+      `**Error:** ${err instanceof Error ? err.message : "Could not draw the statistics"}`
+    );
   } finally {
     root.stores.chat.getState().finishAssistantMessage(sessionId);
   }
 }
 
-async function settle<T>(request: Promise<T>): Promise<Fetched<T>> {
+/** A channel's answer, or why there is none: a rejection, or a body that is not the shape asked for. */
+async function settle<T>(request: Promise<T>, shaped: (value: T) => boolean): Promise<Fetched<T>> {
   try {
-    return { ok: true, value: await request };
+    const value = await request;
+    if (value === null || typeof value !== "object" || !shaped(value)) {
+      return { ok: false, error: "the server returned no figures" };
+    }
+    return { ok: true, value };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Action failed" };
   }

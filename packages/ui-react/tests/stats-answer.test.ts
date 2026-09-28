@@ -89,6 +89,11 @@ describe("the full answer", () => {
     const sum = types.rows.reduce((n, r) => n + Number(r.value.replace(/,/g, "")), 0);
     expect(sum).toBe(412);
     expect(types.meta).toBe("9 types");
+    // A bar is its count's share of all documents, the remainder included.
+    expect(types.rows[0].pct).toBeCloseTo((142 / 412) * 100, 6);
+    expect(types.rows.at(-1)!.pct).toBeCloseTo((46 / 412) * 100, 6);
+    const status = all(sections, "bars").find((b) => b.title === "By status")!;
+    expect(status.rows.map((r) => Math.round(r.pct))).toEqual([73, 21, 6]);
   });
 
   test("the two unpriced counters stay apart, and the sums read as floors", () => {
@@ -144,6 +149,8 @@ describe("health thresholds", () => {
     const [callout] = all(sections, "callout");
     expect(callout).toMatchObject({ tone: "gold", title: "54 links point at notes that don't exist." });
     expect(callout.body).toStartWith("That is 5.4% of all links, over the 5.0% ceiling.");
+    // `brain validate` is the command that reports unresolved wiki-links.
+    expect(callout.body).toContain("`brain validate`");
     expect(callout.body).not.toContain("flagged below");
     expect(all(sections, "tiles")[0].tiles[1].tone).toBe("gold");
   });
@@ -151,6 +158,9 @@ describe("health thresholds", () => {
   test("a ratio that rounds onto its threshold widens until the two differ", () => {
     expect(judgedPair(0.0504, 0.05)).toEqual({ ratio: "5.04%", threshold: "5.00%" });
     expect(judgedPair(0.05, 0.05)).toEqual({ ratio: "5.0%", threshold: "5.0%" });
+    // Closer than any sensible precision: the side is said, not two equal numbers.
+    expect(judgedPair(0.05000000001, 0.05)).toEqual({ ratio: "just over 5.0%", threshold: "5.0%" });
+    expect(judgedPair(0.9, 0.90000000001)).toEqual({ ratio: "just under 90.0%", threshold: "90.0%" });
   });
 });
 
@@ -171,6 +181,8 @@ describe("unknown is never $0", () => {
     expect(cost(0, 0, 10)).toBe("$0.00");
     expect(cost(0, 10, 10)).toBe("unknown");
     expect(cost(1.5, 2, 10)).toBe("≥ $1.50");
+    // A known part under a cent, with unpriced runs beside it.
+    expect(cost(0.000_04, 1, 2)).toBe("> $0.00");
   });
 
   test("a real cost under a cent does not round to free", () => {
@@ -218,6 +230,7 @@ describe("unavailable and empty states", () => {
     const [runs, spent] = all(sections, "tiles")[1].tiles;
     expect(runs.value).toBe("0");
     expect(spent).toMatchObject({ value: "—", tone: "dim" });
+    expect(runs.meta).toBe("none in this window");
     expect(all(sections, "receipt").map((r) => r.title)).toEqual(["Corpus", "Since 3 Feb 2026", "On disk"]);
   });
 
@@ -298,5 +311,15 @@ describe("the row budget", () => {
     const cued = new Set(["red", "gold", "amber", "purple"]);
     const over = rows.filter((r) => [...r.v].length > (cued.has(r.tone ?? "") ? VALUE_BUDGET.toned : VALUE_BUDGET.plain));
     expect(over).toEqual([]);
+  });
+});
+
+describe("an activity record with no runs, beside sessions that exist", () => {
+  test("the runs tile says none are on record, not none in the window", () => {
+    const sections = composeStatsAnswer({
+      corpus: ok(corpusStats()),
+      runtime: ok(runtimeStats({ window: { recordedSince: null, coveredDays: 0, runs: 0, failures: 0, unpricedRuns: 0, unpricedListCostRuns: 0 } })),
+    });
+    expect(all(sections, "tiles")[1].tiles[0]).toMatchObject({ value: "0", meta: "none on record" });
   });
 });

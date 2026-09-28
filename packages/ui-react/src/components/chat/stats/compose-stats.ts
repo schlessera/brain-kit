@@ -150,7 +150,7 @@ function corpusRungs(c: CorpusStats): Rung[] {
       tone: "gold",
       variant: "boxed",
       title: `${plural(c.brokenLinks, "link points", "links point")} at notes that don't exist.`,
-      body: `That is ${shown.ratio} of all links, over the ${shown.threshold} ceiling. \`brain audit\` lists each one with the file it is in.`,
+      body: `That is ${shown.ratio} of all links, over the ${shown.threshold} ceiling. \`brain validate\` lists each one with the file it is in.`,
     });
   }
   return out;
@@ -206,7 +206,7 @@ function runtimeTiles(r: ActivityRuntimeStats): StatTile[] {
   const span = `· ${windowDays(r)}d`;
   if (w.runs === 0) {
     return [
-      { label: `runs ${span}`, value: "0", meta: "none in this window" },
+      { label: `runs ${span}`, value: "0", meta: w.recordedSince === null ? "none on record" : "none in this window" },
       { label: `spent ${span}`, value: "—", meta: "no runs in this window", tone: "dim" },
     ];
   }
@@ -339,11 +339,11 @@ function windowReceipt(r: ActivityRuntimeStats): StatsSection {
 function lifetimeReceipt(r: ActivityRuntimeStats): StatsSection {
   const l = r.lifetime;
   const avg = l.averages;
-  const floor = (value: number | null) => (value === null ? "not computed" : `≥ ${usd(value)}`);
+  const floor = (value: number | null) => (value === null ? "not computed" : atLeast(value));
   const rows: ReceiptRow[] = [
     { k: "sessions", v: count(l.sessions) },
     { k: "turns", v: count(l.turns) },
-    { k: "cost", v: `≥ ${usd(l.costUsd)}` },
+    { k: "cost", v: atLeast(l.costUsd) },
     { k: "per session", v: floor(avg.costUsdPerSession) },
     { k: "per month", v: floor(avg.costUsdPerMonth) },
     { k: "avg turns", v: avg.turnsPerSession === null ? "not computed" : avg.turnsPerSession.toFixed(1) },
@@ -418,7 +418,15 @@ export function usd(value: number): string {
  */
 export function cost(sum: number, unpriced: number, runs: number): string {
   if (runs > 0 && unpriced >= runs) return "unknown";
-  return unpriced > 0 ? `≥ ${usd(sum)}` : usd(sum);
+  return unpriced > 0 ? atLeast(sum) : usd(sum);
+}
+
+/**
+ * A floor. A known part under a cent is still more than nothing, so it
+ * reads `> $0.00` rather than a `≥` in front of `< $0.01`.
+ */
+function atLeast(value: number): string {
+  return value > 0 && value < 0.005 ? "> $0.00" : `≥ ${usd(value)}`;
 }
 
 function unknownTone(unpriced: number, runs: number): { tone?: "dim" } {
@@ -467,5 +475,8 @@ export function judgedPair(ratio: number, threshold: number): { ratio: string; t
     const shown = at(d);
     if (shown.ratio !== shown.threshold) return shown;
   }
-  return at(6);
+  // Closer than six places: say which side it is on rather than print two
+  // equal numbers under a verdict that tells them apart.
+  const shown = at(1);
+  return { ratio: `${ratio > threshold ? "just over" : "just under"} ${shown.threshold}`, threshold: shown.threshold };
 }
