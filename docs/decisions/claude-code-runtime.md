@@ -59,7 +59,7 @@ next to it.
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:43`), resolved by this repo's
   lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:358`): 0.3.278 when
-  this record was written, 0.3.280 from 0.37.0.
+  this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
 ### What the SDK already ships

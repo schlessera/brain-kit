@@ -17,9 +17,9 @@
  */
 export const MEASURED_RUNTIME = Object.freeze({
   /** The Claude Code release, as its `init` message reports it. */
-  claudeCode: "2.1.280",
+  claudeCode: "2.1.283",
   /** `@anthropic-ai/claude-agent-sdk`, which bundles that release. */
-  agentSdk: "0.3.280",
+  agentSdk: "0.3.283",
   /** When `scripts/measure-claude-runtime.ts` last passed against this pair. */
-  measuredOn: "2026-09-23",
+  measuredOn: "2026-09-28",
 });
