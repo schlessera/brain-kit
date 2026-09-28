@@ -156,7 +156,7 @@ describe("show_block", () => {
     });
   });
 
-  test("the twelve kinds, in brief order", () => {
+  test("the thirteen kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -169,6 +169,7 @@ describe("show_block", () => {
       "schedule",
       "quote",
       "contact",
+      "map",
       "suggestions",
     ]);
   });
@@ -196,7 +197,7 @@ describe("show_block", () => {
       )
     ).toBeNull();
     expect(
-      parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block: { kind: "map" } }))
+      parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block: { kind: "chart" } }))
     ).toBeNull();
   });
 });

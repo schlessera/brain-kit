@@ -65,7 +65,7 @@ function answerWithEveryBlock(): ChatMessage {
 }
 
 /**
- * The same eleven, classified: one text part with a placeholder span per
+ * The same twelve, classified: one text part with a placeholder span per
  * kind, each span anchored as a block the surface classified out of it.
  */
 function answerWithEveryClassifiedBlock(): ChatMessage {

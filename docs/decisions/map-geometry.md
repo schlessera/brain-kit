@@ -389,3 +389,96 @@ set of six fixtures is 24.3 KB gzipped against a 28 KB guard.
 
 The fill is still `map-land` at 6% alpha under the stroke, and still a Produced
 Work — §3 and §5 are untouched.
+
+---
+
+## 8. Places the model names, on the same geometry — 2026-09-28 (#44)
+
+The location card was the only caller of `/geo/coastline`: one pin, the
+user's own fix. #44 asked whether the model may put pins on a map too, and
+what geometry would back them.
+
+### The ruling
+
+The maintainer chose **arbitrary coordinate-based pins, drawn over the
+existing server geometry and its cache**. A place does not have to be saved
+in the brain first. The model supplies places and coordinates. The app
+controls the bounds, clustering, labels and drawing, and the map stays
+static. Nothing in this section changes §1–§7: no new service, no tiles, no
+interaction, and the same ODbL credit.
+
+Three rules came with the ruling, and each is now code that a test holds:
+
+- **A missing coordinate is never an invented pin.** A place without one is
+  a row in the list that says `no position`. `0, 0` and latitudes past ±85°
+  are also rows and not pins: the first is almost always a missing value,
+  and the second is past what Mercator draws.
+- **Real geography does not verify a pin.** A coastline under a pin says
+  nothing about whether the pin is right, so the card says so in words
+  whenever it draws one: `Positions as given by the brain · the map does not
+  check them`. A row states what its position rests on: the digits it was
+  given with, an accuracy only if a source stated one, and the source.
+- **No geometry is a place list, not an empty frame.** An empty answer
+  from the route, or a failed request, collapses the frame to
+  `No map for this area · places listed below`. The list carries every
+  place, because it always does.
+
+### What the design added
+
+The design on #44 settled the rest:
+
+- The list is the record and the map illustrates it. Every place is a row,
+  numbered in payload order in every mode, and 30 is a schema cap that the
+  model sees and has to fix.
+- Names go on the map only when there are three pins or fewer and every
+  name has at most 18 characters. Otherwise every pin is a numbered badge,
+  and a merge is a lettered badge whose members' rows say `in A`.
+- The mode comes from the coordinates alone. One frame is used when its
+  envelope fits the route's 5°. Two frames are used when the pins form two
+  groups that each fit. Otherwise there is no frame, and a line gives the
+  great-circle distance that ruled a map out.
+
+Two points in that design were changed during the build:
+
+- **A frame's box is not location-card's 1.5 × 1.0 bleed.** The bleed is
+  correct for one pin at the card's default height. It is not correct for a
+  set of pins, whose height can dominate and which the aspect correction
+  then widens. A frame now asks for the union of what `MapView` draws at
+  the narrowest card (238px) and at the widest (420px), at the plan's own
+  height. The SDK cannot import the kit, so `planPlaces` repeats
+  `MapView`'s rule as `drawnBounds`, and
+  `packages/ui-react/tests/map-block.test.ts` compares it with the kit's
+  exported `mapViewBounds` in six cases at nine card sizes.
+- **The plan takes no pane width.** Clustering happens in the drawing at
+  the width it is laid out at. `MapView.onClusters` reports which pins
+  merged, so the list and the map can never disagree about it. The plan
+  itself is a function of the places only. That also means one request per
+  frame, whatever the width.
+
+### Alternatives not taken
+
+- **Only places saved in the brain.** This would bind every pin to a
+  document with a position. It needs a saved-place resolution step first,
+  and it would not help an answer about somewhere the brain has not
+  recorded yet. The ruling chose not to make that a prerequisite.
+- **The model chooses the frame.** A span, zoom or box in the payload is a
+  way to draw a misleading map: a crowded set at a zoom that hides the
+  crowding, or a continent at a scale that makes two cities one dot. The
+  payload has none of these fields, and unknown fields are stripped.
+- **One map at any extent.** The route refuses a box wider than 5°. The
+  drawing would be a continent's outline with dots on it, and the scale bar
+  would be the only honest thing in it. Two frames at their own scales
+  show more, and a list with a distance shows the rest.
+- **Truncate past the cap on the client.** A dropped place is the failure
+  the list exists to prevent. A 31-place call is a schema rejection
+  instead.
+
+### What it costs
+
+The `show_block` input schema goes from 10,682 to 11,749 characters (+10%).
+The description goes from 2,299 to 2,616 characters. The brief stays within
+its measured ceiling: 11 lines and 749 characters, with `map` named once.
+Nothing here needs a key or the network in a test: the render tests answer
+the route themselves, and the stories draw the committed Vathy and Troy
+geometry.
+

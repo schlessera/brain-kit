@@ -88,6 +88,7 @@ import * as graphView from "../../stories/agents/GraphView.stories.js";
 import * as laneChart from "../../stories/agents/LaneChart.stories.js";
 import * as inPrint from "../../stories/blocks/InPrint.stories.js";
 import * as mapView from "../../stories/blocks/MapView.stories.js";
+import * as placeMap from "../../stories/blocks/PlaceMap.stories.js";
 import * as statTiles from "../../stories/blocks/StatTiles.stories.js";
 import * as trendChart from "../../stories/blocks/TrendChart.stories.js";
 import * as approvalCard from "../../stories/decisions/ApprovalCard.stories.js";
@@ -301,6 +302,30 @@ test("paints: lane chart", async () => {
  */
 test("paints: map view", async () => {
   await looksRight(mapView.Default, "paints-map-view");
+});
+
+/* ── Place maps (#44) ──────────────────────────────────────────────────────── */
+// The two acceptance cases, at the width a block gets on a 320px phone: eight
+// places in one town, and two a continent apart. The stories' play functions
+// assert what "legible" measures as (no mark covers another, every place is a
+// badge or a cluster member, nothing clipped); the baseline is for what they
+// cannot see. Side by side from 560px is the `TwoContinentsWide` story's own
+// assertion: this runner's viewport is a phone's.
+
+test("paints: place map, eight places in one town, phone", async () => {
+  await looksRight(placeMap.EightInOneTown, "paints-place-map-town");
+});
+
+test("paints: place map, eight places in one town, phone, light", async () => {
+  await looksRightOnPaper(placeMap.EightInOneTown, "paints-place-map-town");
+});
+
+test("paints: place map, two places a continent apart, phone", async () => {
+  await looksRight(placeMap.TwoContinents, "paints-place-map-pair");
+});
+
+test("paints: place map, no geometry from the route", async () => {
+  await looksRight(placeMap.NoGeometry, "paints-place-map-no-geometry");
 });
 
 test("paints: agent orbit", async () => {

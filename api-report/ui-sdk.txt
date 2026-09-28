@@ -227,6 +227,7 @@ export "./client" (./src/client/index.ts)
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
+  FRAME_WIDTHS
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -251,18 +252,30 @@ export "./client" (./src/client/index.ts)
   type Keyterm
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
+  MAP_BLOCK_SCHEMA
+  MAP_PLACE_SCHEMA
+  MAX_FRAME_DEGREES
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
+  MIN_SPAN_KM
+  type MapPlace
   type MessageBlock
   type MessagePart
   type MessageSource
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  ON_MAP_LABEL_MAX
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
+  type PlaceFrame
+  type PlaceFrameHeight
+  type PlaceFramePin
+  type PlaceMode
+  type PlacePlan
+  type PlaceRow
   type PricingRoute
   type PronunciationOverride
   type ProtocolError
@@ -359,6 +372,7 @@ export "./client" (./src/client/index.ts)
   type ToolRendererRegistry
   type ToolSemantics
   type TurnUsage
+  type UnpinnedReason
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -375,11 +389,17 @@ export "./client" (./src/client/index.ts)
   defaultToolRendererRegistry
   defineToolComponentContract
   defineToolContract
+  drawnBounds
+  formatDistance
+  frameEnvelope
+  haversineKm
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  numberRuns
   parseToolPayload
+  planPlaces
   registerAsrClient
   registerToolRenderers
   resetAsrClients
@@ -756,10 +776,13 @@ export "./server" (./src/server/index.ts)
   type LocationHandlerOptions
   type LocationPayload
   LockBusyError
+  MAP_BLOCK_SCHEMA
+  MAP_PLACE_SCHEMA
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
   MAX_TOTAL_IMAGE_BYTES
   type MapDetail
+  type MapPlace
   type MessageBlock
   type MessagePart
   type MessageSource
@@ -1049,6 +1072,9 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ImageMaskPayload
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
+  MAP_BLOCK_SCHEMA
+  MAP_PLACE_SCHEMA
+  type MapPlace
   QUERY_ACTIVITY_CONTRACT
   QUERY_ACTIVITY_DESCRIPTION
   QUERY_ACTIVITY_INPUT_SCHEMA
@@ -1439,6 +1465,17 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             }>>;
         }, z.core.$strip>>>;
         initials: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"map">;
+        title: z.ZodOptional<z.ZodString>;
+        places: z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            lat: z.ZodOptional<z.ZodNumber>;
+            lon: z.ZodOptional<z.ZodNumber>;
+            meta: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodString>;
+            accuracyM: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strip>>;
     }, z.core.$strip>, z.ZodObject<{
         kind: z.ZodLiteral<"suggestions">;
         label: z.ZodOptional<z.ZodString>;

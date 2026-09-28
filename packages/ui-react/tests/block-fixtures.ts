@@ -1,6 +1,6 @@
 // One valid `show_block` payload per block kind, in the Odysseus world.
 // Shared by the block-card render tests and the share-document tests, so both
-// draw the same eleven blocks.
+// draw the same twelve blocks.
 import type { Block } from "@schlessera/brain-ui-sdk/client";
 
 /** The kinds drawn inside the answer: every kind but `suggestions` (D50). */
@@ -107,6 +107,15 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     contactKind: "person",
     badge: "loyal",
     facts: [{ k: "last seen", v: "20 years ago", tone: "red" }],
+  },
+  map: {
+    kind: "map",
+    title: "Where the crew went ashore",
+    places: [
+      { label: "Harbour steps", lat: 38.3644, lon: 20.7202, meta: "09:40", source: "notes/landing.md" },
+      { label: "Agora well", lat: 38.3667, lon: 20.7207 },
+      { label: "Raft timber stand" },
+    ],
   },
 };
 

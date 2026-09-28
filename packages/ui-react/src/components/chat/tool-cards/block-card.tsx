@@ -16,6 +16,11 @@
  * "cleared", so an omitted field is handed on as `""` or `[]` rather than
  * `undefined`. Everything else is passed through untouched: the schema
  * already rejected what the kit cannot draw.
+ *
+ * `map` is the one block that is not its payload alone: the places are
+ * planned into frames and each frame's geometry is fetched, so it has a
+ * container of its own (`map-block.tsx`). `isStatic` tells it that nothing
+ * will update this render, so it asks for nothing.
  */
 
 import {
@@ -34,6 +39,8 @@ import {
   type IconName,
 } from "@schlessera/brain-ui-kit";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+
+import { MapBlockCard } from "./map-block.js";
 
 /** A kit icon key, or nothing when the model named one the kit lacks. */
 export function kitIcon(name: string | undefined): IconName | undefined {
@@ -72,12 +79,14 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `quote · ${block.source ?? "unattributed"}`;
     case "contact":
       return `contact · ${block.label}`;
+    case "map":
+      return `map · ${block.title ?? count(block.places.length, "place")}`;
     case "suggestions":
       return `suggestions · ${block.items.length}`;
   }
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
   switch (block.kind) {
     case "comparison": {
       const { kind: _kind, footnote, ...props } = block;
@@ -134,6 +143,8 @@ function BlockView({ block }: { block: Block }) {
       const { kind: _kind, contactKind, role, facts, ...props } = block;
       return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
     }
+    case "map":
+      return <MapBlockCard block={block} isStatic={isStatic} />;
     case "suggestions":
       // Never drawn in the answer: the closing row takes the turn's last
       // valid call (D50), and a share or a print leaves them out.
@@ -141,11 +152,14 @@ function BlockView({ block }: { block: Block }) {
   }
 }
 
-/** Bound to `SHOW_BLOCK_CONTRACT`; receives the parsed payload as props. */
-export function BlockCard({ block }: ShowBlockPayload) {
+/**
+ * Bound to `SHOW_BLOCK_CONTRACT`; receives the parsed payload as props.
+ * `isStatic` is for a render nothing will update (the share document).
+ */
+export function BlockCard({ block, isStatic = false }: ShowBlockPayload & { isStatic?: boolean }) {
   return (
     <div data-block={block.kind}>
-      <BlockView block={block} />
+      <BlockView block={block} isStatic={isStatic} />
     </div>
   );
 }

@@ -74,7 +74,7 @@ export function shareSegments(message: Pick<ChatMessage, "parts" | "toolCalls" |
 export async function renderBlockHtml(block: Block): Promise<string> {
   // Loaded on share, not with the chat: it is only ever needed here.
   const { renderToStaticMarkup } = await import("react-dom/server");
-  return renderToStaticMarkup(<BlockCard block={block} />).replace(/\r\n?|\n/g, "&#10;");
+  return renderToStaticMarkup(<BlockCard block={block} isStatic />).replace(/\r\n?|\n/g, "&#10;");
 }
 
 /** The print tokens, and the layout a block needs on a page. */
