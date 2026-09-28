@@ -14,7 +14,7 @@
 import { lstatSync, readFileSync, readlinkSync, type Stats } from "fs";
 import { resolve } from "path";
 
-import { git, unmergedPaths } from "./git.js";
+import { git, refExists, unmergedPaths } from "./git.js";
 import { pendingState } from "./merge-state.js";
 
 export interface StashEntry {
@@ -247,13 +247,26 @@ function unclean(root: string, entry: StashEntry, paths: string[]): string | nul
   if (status.code !== 0) return `git status failed: ${status.stderr}`;
   const dirty = status.stdout.split("\0").filter(Boolean).map((record) => record.slice(3));
   if (dirty.length > 0) return `its paths have local changes: ${dirty.join(", ")}`;
-  // Fixed prefixes and no external diff or textconv: a user's diff config must not change the patch `apply` reads.
-  const patch = Bun.spawnSync([
-    "git", "-C", root, "stash", "show", "-p", "--include-untracked", "--binary", "--full-index",
-    "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/", entry.ref,
-  ]);
-  if (patch.exitCode !== 0) return `git stash show failed: ${new TextDecoder().decode(patch.stderr).trim()}`;
-  const check = Bun.spawnSync(["git", "-C", root, "apply", "--check"], { stdin: patch.stdout });
+  // The patch is built with `git diff`, not `git stash show -p`: git 2.55's
+  // stash show emits corrupted prefixes (`htrails/…`, `tributestrails/…`),
+  // so `apply` strips the wrong component and every autostash looks
+  // unappliable. Fixed prefixes and no external diff or textconv: a user's
+  // diff config must not change the patch `apply` reads.
+  const diff = (from: string, to: string) =>
+    Bun.spawnSync([
+      "git", "-C", root, "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv",
+      "--no-renames", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/", from, to,
+    ]);
+  const parts = [diff(`${entry.sha}^1`, entry.sha)];
+  if (refExists(root, `${entry.sha}^3`)) {
+    // The untracked files sit in a parentless third commit: diff it against the empty tree.
+    const empty = git(root, ["hash-object", "-t", "tree", "/dev/null"]).stdout;
+    parts.push(diff(empty, `${entry.sha}^3`));
+  }
+  const failed = parts.find((part) => part.exitCode !== 0);
+  if (failed) return `git diff failed: ${new TextDecoder().decode(failed.stderr).trim()}`;
+  const patch = Buffer.concat(parts.map((part) => Buffer.from(part.stdout)));
+  const check = Bun.spawnSync(["git", "-C", root, "apply", "--check"], { stdin: patch });
   if (check.exitCode !== 0) return `it does not apply cleanly: ${new TextDecoder().decode(check.stderr).trim()}`;
   return null;
 }
