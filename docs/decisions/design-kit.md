@@ -2864,7 +2864,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:391`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3291,7 +3291,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:360`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:391`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3465,7 +3465,7 @@ it in the pinned image.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:324-336`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:354-367`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -3934,3 +3934,90 @@ larger, and on prompts 3–7 the model stopped reading the brain through a
 shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
 and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
 `contact` and `quote` smaller than these counts can see.
+
+## 2026-09-28 — D48: a link the model chose shows where it goes, derived by the kit, and is never fetched (#43)
+
+**Question.** D41 §2 held `LinkPreviewCard` back from `show_block`: its props
+carried no URL (`LinkPreviewCardProps`,
+`packages/ui-kit/src/blocks/LinkPreviewCard.tsx:67`, where it now does), and adding one is not only a missing prop. A card the
+model authors, carrying an address the model chose, after it may have read
+untrusted content, under a title and description it also wrote, is a
+phishing shape. #43 asked what such a card may do.
+
+**Decision (maintainer, 2026-09-28, on #43).** Option B: a model-authored
+link card that displays its destination and fetches nothing. The design
+approved on the issue (the "Link cards — destination and trust" spec) holds,
+with four amendments from the ruling:
+
+1. **A refused address rejects the call.** `handleShowBlock` runs
+   `classifyLink` on a `link` block and throws with the reason
+   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`),
+   so the model can correct itself, and D41's "the handler validates and
+   echoes" stays true: an echoed payload is one the policy accepted. The
+   payload parse on the client stays structural, and the card classifies
+   again and draws a withheld card for whatever reaches it anyway. That is
+   the fail-closed fallback, not the normal refusal path.
+2. **The ASCII hostname is the headline.** The `xn--` form is what the
+   browser resolves, and with no confusables table it is the only defence
+   against a whole-script lookalike, which passes any mixed-script check.
+   The decoded form is a secondary "reads as" line. Internationalised names
+   are not refused wholesale.
+3. **The kit takes `url` and derives the rest.** `LinkPreviewCard` gains
+   `url`, `description`, `expanded`, `onExpandedChange` and `onCopy`. With
+   `url` present it calls `classifyLink` itself (`LinkCard`,
+   `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), so the host on
+   screen and the anchor's `href` come from one parse, for every consumer of
+   the kit and not only the block renderer. There is no `host` prop and no
+   `host` field. The payload `{ kind, url, title?, description? }`
+   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
+   mirrors the props, so D41 §4 holds without an amendment.
+4. **No "mentions another site" note.** Detecting a hostname in free text
+   needs a TLD list that goes stale. A missed detection reads as "the title
+   matches the destination", which is the one thing the card must never
+   appear to say.
+
+**The policy lives in the kit, and ui-sdk now depends on the kit.**
+`classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:249-308`) is
+pure (no I/O, no DNS, no `window`) and ships behind the React-free
+`@schlessera/brain-ui-kit/links` export. The handler needs it and the card
+needs it. ui-kit and ui-sdk shared no edge, and a second copy is two policies
+that drift, so ui-sdk takes a hard dependency on ui-kit. The edge table
+records it (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and
+ui-kit now builds and publishes ahead of ui-sdk. The kit's own row is
+unchanged. It still depends on nothing internal, and D13's purity gate still
+holds over everything under `src/`, `links.ts` included.
+
+**One reading of the spec, stated.** The spec says "UTS #39 Highly
+Restrictive" and lists the allowed mixes as Han with Hiragana and Katakana,
+with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
+three sets, so a Japanese brand name with Latin letters in it is not
+refused. The implementation follows the standard
+(`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:212-216`). Latin with any
+other script (Cyrillic, Greek, …) is still refused.
+
+**How "nothing is fetched" is proved, and its measured blind spot.** The
+browser test reads every request from Playwright on the Node side
+(`startRequestLog`, `packages/ui-kit/tests/visual/request-log.ts:20-32`),
+across the whole browser context so a new tab is seen. An in-page spy misses
+an `<img>` and a navigation, and Resource Timing misses a failed request,
+which is every request to `.example`. Mutating a `/preview.png` image or a
+scripted prefetch into the card turns the test red on that log. A
+`/favicon.ico` image did not: Chromium routes it so that Playwright reports
+no request. So the test also asserts that the card contains no element or
+style that can load anything, and that assertion is the one that fails for
+the favicon.
+
+**Alternatives refused.**
+
+- *Fetch a real preview* (title, favicon, image): an egress path from the
+  renderer, a cache and a failure mode, to show metadata the page's owner
+  controls. It stays out of scope; if it is wanted it is its own issue with
+  its own egress discussion.
+- *Take a derived `destination` prop* (the spec's §8): the kit would trust
+  its caller for the host, and the payload would stop mirroring the props.
+- *Refuse every internationalised name*: this was never decided, and the
+  ASCII headline removes the reason for it.
+
+**Not decided here.** Markdown links in answer prose still render as a bare
+anchor whose text is the model's and whose destination is not shown
+(`brain-markdown.tsx`). Whether they go through `classifyLink` is #551.

@@ -545,7 +545,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend` and `bars` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars` and `link` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -562,8 +562,12 @@ describe("the kinds the catalogue can draw", () => {
     // routing them, so it is read off the schemas rather than listed here: a
     // twelfth variant carrying a figure has to be argued, not absorbed.
     const leftOver = BLOCK_KINDS.filter((kind) => !CATALOGUE_BLOCK_KINDS.includes(kind));
-    expect(leftOver).toEqual(["trend", "bars"]);
-    expect(leftOver).toEqual(BLOCK_KINDS.filter(carriesAFigure));
+    expect(leftOver).toEqual(["trend", "bars", "link"]);
+    // `link` is left for another reason: whether a link typed in prose is
+    // routed through the link policy at all is #551's decision (D48), so the
+    // pass does not turn one into a block before that is ruled.
+    const figures: string[] = leftOver.filter((kind) => kind !== "link");
+    expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });
 });
 

@@ -160,6 +160,45 @@ export const linkPreview = {
   trust: "untrusted · came in through a guest · treated as data",
 };
 
+/**
+ * Link mode (#43): addresses a model chose, on the reserved `.example` TLD.
+ * One accepted, one long enough to wrap on a phone, one internationalised,
+ * one whose single label is as long as DNS allows, and two the policy refuses.
+ */
+export const linkDestination = {
+  url: "https://ithaca-harbour.example/tides/2026/week-39",
+  title: "Harbour tide tables, week 39",
+  description: "High water before dawn all week; the pass is safest Tuesday.",
+};
+
+export const linkLong = {
+  url: "http://records.harbour-master.ithaca.gov.example:8443/archive/manifests/2026/09/supply.pdf?ship=12&from=aeaea#page=4",
+  title: "Penelope's supply manifest, copied from the fleet ledger",
+  description: "The September manifest, with the twelve ships' stores and what Aeaea sent back.",
+};
+
+export const linkInternational = {
+  url: "https://bücher.example/odyssey/book-12",
+  title: "Book XII in a modern translation",
+  description: "The Sirens and Scylla passage, with Circe's warning.",
+};
+
+/** A 63-character label: the longest one DNS allows, wider than a phone's card. */
+export const linkLongestLabel = {
+  url: `https://${"telemachus-sails-to-pylos-and-sparta-to-ask-after-his-father".padEnd(63, "x")}.example/`,
+  title: "Where Telemachus went first",
+};
+
+export const linkWithheldCredentials = {
+  url: "https://odysseus:nobody@drive.example/roster",
+  title: "Crew roster (shared drive)",
+};
+
+export const linkWithheldScheme = {
+  url: "javascript:alert('the suitors')",
+  title: "Ithaca treasury: verify your seal now",
+};
+
 /* --------------------------------------------------------------- chrome */
 
 /**

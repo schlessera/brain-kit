@@ -24,6 +24,7 @@ import {
   ContactCard,
   DataTable,
   ICONS,
+  LinkPreviewCard,
   QuoteCard,
   Receipt,
   ScheduleList,
@@ -33,6 +34,7 @@ import {
   TrendChart,
   type IconName,
 } from "@schlessera/brain-ui-kit";
+import { classifyLink } from "@schlessera/brain-ui-kit/links";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 
 /** A kit icon key, or nothing when the model named one the kit lacks. */
@@ -41,6 +43,11 @@ export function kitIcon(name: string | undefined): IconName | undefined {
   // prototype, and the kit would then try to render a function that is not
   // a component.
   return name !== undefined && Object.hasOwn(ICONS, name) ? (name as IconName) : undefined;
+}
+
+/** The link card's Copy control: the exact href, to the clipboard, and nowhere else. */
+function copyAddress(href: string): void {
+  void navigator.clipboard?.writeText(href).catch(() => undefined);
 }
 
 /** An omitted optional text prop, cleared rather than left to the kit's demo default. */
@@ -72,6 +79,10 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `quote · ${block.source ?? "unattributed"}`;
     case "contact":
       return `contact · ${block.label}`;
+    case "link": {
+      const verdict = classifyLink(block.url);
+      return verdict.ok ? `link · ${verdict.host}` : "link · withheld";
+    }
   }
 }
 
@@ -131,6 +142,12 @@ function BlockView({ block }: { block: Block }) {
     case "contact": {
       const { kind: _kind, contactKind, role, facts, ...props } = block;
       return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
+    }
+    case "link": {
+      // The card classifies `url` itself: it derives the host and the href
+      // from one parse, and draws a refused address as withheld (#43).
+      const { kind: _kind, ...props } = block;
+      return <LinkPreviewCard {...props} onCopy={copyAddress} />;
     }
   }
 }

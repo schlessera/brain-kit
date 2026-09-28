@@ -118,7 +118,7 @@ describe("show_block", () => {
     expect(description).toContain("a toned value fits one phone line at 25 characters");
   });
 
-  test("the eleven kinds, in brief order", () => {
+  test("the twelve kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -131,6 +131,7 @@ describe("show_block", () => {
       "schedule",
       "quote",
       "contact",
+      "link",
     ]);
   });
 

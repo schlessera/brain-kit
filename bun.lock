@@ -227,6 +227,7 @@
         "@vitest/browser": "4.1.11",
         "@vitest/browser-playwright": "4.1.11",
         "@vitest/coverage-v8": "4.1.11",
+        "happy-dom": "^20.14.5",
         "playwright": "1.63.0",
         "react": "^19",
         "react-dom": "^19",
@@ -295,6 +296,7 @@
       "name": "@schlessera/brain-ui-sdk",
       "version": "0.38.0",
       "dependencies": {
+        "@schlessera/brain-ui-kit": "workspace:*",
         "mdast-util-to-string": "^4.0.0",
         "micromark-util-decode-string": "^2.0.0",
         "remark-gfm": "^4.0.1",

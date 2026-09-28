@@ -550,7 +550,8 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
 `show_block` (side-effect free, always registered) renders one of the kit's
-answer blocks inline in the answer; it validates its argument and echoes it.
+answer blocks inline in the answer; it validates its argument and echoes it,
+and rejects a `link` block whose address the link policy refuses.
 The five bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
@@ -586,6 +587,22 @@ pre-formatted string because the blocks do no arithmetic:
 | `schedule` | `groups[]{day, meta?, items[]{time, title, detail?, tag?, tone?}}` | `ScheduleList` |
 | `quote` | `quote`, `source?`, `locator?`, `note?`, `tone?`, `icon?` | `QuoteCard` |
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
+| `link` | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
+
+A `link` block's address passes `classifyLink` (`@schlessera/brain-ui-kit/links`)
+twice. The handler rejects the call when it refuses the address, naming the
+reason: `too-long`, `hidden-characters` (control, zero-width or bidi
+characters, or leading and trailing space), `relative`, `unparseable`,
+`scheme` (anything but `http:` and `https:`), `credentials` (any
+`user:password@`), or `mixed-script` (a hostname label that fails UTS #39
+Highly Restrictive). An echoed `link` payload is therefore one the policy
+accepted when it was echoed. The payload parse on the client stays
+structural, so a refused address that reaches a client anyway still parses,
+and the card draws it as a withheld link with no anchor rather than falling
+back to the generic view. The host is not a field: the card derives the host
+it shows and the `href` it opens from one parse of `url`. Nothing is fetched
+to draw the card, and it navigates only when the reader activates its Open
+anchor (`target="_blank"`, `rel="noopener noreferrer nofollow"`, no referrer).
 
 Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
 `timeWidth`, …) are not part of the contract: the surface decides them.

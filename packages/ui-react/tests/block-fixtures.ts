@@ -105,4 +105,10 @@ export const BLOCKS: Record<Block["kind"], Block> = {
     badge: "loyal",
     facts: [{ k: "last seen", v: "20 years ago", tone: "red" }],
   },
+  link: {
+    kind: "link",
+    url: "https://ithaca-harbour.example/tides/week-39",
+    title: "Harbour tide tables, week 39",
+    description: "High water before dawn all week; the pass is safest Tuesday.",
+  },
 };

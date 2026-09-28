@@ -249,6 +249,7 @@ export "./client" (./src/client/index.ts)
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
   type Keyterm
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
   MAX_IMAGES_PER_MESSAGE
@@ -745,6 +746,7 @@ export "./server" (./src/server/index.ts)
   type KeyedLock
   type Keyterm
   type KillableProcess
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
   type LocationFix
@@ -1038,6 +1040,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GetCurrentLocationInput
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
+  LINK_BLOCK_SCHEMA
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
   QUERY_ACTIVITY_CONTRACT
@@ -1426,6 +1429,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             }>>;
         }, z.core.$strip>>>;
         initials: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"link">;
+        url: z.ZodString;
+        title: z.ZodOptional<z.ZodString>;
+        description: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>], "kind">;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {

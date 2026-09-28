@@ -46,6 +46,7 @@ const EXPECTED_TEXT: Record<Block["kind"], string[]> = {
   schedule: ["Today", "Open the bag", "conflict"],
   quote: ["Sing to me of the man, Muse.", "Book 1, line 1"],
   contact: ["Eumaeus", "swineherd", "20 years ago"],
+  link: ["ithaca-harbour.", "example", "Harbour tide tables, week 39", "Title and summary by the brain"],
 };
 
 describe("BlockCard", () => {

@@ -10,14 +10,15 @@ import { resolve } from "path";
 const packages = [
   "render-template",
   "core",
+  // Ahead of ui-sdk, whose `show_block` handler classifies links with the
+  // kit's `./links` export (#43), and of ui-react, which renders the kit.
+  "ui-kit",
   "ui-sdk",
   "ui-backend-claude",
   "ui-backend-pi",
   "ui-render-puppeteer",
   "scrape",
   "ui-server",
-  // Ahead of ui-react, which consumes the kit from step 2 onward.
-  "ui-kit",
   "ui-react",
   "module-finance",
   "module-images",
