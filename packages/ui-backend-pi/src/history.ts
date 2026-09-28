@@ -109,7 +109,9 @@ export function normalizeMessages(messages: AgentMessage[]): SessionHistoryMessa
 
 function normalizeUser(msg: UserMessage): SessionHistoryMessage {
   const content =
-    typeof msg.content === "string" ? msg.content : textOf(msg.content);
+    typeof msg.content === "string"
+      ? msg.content
+      : stripImageNotes(textOf(msg.content));
   const attachmentCount =
     typeof msg.content === "string"
       ? 0
@@ -159,6 +161,29 @@ function normalizeAssistant(
     toolCalls,
     parts,
   };
+}
+
+/**
+ * One note pi writes about an attached image: that it was omitted, converted,
+ * or resized (`processImage` and `formatDimensionNote`, pi-coding-agent's
+ * `dist/utils/image-process.js`).
+ */
+const IMAGE_NOTE =
+  String.raw`\[Image(?: omitted: [^\n]*| converted from [^\n]*|: original \d+x\d+, displayed at \d+x\d+\. [^\n]*)\]`;
+const TRAILING_IMAGE_NOTES = new RegExp(String.raw`\n\n${IMAGE_NOTE}(?:\n${IMAGE_NOTE})*$`);
+
+/**
+ * The user's own text, without the image notes pi appended to it.
+ *
+ * When `AgentSession.prompt` normalises attached images it appends a note per
+ * image it resized, converted or dropped, after a blank line, to the text it
+ * stores (pi-coding-agent 0.87.1, `dist/core/agent-session.js`). Those notes
+ * are pi telling the model about the image, not anything the user wrote, and
+ * the host joins what it kept about a message (its source) by the message's
+ * text as sent. Only a trailing run of notes after a blank line is removed.
+ */
+export function stripImageNotes(text: string): string {
+  return text.replace(TRAILING_IMAGE_NOTES, "");
 }
 
 /** Join the text parts of a pi content array (images/other parts ignored). */

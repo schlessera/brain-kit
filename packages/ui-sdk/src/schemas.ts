@@ -32,6 +32,7 @@ import type {
   ServerMessage,
   ServerResultMessage,
   MessageBlock,
+  MessageSource,
   ServerMessageBlocks,
   ServerSessionHistory,
   ServerSessionInfo,
@@ -224,6 +225,19 @@ export const clientHelloSchema = z.looseObject({
   capabilities: z.record(z.string(), z.boolean()).optional(),
 }) satisfies z.ZodType<ClientHello>;
 
+export const messageSourceSchema = z.enum([
+  "typed",
+  "voice-dictate",
+  "voice-conversation",
+]) satisfies z.ZodType<MessageSource>;
+
+/**
+ * `source` as a peer sends it. A value this build does not know reads as
+ * absent (`typed`) rather than failing the frame: a newer client's source
+ * must not cost its message, and a newer host's must not cost the history.
+ */
+const optionalMessageSource = messageSourceSchema.optional().catch(undefined);
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -233,6 +247,7 @@ export const clientChatMessageSchema = z
     draftId: id.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     client: clientEnvironmentSchema.optional(),
+    source: optionalMessageSource,
   })
   .refine(
     (m) =>
@@ -534,6 +549,7 @@ const historyMessageSchema = z.looseObject({
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
   blocks: z.array(messageBlockSchema).optional(),
+  source: optionalMessageSource,
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */

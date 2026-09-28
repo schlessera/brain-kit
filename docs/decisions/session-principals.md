@@ -76,7 +76,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:31-40`; `slot.queue.push(entry)`, `run-session.ts:406` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:32-43`; `slot.queue.push(entry)`, `run-session.ts:422` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
@@ -84,7 +84,7 @@ Both reviewers verified every row below against the source.
 | Sockets | `ClientSet`, `ws/clients.ts:39` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
 | Rollups | `migrations/007_activity.sql`; `upsertRollup`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
-| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:509`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:541`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
 | Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
@@ -143,13 +143,13 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:162`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:97`; `const billing = host.activity`,
-`:209`), and queued follow-ups execute later. Each connection holds a
+(`resolveTurnTarget`, `ws/run-session.ts:99`; `const billing = host.activity`,
+`:212`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:284`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:287`). The revocation itself is recorded in the activity record.
 
 **6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
 replacement labelled "Safari on iPhone" before it is revoked, or revoke the

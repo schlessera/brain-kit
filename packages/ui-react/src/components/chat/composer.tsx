@@ -216,10 +216,11 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       mediaType: a.attachment.mediaType,
     }));
     const chat = root.stores.chat.getState();
+    const source = reviewText.trim() ? "voice-dictate" : "typed";
     chat.addUserMessage(
       sessionId,
       text,
-      reviewText.trim() ? "voice-dictate" : "typed",
+      source,
       messageAttachments.length > 0 ? messageAttachments : undefined
     );
     // A send while the session is already streaming is a follow-up — the server
@@ -249,6 +250,9 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       // Measured per send, not once per session: the same tab can rotate,
       // move to an external display, or be installed as a PWA mid-conversation.
       client: detectClientEnvironment(),
+      // Kept by the host and returned on replay, so the message still reads
+      // as dictated after a reload or on another device.
+      source,
     });
     setInput("");
     clearReview();

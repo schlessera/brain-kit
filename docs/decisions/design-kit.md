@@ -1,7 +1,7 @@
 # Decisions — the design kit and the chat surface
 
 Why `packages/ui-kit`, `packages/ui-react` and the chat surface are shaped the
-way they are. D1 through D47, dated, with the alternatives that were rejected
+way they are. D1 through D49, dated, with the alternatives that were rejected
 and the measurements that decided them.
 
 **Append-only. Supersede an entry; do not rewrite one.** An entry that turned
@@ -2323,7 +2323,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:186`), so
+  `packages/ui-server/src/ws/run-session.ts:189`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -3935,89 +3935,197 @@ shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
 and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
 `contact` and `quote` smaller than these counts can see.
 
-## 2026-09-28 — D48: a link the model chose shows where it goes, derived by the kit, and is never fetched (#43)
+## 2026-09-28 — D48: a model-authored link shows its destination, and Brain never opens it (#43)
 
-**Question.** D41 §2 held `LinkPreviewCard` back from `show_block`: its props
-carried no URL (`LinkPreviewCardProps`,
-`packages/ui-kit/src/blocks/LinkPreviewCard.tsx:67`, where it now does), and adding one is not only a missing prop. A card the
-model authors, carrying an address the model chose, after it may have read
-untrusted content, under a title and description it also wrote, is a
-phishing shape. #43 asked what such a card may do.
+**Ruled 2026-09-28, before implementation.** This entry records the ruling
+and its reasons. The PR that builds it appends what building it found, the
+way D41's "Built" note does, and supersedes a point here if the code
+disagrees.
 
-**Decision (maintainer, 2026-09-28, on #43).** Option B: a model-authored
-link card that displays its destination and fetches nothing. The design
-approved on the issue (the "Link cards — destination and trust" spec) holds,
-with four amendments from the ruling:
+**Question.** `LinkPreviewCard` is in the kit and D41 §2 left it out of
+`show_block`, because its props carried no URL (`LinkPreviewCardProps`,
+`packages/ui-kit/src/blocks/LinkPreviewCard.tsx:67-97`, where they now do). Giving it one is not
+just a missing prop. The model chooses the URL, the title and the
+description, and it may have read untrusted content before choosing them. A
+card like that, drawn inside an answer the user trusts, is a phishing shape:
+a model-chosen title over a destination the user cannot see.
 
-1. **A refused address rejects the call.** `handleShowBlock` runs
-   `classifyLink` on a `link` block and throws with the reason
-   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`),
-   so the model can correct itself, and D41's "the handler validates and
-   echoes" stays true: an echoed payload is one the policy accepted. The
-   payload parse on the client stays structural, and the card classifies
-   again and draws a withheld card for whatever reaches it anyway. That is
-   the fail-closed fallback, not the normal refusal path.
-2. **The ASCII hostname is the headline.** The `xn--` form is what the
-   browser resolves, and with no confusables table it is the only defence
-   against a whole-script lookalike, which passes any mixed-script check.
-   The decoded form is a secondary "reads as" line. Internationalised names
-   are not refused wholesale.
-3. **The kit takes `url` and derives the rest.** `LinkPreviewCard` gains
-   `url`, `description`, `expanded`, `onExpandedChange` and `onCopy`. With
-   `url` present it calls `classifyLink` itself (`LinkCard`,
-   `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), so the host on
-   screen and the anchor's `href` come from one parse, for every consumer of
-   the kit and not only the block renderer. There is no `host` prop and no
-   `host` field. The payload `{ kind, url, title?, description? }`
-   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
-   mirrors the props, so D41 §4 holds without an amendment.
-4. **No "mentions another site" note.** Detecting a hostname in free text
-   needs a TLD list that goes stale. A missed detection reads as "the title
-   matches the destination", which is the one thing the card must never
-   appear to say.
+**Ruling (maintainer, recorded on #43).** A `link` block that shows where it
+goes and fetches nothing.
 
-**The policy lives in the kit, and ui-sdk now depends on the kit.**
-`classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:249-308`) is
-pure (no I/O, no DNS, no `window`) and ships behind the React-free
-`@schlessera/brain-ui-kit/links` export. The handler needs it and the card
-needs it. ui-kit and ui-sdk shared no edge, and a second copy is two policies
-that drift, so ui-sdk takes a hard dependency on ui-kit. The edge table
-records it (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and
-ui-kit now builds and publishes ahead of ui-sdk. The kit's own row is
-unchanged. It still depends on nothing internal, and D13's purity gate still
-holds over everything under `src/`, `links.ts` included.
-
-**One reading of the spec, stated.** The spec says "UTS #39 Highly
-Restrictive" and lists the allowed mixes as Han with Hiragana and Katakana,
-with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
-three sets, so a Japanese brand name with Latin letters in it is not
-refused. The implementation follows the standard
-(`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:212-216`). Latin with any
-other script (Cyrillic, Greek, …) is still refused.
-
-**How "nothing is fetched" is proved, and its measured blind spot.** The
-browser test reads every request from Playwright on the Node side
-(`startRequestLog`, `packages/ui-kit/tests/visual/request-log.ts:20-32`),
-across the whole browser context so a new tab is seen. An in-page spy misses
-an `<img>` and a navigation, and Resource Timing misses a failed request,
-which is every request to `.example`. Mutating a `/preview.png` image or a
-scripted prefetch into the card turns the test red on that log. A
-`/favicon.ico` image did not: Chromium routes it so that Playwright reports
-no request. So the test also asserts that the card contains no element or
-style that can load anything, and that assertion is the one that fails for
-the favicon.
+1. **The boundary.** Only absolute `http:`/`https:` URLs are accepted.
+   Embedded credentials and every other scheme are refused. The displayed
+   host comes from the same validated URL the anchor navigates to, never from
+   a model-supplied field. The host is visible before any click, and the full
+   URL can be inspected. Title and description are shown as the model's
+   words, not as page metadata. No title, favicon, image or destination
+   content is fetched, and navigation happens only on an explicit user
+   activation of the Open anchor.
+2. **One classifier, `classifyLink`, pure and in the kit.** It lives in
+   ui-kit behind a React-free subpath export, `@schlessera/brain-ui-kit/links`.
+   It does no I/O, no DNS and no `window`. Raw-string checks run before the
+   WHATWG parser, so a tab or a bidi control the parser would silently strip is
+   refused rather than cleaned. Its refusal reasons are `unparseable`,
+   `relative`, `scheme`, `credentials`, `mixed-script`, `hidden-characters`
+   and `too-long`.
+3. **The kit takes `url` and derives everything itself.** `LinkPreviewCard`
+   gains `url`, `description`, `expanded`, `onExpandedChange` and `onCopy`.
+   With `url` present, it calls `classifyLink` and draws either the
+   destination card or the Link withheld card, so the host on screen and the
+   `href` always come from one parse, even for a consumer that is not the
+   block renderer. The payload is `{ kind: "link", url, title?, description? }`
+   and mirrors the props, so D41 §4 holds unamended. The attribution line
+   ("Title and summary by the brain · page not opened or checked") is fixed
+   kit text, not a payload field.
+4. **A policy refusal rejects the `show_block` call**, with the reason, the
+   same way a schema failure does, so the model can correct itself. D41 §1's
+   "the handler validates and echoes" stays true: every echoed payload is
+   valid. The client classifies again anyway, and draws Link withheld for
+   anything that still fails, such as a replayed transcript or a payload
+   written under a looser policy. The withheld card is the fail-closed
+   fallback, not the normal refusal path.
+5. **The ASCII host is the headline.** The `xn--` form is what the browser
+   resolves, and with no confusables table it is the only defence against an
+   all-Cyrillic lookalike, which passes the UTS #39 Highly Restrictive check.
+   `reads as …` is the secondary line. A label that mixes scripts, and any
+   default-ignorable or bidi-control code point, is refused. Other IDNs are
+   not refused wholesale.
+6. **A new package edge: ui-sdk → ui-kit.** The `show_block` handler
+   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`)
+   has to call `classifyLink`, and the two packages did not depend on each other. ui-sdk
+   takes a workspace dependency on ui-kit, and only on its React-free `links`
+   export. That gives one implementation and one test suite. The edge goes
+   through the `release` skill's checks.
 
 **Alternatives refused.**
 
-- *Fetch a real preview* (title, favicon, image): an egress path from the
-  renderer, a cache and a failure mode, to show metadata the page's owner
-  controls. It stays out of scope; if it is wanted it is its own issue with
-  its own egress discussion.
-- *Take a derived `destination` prop* (the spec's §8): the kit would trust
-  its caller for the host, and the payload would stop mirroring the props.
-- *Refuse every internationalised name*: this was never decided, and the
-  ASCII headline removes the reason for it.
+- *A fetched preview* (title, favicon, image from the destination): it is an
+  egress channel opened on the model's say-so, plus a caching and
+  failure-handling service. The renderer is denied every egress channel, and
+  this would be the first hole. If a real preview is ever wanted, it gets its
+  own issue and its own egress discussion.
+- *A model-supplied `host` or `source` field*: a field that can disagree with
+  the URL is a field that can lie.
+- *Echoing a refused payload with a note in the tool result*, the spec's
+  first draft: the model learns nothing it can act on, and the reader gets a
+  withheld card for a mistake the model could have fixed.
+- *The classifier in ui-sdk, with the kit receiving derived strings*: a kit
+  consumer that is not the block renderer could then show a host that did not
+  come from the `href`.
+- *A "mentions another site" note* (a title naming `paypal.com` over a link
+  to another host): detecting a hostname needs a TLD list that goes stale, and
+  a heuristic that misses a case reads as "the title matches the
+  destination", which is exactly what nothing on the card may imply.
+- *Registrable-domain emphasis*: it needs the Public Suffix List, a bundled
+  dataset that goes stale, and a wrong guess (bolding `co.uk`) is worse than
+  none.
+- *A confirm dialog after Open*: the anchor is the explicit act, and a second
+  yes is one the reader learns to skip.
 
-**Not decided here.** Markdown links in answer prose still render as a bare
-anchor whose text is the model's and whose destination is not shown
-(`brain-markdown.tsx`). Whether they go through `classifyLink` is #551.
+**Not decided here.** Markdown links in prose are D49. Links in a shared PNG
+or PDF are #558.
+
+**Built 2026-09-28 (#43).** The build held to the ruling above. What it
+found, and what the ruling did not say:
+
+- **Where each part landed.** The handler throws with the reason
+  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:23-35`).
+  The payload parse on the client stays structural, and the card classifies
+  again. The card's link mode calls `classifyLink` itself
+  (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
+  there is no `host` prop and no `host` field. The payload
+  (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
+  mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:249-308`)
+  is pure. The edge table records the new dependency
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and ui-kit now
+  builds and publishes ahead of ui-sdk. The kit's own row is unchanged. It
+  still depends on nothing internal, and D13's purity gate still holds over
+  everything under `src/`, `links.ts` included.
+- **One reading of the spec, stated.** The spec says "UTS #39 Highly
+  Restrictive" and lists the allowed mixes as Han with Hiragana and Katakana,
+  with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
+  three sets, so a Japanese brand name with Latin letters in it is not
+  refused. The implementation follows the standard
+  (`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:212-216`). Latin with any
+  other script (Cyrillic, Greek, …) is still refused.
+- **How "nothing is fetched" is proved, and its measured blind spot.** The
+  browser test reads every request from Playwright on the Node side
+  (`startRequestLog`, `packages/ui-kit/tests/visual/request-log.ts:20-32`),
+  across the whole browser context so a new tab is seen. An in-page spy
+  misses an `<img>` and a navigation, and Resource Timing misses a failed
+  request, which is every request to `.example`. Mutating a `/preview.png`
+  image or a scripted prefetch into the card turns the test red on that log.
+  A `/favicon.ico` image did not: Chromium routes it so that Playwright
+  reports no request. So the test also asserts that the card contains no
+  element or style that can load anything, and that assertion is the one
+  that fails for the favicon.
+- **One more alternative refused.** *Take a derived `destination` prop* (the
+  spec's §8): the kit would trust its caller for the host, and the payload
+  would stop mirroring the props.
+
+## 2026-09-28 — D49: a prose link goes through D48's classifier on every markdown surface, and `mailto:` stays live (#551)
+
+**Ruled 2026-09-28, before implementation.** As with D48, the implementing PR
+appends what building it found. The presentation (how the host sits in
+running text, and how a withheld link reads) is still to be designed on the
+issue, so this entry fixes the behaviour and not the look.
+
+**Question.** D48 puts every model-authored link card behind `classifyLink`.
+A markdown link in the answer's prose gets none of it. The `a` override
+(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:154-169`)
+draws every link that is not a repo path as a bare
+`<a target="_blank" rel="noopener noreferrer">`. The only filter is
+react-markdown's default `urlTransform`, which strips `javascript:` and
+`data:` and nothing else. So `[your bank](https://account-check.example)`
+shows "your bank" with no destination: D48's phishing shape, one layer down,
+in the place it is easiest to produce.
+
+**Ruling (maintainer, recorded on #551).**
+
+1. **One policy.** Every anchor the override draws, apart from repo
+   `FileLink`/`DirLink` links, goes through `classifyLink`. There is no
+   second URL parser and no prose-specific loosening of the web rules, so a
+   prose link and a link card never disagree about the same URL.
+2. **Every `BrainMarkdown` surface, not just answers.** The override is
+   shared by answers, share blocks, `ask_user` cards, the briefing and the
+   file viewer. All are covered, because the corpus holds clipped external
+   content, and a note is no safer to click than an answer. `remark-gfm`
+   autolinks are covered too.
+3. **An accepted link shows its host.** The text stays the anchor text, and
+   the verdict's ASCII host sits beside it, e.g.
+   `your bank (account-check.example)`. The `href` and the host come from the
+   same verdict. The anchor gets `rel="noopener noreferrer nofollow"` and
+   `referrerpolicy="no-referrer"`.
+4. **A refused link is inert.** It is plain text: no `<a>`, no
+   `role="link"`, nothing that navigates, and no later pass may promote it
+   back into a link.
+5. **`mailto:` is the one prose-only exception.** It stays a live anchor,
+   with the address from the same parse shown beside its text. The raw-string
+   checks still run first, and a failure makes it inert. It is a named check
+   beside `classifyLink` in the same `links` module, with its own tests, and
+   not a loosening of `classifyLink`: the `link` block still refuses
+   `mailto:`. Every other scheme `classifyLink` refuses (`xmpp:`, `irc:`, …)
+   is inert.
+
+**Alternatives refused.**
+
+- *Leave prose links as they are, with the block as the supported way to
+  show a link*: it leaves D48's threat open in the one place a model reaches
+  for without being asked.
+- *Stop rendering prose anchors, and tell the model to use the `link`
+  block*: it kills every link in the user's own notes along with the
+  model's, and it leans on prompt text, the lever D42 measured at 0 of 5.
+- *Only model-authored surfaces, with the file viewer keeping plain
+  anchors*: it needs a prop saying who wrote the text, and clipped pages in
+  the corpus are no more trustworthy than an answer.
+- *Inert `mailto:` like every other refused scheme*: an email address in a
+  note is ordinary content, and showing the address beside the text already
+  answers what the link does.
+
+**Not a contract change.** Prose rendering is not in
+`docs/integration-contract.md`.
+
+**Not decided here.** A shared PNG or PDF draws links with `marked` in
+`render-template` (D46), not through this override, so it keeps
+hidden-destination links until #558 is ruled. "Copy as rich text" copies the
+rendered DOM, so it inherits this treatment.
