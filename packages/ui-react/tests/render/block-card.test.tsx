@@ -6,11 +6,13 @@
 import { unregisterBlockCardDom } from "./block-card-dom.js";
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render as mount, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import {
   SHOW_BLOCK_CONTRACT,
   parseToolPayload,
   resetToolRenderers,
+  planPlaces,
   resolveToolRenderer,
   visibleToolName,
   type Block,
@@ -23,7 +25,10 @@ import {
   kitIcon,
 } from "../../src/components/chat/tool-cards/block-card.js";
 import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
+import type { CoastlineGeometry } from "../../src/lib/api-client.js";
 import { isShowBlockTool } from "../../src/lib/tool-names.js";
+import { createBrainUiRoot } from "../../src/root.js";
+import { BrainUiProvider } from "../../src/root-context.js";
 
 afterEach(cleanup);
 afterAll(() => {
@@ -32,6 +37,45 @@ afterAll(() => {
 });
 
 import { BLOCKS } from "../block-fixtures.js";
+
+/**
+ * Every request the rendered blocks make, answered here and nowhere else.
+ * The `map` block asks the server's `/geo/coastline` for its frames; this is
+ * that server, so no render in this file can reach the network.
+ */
+const requested: string[] = [];
+let answer: (url: string) => Promise<Response> = async () =>
+  new Response(JSON.stringify(emptyGeometry()), { headers: { "content-type": "application/json" } });
+
+function emptyGeometry(): CoastlineGeometry {
+  return {
+    coastline: [],
+    roads: [],
+    streets: [],
+    land: [],
+    detail: "streets",
+    partial: false,
+    toleranceM: 5,
+    attribution: "© OpenStreetMap contributors",
+  };
+}
+
+function render(ui: ReactElement) {
+  const root = createBrainUiRoot({
+    storage: null,
+    request: (url) => {
+      requested.push(url);
+      return answer(url);
+    },
+  });
+  return mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>);
+}
+
+afterEach(() => {
+  requested.length = 0;
+  answer = async () =>
+    new Response(JSON.stringify(emptyGeometry()), { headers: { "content-type": "application/json" } });
+});
 
 /** Text each variant must put on the page, from the payload's own words. */
 const EXPECTED_TEXT: Record<Block["kind"], string[]> = {
@@ -46,6 +90,7 @@ const EXPECTED_TEXT: Record<Block["kind"], string[]> = {
   schedule: ["Today", "Open the bag", "conflict"],
   quote: ["Sing to me of the man, Muse.", "Book 1, line 1"],
   contact: ["Eumaeus", "swineherd", "20 years ago"],
+  map: ["Where the crew went ashore", "Harbour steps", "Agora well", "Raft timber stand", "no position"],
 };
 
 describe("BlockCard", () => {
@@ -115,6 +160,8 @@ describe("BlockCard", () => {
     expect(blockSummary({ block: BLOCKS.schedule })).toBe("schedule · 1 day");
     expect(blockSummary({ block: BLOCKS.quote })).toBe("quote · Odyssey");
     expect(blockSummary({ block: BLOCKS.contact })).toBe("contact · Eumaeus");
+    expect(blockSummary({ block: BLOCKS.map })).toBe("map · Where the crew went ashore");
+    expect(blockSummary({ block: { kind: "map", places: [{ label: "Vathy" }] } })).toBe("map · 1 place");
   });
 });
 
@@ -153,5 +200,118 @@ describe("the bound renderer", () => {
     const { container: card } = render(<Output tool={drawn} />);
     expect(card.querySelector('[data-block="quote"]')).not.toBeNull();
     expect(renderer.summary?.(drawn)).toBe("quote · Odyssey");
+  });
+});
+
+describe("the map block", () => {
+  const VATHY = { label: "Vathy", lat: 38.3647, lon: 20.7202 };
+  const TROY = { label: "Hisarlik", lat: 39.9575, lon: 26.2389 };
+  const street: [number, number][] = [
+    [20.719, 38.364],
+    [20.721, 38.365],
+  ];
+
+  function geometry(over: Partial<CoastlineGeometry>) {
+    return async () =>
+      new Response(JSON.stringify({ ...emptyGeometry(), ...over }), { headers: { "content-type": "application/json" } });
+  }
+
+  test("places saved nowhere are drawn over the existing geometry route, one request per frame", async () => {
+    answer = geometry({ streets: [street] });
+    const places = [VATHY, { label: "Agora well", lat: 38.3667, lon: 20.7207 }];
+    const { container } = render(<BlockCard block={{ kind: "map", places }} />);
+    await waitFor(() => expect(container.textContent).toContain("© OpenStreetMap contributors"));
+    expect(requested).toHaveLength(1);
+    const url = new URL(requested[0]!, "http://brain.test");
+    expect(url.pathname).toBe("/api/geo/coastline");
+    const [frame] = planPlaces(places).frames;
+    expect(url.searchParams.get("bbox")).toBe(frame!.bbox.map((n) => n.toFixed(5)).join(","));
+    expect(url.searchParams.get("width")).toBe("495");
+    // The street arrived and is drawn, under the brain's own statement about
+    // whose positions these are.
+    expect(container.querySelectorAll("polyline").length).toBeGreaterThan(0);
+    expect(container.textContent).toContain("Positions as given by the brain · the map does not check them");
+  });
+
+  test("a pair is two requests and one credit", async () => {
+    answer = geometry({ coastline: [street] });
+    const { container } = render(<BlockCard block={{ kind: "map", places: [VATHY, TROY] }} />);
+    await waitFor(() => expect(container.textContent).toContain("© OpenStreetMap contributors"));
+    expect(requested).toHaveLength(2);
+    expect(container.textContent!.split("© OpenStreetMap contributors")).toHaveLength(2);
+    expect(container.textContent).toContain("Too far apart for one map · 508 km between them");
+  });
+
+  test("an empty answer is a line and the whole list, never an empty frame", async () => {
+    const { container } = render(<BlockCard block={BLOCKS.map} />);
+    await waitFor(() => expect(container.textContent).toContain("No map for this area · places listed below"));
+    expect(requested).toHaveLength(1);
+    expect(container.querySelector('svg[preserveAspectRatio="none"]')).toBeNull();
+    expect(container.textContent).not.toContain("OpenStreetMap");
+    expect(container.querySelectorAll("li[data-place]")).toHaveLength(3);
+  });
+
+  test("a failed request is the same honest line: no server, an old one, an outage", async () => {
+    answer = async () => new Response("nope", { status: 500 });
+    const { container } = render(<BlockCard block={BLOCKS.map} />);
+    await waitFor(() => expect(container.textContent).toContain("No map for this area · places listed below"));
+    answer = async () => {
+      throw new TypeError("network down");
+    };
+    cleanup();
+    const again = render(<BlockCard block={BLOCKS.map} />);
+    await waitFor(() => expect(again.container.textContent).toContain("No map for this area · places listed below"));
+    expect(again.container.querySelectorAll("li[data-place]")).toHaveLength(3);
+  });
+
+  test("a set too spread out asks for nothing and says why", async () => {
+    const { container } = render(
+      <BlockCard block={{ kind: "map", places: [{ label: "Ogygia", lat: 36.05, lon: 14.25 }, VATHY, TROY] }} />,
+    );
+    expect(container.textContent).toContain("Too spread out to draw · 1,140 km across");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(requested).toHaveLength(0);
+  });
+
+  test("a static render asks for nothing and opens the whole list", async () => {
+    const places = Array.from({ length: 12 }, (_, i) => ({ label: `Place ${i + 1}`, lat: 38.36 + i * 0.0003, lon: 20.72 }));
+    const { container } = render(<BlockCard block={{ kind: "map", places }} isStatic />);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(requested).toHaveLength(0);
+    expect(container.querySelectorAll("li[data-place]")).toHaveLength(12);
+    expect(container.textContent).toContain("No map for this area · places listed below");
+  });
+
+  test("a missing coordinate is a row without a pin, never an invented one", async () => {
+    answer = geometry({ streets: [street] });
+    const { container } = render(<BlockCard block={BLOCKS.map} />);
+    await waitFor(() => expect(container.textContent).toContain("© OpenStreetMap contributors"));
+    // Three rows, two pins: the third place is listed and not drawn.
+    expect(container.querySelectorAll("li[data-place]")).toHaveLength(3);
+    const viewport = container.querySelector('[role="img"]')!;
+    expect(viewport.getAttribute("aria-label")).toContain("with places 1 and 2");
+    expect(container.querySelector('li[data-place="3"]')!.textContent).toContain("no position");
+  });
+
+  test("an invalid map payload is refused by the contract, so the generic view draws its words", () => {
+    registerBuiltinRenderers();
+    const piName = visibleToolName(SHOW_BLOCK_CONTRACT.name, "pi");
+    const renderer = resolveToolRenderer({ id: "m", name: piName, input: {}, isError: false }, "pi")!;
+    const Output = renderer.Output!;
+    const invalid = [
+      { kind: "map", places: [{ label: "half", lat: 38.36 }] },
+      { kind: "map", places: [] },
+      { kind: "map", places: Array.from({ length: 31 }, (_, i) => ({ label: `p${i}` })) },
+      { kind: "map", places: [{ label: "x", lat: 95, lon: 20 }] },
+    ];
+    for (const block of invalid) {
+      const output = JSON.stringify({ block });
+      expect(parseToolPayload(SHOW_BLOCK_CONTRACT, output)).toBeNull();
+      const { container } = render(<Output tool={{ id: "m", name: piName, input: {}, output, isError: false }} />);
+      expect(container.querySelector('[data-block="map"]')).toBeNull();
+      expect(container.textContent).toContain('"kind":"map"');
+      cleanup();
+    }
+    expect(requested).toHaveLength(0);
   });
 });

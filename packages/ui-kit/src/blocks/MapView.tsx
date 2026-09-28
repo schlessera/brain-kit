@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import { warnOnce } from "../internal/dev.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -31,6 +31,20 @@ export interface MapPin {
   label?: string;
   meta?: string;
   tone?: Tone;
+  /**
+   * The pin's number in the list the map illustrates. In `pinMode="number"`
+   * it is the badge; in label mode it leads the label (`1 Vathy`), so the
+   * map and the list name a place the same way.
+   */
+  n?: number;
+}
+
+/** A merge the drawing made: which pins sit under one mark. */
+export interface MapCluster {
+  /** `A`, `B`, … in order of each cluster's first member. */
+  letter: string;
+  /** The members' `n`, first member first. Pins without an `n` are left out. */
+  members: number[];
 }
 
 /**
@@ -139,6 +153,43 @@ export interface MapViewProps {
    * still the caller's to pass or not.
    */
   land?: MapLand;
+  /**
+   * `"label"` (the default) is the map as it always was: a dot and its name.
+   * `"number"` draws each pin as a numbered badge, never a name, and a merge
+   * as a lettered badge (`A·5`), so every place stays identifiable on a map
+   * too crowded for names. A merged pin is then never silent: the container
+   * hears about it through `onClusters` and says so in its list.
+   */
+  pinMode?: "label" | "number";
+  /**
+   * Called with the merges the drawing actually made, at the width it is
+   * actually drawn. A data callback from the drawing to its container, not a
+   * payload field: the list under a map says `in A` only because of it. Fires
+   * after layout, and again only when the merges change.
+   */
+  onClusters?: (clusters: MapCluster[]) => void;
+  /**
+   * Where cluster lettering starts, as an index (0 = `A`). Two maps that
+   * share one list continue each other's letters rather than both saying `A`.
+   */
+  letterFrom?: number;
+  /**
+   * The top-left coordinate chip. Default on. It names the FIRST pin, which
+   * is right for one pin and reads as the map's centre for several.
+   */
+  coordChip?: boolean;
+  /**
+   * An accessible name for the drawing. The viewport becomes `role="img"`
+   * with this label, so what is drawn inside it is presentational;
+   * `describedBy` points at the text equivalent, which for a place map is
+   * its list.
+   */
+  describe?: { label: string; describedBy?: string };
+  /**
+   * Default true. False drops the card's own border, radius and width cap,
+   * so a container that owns the card can put the drawing flush inside it.
+   */
+  framed?: boolean;
 }
 
 /** A pin is a 10px disc: the `mark` role, which is the step a darkened accent
@@ -154,6 +205,17 @@ const MARKS: Record<Tone, string> = {
 };
 
 /** A path is a 2px stroke, also a mark. */
+/** A numbered badge is a solid disc that takes `on-fill` text on top. */
+const FILLS: Record<Tone, string> = {
+  amber: accent.amber.fill,
+  gold: accent.gold.fill,
+  teal: accent.teal.fill,
+  purple: accent.purple.fill,
+  blue: accent.blue.fill,
+  red: accent.red.fill,
+  neutral: accent.neutral.fill,
+};
+
 const RINGS: Record<Tone, string> = {
   amber: token("map-pin-ring-amber"),
   gold: token("map-pin-ring-gold"),
@@ -207,6 +269,127 @@ export function step(span: number): number {
 const DOT = 10;
 
 const NICE_METRES = [50, 100, 200, 250, 500, 1000, 2000, 5000];
+
+/**
+ * The ground `MapView` draws for these pins in a `width` × `height` viewport:
+ * longitude `mw`..`me`, Mercator y `yBot`..`yTop` and the same in latitude.
+ *
+ * Exported because a container that fetches geometry for the drawing has to
+ * ask for a box that covers it, and "what the component will draw" is this
+ * component's rule and nobody else's. `@schlessera/brain-ui-sdk`'s place-map
+ * plan repeats it (the SDK cannot import the kit) and
+ * `packages/ui-react/tests/map-block.test.ts` holds the two together.
+ */
+export function mapViewBounds(
+  pins: ReadonlyArray<{ lat: number; lon: number }>,
+  opts: { width: number; height?: number; spanKm?: number; accuracyM?: number },
+): { mw: number; me: number; yTop: number; yBot: number; latTop: number; latBot: number; midLat: number } {
+  const lons = pins.map((s) => Number(s.lon));
+  const lats = pins.map((s) => Number(s.lat));
+  // THE SPAN RULE. The frame's job is to contain the uncertainty with room
+  // left to read it, so the span is the larger of the caller's minimum and six
+  // times the accuracy radius. A max, not a branch: see `accuracyM`.
+  const accM = Math.max(0, Number(opts.accuracyM) || 0);
+  const spanKm = Math.max(Number(opts.spanKm) || 1.6, (accM * 6) / 1000);
+
+  // 111 km per degree of latitude. Longitude shrinks by cos(lat), floored at
+  // 0.2 so a high-latitude view does not blow the box up to a hemisphere.
+  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  // `spanKm` is the span across the WIDTH. It used to be applied to both axes,
+  // which was harmless while the projection stretched each axis to fill the box
+  // independently — but once one pixel is the same distance in both directions,
+  // a minimum on the short axis means the long one shows roughly twice it, and
+  // a card captioned "18 km" was drawing forty. The caption is the contract.
+  const degLon = spanKm / 111 / Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
+  // Latitude gets no minimum of its own: the aspect correction below grows
+  // whichever axis is short, so the height follows from the width and the card.
+  const degLat = 0;
+
+  let west = Math.min(...lons);
+  let east = Math.max(...lons);
+  let south = Math.min(...lats);
+  let north = Math.max(...lats);
+  // `spanKm` is a MINIMUM: a single pin, or two close together, is widened to
+  // it; a bounding box already larger keeps its own extent.
+  if (east - west < degLon) {
+    const c = (east + west) / 2;
+    west = c - degLon / 2;
+    east = c + degLon / 2;
+  }
+  if (north - south < degLat) {
+    const c = (north + south) / 2;
+    south = c - degLat / 2;
+    north = c + degLat / 2;
+  }
+  // 12% margin east-west, 14% north-south, so a pin at the edge of the bounding
+  // box is never at the edge of the drawing.
+  let mw = west - (east - west) * 0.12;
+  let me = east + (east - west) * 0.12;
+  const ms = south - (north - south) * 0.14;
+  const mn = north + (north - south) * 0.14;
+
+  /**
+   * ONE SCALE FOR BOTH AXES, and this is where that is made true.
+   *
+   * Web Mercator is conformal: at any point, a step in longitude degrees and
+   * the same step in mercator-y cover the same distance on the ground. So the
+   * drawing is undistorted exactly when the bbox's longitude range and its
+   * mercator-y range are in the same ratio as the box they are drawn into.
+   *
+   * They are not, in general — the bbox comes from the pins, plus a minimum
+   * span, plus margins that differ per axis — so the short axis is WIDENED
+   * until it matches. Widened, never cropped: cropping to fit would push a pin
+   * out of the view it was the reason for. A wider card therefore shows more
+   * ground at the same scale, which is the difference between panning and
+   * stretching.
+   */
+  let yTop = mercY(mn);
+  let yBot = mercY(ms);
+  const wantRatio = opts.width / Math.max(110, Math.min(260, Number(opts.height) || 170));
+  // `mercY` is the conformal y in RADIANS (`ln tan`), and the bbox holds
+  // longitude in DEGREES. Comparing them directly is out by a factor of 57 and
+  // widens the wrong axis by two orders of magnitude — 0.05 degrees of latitude
+  // drawn 2.9px tall beside 0.05 degrees of longitude drawn 129px wide. In
+  // Mercator, longitude-in-radians and y are the same units by construction, so
+  // that is what the ratio has to be taken in.
+  const lonRad = (me - mw) * DEG;
+  const yRad = yTop - yBot;
+  if (lonRad / yRad < wantRatio) {
+    const grow = ((yRad * wantRatio) / DEG - (me - mw)) / 2;
+    mw -= grow;
+    me += grow;
+  } else {
+    const grow = (lonRad / wantRatio - yRad) / 2;
+    yTop += grow;
+    yBot -= grow;
+  }
+
+  // The correction moved the view in MERCATOR y, so the latitude bounds it was
+  // derived from are now stale — and `step()` reads them to choose the
+  // graticule interval. Left stale, the latitude span looks like almost
+  // nothing and the interval comes out so fine that the labels pile on top of
+  // one another. Invert the mercator back to degrees and use that.
+  const unmercY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) / DEG;
+  const latTop = unmercY(yTop);
+  const latBot = unmercY(yBot);
+
+  return { mw, me, yTop, yBot, latTop, latBot, midLat };
+}
+
+/** `A`…`Z`, then `AA`, `AB`…: a letter per merge, never a number that could
+ * be mistaken for a pin's own. */
+export function clusterLetter(index: number): string {
+  let out = "";
+  let i = index;
+  do {
+    out = String.fromCharCode(65 + (i % 26)) + out;
+    i = Math.floor(i / 26) - 1;
+  } while (i >= 0);
+  return out;
+}
+
+/** The numbered badge's diameter: a pin you can read a two-digit number in. */
+const BADGE = 18;
 
 export function MapView(p: MapViewProps) {
   /**
@@ -275,96 +458,18 @@ export function MapView(p: MapViewProps) {
     label: pin.label,
     meta: pin.meta,
     tone: pin.tone || ("amber" as Tone),
+    n: "n" in pin && typeof pin.n === "number" ? pin.n : undefined,
   }));
 
-  const lons = src.map((s) => s.lon);
-  const lats = src.map((s) => s.lat);
-  // THE SPAN RULE. The frame's job is to contain the uncertainty with room
-  // left to read it, so the span is the larger of the caller's minimum and six
-  // times the accuracy radius. A max, not a branch: see `accuracyM`.
+  // THE SPAN RULE lives in `mapViewBounds`, so a container that has to
+  // fetch geometry for this drawing can ask what it will cover.
   const accM = Math.max(0, Number(p.accuracyM) || 0);
-  const spanKm = Math.max(Number(p.spanKm) || 1.6, (accM * 6) / 1000);
-
-  // 111 km per degree of latitude. Longitude shrinks by cos(lat), floored at
-  // 0.2 so a high-latitude view does not blow the box up to a hemisphere.
-  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  // `spanKm` is the span across the WIDTH. It used to be applied to both axes,
-  // which was harmless while the projection stretched each axis to fill the box
-  // independently — but once one pixel is the same distance in both directions,
-  // a minimum on the short axis means the long one shows roughly twice it, and
-  // a card captioned "18 km" was drawing forty. The caption is the contract.
-  const degLon = spanKm / 111 / Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
-  // Latitude gets no minimum of its own: the aspect correction below grows
-  // whichever axis is short, so the height follows from the width and the card.
-  const degLat = 0;
-
-  let west = Math.min(...lons);
-  let east = Math.max(...lons);
-  let south = Math.min(...lats);
-  let north = Math.max(...lats);
-  // `spanKm` is a MINIMUM: a single pin, or two close together, is widened to
-  // it; a bounding box already larger keeps its own extent.
-  if (east - west < degLon) {
-    const c = (east + west) / 2;
-    west = c - degLon / 2;
-    east = c + degLon / 2;
-  }
-  if (north - south < degLat) {
-    const c = (north + south) / 2;
-    south = c - degLat / 2;
-    north = c + degLat / 2;
-  }
-  // 12% margin east-west, 14% north-south, so a pin at the edge of the bounding
-  // box is never at the edge of the drawing.
-  let mw = west - (east - west) * 0.12;
-  let me = east + (east - west) * 0.12;
-  const ms = south - (north - south) * 0.14;
-  const mn = north + (north - south) * 0.14;
-
-  /**
-   * ONE SCALE FOR BOTH AXES, and this is where that is made true.
-   *
-   * Web Mercator is conformal: at any point, a step in longitude degrees and
-   * the same step in mercator-y cover the same distance on the ground. So the
-   * drawing is undistorted exactly when the bbox's longitude range and its
-   * mercator-y range are in the same ratio as the box they are drawn into.
-   *
-   * They are not, in general — the bbox comes from the pins, plus a minimum
-   * span, plus margins that differ per axis — so the short axis is WIDENED
-   * until it matches. Widened, never cropped: cropping to fit would push a pin
-   * out of the view it was the reason for. A wider card therefore shows more
-   * ground at the same scale, which is the difference between panning and
-   * stretching.
-   */
-  let yTop = mercY(mn);
-  let yBot = mercY(ms);
-  const wantRatio = W / H;
-  // `mercY` is the conformal y in RADIANS (`ln tan`), and the bbox holds
-  // longitude in DEGREES. Comparing them directly is out by a factor of 57 and
-  // widens the wrong axis by two orders of magnitude — 0.05 degrees of latitude
-  // drawn 2.9px tall beside 0.05 degrees of longitude drawn 129px wide. In
-  // Mercator, longitude-in-radians and y are the same units by construction, so
-  // that is what the ratio has to be taken in.
-  const lonRad = (me - mw) * DEG;
-  const yRad = yTop - yBot;
-  if (lonRad / yRad < wantRatio) {
-    const grow = ((yRad * wantRatio) / DEG - (me - mw)) / 2;
-    mw -= grow;
-    me += grow;
-  } else {
-    const grow = (lonRad / wantRatio - yRad) / 2;
-    yTop += grow;
-    yBot -= grow;
-  }
-
-  // The correction moved the view in MERCATOR y, so the latitude bounds it was
-  // derived from are now stale — and `step()` reads them to choose the
-  // graticule interval. Left stale, the latitude span looks like almost
-  // nothing and the interval comes out so fine that the labels pile on top of
-  // one another. Invert the mercator back to degrees and use that.
-  const unmercY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) / DEG;
-  const latTop = unmercY(yTop);
-  const latBot = unmercY(yBot);
+  const { mw, me, yTop, yBot, latTop, latBot, midLat } = mapViewBounds(src, {
+    width: W,
+    height: H,
+    spanKm: p.spanKm,
+    accuracyM: accM,
+  });
 
   const px = (lon: number) => ((lon - mw) / (me - mw)) * W;
   const py = (lat: number) => ((yTop - mercY(lat)) / (yTop - yBot)) * H;
@@ -392,17 +497,55 @@ export function MapView(p: MapViewProps) {
    * Two passes, as the source has them: project and absorb, then style.
    */
   const clusterPx = Number(p.clusterPx) || 34;
-  const placed: { x: number; y: number; extra: number; tone: Tone; label?: string; meta?: string }[] = [];
+  const numbered = p.pinMode === "number";
+  const placed: {
+    x: number;
+    y: number;
+    extra: number;
+    tone: Tone;
+    label?: string;
+    meta?: string;
+    n?: number;
+    members: number[];
+    letter?: string;
+  }[] = [];
   for (const pin of src) {
     const x = px(pin.lon);
     const y = py(pin.lat);
     const host = placed.find((q) => Math.hypot(q.x - x, q.y - y) < clusterPx);
     if (host) {
       host.extra += 1;
+      if (pin.n !== undefined) host.members.push(pin.n);
       continue;
     }
-    placed.push({ x, y, extra: 0, tone: pin.tone, label: pin.label, meta: pin.meta });
+    placed.push({
+      x,
+      y,
+      extra: 0,
+      tone: pin.tone,
+      label: pin.label,
+      meta: pin.meta,
+      n: pin.n,
+      members: pin.n !== undefined ? [pin.n] : [],
+    });
   }
+  // Letters go to merges in the order of each merge's first member, which is
+  // the order `placed` is already in: payload order, greedy, as above.
+  const letterFrom = Math.max(0, Math.floor(Number(p.letterFrom) || 0));
+  const clusters: MapCluster[] = [];
+  for (const mark of placed) {
+    if (!mark.extra) continue;
+    mark.letter = clusterLetter(letterFrom + clusters.length);
+    clusters.push({ letter: mark.letter, members: mark.members });
+  }
+  // Reported after layout and only on change, so a container that re-renders
+  // with the answer does not loop on its own state.
+  const clusterKey = JSON.stringify(clusters);
+  const onClustersRef = useRef(p.onClusters);
+  onClustersRef.current = p.onClusters;
+  useEffect(() => {
+    onClustersRef.current?.(JSON.parse(clusterKey) as MapCluster[]);
+  }, [clusterKey]);
 
   const lonStep = step(me - mw);
   const latStep = step(latTop - latBot);
@@ -491,16 +634,19 @@ export function MapView(p: MapViewProps) {
   const subtitle = p.subtitle ?? "Vathy · the hall, and 108 guests in it";
   const meta = p.meta ?? "628 km";
 
-  const box: CSSProperties = {
-    border: `1px solid ${color.line}`,
-    background: color.surface,
-    borderRadius: 14,
-    overflow: "hidden",
-    boxSizing: "border-box",
-    width: "100%",
-    maxWidth: Number(p.maxWidth) || 420,
-    flex: "none",
-  };
+  const framed = p.framed !== false;
+  const box: CSSProperties = framed
+    ? {
+        border: `1px solid ${color.line}`,
+        background: color.surface,
+        borderRadius: 14,
+        overflow: "hidden",
+        boxSizing: "border-box",
+        width: "100%",
+        maxWidth: Number(p.maxWidth) || 420,
+        flex: "none",
+      }
+    : { width: "100%", boxSizing: "border-box", flex: "none" };
   const viewport: CSSProperties = {
     position: "relative",
     width: "100%",
@@ -511,7 +657,17 @@ export function MapView(p: MapViewProps) {
 
   return (
     <div style={box}>
-      <div ref={viewportRef} style={viewport}>
+      <div
+        ref={viewportRef}
+        style={viewport}
+        {...(p.describe
+          ? {
+              role: "img",
+              "aria-label": p.describe.label,
+              ...(p.describe.describedBy ? { "aria-describedby": p.describe.describedBy } : {}),
+            }
+          : {})}
+      >
         {/* `preserveAspectRatio="none"` is not a style choice, it is what the
          * projection already assumes: `px()` maps the bbox's longitude range
          * across the FULL width and `py()` maps its latitude range across the
@@ -584,7 +740,42 @@ export function MapView(p: MapViewProps) {
         {placed.map((pin, i) => {
           const c = MARKS[pin.tone] || MARKS.amber;
           const x = pin.x;
-          const label = pin.extra ? `${pin.label || "here"} +${pin.extra}` : pin.label;
+          if (numbered) {
+            // A badge is centred on its coordinate: it has no label to lead,
+            // so the mark IS the row. A merge is a rounded square rather than
+            // a disc, so a letter can never be read as a number.
+            const text = pin.letter ? `${pin.letter}·${pin.extra + 1}` : pin.n !== undefined ? String(pin.n) : "";
+            return (
+              <div
+                key={`pin${i}`}
+                data-pin={pin.letter ? "cluster" : "badge"}
+                style={{
+                  position: "absolute",
+                  left: pctX(x),
+                  top: pctY(pin.y),
+                  transform: "translate(-50%, -50%)",
+                  zIndex: 3,
+                  boxSizing: "border-box",
+                  minWidth: BADGE,
+                  height: pin.letter ? 22 : BADGE,
+                  padding: pin.letter ? "0 6px" : "0 4px",
+                  borderRadius: pin.letter ? 6 : BADGE / 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: FILLS[pin.tone] || FILLS.amber,
+                  color: color.onFill,
+                  font: `700 10px/1 ${font.mono}`,
+                  whiteSpace: "nowrap",
+                  boxShadow: `0 0 0 2px ${token("map-halo")}, 0 0 0 3.5px ${RINGS[pin.tone] || RINGS.amber}`,
+                }}
+              >
+                {text}
+              </div>
+            );
+          }
+          const named = pin.n !== undefined && pin.label ? `${pin.n} ${pin.label}` : pin.label;
+          const label = pin.extra ? `${named || "here"} +${pin.extra}` : named;
           const meta = x <= W * 0.7 && !pin.extra ? pin.meta : undefined;
           // A label on a pin in the right-hand third would run off the edge, so
           // the row reverses and the label sits to the left of its own dot.
@@ -705,21 +896,23 @@ export function MapView(p: MapViewProps) {
             {niceM >= 1000 ? `${niceM / 1000} km` : `${niceM} m`}
           </span>
         </div>
-        <div
-          style={{
-            position: "absolute",
-            left: 10,
-            top: 8,
-            zIndex: 4,
-            font: `500 9px/1 ${font.mono}`,
-            color: accent.neutral.ink,
-            background: token("map-coord-bg"),
-            borderRadius: 4,
-            padding: "2px 5px",
-          }}
-        >
-          {`${src[0].lat.toFixed(4)}, ${src[0].lon.toFixed(4)}`}
-        </div>
+        {p.coordChip !== false ? (
+          <div
+            style={{
+              position: "absolute",
+              left: 10,
+              top: 8,
+              zIndex: 4,
+              font: `500 9px/1 ${font.mono}`,
+              color: accent.neutral.ink,
+              background: token("map-coord-bg"),
+              borderRadius: 4,
+              padding: "2px 5px",
+            }}
+          >
+            {`${src[0].lat.toFixed(4)}, ${src[0].lon.toFixed(4)}`}
+          </div>
+        ) : null}
       </div>
       {title || p.attribution ? (
         <div

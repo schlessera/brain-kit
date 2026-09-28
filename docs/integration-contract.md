@@ -586,9 +586,35 @@ pre-formatted string because the blocks do no arithmetic:
 | `schedule` | `groups[]{day, meta?, items[]{time, title, detail?, tag?, tone?}}` | `ScheduleList` |
 | `quote` | `quote`, `source?`, `locator?`, `note?`, `tone?`, `icon?` | `QuoteCard` |
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
+| `map` | `title?` (≤60), `places[1..30]{label (1-80), lat? (-90..90), lon? (-180..180), meta? (≤40), source? (≤80), accuracyM? (>0, ≤100000)}`; `lat` and `lon` come together or not at all (additive in 0.39.0) | `PlaceMap`, planned by `planPlaces` |
 
 Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
 `timeWidth`, …) are not part of the contract: the surface decides them.
+
+`map` is the one variant that is not handed to its component as it stands.
+The model names places; how they are drawn is the surface's, and nothing in
+the payload can set a span, zoom, box, height, tone, geometry or number.
+`planPlaces` (`@schlessera/brain-ui-sdk/client`) turns the places into the
+drawing, as a pure function a consumer may rely on:
+
+- **Every place is a row, numbered 1..N in payload order**, in every mode.
+  A place without `lat`/`lon`, at exactly `0, 0`, or past ±85° latitude is a
+  row with a reason (`no position`, `0, 0 is usually a missing value`,
+  `beyond the map's ±85°`) and no pin; a missing coordinate is never
+  estimated. More than 30 places is a schema rejection, never a truncation.
+- **The mode comes from the coordinates**: `list` when nothing is pinned or
+  the pins' tightest arc crosses ±180°; `map` when one frame's envelope fits
+  the geometry route's 5°; `pair` when the pins form exactly two groups
+  (single linkage at 5° on both axes) that each fit; `list` otherwise. The
+  reason line's distance is a haversine of the given coordinates, to three
+  significant figures.
+- **Each frame's geometry comes from `GET /api/geo/coastline`**, with the
+  frame's `bbox` and `width=495`, the location card's route and cache. An
+  empty answer or a failed request draws no frame, only
+  `No map for this area · places listed below`; the list is unchanged.
+- **Positions are the brain's claim.** Whenever a place is pinned the card
+  says `Positions as given by the brain · the map does not check them`, and
+  the OpenStreetMap credit appears once, exactly when OSM geometry is drawn.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
 is dropped rather than rejected. `show_block` is the one payload parsed with
 its **input** schema rather than a loose one: the payload is the model's own
