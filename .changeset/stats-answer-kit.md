@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-react": minor
+---
+
+`/stats` answers with kit blocks instead of a markdown bullet list (#97). It asks both channels at once: the corpus over `GET /api/brain/stats` and the runtime over `GET /api/activity/stats`. Each answers in its own blocks, and either can fail without taking the other down. The answer shows two tile rows (corpus, then runtime), bar lists for documents by type, status and relevance, and receipts for the corpus, the runtime window, the lifetime record and what is on disk. A notice appears above them when a health threshold is crossed or runs failed. Every figure `brain stats --json` returns is now shown, including the relevance breakdown, broken links, chunks and embeddings, which the old answer dropped. Costs keep their unpriced runs visible: a partly priced sum reads as a floor (`≥ $4.10`), a wholly unpriced one reads `unknown`, and neither ever reads `$0`. `api.brainStats()` is typed with the full corpus shape (`CorpusStats`), and `api.activityStats(days?)` is new.

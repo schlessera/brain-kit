@@ -1,6 +1,7 @@
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback } from "react";
+import { composeStatsAnswer, type Fetched } from "./stats/compose-stats.js";
 
 /**
  * Slash-command dispatch, shared by the composer's palette and the welcome
@@ -50,36 +51,36 @@ export function useChatCommands(): (command: string) => void {
   }, [root]);
 }
 
-/** Brain statistics rendered into the transcript as an assistant turn. */
-async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {
+/**
+ * Brain statistics, answered into the transcript from the kit (#97). Both
+ * channels are asked at once and either may fail alone: the corpus from
+ * `brain stats`, the runtime from the server's own database. Only when both
+ * fail does the answer fall back to one error line.
+ */
+export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {
   const chat = root.stores.chat.getState();
   chat.addUserMessage(sessionId, "Stats");
   chat.startAssistantMessage(sessionId);
   try {
-    const stats = await root.api.brainStats();
-    const result = [
-      `**Brain Statistics**`,
-      `- Documents: ${stats.documents}`,
-      `- Tags: ${stats.tags}`,
-      `- Links: ${stats.links}`,
-      ``,
-      `**By Type:** ${Object.entries(stats.byType)
-        .sort(([, a], [, b]) => b - a)
-        .map(([t, n]) => `${t} (${n})`)
-        .join(", ")}`,
-      ``,
-      `**By Status:** ${Object.entries(stats.byStatus)
-        .map(([s, n]) => `${s} (${n})`)
-        .join(", ")}`,
-    ].join("\n");
-    root.stores.chat.getState().appendText(sessionId, result);
-  } catch (err) {
-    root.stores.chat.getState()
-      .appendText(
-        sessionId,
-        `**Error:** ${err instanceof Error ? err.message : "Action failed"}`
-      );
+    const [corpus, runtime] = await Promise.all([
+      settle(root.api.brainStats()),
+      settle(root.api.activityStats()),
+    ]);
+    const store = root.stores.chat.getState();
+    if (!corpus.ok && !runtime.ok) {
+      store.appendText(sessionId, `**Error:** ${corpus.error}`);
+    } else {
+      store.setStatsAnswer(sessionId, composeStatsAnswer({ corpus, runtime }));
+    }
   } finally {
     root.stores.chat.getState().finishAssistantMessage(sessionId);
+  }
+}
+
+async function settle<T>(request: Promise<T>): Promise<Fetched<T>> {
+  try {
+    return { ok: true, value: await request };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Action failed" };
   }
 }

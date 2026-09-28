@@ -14,6 +14,7 @@ import type {
   ActivityRollups,
   ActivityDigest,
   ActivityIntent,
+  ActivityRuntimeStats,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 // Activity REST types live in the SDK protocol (shared with the server);
@@ -26,6 +27,7 @@ export type {
   ActivityRollups,
   ActivityDigest,
   ActivityIntent,
+  ActivityRuntimeStats,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AuthenticationResponseJSON,
@@ -33,6 +35,43 @@ import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
+
+/**
+ * `brain stats --json`, passed through by `GET /api/brain/stats` — the corpus
+ * half of /stats (`docs/integration-contract.md`, "brain stats --json").
+ * Restated rather than imported: this package may not depend on the CLI's.
+ * A figure that could not be measured is `null`, never `0`.
+ */
+export interface CorpusStats {
+  documents: number;
+  byType: Record<string, number>;
+  byStatus: Record<string, number>;
+  byRelevance: Record<string, number>;
+  tags: number;
+  links: number;
+  brokenLinks: number;
+  chunks: number;
+  /** Stored vectors; `0` with no vector table, `null` when one could not be counted. */
+  embeddings: number | null;
+  health: {
+    brokenLinkRate: number | null;
+    /** `null` when the brain neither embeds nor holds vectors, has no chunks, or the count failed. */
+    embeddingCoverage: number | null;
+    stale: number;
+    orphans: number;
+    untagged: number;
+    thresholds: { coverageFloor: number; brokenLinkCeiling: number };
+  };
+  size: {
+    corpus: { bytes: number; files: number } | null;
+    db: {
+      bytes: number | null;
+      tables: Record<string, number>;
+      vectorSlots: { live: number | null; allocated: number | null };
+    };
+    freeBytes: number | null;
+  };
+}
 
 /**
  * One hit from `brain search`. `snippet` carries the CLI's FTS highlight
@@ -283,14 +322,7 @@ export function createBrainApi(
         { signal: opts?.signal }
       ),
 
-    brainStats: () =>
-      fetchJson<{
-        documents: number;
-        byType: Record<string, number>;
-        byStatus: Record<string, number>;
-        tags: number;
-        links: number;
-      }>("/brain/stats"),
+    brainStats: () => fetchJson<CorpusStats>("/brain/stats"),
 
     brainSync: () =>
       fetchJson<{ success: boolean; message: string }>("/brain/sync", {
@@ -599,6 +631,10 @@ export function createBrainApi(
         `/activity/runs/${encodeURIComponent(runId)}` +
           (opts?.includePayloads ? "?include=payloads" : "")
       ),
+
+    /** The runtime half of /stats; `days` is clamped to 1-90 server-side, default 30. */
+    activityStats: (days?: number) =>
+      fetchJson<ActivityRuntimeStats>(`/activity/stats${days ? `?days=${days}` : ""}`),
 
     activityRollups: (days?: number) =>
       fetchJson<ActivityRollups>(`/activity/rollups${days ? `?days=${days}` : ""}`),
