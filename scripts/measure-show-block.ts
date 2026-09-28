@@ -16,8 +16,10 @@
  * registers `show_block` as a plain tool, so it is always in the prompt and
  * `--always-load` below is the arm that corresponds to it.
  *
- * It needs `ANTHROPIC_API_KEY` and the network, so it is a script and not a
- * test: CI never runs it. Re-run it before changing the brief again.
+ * It needs a credential and the network, so it is a script and not a test:
+ * CI never runs it. Re-run it before changing the brief again. The
+ * credential is `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` when no key
+ * is set (#336's ruling O1); the report names which one ran it.
  *
  * WHAT THIS HARNESS CANNOT SEE. It drives the Claude Agent SDK directly, so it
  * measures one backend below the server: no ui-server, no socket, no client,
@@ -34,6 +36,7 @@
  *   bun scripts/measure-show-block.ts --always-load   # tools in the prompt
  *   bun scripts/measure-show-block.ts --tokens        # the schema arithmetic
  *   bun scripts/measure-show-block.ts --both-arms     # loaded AND deferred, one run
+ *   bun scripts/measure-show-block.ts --schema-forms  # #336: the schema written three ways
  *
  * `--both-arms` re-checks D44's CLI half on whatever runtime is installed
  * (#209): every prompt runs with the bridge server loaded and deferred, the
@@ -47,6 +50,16 @@
  * is the record; `--always-load` is therefore the configuration that ships
  * today, and a bare invocation measures the one that shipped before it. The
  * flag keeps its name so D43's commands keep reproducing D43's tables.
+ *
+ * `--schema-forms` was added for #336, which asks whether `show_block`'s
+ * schema can be written shorter without moving the call rate or the parse
+ * rate. Its arms are schema forms rather than brief/no-brief: `flat` (what
+ * ships), `shared` (D47's reduction 1) and `shared-trimmed` (reductions 1 and
+ * 2), defined in `scripts/show-block-schema-forms.ts`. It runs the shipping
+ * configuration in every arm, the brief on and the bridge server loaded, so
+ * the schema is the only difference. A turn that completed in a non-flat arm
+ * is also the evidence that the API accepted a request carrying that form: a
+ * schema the API refused would error the turn.
  *
  * Two counting rules keep the rate honest. A call is counted only when its
  * argument parses through the contract's schema, because a rejected call drew
@@ -90,6 +103,16 @@ import {
   SHOW_BLOCK_TOOL_NAME as BLOCK_TOOL,
 } from "../packages/ui-backend-claude/src/show-block-tool.js";
 import { createAgentHook } from "../packages/ui-backend-claude/src/input-rewrite-hooks.js";
+import { showBlockInputSchema } from "@schlessera/brain-ui-sdk/server";
+import {
+  liveCredential,
+  listedShowBlock,
+  SCHEMA_ARM_NAMES,
+  SCHEMA_ARMS,
+  showBlockToolIn,
+  type LiveCredential,
+  type SchemaArm,
+} from "./show-block-schema-forms.ts";
 import { kvRunColumns, kvRunRows, type KvRunColumns } from "./measure-kv-runs.ts";
 
 /**
@@ -241,9 +264,21 @@ const PROMPTS: readonly {
   },
 ];
 
-type ArmName = "brief" | "no-brief";
+type ArmName = "brief" | "no-brief" | SchemaArm;
 
-const ARMS: readonly ArmName[] = ["brief", "no-brief"];
+/** `--schema-forms` (#336): the arms are schema forms, not brief/no-brief. */
+const SCHEMA_FORMS = process.argv.includes("--schema-forms");
+
+const ARMS: readonly ArmName[] = SCHEMA_FORMS ? SCHEMA_ARM_NAMES : ["brief", "no-brief"];
+
+function isSchemaArm(arm: ArmName): arm is SchemaArm {
+  return arm in SCHEMA_ARMS;
+}
+
+/** The schema a call in `arm` was offered, and so the one it must parse through. */
+function inputSchemaFor(arm: ArmName) {
+  return isSchemaArm(arm) ? showBlockInputSchema(SCHEMA_ARMS[arm]) : SHOW_BLOCK_INPUT_SCHEMA;
+}
 
 interface TurnResult {
   prompt: string;
@@ -307,6 +342,8 @@ interface TurnResult {
   alwaysLoad: boolean;
   /** The Claude Code version the turn's `init` reported. */
   claudeCode?: string;
+  /** The credential the CLI said it used, as its `init` reported it. */
+  apiKeySource?: string;
   error?: string;
 }
 
@@ -328,7 +365,7 @@ interface TurnResult {
  * than silently measuring something else under the same command. Pass
  * `--always-load` for the configuration that ships today.
  */
-const ALWAYS_LOAD = process.argv.includes("--always-load");
+const ALWAYS_LOAD = process.argv.includes("--always-load") || SCHEMA_FORMS;
 
 function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: boolean): Options {
   return {
@@ -350,7 +387,8 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
         // The one difference between the arms. `false` drops the brief from
         // the prompt; the tool below is registered and allowed either way,
         // which is exactly the "retire the brief, keep the tool" shape.
-        tools: { block: arm === "brief" && BLOCK_TOOL },
+        // Every schema arm runs with the brief, as production does.
+        tools: { block: arm !== "no-brief" && BLOCK_TOOL },
       }),
     },
     // `tools` is what would narrow AVAILABILITY and it is left unset, as
@@ -392,7 +430,7 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
       "brain-ui": createSdkMcpServer({
         name: "brain-ui",
         version: "0.1.0",
-        tools: [createShowBlockTool()],
+        tools: [isSchemaArm(arm) ? showBlockToolIn(arm) : createShowBlockTool()],
         ...(alwaysLoad ? { alwaysLoad: true } : {}),
       }),
     },
@@ -447,12 +485,17 @@ async function runTurn(
   let firstFrameMs = 0;
   let ttftMs: number | undefined;
   let claudeCode: string | undefined;
+  let apiKeySource: string | undefined;
+  const inputSchema = inputSchemaFor(arm);
   try {
     for await (const message of query({
       prompt: prompt.text,
       options: optionsFor(arm, abortController, alwaysLoad),
     })) {
-      if (message.type === "system" && message.subtype === "init") claudeCode = message.claude_code_version;
+      if (message.type === "system" && message.subtype === "init") {
+        claudeCode = message.claude_code_version;
+        apiKeySource = message.apiKeySource;
+      }
       // The first frame the model produced, whatever its kind: what "the
       // answer started" means to a reader watching the surface.
       if (firstFrameMs === 0 && message.type === "assistant") {
@@ -468,7 +511,7 @@ async function runTurn(
             otherTools.add(part.name);
             continue;
           }
-          const parsed = SHOW_BLOCK_INPUT_SCHEMA.safeParse(part.input);
+          const parsed = inputSchema.safeParse(part.input);
           if (parsed.success) kinds.push(parsed.data.block.kind);
           else rejectedCalls += 1;
         }
@@ -522,6 +565,7 @@ async function runTurn(
     answer: textParts.join("\n\n"),
     alwaysLoad,
     ...(claudeCode ? { claudeCode } : {}),
+    ...(apiKeySource ? { apiKeySource } : {}),
     ...(error ? { error } : {}),
   };
 }
@@ -531,6 +575,33 @@ function arg(name: string, fallback: string): string {
   return index >= 0 && process.argv[index + 1] !== undefined
     ? process.argv[index + 1]!
     : fallback;
+}
+
+/**
+ * One `count_tokens` call on `MODEL`, with one user turn, under whichever
+ * credential the run holds. Whether the endpoint takes a subscription token
+ * had not been tried when #336 was triaged; if it refuses one, the error says
+ * so, and each live turn's `usage.input_tokens` is the fallback, a count
+ * rather than an estimate.
+ */
+async function countTokens(credential: LiveCredential, body: Record<string, unknown>): Promise<number> {
+  const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
+    method: "POST",
+    headers: credential.headers,
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: "user", content: "hi" }],
+      ...body,
+    }),
+  });
+  if (!res.ok) {
+    const hint =
+      credential.source === "CLAUDE_CODE_OAUTH_TOKEN"
+        ? " (under CLAUDE_CODE_OAUTH_TOKEN: if the endpoint refuses subscription auth, run --schema-forms and read the per-turn input tokens instead)"
+        : "";
+    throw new Error(`count_tokens ${res.status}${hint}: ${await res.text()}`);
+  }
+  return ((await res.json()) as { input_tokens: number }).input_tokens;
 }
 
 /**
@@ -549,8 +620,9 @@ function arg(name: string, fallback: string): string {
  *
  *   bun scripts/measure-show-block.ts --tokens
  */
-async function schemaCost(apiKey: string): Promise<{
+async function schemaCost(credential: LiveCredential): Promise<{
   rows: { name: string; loaded: number; briefTokens: number; briefLines: number }[];
+  forms: { arm: SchemaArm; chars: number; definitions: number; loaded: number }[];
   baseline: number;
   deferredAll: number;
   loadedAll: number;
@@ -580,23 +652,7 @@ async function schemaCost(apiKey: string): Promise<{
   await client.connect(clientTransport);
   const { tools } = await client.listTools();
 
-  const count = async (body: Record<string, unknown>): Promise<number> => {
-    const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: "user", content: "hi" }],
-        ...body,
-      }),
-    });
-    if (!res.ok) throw new Error(`count_tokens ${res.status}: ${await res.text()}`);
-    return ((await res.json()) as { input_tokens: number }).input_tokens;
-  };
+  const count = (body: Record<string, unknown>) => countTokens(credential, body);
 
   // The tool-search tool and one ordinary tool are the floor both sides are
   // measured against: the API rejects a request in which every tool is
@@ -638,8 +694,24 @@ async function schemaCost(apiKey: string): Promise<{
       briefLines: brief ? brief.split("\n").length : 0,
     });
   }
+  // #336: `show_block` in each schema form, priced the same way as the rows
+  // above, against the same floor.
+  const forms: { arm: SchemaArm; chars: number; definitions: number; loaded: number }[] = [];
+  for (const arm of SCHEMA_ARM_NAMES) {
+    const listed = await listedShowBlock(arm);
+    const definitions = (listed.inputSchema as { definitions?: Record<string, unknown> }).definitions;
+    forms.push({
+      arm,
+      chars: JSON.stringify(listed.inputSchema).length,
+      definitions: definitions ? Object.keys(definitions).length : 0,
+      loaded:
+        (await count({ tools: [search, anchor, asApi({ name: "show_block", ...listed } as (typeof tools)[number], false)] })) -
+        baseline,
+    });
+  }
   return {
     rows,
+    forms,
     baseline,
     deferredAll:
       (await count({ tools: [search, anchor, ...tools.map((t) => asApi(t, true))] })) -
@@ -655,7 +727,7 @@ async function schemaCost(apiKey: string): Promise<{
  * system-prompt append with and without the block line, priced by
  * `count_tokens`. The keep-or-retire trade needs both halves to be real.
  */
-async function briefCost(apiKey: string): Promise<{
+async function briefCost(credential: LiveCredential): Promise<{
   lines: number;
   chars: number;
   tokens: number;
@@ -664,23 +736,7 @@ async function briefCost(apiKey: string): Promise<{
     buildSystemPromptAppend({ client: CLIENT, turnBudgetMs: TURN_BUDGET_MS, tools: { block } });
   const withBrief = append(BLOCK_TOOL);
   const without = append(false);
-  const count = async (system: string): Promise<number> => {
-    const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        system,
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    });
-    if (!res.ok) throw new Error(`count_tokens ${res.status}: ${await res.text()}`);
-    return ((await res.json()) as { input_tokens: number }).input_tokens;
-  };
+  const count = (system: string) => countTokens(credential, { system });
   const brief = SHOW_BLOCK_CONTRACT.brief(BLOCK_TOOL);
   return {
     lines: brief.split("\n").length,
@@ -740,8 +796,8 @@ function armRows(runs: readonly TurnResult[]): string[] {
 
 function promptRows(runs: readonly TurnResult[]): string[] {
   const rows = [
-    "| prompt | invites | pass can reach it | brief: calls/turns | no-brief: calls/turns |",
-    "| --- | --- | --- | --- | --- |",
+    `| prompt | invites | pass can reach it | ${ARMS.map((arm) => `${arm}: calls/turns`).join(" | ")} |`,
+    `| --- | --- | --- | ${ARMS.map(() => "---").join(" | ")} |`,
   ];
   for (const prompt of PROMPTS) {
     const cell = (arm: ArmName): string => {
@@ -753,7 +809,7 @@ function promptRows(runs: readonly TurnResult[]): string[] {
       return `${called.length}/${mine.length}${kinds.length ? ` (${kinds.join(", ")})` : ""}`;
     };
     rows.push(
-      `| \`${prompt.id}\` | ${prompt.invites} | ${prompt.classifiable ? "yes" : "no"} | ${cell("brief")} | ${cell("no-brief")} |`
+      `| \`${prompt.id}\` | ${prompt.invites} | ${prompt.classifiable ? "yes" : "no"} | ${ARMS.map(cell).join(" | ")} |`
     );
   }
   return rows;
@@ -774,6 +830,28 @@ function splitRows(runs: readonly TurnResult[]): string[] {
         `| ${classifiable ? "yes" : "no"} — ${arm} | ${mine.length} | ${called.length} | ${pct(called.length, mine.length)} |`
       );
     }
+  }
+  return rows;
+}
+
+/**
+ * The parse rate: of the calls a completed turn made, how many its arm's
+ * schema accepted. #336 needs it beside the call rate, because a shorter
+ * schema that the model fills wrongly more often draws fewer blocks for a
+ * reason the call rate alone would hide.
+ */
+function parseRows(runs: readonly TurnResult[]): string[] {
+  const rows = [
+    "| arm | turns | calls made | parsed | rejected | parse rate |",
+    "| --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const arm of ARMS) {
+    const mine = completed(runs).filter((run) => run.arm === arm);
+    const parsed = mine.reduce((sum, run) => sum + run.calls, 0);
+    const rejected = mine.reduce((sum, run) => sum + run.rejectedCalls, 0);
+    rows.push(
+      `| ${arm} | ${mine.length} | ${parsed + rejected} | ${parsed} | ${rejected} | ${parsed + rejected ? pct(parsed, parsed + rejected) : "—"} |`
+    );
   }
   return rows;
 }
@@ -837,21 +915,37 @@ function installedSdkVersion(): string {
 
 function report(
   runs: readonly TurnResult[],
-  cost: { lines: number; chars: number; tokens: number },
-  reps: number
+  cost: { lines: number; chars: number; tokens: number } | null,
+  reps: number,
+  credential: LiveCredential,
+  forms: readonly { arm: SchemaArm; chars: number }[]
 ): string {
   const errors = runs.filter((run) => run.error);
   return [
-    "# `show_block` rate with the classification pass on",
+    SCHEMA_FORMS ? "# `show_block` rate by schema form (#336)" : "# `show_block` rate with the classification pass on",
     "",
-    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} of API spend.`,
+    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} at API prices as the SDK reports them.`,
+    `Credential: \`${credential.source}\`${credential.source === "CLAUDE_CODE_OAUTH_TOKEN" ? " (subscription; the dollar figure is what the turns would have cost, not what was billed)" : ""}. \`apiKeySource\` in each turn's \`init\`: ${[...new Set(runs.map((run) => run.apiKeySource ?? "unreported"))].join(", ")}.`,
+    ...(SCHEMA_FORMS
+      ? [
+          "",
+          "Arms are schema forms, each with the brief on and the bridge server loaded, so the schema is the only difference: " +
+            forms.map((form) => `\`${form.arm}\` lists ${form.chars} schema characters`).join(", ") +
+            ". The listing is the Agent SDK's own `tools/list`; the `flat` arm is checked byte for byte against the production factory before any turn.",
+          `API acceptance: ${SCHEMA_ARM_NAMES.filter((arm) => arm !== "flat")
+            .map((arm) => `${runs.filter((run) => run.arm === arm && !run.error).length} completed turn(s) carried \`${arm}\``)
+            .join("; ")}. A schema the API refused would error every turn in its arm.`,
+        ]
+      : []),
     errors.length
       ? `**${errors.length} turn(s) did not complete** and are excluded from every rate below; they are listed at the end. A rate is only over turns that produced an answer.`
       : `Every turn completed, so no rate below is drawn over a partial sample.`,
     `Brain: a copy of \`packages/core/fixtures/corpus/\`. Harness: \`scripts/measure-show-block.ts\`.`,
     `Taken ${new Date().toISOString().slice(0, 10)}.`,
     "",
-    `The brief costs **${cost.tokens} input tokens** (${cost.lines} lines, ${cost.chars} characters) on every turn.`,
+    cost
+      ? `The brief costs **${cost.tokens} input tokens** (${cost.lines} lines, ${cost.chars} characters) on every turn.`
+      : "The brief's cost was not counted: `count_tokens` refused this credential.",
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
     `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
@@ -878,6 +972,12 @@ function report(
     "## Rate per arm",
     "",
     ...armRows(runs),
+    "",
+    "## Parse rate per arm",
+    "",
+    "Calls are counted per call, not per turn: a turn can call more than once.",
+    "",
+    ...parseRows(runs),
     "",
     "## Split by whether the classification pass can reach the kind",
     "",
@@ -918,23 +1018,27 @@ function report(
 }
 
 async function main(): Promise<void> {
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) {
+  const credential = liveCredential();
+  if (!credential) {
     console.error(
-      `${basename(import.meta.path)}: needs ANTHROPIC_API_KEY — this is a live measurement, not a test.`
+      `${basename(import.meta.path)}: needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN — this is a live measurement, not a test.`
     );
+    process.exit(1);
+  }
+  if (SCHEMA_FORMS && process.argv.includes("--both-arms")) {
+    console.error(`${basename(import.meta.path)}: --schema-forms runs the loaded configuration only; drop --both-arms.`);
     process.exit(1);
   }
   // `--tokens` answers #148's arithmetic half. It runs no live turn, so it
   // costs a handful of `count_tokens` calls rather than dollars.
   if (process.argv.includes("--tokens")) {
-    const schema = await schemaCost(apiKey);
-    const brief = await briefCost(apiKey);
+    const schema = await schemaCost(credential);
+    const brief = await briefCost(credential);
     console.log(
       [
         "# What the bridge tools weigh, both ways",
         "",
-        `Model \`${MODEL}\`, counted by \`count_tokens\` over the schemas \`createBrainUiMcpServer\` actually registers. Taken ${new Date().toISOString().slice(0, 10)}.`,
+        `Model \`${MODEL}\`, counted by \`count_tokens\` over the schemas \`createBrainUiMcpServer\` actually registers, under \`${credential.source}\`. Taken ${new Date().toISOString().slice(0, 10)}.`,
         "",
         `Floor both columns are measured against — a tool-search tool plus one undeferred tool, which is the minimum legal shape: ${schema.baseline} tokens.`,
         "",
@@ -950,6 +1054,17 @@ async function main(): Promise<void> {
         "",
         `The block brief alone: ${brief.tokens} tokens, ${brief.lines} lines, ${brief.chars} characters.`,
         "",
+        "## `show_block` by schema form (#336)",
+        "",
+        "Each form as the Agent SDK's own server lists it, priced like the rows above, against the same floor.",
+        "",
+        "| form | schema characters | definitions | always loaded | against `flat` |",
+        "| --- | --- | --- | --- | --- |",
+        ...schema.forms.map(
+          (form) =>
+            `| \`${form.arm}\` | ${form.chars} | ${form.definitions} | ${form.loaded} | ${form.loaded - schema.forms[0]!.loaded} |`
+        ),
+        "",
       ].join("\n")
     );
     return;
@@ -961,6 +1076,18 @@ async function main(): Promise<void> {
   const out = arg("out", "");
   const md = arg("md", "");
   const prompts = only ? PROMPTS.filter((p) => only.split(",").includes(p.id)) : PROMPTS;
+
+  // Listing every form before any turn also runs the flat arm's drift check,
+  // so a baseline that no longer matches production refuses to start.
+  const forms = SCHEMA_FORMS
+    ? await Promise.all(
+        SCHEMA_ARM_NAMES.map(async (arm) => ({
+          arm,
+          chars: JSON.stringify((await listedShowBlock(arm)).inputSchema).length,
+        }))
+      )
+    : [];
+  for (const form of forms) console.log(`${form.arm}: ${form.chars} schema characters`);
 
   const bothArms = process.argv.includes("--both-arms");
   if (bothArms) assertNoServerLevelAlwaysLoad();
@@ -984,7 +1111,11 @@ async function main(): Promise<void> {
   });
 
   if (out) await Bun.write(out, JSON.stringify(runs, null, 2));
-  const text = report(runs, await briefCost(apiKey), reps);
+  const cost = await briefCost(credential).catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : err);
+    return null;
+  });
+  const text = report(runs, cost, reps, credential, forms);
   if (md) await Bun.write(md, text);
   console.log(`\n${text}`);
 }

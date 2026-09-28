@@ -2864,7 +2864,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:492`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3291,7 +3291,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:492`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3465,7 +3465,7 @@ it in the pinned image.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:453-468`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:558-573`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -4034,7 +4034,7 @@ found, and what the ruling did not say:
   again. The card's link mode calls `classifyLink` itself
   (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
   there is no `host` prop and no `host` field. The payload
-  (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:331-351`)
+  (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
   (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and ui-kit now
@@ -4216,7 +4216,7 @@ does a replayed session show?
    two suggestions per answer. None is a valid answer, and generic filler is
    not offered.
 2. **The payload is the kit's data, minus tone.** The schema
-   (`SUGGESTIONS_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:425-450`) carries the row's
+   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:527-553`) carries the row's
    `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
    which is a callback, and without `tone`, because a suggestion carries no
    effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`
