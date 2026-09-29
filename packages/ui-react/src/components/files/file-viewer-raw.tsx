@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { CopyButton } from "../chat/copy-button.js";
 
 export function FileViewerRaw({ content, fileName }: { content: string; fileName: string }) {
-  const [copied, setCopied] = useState(false);
   const [wrap, setWrap] = useState(false);
 
   return (
@@ -17,18 +16,12 @@ export function FileViewerRaw({ content, fileName }: { content: string; fileName
           />
           Wrap
         </label>
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(content);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-          title="Copy file content"
+        <CopyButton
+          label="Copy file content"
+          showLabel
+          getText={() => content}
           className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-        >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        />
       </div>
       <pre
         className={

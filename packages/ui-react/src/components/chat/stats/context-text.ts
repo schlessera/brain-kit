@@ -43,6 +43,14 @@ function sectionLines(section: StatsSection): string[] {
         `## ${section.title}${section.meta ? ` (${section.meta})` : ""}`,
         ...section.rows.map((row) => `${row.label}: ${row.value}`),
       ];
+    case "trend":
+      return [
+        `## Trend: ${section.label}`,
+        `now: ${section.value}`,
+        `series: ${section.values.join(", ")}${
+          section.ticks.length ? ` (${section.ticks[0]} to ${section.ticks.at(-1)})` : ""
+        }`,
+      ];
     case "receipt":
       return [
         `## ${section.title}`,
@@ -65,6 +73,7 @@ const REQUIRED: Record<StatsSection["kind"], (section: Record<string, unknown>) 
   callout: (s) => typeof s.title === "string" && typeof s.body === "string",
   tiles: (s) => Array.isArray(s.tiles),
   bars: (s) => Array.isArray(s.rows),
+  trend: (s) => Array.isArray(s.values) && Array.isArray(s.ticks),
   receipt: (s) => Array.isArray(s.rows),
 };
 

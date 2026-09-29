@@ -4,11 +4,14 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  DEFAULT_MODEL
   ENV_VARS
   type EnvVarSpec
   type GeneratedImage
+  IMAGE_QUALITIES
   type ImageInput
   ImageProviderError
+  type ImageQuality
   type ImageRequest
   type ImageResult
   type ImagesConfig
@@ -17,13 +20,15 @@ export "." (./src/index.ts)
   PROVIDERS
   type Provider
   type ProviderId
+  RETIRED_MODELS
   type RoutingDecision
   type RoutingInput
   availableModels
   configSchema
   estimateGeminiCost
-  estimateOpenAiCost
+  isRetiredModel
   manifest
+  openAiCostFromUsage
   providerFor
   readEnvVar
   resolveEnv

@@ -17,10 +17,13 @@ export interface ImageRequest {
   aspect?: string;
   /** Gemini-style resolution bucket. */
   resolution?: "512px" | "1K" | "2K" | "4K";
-  /** OpenAI-style quality tier. */
-  quality?: "low" | "medium" | "high" | "auto";
+  /**
+   * OpenAI-style quality tier. `xhigh` and `max` are GPT Image 2.5 tiers; they
+   * are forwarded as given, never mapped down to `high`.
+   */
+  quality?: ImageQuality;
   format?: "png" | "jpeg" | "webp";
-  /** Transparent background. Only some models support it; routing enforces that. */
+  /** Transparent background (png or webp only). Only some models support it; routing enforces that. */
   transparent?: boolean;
   /** Reference images for an edit or a composition. */
   references?: ImageInput[];
@@ -28,6 +31,10 @@ export interface ImageRequest {
   mask?: ImageInput;
   n?: number;
 }
+
+/** Every quality tier the CLI accepts. Anything else is refused before routing. */
+export const IMAGE_QUALITIES = ["low", "medium", "high", "xhigh", "max", "auto"] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 
 export interface ImageInput {
   data: Uint8Array;
@@ -69,9 +76,8 @@ export interface ModelCapabilities {
   /** Pixel-scoped inpainting with an alpha mask. */
   maskInpainting: boolean;
   /**
-   * Arbitrary WxH rather than a fixed set. Verified live: gpt-image-2 takes
-   * custom sizes, gpt-image-1.5 rejects them with `invalid_value` and accepts
-   * only the presets below.
+   * Arbitrary WxH rather than a fixed set, within OpenAI's published
+   * custom-size rules (`OPENAI_LIMITS` in `shape.ts`).
    */
   arbitraryDimensions: boolean;
   /** Exact sizes the model accepts regardless of `arbitraryDimensions`. */
@@ -97,8 +103,14 @@ export interface ModelCapabilities {
    */
   outputFormats: ("png" | "jpeg" | "webp")[];
   defaultFormat: "png" | "jpeg" | "webp";
-  /** Approximate USD for one image at ~1K, for cost reporting and tie-breaks. */
-  approxCostUsd1K: number;
+  /**
+   * Approximate USD for one image at ~1K, for cost reporting and tie-breaks.
+   * `null` when no verified per-image price exists: the GPT Image 2.5 models
+   * are billed per token, and OpenAI states its calculator does not estimate
+   * their token consumption. An unknown cost is reported as unknown, never as
+   * a borrowed figure.
+   */
+  approxCostUsd1K: number | null;
 }
 
 export interface Provider {

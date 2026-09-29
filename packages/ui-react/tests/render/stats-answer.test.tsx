@@ -15,14 +15,21 @@ import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { StatsAnswer } from "../../src/components/chat/stats/stats-answer.js";
 import { composeStatsAnswer } from "../../src/components/chat/stats/compose-stats.js";
 import { CLIENT_RELEASE } from "../../src/components/chat/stats/software.js";
-import { corpusStats, runtimeStats } from "../stats-fixtures.js";
+import { corpusStats, runtimeStats, statsHistory } from "../stats-fixtures.js";
 
 afterEach(cleanup);
 afterAll(unregisterStatsAnswerDom);
 
 function rootWith(api: Partial<BrainApi>): BrainUiRoot {
   const root = createBrainUiRoot({ storage: null });
-  Object.assign(root.api, { status: async () => { throw new Error("offline"); } }, api);
+  Object.assign(
+    root.api,
+    {
+      status: async () => { throw new Error("offline"); },
+      brainStatsHistory: async () => { throw new Error("no history route"); },
+    },
+    api
+  );
   return root;
 }
 
@@ -199,6 +206,32 @@ describe("/stats", () => {
       expect(sections(container)).toEqual(["callout", "callout", "software"]);
     } finally {
       root.dispose();
+    }
+  });
+});
+
+describe("/stats trends (#581)", () => {
+  test("two or more snapshots draw trend charts; one draws none", async () => {
+    for (const [snapshots, expected] of [[3, 5], [1, 0]] as const) {
+      const root = rootWith({
+        brainStats: async () => corpusStats(),
+        activityStats: async () => runtimeStats(),
+        brainStatsHistory: async () => statsHistory(snapshots),
+      });
+      try {
+        const { container } = await answer(root);
+        const trends = container.querySelectorAll('[data-stats-section="trend"]');
+        expect(trends.length, `${snapshots} snapshot(s)`).toBe(expected);
+        if (expected > 0) {
+          expect(trends[0].textContent).toContain("documents · 3 snapshots");
+          expect(trends[0].textContent).toContain("402");
+        }
+        // The rest of the answer is drawn either way.
+        expect(container.querySelectorAll('[data-stats-section="receipt"]').length).toBeGreaterThan(0);
+      } finally {
+        root.dispose();
+        cleanup();
+      }
     }
   });
 });

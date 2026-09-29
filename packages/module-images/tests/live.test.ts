@@ -6,7 +6,9 @@
  *
  *     BRAIN_IMAGES_LIVE=1 bun test packages/module-images/tests/live.test.ts
  *
- * A full run costs roughly $0.35 at current prices and takes a few minutes.
+ * A full run costs a few dollars at most and takes a few minutes. The GPT
+ * Image 2.5 models are billed per token and OpenAI publishes no per-image
+ * figure for them, so there is no exact number to quote.
  * Every image model is exercised individually, because they do not share a
  * schema: this suite is what caught that all three Gemini models reject
  * `image/png` and serve JPEG only, and that the bytes arrive inside
@@ -17,7 +19,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { deflateSync } from "zlib";
+import { deflateSync, inflateSync } from "zlib";
 
 import { geminiProvider } from "../src/providers/gemini";
 import { openaiProvider } from "../src/providers/openai";
@@ -66,6 +68,89 @@ function pngHasAlpha(b: Uint8Array): boolean {
   if (colourType === 6 || colourType === 4) return true;
   const ascii = Buffer.from(b.subarray(0, Math.min(b.length, 4096))).toString("latin1");
   return ascii.includes("tRNS");
+}
+
+/**
+ * Alpha statistics decoded from the pixels, not from a header flag: how many
+ * pixels are fully transparent and how many carry any visible alpha. A real
+ * transparent render has both. Requiring fully opaque (255) pixels as well is
+ * NOT a transparency test — the 2026-09-29 samples of both 2.5 models had
+ * none, with antialiased edges throughout (#586).
+ *
+ * Handles 8-bit, non-interlaced RGBA and grey+alpha, which is what the API
+ * returns; anything else fails loudly rather than being guessed at.
+ */
+function pngAlphaCounts(b: Uint8Array): { transparent: number; visible: number } {
+  const buf = Buffer.from(b);
+  let pos = 8;
+  let width = 0, height = 0, depth = 0, colourType = 0, interlace = 0;
+  const idat: Buffer[] = [];
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString("latin1", pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      depth = data[8];
+      colourType = data[9];
+      interlace = data[12];
+    } else if (type === "IDAT") idat.push(data);
+    else if (type === "IEND") break;
+    pos += 12 + len;
+  }
+  const channels = colourType === 6 ? 4 : colourType === 4 ? 2 : 0;
+  if (depth !== 8 || channels === 0 || interlace !== 0) {
+    throw new Error(`unsupported PNG layout: depth ${depth}, colour type ${colourType}, interlace ${interlace}`);
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * channels;
+  let prev = Buffer.alloc(stride);
+  let transparent = 0, visible = 0;
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? line[x - channels] : 0;
+      const up = prev[x];
+      const c = x >= channels ? prev[x - channels] : 0;
+      let add = 0;
+      if (filter === 1) add = a;
+      else if (filter === 2) add = up;
+      else if (filter === 3) add = (a + up) >> 1;
+      else if (filter === 4) {
+        const p = a + up - c;
+        const [pa, pb, pc] = [Math.abs(p - a), Math.abs(p - up), Math.abs(p - c)];
+        add = pa <= pb && pa <= pc ? a : pb <= pc ? up : c;
+      }
+      line[x] = (line[x] + add) & 0xff;
+    }
+    for (let x = channels - 1; x < stride; x += channels) {
+      if (line[x] === 0) transparent++;
+      else visible++;
+    }
+    prev = line;
+  }
+  return { transparent, visible };
+}
+
+/**
+ * Whether a WebP declares an alpha channel: an extended (VP8X) file with the
+ * alpha flag and an ALPH chunk, or a lossless (VP8L) bitstream with its
+ * alpha-is-used bit. This suite has no WebP pixel decoder, so it checks the
+ * container, and says so; the decoded pixel counts for both models are
+ * recorded on #586.
+ */
+function webpDeclaresAlpha(b: Uint8Array): boolean {
+  const buf = Buffer.from(b);
+  if (buf.toString("latin1", 0, 4) !== "RIFF" || buf.toString("latin1", 8, 12) !== "WEBP") return false;
+  const first = buf.toString("latin1", 12, 16);
+  if (first === "VP8X") {
+    const alphaFlag = (buf[20] & 0x10) !== 0;
+    return alphaFlag && buf.includes(Buffer.from("ALPH", "latin1"));
+  }
+  if (first === "VP8L") return (buf[20 + 4] & 0x10) !== 0;
+  return false;
 }
 
 function isPng(bytes: Uint8Array): boolean {
@@ -208,7 +293,7 @@ describe("live: gemini image models", () => {
 });
 
 describe("live: openai image models", () => {
-  for (const model of ["gpt-image-2", "gpt-image-1.5"]) {
+  for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
     live(
       `${model} generates a PNG at the requested size`,
       async () => {
@@ -241,46 +326,64 @@ describe("live: openai image models", () => {
     );
   }
 
-  live(
-    "gpt-image-2 refuses a transparent background",
-    async () => {
-      // The reason gpt-image-1.5 is kept in the model list at all.
-      await expect(
-        openaiProvider.generate(
-          "gpt-image-2",
-          { prompt: "a logo", transparent: true, quality: "low", size: "1024x1024" },
+  for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+    live(
+      `${model} returns a PNG with real alpha for a transparent background`,
+      async () => {
+        const result = await openaiProvider.generate(
+          model,
+          {
+            prompt: "a single red circle with transparent margins, no shadow, no text, no checkerboard",
+            transparent: true,
+            quality: "low",
+            size: "1024x1024",
+            format: "png",
+          },
           OPENAI_KEY
-        )
-      ).rejects.toThrow();
-    },
-    TIMEOUT
-  );
+        );
+        expect(result.model).toBe(model);
+        const bytes = result.images[0].data;
+        expect(isPng(bytes)).toBe(true);
+        expect(pngHasAlpha(bytes)).toBe(true);
+        // Both kinds of pixel, decoded: a painted checkerboard or an ignored
+        // parameter has no alpha-zero pixels at all.
+        const { transparent, visible } = pngAlphaCounts(bytes);
+        expect(transparent).toBeGreaterThan(0);
+        expect(visible).toBeGreaterThan(0);
+      },
+      TIMEOUT
+    );
 
-  live(
-    "gpt-image-1.5 accepts a transparent background",
-    async () => {
-      const result = await openaiProvider.generate(
-        "gpt-image-1.5",
-        { prompt: "a simple flat icon of a banana", transparent: true, quality: "low", size: "1024x1024", format: "png" },
-        OPENAI_KEY
-      );
-      expect(isPng(result.images[0].data)).toBe(true);
-      // The point of routing transparency here is an alpha channel, not a PNG.
-      expect(pngHasAlpha(result.images[0].data)).toBe(true);
-    },
-    TIMEOUT
-  );
+    live(
+      `${model} returns a WebP that declares alpha for a transparent background`,
+      async () => {
+        const result = await openaiProvider.generate(
+          model,
+          {
+            prompt: "a single red circle with transparent margins, no shadow, no text, no checkerboard",
+            transparent: true,
+            quality: "low",
+            size: "1024x1024",
+            format: "webp",
+          },
+          OPENAI_KEY
+        );
+        expect(webpDeclaresAlpha(result.images[0].data)).toBe(true);
+      },
+      TIMEOUT
+    );
+  }
 
   live(
     "edits with a reference image over multipart",
     async () => {
       const base = await openaiProvider.generate(
-        "gpt-image-2",
+        "gpt-image-2.5-sunburst",
         { prompt: PROMPT, quality: "low", size: "1024x1024", format: "png" },
         OPENAI_KEY
       );
       const edited = await openaiProvider.generate(
-        "gpt-image-2",
+        "gpt-image-2.5-flare",
         {
           prompt: "put the banana on a deep blue background",
           quality: "low",
@@ -298,12 +401,12 @@ describe("live: openai image models", () => {
     "inpaints the transparent region of a mask",
     async () => {
       const base = await openaiProvider.generate(
-        "gpt-image-2",
+        "gpt-image-2.5-sunburst",
         { prompt: PROMPT, quality: "low", size: "1024x1024", format: "png" },
         OPENAI_KEY
       );
       const edited = await openaiProvider.generate(
-        "gpt-image-2",
+        "gpt-image-2.5-flare",
         {
           prompt: "put a bright red apple here",
           quality: "low",
@@ -342,8 +445,8 @@ describe("live: reference images on every model", () => {
   // this suite has already caught a PNG rejection, a response shape that does
   // not match the docs, and a size rejection on one model but not its sibling.
   const cases: { model: string; provider: "openai" | "gemini" }[] = [
-    { model: "gpt-image-2", provider: "openai" },
-    { model: "gpt-image-1.5", provider: "openai" },
+    { model: "gpt-image-2.5-sunburst", provider: "openai" },
+    { model: "gpt-image-2.5-flare", provider: "openai" },
     { model: "gemini-3-pro-image", provider: "gemini" },
     { model: "gemini-3.1-flash-image", provider: "gemini" },
     { model: "gemini-3.1-flash-lite-image", provider: "gemini" },
@@ -388,5 +491,16 @@ describe("live suite wiring", () => {
     const png = maskPng(64);
     expect(isPng(png)).toBe(true);
     expect(png.byteLength).toBeGreaterThan(100);
+  });
+
+  test("the alpha counter reads the mask's hole as transparent and the rest as visible", () => {
+    // The live transparency assertions are only as good as this decoder, so
+    // it is checked keylessly against a PNG whose alpha is known.
+    const side = 64;
+    let hole = 0;
+    for (let y = 0; y < side; y++)
+      for (let x = 0; x < side; x++)
+        if (x > side * 0.3 && x < side * 0.7 && y > side * 0.3 && y < side * 0.7) hole++;
+    expect(pngAlphaCounts(maskPng(side))).toEqual({ transparent: hole, visible: side * side - hole });
   });
 });

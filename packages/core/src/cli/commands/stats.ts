@@ -13,10 +13,22 @@
  * byte-identical.
  */
 import { collectStats, type BrainStats } from "../../lib/stats.js";
+import {
+  DAILY_DAYS,
+  historySeries,
+  isIsoDate,
+  readHistory,
+  recordSnapshot,
+  snapshotOf,
+  STATS_HISTORY_FILE,
+  type RecordResult,
+  type StatsHistory,
+} from "../../lib/stats-history.js";
 import { DEFAULT_STALENESS, DEFAULT_STATS_THRESHOLDS } from "../../lib/config.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
-import type { CoreCommand } from "../types.js";
-import { emit, openReadonlyDb, parseArgs } from "../io.js";
+import { packageVersion } from "../../package-version.js";
+import type { CliContext, CoreCommand } from "../types.js";
+import { emit, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 /** Ranked rows shown per breakdown before the `+N more` remainder. */
 export const BREAKDOWN_CAP = 5;
@@ -46,7 +58,18 @@ this host could not read (sqlite-vec did not load).
 A figure that cannot be measured is reported as \`n/a\` (\`null\` in --json),
 never as 0, and carries no verdict.
 
---json: unaffected by --all — it always carries the full, uncapped breakdowns.`;
+--json: unaffected by --all — it always carries the full, uncapped breakdowns.
+
+  --record                Also keep today's figures in ${STATS_HISTORY_FILE} at
+                          the brain root (one snapshot per UTC day; a second
+                          run the same day replaces it). \`brain maintain\`
+                          records one on every run.
+  --history               Print the recorded snapshots instead, oldest first.
+                          --json gives one array per field, ready to chart.
+  --since <YYYY-MM-DD>    With --history: only snapshots from that day on.
+
+The history keeps every day for the last ${DAILY_DAYS} days, then one snapshot per week.
+It is committed with the brain; \`brain index --force\` never touches it.`;
 
 /** The staleness windows in force, as the stale health line names them. */
 export interface StaleThresholds {
@@ -343,28 +366,100 @@ export function formatStats(stats: BrainStats, opts: StatsRenderOptions): string
   ].join("\n");
 }
 
+/** Every figure `brain stats` reports, for this CLI context. */
+async function collectFor(cli: CliContext): Promise<BrainStats> {
+  const db = openReadonlyDb(cli.brain);
+  try {
+    return await collectStats(db, {
+      root: cli.brain.root,
+      dbPath: cli.brain.dbPath,
+      taxonomy: cli.brain.taxonomy,
+      config: cli.brain.config,
+      embeddingsConfigured: cli.embeddings !== undefined || cli.brain.config?.embeddings !== undefined,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Keep `stats` as the day's snapshot. Shared by `brain stats --record` and the
+ * `brain maintain` step, so the two cannot record different things.
+ */
+export function recordStats(cli: CliContext, stats: BrainStats, now = new Date()): RecordResult {
+  return recordSnapshot(cli.brain.root, snapshotOf(stats, { now, version: packageVersion() }));
+}
+
+/** Collect today's figures and record them: the `brain maintain` step. */
+export async function collectAndRecordStats(cli: CliContext, now = new Date()): Promise<RecordResult> {
+  return recordStats(cli, await collectFor(cli), now);
+}
+
+/** How a recording reads in a report line. */
+export function describeRecord(result: RecordResult): string {
+  const thinned = result.thinned > 0 ? `, ${result.thinned} older thinned` : "";
+  return `${result.replaced ? "replaced" : "recorded"} ${result.date} in ${STATS_HISTORY_FILE} (${plural(result.kept, "snapshot")} kept${thinned})`;
+}
+
+function cell(value: number | null, format: (n: number) => string = String): string {
+  return value === null ? "n/a" : format(value);
+}
+
+/** The human rendering of `--history`: one row per snapshot, oldest first. */
+export function formatHistory(history: StatsHistory): string {
+  const n = history.dates.length;
+  if (n === 0) {
+    return (
+      "Stats history\n\n  No snapshots recorded yet. `brain maintain` records one a day; " +
+      "`brain stats --record` records one now."
+    );
+  }
+  const header = ["date", "documents", "orphans", "stale", "coverage", "broken"];
+  const rows = history.dates.map((date, i) => [
+    date,
+    cell(history.documents[i]),
+    cell(history.health.orphans[i]),
+    cell(history.health.stale[i]),
+    cell(history.health.embeddingCoverage[i], (r) => pct(r)),
+    cell(history.health.brokenLinkRate[i], (r) => pct(r)),
+  ]);
+  const widths = header.map((h, c) => Math.max(h.length, ...rows.map((r) => r[c].length)));
+  const line = (r: string[]) =>
+    `  ${r.map((v, c) => (c === 0 ? v.padEnd(widths[c]) : v.padStart(widths[c]))).join("  ")}`.trimEnd();
+  const span = n === 1 ? history.dates[0] : `${history.dates[0]} – ${history.dates[n - 1]}`;
+  return [`Stats history (${plural(n, "snapshot")}, ${span})`, "", line(header), ...rows.map(line)].join("\n");
+}
+
 export const statsCommand: CoreCommand = {
   summary: "Show corpus statistics",
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);
-    const db = openReadonlyDb(cli.brain);
-    try {
-      const stats = await collectStats(db, {
-        root: cli.brain.root,
-        dbPath: cli.brain.dbPath,
-        taxonomy: cli.brain.taxonomy,
-        config: cli.brain.config,
-        embeddingsConfigured: cli.embeddings !== undefined || cli.brain.config?.embeddings !== undefined,
-      });
 
-      emit(cli.json, stats, () => {
-        console.log(
-          formatStats(stats, { all: flags.all === true, stale: staleThresholdsFor(cli.brain.taxonomy) })
-        );
-      });
-    } finally {
-      db.close();
+    if (flags.history === true) {
+      if (flags.record === true) throw new UsageError("--history reads the snapshots; it cannot be combined with --record");
+      const since = flags.since;
+      if (since !== undefined && (typeof since !== "string" || !isIsoDate(since))) {
+        throw new UsageError("--since takes a date as YYYY-MM-DD");
+      }
+      const history = historySeries(readHistory(cli.brain.root), since as string | undefined);
+      emit(cli.json, history, () => console.log(formatHistory(history)));
+      return;
     }
+    if (flags.since !== undefined) throw new UsageError("--since only applies with --history");
+
+    const stats = await collectFor(cli);
+    // Recorded before anything is printed, so a failed write fails the
+    // command instead of following a report that looked complete.
+    const recorded = flags.record === true ? recordStats(cli, stats) : null;
+
+    emit(cli.json, stats, () => {
+      console.log(
+        formatStats(stats, { all: flags.all === true, stale: staleThresholdsFor(cli.brain.taxonomy) })
+      );
+      if (recorded) console.log(`\nHistory: ${describeRecord(recorded)}`);
+    });
+    // stdout stays exactly the stats object under --json; the note goes aside.
+    if (recorded && cli.json) console.error(`History: ${describeRecord(recorded)}`);
   },
 };

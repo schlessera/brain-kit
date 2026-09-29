@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isValidOpenAiSize,
   aspectToOpenAiSize,
   GEMINI_ASPECTS,
   isGeminiAspect,
@@ -74,6 +75,19 @@ describe("aspectToOpenAiSize", () => {
   });
 });
 
+describe("isValidOpenAiSize", () => {
+  test("accepts sizes inside every published rule", () => {
+    for (const [w, h] of [[1024, 1024], [1360, 768], [3840, 2160], [2400, 800], [816, 816]]) {
+      expect(isValidOpenAiSize(w, h)).toBe(true);
+    }
+  });
+  test("refuses off-grid, too wide, too small, too large and too long", () => {
+    for (const [w, h] of [[1234, 768], [2448, 800], [800, 800], [3840, 3840], [3856, 1024]]) {
+      expect(isValidOpenAiSize(w, h)).toBe(false);
+    }
+  });
+});
+
 describe("sizeToNearestGeminiAspect", () => {
   test("snaps to the closest legal ratio", () => {
     expect(sizeToNearestGeminiAspect("1920x1080")).toBe("16:9");
@@ -96,22 +110,27 @@ describe("routing on shape", () => {
   test("an off-list ratio forces a model that takes exact pixels", () => {
     const d = route({ request: { prompt: "x", aspect: "7:3" }, available: ALL });
     expect(d.kind).toBe("resolved");
-    // Both OpenAI models survive the ratio filter, but only gpt-image-2 can
-    // express an arbitrary ratio as pixels — the other snaps to a preset.
+    // Gemini offers ten fixed ratios; only an OpenAI model can express an
+    // arbitrary one as exact pixels.
     expect((d as { model: ModelCapabilities }).model.provider).toBe("openai");
   });
 
-  test("a preset size is accepted by a model that rejects custom sizes", () => {
+  test("a preset size with transparency stays on the default model", () => {
     const d = route({ request: { prompt: "x", size: "1024x1024", transparent: true }, available: ALL });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-1.5");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
   });
 
-  test("a custom size plus transparency is impossible, and says which sizes exist", () => {
-    // gpt-image-1.5 is the only transparent model and it takes presets only.
+  test("a custom size plus transparency is served — both 2.5 models take custom sizes", () => {
     const d = route({ request: { prompt: "x", size: "1360x768", transparent: true }, available: ALL });
+    expect(d.kind).toBe("resolved");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
+  });
+
+  test("an illegal custom size says what the rules are", () => {
+    const d = route({ request: { prompt: "x", size: "1234x768" }, available: ALL });
     expect(d.kind).toBe("impossible");
-    expect((d as { reason: string }).reason).toContain("1536x1024");
+    expect((d as { reason: string }).reason).toMatch(/multiples of 16/);
   });
 
   test("an off-list ratio with only Gemini explains the legal set", () => {
@@ -129,6 +148,6 @@ describe("routing on shape", () => {
   test("a legal ratio leaves both providers in play, and the default decides", () => {
     const d = route({ request: { prompt: "x", aspect: "16:9" }, available: ALL });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
   });
 });

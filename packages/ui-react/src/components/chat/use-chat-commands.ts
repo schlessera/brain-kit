@@ -57,7 +57,9 @@ export function useChatCommands(): (command: string) => void {
 /**
  * Brain statistics, answered into the transcript from the kit (#97). Both
  * channels and software status are asked at once and may fail alone: the corpus from
- * `brain stats`, the runtime from the server's own database. Local software
+ * `brain stats`, the runtime from the server's own database. The corpus
+ * history (`brain stats --history`, #581) is asked beside them and, when it
+ * fails, only takes the trends with it. Local software
  * identity remains visible even when the server cannot be reached.
  *
  * The answer is then kept as part of the session (#582): sent to the host,
@@ -75,10 +77,11 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
     client, server: { ok: false, error: "checking server" },
   }), state: "Checking server", detail: "The client identity below belongs to this loaded bundle." } }]);
   try {
-    const [corpus, runtime, status] = await Promise.all([
+    const [corpus, runtime, status, history] = await Promise.all([
       settle(root.api.brainStats(), (v) => typeof v.health === "object" && v.health !== null),
       settle(root.api.activityStats(), (v) => typeof v.window === "object" && v.window !== null),
       settle(root.api.status(), () => true),
+      settle(root.api.brainStatsHistory(), (v) => Array.isArray(v.dates)),
     ]);
     const server: SoftwareInput["server"] = status.ok ? {
       ok: true, value: {
@@ -86,7 +89,7 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
         sourceCommit: status.value.software?.sourceCommit ?? status.value.version ?? null,
       },
     } : status;
-    const sections = composeStatsAnswer({ corpus, runtime, software: { client, server } });
+    const sections = composeStatsAnswer({ corpus, runtime, history, software: { client, server } });
     root.stores.chat.getState().setStatsAnswer(sessionId, sections);
     keepStatsExchange(root, sessionId, sections);
   } catch (err) {

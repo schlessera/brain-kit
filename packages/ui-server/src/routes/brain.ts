@@ -202,6 +202,17 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     }
   })
 
+  .get("/brain/stats/history", async (c) => {
+    try {
+      return c.json(await brain.statsHistory());
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Stats history failed" },
+        500
+      );
+    }
+  })
+
   .get("/brain/list", async (c) => {
     try {
       const results = await brain.list({

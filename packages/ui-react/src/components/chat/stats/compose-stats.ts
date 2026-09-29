@@ -1,7 +1,7 @@
 import { softwareDetails, type SoftwareInput } from "./software.js";
 import type { BarListRow, ReceiptRow, StatTile, Tone } from "@schlessera/brain-ui-kit";
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
-import type { CorpusStats } from "../../../lib/api-client.js";
+import type { CorpusStats, CorpusStatsHistory } from "../../../lib/api-client.js";
 
 /**
  * The /stats answer as data (#97): the two channels in, the kit blocks out,
@@ -14,7 +14,9 @@ import type { CorpusStats } from "../../../lib/api-client.js";
  *
  * Nothing is computed here that the server did not compute. The only
  * arithmetic is formatting, and a bar's length, which is a count's share of
- * the document total. An average the server withheld as `null` stays
+ * the document total. A trend draws the recorded figures as they are, with
+ * no delta: a change over the window would be a figure the server never
+ * reported. An average the server withheld as `null` stays
  * withheld: dividing a sum here would put back the fabricated rate the
  * `null` exists to refuse.
  */
@@ -27,6 +29,7 @@ export type StatsSection =
   | { kind: "callout"; tone: Tone; variant: "boxed" | "plain"; title: string; body: string }
   | { kind: "tiles"; source: "corpus" | "runtime"; tiles: StatTile[] }
   | { kind: "bars"; title: string; meta: string; rows: BarListRow[] }
+  | { kind: "trend"; label: string; value: string; values: number[]; ticks: string[]; tone: Tone }
   | {
       kind: "receipt";
       title: string;
@@ -55,13 +58,18 @@ export const VALUE_BUDGET = { plain: 24, toned: 21 } as const;
 /** How many rows a breakdown shows before the rest fold into one. */
 export const BAR_CAP = 6;
 
+/** Snapshots a trend draws at most: the kit's chart holds about fourteen buckets. */
+export const TREND_CAP = 14;
+
 export interface StatsInput {
   software?: SoftwareInput;
   corpus: Fetched<CorpusStats>;
   runtime: Fetched<ActivityRuntimeStats>;
+  /** The recorded daily snapshots (#581). Absent or failed draws no trends. */
+  history?: Fetched<CorpusStatsHistory>;
 }
 
-export function composeStatsAnswer({ corpus, runtime, software }: StatsInput): StatsSection[] {
+export function composeStatsAnswer({ corpus, runtime, software, history }: StatsInput): StatsSection[] {
   const c = corpus.ok ? corpus.value : null;
   const r = runtime.ok ? runtime.value : null;
   const out: StatsSection[] = [];
@@ -113,6 +121,10 @@ export function composeStatsAnswer({ corpus, runtime, software }: StatsInput): S
     }
     out.push(corpusReceipt(c));
   }
+
+  // The history is its own request and fails alone, silently: without it the
+  // answer is what it was before there was any history to draw.
+  if (history?.ok) out.push(...trends(history.value));
 
   if (r && !neverRan(r)) {
     if (r.window.runs > 0) out.push(windowReceipt(r));
@@ -261,6 +273,46 @@ function breakdown(
     });
   }
   return { kind: "bars", title, meta: plural(ranked.length, one, many), rows };
+}
+
+/* ── Trends: the corpus over time ───────────────────────────────────────── */
+
+/**
+ * A chart per figure, for a fixed few, from the recorded snapshots: the last
+ * `TREND_CAP` that have the figure. A snapshot without it (recorded before the
+ * figure existed, or when it could not be measured) is left out rather than
+ * drawn as 0. Fewer than two points is not a trend, and draws nothing: no
+ * empty chart, no placeholder.
+ */
+function trends(h: CorpusStatsHistory): StatsSection[] {
+  const ratio = (r: number) => `${(r * 100).toFixed(1)}%`;
+  const figures: [string, (number | null)[] | undefined, (n: number) => string][] = [
+    ["documents", h.documents, count],
+    ["orphans", h.health?.orphans, count],
+    ["stale", h.health?.stale, count],
+    ["embedding coverage", h.health?.embeddingCoverage, ratio],
+    ["broken-link rate", h.health?.brokenLinkRate, ratio],
+  ];
+  const out: StatsSection[] = [];
+  for (const [label, series, format] of figures) {
+    if (!Array.isArray(series) || !Array.isArray(h.dates)) continue;
+    const points = h.dates
+      .map((date, i) => ({ date, value: series[i] }))
+      .filter((p): p is { date: string; value: number } => typeof p.value === "number" && Number.isFinite(p.value))
+      .slice(-TREND_CAP);
+    if (points.length < 2) continue;
+    const last = points.length - 1;
+    out.push({
+      kind: "trend",
+      label: `${label} · ${points.length} snapshots`,
+      value: format(points[last].value),
+      values: points.map((p) => p.value),
+      // The first and last day named, every slot between held empty.
+      ticks: points.map((p, i) => (i === 0 || i === last ? day(Date.parse(`${p.date}T00:00:00Z`)) : "")),
+      tone: "teal",
+    });
+  }
+  return out;
 }
 
 /* ── Receipts: everything else, one figure per row ──────────────────────── */

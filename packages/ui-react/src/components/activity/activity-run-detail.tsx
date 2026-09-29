@@ -13,6 +13,7 @@ import {
 } from "../../stores/activity-store.js";
 import { useBrainApi } from "../../root-context.js";
 import { cn } from "../../lib/utils.js";
+import { CopyButton } from "../chat/copy-button.js";
 import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
 import {
   SpanEventBlock,
@@ -107,6 +108,9 @@ export function RunDetail({
     );
     return formatSpanUsage({ ...children[0]!, usage: { ...sum, model: undefined } });
   }, [root, streamed]);
+  // Serialised once per render and only while open: the <pre> shows it and
+  // the copy button hands over the same string.
+  const rawTrace = rawOpen ? JSON.stringify({ runId, rollup, spans: streamed, events }, null, 2) : "";
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -148,7 +152,10 @@ export function RunDetail({
         {pruned && (
           <div className="rounded-lg border border-border-subtle bg-surface p-3 text-xs text-muted-foreground">
             Detail pruned — only the rollup remains.
-            <pre className="mt-2 overflow-x-auto text-[11px]">{JSON.stringify(pruned, null, 2)}</pre>
+            <div className="group/copy relative mt-2">
+              <pre className="overflow-x-auto pr-9 text-[11px]">{JSON.stringify(pruned, null, 2)}</pre>
+              <CopyButton label="Copy rollup" getText={() => JSON.stringify(pruned, null, 2)} />
+            </div>
           </div>
         )}
         <div className={cn("space-y-1", embedded && "wide:hidden")}>
@@ -174,9 +181,12 @@ export function RunDetail({
               Raw trace
             </button>
             {rawOpen && (
-              <pre className="mt-1 max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-surface p-2 font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-muted-foreground">
-                {JSON.stringify({ runId, rollup, spans: streamed, events }, null, 2)}
-              </pre>
+              <div className="group/copy relative mt-1">
+                <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-surface p-2 pr-9 font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-muted-foreground">
+                  {rawTrace}
+                </pre>
+                <CopyButton label="Copy raw trace" getText={() => rawTrace} />
+              </div>
             )}
           </div>
         )}

@@ -37,6 +37,21 @@ describe("sync exact paths", () => {
     } finally { cleanup(root); }
   });
 
+  test("the stats history is committed as config, not left behind as unknown (#581)", async () => {
+    const root = makeTempBrain();
+    try {
+      expect(Bun.spawnSync(["git", "-C", root, "init", "-q", "-b", "main"]).exitCode).toBe(0);
+      writeFileSync(join(root, ".stats-history.jsonl"), '{"date":"2026-09-29"}\n');
+      // The same extension anywhere else is still a file sync cannot classify.
+      writeFileSync(join(root, "other.jsonl"), "{}\n");
+      const files = JSON.parse((await runCli(root, ["sync", "assess", "--json"])).stdout).files as { path: string; class: string; status: string }[];
+      expect(files).toContainEqual({ path: ".stats-history.jsonl", class: "TRACK", status: "?" });
+      expect(files).toContainEqual({ path: "other.jsonl", class: "UNKNOWN", status: "?" });
+      const grouped = JSON.parse((await runCli(root, ["sync", "group", "--json"])).stdout);
+      expect(grouped.groups).toContainEqual({ domain: "config", status: "?", path: ".stats-history.jsonl" });
+    } finally { cleanup(root); }
+  });
+
   test("classifies tool leftovers as ARTIFACT", async () => {
     const root = makeTempBrain();
     try {

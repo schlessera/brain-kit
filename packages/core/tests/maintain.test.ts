@@ -63,7 +63,7 @@ test("packs 20 loose blobs, leaves none loose, and loses no object, ref or reflo
 test("runs the git step between the tag report and the scratch prune", async () => {
   const root = tempBrain();
   const { steps } = await maintain(root);
-  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "tags", "git", "scratch"]);
+  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "stats", "tags", "git", "scratch"]);
 });
 
 test("a brain that is not a git repository skips the step and exits 0", async () => {
@@ -109,7 +109,7 @@ test("a repository git cannot read is a FAILED step with git's message, not a sk
   const { code, steps, git: step } = await maintain(root);
   expect(step?.result).toBe("FAILED — fatal: bad boolean config value 'maybe' for 'core.bare'");
   expect(code).toBe(2);
-  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "tags", "git", "scratch"]);
+  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "stats", "tags", "git", "scratch"]);
 });
 
 // No git on PATH: nothing to pack, so the step skips and says why, and the
@@ -121,7 +121,7 @@ test("a machine without git skips the step with the reason and still runs the re
   symlinkSync(process.execPath, join(bin, "bun"));
   const { code, steps, git: step } = await maintain(root, [], { PATH: bin });
   expect(step?.result).toStartWith("skipped — git could not be run");
-  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "tags", "git", "scratch"]);
+  expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "stats", "tags", "git", "scratch"]);
   expect(code).toBe(0);
 });
 

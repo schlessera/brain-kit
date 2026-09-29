@@ -19,32 +19,37 @@ brain image models        # what is available here, and what each is for
 ## The one thing to get right
 
 **Routing is by capability, not by preference.** Some requests only one family
-can serve, and the command enforces that. Where nothing in the request settles
-it, `brain image` stops and asks rather than guessing — that is deliberate, not
-a bug. Answer it by passing `--model` or `--provider`, after asking the user
-which they want if you do not already know.
+can serve, and the command enforces that. When nothing in the request settles
+it, the default is `gpt-image-2.5-sunburst`. Pass `--model` or `--provider`
+only when the user asked for something else.
 
 | The request involves | Goes to | Because |
 |---|---|---|
 | A mask — change *this* region | OpenAI | Google's image API has no mask concept at all |
-| A transparent background | `gpt-image-1.5` | `gpt-image-2` rejects it outright |
+| A transparent background | OpenAI, on the selected model | Both GPT Image 2.5 models return real alpha, on png or webp — never jpeg |
 | An exact odd pixel size | OpenAI | Gemini offers fixed ratios and 1K/2K/4K only |
-| Legible text inside the image | `gpt-image-2` | Leads arena.ai's text-rendering board by ~130 Elo — its widest margin |
+| Legible text inside the image | `gpt-image-2.5-sunburst` | The default; no text-rendering benchmark covers the 2.5 models yet |
 | Recurring characters staying consistent | Gemini | Only models that document it — but no benchmark picks a winner, so the default decides |
 | More than 6 reference images | Gemini | Up to 10 (Flash) or 14 (Lite); OpenAI's practical ceiling is 8 |
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
 
-### The three cases worth knowing
+### The cases worth knowing
 
 | Want | Gets | |
 |---|---|---|
-| Precision and quality | `gpt-image-2` | the default whenever nothing else applies |
-| A transparent background | `gpt-image-1.5` | the only model that can |
+| Anything, transparency included | `gpt-image-2.5-sunburst` | the default whenever OpenAI is available |
+| Faster generation | `gpt-image-2.5-flare` | only when asked: `--model gpt-image-2.5-flare` |
 | A quick throwaway illustration | `gemini-3.1-flash-lite-image` | pass `--draft`; about $0.03 |
 
-Everything else is fallback — reached when one of those cannot serve the
-request, never chosen ahead of them.
+A transparent background stays on whichever of the two 2.5 models was
+selected. Everything else is fallback — reached when one of those cannot serve
+the request, never chosen ahead of them.
+
+`gpt-image-2` and `gpt-image-1.5` are retired. Naming either one — in
+`--model`, `preferredModels` or `disabledModels` — is an error that names the
+replacements; the command never substitutes one silently. If you see that
+error, update the config the user wrote rather than working around it.
 
 Pass the intent flags when the user's words imply them — `--text-in-image`,
 `--characters`, `--no-watermark`, `--draft` — because they are what turns a
@@ -52,10 +57,10 @@ coin flip into a decision. **`--draft` is the one to reach for often**: a
 sketch to think with, a placeholder, an illustration nobody will keep. Paying
 seven times more for those is waste, and asking first is friction.
 
-When nothing in the request decides, the command no longer asks: it takes the
-highest-ranked available model in the public preference arenas, and says so.
-That default is a reading of leaderboards on a date, not a law — if the user
-prefers something else, set `preferredModels` in the module config and it wins.
+When nothing in the request decides, the command takes Sunburst and says so.
+Without an OpenAI key it takes the highest-ranked Gemini model in the public
+preference arenas. If the user prefers something else, set `preferredModels`
+in the module config and it wins.
 
 ## Shape
 
@@ -72,7 +77,9 @@ converts the ratio into exact pixels on OpenAI's 16-pixel grid, inside its
 0.65-8.3MP band. Asking for a ratio outside Gemini's ten therefore routes to
 OpenAI on its own.
 
-`--size WxH` is the escape hatch for an exact pixel count, and is OpenAI-only.
+`--size WxH` is the escape hatch for an exact pixel count, and is OpenAI-only:
+both edges multiples of 16, neither over 3840, no wider than 3:1, and
+0.65-8.3MP in total. A size outside those rules is refused before any call.
 Note that Gemini's buckets are pixel budgets rather than dimensions: `1K` with
 no aspect came back 1408x768, not square.
 
@@ -88,7 +95,16 @@ image at ~1K:
 | `gemini-3.1-flash-lite-image` | ~$0.034 |
 | `gemini-3.1-flash-image` | ~$0.067 |
 | `gemini-3-pro-image` | ~$0.134 |
-| `gpt-image-2` (high) | ~$0.211 |
+| `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` | unknown before the call |
+
+The two OpenAI models are billed per token, and OpenAI publishes no per-image
+price for them, so `--dry-run` and `brain image models` report their cost as
+unknown. After a call, the cost comes from the token counts the API reported,
+when it reports them. Never quote an old per-image price for them.
+
+`--quality` takes `low`, `medium`, `high`, `xhigh`, `max` or `auto`. The
+command sends it as given. `xhigh` and `max` cost more tokens, so use them
+only when the user asks for the best result.
 
 `--draft` takes the cheapest model that fits. `--dry-run` prints the decision
 and the price without spending anything — use it when the user is likely to

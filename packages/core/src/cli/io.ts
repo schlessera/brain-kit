@@ -56,6 +56,7 @@ export const BOOLEAN_FLAGS = new Set([
   "apply", "groups", "redundant",
   "scaffold", "blocks", "no-running-title",
   "plan",
+  "record", "history",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -70,6 +71,7 @@ export const VALUE_FLAGS = new Set([
   "baseline", "max-net-loss", "must-pass",
   "updated-since", "updated-before", "deadline-from", "deadline-to", "sort",
   "kind", "plan-file",
+  "since",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);
