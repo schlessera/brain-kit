@@ -9,6 +9,7 @@ import { resolve } from "path";
 
 import { isMediaPath, mediaPolicyClass, type MediaPolicy } from "../media.js";
 import type { Taxonomy } from "../taxonomy.js";
+import { STATS_HISTORY_FILE } from "../stats-history.js";
 import { matchesAnyPattern, TOOL_LEFTOVER_PATTERNS } from "../tool-leftovers.js";
 import type { AssessedFile } from "./artifacts.js";
 import { git } from "./git.js";
@@ -35,8 +36,15 @@ export const UNAMBIGUOUS_SENSITIVE_PATTERNS = [".env", ".env.*", "*.key", "*.pem
 const TRACKABLE_EXTS = new Set([
   "md", "ts", "sh", "js", "json", "yaml", "yml", "toml", "css", "html", "py", "txt",
 ]);
+/**
+ * `.stats-history.jsonl` is here, not among the derived caches: nothing can
+ * regenerate it, it is the brain's own record of how it changed (#581), and a
+ * brain keeps it by committing it. Its `.jsonl` extension is not trackable, so
+ * without this line sync would leave it behind as a file it cannot classify.
+ */
 const CONFIG_FILES = new Set([
   ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
+  STATS_HISTORY_FILE,
 ]);
 
 /**

@@ -1,4 +1,4 @@
-import { BarList, Callout, Label, Receipt, StatTiles } from "@schlessera/brain-ui-kit";
+import { BarList, Callout, Label, Receipt, StatTiles, TrendChart } from "@schlessera/brain-ui-kit";
 import type { ReactNode } from "react";
 import { useMediaQuery } from "../../../hooks/use-media-query.js";
 import { RECEIPT_KEY_WIDTH, type StatsSection } from "./compose-stats.js";
@@ -59,6 +59,12 @@ function draw(section: StatsSection, wide: boolean): ReactNode {
           <Label text={section.title} meta={section.meta} />
           <BarList rows={section.rows} barWidth={wide ? 120 : 56} valueWidth={40} />
         </div>
+      );
+    case "trend":
+      return (
+        <section aria-label={`Trend: ${section.label}`} style={{ minWidth: 0 }}>
+          <TrendChart label={section.label} value={section.value} values={section.values} ticks={section.ticks} tone={section.tone} />
+        </section>
       );
     case "receipt":
       return (
