@@ -34,7 +34,7 @@ stay private.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.33.0.**
 This is not an upgrade note for one release; it is a standing floor, enforced at
-`MIN_BRAIN_CLI_VERSION` (`packages/ui-server/src/brain/client.ts:65`). The server
+`MIN_BRAIN_CLI_VERSION` (`packages/ui-server/src/brain/client.ts:68`). The server
 places `--` before user-controlled CLI positionals, and a core below 0.33.0 eats
 that separator — every search then silently returns nothing, which is why the
 version is checked at startup instead.
