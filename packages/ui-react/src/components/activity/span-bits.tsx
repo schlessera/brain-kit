@@ -15,6 +15,7 @@ import {
 } from "../../stores/activity-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel, formatTokenCount } from "../chat/tool-views.js";
+import { CopyButton } from "../chat/copy-button.js";
 
 /**
  * THE status dot for activity spans — one outcome→color mapping so every
@@ -182,9 +183,12 @@ export function SpanEventBlock({ event }: { event: ActivitySpanEvent }) {
       <div className="mb-0.5 text-[10px] uppercase text-muted-foreground/60">
         {eventTypeLabel(event.eventType)}
       </div>
-      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
-        {text}
-      </pre>
+      <div className="group/copy relative">
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 p-2 pr-9 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
+          {text}
+        </pre>
+        <CopyButton label="Copy payload" getText={() => text} />
+      </div>
       {event.truncated && (
         <p className="mt-0.5 text-[10px] italic text-muted-foreground/60">… truncated</p>
       )}

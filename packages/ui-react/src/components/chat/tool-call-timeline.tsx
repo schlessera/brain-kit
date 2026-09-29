@@ -3,7 +3,6 @@ import { useState, useEffect, useRef, type KeyboardEvent } from "react";
 import {
   Check,
   X,
-  Copy,
   Layers,
   ChevronDown,
   ChevronRight,
@@ -25,6 +24,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { SpanStatusDot } from "../activity/span-bits.js";
+import { CopyButton, EnclosingCopyControl } from "./copy-button.js";
 
 // Sessions that predate backend stamping (old servers, cleared stores) scope
 // to the shipped default backend.
@@ -370,16 +370,14 @@ function ToolCallEntry({
               {/* Tool output */}
               {toolCall.output && Output && (
                 <div className="relative">
-                  <button
-                    onClick={() =>
-                      navigator.clipboard.writeText(toolCall.output!)
-                    }
-                    className="absolute right-1 top-1 z-10 rounded p-1 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-                    title="Copy output"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </button>
-                  <Output tool={toolCall} />
+                  <CopyButton
+                    label="Copy output"
+                    getText={() => toolCall.output!}
+                    className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+                  />
+                  <EnclosingCopyControl>
+                    <Output tool={toolCall} />
+                  </EnclosingCopyControl>
                 </div>
               )}
             </div>
