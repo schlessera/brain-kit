@@ -38,7 +38,7 @@ export function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutR
 function CodePre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
   const ref = useRef<HTMLPreElement>(null);
   return (
-    <div className="group relative">
+    <div className="group/copy relative">
       <pre
         ref={ref}
         className="overflow-x-auto rounded-lg border border-border bg-surface p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed"

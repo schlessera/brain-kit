@@ -18,6 +18,7 @@ import {
 import { DiffBlock } from "@schlessera/brain-ui-kit";
 import type { ToolCall } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
+import { CopyButton, useEnclosingCopy } from "./copy-button.js";
 import { linkifyPaths, FileLink } from "./brain-markdown.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { isInternalRepoPath } from "../../stores/file-store.js";
@@ -387,10 +388,14 @@ function ReadInputView({ tool }: { tool: ToolCall }) {
 export function KeyValueView({ tool }: { tool: ToolCall }) {
   const entries = Object.entries(tool.input ?? {});
   if (entries.length === 0) {
+    const raw = tool.inputJson || "{}";
     return (
-      <pre className="overflow-x-auto rounded-md bg-background/60 p-2 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
-        {tool.inputJson || "{}"}
-      </pre>
+      <div className="group/copy relative">
+        <pre className="overflow-x-auto rounded-md bg-background/60 p-2 pr-9 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed text-muted-foreground">
+          {raw}
+        </pre>
+        <CopyButton label="Copy input" getText={() => raw} />
+      </div>
     );
   }
   return (
@@ -454,12 +459,15 @@ export function ClampedPre({ text, isError }: { text: string; isError?: boolean 
   const clampable = lines > 16 || text.length > 1600;
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? text.slice(0, CLAMP_SHOW_ALL_CAP) : text.slice(0, CLAMP_HARD_CAP);
+  // The timeline's output wrapper already copies this text; a second button
+  // would sit on top of it.
+  const enclosingCopy = useEnclosingCopy();
   return (
     <div>
-      <div className={cn("relative", clampable && !showAll && "max-h-56 overflow-hidden")}>
+      <div className={cn("group/copy relative", clampable && !showAll && "max-h-56 overflow-hidden")}>
         <pre
           className={cn(
-            "overflow-x-auto rounded-md p-2 pr-7 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed",
+            "overflow-x-auto rounded-md p-2 pr-9 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed",
             isError
               ? "bg-destructive-fill/10 text-destructive"
               : "bg-background/60 text-muted-foreground"
@@ -468,6 +476,8 @@ export function ClampedPre({ text, isError }: { text: string; isError?: boolean 
           {linkifyPaths(shown)}
           {text.length > shown.length && "\n…"}
         </pre>
+        {/* The full text, not the clamped or capped rendering. */}
+        {!enclosingCopy && <CopyButton label="Copy output" getText={() => text} />}
         {clampable && !showAll && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-md bg-gradient-to-t from-surface to-transparent" />
         )}
