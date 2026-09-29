@@ -44,6 +44,7 @@ export "." (./src/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -70,8 +71,14 @@ export "." (./src/index.ts)
   type GraphNodePayload
   type GraphSubgraphResponse
   type Keyterm
+  LOCAL_ANSWER_CLOSE
+  type LocalAnswer
+  type LocalExchange
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
+  MAX_LOCAL_ANSWER_CHARS
+  MAX_LOCAL_CONTEXT_CHARS
+  MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MessageBlock
   type MessagePart
@@ -107,6 +114,7 @@ export "." (./src/index.ts)
   type ServerAskUserRequest
   type ServerError
   type ServerHello
+  type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
@@ -232,6 +240,7 @@ export "./client" (./src/client/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -268,13 +277,19 @@ export "./client" (./src/client/index.ts)
   type ImageMaskPayload
   type Keyterm
   LINK_BLOCK_SCHEMA
+  LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
+  type LocalAnswer
+  type LocalExchange
   type LocationPayload
   MAP_BLOCK_SCHEMA
   MAP_PLACE_SCHEMA
   MAX_FRAME_DEGREES
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
+  MAX_LOCAL_ANSWER_CHARS
+  MAX_LOCAL_CONTEXT_CHARS
+  MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   MIN_SPAN_KM
   type MapPlace
@@ -347,6 +362,7 @@ export "./client" (./src/client/index.ts)
   type ServerError
   type ServerFrameHandlers
   type ServerHello
+  type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
@@ -476,6 +492,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -502,8 +519,14 @@ export "./protocol" (./src/protocol.ts)
   type GraphNodePayload
   type GraphSubgraphResponse
   type Keyterm
+  LOCAL_ANSWER_CLOSE
+  type LocalAnswer
+  type LocalExchange
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
+  MAX_LOCAL_ANSWER_CHARS
+  MAX_LOCAL_CONTEXT_CHARS
+  MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MessageBlock
   type MessagePart
@@ -539,6 +562,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerAskUserRequest
   type ServerError
   type ServerHello
+  type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
@@ -601,6 +625,7 @@ export "./schemas" (./src/schemas.ts)
   clientChatMessageSchema
   clientEnvironmentSchema
   clientHelloSchema
+  clientLocalExchangeSchema
   clientLocationErrorSchema
   clientLocationResponseSchema
   clientMaskErrorSchema
@@ -609,6 +634,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  localExchangeSchema
   messageBlockSchema
   messageSourceSchema
   parseClientMessage
@@ -619,6 +645,7 @@ export "./schemas" (./src/schemas.ts)
   serverAskUserRequestSchema
   serverErrorSchema
   serverHelloSchema
+  serverLocalExchangeResultSchema
   serverLocationRequestSchema
   serverMaskRequestSchema
   serverMessageBlocksSchema
@@ -758,6 +785,7 @@ export "./server" (./src/server/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
   type ClientMaskError
@@ -813,8 +841,11 @@ export "./server" (./src/server/index.ts)
   type Keyterm
   type KillableProcess
   LINK_BLOCK_SCHEMA
+  LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
+  type LocalAnswer
+  type LocalExchange
   type LocationFix
   type LocationHandlerOptions
   type LocationPayload
@@ -823,6 +854,9 @@ export "./server" (./src/server/index.ts)
   MAP_PLACE_SCHEMA
   MAX_IMAGES_PER_MESSAGE
   MAX_IMAGE_BYTES
+  MAX_LOCAL_ANSWER_CHARS
+  MAX_LOCAL_CONTEXT_CHARS
+  MAX_LOCAL_EXCHANGES_PER_MESSAGE
   MAX_TOTAL_IMAGE_BYTES
   type MapDetail
   type MapPlace
@@ -900,6 +934,7 @@ export "./server" (./src/server/index.ts)
   type ServerAskUserRequest
   type ServerError
   type ServerHello
+  type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
   type ServerMessage
@@ -1827,6 +1862,12 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         timeoutMs?: number;
         maximumAgeMs?: number;
     }
+  LocalAnswer (packages/ui-sdk/src/protocol.ts)
+    export interface LocalAnswer {
+        exchangeId: string;
+        command: string;
+        answer: unknown;
+    }
   LocationFix (packages/ui-sdk/src/server/backend.ts)
     export interface LocationFix {
         coords: GeoCoords;
@@ -1944,6 +1985,14 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         protocolRev: number;
         capabilities?: Record<string, boolean>;
     }
+  ServerLocalExchangeResult (packages/ui-sdk/src/protocol.ts)
+    export interface ServerLocalExchangeResult extends SessionScoped {
+        type: "local_exchange_result";
+        sessionId: string;
+        exchangeId: string;
+        saved: boolean;
+        reason?: string;
+    }
   ServerLocationRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerLocationRequest extends SessionScoped {
         type: "location_request";
@@ -1958,7 +2007,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks;
+    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -2063,6 +2112,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         attachmentCount?: number;
         blocks?: MessageBlock[];
         source?: MessageSource;
+        localAnswer?: LocalAnswer;
     }
   SessionScoped (packages/ui-sdk/src/protocol.ts)
     export interface SessionScoped {

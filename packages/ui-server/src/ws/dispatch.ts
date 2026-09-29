@@ -96,8 +96,30 @@ export async function handleClientMessage(
         client: msg.client,
         source: msg.source,
         draftId: msg.draftId,
+        ...(msg.localExchanges?.length ? { localExchanges: msg.localExchanges } : {}),
       });
       break;
+    }
+
+    case "local_exchange": {
+      // A command the client answered itself (#582). Stored against the
+      // session; the next prompt handed to the backend carries its context.
+      // Answered either way, so the client can say when it is not kept.
+      const saved = catalog.recordLocalExchange?.(msg.sessionId, msg.exchange, false) ?? false;
+      host.sendMessage(ws, {
+        type: "local_exchange_result",
+        sessionId: msg.sessionId,
+        exchangeId: msg.exchange.id,
+        saved,
+        ...(saved
+          ? {}
+          : {
+              reason: catalog.recordLocalExchange
+                ? "The server could not store it."
+                : "This server does not keep local answers.",
+            }),
+      });
+      return;
     }
 
     case "ask_user_response": {

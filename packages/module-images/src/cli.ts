@@ -19,8 +19,20 @@ import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { readEnvVar } from "./config/env.js";
 import type { ImagesConfig } from "./module.js";
 import { availableModels, providerFor } from "./providers/index.js";
+import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
-import { ImageProviderError, type ImageInput, type ImageRequest } from "./types.js";
+import {
+  IMAGE_QUALITIES,
+  ImageProviderError,
+  type ImageInput,
+  type ImageQuality,
+  type ImageRequest,
+} from "./types.js";
+
+const FORMATS = ["png", "jpeg", "webp"] as const;
+
+/** A per-image price, or the honest absence of one. */
+const price = (usd: number | null) => (usd === null ? "cost unknown" : `~$${usd.toFixed(3)}`);
 
 const HELP = `brain image — generate and edit images, routed by capability
 
@@ -41,8 +53,9 @@ Shape (--aspect and --resolution work on every model):
   --resolution <r>        512px | 1K | 2K | 4K
   --size <WxH>            Exact pixels — OpenAI only (16px grid, max edge 3840,
                           0.65-8.3MP). Requesting one routes away from Gemini.
-  --quality <q>           low | medium | high | auto (OpenAI)
-  --transparent           Transparent background (forces gpt-image-1.5)
+  --quality <q>           low | medium | high | xhigh | max | auto (OpenAI; sent as given)
+  --transparent           Transparent background, png or webp (OpenAI; stays on the
+                          selected model)
 
 Editing:
   --ref <path>            Reference image; repeatable
@@ -50,17 +63,17 @@ Editing:
 
 Routing:
   --provider openai|gemini    Pin a provider
-  --model <id>                Pin a model
+  --model <id>                Pin a model, e.g. gpt-image-2.5-flare
   --text-in-image             The image is mostly type — poster, diagram, menu
   --characters                Recurring characters must stay consistent
   --no-watermark              Output must not carry SynthID
   --draft                     A quick throwaway illustration (gemini-3.1-flash-lite-image)
   --dry-run                   Decide and price it, write nothing
 
-Routing is by capability: a mask or a transparent background or an exact pixel
-size forces OpenAI; heavy reference counts, character consistency and in-image
-text favour Gemini. When nothing in the request settles it, the command stops
-and asks rather than guessing — pass --model or --provider to proceed.
+Routing is by capability: a mask, a transparent background or an exact pixel
+size forces OpenAI; heavy reference counts and character consistency favour
+Gemini. Otherwise the default is gpt-image-2.5-sunburst when OpenAI is
+available; gpt-image-2.5-flare is chosen by --model or preferredModels.
 
 --json envelope: { output, provider, model, costUsd, costIsEstimate, bytes, reason }`;
 
@@ -146,6 +159,17 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // ctx.config is the loader-validated block, typed by the module contract
     // (defaults already applied — no re-parse, no cast).
     const cfg = ctx.config;
+    // A retired model in the config is a stale choice, not a harmless one: in
+    // disabledModels it no longer hides anything, in preferredModels it no
+    // longer picks anything. Say so rather than carry on with a policy the
+    // user did not write.
+    for (const key of ["disabledModels", "preferredModels"] as const) {
+      const stale = (cfg[key] ?? []).find(isRetiredModel);
+      if (stale) {
+        console.error(retiredModelMessage(stale, `images module config ${key}`));
+        return 1;
+      }
+    }
     const models = availableModels(cfg);
 
     if (parsed.positional[0] === "models") {
@@ -160,7 +184,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         console.log("No image models available — set OPENAI_API_KEY or GEMINI_API_KEY.");
       } else {
         for (const r of rows) {
-          console.log(`${r.model.padEnd(30)} ~$${r.approxCostUsd1K.toFixed(3)}/image  ${r.summary}`);
+          console.log(`${r.model.padEnd(30)} ${`${price(r.approxCostUsd1K)}/image`.padEnd(18)} ${r.summary}`);
         }
       }
       return 0;
@@ -172,6 +196,17 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       return 1;
     }
 
+    const quality = parsed.flags.quality as string | undefined;
+    if (quality !== undefined && !(IMAGE_QUALITIES as readonly string[]).includes(quality)) {
+      console.error(`--quality must be one of ${IMAGE_QUALITIES.join(", ")} (got "${quality}")`);
+      return 1;
+    }
+    const format = parsed.flags.format as string | undefined;
+    if (format !== undefined && !(FORMATS as readonly string[]).includes(format)) {
+      console.error(`--format must be one of ${FORMATS.join(", ")} (got "${format}")`);
+      return 1;
+    }
+
     let request: ImageRequest;
     try {
       request = {
@@ -179,8 +214,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         size: parsed.flags.size as string | undefined,
         aspect: parsed.flags.aspect as string | undefined,
         resolution: parsed.flags.resolution as ImageRequest["resolution"],
-        quality: parsed.flags.quality as ImageRequest["quality"],
-        format: parsed.flags.format as ImageRequest["format"],
+        quality: quality as ImageQuality | undefined,
+        format: format as ImageRequest["format"],
         transparent: parsed.flags.transparent === true,
         references: (parsed.repeated.ref ?? []).map((r) => loadImage(ctx.root, r)),
         mask: parsed.flags.mask ? loadImage(ctx.root, parsed.flags.mask as string) : undefined,
@@ -210,7 +245,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     }
     if (decision.kind === "ambiguous") {
       const lines = decision.candidates.map(
-        (m) => `  --model ${m.id.padEnd(30)} ~$${m.approxCostUsd1K.toFixed(3)}  ${m.summary}`
+        (m) => `  --model ${m.id.padEnd(30)} ${price(m.approxCostUsd1K)}  ${m.summary}`
       );
       if (ctx.json) {
         console.log(
@@ -275,7 +310,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       if (ctx.json) console.log(JSON.stringify(payload, null, 2));
       else {
         console.log(`Would use ${describe(decision)}`);
-        console.log(`Would write ${payload.output} (~$${model.approxCostUsd1K.toFixed(3)})`);
+        console.log(`Would write ${payload.output} (${price(model.approxCostUsd1K)})`);
       }
       return 0;
     }

@@ -1,12 +1,19 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
+  LocalExchange,
   MessageSource,
   ServerResultMessage,
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import { attachMessageSources, saveMessageSource } from "./message-sources.js";
+import {
+  loadLocalExchanges,
+  saveLocalExchange,
+  takePendingLocalExchanges,
+  type LocalExchangeRecord,
+} from "./local-exchanges.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -46,6 +53,17 @@ export interface SessionCatalog {
   recordMessageSource?(sessionId: string, text: string, source: MessageSource): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+  /**
+   * Keep a locally answered command (`/stats`) as part of the session
+   * (#582). `delivered` means the prompt carrying its context is being
+   * handed over now. Returns whether it is stored. Optional like the source
+   * seam: without it the exchange stays on the client that ran it.
+   */
+  recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): boolean;
+  /** The exchanges no prompt has carried yet, marked as carried by the one being handed over. */
+  takePendingLocalExchanges?(sessionId: string): LocalExchange[];
+  /** Every exchange recorded for the session, for replay. */
+  loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -131,6 +149,43 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
         saveMessageSource(db(), sessionId, text, source);
       } catch (err) {
         reportWriteFailure(sessionId, err);
+      }
+    },
+
+    recordLocalExchange(sessionId, exchange, delivered) {
+      try {
+        saveLocalExchange(db(), sessionId, exchange, delivered);
+        return true;
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+        return false;
+      }
+    },
+
+    takePendingLocalExchanges(sessionId) {
+      try {
+        return takePendingLocalExchanges(db(), sessionId);
+      } catch (err) {
+        // The prompt still goes out, without the figures: losing the turn
+        // over them would be worse than the agent not seeing them.
+        reportWriteFailure(sessionId, err);
+        return [];
+      }
+    },
+
+    loadLocalExchanges(sessionId) {
+      try {
+        return loadLocalExchanges(db(), sessionId);
+      } catch (err) {
+        log?.emit({
+          severityText: "WARN",
+          body: "local exchanges could not be joined onto history",
+          attributes: {
+            "session.id": sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        return [];
       }
     },
 

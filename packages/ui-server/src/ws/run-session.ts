@@ -2,6 +2,7 @@ import type {
   BillingMode,
   ChatImageAttachment,
   ClientEnvironment,
+  LocalExchange,
   MessageSource,
   PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -11,6 +12,7 @@ import { withSessionId, withTurnScope } from "./frames.js";
 import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
+import { withLocalContext } from "./local-exchanges.js";
 import type { AuthorizationContext, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
@@ -75,7 +77,31 @@ type RunSessionInput = {
   source?: MessageSource;
   /** Client correlation id for a new conversation; echoed on session_info. */
   draftId?: string;
+  /**
+   * Local exchanges the draft conversation holds (#582). Recorded against
+   * the session once `session_info` names it, and carried on its first
+   * prompt.
+   */
+  localExchanges?: LocalExchange[];
 };
+
+/**
+ * Record a new conversation's local exchanges against the session its first
+ * turn created, and tell every client whether each one is kept: the client
+ * that ran them holds them in a draft that has just become this session.
+ */
+function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readonly LocalExchange[]): void {
+  for (const exchange of exchanges) {
+    const saved = host.catalog.recordLocalExchange?.(sessionId, exchange, true) ?? false;
+    host.sendToClients({
+      type: "local_exchange_result",
+      sessionId,
+      exchangeId: exchange.id,
+      saved,
+      ...(saved ? {} : { reason: "The server could not store it." }),
+    });
+  }
+}
 
 export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
   const releaseAuthorization = initial.authorization.retain();
@@ -155,6 +181,8 @@ async function runRetainedSession(
 
   let profileId = initialProfileId;
   let resumeId = initial.sessionId;
+  // Only the first turn of a new conversation carries the draft's exchanges.
+  let draftExchanges = initial.sessionId ? [] : (initial.localExchanges ?? []);
   let next: QueuedFollowUp | null = {
     principalId: initial.authorization.principalId,
     authorization: initial.authorization,
@@ -265,19 +293,35 @@ async function runRetainedSession(
       const recordSource = (sid: string): void =>
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed");
       if (resumeId) recordSource(resumeId);
+      // Locally answered commands the agent has not seen yet ride on this
+      // prompt (#582), taken here, past the last await, so an exchange is
+      // only marked carried by a prompt that is actually handed over. The
+      // source above is recorded for the user's text alone, which is what
+      // replay matches once the context is stripped again.
+      const drafted = draftExchanges;
+      draftExchanges = [];
+      const prompt = withLocalContext(text, [
+        ...drafted,
+        ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
+      ]);
       const bridge = makeBridge(
         host,
         turn,
         text,
         backend.id,
         recorder,
-        resumeId ? undefined : recordSource
+        resumeId
+          ? undefined
+          : (sid) => {
+              recordSource(sid);
+              recordDraftExchanges(host, sid, drafted);
+            }
       );
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
       try {
         await backend.startTurn({
-          prompt: text,
+          prompt,
           attachments,
           sessionId: resumeId,
           profileId,
@@ -456,6 +500,7 @@ export async function handleChatMessage(
     client?: ClientEnvironment;
     source?: MessageSource;
     draftId?: string;
+    localExchanges?: LocalExchange[];
   }
 ): Promise<void> {
   const {
@@ -467,8 +512,24 @@ export async function handleChatMessage(
     client,
     source,
     draftId,
+    localExchanges,
   } = msg;
   const { coordinator } = host;
+  // Exchanges sent with a message to a session that already exists are
+  // recorded like `local_exchange` frames: the prompt handed over next
+  // carries them, whichever of the paths below hands it over.
+  if (sessionId && localExchanges?.length) {
+    for (const exchange of localExchanges) {
+      const saved = host.catalog.recordLocalExchange?.(sessionId, exchange, false) ?? false;
+      host.sendMessage(ws, {
+        type: "local_exchange_result",
+        sessionId,
+        exchangeId: exchange.id,
+        saved,
+        ...(saved ? {} : { reason: "The server could not store it." }),
+      });
+    }
+  }
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;
 
   const starting = sessionId ? coordinator.startingBySession.get(sessionId) : undefined;
@@ -501,10 +562,11 @@ export async function handleChatMessage(
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed");
+      const prompt = withLocalContext(text, host.catalog.takePendingLocalExchanges?.(sessionId) ?? []);
       void (async () => {
         const releaseFollowUp = authorization.retain();
         try {
-          await backend.followUp!({ sessionId, prompt: text, attachments });
+          await backend.followUp!({ sessionId, prompt, attachments });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
@@ -553,5 +615,6 @@ export async function handleChatMessage(
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),
     ...(draftId ? { draftId } : {}),
+    ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
   });
 }

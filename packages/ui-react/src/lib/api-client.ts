@@ -74,6 +74,25 @@ export interface CorpusStats {
 }
 
 /**
+ * `brain stats --history --json`, passed through by
+ * `GET /api/brain/stats/history` (additive in 0.40.0): the daily snapshots,
+ * oldest first, one array per field, so `dates[i]` names `documents[i]`. A
+ * slot is `null` where that snapshot has no figure, never `0`. Only the
+ * fields the PWA draws are typed; the rest pass through.
+ */
+export interface CorpusStatsHistory {
+  dates: string[];
+  documents: (number | null)[];
+  health: {
+    brokenLinkRate: (number | null)[];
+    embeddingCoverage: (number | null)[];
+    stale: (number | null)[];
+    orphans: (number | null)[];
+    untagged: (number | null)[];
+  };
+}
+
+/**
  * One hit from `brain search`. `snippet` carries the CLI's FTS highlight
  * markers (`>>>term<<<`) — render it through `renderSnippet()` in the search
  * panel rather than printing it raw.
@@ -326,6 +345,9 @@ export function createBrainApi(
       ),
 
     brainStats: () => fetchJson<CorpusStats>("/brain/stats"),
+
+    /** The corpus figures over time, for the /stats trends. An older server 404s. */
+    brainStatsHistory: () => fetchJson<CorpusStatsHistory>("/brain/stats/history"),
 
     brainSync: () =>
       fetchJson<{ success: boolean; message: string }>("/brain/sync", {

@@ -62,6 +62,10 @@ import type {
   ClientToolDenial,
   ClientActivitySubscribe,
   ClientActivityUnsubscribe,
+  ClientLocalExchange,
+  LocalAnswer,
+  LocalExchange,
+  ServerLocalExchangeResult,
   ActivitySpan,
   ActivitySpanEvent,
   ServerActivitySnapshot,
@@ -74,6 +78,10 @@ import {
   MAX_IMAGES_PER_MESSAGE,
   MAX_IMAGE_BYTES,
   MAX_TOTAL_IMAGE_BYTES,
+  LOCAL_ANSWER_CLOSE,
+  MAX_LOCAL_ANSWER_CHARS,
+  MAX_LOCAL_CONTEXT_CHARS,
+  MAX_LOCAL_EXCHANGES_PER_MESSAGE,
 } from "./protocol.js";
 
 // --- Boundary limits ---
@@ -240,6 +248,40 @@ export const messageSourceSchema = z.enum([
  */
 const optionalMessageSource = messageSourceSchema.optional().catch(undefined);
 
+/**
+ * A locally answered command (#582). The id and the command are written into
+ * the block the context travels in on the prompt, so both are restricted to
+ * characters that cannot break out of it, and the context may not close it.
+ */
+export const localExchangeSchema = z.looseObject({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  command: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+  prompt: z.string().min(1).max(200),
+  answer: z.unknown().refine(
+    (value) => {
+      try {
+        const json = JSON.stringify(value);
+        return json !== undefined && json.length <= MAX_LOCAL_ANSWER_CHARS;
+      } catch {
+        return false; // circular / non-serializable
+      }
+    },
+    { message: `answer must serialize to at most ${MAX_LOCAL_ANSWER_CHARS} chars` }
+  ),
+  context: z
+    .string()
+    .max(MAX_LOCAL_CONTEXT_CHARS)
+    .refine((text) => !text.includes(LOCAL_ANSWER_CLOSE), {
+      message: `context may not contain ${LOCAL_ANSWER_CLOSE}`,
+    }),
+}) satisfies z.ZodType<LocalExchange>;
+
+export const clientLocalExchangeSchema = z.looseObject({
+  type: z.literal("local_exchange"),
+  sessionId: id,
+  exchange: localExchangeSchema,
+}) satisfies z.ZodType<ClientLocalExchange>;
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -250,6 +292,7 @@ export const clientChatMessageSchema = z
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
+    localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
   })
   .refine(
     (m) =>
@@ -445,6 +488,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientMaskErrorSchema,
   clientActivitySubscribeSchema,
   clientActivityUnsubscribeSchema,
+  clientLocalExchangeSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
 // --- Boundary helper ---
@@ -560,6 +604,12 @@ export const messageBlockSchema = z.looseObject({
   confidence: z.number().min(0).max(1),
 }) satisfies z.ZodType<MessageBlock>;
 
+const localAnswerSchema = z.looseObject({
+  exchangeId: z.string().max(MAX_ID_CHARS),
+  command: z.string().max(MAX_ID_CHARS),
+  answer: z.unknown(),
+}) satisfies z.ZodType<LocalAnswer>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -577,6 +627,8 @@ const historyMessageSchema = z.looseObject({
   attachmentCount: z.number().optional(),
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
+  // A replayed answer this build cannot read is dropped, not the history.
+  localAnswer: localAnswerSchema.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -827,6 +879,15 @@ export const serverMessageBlocksSchema = z.looseObject({
   turnId: z.string().max(MAX_ID_CHARS).optional(),
 }) satisfies z.ZodType<ServerMessageBlocks>;
 
+export const serverLocalExchangeResultSchema = z.looseObject({
+  type: z.literal("local_exchange_result"),
+  sessionId: z.string().max(MAX_ID_CHARS),
+  exchangeId: z.string().max(MAX_ID_CHARS),
+  saved: z.boolean(),
+  reason: z.string().optional(),
+  turnId: z.string().max(MAX_ID_CHARS).optional(),
+}) satisfies z.ZodType<ServerLocalExchangeResult>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverHelloSchema,
   serverTextDeltaSchema,
@@ -848,6 +909,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverActivitySnapshotSchema,
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
+  serverLocalExchangeResultSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

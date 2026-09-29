@@ -29,24 +29,45 @@ serve at all:
 | Request | Routes to | Reason |
 |---|---|---|
 | Masked inpainting | OpenAI | Google's image API has no mask concept |
-| Transparent background | `gpt-image-1.5` | `gpt-image-2` rejects `background: transparent` |
+| Transparent background | OpenAI, on the selected model | Both GPT Image 2.5 models return real alpha on png or webp; Gemini documents none |
 | PNG or WebP | OpenAI | Every Gemini image model serves JPEG only |
-| Exact custom pixels | `gpt-image-2` | Gemini has fixed ratios; `gpt-image-1.5` takes three presets |
-| Legible in-image text | `gpt-image-2` | Leads arena.ai's text-rendering board by ~130 Elo |
+| Exact custom pixels | OpenAI | Gemini has fixed ratios; the 2.5 models take any size on a 16px grid up to 3840px, 3:1 and 8.3MP |
 | Character consistency | Gemini | Narrows to models that claim it; no benchmark picks a winner |
 | >6 reference images | Gemini | 10 (Flash) / 14 (Lite) vs OpenAI's practical 8 |
 | Watermark-free | OpenAI | Gemini always applies SynthID |
 
-The policy is three named cases — quality to `gpt-image-2`, transparency to
-`gpt-image-1.5`, throwaway work to `gemini-3.1-flash-lite-image` via `--draft`
-— and everything else as fallback. When nothing in the request settles it, the
-command takes the highest-ranked available model and says that is what it did.
-`src/evidence.ts` carries the ordering, the sources, the date, and — as
-importantly — the claims that did not survive checking. Set `preferredModels`
-in the module config to override it.
+The policy is two named cases — everything, transparency included, to
+`gpt-image-2.5-sunburst`, and throwaway work to `gemini-3.1-flash-lite-image`
+via `--draft` — and everything else as fallback. `gpt-image-2.5-flare` is
+supported and chosen by name (`--model` or `preferredModels`); an explicit
+Flare stays Flare, transparency included. The OpenAI default is a maintainer
+decision, not a benchmark result: `src/evidence.ts` carries the Gemini fallback
+ordering, its sources and date, and the claims that did not survive checking,
+all measured on models this module no longer uses for OpenAI. Set
+`preferredModels` in the module config to override it.
+
+`--quality` takes `low | medium | high | xhigh | max | auto` and is sent as
+given. A transparent JPEG, an unknown quality or format, and a custom size
+outside OpenAI's rules are refused before any request.
+
+### Retired models
+
+`gpt-image-2` and `gpt-image-1.5` are no longer supported. Naming either in
+`--model`, `preferredModels` or `disabledModels` fails with an error naming the
+replacements, and nothing falls back to them. To migrate:
+
+- `gpt-image-2` → `gpt-image-2.5-sunburst` (the new default), or
+  `gpt-image-2.5-flare` for speed.
+- `gpt-image-1.5` (kept only for transparency) → drop the pin. Transparent
+  requests now stay on Sunburst, or on Flare if you pick it.
+- A retired ID in `disabledModels` no longer hides anything. Replace it with
+  the 2.5 model you mean to hide, or remove it.
 
 Quality is the default bias. Cost is always reported; `--draft` opts into the
 cheapest model that fits, and `--dry-run` prices a decision without spending.
+The 2.5 models are billed per token with no published per-image price, so
+their estimate reads `null` (unknown) before a call. After a call, the cost is
+computed from the token usage the API reported, when it reports any.
 
 ## Shape
 
@@ -63,12 +84,13 @@ Unit tests stub `fetch`. The real APIs are exercised by an opt-in suite:
 BRAIN_IMAGES_LIVE=1 bun test packages/module-images/tests/live.test.ts
 ```
 
-It costs roughly $0.35 and must never run in CI. Every model is tested
+It spends real money and must never run in CI. Every model is tested
 separately because they do not share a schema — that suite is what established
-that all three Gemini models reject `image/png`, that their bytes arrive in
-`steps[].content[]` rather than the documented `output_image`, and that
-`gpt-image-1.5` rejects custom sizes that `gpt-image-2` accepts. None of those
-three are in the vendor documentation.
+that all three Gemini models reject `image/png`, and that their bytes arrive in
+`steps[].content[]` rather than the documented `output_image`. Neither is in
+the vendor documentation. For the 2.5 models it decodes a transparent PNG and
+requires both fully transparent and visible pixels, not just an alpha channel.
+It does not require fully opaque pixels, which antialiased renders may lack.
 
 ## Environment
 

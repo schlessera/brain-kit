@@ -82,6 +82,35 @@ describe("brain CLI invocation", () => {
     expect(await (await app.request("/brain/stats")).json()).toHaveProperty("embeddings", 7);
   });
 
+  test("stats history runs `brain stats --history` and the route passes its nulls through", async () => {
+    const root = temporaryBrain();
+    const capture = join(root, "argv.jsonl");
+    installBrainCli(
+      root,
+      `import { appendFileSync } from "fs";\n` +
+        `appendFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
+        `console.log(JSON.stringify({ dates: ["2026-09-01", "2026-09-02"], documents: [3, 4], ` +
+        `health: { orphans: [null, 1] } }));\n`
+    );
+    const brain = createBrainClient({ brainPath: root });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+
+    const response = await app.request("/brain/stats/history");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      dates: ["2026-09-01", "2026-09-02"],
+      documents: [3, 4],
+      health: { orphans: [null, 1] },
+    });
+    expect(JSON.parse(readFileSync(capture, "utf8").trim())).toEqual(["stats", "--history"]);
+
+    // A CLI that predates --history exits 1: the route says so as a 500.
+    installBrainCli(root, `console.error("Unknown flag: --history"); process.exit(1);\n`);
+    const old = await app.request("/brain/stats/history");
+    expect(old.status).toBe(500);
+    expect(((await old.json()) as { error: string }).error).toContain("Unknown flag: --history");
+  });
+
   test("places flags before -- and a --prefixed search query after it", async () => {
     const root = temporaryBrain();
     const capture = join(root, "argv.jsonl");

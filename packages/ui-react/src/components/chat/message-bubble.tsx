@@ -14,6 +14,7 @@ import { AskUserCard } from "./ask-user-card.js";
 import { AskUserListExchangeCard } from "./ask-user-list-card.js";
 import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
 import { StatsAnswer } from "./stats/stats-answer.js";
+import { LocalExchangeNote } from "./local-exchange-note.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { AnswerSuggestions } from "./answer-suggestions.js";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
@@ -322,6 +323,7 @@ function AssistantContent({
   return (
     <div className="space-y-3">
       {message.statsAnswer ? <StatsAnswer sections={message.statsAnswer} /> : null}
+      {message.localExchange ? <LocalExchangeNote exchange={message.localExchange} /> : null}
       {groups.map((group, i) => {
         switch (group.kind) {
           case "thinking":

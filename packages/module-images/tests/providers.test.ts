@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { geminiProvider } from "../src/providers/gemini";
-import { openaiProvider } from "../src/providers/openai";
+import { openAiCostFromUsage, openaiProvider } from "../src/providers/openai";
 import { ImageProviderError, type ImageInput } from "../src/types";
 
 const realFetch = globalThis.fetch;
@@ -30,6 +30,8 @@ function stub(response: unknown, init: { status?: number } = {}) {
   return calls;
 }
 
+const SUNBURST = "gpt-image-2.5-sunburst";
+const FLARE = "gpt-image-2.5-flare";
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 const ref = (): ImageInput => ({ data: new Uint8Array([1, 2, 3]), mime: "image/png", label: "a.png" });
 
@@ -56,8 +58,20 @@ describe("capability tables agree with the evidence", () => {
     }
   });
 
-  test("the measured text-rendering lead sits on gpt-image-2 alone", () => {
-    expect(ALL.filter((m) => m.strongTextRendering).map((m) => m.id)).toEqual(["gpt-image-2"]);
+  test("no model inherits the text-rendering lead measured on retired gpt-image-2", () => {
+    // The arena lead was measured on gpt-image-2. A successor's name is not a
+    // measurement, so no 2.5 model — and no Gemini model — claims it.
+    expect(ALL.filter((m) => m.strongTextRendering).map((m) => m.id)).toEqual([]);
+  });
+
+  test("no summary claims the retired transparency split", () => {
+    for (const m of ALL) expect(m.summary).not.toMatch(/gpt-image-1\.5|gpt-image-2\b(?!\.)/);
+  });
+
+  test("the 2.5 models carry no borrowed per-image price", () => {
+    // Billed per token, and OpenAI's calculator does not estimate 2.5 token
+    // use: the retired per-image table must not stand in for them.
+    for (const m of openaiProvider.models) expect(m.approxCostUsd1K).toBeNull();
   });
 });
 
@@ -65,7 +79,7 @@ describe("openai provider", () => {
   test("generation posts JSON to /images/generations with a bearer token", async () => {
     const calls = stub({ data: [{ b64_json: PNG_B64 }], usage: { total_tokens: 10 } });
     const result = await openaiProvider.generate(
-      "gpt-image-2",
+      SUNBURST,
       { prompt: "a cat", size: "1024x1024", quality: "high", format: "png" },
       "sk-test"
     );
@@ -75,26 +89,111 @@ describe("openai provider", () => {
     expect(headers.Authorization).toBe("Bearer sk-test");
     expect(headers["Content-Type"]).toBe("application/json");
     const body = JSON.parse(calls[0].init.body as string);
-    expect(body).toMatchObject({ model: "gpt-image-2", prompt: "a cat", size: "1024x1024", quality: "high" });
+    expect(body).toMatchObject({ model: SUNBURST, prompt: "a cat", size: "1024x1024", quality: "high" });
 
     expect(result.images).toHaveLength(1);
     expect(Buffer.from(result.images[0].data).toString()).toBe("fake-png-bytes");
-    expect(result.costUsd).toBe(0.211); // high @ 1024x1024
+    expect(result.model).toBe(SUNBURST);
+    // No usable usage in the reply: the cost is unknown, not a table lookup.
+    expect(result.costUsd).toBeUndefined();
+  });
+
+  test("the cost comes from the reported token usage at the published rates", async () => {
+    stub({
+      data: [{ b64_json: PNG_B64 }],
+      usage: { input_tokens: 100, output_tokens: 1000, input_tokens_details: { text_tokens: 60, image_tokens: 40 } },
+    });
+    const result = await openaiProvider.generate(FLARE, { prompt: "x" }, "k");
+    // 60 text in at $5/M + 40 image in at $8/M + 1000 image out at $30/M.
+    expect(result.costUsd).toBeCloseTo((60 * 5 + 40 * 8 + 1000 * 30) / 1_000_000, 10);
+    expect(result.costIsEstimate).toBe(true);
+    expect(openAiCostFromUsage(SUNBURST, { output_tokens: 1000 })).toBeUndefined();
+    expect(openAiCostFromUsage("gpt-image-2", {
+      output_tokens: 1, input_tokens_details: { text_tokens: 1, image_tokens: 0 },
+    })).toBeUndefined();
+  });
+
+  for (const model of [SUNBURST, FLARE]) {
+    for (const quality of ["xhigh", "max"] as const) {
+      for (const format of ["png", "webp"] as const) {
+        test(`${model} sends quality ${quality} and a transparent ${format} unchanged on generation`, async () => {
+          const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+          const result = await openaiProvider.generate(
+            model,
+            { prompt: "a logo", quality, transparent: true, format },
+            "k"
+          );
+          const body = JSON.parse(calls[0].init.body as string);
+          expect(body.model).toBe(model);
+          expect(body.quality).toBe(quality);
+          expect(body.background).toBe("transparent");
+          expect(body.output_format).toBe(format);
+          expect(result.model).toBe(model);
+        });
+
+        test(`${model} sends quality ${quality} and a transparent ${format} unchanged on a masked edit`, async () => {
+          const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+          await openaiProvider.generate(
+            model,
+            { prompt: "sky", quality, transparent: true, format, references: [ref()], mask: ref() },
+            "k"
+          );
+          expect(calls[0].url).toBe("https://api.openai.com/v1/images/edits");
+          const form = calls[0].init.body as FormData;
+          expect(form.get("model")).toBe(model);
+          expect(form.get("quality")).toBe(quality);
+          expect(form.get("background")).toBe("transparent");
+          expect(form.get("output_format")).toBe(format);
+          expect(form.get("mask")).toBeInstanceOf(Blob);
+        });
+      }
+    }
+  }
+
+  test("a transparent edit with no format asks for png explicitly", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate(FLARE, { prompt: "x", transparent: true, references: [ref()] }, "k");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("output_format")).toBe("png");
+    expect(form.get("background")).toBe("transparent");
+  });
+
+  test("a custom size is sent as exact pixels", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate(FLARE, { prompt: "x", size: "1360x768", transparent: true }, "k");
+    expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ size: "1360x768", background: "transparent" });
+  });
+
+  for (const retired of ["gpt-image-2", "gpt-image-1.5"]) {
+    test(`retired ${retired} is refused before any request`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(retired, { prompt: "x" }, "k")).rejects.toThrow(/retired/);
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  test("a transparent JPEG is refused before any request", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await expect(
+      openaiProvider.generate(SUNBURST, { prompt: "x", transparent: true, format: "jpeg" }, "k")
+    ).rejects.toThrow(/alpha/);
+    expect(calls).toHaveLength(0);
   });
 
   test("`auto` size is omitted rather than sent literally", async () => {
     const calls = stub({ data: [{ b64_json: PNG_B64 }] });
-    await openaiProvider.generate("gpt-image-2", { prompt: "x", size: "auto" }, "k");
+    await openaiProvider.generate(SUNBURST, { prompt: "x", size: "auto" }, "k");
     expect(JSON.parse(calls[0].init.body as string).size).toBeUndefined();
   });
 
   test("references switch it to multipart /images/edits", async () => {
     const calls = stub({ data: [{ b64_json: PNG_B64 }] });
-    await openaiProvider.generate("gpt-image-2", { prompt: "edit it", references: [ref()] }, "k");
+    await openaiProvider.generate(FLARE, { prompt: "edit it", references: [ref()] }, "k");
 
     expect(calls[0].url).toBe("https://api.openai.com/v1/images/edits");
     const body = calls[0].init.body as FormData;
     expect(body).toBeInstanceOf(FormData);
+    expect(body.get("model")).toBe(FLARE);
     // Reference images repeat under `image[]`, which is the documented field.
     expect(body.getAll("image[]")).toHaveLength(1);
     // Content-Type must NOT be set by hand — fetch adds the multipart boundary.
@@ -104,7 +203,7 @@ describe("openai provider", () => {
   test("a mask rides along as a PNG part", async () => {
     const calls = stub({ data: [{ b64_json: PNG_B64 }] });
     await openaiProvider.generate(
-      "gpt-image-2",
+      SUNBURST,
       { prompt: "sky", references: [ref()], mask: ref() },
       "k"
     );
@@ -115,7 +214,7 @@ describe("openai provider", () => {
   test("a billing 429 is reported as not retryable", async () => {
     stub({ error: { message: "quota", code: "insufficient_quota" } }, { status: 429 });
     try {
-      await openaiProvider.generate("gpt-image-2", { prompt: "x" }, "k");
+      await openaiProvider.generate(SUNBURST, { prompt: "x" }, "k");
       throw new Error("should have thrown");
     } catch (e) {
       const err = e as ImageProviderError;
@@ -126,7 +225,7 @@ describe("openai provider", () => {
 
   test("a rate-limit 429 is reported as retryable", async () => {
     stub({ error: { message: "slow down", code: "rate_limit_exceeded" } }, { status: 429 });
-    await expect(openaiProvider.generate("gpt-image-2", { prompt: "x" }, "k")).rejects.toMatchObject({
+    await expect(openaiProvider.generate(SUNBURST, { prompt: "x" }, "k")).rejects.toMatchObject({
       opts: { retryable: true },
     });
   });
@@ -136,14 +235,14 @@ describe("openai provider", () => {
       { error: { message: "blocked", code: "moderation_blocked", moderation_details: { stage: "prompt" } } },
       { status: 400 }
     );
-    await expect(openaiProvider.generate("gpt-image-2", { prompt: "x" }, "k")).rejects.toThrow(
+    await expect(openaiProvider.generate(SUNBURST, { prompt: "x" }, "k")).rejects.toThrow(
       /refused by moderation/
     );
   });
 
   test("an empty data array is an error, not an empty file", async () => {
     stub({ data: [] });
-    await expect(openaiProvider.generate("gpt-image-2", { prompt: "x" }, "k")).rejects.toThrow(
+    await expect(openaiProvider.generate(SUNBURST, { prompt: "x" }, "k")).rejects.toThrow(
       /no image data/
     );
   });

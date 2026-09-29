@@ -26,13 +26,33 @@ const BUCKET_PIXELS: Record<Resolution, number> = {
   "4K": 3840 * 2160,
 };
 
-/** OpenAI's published constraints for a custom size. */
+/**
+ * OpenAI's published constraints for a custom size: both edges on the 16px
+ * grid, neither over 3840, the long edge at most three times the short one,
+ * and the total inside the pixel band.
+ */
 export const OPENAI_LIMITS = {
   minTotalPixels: 655_360,
   maxTotalPixels: 8_294_400,
   maxEdge: 3840,
   grid: 16,
+  maxAspectRatio: 3,
 };
+
+/** Whether exact pixels satisfy every OpenAI custom-size rule. */
+export function isValidOpenAiSize(w: number, h: number): boolean {
+  const L = OPENAI_LIMITS;
+  return (
+    w > 0 &&
+    h > 0 &&
+    w % L.grid === 0 &&
+    h % L.grid === 0 &&
+    Math.max(w, h) <= L.maxEdge &&
+    Math.max(w, h) / Math.min(w, h) <= L.maxAspectRatio &&
+    w * h >= L.minTotalPixels &&
+    w * h <= L.maxTotalPixels
+  );
+}
 
 export function parseAspect(aspect: string): { w: number; h: number } | null {
   const m = /^(\d+):(\d+)$/.exec(aspect.trim());
@@ -99,7 +119,7 @@ export function sizeToNearestGeminiAspect(size: string): string | null {
   return best;
 }
 
-/** The only sizes every GPT-image model accepts. */
+/** OpenAI's recommended sizes, accepted by every GPT-image model. */
 export const OPENAI_PRESET_SIZES = ["1024x1024", "1536x1024", "1024x1536"];
 
 /** Closest preset to a requested ratio, for models that reject custom sizes. */

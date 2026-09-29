@@ -12,6 +12,7 @@ import type {
   BrainSearchResponse,
   BrainDocument,
   BrainStats,
+  BrainStatsHistory,
   BrainSyncResult,
   BrainAddResult,
 } from "./types.js";
@@ -30,6 +31,8 @@ export interface BrainClient {
   ): Promise<BrainSearchResponse>;
   briefing(): Promise<string>;
   stats(): Promise<BrainStats>;
+  /** `brain stats --history`: the recorded snapshots as one series per field (#581). */
+  statsHistory(): Promise<BrainStatsHistory>;
   list(opts?: {
     type?: string;
     tag?: string;
@@ -290,6 +293,13 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
 
     async stats() {
       const result = await execBrain(["stats"]);
+      return parseJsonOutput(result);
+    },
+
+    async statsHistory() {
+      // A CLI older than 0.40.0 rejects the flag and exits 1, which throws
+      // here: the route answers 500 and the PWA draws no trends.
+      const result = await execBrain(["stats", "--history"]);
       return parseJsonOutput(result);
     },
 

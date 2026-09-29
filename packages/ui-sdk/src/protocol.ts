@@ -81,7 +81,8 @@ export type ClientMessage =
   | ClientMaskResponse
   | ClientMaskError
   | ClientActivitySubscribe
-  | ClientActivityUnsubscribe;
+  | ClientActivityUnsubscribe
+  | ClientLocalExchange;
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -138,7 +139,62 @@ export interface ClientChatMessage {
    * Absent means `typed`, which is what every older client meant.
    */
   source?: MessageSource;
+  /**
+   * Locally answered commands the user ran in this conversation before it
+   * had a session (additive). Only meaningful on a message that starts a
+   * new conversation: the host records them against the session this
+   * message creates and gives the agent their `context` with this prompt.
+   * An existing session records them with `local_exchange` instead.
+   */
+  localExchanges?: LocalExchange[];
 }
+
+/**
+ * A command the client answered itself, without a turn (`/stats`), kept as
+ * part of the session (additive; #582). The host stores it beside the
+ * session, gives the agent `context` with the session's next prompt, and
+ * replays the exchange at that position as a `prompt` user message and an
+ * assistant message carrying `localAnswer`.
+ */
+export interface LocalExchange {
+  /** Client-minted, unique within the session. Letters, digits, `-` and `_`. */
+  id: string;
+  /** The command that produced it, e.g. `stats`. Lowercase, digits and `-`. */
+  command: string;
+  /** What the transcript shows as the user's side of the exchange, e.g. `Stats`. */
+  prompt: string;
+  /**
+   * What the client drew, as JSON the command owns. The host stores and
+   * replays it without reading it; a client that does not know the command
+   * ignores it.
+   */
+  answer: unknown;
+  /**
+   * The same figures as plain text, for the agent. It reaches the model, so
+   * it is bounded and may not contain {@link LOCAL_ANSWER_CLOSE}.
+   */
+  context: string;
+}
+
+/** Client → Server. Record a locally answered command against an existing session (additive; #582). */
+export interface ClientLocalExchange {
+  type: "local_exchange";
+  sessionId: string;
+  exchange: LocalExchange;
+}
+
+/** Cap on `LocalExchange.context`, in characters. */
+export const MAX_LOCAL_CONTEXT_CHARS = 4_000;
+/** Cap on the serialized `LocalExchange.answer`, in characters. */
+export const MAX_LOCAL_ANSWER_CHARS = 64_000;
+/** Cap on `ClientChatMessage.localExchanges`. */
+export const MAX_LOCAL_EXCHANGES_PER_MESSAGE = 8;
+/**
+ * The line that closes the block a local exchange's context travels in on
+ * the prompt. The host finds and strips the block on replay by it, so a
+ * context may never contain it.
+ */
+export const LOCAL_ANSWER_CLOSE = "</local-answer>";
 
 /**
  * Feature-detected client capabilities, reported by the browser.
@@ -279,7 +335,8 @@ export type ServerMessage =
   | ServerMaskRequest
   | ServerActivitySnapshot
   | ServerActivityDelta
-  | ServerMessageBlocks;
+  | ServerMessageBlocks
+  | ServerLocalExchangeResult;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -348,6 +405,35 @@ export interface SessionHistoryMessage {
    * as text the host cannot match to what was sent.
    */
   source?: MessageSource;
+  /**
+   * On an `assistant` message: the answer of a locally answered command
+   * (additive; #582), replayed from what the host recorded. `content` is
+   * empty; the client draws `answer`. The user message before it is the
+   * exchange's `prompt`.
+   */
+  localAnswer?: LocalAnswer;
+}
+
+/** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
+export interface LocalAnswer {
+  exchangeId: string;
+  command: string;
+  answer: unknown;
+}
+
+/**
+ * Whether the host recorded a local exchange (additive; #582). Sent to the
+ * connection that sent `local_exchange`, and to every client once a new
+ * conversation's `localExchanges` are recorded. `saved: false` means the
+ * exchange is not part of the session and the agent will not see it.
+ */
+export interface ServerLocalExchangeResult extends SessionScoped {
+  type: "local_exchange_result";
+  sessionId: string;
+  exchangeId: string;
+  saved: boolean;
+  /** Why it was not saved. */
+  reason?: string;
 }
 
 /**

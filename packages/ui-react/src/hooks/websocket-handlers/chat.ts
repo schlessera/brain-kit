@@ -7,6 +7,7 @@ import type {
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { isAskUserListTool, isAskUserTool } from "../../lib/tool-names.js";
+import { replayedStatsSections } from "../../components/chat/stats/context-text.js";
 import type { ServerMessageHandlerMap } from "./types.js";
 
 type ChatFrame =
@@ -21,6 +22,7 @@ type ChatFrame =
   | "ask_user_list_request"
   | "result"
   | "message_blocks"
+  | "local_exchange_result"
   | "session_history"
   | "status";
 
@@ -63,6 +65,30 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     // Absent means typed: an older host never sends it, and a newer one
     // leaves it off typed messages.
     ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
+    ...localAnswerFields(msg),
+  };
+}
+
+/**
+ * A replayed local exchange's answer (#582), drawn as it was live. An answer
+ * for a command this client does not know, or one it cannot read, replays
+ * as the empty assistant message it is on the wire.
+ */
+function localAnswerFields(msg: SessionHistoryMessage): Partial<ChatMessage> {
+  const local = msg.role === "assistant" ? msg.localAnswer : undefined;
+  if (!local || local.command !== "stats") return {};
+  const sections = replayedStatsSections(local.answer);
+  if (!sections) return {};
+  return {
+    statsAnswer: sections,
+    localExchange: {
+      id: local.exchangeId,
+      command: local.command,
+      prompt: "",
+      answer: local.answer,
+      context: "",
+      saved: "saved",
+    },
   };
 }
 
@@ -266,6 +292,9 @@ export const chatFrameHandlers = {
     // the frame belongs to: a queued follow-up may already have opened a
     // newer assistant message by the time the pass returns.
     context.state.setMessageBlocks(context.key, msg.blocks, context.frameTurnId);
+  },
+  local_exchange_result: (msg, context) => {
+    context.state.markLocalExchange(msg.exchangeId, msg.saved ? "saved" : "unsaved", msg.reason);
   },
   session_history: (msg, context) => {
     const converted = msg.messages.map(convertHistoryMessage);

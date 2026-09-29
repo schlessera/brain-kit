@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   BAR_CAP,
+  TREND_CAP,
   VALUE_BUDGET,
   composeStatsAnswer,
   cost,
@@ -12,7 +13,7 @@ import {
   usd,
   type StatsSection,
 } from "../src/components/chat/stats/compose-stats.js";
-import { corpusStats, emptyRuntime, runtimeStats } from "./stats-fixtures.js";
+import { corpusStats, emptyRuntime, runtimeStats, statsHistory } from "./stats-fixtures.js";
 
 const ok = <T>(value: T) => ({ ok: true as const, value });
 const failed = (error: string) => ({ ok: false as const, error });
@@ -321,5 +322,64 @@ describe("an activity record with no runs, beside sessions that exist", () => {
       runtime: ok(runtimeStats({ window: { recordedSince: null, coveredDays: 0, runs: 0, failures: 0, unpricedRuns: 0, unpricedListCostRuns: 0 } })),
     });
     expect(all(sections, "tiles")[1].tiles[0]).toMatchObject({ value: "0", meta: "none on record" });
+  });
+});
+
+describe("trends from the recorded history (#581)", () => {
+  const compose = (history?: Parameters<typeof composeStatsAnswer>[0]["history"]) =>
+    composeStatsAnswer({ corpus: ok(corpusStats()), runtime: ok(runtimeStats()), history });
+
+  test("two snapshots draw the five trends, after the corpus receipt", () => {
+    const sections = compose(ok(statsHistory(3)));
+    const trends = all(sections, "trend");
+    expect(trends.map((t) => t.label)).toEqual([
+      "documents · 3 snapshots",
+      "orphans · 3 snapshots",
+      "stale · 3 snapshots",
+      "embedding coverage · 2 snapshots",
+      "broken-link rate · 3 snapshots",
+    ]);
+    const kinds = sections.map((s) => s.kind);
+    expect(kinds.indexOf("trend")).toBe(sections.indexOf(receipt(sections, "Corpus")) + 1);
+    const documents = trends[0];
+    expect(documents.values).toEqual([400, 401, 402]);
+    expect(documents.value).toBe("402");
+    expect(documents.ticks).toEqual(["20 Sep", "", "22 Sep"]);
+  });
+
+  test("a null in a series is left out, never drawn as 0", () => {
+    const coverage = all(compose(ok(statsHistory(3))), "trend").find((t) => t.label.startsWith("embedding coverage"));
+    expect(coverage?.values).toEqual([0.81, 0.82]);
+    expect(coverage?.value).toBe("82.0%");
+    expect(coverage?.ticks).toEqual(["21 Sep", "22 Sep"]);
+  });
+
+  test(`at most ${TREND_CAP} snapshots, the latest ones`, () => {
+    const trends = all(compose(ok(statsHistory(40))), "trend");
+    expect(trends).toHaveLength(5);
+    for (const t of trends) {
+      expect(t.values).toHaveLength(TREND_CAP);
+      expect(t.ticks).toHaveLength(TREND_CAP);
+    }
+    expect(trends[0].values.at(-1)).toBe(439);
+  });
+
+  test("fewer than two snapshots draw nothing: no chart, no placeholder", () => {
+    const one = compose(ok(statsHistory(1)));
+    const none = compose(ok(statsHistory(0)));
+    const without = compose();
+    // The guard is real: the same composer draws trends from two.
+    expect(all(compose(ok(statsHistory(2))), "trend")).toHaveLength(4);
+    for (const sections of [one, none, without, compose(failed("404"))]) {
+      expect(all(sections, "trend")).toEqual([]);
+      expect(sections.map((s) => s.kind)).toEqual(without.map((s) => s.kind));
+      expect(text(sections)).not.toContain("snapshot");
+    }
+  });
+
+  test("a series an older CLI never reported is skipped, not drawn empty", () => {
+    const h = statsHistory(3);
+    const partial = { dates: h.dates, documents: h.documents } as unknown as typeof h;
+    expect(all(compose(ok(partial)), "trend").map((t) => t.label)).toEqual(["documents · 3 snapshots"]);
   });
 });

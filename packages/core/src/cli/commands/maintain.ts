@@ -5,6 +5,7 @@ import { runRegistry } from "../../lib/index-registry.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
+import { collectAndRecordStats, describeRecord } from "./stats.js";
 import { GitUnavailableError, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -16,7 +17,9 @@ Runs, in order: the _index.md registry tables (the same step as
 an incremental index (+embeddings when a key is configured), a
 vector-table compaction when fewer than half its slots are live (the same step
 as \`brain index --compact\`), an audit snapshot (the counts \`brain audit\`
-reports, module hygiene checks included), a tag report (counts only;
+reports, module hygiene checks included), a stats snapshot (the day's
+\`brain stats\` figures kept in .stats-history.jsonl, one per day — the same
+step as \`brain stats --record\`), a tag report (counts only;
 see \`brain tags\`), a git packing pass when the brain is a git work tree (git's
 non-destructive loose-objects, incremental-repack and pack-refs tasks), then a
 prune of the scratch area (files older than 7 days, then the oldest until
@@ -31,7 +34,7 @@ other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
 
 export const maintainCommand: CoreCommand = {
-  summary: "Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, tag report, git packing, scratch prune",
+  summary: "Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, stats history, tag report, git packing, scratch prune",
   helpBlock: HELP,
   async run(args, cli): Promise<number> {
     const { args: pos, flags } = parseArgs(args);
@@ -125,7 +128,15 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "audit", result: `FAILED — ${(e as Error).message}` });
     }
 
-    // 4. Tag report, counts only. Read-only, and never a failed step: a
+    // 4. Stats history: the day's figures, after the index they describe. A
+    // second run the same day replaces that day's snapshot.
+    try {
+      report.push({ step: "stats", result: `ok — ${describeRecord(await collectAndRecordStats(cli))}` });
+    } catch (e) {
+      report.push({ step: "stats", result: `FAILED — ${(e as Error).message}` });
+    }
+
+    // 5. Tag report, counts only. Read-only, and never a failed step: a
     // tidy-up hint must not turn a cron run red.
     try {
       report.push({ step: "tags", result: summarizeTagReport(tagReport(cli.brain.root, cli.brain.taxonomy)) });
@@ -133,7 +144,7 @@ export const maintainCommand: CoreCommand = {
       report.push({ step: "tags", result: `skipped — ${(e as Error).message}` });
     }
 
-    // 5. Git packing. Loose objects pile up in a content repo because git's
+    // 6. Git packing. Loose objects pile up in a content repo because git's
     // automatic gc counts objects, not bytes; see lib/git-storage.ts. A brain
     // on a machine without git has no repository to pack, so a missing binary
     // skips; git refusing a repository it found fails.
@@ -153,7 +164,7 @@ export const maintainCommand: CoreCommand = {
       }
     }
 
-    // 6. Scratch prune. Writes into scratch prune as they go; this is the
+    // 7. Scratch prune. Writes into scratch prune as they go; this is the
     // periodic pass, which the hosting cron runs daily through `maintain`.
     try {
       const pruned = pruneScratch(cli.brain.root);

@@ -11,10 +11,12 @@
 import {
   aspectToOpenAiSize,
   nearestPresetSize,
+  OPENAI_LIMITS,
   OPENAI_PRESET_SIZES as PRESETS,
   type Resolution,
 } from "../shape.js";
 import { resolveEnv } from "../config/env.js";
+import { isRetiredModel, retiredModelMessage } from "../retired.js";
 import {
   ImageProviderError,
   type ImageRequest,
@@ -24,62 +26,87 @@ import {
 } from "../types.js";
 
 /**
- * gpt-image-2 is the current flagship. gpt-image-1.5 is kept for exactly one
- * reason: gpt-image-2 rejects `background: "transparent"`, and 1.5 does not —
- * a logo or overlay has to route somewhere.
+ * The GPT Image 2.5 pair (#586). Sunburst is the default; Flare is chosen by
+ * name. Both take `background: "transparent"` on png or webp, masks, custom
+ * sizes and the `xhigh`/`max` quality tiers, per OpenAI's model pages and
+ * image-generation guide (checked 2026-09-29):
+ *   https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
+ *   https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
+ *   https://developers.openai.com/api/docs/guides/image-generation
+ *
+ * gpt-image-2 and gpt-image-1.5 are retired (`../retired.ts`) and must not be
+ * re-added as a fallback.
  */
+const GPT_IMAGE_25 = {
+  provider: "openai",
+  transparentBackground: true,
+  maskInpainting: true,
+  arbitraryDimensions: true,
+  presetSizes: PRESETS,
+  maxEdgePx: OPENAI_LIMITS.maxEdge,
+  maxTotalPixels: OPENAI_LIMITS.maxTotalPixels,
+  // OpenAI documents no reference-image ceiling for 2.5; this is the ceiling
+  // the edits endpoint has held for GPT-image models, not a 2.5 measurement.
+  maxReferenceImages: 16,
+  characterConsistency: 0,
+  // No independent measurement of either 2.5 model exists yet. The arena
+  // text-rendering lead in evidence.ts was measured on gpt-image-2 and does
+  // not transfer by name.
+  strongTextRendering: false,
+  watermarked: false,
+  outputFormats: ["png", "jpeg", "webp"],
+  defaultFormat: "png",
+  // Billed per token; OpenAI's calculator does not estimate 2.5 token use, so
+  // there is no verified per-image figure to show before the call.
+  approxCostUsd1K: null,
+} satisfies Omit<ModelCapabilities, "id" | "summary">;
+
 const MODELS: ModelCapabilities[] = [
   {
-    id: "gpt-image-2",
-    provider: "openai",
-    summary: "OpenAI flagship — the default; leads the public arenas incl. text rendering, arbitrary sizes, masks, no watermark",
-    transparentBackground: false,
-    maskInpainting: true,
-    arbitraryDimensions: true,
-    presetSizes: PRESETS,
-    maxEdgePx: 3840,
-    maxTotalPixels: 8_294_400,
-    maxReferenceImages: 16,
-    characterConsistency: 0,
-    strongTextRendering: true,
-    watermarked: false,
-    outputFormats: ["png", "jpeg", "webp"],
-    defaultFormat: "png",
-    approxCostUsd1K: 0.211, // high quality, 1024x1024
+    id: "gpt-image-2.5-sunburst",
+    summary:
+      "OpenAI's most capable image model — the default; transparency on png/webp, masks, custom sizes, xhigh/max quality, no watermark",
+    ...GPT_IMAGE_25,
   },
   {
-    id: "gpt-image-1.5",
-    provider: "openai",
-    summary: "OpenAI, one generation back — kept for one reason: the transparent-background option",
-    transparentBackground: true,
-    maskInpainting: true,
-    // Verified live: a custom size is rejected with
-    // "Invalid size '1360x768'. Supported sizes are 1024x1024, 1024x1536,
-    // 1536x1024, and auto."
-    arbitraryDimensions: false,
-    presetSizes: PRESETS,
-    maxEdgePx: 1536,
-    maxTotalPixels: 1536 * 1024,
-    maxReferenceImages: 16,
-    characterConsistency: 0,
-    strongTextRendering: false,
-    watermarked: false,
-    outputFormats: ["png", "jpeg", "webp"],
-    defaultFormat: "png",
-    approxCostUsd1K: 0.133,
+    id: "gpt-image-2.5-flare",
+    summary:
+      "OpenAI's fastest high-quality model — chosen by --model; same transparency, masks, sizes and quality tiers as Sunburst",
+    ...GPT_IMAGE_25,
   },
 ];
 
-/** Per-image price by quality and size, from OpenAI's published cost table. */
-const PRICE: Record<string, Record<string, number>> = {
-  low: { "1024x1024": 0.006, "1024x1536": 0.005, "1536x1024": 0.005 },
-  medium: { "1024x1024": 0.053, "1024x1536": 0.041, "1536x1024": 0.041 },
-  high: { "1024x1024": 0.211, "1024x1536": 0.165, "1536x1024": 0.165 },
+/**
+ * USD per 1M tokens, from each model's page (checked 2026-09-29). The two
+ * rows are equal today; that makes neither a per-image price, because the
+ * models do not spend the same number of tokens on the same image.
+ */
+const TOKEN_RATES: Record<string, { textIn: number; imageIn: number; imageOut: number }> = {
+  "gpt-image-2.5-sunburst": { textIn: 5, imageIn: 8, imageOut: 30 },
+  "gpt-image-2.5-flare": { textIn: 5, imageIn: 8, imageOut: 30 },
 };
 
-export function estimateOpenAiCost(quality: string | undefined, size: string | undefined): number | undefined {
-  const q = quality && quality !== "auto" ? quality : "high"; // `auto` bills as what it picks; assume the worst
-  return PRICE[q]?.[size ?? "1024x1024"] ?? PRICE[q]?.["1024x1024"];
+/**
+ * What a call cost, from the token counts the API reported and the published
+ * token rates. `undefined` when the response carries no usable usage (the
+ * reference documents `usage` without promising it for every model) or the
+ * model has no rate here: an unknown cost stays unknown. List price, before
+ * any cached-input discount, so it errs high.
+ */
+export function openAiCostFromUsage(model: string, usage: unknown): number | undefined {
+  const rates = TOKEN_RATES[model];
+  if (!rates || typeof usage !== "object" || usage === null) return undefined;
+  const u = usage as {
+    output_tokens?: unknown;
+    input_tokens_details?: { text_tokens?: unknown; image_tokens?: unknown };
+  };
+  const textIn = u.input_tokens_details?.text_tokens;
+  const imageIn = u.input_tokens_details?.image_tokens;
+  const out = u.output_tokens;
+  if (typeof textIn !== "number" || typeof imageIn !== "number" || typeof out !== "number") {
+    return undefined;
+  }
+  return (textIn * rates.textIn + imageIn * rates.imageIn + out * rates.imageOut) / 1_000_000;
 }
 
 async function readError(res: Response): Promise<never> {
@@ -148,7 +175,7 @@ function decode(body: OpenAiImageResponse, model: string, req: ImageRequest): Im
     images,
     provider: "openai",
     model,
-    costUsd: estimateOpenAiCost(body.quality ?? req.quality, body.size ?? req.size),
+    costUsd: openAiCostFromUsage(model, body.usage),
     costIsEstimate: true,
     usage: body.usage,
   };
@@ -160,6 +187,16 @@ export const openaiProvider: Provider = {
   models: MODELS,
 
   async generate(model, req, apiKey) {
+    // Routing already refuses these; this keeps a direct caller from paying
+    // for a model the module no longer stands behind.
+    if (isRetiredModel(model)) {
+      throw new ImageProviderError(retiredModelMessage(model, "requested model"), { retryable: false });
+    }
+    if (req.transparent && req.format === "jpeg") {
+      throw new ImageProviderError("JPEG has no alpha channel — a transparent background needs png or webp.", {
+        retryable: false,
+      });
+    }
     const isEdit = (req.references?.length ?? 0) > 0 || !!req.mask;
     // OpenAI has no aspect-ratio parameter: a ratio is expressed as exact
     // pixels, so translate rather than dropping the caller's request.
@@ -203,6 +240,7 @@ export const openaiProvider: Provider = {
     if (size && size !== "auto") form.append("size", size);
     if (req.quality) form.append("quality", req.quality);
     if (req.format) form.append("output_format", req.format);
+    else if (req.transparent) form.append("output_format", "png");
     if (req.transparent) form.append("background", "transparent");
     for (const [i, ref] of (req.references ?? []).entries()) {
       form.append("image[]", new Blob([ref.data as BlobPart], { type: ref.mime }), ref.label ?? `image-${i}.png`);
