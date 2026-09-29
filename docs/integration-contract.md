@@ -426,8 +426,9 @@ validates or audits it, and `size.corpus` does not count it.
 
 - One snapshot per UTC day. A second recording the same day replaces that
   day's line. Every recording rewrites the file sorted by date, one line per
-  day, so a merge of two clones' histories stays line-local; two lines for one
-  day resolve to the later `at`.
+  day, and the file is `merge=union` in `.gitattributes`, so a merge of two
+  clones' histories never conflicts; two lines for one day resolve to the
+  later `at`.
 - Retention: every day for the last 90 days, then the latest snapshot of each
   ISO week.
 - A line that is not a JSON object with a `YYYY-MM-DD` `date` (a conflict
@@ -1096,7 +1097,10 @@ dictated after a reload or on another device.
   snapshot per day, written by `brain maintain` and `brain stats --record`
   (see "Stats history"). Machine-managed; a brain gains it on its first
   recording, so templates need not ship it. `brain sync` commits it with the
-  `config` group.
+  `config` group. It is union-merged like the sidecars: the template's
+  `.gitattributes` carries `.stats-history.jsonl merge=union`, and `brain
+  doctor --fix` appends the line to a brain without it. After a union merge,
+  two lines for one day resolve to the later recording.
 - Generated regions (additive in 0.38.0): content a command derives and keeps
   inside a hand-written markdown file sits between
   `<!-- brain:generated:{name} -->` and `<!-- /brain:generated:{name} -->`.

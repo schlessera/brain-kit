@@ -761,8 +761,9 @@ function checkScratch(root: string): Check {
 }
 
 /**
- * The sidecar caches should union-merge in any git merge, not only in
- * `brain sync pull`, or a plain `git pull` conflicts on them. What counts is
+ * The sidecar caches and the stats history should union-merge in any git
+ * merge, not only in `brain sync pull`, or a plain `git pull` conflicts on
+ * them. What counts is
  * the brain's own committed `.gitattributes`, which every clone gets; `--fix`
  * appends the `merge=union` lines there. A clone-local rule
  * (`info/attributes`, `core.attributesFile`) can neither stand in for a
@@ -778,7 +779,8 @@ function checkCacheMerge(root: string): Check {
   } catch (error) {
     return { id: "cache-merge", status: "warn", detail: (error as Error).message };
   }
-  const list = (files: string[]) => files.join(" and ");
+  const list = (files: string[]) =>
+    files.length <= 1 ? files.join("") : `${files.slice(0, -1).join(", ")} and ${files[files.length - 1]}`;
   if (portable.length > 0) {
     return {
       id: "cache-merge",
@@ -795,7 +797,7 @@ function checkCacheMerge(root: string): Check {
       fix: "remove the overriding rule from .git/info/attributes or the file core.attributesFile names",
     };
   }
-  return { id: "cache-merge", status: "pass", detail: "the sidecar caches union-merge (.gitattributes)" };
+  return { id: "cache-merge", status: "pass", detail: "the sidecar caches and the stats history union-merge (.gitattributes)" };
 }
 
 /**

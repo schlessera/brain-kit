@@ -7,3 +7,9 @@
 # built-in driver needs no git config.
 .context-cache.jsonl merge=union
 .asset-cache.jsonl merge=union
+
+# The stats history (`brain maintain`, `brain stats --record`) holds one
+# self-contained snapshot per line, one line per day. Union keeps both clones'
+# days; two lines for one day resolve to the later recording, and the next
+# recording rewrites the file sorted, one line per day.
+.stats-history.jsonl merge=union
