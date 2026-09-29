@@ -19,6 +19,7 @@ import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { readEnvVar } from "./config/env.js";
 import type { ImagesConfig } from "./module.js";
 import { availableModels, providerFor } from "./providers/index.js";
+import { estimateOpenAiOutputCost, openAiRequestSize } from "./providers/openai.js";
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
 import {
@@ -299,18 +300,28 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
+      // The 2.5 models have no card price, but a stated quality and size have
+      // a published output-token count; anything else stays unknown.
+      const estimatedCostUsd =
+        model.provider === "openai"
+          ? (estimateOpenAiOutputCost(model.id, request.quality, openAiRequestSize(request, model.id)) ?? null)
+          : model.approxCostUsd1K;
       const payload = {
         status: "dry-run",
         output: report(outAbs),
         provider: model.provider,
         model: model.id,
-        estimatedCostUsd: model.approxCostUsd1K,
+        estimatedCostUsd,
         reason: decision.reason,
       };
       if (ctx.json) console.log(JSON.stringify(payload, null, 2));
       else {
+        const cost =
+          estimatedCostUsd === null && model.provider === "openai"
+            ? "cost unknown — pass --quality and --size to price it"
+            : price(estimatedCostUsd);
         console.log(`Would use ${describe(decision)}`);
-        console.log(`Would write ${payload.output} (${price(model.approxCostUsd1K)})`);
+        console.log(`Would write ${payload.output} (${cost})`);
       }
       return 0;
     }

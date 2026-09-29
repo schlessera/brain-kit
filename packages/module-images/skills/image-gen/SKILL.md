@@ -95,12 +95,17 @@ image at ~1K:
 | `gemini-3.1-flash-lite-image` | ~$0.034 |
 | `gemini-3.1-flash-image` | ~$0.067 |
 | `gemini-3-pro-image` | ~$0.134 |
-| `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` | unknown before the call |
+| `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` | depends on quality and size |
 
-The two OpenAI models are billed per token, and OpenAI publishes no per-image
-price for them, so `--dry-run` and `brain image models` report their cost as
-unknown. After a call, the cost comes from the token counts the API reported,
-when it reports them. Never quote an old per-image price for them.
+The two OpenAI models are billed per token. By default the API picks the
+quality (`auto`) per image, so `brain image models` shows no price for them. To
+price a request first, pass `--quality` and `--size` (or `--aspect`) with
+`--dry-run`. The estimate comes from OpenAI's published output-token calculator
+for both models. At 1024x1024 it runs from about $0.006 at `low` to about $0.21
+at `max`, plus the prompt and any reference images. Without a stated quality
+and size, the dry run reports the cost as unknown. After a call, the cost comes
+from the token counts the API reported, when it reports them. Never quote an
+old per-image price for them.
 
 `--quality` takes `low`, `medium`, `high`, `xhigh`, `max` or `auto`. The
 command sends it as given. `xhigh` and `max` cost more tokens, so use them

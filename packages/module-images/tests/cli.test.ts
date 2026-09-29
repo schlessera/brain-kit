@@ -146,6 +146,14 @@ describe("brain image — refused before the provider is called", () => {
     expect(calls).toHaveLength(0);
   });
 
+  for (const size of ["big", "1024x", "1024x768px"]) {
+    test(`a size that is not WIDTHxHEIGHT (${size})`, async () => {
+      expect(await run(["x", "--size", size])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n")).toContain("WIDTHxHEIGHT");
+    });
+  }
+
   test("OpenAI disabled entirely leaves transparency impossible, not rerouted", async () => {
     expect(await run(["x", "--transparent"], { disabledModels: [SUNBURST, FLARE] })).toBe(1);
     expect(calls).toHaveLength(0);
@@ -159,6 +167,28 @@ describe("brain image — what it reports without spending", () => {
     const r = report();
     expect(Object.keys(r).sort()).toEqual(["estimatedCostUsd", "model", "output", "provider", "reason", "status"]);
     expect(r).toMatchObject({ status: "dry-run", model: SUNBURST, estimatedCostUsd: null });
+  });
+
+  test("a dry run with a stated quality and size is priced by the 2.5 calculator", async () => {
+    expect(await run(["x", "--dry-run", "--quality", "low", "--size", "1024x1024"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    // 196 output tokens at $30/M: the guide's own worked example.
+    expect(report().estimatedCostUsd).toBeCloseTo(0.00588, 10);
+
+    out.length = 0;
+    expect(await run(["x", "--dry-run", "--model", FLARE, "--quality", "max", "--aspect", "3:2"])).toBe(0);
+    // 3:2 at 1K becomes 1248x832: 96 on the long edge, 64 on the short, 4667 tokens.
+    expect(report()).toMatchObject({ model: FLARE });
+    expect(report().estimatedCostUsd).toBeCloseTo(0.14001, 10);
+  });
+
+  test("a dry run with auto quality or no size stays unpriced", async () => {
+    for (const argv of [["--quality", "auto", "--size", "1024x1024"], ["--quality", "high"], ["--size", "1024x1024"]]) {
+      out.length = 0;
+      expect(await run(["x", "--dry-run", ...argv])).toBe(0);
+      expect(report().estimatedCostUsd).toBeNull();
+    }
+    expect(calls).toHaveLength(0);
   });
 
   test("`models` lists both 2.5 models with no borrowed price, and no retired model", async () => {
