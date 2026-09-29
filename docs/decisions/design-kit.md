@@ -358,7 +358,7 @@ store through a static and would silently bind to the *default* root while
 rendering under a provider — `chat-page.tsx:142,158,168` (tool approval,
 ask-user submit, ask-user cancel), `composer.tsx:205` (message submit + draft
 correlation), `pi-accounts.tsx:71` (provider refresh). Plus one indirect:
-`span-bits.tsx:90` calls `loadSpanPayloads`, which reads and writes the default
+`span-bits.tsx:88` calls `loadSpanPayloads`, which reads and writes the default
 activity store inside `activity-store.ts:261,270`. These six are real work, not
 shim-covered. **This is the failure mode to watch: it compiles, and it is wrong.**
 
