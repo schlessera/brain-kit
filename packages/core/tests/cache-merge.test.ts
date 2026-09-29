@@ -1,5 +1,5 @@
 /**
- * The sidecar caches union-merge in a plain git merge, not only in
+ * The sidecar caches and the stats history union-merge in a plain git merge, not only in
  * `brain sync pull` (#414): the template ships the attribute, and
  * `brain doctor` checks for it and `--fix` adds it.
  */
@@ -9,9 +9,11 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { parseHistory } from "../src/lib/stats-history";
 
 const TEMPLATE_ATTRIBUTES = resolve(import.meta.dir, "../../../template/.gitattributes");
 const CACHE = ".context-cache.jsonl";
+const HISTORY = ".stats-history.jsonl";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -64,6 +66,49 @@ describe("the template's .gitattributes", () => {
   });
 });
 
+describe("the stats history (#581)", () => {
+  /** Two clones that each recorded a different day, and a third day both rewrote. */
+  function divergedHistory(attributes: string | null): string {
+    const root = mkdtempSync(join(tmpdir(), "brain-history-merge-"));
+    dirs.push(root);
+    git(root, "init", "-q", "-b", "main");
+    git(root, "config", "user.name", "Alex Example");
+    git(root, "config", "user.email", "alex@example.test");
+    git(root, "config", "commit.gpgsign", "false");
+    if (attributes !== null) writeFileSync(join(root, ".gitattributes"), attributes);
+    const day = (date: string, at: string, documents: number) => JSON.stringify({ date, at, documents });
+    const base = day("2026-09-27", "2026-09-27T03:00:00Z", 10);
+    writeFileSync(join(root, HISTORY), `${base}\n`);
+    git(root, "add", "-A");
+    git(root, "commit", "-qm", "base");
+    git(root, "checkout", "-qb", "other");
+    writeFileSync(join(root, HISTORY), `${base}\n${day("2026-09-28", "2026-09-28T05:00:00Z", 12)}\n`);
+    git(root, "commit", "-qam", "other clone recorded");
+    git(root, "checkout", "-q", "main");
+    writeFileSync(join(root, HISTORY), `${base}\n${day("2026-09-28", "2026-09-28T03:00:00Z", 11)}\n`);
+    git(root, "commit", "-qam", "this clone recorded");
+    return root;
+  }
+
+  test("a plain git merge keeps both clones' lines, and the later recording of a day wins", () => {
+    const root = divergedHistory(readFileSync(TEMPLATE_ATTRIBUTES, "utf8"));
+    const merge = git(root, "merge", "--no-edit", "other");
+    expect(merge.code, merge.out).toBe(0);
+    const text = readFileSync(join(root, HISTORY), "utf8");
+    expect(text).not.toContain("<<<<<<<");
+    expect(text.split("\n").filter(Boolean)).toHaveLength(3);
+    const history = parseHistory(text);
+    expect(history.map((s) => [s.date, s.documents])).toEqual([["2026-09-27", 10], ["2026-09-28", 12]]);
+  });
+
+  test("without the attribute the same merge conflicts", () => {
+    const root = divergedHistory(null);
+    const merge = git(root, "merge", "--no-edit", "other");
+    expect(merge.code).not.toBe(0);
+    expect(merge.out).toContain(`CONFLICT (content): Merge conflict in ${HISTORY}`);
+  });
+});
+
 describe("brain doctor cache-merge", () => {
   interface DoctorOut {
     checks: Array<{ id: string; status: string; detail: string }>;
@@ -78,7 +123,7 @@ describe("brain doctor cache-merge", () => {
         if (repo) git(root, "init", "-q");
         const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
         expect(cacheMerge(before)?.status).toBe("warn");
-        expect(cacheMerge(before)?.detail).toContain(".context-cache.jsonl and .asset-cache.jsonl");
+        expect(cacheMerge(before)?.detail).toContain(".context-cache.jsonl, .asset-cache.jsonl and .stats-history.jsonl");
 
         const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
         expect(fixed.fixesApplied).toContain("cache-merge");
@@ -86,6 +131,7 @@ describe("brain doctor cache-merge", () => {
         const attributes = readFileSync(join(root, ".gitattributes"), "utf8");
         expect(attributes).toContain(".context-cache.jsonl merge=union\n");
         expect(attributes).toContain(".asset-cache.jsonl merge=union\n");
+        expect(attributes).toContain(".stats-history.jsonl merge=union\n");
 
         // A second --fix changes nothing.
         await runCli(root, ["doctor", "--fix", "--json"]);
@@ -124,13 +170,13 @@ describe("brain doctor cache-merge", () => {
     try {
       git(root, "init", "-q");
       const local = join(root, ".git", "local-attributes");
-      writeFileSync(local, ".context-cache.jsonl merge=union\n.asset-cache.jsonl merge=union\n");
+      writeFileSync(local, ".context-cache.jsonl merge=union\n.asset-cache.jsonl merge=union\n.stats-history.jsonl merge=union\n");
       git(root, "config", "core.attributesFile", local);
       expect(git(root, "check-attr", "merge", "--", ".context-cache.jsonl").out).toContain("merge: union");
 
       const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(before)?.status).toBe("warn");
-      expect(cacheMerge(before)?.detail).toContain(".gitattributes gives .context-cache.jsonl and .asset-cache.jsonl no merge=union");
+      expect(cacheMerge(before)?.detail).toContain(".gitattributes gives .context-cache.jsonl, .asset-cache.jsonl and .stats-history.jsonl no merge=union");
 
       const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(fixed)?.status).toBe("pass");

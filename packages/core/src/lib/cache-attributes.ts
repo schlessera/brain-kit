@@ -1,6 +1,6 @@
 /**
  * The git attribute that lets any merge, not only `brain sync pull`, combine
- * the two sidecar caches.
+ * the two sidecar caches and the stats history.
  *
  * Each file holds one self-contained `{k,v}` record per line, so git's
  * built-in `merge=union` driver is safe for them: it keeps the lines of both
@@ -10,14 +10,24 @@
  * again the next time an index run adds or prunes a line. The
  * built-in driver needs no per-clone git config, unlike a custom
  * `merge.<name>.driver`.
+ *
+ * The stats history (#581) is one snapshot per line, one line per day, and
+ * takes the same attribute: union keeps both clones' days, two lines for one
+ * day resolve to the later recording (`parseHistory`), and the next recording
+ * rewrites the file sorted. It is not a derived cache, so `brain sync pull`
+ * does not union it itself; with the attribute, git never conflicts on it.
  */
 import { existsSync, lstatSync, readFileSync, realpathSync } from "fs";
 import { join, resolve } from "path";
 
 import { WriteRefusedError, writeFileSafely } from "./safe-path.js";
 import { emptyRepository } from "./scratch.js";
+import { STATS_HISTORY_FILE } from "./stats-history.js";
 
 export const SIDECAR_CACHES = [".context-cache.jsonl", ".asset-cache.jsonl"] as const;
+
+/** Every file the brain's `.gitattributes` should union-merge. */
+export const UNION_MERGED_FILES = [...SIDECAR_CACHES, STATS_HISTORY_FILE] as const;
 
 function canonicalRoot(root: string): string {
   try {
@@ -44,7 +54,7 @@ function unionMerged(argv: string[], cwd: string): string[] {
       .map((line) => line.match(/^(.*): merge: union$/)?.[1])
       .filter((file): file is string => file !== undefined)
   );
-  return SIDECAR_CACHES.filter((file) => !unioned.has(file));
+  return UNION_MERGED_FILES.filter((file) => !unioned.has(file));
 }
 
 /**
@@ -61,7 +71,7 @@ export function cachesWithoutPortableUnionMerge(root: string): string[] {
   return unionMerged(
     [
       "git", "-c", "core.attributesFile=/dev/null", `--git-dir=${emptyRepository()}`, `--work-tree=${rootReal}`,
-      "check-attr", "merge", "--", ...SIDECAR_CACHES,
+      "check-attr", "merge", "--", ...UNION_MERGED_FILES,
     ],
     rootReal
   );
@@ -75,7 +85,7 @@ export function cachesWithoutPortableUnionMerge(root: string): string[] {
 export function cachesWithoutUnionMerge(root: string): string[] {
   const rootReal = canonicalRoot(root);
   if (!insideWorkTree(rootReal)) return cachesWithoutPortableUnionMerge(root);
-  return unionMerged(["git", "check-attr", "merge", "--", ...SIDECAR_CACHES], rootReal);
+  return unionMerged(["git", "check-attr", "merge", "--", ...UNION_MERGED_FILES], rootReal);
 }
 
 /**
@@ -99,8 +109,9 @@ export function unionMergeCaches(root: string): boolean {
   const eol = current.includes("\r\n") ? "\r\n" : "\n";
   const lines = [
     "",
-    "# brain-kit's derived caches: one {k,v} record per line, so git's built-in",
-    "# union driver merges them without conflicts, in any order.",
+    "# brain-kit's line-per-record files (derived caches, stats history): every",
+    "# line stands alone, so git's built-in union driver merges them without",
+    "# conflicts, in any order.",
     ...missing.map((file) => `${file} merge=union`),
   ];
   const block = lines.join(eol) + eol;

@@ -3,7 +3,7 @@
 // health rung fires and each receipt row is non-empty; a test that needs a
 // quieter brain overrides what it covers.
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
-import type { CorpusStats } from "../src/lib/api-client.js";
+import type { CorpusStats, CorpusStatsHistory } from "../src/lib/api-client.js";
 
 const DAY = 86_400_000;
 /** 22 Sep 2026, 12:00 UTC. */
@@ -122,4 +122,24 @@ export function emptyRuntime(): ActivityRuntimeStats {
       },
     },
   });
+}
+
+/**
+ * `n` daily snapshots ending on the reference date, the corpus growing by one
+ * document a day and the orphans falling. Coverage was not measured in the
+ * first snapshot, so that series starts with a null.
+ */
+export function statsHistory(n: number): CorpusStatsHistory {
+  const idx = Array.from({ length: n }, (_, i) => i);
+  return {
+    dates: idx.map((i) => new Date(NOW - (n - 1 - i) * DAY).toISOString().slice(0, 10)),
+    documents: idx.map((i) => 400 + i),
+    health: {
+      brokenLinkRate: idx.map(() => 0.054),
+      embeddingCoverage: idx.map((i) => (i === 0 ? null : (80 + i) / 100)),
+      stale: idx.map(() => 12),
+      orphans: idx.map((i) => 20 - i),
+      untagged: idx.map(() => 9),
+    },
+  };
 }
