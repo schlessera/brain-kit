@@ -17,6 +17,7 @@ import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
 import { createShowBlockTool } from "./show-block-tool.js";
+import { createAskUserListTool, type AskUserListHandler } from "./ask-user-list-tool.js";
 
 /**
  * Bridge for the built-in `AskUserQuestion` tool.
@@ -86,6 +87,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  */
 export function createBrainUiMcpServer(handlers: {
   askUser?: AskUserHandler;
+  askUserList?: AskUserListHandler;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
   queryActivity?: ActivityQueryHandler;
@@ -95,6 +97,7 @@ export function createBrainUiMcpServer(handlers: {
   const tools: SdkMcpToolDefinition<any>[] = [createShowBlockTool()];
   if (handlers.getLocation) tools.push(createLocationTool(handlers.getLocation));
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
+  if (handlers.askUserList) tools.push(createAskUserListTool(handlers.askUserList));
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath));
   }

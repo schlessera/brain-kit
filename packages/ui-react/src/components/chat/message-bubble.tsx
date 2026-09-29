@@ -11,7 +11,8 @@ import { ToolCallTimeline } from "./tool-call-timeline.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
-import { isAskUserTool, isShowBlockTool } from "../../lib/tool-names.js";
+import { AskUserListExchangeCard } from "./ask-user-list-card.js";
+import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
 import { StatsAnswer } from "./stats/stats-answer.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { AnswerSuggestions } from "./answer-suggestions.js";
@@ -44,6 +45,7 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserSubmit,
   onAskUserCancel,
   onAskUserReask,
+  onAskUserListSubmit,
   closing = false,
 }: {
   message: ChatMessage;
@@ -56,6 +58,12 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  /** An `ask_user_list` answered: answers and notes keyed by item id. */
+  onAskUserListSubmit: (
+    requestId: string,
+    answers: Record<string, string>,
+    notes?: Record<string, string>
+  ) => void;
   /**
    * This is the session's last message, so it may carry the answer's
    * closing row (#40). False for every other message, so the memo holds.
@@ -96,6 +104,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserSubmit={onAskUserSubmit}
           onAskUserCancel={onAskUserCancel}
           onAskUserReask={onAskUserReask}
+          onAskUserListSubmit={onAskUserListSubmit}
           closing={closing}
         />
       )}
@@ -162,7 +171,7 @@ function groupParts(
     if (part.kind === "tool") {
       const tool = toolCalls[part.toolIndex];
       if (!tool) continue;
-      if (isAskUserTool(tool.name)) {
+      if (isAskExchangeTool(tool.name)) {
         const exchange = askUserExchanges?.[askUserSeen];
         askUserSeen++;
         // The exchange may not have arrived yet mid-stream — skip until it does.
@@ -228,6 +237,7 @@ function AssistantContent({
   onAskUserSubmit,
   onAskUserCancel,
   onAskUserReask,
+  onAskUserListSubmit,
   closing,
 }: {
   message: ChatMessage;
@@ -240,6 +250,12 @@ function AssistantContent({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  /** An `ask_user_list` answered: answers and notes keyed by item id. */
+  onAskUserListSubmit: (
+    requestId: string,
+    answers: Record<string, string>,
+    notes?: Record<string, string>
+  ) => void;
   closing: boolean;
 }) {
   const root = useBrainUiRoot();
@@ -265,12 +281,43 @@ function AssistantContent({
   // an unanswerable prompt. Render those trailing so a prompt is never lost.
   const askUserSlots = message.parts.reduce(
     (n, p) =>
-      p.kind === "tool" && isAskUserTool(message.toolCalls[p.toolIndex]?.name)
+      p.kind === "tool" && isAskExchangeTool(message.toolCalls[p.toolIndex]?.name)
         ? n + 1
         : n,
     0
   );
   const unmatchedExchanges = (message.askUserExchanges ?? []).slice(askUserSlots);
+
+  // One exchange, one card: a list exchange draws the list card, anything
+  // else the question card.
+  const renderExchange = (ex: AskUserExchange, key: string | number) =>
+    ex.list ? (
+      <AskUserListExchangeCard
+        key={key}
+        requestId={ex.requestId}
+        list={ex.list}
+        answered={ex.answers}
+        notes={ex.notes}
+        cancelled={ex.cancelled}
+        answeredAt={ex.answeredAt}
+        onSubmit={onAskUserListSubmit}
+        onCancel={onAskUserCancel}
+        onReask={onAskUserReask}
+      />
+    ) : (
+      <AskUserCard
+        key={key}
+        requestId={ex.requestId}
+        questions={ex.questions}
+        answered={ex.answers}
+        cancelled={ex.cancelled}
+        typed={ex.typed}
+        answeredAt={ex.answeredAt}
+        onSubmit={onAskUserSubmit}
+        onCancel={onAskUserCancel}
+        onReask={onAskUserReask}
+      />
+    );
 
   return (
     <div className="space-y-3">
@@ -297,20 +344,7 @@ function AssistantContent({
           case "block":
             return <BlockCard key={i} {...group.payload} />;
           case "askUser":
-            return (
-              <AskUserCard
-                key={i}
-                requestId={group.exchange.requestId}
-                questions={group.exchange.questions}
-                answered={group.exchange.answers}
-                cancelled={group.exchange.cancelled}
-                typed={group.exchange.typed}
-                answeredAt={group.exchange.answeredAt}
-                onSubmit={onAskUserSubmit}
-                onCancel={onAskUserCancel}
-                onReask={onAskUserReask}
-              />
-            );
+            return renderExchange(group.exchange, i);
           case "text":
             // The final text block carries the share affordance; text/markdown
             // share formats still use the full message content.
@@ -344,20 +378,7 @@ function AssistantContent({
         }
       })}
 
-      {unmatchedExchanges.map((ex) => (
-        <AskUserCard
-          key={ex.requestId}
-          requestId={ex.requestId}
-          questions={ex.questions}
-          answered={ex.answers}
-          cancelled={ex.cancelled}
-          typed={ex.typed}
-          answeredAt={ex.answeredAt}
-          onSubmit={onAskUserSubmit}
-          onCancel={onAskUserCancel}
-          onReask={onAskUserReask}
-        />
-      ))}
+      {unmatchedExchanges.map((ex) => renderExchange(ex, ex.requestId))}
 
       {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && <ThinkingIndicator />}
 

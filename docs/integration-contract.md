@@ -547,8 +547,9 @@ than their `indexed_at`.
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
-key; its tool names are equally stable. `ask_user`, `get_current_location`
-and `request_image_mask` bridge to the connected browser. `query_activity`
+key; its tool names are equally stable. `ask_user`, `ask_user_list` (additive
+in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
+connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox`; results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
@@ -556,7 +557,7 @@ and `request_image_mask` bridge to the connected browser. `query_activity`
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses.
-The five bridge tools are declared once as **tool contracts** in
+The six bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -568,10 +569,43 @@ tool's result is meant to be rendered as a component rather than read as text:
 | Contract | Payload in `output` | Rendered as |
 |---|---|---|
 | `ask_user` | `{ questions, answers, annotations? }` | the picker's answered state |
+| `ask_user_list` (0.40.0) | `{ answers, skipped, notes? }` — the request is not echoed | the list card's answered record, rebuilt from the call's input plus this |
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
+
+#### `ask_user_list` (additive in 0.40.0)
+
+One scale applied to a list of items, answered in one card (#583).
+
+- **Input:** `prompt` (1-300), `scale[2..8]{label (1-40), description? (≤120)}`,
+  `items[1..30]{id (1-64), label (1-200), detail? (≤200), link? (≤2048)}`,
+  `allowSkip?` (default `true`), `notes?` (default `false`). Item ids and
+  scale labels must each be unique; a duplicate is refused before any card is
+  drawn. A `link` is shown only after the client's own `classifyLink` accepts
+  it, with the host that parse yields; the model never supplies a host.
+- **Result:** `answers` maps item id to the chosen option's label, `skipped`
+  lists every other id in item order (the two always partition the list), and
+  `notes`, present only when the input set `notes: true` and a note was
+  written, maps item id to a note of at most 280 characters. A skipped item is
+  absent from `answers`, never `""`, and may still carry a note. An answer
+  naming an unknown id or an option not on the scale is dropped and the item
+  counted as skipped.
+- **Frames:** the host sends `ask_user_list_request` `{ requestId, prompt,
+  scale, items, allowSkip, notes }` (defaults applied, session- and
+  turn-scoped); the client answers with `ask_user_list_response` `{ requestId,
+  answers, notes?, turnId? }`, or dismisses with the existing `ask_user_cancel`
+  — request ids share one space across both ask kinds. A pending list survives
+  a disconnect and is re-sent on reconnect, as an `ask_user` card is.
+  `server_hello` advertises `capabilities.askUserList`.
+- **Backends:** the bridge method is `BackendBridge.askUserList?` (`AskUserListResult
+  { answers, notes? }`); a backend registers the tool when the host supplies it,
+  and withholds it from a turn declaring `noGrantSurface`, as it does the mask
+  editor, because the card needs someone to read it. It is not in the voice
+  posture.
+- **Composer:** a message typed while a list is pending is an ordinary
+  message; it is not bound to the list.
 
 `show_block`'s `block` is a discriminated union on `kind`. Each variant
 mirrors the props of the kit component that draws it; tone values are the
@@ -914,8 +948,8 @@ recorded, and the `tool_approval_request` is sent again to the connection that
 replied, so its next answer is correlated — because the voice channel may deny and never grant
 ([decisions/voice-permission.md](decisions/voice-permission.md)), so a
 voice-attributed grant in the record is by construction a bug.
-An answered `ask_user` interaction appends an `ask_user_response` event carrying
-the responder's `principalId`.
+An answered `ask_user` or `ask_user_list` interaction appends an
+`ask_user_response` event carrying the responder's `principalId`.
 A run's root span may additionally carry what the backend's runtime reported
 about itself (additive in 0.37.0): `brain.runtime.name` / `brain.runtime.version`
 (the runtime that actually ran, e.g. `claude-code` / `2.1.278`),

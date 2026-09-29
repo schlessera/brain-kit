@@ -131,6 +131,7 @@ the gate, so confirm patterns always see the command as the model wrote it.
 | `brain_list` | read | auto-allow | in-process `filterSearch` (read-only db) |
 | `brain_graph` | read | auto-allow | in-process link-graph walk (read-only db) |
 | `ask_user` | read | auto-allow | routes to `bridge.askUser` |
+| `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |

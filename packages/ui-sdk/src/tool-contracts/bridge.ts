@@ -126,6 +126,111 @@ export const ASK_USER_CONTRACT = defineToolComponentContract({
 });
 
 // ---------------------------------------------------------------------------
+// ask_user_list — one scale over many items (#583)
+// ---------------------------------------------------------------------------
+
+export const ASK_USER_LIST_TOOL_NAME = "ask_user_list";
+
+/** The bounds the input schema enforces, named so the handler and UI agree. */
+export const ASK_USER_LIST_LIMITS = Object.freeze({
+  minScale: 2,
+  maxScale: 8,
+  minItems: 1,
+  maxItems: 30,
+  /** A per-item note, in characters. */
+  maxNote: 280,
+});
+
+export const ASK_USER_LIST_DESCRIPTION = [
+  "Ask the user to place each of 1-30 items on ONE shared scale of 2-8 options, answered in a single card: rating films, triaging notes (keep / archive / delete), sorting candidates into buckets.",
+  "Use this instead of several ask_user calls, or a prose \"reply with a rating for each\", whenever the same judgment applies to many items. Items that need different options are different questions: use ask_user.",
+  "Give every item a stable id; the result is keyed by it. allowSkip (default true) lets the user submit with items unanswered, and the result lists those ids as skipped. notes=true lets the user add a short note per item.",
+  "The result is JSON: answers maps item id to the chosen option label, skipped lists the unanswered ids, and notes (when any) maps item id to the user's note. Act on exactly those answers.",
+].join("\n");
+
+const listOptionSchema = z.object({
+  label: z.string().min(1).max(40).describe("Option text (1-3 words), e.g. \"loved\"."),
+  description: z
+    .string()
+    .max(120)
+    .optional()
+    .describe("Optional one-line meaning, shown once above the list."),
+});
+
+const listItemSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(64)
+    .describe("Stable id, unique in this call. The answer comes back under it."),
+  label: z.string().min(1).max(200).describe("What the item is, e.g. a title."),
+  detail: z
+    .string()
+    .max(200)
+    .optional()
+    .describe("Optional one-line context: a year, a size, why it is listed."),
+  link: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe("Optional http(s) URL for the item."),
+});
+
+export const ASK_USER_LIST_INPUT_SCHEMA = z.object({
+  prompt: z.string().min(1).max(300).describe("What is being asked, e.g. \"How did these land?\""),
+  scale: z
+    .array(listOptionSchema)
+    .min(ASK_USER_LIST_LIMITS.minScale)
+    .max(ASK_USER_LIST_LIMITS.maxScale)
+    .describe("2-8 options shared by every item, in the order to show them."),
+  items: z
+    .array(listItemSchema)
+    .min(ASK_USER_LIST_LIMITS.minItems)
+    .max(ASK_USER_LIST_LIMITS.maxItems)
+    .describe("1-30 items to place on the scale."),
+  allowSkip: z
+    .boolean()
+    .optional()
+    .describe("Submit may leave items unanswered. Default true."),
+  notes: z
+    .boolean()
+    .optional()
+    .describe("Allow a short free-text note per item. Default false."),
+});
+
+export type AskUserListInput = z.infer<typeof ASK_USER_LIST_INPUT_SCHEMA>;
+
+/**
+ * What the tool result carries back: the answers by item id, the ids left
+ * unanswered in item order, and any notes. The request itself is NOT echoed:
+ * the model already has it, and thirty items repeated in every result would
+ * be paid for on every later round-trip. A client rebuilds the card from the
+ * tool call's input plus this.
+ */
+export interface AskUserListPayload {
+  answers: Record<string, string>;
+  skipped: string[];
+  notes?: Record<string, string>;
+}
+
+export const ASK_USER_LIST_PAYLOAD_SCHEMA = z.looseObject({
+  answers: z.record(z.string(), z.string()),
+  skipped: z.array(z.string()),
+  notes: z.record(z.string(), z.string()).optional(),
+}) satisfies z.ZodType<AskUserListPayload>;
+
+export const ASK_USER_LIST_CONTRACT = defineToolComponentContract({
+  name: ASK_USER_LIST_TOOL_NAME,
+  description: ASK_USER_LIST_DESCRIPTION,
+  input: ASK_USER_LIST_INPUT_SCHEMA,
+  payload: ASK_USER_LIST_PAYLOAD_SCHEMA,
+  brief: (name) =>
+    `- **One scale over many items is one card.** To rate, triage or sort a
+  list on the same options, call \`${name}\` once with every item, not
+  \`ask_user\` per item or a prose "reply with a rating for each".`,
+});
+
+// ---------------------------------------------------------------------------
 // get_current_location
 // ---------------------------------------------------------------------------
 
@@ -307,6 +412,7 @@ export const QUERY_ACTIVITY_CONTRACT = defineToolContract({
  */
 export const BRIDGE_TOOL_CONTRACTS = [
   ASK_USER_CONTRACT,
+  ASK_USER_LIST_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
@@ -318,6 +424,7 @@ export type BridgeToolName = (typeof BRIDGE_TOOL_CONTRACTS)[number]["name"];
 
 const names = [
   ASK_USER_CONTRACT.name,
+  ASK_USER_LIST_CONTRACT.name,
   GET_CURRENT_LOCATION_CONTRACT.name,
   REQUEST_IMAGE_MASK_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,

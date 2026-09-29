@@ -165,6 +165,14 @@ export function ChatPage() {
     [send, sessionId, root]
   );
 
+  const handleAskUserListSubmit = useCallback(
+    (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => {
+      root.stores.chat.getState().submitAskUserListAnswers(sessionId, requestId, answers, notes);
+      send({ type: "ask_user_list_response", requestId, answers, ...(notes ? { notes } : {}) });
+    },
+    [send, sessionId, root]
+  );
+
   const handleAskUserCancel = useCallback(
     (requestId: string) => {
       root.stores.chat.getState().cancelAskUser(sessionId, requestId);
@@ -314,6 +322,7 @@ export function ChatPage() {
                   onAskUserSubmit={handleAskUserSubmit}
                   onAskUserCancel={handleAskUserCancel}
                   onAskUserReask={handleAskUserReask}
+                  onAskUserListSubmit={handleAskUserListSubmit}
                   closing={msg === messages[messages.length - 1]}
                 />
               ))}

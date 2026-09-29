@@ -254,6 +254,7 @@ export interface BackendBridge {
   emit(msg: ServerMessage): void;
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
   askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
+  askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
   getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
 }
@@ -272,7 +273,10 @@ export interface BackendBridge {
   location / mask tooling on their presence, either at registration (the
   Claude backend) or at execution time (the pi backend always lists
   `ask_user` and returns an informative tool error when the host lacks it).
-- `askUser` / `getLocation` / `requestMask` resolve when the user answers
+- `askUserList` carries `ask_user_list` (one scale over up to thirty items).
+  It needs someone to read the card, so both shipped backends withhold it
+  from a turn that declares `noGrantSurface`, as they do the mask editor.
+- `askUser` / `askUserList` / `getLocation` / `requestMask` resolve when the user answers
   and REJECT on cancel or disconnect — translate a rejection into the
   agent-appropriate tool error; never let it crash the turn.
   `requestPermission` never rejects: cancellation and disconnect surface as a

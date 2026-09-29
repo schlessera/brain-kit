@@ -36,7 +36,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:66-115`), inbound material
+promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:67-116`), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -139,7 +139,7 @@ Unit numbers are stable identifiers, not build order. Build order:
 - **Auth guard reality**: `packages/ui-server/src/app.ts:288-310` guards every non-public
   `/api/*`; password mode requires a signed cookie
   (`packages/ui-server/src/middleware/auth.ts:163-173`).
-- **Permission parking and the unwind order**: `ws/bridge.ts:66-115` (parked promise, no
+- **Permission parking and the unwind order**: `ws/bridge.ts:67-116` (parked promise, no
   checkpoint hook), `ws/run-session.ts:104-120` (the timeout path's abort → resolve-pending
   sequence), `ui-backend-claude/src/backend.ts:944-951` (lock release).
 - **Auto-allow bypasses `canUseTool`**: `ui-backend-claude/src/backend.ts:57-88, 703-709`; the
@@ -153,7 +153,7 @@ Unit numbers are stable identifiers, not build order. Build order:
   required), `activity/notify.ts:90-126` (drop-later-same-tag, no count),
   `activity/push-sender.ts:122-145` (one push per pending row).
 - **Server-side source hardcoding precedent**: `packages/ui-server/src/share/staging.ts:367-372`.
-- **Share payload sizes**: `packages/ui-sdk/src/protocol.ts:755-761`;
+- **Share payload sizes**: `packages/ui-sdk/src/protocol.ts:757-763`;
   `packages/ui-react/src/lib/share-intake.ts:123-151` shows most shares are
   read-store-process requests.
 - **Host session cap applies only at WS session start**: `ws/run-session.ts:331-340`; path
@@ -789,7 +789,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`ui-sdk/src/protocol.ts:755-761`). Budget: **40k input tokens per
+  share may carry ~200 KB (`ui-sdk/src/protocol.ts:757-763`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -1129,7 +1129,7 @@ Actions list
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (`StartTurnRequest` is conversation-shaped
   and exposes no headless/persistence/tool-policy mode — `StartTurnRequest`,
-  `backend.ts:296-366`)
+  `backend.ts:308-378`)
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (generalize the hardcoded

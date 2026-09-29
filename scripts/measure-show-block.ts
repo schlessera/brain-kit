@@ -641,6 +641,7 @@ async function schemaCost(credential: LiveCredential): Promise<{
   const unreachable = () => Promise.reject(new Error("not called"));
   const server = createBrainUiMcpServer({
     askUser: unreachable as never,
+    askUserList: unreachable as never,
     getLocation: unreachable as never,
     requestMask: unreachable as never,
     queryActivity: unreachable as never,

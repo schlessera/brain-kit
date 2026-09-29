@@ -3,6 +3,7 @@ import type {
   BackendBridge,
   PermissionDecision,
   AskUserResult,
+  AskUserListResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
@@ -212,7 +213,10 @@ export function makeBridge(
         )
       );
       return new Promise<AskUserResult>((resolve, reject) => {
-        if (coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn)) {
+        if (
+          coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn) ||
+          coordinator.pendingAskUserList.has(requestId)
+        ) {
           reject(new Error("Duplicate ask-user request id"));
           return;
         }
@@ -221,6 +225,37 @@ export function makeBridge(
           turnId,
           requestId,
           questions,
+          resolve,
+          reject,
+        });
+      });
+    },
+    askUserList: (requestId, request) => {
+      host.sendToClients(
+        withTurnScope({ type: "ask_user_list_request", requestId, ...request }, turn, turnId)
+      );
+      host.sendToClients(
+        withTurnScope(
+          { type: "status", status: "tool_executing", detail: "Waiting for your input" },
+          turn,
+          turnId
+        )
+      );
+      return new Promise<AskUserListResult>((resolve, reject) => {
+        // One id space across both ask kinds: a single `ask_user_cancel`
+        // dismisses either, so an id pending as one must not open as the other.
+        if (
+          coordinator.collidesAcrossTurns(coordinator.pendingAskUserList, requestId, turn) ||
+          coordinator.pendingAskUser.has(requestId)
+        ) {
+          reject(new Error("Duplicate ask-user request id"));
+          return;
+        }
+        coordinator.pendingAskUserList.set(requestId, {
+          turn,
+          turnId,
+          requestId,
+          request,
           resolve,
           reject,
         });

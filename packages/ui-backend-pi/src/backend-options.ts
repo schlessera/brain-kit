@@ -145,6 +145,7 @@ export interface CreatePiBackendOptions {
 /** The host bridge capabilities one session's tool surface is built for. */
 export interface SessionCaps {
   askUser: boolean;
+  askUserList: boolean;
   location: boolean;
   activity: boolean;
   mask: boolean;
@@ -160,6 +161,7 @@ export interface SessionEnv {
 export function capsOf(bridge: BackendBridge): SessionCaps {
   return {
     askUser: Boolean(bridge.askUser),
+    askUserList: Boolean(bridge.askUserList),
     location: Boolean(bridge.getLocation),
     activity: Boolean(bridge.queryActivity),
     mask: Boolean(bridge.requestMask),

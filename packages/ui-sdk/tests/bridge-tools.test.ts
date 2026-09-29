@@ -11,9 +11,10 @@ import {
 } from "../src/server";
 
 describe("bridge tool server primitives", () => {
-  test("the posture names all five tools and derives backend-visible names", () => {
+  test("the posture names all six tools and derives backend-visible names", () => {
     expect(BRIDGE_TOOL_POSTURE.names).toEqual([
       "ask_user",
+      "ask_user_list",
       "get_current_location",
       "request_image_mask",
       "query_activity",
@@ -24,6 +25,7 @@ describe("bridge tool server primitives", () => {
     );
     expect(BRIDGE_TOOL_POSTURE.allowedTools("claude")).toEqual([
       "mcp__brain-ui__ask_user",
+      "mcp__brain-ui__ask_user_list",
       "mcp__brain-ui__get_current_location",
       "mcp__brain-ui__request_image_mask",
       "mcp__brain-ui__query_activity",

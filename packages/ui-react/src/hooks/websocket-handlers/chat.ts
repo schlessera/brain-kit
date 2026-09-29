@@ -1,11 +1,12 @@
 import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {
+  AskUserListSpec,
   AskUserQuestion,
   ServerMessage,
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { isAskUserTool } from "../../lib/tool-names.js";
+import { isAskUserListTool, isAskUserTool } from "../../lib/tool-names.js";
 import type { ServerMessageHandlerMap } from "./types.js";
 
 type ChatFrame =
@@ -17,6 +18,7 @@ type ChatFrame =
   | "tool_approval_request"
   | "tool_result"
   | "ask_user_request"
+  | "ask_user_list_request"
   | "result"
   | "message_blocks"
   | "session_history"
@@ -88,6 +90,10 @@ function reconstructAskUserExchanges(
 ): AskUserExchange[] | undefined {
   const exchanges: AskUserExchange[] = [];
   for (const tc of toolCalls) {
+    if (isAskUserListTool(tc.name)) {
+      exchanges.push(reconstructListExchange(tc));
+      continue;
+    }
     if (!isAskUserTool(tc.name)) continue;
     const questions = (tc.input?.questions as AskUserQuestion[]) ?? [];
     const exchange: AskUserExchange = { requestId: tc.id, questions };
@@ -114,6 +120,63 @@ function reconstructAskUserExchanges(
     exchanges.push(exchange);
   }
   return exchanges.length ? exchanges : undefined;
+}
+
+/**
+ * The list request as the card drew it, from the tool call's own input, with
+ * the tool's defaults applied. The persisted result carries only the answers
+ * (`{answers, skipped, notes?}`), so the input is the one place the items and
+ * the scale survive a reload.
+ */
+export function listSpecFromInput(input: Record<string, unknown> | undefined): AskUserListSpec {
+  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  const scale = (Array.isArray(input?.scale) ? input.scale : []).filter(record).flatMap((o) => {
+    const label = str(o.label);
+    const description = str(o.description);
+    return label ? [{ label, ...(description ? { description } : {}) }] : [];
+  });
+  const items = (Array.isArray(input?.items) ? input.items : []).filter(record).flatMap((i) => {
+    const id = str(i.id);
+    const label = str(i.label);
+    const detail = str(i.detail);
+    const link = str(i.link);
+    return id && label ? [{ id, label, ...(detail ? { detail } : {}), ...(link ? { link } : {}) }] : [];
+  });
+  return {
+    prompt: str(input?.prompt) ?? "",
+    scale,
+    items,
+    allowSkip: input?.allowSkip !== false,
+    notes: input?.notes === true,
+  };
+}
+
+function reconstructListExchange(tc: SessionHistoryMessage["toolCalls"][number]): AskUserExchange {
+  const exchange: AskUserExchange = {
+    requestId: tc.id,
+    questions: [],
+    list: listSpecFromInput(tc.input),
+  };
+  if (tc.output && !tc.isError) {
+    try {
+      const payload = JSON.parse(tc.output) as {
+        answers?: unknown;
+        notes?: unknown;
+      };
+      if (payload && isBareAnswersMap(payload.answers)) {
+        exchange.answers = payload.answers;
+        if (isBareAnswersMap(payload.notes)) exchange.notes = payload.notes;
+      } else {
+        exchange.cancelled = true;
+      }
+    } catch {
+      exchange.cancelled = true;
+    }
+  } else if (tc.isError) {
+    exchange.cancelled = true;
+  }
+  return exchange;
 }
 
 /** Map a frame to the run-state its session should show in the session list. */
@@ -181,6 +244,16 @@ export const chatFrameHandlers = {
   },
   ask_user_request: (msg, context) => {
     context.state.setAskUserRequest(context.key, msg.requestId, msg.questions);
+  },
+  ask_user_list_request: (msg, context) => {
+    const { prompt, scale, items, allowSkip, notes } = msg;
+    context.state.setAskUserListRequest(context.key, msg.requestId, {
+      prompt,
+      scale,
+      items,
+      allowSkip,
+      notes,
+    });
   },
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);

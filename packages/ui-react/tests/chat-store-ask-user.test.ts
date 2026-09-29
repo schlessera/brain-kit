@@ -117,3 +117,46 @@ describe("chat store askUser state", () => {
     expect(last.askUserExchanges).toHaveLength(1);
   });
 });
+
+describe("chat store ask_user_list state (#583)", () => {
+  const LIST = {
+    prompt: "Rate?",
+    scale: [{ label: "loved" }, { label: "meh" }],
+    items: [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ],
+    allowSkip: true,
+    notes: true,
+  };
+
+  test("a list request opens the same exchange slot, holding the list", () => {
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.setAskUserListRequest(null, "list-1", LIST);
+    const chat = draft();
+    expect(chat.askUser).toEqual({ requestId: "list-1", questions: [], list: LIST });
+    expect(chat.messages.at(-1)!.askUserExchanges).toEqual([
+      { requestId: "list-1", questions: [], list: LIST },
+    ]);
+  });
+
+  test("submitting records answers and notes by item id on both copies", () => {
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.setAskUserListRequest(null, "list-2", LIST);
+    store.submitAskUserListAnswers(null, "list-2", { a: "loved" }, { b: "later" });
+    const chat = draft();
+    expect(chat.askUser?.answers).toEqual({ a: "loved" });
+    expect(chat.askUser?.notes).toEqual({ b: "later" });
+    const exchange = chat.messages.at(-1)!.askUserExchanges![0]!;
+    expect(exchange.answers).toEqual({ a: "loved" });
+    expect(exchange.notes).toEqual({ b: "later" });
+    expect(typeof exchange.answeredAt).toBe("number");
+  });
+
+  test("a list exchange is never bound to a composer message", async () => {
+    const { questionForTypedAnswer } = await import("../src/components/chat/ask-user-typed");
+    expect(questionForTypedAnswer({ requestId: "x", questions: [], list: LIST })).toBeNull();
+  });
+});

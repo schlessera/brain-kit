@@ -35,6 +35,7 @@ import type {
 
 import { createClaudeBackend } from "../src/backend";
 import { MASK_TOOL_NAME } from "../src/mask-tool";
+import { ASK_USER_LIST_TOOL_NAME } from "../src/ask-user-list-tool";
 import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
 import { runToolCall } from "./helpers/run-tool-call";
 
@@ -59,6 +60,7 @@ async function startTurn(setup: {
   enforceAllowedTools?: boolean;
   noGrantSurface?: boolean;
   withMaskHandler?: boolean;
+  withListHandler?: boolean;
   decision?: PermissionDecision;
 }): Promise<Harness> {
   const requests: PermissionRequest[] = [];
@@ -85,6 +87,7 @@ async function startTurn(setup: {
     ...(setup.withMaskHandler
       ? { requestMask: async () => new Uint8Array() }
       : {}),
+    ...(setup.withListHandler ? { askUserList: async () => ({ answers: {} }) } : {}),
   };
   let captured: Options | undefined;
   const queryFn = ((params: { options?: Options }) => {
@@ -298,6 +301,27 @@ describe("the capability that needs eyes", () => {
     });
 
     expect(harness.options.allowedTools).toContain(MASK_TOOL_NAME);
+  });
+
+  test("the list card is not appended to a turn with no grant surface", async () => {
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL,
+      enforceAllowedTools: true,
+      noGrantSurface: true,
+      withListHandler: true,
+    });
+    expect(harness.options.allowedTools).not.toContain(ASK_USER_LIST_TOOL_NAME);
+    expect(JSON.stringify(harness.options.systemPrompt)).not.toContain(ASK_USER_LIST_TOOL_NAME);
+  });
+
+  test("the same bridge hands the list card to a turn that has a grant surface", async () => {
+    const harness = await startTurn({
+      allowedTools: WITHOUT_SHELL,
+      enforceAllowedTools: true,
+      withListHandler: true,
+    });
+    expect(harness.options.allowedTools).toContain(ASK_USER_LIST_TOOL_NAME);
+    expect(JSON.stringify(harness.options.systemPrompt)).toContain(ASK_USER_LIST_TOOL_NAME);
   });
 });
 

@@ -4,10 +4,12 @@ import type {
   PermissionDecision,
   PermissionRequest,
   AskUserResult,
+  AskUserListResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
   ApprovalChannel,
+  AskUserListSpec,
   AskUserQuestion,
   ChatImageAttachment,
   ClientEnvironment,
@@ -139,6 +141,16 @@ export interface PendingAskUser {
   reject: (err: Error) => void;
 }
 
+export interface PendingAskUserList {
+  turn: RunningTurn;
+  turnId: string;
+  /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
+  requestId: string;
+  request: AskUserListSpec;
+  resolve: (result: AskUserListResult) => void;
+  reject: (err: Error) => void;
+}
+
 export interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
@@ -175,6 +187,7 @@ export class TurnCoordinator {
 
   readonly pendingApprovals = new Map<string, PendingApproval>();
   readonly pendingAskUser = new Map<string, PendingAskUser>();
+  readonly pendingAskUserList = new Map<string, PendingAskUserList>();
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
 
@@ -311,6 +324,11 @@ export class TurnCoordinator {
       p.reject(new Error(reason));
       this.pendingAskUser.delete(id);
     }
+    for (const [id, p] of this.pendingAskUserList) {
+      if (p.turn !== turn) continue;
+      p.reject(new Error(reason));
+      this.pendingAskUserList.delete(id);
+    }
     this.drainClientBoundForTurn(turn, reason);
   }
 
@@ -378,6 +396,7 @@ export class TurnCoordinator {
     this.bySession.clear();
     this.pendingApprovals.clear();
     this.pendingAskUser.clear();
+    this.pendingAskUserList.clear();
     this.pendingLocation.clear();
     this.startingSessions = 0;
   }

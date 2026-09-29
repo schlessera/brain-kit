@@ -36,6 +36,7 @@
 
 import type {
   AskUserAnnotation,
+  AskUserListSpec,
   AskUserQuestion,
   BillingMode,
   ChatImageAttachment,
@@ -106,6 +107,12 @@ export interface AskUserResult {
   annotations?: Record<string, AskUserAnnotation>;
 }
 
+/** The user's answers to an `ask_user_list`, keyed by item id. */
+export interface AskUserListResult {
+  answers: Record<string, string>;
+  notes?: Record<string, string>;
+}
+
 export interface LocationFix {
   coords: GeoCoords;
   /** Epoch millis when the fix was taken. */
@@ -127,6 +134,11 @@ export interface BackendBridge {
   emit(msg: ServerMessage): void;
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
   askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
+  /**
+   * Ask the user to place every item of a list on one scale, in one card.
+   * Resolves with the answers by item id; rejects on dismiss or cancel.
+   */
+  askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
   getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
   /**
    * Ask the user to paint a mask over an image. Resolves with a PNG whose

@@ -1,8 +1,20 @@
 import preview from "#.storybook/preview";
 import { expect, fn } from "storybook/test";
 
-import { askOptions, askUser, followAnswers, followOptions, followQuestion, receiptDiff } from "../../fixtures/actions.js";
+import {
+  askOptions,
+  askUser,
+  followAnswers,
+  followOptions,
+  followQuestion,
+  listEight,
+  listRating,
+  listTriage,
+  listTriageAnswers,
+  receiptDiff,
+} from "../../fixtures/actions.js";
 import { AskUserCard } from "../../src/decisions/AskUserCard.js";
+import { AskUserListCard } from "../../src/decisions/AskUserListCard.js";
 import { Receipt } from "../../src/evidence/Receipt.js";
 import { Callout } from "../../src/primitives/Callout.js";
 import { DiffBlock } from "../../src/primitives/DiffBlock.js";
@@ -252,4 +264,396 @@ export const TheSection = meta.story({
       </div>
     </div>
   ),
+});
+
+/* ── One scale over many items (#583) ──────────────────────────────────────
+ *
+ * `ask_user_list`: the agent proposes a list and wants each item placed on one
+ * scale. One header, one scale, one action row and one record per exchange,
+ * whatever the item count — #541's lesson applied to rows. The plays below are
+ * the issue's acceptance criteria at 320px; the `Wide` stories are the same
+ * cards on desktop, where up to six options sit beside the label.
+ */
+
+const at320 = { stageWidth: 320 };
+
+/** Every chip, measured: painted ≥44 tall and ≥60 wide, and no border. */
+async function chipsAreTargets(root: HTMLElement) {
+  const chips = [...root.querySelectorAll<HTMLElement>('[role="radio"]')];
+  await expect(chips.length).toBeGreaterThan(0);
+  for (const chip of chips) {
+    const rect = chip.getBoundingClientRect();
+    await expect(rect.height).toBeGreaterThanOrEqual(44);
+    await expect(rect.width).toBeGreaterThanOrEqual(60);
+    await expect(getComputedStyle(chip).borderTopWidth).toBe("0px");
+  }
+}
+
+/** One dialog header and one action row, however many rows. */
+async function oneHeaderOneActionRow(root: HTMLElement) {
+  await expect(root.querySelectorAll("[data-list-head]")).toHaveLength(1);
+  await expect(root.querySelectorAll("[data-list-foot]")).toHaveLength(1);
+  await expect(root.querySelectorAll("[data-submit]")).toHaveLength(1);
+}
+
+const listSubmit = fn();
+
+/** Ten landfalls on a six-option scale, nothing answered yet. */
+export const ListEmpty = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-empty"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items}
+      onSubmit={listSubmit}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    await oneHeaderOneActionRow(canvasElement);
+    await chipsAreTargets(canvasElement);
+    await expect(canvas.getAllByRole("radiogroup")).toHaveLength(10);
+    // Every chip's name starts with the option and carries the item.
+    await expect(canvas.getByRole("radio", { name: "sail again, Ismaros" })).toBeInTheDocument();
+    await expect(canvas.getByRole("radiogroup", { name: "Aeolia" })).toBeInTheDocument();
+    await expect(canvas.getByText("0 of 10")).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Submit · skip 10" })).toBeInTheDocument();
+    // The host alone, from the kit's own parse of the link.
+    await expect(canvas.getByRole("link", { name: "Ismaros on example.org (example.org), new tab" })).toBeInTheDocument();
+    // The grid keeps positions: row one's third chip sits over row two's.
+    const [a, b] = canvas.getAllByRole("radiogroup");
+    const third = (g: HTMLElement) => g.querySelectorAll<HTMLElement>('[role="radio"]')[2]!.getBoundingClientRect().left;
+    await expect(third(a!)).toBe(third(b!));
+  },
+});
+
+/** Half answered: the fill touches only the open rows, and Undo restores. */
+export const ListBulkFill = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-fill"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items}
+      answers={listRating.partial}
+      onSubmit={fn()}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByText("5 of 10")).toBeInTheDocument();
+    await userEvent.click(canvas.getByRole("button", { name: "Set the 5 unanswered landfalls to…" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Set 5 to not landed" }));
+    // Filled rows took the fill; answered rows kept their own answers.
+    await expect(canvas.getByRole("radio", { name: "not landed, Land of the Lotus-eaters" })).toBeChecked();
+    await expect(canvas.getByRole("radio", { name: "once was enough, Ismaros" })).toBeChecked();
+    await expect(canvas.getByRole("radio", { name: "not landed, Ismaros" })).not.toBeChecked();
+    await expect(canvas.getByText("10 of 10")).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Submit 10" })).toBeInTheDocument();
+    // The receipt carries Undo, and Undo puts back exactly what was open.
+    await userEvent.click(canvas.getByRole("button", { name: "Undo" }));
+    await expect(canvas.getByText("5 of 10")).toBeInTheDocument();
+    await expect(canvas.getByRole("radio", { name: "not landed, Land of the Lotus-eaters" })).not.toBeChecked();
+    await expect(canvas.getByRole("radio", { name: "sail again, Aeaea" })).toBeChecked();
+  },
+});
+
+const noSkipSubmit = fn();
+
+/** Skipping off: Submit says how many remain, and a tap flags them. */
+export const ListNoSkipFlags = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-noskip"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items}
+      answers={listRating.partial}
+      allowSkip={false}
+      notes
+      onSubmit={noSkipSubmit}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const submit = canvas.getByRole("button", { name: "5 left to answer" });
+    // Dimmed in meaning, not in the DOM: announced, focusable, tappable.
+    await expect(submit).toHaveAttribute("aria-disabled", "true");
+    await expect(submit).toHaveAttribute("tabindex", "0");
+    await expect(getComputedStyle(submit).opacity).toBe("1");
+    await userEvent.click(submit);
+    // Never a silent no-op: it sent nothing, and it said why.
+    await expect(noSkipSubmit).not.toHaveBeenCalled();
+    await expect(canvasElement.querySelectorAll('[role="radiogroup"][aria-invalid="true"]')).toHaveLength(5);
+    await expect(canvas.getByText("5 need an answer")).toBeInTheDocument();
+    await expect(canvasElement.querySelector("[data-live]")!.textContent).toBe(
+      "5 landfalls still need an answer. Moved to Land of the Lotus-eaters."
+    );
+    await expect(canvas.getAllByText("needs an answer")).toHaveLength(5);
+    // Focus moved to the first flagged row.
+    await expect(document.activeElement?.closest('[role="radiogroup"]')).toHaveAccessibleName(
+      "Land of the Lotus-eaters"
+    );
+    // A flag clears on its own row the moment the row is answered.
+    await userEvent.click(canvas.getByRole("radio", { name: "never again, Land of the Lotus-eaters" }));
+    await expect(canvasElement.querySelectorAll('[role="radiogroup"][aria-invalid="true"]')).toHaveLength(4);
+    await expect(canvas.getByRole("button", { name: "4 left to answer" })).toBeInTheDocument();
+    // Nothing fades here either.
+    for (const el of canvasElement.querySelectorAll<HTMLElement>("*")) {
+      await expect(getComputedStyle(el).opacity).toBe("1");
+    }
+  },
+});
+
+const skipSubmit = fn();
+
+/** Skipping on (the default): Submit states the skip, and sends the rest. */
+export const ListSkip = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-skip"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items}
+      answers={listRating.partial}
+      notes
+      onSubmit={skipSubmit}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Add note, Scheria" }));
+    await userEvent.type(canvas.getByRole("textbox", { name: "Note on Scheria" }), "after the games");
+    await userEvent.click(canvas.getByRole("button", { name: "Submit 5 · skip 5" }));
+    await expect(skipSubmit).toHaveBeenCalledTimes(1);
+    const [submission] = skipSubmit.mock.calls[0]! as [{ answers: Record<string, string>; notes: Record<string, string> }];
+    // A skipped item is absent, never "".
+    await expect(submission.answers).toEqual(listRating.partial);
+    // A note on a skipped item still travels.
+    await expect(submission.notes).toEqual({ scheria: "after the games" });
+  },
+});
+
+const keySubmit = fn();
+
+/** Digits pick inside the focused row and hand focus to the next open one. */
+export const ListKeyboard = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-keys"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items.slice(0, 3)}
+      onSubmit={keySubmit}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, userEvent }) => {
+    canvas.getByRole("radio", { name: "sail again, Ismaros" }).focus();
+    await userEvent.keyboard("3");
+    await expect(canvas.getByRole("radio", { name: "once was enough, Ismaros" })).toBeChecked();
+    await expect(document.activeElement?.closest('[role="radiogroup"]')).toHaveAccessibleName(
+      "Land of the Lotus-eaters"
+    );
+    await userEvent.keyboard("{ArrowRight}{Enter}");
+    await expect(canvas.getByRole("radio", { name: "glad I went, Land of the Lotus-eaters" })).toBeChecked();
+    // Enter is a pick like any other; it does not advance. j moves on.
+    await userEvent.keyboard("j4");
+    await expect(canvas.getByRole("radio", { name: "never again, Island of the Cyclopes" })).toBeChecked();
+    // The last open row answered: focus goes to Submit.
+    await expect(document.activeElement).toHaveAccessibleName("Submit 3");
+    await userEvent.keyboard("{Enter}");
+    await expect(keySubmit).toHaveBeenCalledTimes(1);
+  },
+});
+
+/** The record: grouped by option, in scale order, nothing faded. */
+export const ListAnswered = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      state="answered"
+      question={listRating.question}
+      scale={listRating.scale}
+      items={listRating.items}
+      answers={Object.fromEntries(Object.entries(listRating.answered).filter(([id]) => id !== "scheria"))}
+      itemNotes={{ aeaea: "a year was the right length" }}
+      answerMeta="you answered 9 · 2m ago"
+    />
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    const groups = [...canvasElement.querySelectorAll<HTMLElement>("[data-group]")].map((g) => g.dataset.group);
+    // Scale order, empty options left out, skipped last.
+    await expect(groups).toEqual(["sail again", "glad I went", "once was enough", "never again", "skipped"]);
+    await expect(canvas.getByText("never again (4)")).toBeInTheDocument();
+    await expect(canvas.getByText(/a year was the right length/)).toBeInTheDocument();
+    await expect(canvas.queryAllByRole("radio")).toHaveLength(0);
+    for (const el of canvasElement.querySelectorAll<HTMLElement>("*")) {
+      await expect(getComputedStyle(el).opacity).toBe("1");
+    }
+  },
+});
+
+/** Thirty items on three options, pending: still one header, one action row. */
+export const ListThirtyByThree = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-thirty"
+      question={listTriage.question}
+      noun={listTriage.noun}
+      scale={listTriage.scale}
+      items={listTriage.items}
+      answers={Object.fromEntries(Object.entries(listTriageAnswers).slice(0, 12))}
+      onSubmit={fn()}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    await oneHeaderOneActionRow(canvasElement);
+    await chipsAreTargets(canvasElement);
+    await expect(canvas.getAllByRole("radiogroup")).toHaveLength(30);
+    await expect(canvas.getByText("12 of 30")).toBeInTheDocument();
+    // Long paths wrap; they never truncate.
+    for (const group of canvas.getAllByRole("radiogroup")) {
+      const label = document.getElementById(group.getAttribute("aria-labelledby")!)!;
+      await expect(getComputedStyle(label).textOverflow).not.toBe("ellipsis");
+    }
+  },
+});
+
+/** Thirty answered: the groups collapse under one count line. */
+export const ListThirtyAnswered = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      state="answered"
+      question={listTriage.question}
+      scale={listTriage.scale}
+      items={listTriage.items}
+      answers={listTriageAnswers}
+      answerMeta="you sorted 30 · 1m ago"
+    />
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    await expect(canvasElement.querySelector("[data-count-line]")!.textContent).toBe("keep 6 · archive 20 · delete 4");
+    const archive = canvas.getByRole("button", { name: /archive \(20\)/ });
+    await expect(archive).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(archive);
+    await expect(archive).toHaveAttribute("aria-expanded", "true");
+    await expect(canvasElement.querySelectorAll('[data-group="archive"] li')).toHaveLength(20);
+  },
+});
+
+/** Five items on eight options: two balanced rows of four at 320px. */
+export const ListFiveByEight = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      id="list-eight"
+      question={listEight.question}
+      noun={listEight.noun}
+      scale={listEight.scale}
+      items={listEight.items}
+      onSubmit={fn()}
+      onDismiss={fn()}
+    />
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    await chipsAreTargets(canvasElement);
+    const first = canvas.getAllByRole("radiogroup")[0]!;
+    const tops = new Set(
+      [...first.querySelectorAll<HTMLElement>('[role="radio"]')].map((c) => Math.round(c.getBoundingClientRect().top))
+    );
+    await expect(tops.size).toBe(2);
+    // The legend: shown once, because two options carry a description.
+    await expect(canvas.getByText(/visited on an earlier voyage/)).toBeInTheDocument();
+  },
+});
+
+/** The same three shapes on desktop. */
+export const ListWide = meta.story({
+  parameters: wide,
+  render: () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 680 }}>
+      <AskUserListCard
+        id="wide-ten"
+        question={listRating.question}
+        noun={listRating.noun}
+        scale={listRating.scale}
+        items={listRating.items.slice(0, 4)}
+        answers={{ ismaros: "once was enough" }}
+        onSubmit={fn()}
+        onDismiss={fn()}
+      />
+      <AskUserListCard
+        id="wide-eight"
+        question={listEight.question}
+        noun={listEight.noun}
+        scale={listEight.scale}
+        items={listEight.items.slice(0, 2)}
+        onSubmit={fn()}
+        onDismiss={fn()}
+      />
+      <AskUserListCard
+        state="answered"
+        question={listRating.question}
+        scale={listRating.scale}
+        items={listRating.items}
+        answers={listRating.answered}
+        answerMeta="you answered 10 · 2m ago"
+      />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(overflowing(canvasElement)).toEqual([]);
+    await chipsAreTargets(canvasElement);
+    // Six options beside the label: one line of chips per row.
+    const six = canvas.getAllByRole("radiogroup", { name: "Ismaros" })[0]!;
+    const sixTops = new Set(
+      [...six.querySelectorAll<HTMLElement>('[role="radio"]')].map((c) => Math.round(c.getBoundingClientRect().top))
+    );
+    await expect(sixTops.size).toBe(1);
+    // Eight options: one line under the label.
+    const eight = canvas.getByRole("radiogroup", { name: "Palace of Alcinous" });
+    const eightTops = new Set(
+      [...eight.querySelectorAll<HTMLElement>('[role="radio"]')].map((c) => Math.round(c.getBoundingClientRect().top))
+    );
+    await expect(eightTops.size).toBe(1);
+  },
+});
+
+/** The exchange the turn outlived: gold, no chips, and one "Ask again". */
+export const ListDismissed = meta.story({
+  parameters: at320,
+  render: () => (
+    <AskUserListCard
+      state="dismissed"
+      question={listRating.question}
+      noun={listRating.noun}
+      scale={listRating.scale}
+      items={listRating.items}
+      onAskAgain={fn()}
+    />
+  ),
+  play: async ({ canvas }) => {
+    await expect(canvas.queryAllByRole("radio")).toHaveLength(0);
+    await expect(canvas.getAllByRole("button", { name: "Ask again" })).toHaveLength(1);
+  },
 });
