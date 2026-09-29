@@ -1,7 +1,7 @@
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
 import type { ServerMessage, ClientMessage, ServerLocationRequest } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
-import { activeChat, type ChatState, type ChatKey } from "./stores/chat-state.js";
+import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from "./stores/chat-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
@@ -133,10 +133,13 @@ export function createWebSocketClient(root: BrainUiServices) {
     const state = root.stores.chat.getState();
 
     // Activity stream frames feed their own store and never touch chat state.
+    // So do local exchange results (#582): one names its message by exchange
+    // id, wherever that message is, and it says nothing about run state.
     if (
       msg.type === "server_hello" ||
       msg.type === "activity_snapshot" ||
-      msg.type === "activity_delta"
+      msg.type === "activity_delta" ||
+      msg.type === "local_exchange_result"
     ) {
       const key = state.activeSessionId;
       dispatchServerMessage(msg, {
@@ -365,6 +368,18 @@ export function createWebSocketClient(root: BrainUiServices) {
   function sendClientMessage(msg: ClientMessage): boolean {
     if (!wsClient) return false;
     if (root.stores.connection.getState().wsStatus !== "connected") return false;
+    // A message that starts a conversation takes the draft's local exchanges
+    // with it (#582), whichever surface sent it, so /stats run before the
+    // first message becomes part of the session that message creates.
+    if (msg.type === "chat_message" && !msg.sessionId) {
+      const chat = root.stores.chat.getState();
+      const exchanges = localExchangesForDraft(chat);
+      if (exchanges.length > 0) {
+        const sent = wsClient.send({ ...msg, localExchanges: exchanges });
+        if (sent) for (const exchange of exchanges) chat.markLocalExchange(exchange.id, "pending");
+        return sent;
+      }
+    }
     return wsClient.send(msg);
   }
 

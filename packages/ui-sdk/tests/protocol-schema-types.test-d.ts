@@ -6,6 +6,9 @@ import type {
   ClientCancelRequest,
   ClientChatMessage,
   ClientHello,
+  ClientLocalExchange,
+  LocalExchange,
+  ServerLocalExchangeResult,
   ClientLocationError,
   ClientLocationResponse,
   ClientMaskError,
@@ -42,6 +45,9 @@ import {
   clientCancelSchema,
   clientChatMessageSchema,
   clientHelloSchema,
+  clientLocalExchangeSchema,
+  localExchangeSchema,
+  serverLocalExchangeResultSchema,
   clientLocationErrorSchema,
   clientLocationResponseSchema,
   clientMaskErrorSchema,
@@ -77,7 +83,7 @@ import type {
 } from "./type-equality.js";
 
 
-// Client -> server: all 14 frames.
+// Client -> server: all 15 frames.
 type ClientHelloMatches = Assert<SchemaEqualsProtocol<typeof clientHelloSchema, ClientHello>>;
 type ClientChatMessageMatches = Assert<
   SchemaEqualsProtocol<typeof clientChatMessageSchema, ClientChatMessage>
@@ -118,8 +124,12 @@ type ClientActivitySubscribeMatches = Assert<
 type ClientActivityUnsubscribeMatches = Assert<
   SchemaEqualsProtocol<typeof clientActivityUnsubscribeSchema, ClientActivityUnsubscribe>
 >;
+type ClientLocalExchangeMatches = Assert<
+  SchemaEqualsProtocol<typeof clientLocalExchangeSchema, ClientLocalExchange>
+>;
+type LocalExchangeMatches = Assert<SchemaEqualsProtocol<typeof localExchangeSchema, LocalExchange>>;
 
-// Server -> client: all 18 frames.
+// Server -> client: all 20 frames.
 type ServerHelloMatches = Assert<SchemaEqualsProtocol<typeof serverHelloSchema, ServerHello>>;
 type ServerTextDeltaMatches = Assert<
   SchemaEqualsProtocol<typeof serverTextDeltaSchema, ServerTextDelta>
@@ -170,6 +180,9 @@ type ServerActivityDeltaMatches = Assert<
 >;
 type ServerMessageBlocksMatches = Assert<
   SchemaEqualsProtocol<typeof serverMessageBlocksSchema, ServerMessageBlocks>
+>;
+type ServerLocalExchangeResultMatches = Assert<
+  SchemaEqualsProtocol<typeof serverLocalExchangeResultSchema, ServerLocalExchangeResult>
 >;
 type MessageBlockMatches = Assert<SchemaEqualsProtocol<typeof messageBlockSchema, MessageBlock>>;
 
@@ -238,6 +251,8 @@ export type ProtocolSchemaAssertions = [
   ClientMaskErrorMatches,
   ClientActivitySubscribeMatches,
   ClientActivityUnsubscribeMatches,
+  ClientLocalExchangeMatches,
+  LocalExchangeMatches,
   ServerHelloMatches,
   ServerTextDeltaMatches,
   ServerThinkingDeltaMatches,
@@ -257,6 +272,7 @@ export type ProtocolSchemaAssertions = [
   ServerActivitySnapshotMatches,
   ServerActivityDeltaMatches,
   ServerMessageBlocksMatches,
+  ServerLocalExchangeResultMatches,
   MessageBlockMatches,
   MissingNestedMemberMustFail,
   ReadonlyArrayDriftMustFail,

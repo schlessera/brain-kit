@@ -12,6 +12,7 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
+import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -289,13 +290,19 @@ export class WsHost {
   }
 
   /**
-   * Replayed history as the host sends it: each user message's recorded
-   * source joined on, with or without a classifier, then its classified
-   * blocks.
+   * Replayed history as the host sends it: the context blocks of locally
+   * answered commands stripped from the prompts that carried them, each user
+   * message's recorded source joined on, with or without a classifier, then
+   * its classified blocks, and last the local exchanges put back in place
+   * (#582). The exchanges go in last so the source join still counts only
+   * the messages the backend replayed. A session without exchanges replays
+   * exactly as it did before they existed.
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
-    const withSources = this.catalog.attachMessageSources?.(sessionId, messages) ?? messages;
-    return this.attachMessageBlocks(sessionId, withSources);
+    const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
+    const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
+    const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
+    return spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
   }
 
   /** A turn's backend call resolved: counted, and logged with its duration. */
