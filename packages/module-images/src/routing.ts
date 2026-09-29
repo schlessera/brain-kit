@@ -130,6 +130,15 @@ export function route(input: RoutingInput): RoutingDecision {
 
   // --- Hard capability filters. Each removes models that would fail outright.
 
+  // A size that is not WIDTHxHEIGHT would otherwise skip the size rules below
+  // and reach the provider as-is, to fail there after routing said yes.
+  if (req.size && req.size !== "auto" && !/^\d+x\d+$/.test(req.size)) {
+    return {
+      kind: "impossible",
+      reason: `--size "${req.size}" is not WIDTHxHEIGHT in pixels (e.g. 1536x864), or auto.`,
+    };
+  }
+
   if (req.mask) {
     const masked = byCapability(pool, (m) => m.maskInpainting);
     if (masked.length === 0) {

@@ -47,8 +47,9 @@ all measured on models this module no longer uses for OpenAI. Set
 `preferredModels` in the module config to override it.
 
 `--quality` takes `low | medium | high | xhigh | max | auto` and is sent as
-given. A transparent JPEG, an unknown quality or format, and a custom size
-outside OpenAI's rules are refused before any request.
+given. A transparent JPEG, an unknown quality or format, a `--size` that is
+not `WIDTHxHEIGHT`, and a custom size outside OpenAI's rules are refused before
+any request.
 
 ### Retired models
 
@@ -65,9 +66,14 @@ replacements, and nothing falls back to them. To migrate:
 
 Quality is the default bias. Cost is always reported; `--draft` opts into the
 cheapest model that fits, and `--dry-run` prices a decision without spending.
-The 2.5 models are billed per token with no published per-image price, so
-their estimate reads `null` (unknown) before a call. After a call, the cost is
-computed from the token usage the API reported, when it reports any.
+The 2.5 models are billed per token and default to `auto` quality, which the
+API resolves per image, so they have no per-image price in `brain image
+models`. A dry run with a stated `--quality` and size (`--size`, or an
+`--aspect` the command turns into pixels) is priced from the output-token
+calculator in OpenAI's image generation guide, which covers both models.
+Prompt and reference-image input tokens come on top. Without both, the
+estimate reads `null` (unknown). After a call, the cost is computed from the
+token usage the API reported, when it reports any.
 
 ## Shape
 

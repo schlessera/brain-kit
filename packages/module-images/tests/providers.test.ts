@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { geminiProvider } from "../src/providers/gemini";
-import { openAiCostFromUsage, openaiProvider } from "../src/providers/openai";
+import { estimateOpenAiOutputCost, openAiCostFromUsage, openaiProvider } from "../src/providers/openai";
 import { ImageProviderError, type ImageInput } from "../src/types";
 
 const realFetch = globalThis.fetch;
@@ -245,6 +245,39 @@ describe("openai provider", () => {
     await expect(openaiProvider.generate(SUNBURST, { prompt: "x" }, "k")).rejects.toThrow(
       /no image data/
     );
+  });
+});
+
+describe("GPT Image 2.5 output-token estimate", () => {
+  const SUNBURST = "gpt-image-2.5-sunburst";
+  const FLARE = "gpt-image-2.5-flare";
+
+  test("reproduces the guide's calculator example for both models: low at 1024x1024 is $0.00588", () => {
+    for (const model of [SUNBURST, FLARE]) expect(estimateOpenAiOutputCost(model, "low", "1024x1024")).toBeCloseTo(0.00588, 10);
+  });
+
+  test("follows quality and shape by the published formula", () => {
+    // high 1536x1024: short-edge grid 48 / 1.5 = 32 → 1372 tokens.
+    expect(estimateOpenAiOutputCost(SUNBURST, "high", "1536x1024")).toBeCloseTo(0.04116, 10);
+    // max 1024x1024: a 96x96 grid → 7024 tokens.
+    expect(estimateOpenAiOutputCost(SUNBURST, "max", "1024x1024")).toBeCloseTo(0.21072, 10);
+    // xhigh 1024x1024: 64x64 → 3122 tokens.
+    expect(estimateOpenAiOutputCost(FLARE, "xhigh", "1024x1024")).toBeCloseTo(0.09366, 10);
+  });
+
+  test("rounds a half-way short edge to even, as the calculator does", () => {
+    // low 1024x672: 16 / (1024/672) = 10.5 exactly. Half to even gives a 16x10
+    // grid → 108 tokens; plain rounding would give 16x11 → 119.
+    expect(estimateOpenAiOutputCost(SUNBURST, "low", "1024x672")).toBeCloseTo((108 * 30) / 1_000_000, 10);
+  });
+
+  test("an unknown cost stays unknown", () => {
+    expect(estimateOpenAiOutputCost(SUNBURST, "auto", "1024x1024")).toBeUndefined();
+    expect(estimateOpenAiOutputCost(SUNBURST, undefined, "1024x1024")).toBeUndefined();
+    expect(estimateOpenAiOutputCost(SUNBURST, "high", undefined)).toBeUndefined();
+    expect(estimateOpenAiOutputCost(SUNBURST, "high", "auto")).toBeUndefined();
+    expect(estimateOpenAiOutputCost(SUNBURST, "high", "1000x1000")).toBeUndefined();
+    expect(estimateOpenAiOutputCost("gpt-image-2", "high", "1024x1024")).toBeUndefined();
   });
 });
 

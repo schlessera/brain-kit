@@ -13,6 +13,7 @@ import {
   nearestPresetSize,
   OPENAI_LIMITS,
   OPENAI_PRESET_SIZES as PRESETS,
+  isValidOpenAiSize,
   type Resolution,
 } from "../shape.js";
 import { resolveEnv } from "../config/env.js";
@@ -56,8 +57,9 @@ const GPT_IMAGE_25 = {
   watermarked: false,
   outputFormats: ["png", "jpeg", "webp"],
   defaultFormat: "png",
-  // Billed per token; OpenAI's calculator does not estimate 2.5 token use, so
-  // there is no verified per-image figure to show before the call.
+  // Billed per token, and the default quality is `auto`, which the API
+  // resolves per image: there is no single per-image figure to show. A dry run
+  // with a stated quality and size is priced by `estimateOpenAiOutputCost`.
   approxCostUsd1K: null,
 } satisfies Omit<ModelCapabilities, "id" | "summary">;
 
@@ -107,6 +109,57 @@ export function openAiCostFromUsage(model: string, usage: unknown): number | und
     return undefined;
   }
   return (textIn * rates.textIn + imageIn * rates.imageIn + out * rates.imageOut) / 1_000_000;
+}
+
+/**
+ * Output tokens per image for both GPT Image 2.5 models, from the calculator
+ * in OpenAI's image-generation guide ("GPT Image 2.5 and GPT Image 2 output
+ * tokens", checked 2026-09-29). That calculator is a separate one from the
+ * GPT Image 2 calculator the model pages say does not cover 2.5, and it has
+ * one table for Sunburst and Flare. The long edge gets the tier's base count,
+ * the short edge that base over the aspect ratio (rounded half to even), and
+ * the grid scales with the pixel count. It reproduces the guide's own
+ * example: low at 1024x1024 is 196 tokens, $0.00588.
+ */
+const OUTPUT_TOKEN_BASE: Readonly<Record<string, number>> = { low: 16, medium: 24, high: 48, xhigh: 64, max: 96 };
+
+/**
+ * Estimated USD for one image's output tokens, before the call, or
+ * `undefined` when it cannot be known: `auto` quality or an unstated size is
+ * picked by the API per image. Prompt and reference-image input tokens are
+ * not included, so it errs low; the result's `costUsd` is the real figure.
+ */
+export function estimateOpenAiOutputCost(
+  model: string,
+  quality: string | undefined,
+  size: string | undefined
+): number | undefined {
+  const rate = TOKEN_RATES[model]?.imageOut;
+  const base = quality ? OUTPUT_TOKEN_BASE[quality] : undefined;
+  const dims = size ? /^(\d+)x(\d+)$/.exec(size) : null;
+  if (rate === undefined || base === undefined || !dims) return undefined;
+  const [w, h] = [Number(dims[1]), Number(dims[2])];
+  if (!PRESETS.includes(size!) && !isValidOpenAiSize(w, h)) return undefined;
+  const short = base / (Math.max(w, h) / Math.min(w, h));
+  const floor = Math.floor(short);
+  const rounded = short - floor === 0.5 ? floor + (floor % 2) : Math.round(short);
+  const tokens = Math.ceil((base * rounded * (2_000_000 + w * h)) / 4_000_000);
+  return (tokens * rate) / 1_000_000;
+}
+
+/** The size a request sends: explicit, or an aspect ratio turned into pixels. */
+export function openAiRequestSize(req: ImageRequest, model: string): string | undefined {
+  // OpenAI has no aspect-ratio parameter: a ratio is expressed as exact
+  // pixels, so translate rather than dropping the caller's request.
+  const caps = MODELS.find((m) => m.id === model);
+  return (
+    req.size ??
+    (req.aspect
+      ? (caps?.arbitraryDimensions
+          ? aspectToOpenAiSize(req.aspect, req.resolution as Resolution)
+          : nearestPresetSize(req.aspect, caps?.presetSizes)) ?? undefined
+      : undefined)
+  );
 }
 
 async function readError(res: Response): Promise<never> {
@@ -198,16 +251,7 @@ export const openaiProvider: Provider = {
       });
     }
     const isEdit = (req.references?.length ?? 0) > 0 || !!req.mask;
-    // OpenAI has no aspect-ratio parameter: a ratio is expressed as exact
-    // pixels, so translate rather than dropping the caller's request.
-    const caps = MODELS.find((m) => m.id === model);
-    const size =
-      req.size ??
-      (req.aspect
-        ? (caps?.arbitraryDimensions
-            ? aspectToOpenAiSize(req.aspect, req.resolution as Resolution)
-            : nearestPresetSize(req.aspect, caps?.presetSizes)) ?? undefined
-        : undefined);
+    const size = openAiRequestSize(req, model);
     const headers = { Authorization: `Bearer ${apiKey}` };
 
     if (!isEdit) {
