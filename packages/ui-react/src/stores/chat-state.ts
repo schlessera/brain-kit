@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type {
+  LocalExchange,
   MessageBlock,
   MessageSource,
   MessagePart,
@@ -47,11 +48,36 @@ export interface ChatMessage {
   /** The host-minted turn that produced this assistant message, when known. */
   turnId?: string;
   /**
-   * The /stats answer (#97), drawn from the kit in place of text. Local to
-   * this client: the command answers from REST, not from a turn, so the
-   * server never sees it and history never replays it.
+   * The /stats answer (#97), drawn from the kit in place of text. The
+   * command answers from REST, not from a turn; `localExchange` says whether
+   * the host keeps it as part of the session (#582).
    */
   statsAnswer?: StatsSection[];
+  /** On an assistant message answered by the client itself: the exchange and whether it is kept. */
+  localExchange?: LocalExchangeState;
+}
+
+/**
+ * A locally answered command (`/stats`) as part of its session (#582).
+ *
+ * - `draft`: the conversation has no session yet. The exchange is sent with
+ *   the message that starts one (`localExchangesForDraft`).
+ * - `pending`: sent, and the host has not answered yet.
+ * - `saved`: the host keeps it. The agent sees it with the next prompt, and
+ *   replay shows it again.
+ * - `unsaved`: it exists only on this screen, and the UI says so.
+ */
+export interface LocalExchangeState {
+  id: string;
+  command: string;
+  prompt: string;
+  /** What the command drew, as the wire carries it. */
+  answer: unknown;
+  /** The figures as text, for the agent. Empty once replayed. */
+  context: string;
+  saved: "draft" | "pending" | "saved" | "unsaved";
+  /** Why it is `unsaved`. */
+  reason?: string;
 }
 
 export interface MessageAttachment {
@@ -198,6 +224,17 @@ export interface ChatState {
   appendThinking: (key: ChatKey, text: string) => void;
   /** Attach the /stats answer to the assistant message being written. */
   setStatsAnswer: (key: ChatKey, sections: StatsSection[]) => void;
+  /** Attach a local exchange to the assistant message being written (#582). */
+  setLocalExchange: (key: ChatKey, exchange: LocalExchangeState) => void;
+  /**
+   * Record what became of a local exchange, wherever its message now is: a
+   * draft's exchange is answered once the draft has become a session.
+   */
+  markLocalExchange: (
+    exchangeId: string,
+    saved: LocalExchangeState["saved"],
+    reason?: string
+  ) => void;
   startToolCall: (key: ChatKey, toolUseId: string, toolName: string) => void;
   appendToolInput: (key: ChatKey, partialJson: string) => void;
   completeToolCall: (
@@ -295,6 +332,26 @@ const EMPTY_CHAT: SessionChat = Object.freeze({
 export function activeChat(state: ChatState): SessionChat {
   if (state.activeSessionId) return state.buffers[state.activeSessionId] ?? EMPTY_CHAT;
   return state.draft ?? EMPTY_CHAT;
+}
+
+/**
+ * The local exchanges a draft holds that the host has not kept yet (#582),
+ * as the message that starts its session carries them. A `pending` one is
+ * sent again: the message that carried it may have been refused, and the
+ * host keeps an exchange id once.
+ */
+export function localExchangesForDraft(state: ChatState): LocalExchange[] {
+  return (state.draft?.messages ?? []).flatMap((message) => {
+    const exchange = message.localExchange;
+    if (!exchange || (exchange.saved !== "draft" && exchange.saved !== "pending")) return [];
+    return [{
+      id: exchange.id,
+      command: exchange.command,
+      prompt: exchange.prompt,
+      answer: exchange.answer,
+      context: exchange.context,
+    }];
+  });
 }
 
 /** True when ANY buffer is streaming (service-worker busy check, etc.). */
@@ -530,6 +587,32 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       setStatsAnswer: (key, sections) =>
         mutateLastAssistant(key, (last) => ({ ...last, statsAnswer: sections })),
+
+      setLocalExchange: (key, exchange) =>
+        mutateLastAssistant(key, (last) => ({ ...last, localExchange: exchange })),
+
+      markLocalExchange: (exchangeId, saved, reason) =>
+        set((state) => {
+          const mark = (chat: SessionChat): SessionChat | null => {
+            const index = chat.messages.findIndex((m) => m.localExchange?.id === exchangeId);
+            if (index === -1) return null;
+            const messages = [...chat.messages];
+            const current = messages[index]!;
+            const { reason: _previous, ...exchange } = current.localExchange!;
+            messages[index] = {
+              ...current,
+              localExchange: { ...exchange, saved, ...(reason ? { reason } : {}) },
+            };
+            return { ...chat, messages };
+          };
+          const draft = state.draft ? mark(state.draft) : null;
+          if (draft) return { draft };
+          for (const [key, chat] of Object.entries(state.buffers)) {
+            const marked = mark(chat);
+            if (marked) return { buffers: { ...state.buffers, [key]: marked } };
+          }
+          return state;
+        }),
 
       appendThinking: (key, text) =>
         mutateLastAssistant(key, (last) => ({

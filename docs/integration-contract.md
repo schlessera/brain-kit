@@ -1059,6 +1059,47 @@ dictated after a reload or on another device.
   not what the client sent (a pi `/skill:` or prompt-template command, which
   pi stores expanded) comes back without `source`.
 
+### Local exchanges (additive in 0.40.0)
+
+A command the client answers itself, without a turn (`/stats`), can be kept
+as part of the session (#582). The exchange is
+`LocalExchange = { id, command, prompt, answer, context }`: `id` is
+client-minted (`[A-Za-z0-9_-]`, at most 128), `command` names it (`stats`),
+`prompt` is the user's side as the transcript shows it (`Stats`), `answer` is
+JSON the command owns and the host never reads (at most 64,000 characters
+serialized), and `context` is the same figures as plain text for the agent
+(at most `MAX_LOCAL_CONTEXT_CHARS`, 4,000, and never containing
+`</local-answer>`).
+
+```
+client → { type: "local_exchange", sessionId, exchange: LocalExchange }
+server → { type: "local_exchange_result", sessionId, exchangeId, saved, reason? }
+chat_message.localExchanges?: LocalExchange[]          // at most 8
+SessionHistoryMessage.localAnswer?: { exchangeId, command, answer }
+```
+
+- **An existing session** records an exchange with `local_exchange`. The
+  host answers the sending connection with `local_exchange_result`;
+  `saved: false` means the exchange is not part of the session, and a
+  consumer must say so rather than drop it silently.
+- **A new conversation** sends its exchanges as `localExchanges` on the
+  `chat_message` that starts it. The host records them once `session_info`
+  names the session and sends each client a `local_exchange_result`, which
+  names the exchange by id, not by the transcript it lands in.
+- **The agent sees an exchange once**, with the next prompt the host hands
+  the backend in that session: its `context` travels in a
+  `<local-answer command="…" id="…">` block after the user's text. From then
+  on it is in the backend's transcript like anything else the user said.
+- **Replay puts it back where it happened.** The host strips the block from
+  the user message that carried it and replays the exchange just before that
+  message: a `role: "user"` message whose `content` is `prompt`, then a
+  `role: "assistant"` message with empty `content` and `localAnswer`. An
+  exchange no prompt has carried yet replays at the end. A consumer that
+  does not know `localAnswer` shows an empty answer; a session with no
+  exchanges replays exactly as it did before they existed.
+- **Recording an id twice keeps the first**, so a client may resend an
+  exchange it is unsure was kept.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

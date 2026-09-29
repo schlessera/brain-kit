@@ -100,6 +100,7 @@ const SAMPLES: ServerMessage[] = [
       },
     ],
   },
+  { type: "local_exchange_result", sessionId: "s1", exchangeId: "x1", saved: false, reason: "No store." },
 ];
 
 describe("coverage", () => {
