@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`packages/ui-server/src/ws/bridge.ts:66-115`), so autonomous work is confined to
+   resolve (`packages/ui-server/src/ws/bridge.ts:67-116`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -243,7 +243,7 @@ Stated before the requirements because five of them derive from it.
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   conversation-shaped and exposes no headless, persistence, or tool-policy mode
-  (`StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:296-366`); Claude creates an SDK session, emits
+  (`StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:308-378`); Claude creates an SDK session, emits
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
   origin, and prompt configuration; drive it with a synthetic bridge; and generalize the
@@ -258,7 +258,7 @@ Stated before the requirements because five of them derive from it.
   rule that autonomous runs yield or abort when interactive demand arrives. Pick one; do not
   leave it implied.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`ws/bridge.ts:66-115`) — while blocked on it the model cannot write anything, so
+  promise (`ws/bridge.ts:67-116`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, resolve the
   permission as denied, then abort — following the unwind order the timeout path already
@@ -333,7 +333,7 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share may carry ~200 KB
-  (`packages/ui-sdk/src/protocol.ts:755-761`), so "up to 20 items" is ~4 MB before overhead.
+  (`packages/ui-sdk/src/protocol.ts:757-763`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,

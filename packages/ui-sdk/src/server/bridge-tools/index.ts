@@ -5,6 +5,11 @@
 // import site for both halves.
 
 export { handleAskUser } from "./ask-user.js";
+export {
+  askUserListPayload,
+  askUserListSpec,
+  handleAskUserList,
+} from "./ask-user-list.js";
 
 export { handleGetCurrentLocation } from "./location.js";
 export type { LocationHandlerOptions } from "./location.js";

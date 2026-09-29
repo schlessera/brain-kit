@@ -4,6 +4,7 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  ASK_LIST_COLLAPSE_AT
   ActionCard
   type ActionCardProps
   type ActionEmphasis
@@ -17,6 +18,12 @@ export "." (./src/index.ts)
   type ApprovalCardProps
   AskUserCard
   type AskUserCardProps
+  AskUserListCard
+  type AskUserListCardProps
+  type AskUserListItem
+  type AskUserListOption
+  type AskUserListState
+  type AskUserListSubmission
   type AskUserOption
   type AskUserState
   type AttachmentKind
@@ -224,10 +231,14 @@ export "." (./src/index.ts)
   classifyMailto
   clusterLetter
   color
+  fillOpen
   font
+  groupAnswers
   mapViewBounds
+  narrowColumns
   printThemeCss
   refusalSentence
+  submitLabel
 
 export "./links" (./src/links.ts)
   LINK_URL_MAX

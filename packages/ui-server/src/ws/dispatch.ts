@@ -134,10 +134,26 @@ export async function handleClientMessage(
       break;
     }
 
+    case "ask_user_list_response": {
+      const pending = coordinator.pendingAskUserList.get(msg.requestId);
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
+        coordinator.pendingAskUserList.delete(msg.requestId);
+        pending.turn.recorder?.recordAskUserResponse(
+          connection.authorization.principalId
+        );
+        pending.resolve({ answers: msg.answers, ...(msg.notes ? { notes: msg.notes } : {}) });
+      }
+      break;
+    }
+
     case "ask_user_cancel": {
-      const pending = coordinator.pendingAskUser.get(msg.requestId);
+      // Dismisses either ask kind: the ids share one space.
+      const pending =
+        coordinator.pendingAskUser.get(msg.requestId) ??
+        coordinator.pendingAskUserList.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
+        coordinator.pendingAskUserList.delete(msg.requestId);
         pending.turn.recorder?.recordCancellation(
           connection.authorization.principalId,
           "ask_user"

@@ -46,6 +46,7 @@ describe("the SDK options a turn is built with", () => {
       const unreachable = () => Promise.reject(new Error("not called in this test"));
       const { options } = turnFor(brain, {
         askUser: unreachable,
+        askUserList: unreachable,
         getLocation: unreachable,
         requestMask: unreachable,
         queryActivity: unreachable,

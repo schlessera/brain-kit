@@ -57,6 +57,16 @@ const SAMPLES: ServerMessage[] = [
     sessionId: "s1",
   },
   {
+    type: "ask_user_list_request",
+    requestId: "r2",
+    prompt: "Rate?",
+    scale: [{ label: "loved" }, { label: "meh", description: "fine" }],
+    items: [{ id: "a", label: "A", detail: "2024", link: "https://example.org/a" }],
+    allowSkip: true,
+    notes: false,
+    sessionId: "s1",
+  },
+  {
     type: "location_request",
     requestId: "r1",
     options: { enableHighAccuracy: true, timeoutMs: 15_000, maximumAgeMs: 60_000 },

@@ -37,6 +37,16 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
       )
     );
   }
+  for (const p of coordinator.pendingAskUserList.values()) {
+    host.sendMessage(
+      ws,
+      withTurnScope(
+        { type: "ask_user_list_request", requestId: p.requestId, ...p.request },
+        p.turn,
+        p.turnId
+      )
+    );
+  }
 }
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
@@ -106,6 +116,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         capabilities: {
           multiSession: true,
           askUser: true,
+          askUserList: true,
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.

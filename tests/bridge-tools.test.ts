@@ -17,6 +17,7 @@ import { z } from "zod";
 // `server/bridge-tools/` and the contracts from `tool-contracts/`.
 import * as shared from "../packages/ui-sdk/src/server";
 import * as claudeAsk from "../packages/ui-backend-claude/src/ask-user-tool";
+import * as claudeAskList from "../packages/ui-backend-claude/src/ask-user-list-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
@@ -57,6 +58,14 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
         ],
         multiSelect: false,
       },
+    ],
+  },
+  ask_user_list: {
+    prompt: "Rate these?",
+    scale: [{ label: "loved" }, { label: "meh", description: "Fine, forgettable" }],
+    items: [
+      { id: "a", label: "First" },
+      { id: "b", label: "Second", detail: "2024", link: "https://example.org/b" },
     ],
   },
   get_current_location: { highAccuracy: false },
@@ -100,6 +109,7 @@ function makeAdapters(root: string) {
       answers: { Choice: "A" },
       annotations: { Choice: {} },
     }),
+    askUserList: async () => ({ answers: { a: "loved" } }),
     getLocation: async () => ({
       coords: { latitude: 1, longitude: 2, accuracy: 3.6 },
       timestamp: 0,
@@ -115,6 +125,7 @@ function makeAdapters(root: string) {
   return {
     claude: [
       claudeAsk.createAskUserTool(bridge.askUser),
+      claudeAskList.createAskUserListTool(bridge.askUserList),
       claudeLocation.createLocationTool(bridge.getLocation, {
         reverseGeocodeConfig: noGeocode,
       }),
@@ -218,6 +229,14 @@ describe("bridge tool adapter identity", () => {
         claudeAsk.ASK_USER_INPUT_SCHEMA,
         pi.ASK_USER_DESCRIPTION,
         pi.ASK_USER_INPUT_SCHEMA,
+      ],
+      [
+        shared.ASK_USER_LIST_DESCRIPTION,
+        shared.ASK_USER_LIST_INPUT_SCHEMA,
+        claudeAskList.ASK_USER_LIST_DESCRIPTION,
+        claudeAskList.ASK_USER_LIST_INPUT_SCHEMA,
+        pi.ASK_USER_LIST_DESCRIPTION,
+        pi.ASK_USER_LIST_INPUT_SCHEMA,
       ],
       [
         shared.GET_CURRENT_LOCATION_DESCRIPTION,
@@ -482,6 +501,42 @@ describe("bridge tool adapter validation", () => {
       },
       { questions: "wrong type" },
     ],
+    ask_user_list: [
+      // One scale option is not a scale.
+      {
+        prompt: "Rate?",
+        scale: [{ label: "only" }],
+        items: [{ id: "a", label: "A" }],
+      },
+      // Nine options is past the cap.
+      {
+        prompt: "Rate?",
+        scale: Array.from({ length: 9 }, (_, i) => ({ label: `o${i}` })),
+        items: [{ id: "a", label: "A" }],
+      },
+      // Thirty-one items is past the cap.
+      {
+        prompt: "Rate?",
+        scale: [{ label: "x" }, { label: "y" }],
+        items: Array.from({ length: 31 }, (_, i) => ({ id: `i${i}`, label: `I${i}` })),
+      },
+      { prompt: "Rate?", scale: [{ label: "x" }, { label: "y" }], items: [] },
+      // Duplicate ids: an answer is keyed by id, so two items cannot share one.
+      {
+        prompt: "Rate?",
+        scale: [{ label: "x" }, { label: "y" }],
+        items: [
+          { id: "a", label: "A" },
+          { id: "a", label: "B" },
+        ],
+      },
+      // Duplicate labels: an answer names its option by label.
+      {
+        prompt: "Rate?",
+        scale: [{ label: "x" }, { label: "x" }],
+        items: [{ id: "a", label: "A" }],
+      },
+    ],
     get_current_location: [{ highAccuracy: "yes" }],
     request_image_mask: [{ imagePath: 42 }],
     query_activity: [{ scope: "all" }, { scope: "recent", hoursBack: "24" }],
@@ -679,11 +734,12 @@ describe("bridge tool loading posture", () => {
     return (await client.listTools()).tools;
   }
 
-  /** Every handler supplied, so the full five-tool roster is registered. */
+  /** Every handler supplied, so the full six-tool roster is registered. */
   function fullServer() {
     const unreachable = () => Promise.reject(new Error("not called in this test"));
     return claudeAsk.createBrainUiMcpServer({
       askUser: unreachable as never,
+      askUserList: unreachable as never,
       getLocation: unreachable as never,
       requestMask: unreachable as never,
       queryActivity: unreachable as never,

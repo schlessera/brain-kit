@@ -1517,3 +1517,224 @@
 .bk-screen-body > * {
   flex-shrink: 0;
 }
+
+/* ── AskUserListCard: one scale over many items (#583) ─────────────────────
+ *
+ * The chip grid is here rather than inline because its one layout switch is a
+ * CONTAINER query: the card decides from its own width, not the viewport's,
+ * whether six options fit beside the label. The card is the container.
+ *
+ * Narrow (the phone): every row is gutter + text, and the chips sit under the
+ * text in a grid whose column count comes from the scale size — 2-4 options
+ * in one row, 5-6 in two rows of three, 7-8 in two rows of four, so a row is
+ * always balanced and a chip keeps a fixed position on every row of a card.
+ * From 560px of card: up to six options sit beside the label, and seven or
+ * eight under it, all in one line.
+ *
+ * A chip is painted 44px tall and at least 60px wide with 6px gaps, so it
+ * needs no reach past its paint (D34); its hairline is an inset shadow, never
+ * a border. The printed digits follow the pointer (D36 addendum). */
+.bk-asklist {
+  container-type: inline-size;
+  position: relative;
+}
+
+.bk-asklist[data-cols="2"] { --asklist-cols: 2; }
+.bk-asklist[data-cols="3"] { --asklist-cols: 3; }
+.bk-asklist[data-cols="4"] { --asklist-cols: 4; }
+.bk-asklist[data-count="2"] { --asklist-count: 2; }
+.bk-asklist[data-count="3"] { --asklist-count: 3; }
+.bk-asklist[data-count="4"] { --asklist-count: 4; }
+.bk-asklist[data-count="5"] { --asklist-count: 5; }
+.bk-asklist[data-count="6"] { --asklist-count: 6; }
+.bk-asklist[data-count="7"] { --asklist-count: 7; }
+.bk-asklist[data-count="8"] { --asklist-count: 8; }
+
+.bk-asklist-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 7px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--bk-color-line);
+}
+
+.bk-asklist-row:last-child {
+  border-bottom: 0;
+}
+
+.bk-asklist-row > .bk-asklist-chips,
+.bk-asklist-row > .bk-asklist-note,
+.bk-asklist-row > .bk-asklist-flag {
+  grid-column: 2;
+}
+
+.bk-asklist-chips {
+  display: grid;
+  grid-template-columns: repeat(var(--asklist-cols, 3), minmax(60px, 1fr));
+  gap: 6px;
+}
+
+@container (min-width: 560px) {
+  .bk-asklist-chips {
+    grid-template-columns: repeat(var(--asklist-count, 3), minmax(60px, 1fr));
+  }
+
+  .bk-asklist:not([data-count="7"]):not([data-count="8"]) .bk-asklist-row {
+    grid-template-columns: 22px minmax(120px, 1fr) auto;
+  }
+
+  .bk-asklist:not([data-count="7"]):not([data-count="8"]) .bk-asklist-row > .bk-asklist-chips {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    grid-template-columns: repeat(var(--asklist-count, 3), 72px);
+    align-self: start;
+  }
+
+  .bk-asklist:not([data-count="7"]):not([data-count="8"]) .bk-asklist-row > .bk-asklist-note,
+  .bk-asklist:not([data-count="7"]):not([data-count="8"]) .bk-asklist-row > .bk-asklist-flag {
+    grid-column: 2 / span 2;
+  }
+}
+
+.bk-asklist-chip {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bk-color-raised);
+  box-shadow: inset 0 0 0 1px var(--bk-color-edge);
+  color: var(--bk-color-ink-dim);
+  font: 500 11.5px/1.25 "Plus Jakarta Sans", sans-serif;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+
+.bk-asklist-chip:hover {
+  color: var(--bk-color-ink);
+  box-shadow: inset 0 0 0 1px var(--bk-hover-border);
+}
+
+.bk-asklist-chip[data-on] {
+  background: var(--bk-teal-fill);
+  box-shadow: none;
+  color: var(--bk-on-fill);
+  font-weight: 600;
+}
+
+.bk-asklist-chip:active {
+  transform: translateY(1px);
+  filter: brightness(0.94);
+}
+
+.bk-asklist-chip:focus-visible,
+.bk-asklist-text:focus-visible,
+.bk-asklist-link:focus-visible,
+.bk-asklist-disclosure:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: 2px;
+}
+
+.bk-asklist-digit {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font: 500 9px/1 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-color-ink-mute);
+}
+
+.bk-asklist-chip[data-on] .bk-asklist-digit {
+  color: var(--bk-on-fill);
+}
+
+.bk-asklist-key {
+  display: none;
+}
+
+@media (any-pointer: fine) {
+  .bk-asklist-key {
+    display: inline;
+  }
+}
+
+/* The quiet text buttons (bulk-fill, note) and the row's host link. Each is
+ * text-sized, so its target reaches past the paint with a transparent
+ * `::before`; the underline is `text-decoration`, never a border (D34). */
+.bk-asklist-text,
+.bk-asklist-link {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 11px/1.5 "Plus Jakarta Sans", sans-serif;
+  color: var(--bk-teal-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.bk-asklist-link {
+  font: 400 10.5px/1.5 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-color-ink-mute);
+}
+
+.bk-asklist-text::before,
+.bk-asklist-link::before {
+  content: "";
+  position: absolute;
+  inset: -12px -4px;
+}
+
+.bk-asklist-note {
+  display: flex;
+  background: var(--bk-inset-well-bg);
+  border: 1px solid var(--bk-color-edge);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.bk-asklist-note input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: 400 13px/1.4 "Plus Jakarta Sans", sans-serif;
+  color: var(--bk-color-ink);
+}
+
+.bk-asklist-note input::placeholder {
+  color: var(--bk-color-ink-mute);
+  opacity: 1;
+}
+
+.bk-asklist-group {
+  display: grid;
+  grid-template-columns: minmax(84px, 32%) minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: baseline;
+}
+
+.bk-asklist-disclosure {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}

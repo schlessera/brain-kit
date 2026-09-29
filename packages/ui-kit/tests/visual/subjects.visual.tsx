@@ -40,7 +40,11 @@
  *     a map, an orbit, a meter — because their correctness is geometry, and
  *     geometry is what a number-based assertion approximates at best;
  *   - **two dense cards**, `AgentRunCard` and `ApprovalCard`, because they are
- *     where the kit's tone ramps, chips, diffs and button rows all meet.
+ *     where the kit's tone ramps, chips, diffs and button rows all meet;
+ *   - **the list question** (`AskUserListCard`, #583), because its one claim
+ *     is geometry: thirty rows of chips at 320px, every chip in the same
+ *     column on every row, nothing past the edge — and on desktop, six
+ *     options beside the label.
  *
  * Adding a subject is cheap and deliberate. Adding all of them is neither.
  *
@@ -81,6 +85,7 @@
 // browser, not to every file in the repo.
 /// <reference types="@vitest/browser/matchers" />
 import { expect, test } from "vitest";
+import { page } from "vitest/browser";
 
 import * as agentOrbit from "../../stories/agents/AgentOrbit.stories.js";
 import * as agentRunCard from "../../stories/agents/AgentRunCard.stories.js";
@@ -92,6 +97,7 @@ import * as placeMap from "../../stories/blocks/PlaceMap.stories.js";
 import * as statTiles from "../../stories/blocks/StatTiles.stories.js";
 import * as trendChart from "../../stories/blocks/TrendChart.stories.js";
 import * as approvalCard from "../../stories/decisions/ApprovalCard.stories.js";
+import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
 import * as meter from "../../stories/primitives/Meter.stories.js";
@@ -372,4 +378,39 @@ test("dense: agent run card", async () => {
 
 test("dense: approval card", async () => {
   await looksRight(approvalCard.Default, "dense-approval-card");
+});
+
+/* ── The list question ────────────────────────────────────────────────────── */
+// #583's acceptance criterion is a baseline: thirty items at 320px, with the
+// chip grid holding its columns row after row, and the desktop layout where
+// the chips move beside the label.
+//
+// Each runs in a viewport tall enough to hold the WHOLE card. The card's
+// header and action row are sticky, so in the default phone viewport they
+// pin mid-card, and a screenshot paints only what the viewport holds: the
+// baseline would be of one scroll position, not of the card. The viewport is
+// restored after, so no later subject inherits it.
+
+async function inViewport(width: number, height: number, body: () => Promise<void>) {
+  const before = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(width, height);
+  try {
+    await body();
+  } finally {
+    await page.viewport(before.width, before.height);
+  }
+}
+
+test("dense: ask list, thirty by three at 320px", async () => {
+  await inViewport(320, 3000, () => looksRight(questionAndMask.ListThirtyByThree, "dense-ask-list-thirty"));
+});
+
+test("dense: ask list, thirty by three at 320px, on paper", async () => {
+  await inViewport(320, 3000, () =>
+    looksRightOnPaper(questionAndMask.ListThirtyByThree, "dense-ask-list-thirty")
+  );
+});
+
+test("dense: ask list, desktop", async () => {
+  await inViewport(1024, 1500, () => looksRight(questionAndMask.ListWide, "dense-ask-list-wide"));
 });

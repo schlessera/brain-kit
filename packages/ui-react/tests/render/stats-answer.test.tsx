@@ -40,7 +40,7 @@ async function answer(root: BrainUiRoot) {
   if (!last || last.role !== "assistant") throw new Error("no assistant message");
   const drawn = render(
     <BrainUiProvider root={root}>
-      <MessageBubble message={last} onToolApproval={() => {}} onAskUserSubmit={() => {}} onAskUserCancel={() => {}} />
+      <MessageBubble message={last} onToolApproval={() => {}} onAskUserSubmit={() => {}} onAskUserCancel={() => {}} onAskUserListSubmit={() => {}} />
     </BrainUiProvider>
   );
   return { message: last, container: drawn.container };

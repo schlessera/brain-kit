@@ -136,6 +136,9 @@ surface to the model as `mcp__brain-ui__*`:
 
 - `mcp__brain-ui__ask_user` — routes a structured question to the host's
   `bridge.askUser` and blocks the turn until the human answers.
+- `mcp__brain-ui__ask_user_list` — one scale over a list of up to thirty
+  items, answered in one card, through `bridge.askUserList`. Withheld from a
+  turn that declares `noGrantSurface`, like the mask editor.
 - `mcp__brain-ui__get_current_location` — mirrors the ask-user bridge for
   browser geolocation: the host emits a `location_request` to the client, the
   browser answers, and the fix is returned to the model.

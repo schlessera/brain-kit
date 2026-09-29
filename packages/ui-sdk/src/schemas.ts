@@ -24,6 +24,7 @@ import type {
   ClientHello,
   MessagePart,
   SessionHistoryMessage,
+  ServerAskUserListRequest,
   ServerAskUserRequest,
   ServerError,
   ServerHello,
@@ -45,6 +46,7 @@ import type {
   ServerToolUseComplete,
   ServerToolUseStart,
   ClientAskUserCancel,
+  ClientAskUserListResponse,
   ClientAskUserResponse,
   ClientCancelRequest,
   ClientChatMessage,
@@ -377,6 +379,30 @@ export const clientAskUserCancelSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserCancel>;
 
+/**
+ * The answers to an `ask_user_list_request`, keyed by item id. The tool caps a
+ * list at 30 items, so 64 keys is the same bound `ask_user` uses with room to
+ * spare; which ids and labels are real is the handler's check, against the
+ * request it holds.
+ */
+export const clientAskUserListResponseSchema = z.looseObject({
+  type: z.literal("ask_user_list_response"),
+  requestId: id,
+  answers: boundedRecord(
+    z.string().max(MAX_ANSWER_CHARS),
+    z.string().max(MAX_ANSWER_CHARS),
+    MAX_ANSWER_KEYS,
+    "answers"
+  ),
+  notes: boundedRecord(
+    z.string().max(MAX_ANSWER_CHARS),
+    z.string().max(MAX_ANSWER_CHARS),
+    MAX_ANSWER_KEYS,
+    "notes"
+  ).optional(),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientAskUserListResponse>;
+
 const geoCoordsSchema = z.looseObject({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -455,6 +481,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientSessionResumeSchema,
   clientAskUserResponseSchema,
   clientAskUserCancelSchema,
+  clientAskUserListResponseSchema,
   clientLocationResponseSchema,
   clientLocationErrorSchema,
   clientMaskResponseSchema,
@@ -748,6 +775,26 @@ export const serverAskUserRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerAskUserRequest>;
 
+export const serverAskUserListRequestSchema = z.looseObject({
+  type: z.literal("ask_user_list_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  prompt: z.string(),
+  scale: z.array(
+    z.looseObject({ label: z.string(), description: z.string().optional() })
+  ),
+  items: z.array(
+    z.looseObject({
+      id: z.string(),
+      label: z.string(),
+      detail: z.string().optional(),
+      link: z.string().optional(),
+    })
+  ),
+  allowSkip: z.boolean(),
+  notes: z.boolean(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerAskUserListRequest>;
+
 export const serverLocationRequestSchema = z.looseObject({
   type: z.literal("location_request"),
   requestId: z.string().max(MAX_ID_CHARS),
@@ -856,6 +903,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverSessionInfoSchema,
   serverSessionHistorySchema,
   serverAskUserRequestSchema,
+  serverAskUserListRequestSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
   serverActivitySnapshotSchema,

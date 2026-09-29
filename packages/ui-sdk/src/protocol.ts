@@ -75,6 +75,7 @@ export type ClientMessage =
   | ClientSessionResume
   | ClientAskUserResponse
   | ClientAskUserCancel
+  | ClientAskUserListResponse
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
@@ -329,6 +330,7 @@ export type ServerMessage =
   | ServerSessionInfo
   | ServerSessionHistory
   | ServerAskUserRequest
+  | ServerAskUserListRequest
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
@@ -1133,12 +1135,74 @@ export interface ClientAskUserResponse {
   turnId?: string;
 }
 
-/** Client → Server. User dismissed the ask-user prompt; the agent gets an error. */
+/**
+ * Client → Server. User dismissed the ask-user prompt; the agent gets an error.
+ * Cancels an `ask_user_list_request` too: request ids are unique across both
+ * kinds, so one dismissal frame serves either card.
+ */
 export interface ClientAskUserCancel {
   type: "ask_user_cancel";
   requestId: string;
   reason?: string;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
+  turnId?: string;
+}
+
+// ============================================================
+// Ask User List (one scale over many items — ask_user_list bridge)
+// ============================================================
+
+/** One option of the scale every item of an `ask_user_list` is placed on. */
+export interface AskUserListOption {
+  label: string;
+  description?: string;
+}
+
+/** One item to place on the scale. `id` is the key its answer comes back under. */
+export interface AskUserListItem {
+  id: string;
+  label: string;
+  /** A one-line gloss: a year, a size, why it is on the list. */
+  detail?: string;
+  /** An http(s) URL for the item. The host shown is the client's, never the agent's. */
+  link?: string;
+}
+
+/** What an `ask_user_list` asks, with its defaults applied. */
+export interface AskUserListSpec {
+  prompt: string;
+  scale: AskUserListOption[];
+  items: AskUserListItem[];
+  /** Submit may leave items unanswered. */
+  allowSkip: boolean;
+  /** Each item may carry a short free-text note. */
+  notes: boolean;
+}
+
+/**
+ * Server → Client. The agent wants one scale applied to a list of items,
+ * answered in one card. Reply with ClientAskUserListResponse (or
+ * ClientAskUserCancel to dismiss) using the same requestId.
+ */
+export interface ServerAskUserListRequest extends SessionScoped, AskUserListSpec {
+  type: "ask_user_list_request";
+  requestId: string;
+}
+
+/**
+ * Client → Server. The answers to an `ask_user_list_request`.
+ *
+ * `answers` is keyed by item **id** and each value is a scale option's
+ * `label`. A skipped item is ABSENT from `answers`, never an empty string.
+ * `notes` is keyed by item id too and is separate from `answers`, so a note on
+ * a skipped item still reaches the agent while the item stays skipped.
+ */
+export interface ClientAskUserListResponse {
+  type: "ask_user_list_response";
+  requestId: string;
+  answers: Record<string, string>;
+  notes?: Record<string, string>;
+  /** Echo of the request's turnId for host-side correlation. */
   turnId?: string;
 }
 

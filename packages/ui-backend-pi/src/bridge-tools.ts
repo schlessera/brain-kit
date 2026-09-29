@@ -3,6 +3,9 @@ import {
   ASK_USER_DESCRIPTION,
   ASK_USER_INPUT_SCHEMA,
   ASK_USER_TOOL_NAME,
+  ASK_USER_LIST_DESCRIPTION,
+  ASK_USER_LIST_INPUT_SCHEMA,
+  ASK_USER_LIST_TOOL_NAME,
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME,
@@ -16,6 +19,7 @@ import {
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME,
   handleAskUser,
+  handleAskUserList,
   handleGetCurrentLocation,
   handleQueryActivity,
   handleRequestImageMask,
@@ -89,6 +93,29 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
         ...(payload.annotations ? { annotations: payload.annotations } : {}),
       };
       return textResult(JSON.stringify(payload), details);
+    },
+  } satisfies ToolDefinition;
+
+  const askUserList = {
+    name: ASK_USER_LIST_TOOL_NAME,
+    label: "Ask user (list)",
+    description: ASK_USER_LIST_DESCRIPTION,
+    parameters: toPiParameters(ASK_USER_LIST_INPUT_SCHEMA),
+    async execute(id: string, input: unknown) {
+      if (!turn.bridge?.askUserList) {
+        throw new Error("The host does not support ask_user_list in this session.");
+      }
+      // Thirty rows of chips need someone to read and tap them; a turn that
+      // declared it has no one to show a card to cannot use it. Checked here
+      // for the reason the mask editor is: the tool set outlives the turn.
+      if (turn.noGrantSurface) {
+        throw new Error(
+          "This turn has no way to show anyone a card, so ask_user_list cannot be used in it."
+        );
+      }
+      const parsed = ASK_USER_LIST_INPUT_SCHEMA.parse(input);
+      const payload = await handleAskUserList(parsed, turn.bridge, id);
+      return textResult(JSON.stringify(payload), payload);
     },
   } satisfies ToolDefinition;
 
@@ -190,7 +217,7 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
-  const tools: ToolDefinition[] = [askUser, showBlock];
+  const tools: ToolDefinition[] = [askUser, askUserList, showBlock];
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
@@ -201,6 +228,9 @@ export {
   ASK_USER_DESCRIPTION,
   ASK_USER_INPUT_SCHEMA,
   ASK_USER_TOOL_NAME,
+  ASK_USER_LIST_DESCRIPTION,
+  ASK_USER_LIST_INPUT_SCHEMA,
+  ASK_USER_LIST_TOOL_NAME,
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME,

@@ -629,6 +629,36 @@ describe("bridge-capability tool registration", () => {
     }
   });
 
+  test("the list card refuses a turn with no grant surface instead of blocking on it", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      const mock = makeMockBridge();
+      turn.bridge = mock.bridge;
+      (turn.bridge as { askUserList?: unknown }).askUserList = () => {
+        throw new Error("the card must not open");
+      };
+      const tools = toolMap(
+        createBrainTools({
+          brain: createBrainAccess(brain.root),
+          turn,
+          lock: toolLockFromKeyed(createKeyedLock()),
+        })
+      );
+      const input = {
+        prompt: "Rate?",
+        scale: [{ label: "x" }, { label: "y" }],
+        items: [{ id: "a", label: "A" }],
+      };
+      turn.noGrantSurface = true;
+      await expect(
+        tools.ask_user_list!.execute("l1", input, undefined, undefined, CTX)
+      ).rejects.toThrow(/no way to show anyone a card/);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("risk-class table covers every registered tool", () => {
     const brain = makeEmptyBrain();
     try {

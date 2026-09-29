@@ -22,6 +22,9 @@ export "." (./src/index.ts)
   type ActivityView
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserListItem
+  type AskUserListOption
+  type AskUserListSpec
   type AskUserOption
   type AskUserQuestion
   type AsrEvent
@@ -35,6 +38,7 @@ export "." (./src/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserListResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -106,6 +110,7 @@ export "." (./src/index.ts)
   SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserListRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -158,6 +163,12 @@ export "./client" (./src/client/index.ts)
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
+  ASK_USER_LIST_CONTRACT
+  ASK_USER_LIST_DESCRIPTION
+  ASK_USER_LIST_INPUT_SCHEMA
+  ASK_USER_LIST_LIMITS
+  ASK_USER_LIST_PAYLOAD_SCHEMA
+  ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
   ASK_USER_TOOL_NAME
   type ActivityAggregate
@@ -178,6 +189,11 @@ export "./client" (./src/client/index.ts)
   type ApprovalChannel
   type AskUserAnnotation
   type AskUserInput
+  type AskUserListInput
+  type AskUserListItem
+  type AskUserListOption
+  type AskUserListPayload
+  type AskUserListSpec
   type AskUserOption
   type AskUserPayload
   type AskUserQuestion
@@ -218,6 +234,7 @@ export "./client" (./src/client/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserListResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -340,6 +357,7 @@ export "./client" (./src/client/index.ts)
   SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserListRequest
   type ServerAskUserRequest
   type ServerError
   type ServerFrameHandlers
@@ -452,6 +470,9 @@ export "./protocol" (./src/protocol.ts)
   type ActivityView
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserListItem
+  type AskUserListOption
+  type AskUserListSpec
   type AskUserOption
   type AskUserQuestion
   type AsrEvent
@@ -465,6 +486,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserListResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -536,6 +558,7 @@ export "./protocol" (./src/protocol.ts)
   SPAN_TOOL_NAME_PREFIX
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserListRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -596,6 +619,7 @@ export "./schemas" (./src/schemas.ts)
   clientActivitySubscribeSchema
   clientActivityUnsubscribeSchema
   clientAskUserCancelSchema
+  clientAskUserListResponseSchema
   clientAskUserResponseSchema
   clientCancelSchema
   clientChatMessageSchema
@@ -617,6 +641,7 @@ export "./schemas" (./src/schemas.ts)
   parseServerMessage
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
+  serverAskUserListRequestSchema
   serverAskUserRequestSchema
   serverErrorSchema
   serverHelloSchema
@@ -643,6 +668,12 @@ export "./server" (./src/server/index.ts)
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
+  ASK_USER_LIST_CONTRACT
+  ASK_USER_LIST_DESCRIPTION
+  ASK_USER_LIST_INPUT_SCHEMA
+  ASK_USER_LIST_LIMITS
+  ASK_USER_LIST_PAYLOAD_SCHEMA
+  ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
   ASK_USER_TOOL_NAME
   type ActivityAggregate
@@ -666,6 +697,12 @@ export "./server" (./src/server/index.ts)
   type ApprovalChannel
   type AskUserAnnotation
   type AskUserInput
+  type AskUserListInput
+  type AskUserListItem
+  type AskUserListOption
+  type AskUserListPayload
+  type AskUserListResult
+  type AskUserListSpec
   type AskUserOption
   type AskUserPayload
   type AskUserQuestion
@@ -742,6 +779,7 @@ export "./server" (./src/server/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserListResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -892,6 +930,7 @@ export "./server" (./src/server/index.ts)
   SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserListRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -962,6 +1001,8 @@ export "./server" (./src/server/index.ts)
   type WriteLock
   applyClassification
   archivesDocument
+  askUserListPayload
+  askUserListSpec
   assertTurnPosture
   bashCommand
   bashLockKey
@@ -990,6 +1031,7 @@ export "./server" (./src/server/index.ts)
   fetchCoastline
   filterSubprocessEnv
   handleAskUser
+  handleAskUserList
   handleGetCurrentLocation
   handleQueryActivity
   handleRequestImageMask
@@ -1082,9 +1124,17 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
+  ASK_USER_LIST_CONTRACT
+  ASK_USER_LIST_DESCRIPTION
+  ASK_USER_LIST_INPUT_SCHEMA
+  ASK_USER_LIST_LIMITS
+  ASK_USER_LIST_PAYLOAD_SCHEMA
+  ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
   ASK_USER_TOOL_NAME
   type AskUserInput
+  type AskUserListInput
+  type AskUserListPayload
   type AskUserPayload
   BARS_BLOCK_SCHEMA
   BLOCK_CONTACT_KINDS
@@ -1235,6 +1285,31 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export interface AskUserAnnotation {
         preview?: string;
         notes?: string;
+    }
+  AskUserListItem (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserListItem {
+        id: string;
+        label: string;
+        detail?: string;
+        link?: string;
+    }
+  AskUserListOption (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserListOption {
+        label: string;
+        description?: string;
+    }
+  AskUserListResult (packages/ui-sdk/src/server/backend.ts)
+    export interface AskUserListResult {
+        answers: Record<string, string>;
+        notes?: Record<string, string>;
+    }
+  AskUserListSpec (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserListSpec {
+        prompt: string;
+        scale: AskUserListOption[];
+        items: AskUserListItem[];
+        allowSkip: boolean;
+        notes: boolean;
     }
   AskUserOption (packages/ui-sdk/src/protocol.ts)
     export interface AskUserOption {
@@ -1589,6 +1664,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         emit(msg: ServerMessage): void;
         requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
         askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
+        askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
         getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
         requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
         pruneScratch?(): Promise<void>;
@@ -1886,6 +1962,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         highWaterSeq: Record<string, number>;
         append?: boolean;
     }
+  ServerAskUserListRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAskUserListRequest extends SessionScoped, AskUserListSpec {
+        type: "ask_user_list_request";
+        requestId: string;
+    }
   ServerAskUserRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerAskUserRequest extends SessionScoped {
         type: "ask_user_request";
@@ -1926,7 +2007,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
+    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";

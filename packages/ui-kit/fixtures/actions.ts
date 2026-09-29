@@ -203,6 +203,98 @@ export const askOptions: AskOption[] = [
   },
 ];
 
+/* ------------------------------------------------------ ask over a list */
+
+/** One scale over many items (`ask_user_list`, #583): how each landfall of
+ * the voyage sat, so the brain can build a record of where to put in again. */
+export const listRating = {
+  question: "How did these landfalls sit with you?",
+  noun: "landfalls",
+  scale: [
+    { label: "sail again" },
+    { label: "glad I went" },
+    { label: "once was enough" },
+    { label: "never again" },
+    { label: "not landed" },
+    { label: "not interested" },
+  ],
+  items: [
+    { id: "ismaros", label: "Ismaros", detail: "Cicones · raid, then a rout", link: "https://example.org/landfalls/ismaros" },
+    { id: "lotus", label: "Land of the Lotus-eaters", detail: "three men would not come back aboard" },
+    { id: "cyclops", label: "Island of the Cyclopes", detail: "one cave, one sheep ram, one name given as Nobody" },
+    { id: "aeolia", label: "Aeolia", detail: "the floating island · a bag of winds" },
+    { id: "telepylos", label: "Telepylos", detail: "Laestrygonians · eleven ships lost" },
+    { id: "aeaea", label: "Aeaea", detail: "a year with Circe" },
+    { id: "sirens", label: "The Sirens' meadow", detail: "passed, bound to the mast" },
+    { id: "thrinacia", label: "Thrinacia", detail: "the cattle of the Sun" },
+    { id: "ogygia", label: "Ogygia", detail: "seven years · the current landfall" },
+    { id: "scheria", label: "Scheria", detail: "planned · the Phaeacians" },
+  ],
+  /** Half answered, for the pending-with-gaps stories. */
+  partial: {
+    ismaros: "once was enough",
+    aeolia: "glad I went",
+    aeaea: "sail again",
+    sirens: "glad I went",
+    ogygia: "once was enough",
+  } as Record<string, string>,
+  /** Every one answered, for the record. */
+  answered: {
+    ismaros: "once was enough",
+    lotus: "never again",
+    cyclops: "never again",
+    aeolia: "glad I went",
+    telepylos: "never again",
+    aeaea: "sail again",
+    sirens: "glad I went",
+    thrinacia: "never again",
+    ogygia: "once was enough",
+    scheria: "not landed",
+  } as Record<string, string>,
+};
+
+/** Thirty stale log entries on a three-option scale: the triage shape. */
+export const listTriage = {
+  question: "Keep these ship's logs? None has been opened since Troy.",
+  noun: "logs",
+  scale: [{ label: "keep" }, { label: "archive" }, { label: "delete" }],
+  items: Array.from({ length: 30 }, (_, i) => ({
+    id: `log-${i + 1}`,
+    label: `logs/voyage/day-${String(3300 + i * 11).padStart(4, "0")}-${
+      ["wind-report", "rations-count", "hull-soundings", "star-sightings", "oar-tally"][i % 5]
+    }.md`,
+    detail: `untouched ${11 - (i % 9)} months`,
+  })),
+};
+
+/** The triage answered: a deterministic spread over the three options. */
+export const listTriageAnswers: Record<string, string> = Object.fromEntries(
+  listTriage.items.map((item, i) => [item.id, i % 5 === 0 ? "keep" : i % 7 === 0 ? "delete" : "archive"])
+);
+
+/** Five items on an eight-option scale: where the rest days on Scheria go. */
+export const listEight = {
+  question: "Where should the rest days on Scheria go?",
+  noun: "places",
+  scale: [
+    { label: "must go" },
+    { label: "keen" },
+    { label: "fine" },
+    { label: "only if nearby" },
+    { label: "not now" },
+    { label: "been", description: "visited on an earlier voyage" },
+    { label: "never", description: "not for me, ever" },
+    { label: "not sure" },
+  ],
+  items: [
+    { id: "palace", label: "Palace of Alcinous", detail: "half a day inland" },
+    { id: "washing", label: "The washing pools", detail: "by the river mouth" },
+    { id: "games", label: "The Phaeacian games", detail: "discus and footrace" },
+    { id: "harbour", label: "The twin harbour", detail: "where the ships are built" },
+    { id: "grove", label: "Athena's grove", detail: "poplars by the road" },
+  ],
+};
+
 /** The multi-select shape (catalog §13): which threads the digest keeps
  * following. Two chosen, one not; the answered card lists the two. */
 export const followQuestion = { question: "Which of these should the digest keep following?", tag: "Triage" };

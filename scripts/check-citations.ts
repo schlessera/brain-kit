@@ -457,7 +457,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "file-store.ts is now a shim; the cited read moved behind an injected env.storage()",
   "docs/decisions/design-kit.md|components/chat/renderers/index.ts:10":
     "the module-level registration latch this audit found was since removed",
-  "docs/decisions/design-kit.md|packages/ui-backend-claude/src/ask-user-tool.ts:104":
+  "docs/decisions/design-kit.md|packages/ui-backend-claude/src/ask-user-tool.ts:107":
     "records the call as it was before D44; it now passes alwaysLoad",
   "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/module.ts:226-234":
     "the ambient-credential billing classification, replaced by #253: a credential-free profile is always subscription",
@@ -492,15 +492,15 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "isWsAuthorized returning a boolean; it now returns a principal",
   "docs/decisions/session-principals.md|app.ts:267-281":
     "the request log without an actor; it now logs the principal",
-  "docs/decisions/session-principals.md|ws/connection.ts:251-253":
+  "docs/decisions/session-principals.md|ws/connection.ts:262-264":
     "the upgrade ignoring the request context; it now reads the principal",
-  "docs/decisions/session-principals.md|ws/connection.ts:74":
+  "docs/decisions/session-principals.md|ws/connection.ts:84":
     "clients.add without an identity; it now carries the principal",
-  "docs/decisions/session-principals.md|ws/connection.ts:162":
+  "docs/decisions/session-principals.md|ws/connection.ts:173":
     "onMessage dispatching without a re-check; it now re-checks authorization",
   "docs/decisions/session-principals.md|ws/run-session.ts:133-141":
     "the recorder built without an actor; it now receives the principal",
-  "docs/decisions/session-principals.md|ws/turns.ts:53-75":
+  "docs/decisions/session-principals.md|ws/turns.ts:55-77":
     "RunningTurn without an actor; it now carries principalId",
   "docs/decisions/session-principals.md|passkeys.ts:578-586":
     "passkey delete bumping the global epoch; it now revokes by credential",

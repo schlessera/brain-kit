@@ -73,10 +73,10 @@ Both reviewers verified every row below against the source.
 | Auth routes | `authRoutes`, `app.ts:395` | mounted **before** the guard at `authGuard(authMode`, `app.ts:408`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:796`) |
 | Passkey management | `passkeyManagementRoutes`, `app.ts:412` | mounted **after** the guard ("Mount AFTER the auth guard") |
 | WS guard | `"/ws"`, `app.ts:489-506` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
-| WS upgrade | `ws/connection.ts:251-253` | `createWsUpgrade` ignores the request context |
-| WS admission | `ws/connection.ts:74` | `clients.add(ws)` — the socket's identity is unknown |
-| Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:53-75`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:32-43`; `slot.queue.push(entry)`, `run-session.ts:466` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
+| WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
+| Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:34-45`; `slot.queue.push(entry)`, `run-session.ts:466` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
@@ -95,8 +95,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:916`;
-  `Activity stream`, `:955`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract.md:950`;
+  `Activity stream`, `:989`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -141,7 +141,7 @@ verification (`credentialById(ctx.db, response.id)`, `passkeys.ts:356`), so a
 ceremony in flight can mint a session for a credential deleted meanwhile.
 
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
-revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:162`),
+revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
 (`resolveTurnTarget`, `ws/run-session.ts:125`; `const billing = host.activity`,
 `:240`), and queued follow-ups execute later. Each connection holds a
@@ -149,7 +149,7 @@ server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:287`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:300`). The revocation itself is recorded in the activity record.
 
 **6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
 replacement labelled "Safari on iPhone" before it is revoked, or revoke the

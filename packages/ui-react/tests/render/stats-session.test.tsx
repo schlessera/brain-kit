@@ -81,7 +81,7 @@ function sentFrames(socket: FakeSocket): ClientMessage[] {
 function draw(root: BrainUiRoot, message: ChatMessage) {
   return render(
     <BrainUiProvider root={root}>
-      <MessageBubble message={message} onToolApproval={() => {}} onAskUserSubmit={() => {}} onAskUserCancel={() => {}} />
+      <MessageBubble message={message} onToolApproval={() => {}} onAskUserSubmit={() => {}} onAskUserCancel={() => {}} onAskUserListSubmit={() => {}} />
     </BrainUiProvider>
   ).container;
 }

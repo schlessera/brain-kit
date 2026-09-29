@@ -3,6 +3,7 @@ import type {
   ClientActivityUnsubscribe,
   ClientAskUserCancel,
   ClientAskUserResponse,
+  ClientAskUserListResponse,
   ClientCancelRequest,
   ClientChatMessage,
   ClientHello,
@@ -21,6 +22,7 @@ import type {
   MessageBlock,
   ServerActivitySnapshot,
   ServerAskUserRequest,
+  ServerAskUserListRequest,
   ServerError,
   ServerHello,
   ServerLocationRequest,
@@ -42,6 +44,7 @@ import {
   clientActivityUnsubscribeSchema,
   clientAskUserCancelSchema,
   clientAskUserResponseSchema,
+  clientAskUserListResponseSchema,
   clientCancelSchema,
   clientChatMessageSchema,
   clientHelloSchema,
@@ -60,6 +63,7 @@ import {
   messageBlockSchema,
   serverActivitySnapshotSchema,
   serverAskUserRequestSchema,
+  serverAskUserListRequestSchema,
   serverErrorSchema,
   serverHelloSchema,
   serverLocationRequestSchema,
@@ -102,6 +106,9 @@ type ClientSessionResumeMatches = Assert<
 >;
 type ClientAskUserResponseMatches = Assert<
   SchemaEqualsProtocol<typeof clientAskUserResponseSchema, ClientAskUserResponse>
+>;
+type ClientAskUserListResponseMatches = Assert<
+  SchemaEqualsProtocol<typeof clientAskUserListResponseSchema, ClientAskUserListResponse>
 >;
 type ClientAskUserCancelMatches = Assert<
   SchemaEqualsProtocol<typeof clientAskUserCancelSchema, ClientAskUserCancel>
@@ -165,6 +172,9 @@ type ServerSessionHistoryMatches = Assert<
 >;
 type ServerAskUserRequestMatches = Assert<
   SchemaEqualsProtocol<typeof serverAskUserRequestSchema, ServerAskUserRequest>
+>;
+type ServerAskUserListRequestMatches = Assert<
+  SchemaEqualsProtocol<typeof serverAskUserListRequestSchema, ServerAskUserListRequest>
 >;
 type ServerLocationRequestMatches = Assert<
   SchemaEqualsProtocol<typeof serverLocationRequestSchema, ServerLocationRequest>
@@ -244,6 +254,7 @@ export type ProtocolSchemaAssertions = [
   ClientCancelMatches,
   ClientSessionResumeMatches,
   ClientAskUserResponseMatches,
+  ClientAskUserListResponseMatches,
   ClientAskUserCancelMatches,
   ClientLocationResponseMatches,
   ClientLocationErrorMatches,
@@ -267,6 +278,7 @@ export type ProtocolSchemaAssertions = [
   ServerSessionInfoMatches,
   ServerSessionHistoryMatches,
   ServerAskUserRequestMatches,
+  ServerAskUserListRequestMatches,
   ServerLocationRequestMatches,
   ServerMaskRequestMatches,
   ServerActivitySnapshotMatches,

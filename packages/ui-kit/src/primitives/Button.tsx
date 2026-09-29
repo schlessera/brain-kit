@@ -42,6 +42,13 @@ export interface ButtonProps {
   /** Dimmed and inert. The design pairs this with a mono line saying *why*;
    * that line is the caller's `subtitle`, not something this can invent. */
   disabled?: boolean;
+  /**
+   * Announced as dimmed (`aria-disabled`) but still focusable and still
+   * tappable, and painted with no opacity. For a control whose tap must never
+   * be a silent no-op: the caller's `onClick` explains what is missing
+   * instead of doing nothing. `disabled` wins when both are set.
+   */
+  ariaDisabled?: boolean;
   /** Full width. On by default. */
   block?: boolean;
   /** Centres the content even when `block`. */
@@ -213,7 +220,7 @@ export function Button(p: ButtonProps) {
       className={interactive ? "bk-control" : undefined}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? (disabled ? -1 : 0) : undefined}
-      aria-disabled={interactive && disabled ? true : undefined}
+      aria-disabled={interactive && (disabled || p.ariaDisabled === true) ? true : undefined}
       // `pointer-events: none` stops a real pointer, not a programmatic
       // `.click()` or a test's synthetic event — and a disabled button that
       // still fires is worse than one that merely looks dim. Inert means

@@ -45,6 +45,7 @@ function replayAndRender(messages: SessionHistoryMessage[]) {
         onToolApproval={noop}
         onAskUserSubmit={noop}
         onAskUserCancel={noop}
+        onAskUserListSubmit={noop}
       />
     )
   );

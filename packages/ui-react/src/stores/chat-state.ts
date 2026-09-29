@@ -6,6 +6,7 @@ import type {
   MessagePart,
   AskUserQuestion,
   AskUserAnnotation,
+  AskUserListSpec,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../components/chat/stats/compose-stats.js";
@@ -124,10 +125,20 @@ export interface ToolCall {
 
 export interface AskUserExchange {
   requestId: string;
+  /** The `ask_user` questions; empty for an `ask_user_list` exchange. */
   questions: AskUserQuestion[];
-  /** Filled in once the user submits. Keyed by question text. */
+  /**
+   * Present when this is an `ask_user_list` exchange (#583): one scale over a
+   * list of items. Such an exchange has no `questions`, and its `answers` are
+   * keyed by item id rather than by question text.
+   */
+  list?: AskUserListSpec;
+  /** Filled in once the user submits. Keyed by question text, or by item id
+   * for a list exchange. A skipped list item is absent. */
   answers?: Record<string, string>;
   annotations?: Record<string, AskUserAnnotation>;
+  /** A list exchange's per-item notes, keyed by item id. */
+  notes?: Record<string, string>;
   cancelled?: boolean;
   /**
    * The user answered in the composer instead of choosing an option, and the
@@ -143,6 +154,28 @@ export interface AskUserExchange {
    * the card shows none rather than one it made up.
    */
   answeredAt?: number;
+}
+
+/**
+ * Open an ask exchange: attached to the streaming assistant message, where the
+ * transcript draws it, and held as the session's pending exchange. `ask_user`
+ * and `ask_user_list` share the slot, so the composer, the suggestions row and
+ * the tool-result cleanup treat either the same way.
+ */
+function addExchange(
+  chat: SessionChat,
+  exchange: AskUserExchange
+): Pick<SessionChat, "messages" | "askUser"> {
+  const msgs = [...chat.messages];
+  const lastIdx = msgs.length - 1;
+  const last = msgs[lastIdx];
+  if (last?.role === "assistant") {
+    msgs[lastIdx] = {
+      ...last,
+      askUserExchanges: [...(last.askUserExchanges ?? []), exchange],
+    };
+  }
+  return { messages: msgs, askUser: exchange };
 }
 
 /**
@@ -255,6 +288,14 @@ export interface ChatState {
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[]) => void;
+  /** An `ask_user_list` request: the same exchange slot, holding a list. */
+  setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec) => void;
+  submitAskUserListAnswers: (
+    key: ChatKey,
+    requestId: string,
+    answers: Record<string, string>,
+    notes?: Record<string, string>
+  ) => void;
   submitAskUserAnswers: (
     key: ChatKey,
     requestId: string,
@@ -728,18 +769,26 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         })),
 
       setAskUserRequest: (key, requestId, questions) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions })),
+
+      setAskUserListRequest: (key, requestId, list) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], list })),
+
+      submitAskUserListAnswers: (key, requestId, answers, notes) =>
         mutateBuffer(key, (chat) => {
-          const exchange: AskUserExchange = { requestId, questions };
-          const msgs = [...chat.messages];
-          const lastIdx = msgs.length - 1;
-          const last = msgs[lastIdx];
-          if (last?.role === "assistant") {
-            msgs[lastIdx] = {
-              ...last,
-              askUserExchanges: [...(last.askUserExchanges ?? []), exchange],
-            };
-          }
-          return { messages: msgs, askUser: exchange };
+          const answeredAt = Date.now();
+          const update = (e: AskUserExchange): AskUserExchange =>
+            e.requestId === requestId
+              ? { ...e, answers, answeredAt, ...(notes && Object.keys(notes).length ? { notes } : {}) }
+              : e;
+          const msgs = chat.messages.map((m) =>
+            m.askUserExchanges?.some((e) => e.requestId === requestId)
+              ? { ...m, askUserExchanges: m.askUserExchanges.map(update) }
+              : m
+          );
+          const askUser =
+            chat.askUser?.requestId === requestId ? update(chat.askUser) : chat.askUser;
+          return { messages: msgs, askUser };
         }),
 
       submitAskUserAnswers: (key, requestId, answers, annotations, typed) =>

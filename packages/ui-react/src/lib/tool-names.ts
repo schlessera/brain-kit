@@ -7,6 +7,7 @@
 
 import {
   ASK_USER_CONTRACT,
+  ASK_USER_LIST_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   visibleToolName,
@@ -40,6 +41,23 @@ export const isAskUserTool = (name: string | undefined): boolean =>
   !!name &&
   (normalizeToolName(name) === ASK_USER_TOOL_NAME ||
     name === PI_ASK_USER_TOOL_NAME);
+
+const ASK_USER_LIST_TOOL_NAME = visibleToolName(ASK_USER_LIST_CONTRACT.name, "claude");
+const PI_ASK_USER_LIST_TOOL_NAME = visibleToolName(ASK_USER_LIST_CONTRACT.name, "pi");
+
+/** An `ask_user_list` call (#583), under either backend's spelling. */
+export const isAskUserListTool = (name: string | undefined): boolean =>
+  !!name &&
+  (normalizeToolName(name) === ASK_USER_LIST_TOOL_NAME ||
+    name === PI_ASK_USER_LIST_TOOL_NAME);
+
+/**
+ * A call that opens an ask exchange — `ask_user` or `ask_user_list`. Both
+ * consume `ChatMessage.askUserExchanges` in call order, so the transcript
+ * must count them together or a list card would take a question's slot.
+ */
+export const isAskExchangeTool = (name: string | undefined): boolean =>
+  isAskUserTool(name) || isAskUserListTool(name);
 
 const SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
 const PI_SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "pi");
