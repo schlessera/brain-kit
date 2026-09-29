@@ -13,8 +13,9 @@
  * behind the user's back.
  */
 
-import { DEFAULT_PREFERENCE, DRAFT_MODEL } from "./evidence.js";
-import { isGeminiAspect } from "./shape.js";
+import { DEFAULT_PREFERENCE, DRAFT_MODEL, POLICY_PREFERENCE } from "./evidence.js";
+import { isRetiredModel, retiredModelMessage } from "./retired.js";
+import { isGeminiAspect, isValidOpenAiSize, OPENAI_LIMITS, parseAspect } from "./shape.js";
 import type { ImageRequest, ModelCapabilities, ProviderId } from "./types.js";
 
 export interface RoutingInput {
@@ -55,9 +56,29 @@ function strongestFirst(models: ModelCapabilities[]): ModelCapabilities[] {
       (m.characterConsistency > 0 ? 2 : 0) + (m.strongTextRendering ? 1 : 0);
     const diff = score(b) - score(a);
     if (diff !== 0) return diff;
-    return b.approxCostUsd1K - a.approxCostUsd1K; // pricier ≈ stronger tier within a family
+    // Pricier ≈ stronger tier within a family; an unknown price ranks as neither.
+    return (b.approxCostUsd1K ?? 0) - (a.approxCostUsd1K ?? 0);
   });
 }
+
+/**
+ * The pool in the order a free choice takes it: the configured preference,
+ * then the default policy, then anything neither names. Every branch that
+ * picks from a pool of several goes through this, so a mask or a transparent
+ * background still lands on the default model rather than on whichever model
+ * a capability filter happened to leave first.
+ */
+function inPreferenceOrder(pool: ModelCapabilities[], preferred: readonly string[]): ModelCapabilities[] {
+  const order = [...preferred, ...DEFAULT_PREFERENCE];
+  const rank = (m: ModelCapabilities) => {
+    const i = order.indexOf(m.id);
+    return i === -1 ? order.length : i;
+  };
+  const unranked = strongestFirst(pool.filter((m) => rank(m) === order.length));
+  return [...pool.filter((m) => rank(m) < order.length).sort((a, b) => rank(a) - rank(b)), ...unranked];
+}
+
+const money = (usd: number | null) => (usd === null ? "an unpublished per-image price" : `about $${usd.toFixed(3)}`);
 
 export function route(input: RoutingInput): RoutingDecision {
   const { request: req, available, intent = {} } = input;
@@ -72,6 +93,17 @@ export function route(input: RoutingInput): RoutingDecision {
   }
 
   let pool = available;
+  const preferred = input.preferredModels ?? [];
+
+  // A retired model named anywhere is a migration error, never a silent
+  // substitute: the caller chose it on purpose and should choose again.
+  if (input.pinnedModel && isRetiredModel(input.pinnedModel)) {
+    return { kind: "impossible", reason: retiredModelMessage(input.pinnedModel, "--model") };
+  }
+  const retiredPreference = preferred.find(isRetiredModel);
+  if (retiredPreference) {
+    return { kind: "impossible", reason: retiredModelMessage(retiredPreference, "preferredModels") };
+  }
 
   if (input.pinnedModel) {
     const picked = pool.find((m) => m.id === input.pinnedModel);
@@ -81,7 +113,10 @@ export function route(input: RoutingInput): RoutingDecision {
         reason: `Model "${input.pinnedModel}" is not available. Available: ${pool.map((m) => m.id).join(", ")}`,
       };
     }
-    return { kind: "resolved", model: picked, reason: "pinned by the caller" };
+    // A pin chooses the model; it does not exempt the request from what the
+    // model can do. The hard filters below still run on the one-model pool, so
+    // a pinned model with an impossible request fails here, not at the API.
+    pool = [picked];
   }
   if (input.pinnedProvider) {
     pool = pool.filter((m) => m.provider === input.pinnedProvider);
@@ -122,7 +157,7 @@ export function route(input: RoutingInput): RoutingDecision {
       return {
         kind: "impossible",
         reason:
-          "A transparent background needs gpt-image-1.5 — gpt-image-2 rejects it outright and " +
+          "A transparent background needs an OpenAI GPT Image 2.5 model (Sunburst or Flare) — " +
           "Gemini does not document transparency at all. Set OPENAI_API_KEY, or render on a " +
           "solid background and cut it out afterwards.",
       };
@@ -165,16 +200,19 @@ export function route(input: RoutingInput): RoutingDecision {
         pool,
         (m) =>
           m.presetSizes.includes(req.size!) ||
-          (m.arbitraryDimensions && Math.max(w, h) <= m.maxEdgePx && w * h <= m.maxTotalPixels)
+          (m.arbitraryDimensions &&
+            isValidOpenAiSize(w, h) &&
+            Math.max(w, h) <= m.maxEdgePx &&
+            w * h <= m.maxTotalPixels)
       );
       if (fits.length === 0) {
         return {
           kind: "impossible",
           reason:
             `No available model takes an exact ${req.size}. Gemini only offers fixed aspect ` +
-            `ratios and 1K/2K/4K buckets; gpt-image-1.5 only takes 1024x1024, 1536x1024 and ` +
-            `1024x1536; gpt-image-2 takes arbitrary sizes up to 3840px per edge and 8.3MP, on ` +
-            `a 16px grid.`,
+            `ratios and 1K/2K/4K buckets; OpenAI's GPT Image 2.5 models take custom sizes ` +
+            `with both edges multiples of 16, neither over 3840px, a ratio no wider than 3:1, ` +
+            `and 0.65-8.3MP in total.`,
         };
       }
       pool = fits;
@@ -184,6 +222,16 @@ export function route(input: RoutingInput): RoutingDecision {
   // An aspect ratio outside Gemini's fixed list can only be served by a model
   // that takes exact pixels, where the ratio becomes a width and a height.
   if (req.aspect && !isGeminiAspect(req.aspect)) {
+    const ratio = parseAspect(req.aspect);
+    const wide = ratio ? Math.max(ratio.w, ratio.h) / Math.min(ratio.w, ratio.h) : Infinity;
+    if (wide > OPENAI_LIMITS.maxAspectRatio) {
+      return {
+        kind: "impossible",
+        reason:
+          `Aspect ratio ${req.aspect} is not one Gemini accepts, and OpenAI's custom sizes stop ` +
+          `at 3:1 (or 1:3). Pick a narrower ratio.`,
+      };
+    }
     const flexible = byCapability(pool, (m) => m.arbitraryDimensions);
     if (flexible.length === 0) {
       return {
@@ -224,6 +272,8 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = clean;
   }
 
+  if (input.pinnedModel) return { kind: "resolved", model: pool[0], reason: "pinned by the caller" };
+
   // Character consistency intentionally does NOT pick a winner: no independent
   // benchmark for identity preservation exists, and Google's own card scores
   // character editing as a tie inside the error bars. It only narrows to models
@@ -234,17 +284,23 @@ export function route(input: RoutingInput): RoutingDecision {
   }
 
   // `textInImage` used to route to Gemini, reasoning from vendor documentation.
-  // That was backwards: arena.ai's dedicated text-rendering board puts
+  // That was backwards: arena.ai's dedicated text-rendering board put
   // gpt-image-2 ~130 Elo clear, its widest margin of any category. There is
-  // nothing left to special-case — the default order already leads with it.
+  // nothing to special-case — the default order already leads with OpenAI.
 
+  // A mask or a transparent background narrows the pool; it does not choose
+  // within it. The preference order does, so an explicit Flare preference
+  // stays Flare and everything else stays on the default.
+  const ordered = inPreferenceOrder(pool, preferred);
   if (req.mask) {
-    const best = strongestFirst(pool)[0];
-    return { kind: "resolved", model: best, reason: "only OpenAI image models accept an alpha mask" };
+    return { kind: "resolved", model: ordered[0], reason: "only OpenAI image models accept an alpha mask" };
   }
   if (req.transparent) {
-    const best = strongestFirst(pool)[0];
-    return { kind: "resolved", model: best, reason: "only gpt-image-1.5 supports a transparent background" };
+    return {
+      kind: "resolved",
+      model: ordered[0],
+      reason: `a transparent background needs a model that returns alpha — ${ordered[0].id} does, on png or webp`,
+    };
   }
 
   // A throwaway illustration has a named model rather than a price search: the
@@ -252,13 +308,18 @@ export function route(input: RoutingInput): RoutingDecision {
   // reasons that have nothing to do with being a good quick sketch.
   if (intent.draft) {
     const lite = pool.find((m) => m.id === DRAFT_MODEL);
-    const pick = lite ?? [...pool].sort((a, b) => a.approxCostUsd1K - b.approxCostUsd1K)[0];
+    // Cheapest KNOWN price; a model with no published per-image price is not
+    // cheap by default. With no known price left, the preference order decides.
+    const priced = pool
+      .filter((m) => m.approxCostUsd1K !== null)
+      .sort((a, b) => a.approxCostUsd1K! - b.approxCostUsd1K!);
+    const pick = lite ?? priced[0] ?? ordered[0];
     return {
       kind: "resolved",
       model: pick,
       reason: lite
-        ? `quick illustration — about $${pick.approxCostUsd1K.toFixed(3)} per image`
-        : `quick illustration — ${DRAFT_MODEL} unavailable, cheapest that fits at about $${pick.approxCostUsd1K.toFixed(3)}`,
+        ? `quick illustration — ${money(pick.approxCostUsd1K)} per image`
+        : `quick illustration — ${DRAFT_MODEL} unavailable, ${priced[0] ? "cheapest that fits" : "first in preference order"} at ${money(pick.approxCostUsd1K)}`,
     };
   }
 
@@ -282,14 +343,20 @@ export function route(input: RoutingInput): RoutingDecision {
   };
 
   const configured = byPreference(
-    input.preferredModels ?? [],
+    preferred,
     "no capability signal either way — using the configured preference"
   );
   if (configured) return configured;
 
+  const policy = byPreference(
+    POLICY_PREFERENCE,
+    "the default image model (override with --model or `preferredModels`)"
+  );
+  if (policy) return policy;
+
   const measured = byPreference(
     DEFAULT_PREFERENCE,
-    "no capability signal either way — highest-ranked available model in the public preference " +
+    "no OpenAI model available — highest-ranked available model in the public preference " +
       "arenas (as of 2026-08-17; override with `preferredModels`)"
   );
   if (measured) return measured;
