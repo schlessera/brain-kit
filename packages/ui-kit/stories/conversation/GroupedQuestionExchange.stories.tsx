@@ -70,6 +70,7 @@ export const PhoneChat = meta.story({
       [groupedQuestions[0]!.question]: "Along the coast", [groupedQuestions[1]!.question]: "The crew",
     }, annotations: { [groupedQuestions[0]!.question]: { preview: groupedQuestions[0]!.options[0]!.preview } } });
     await expect(canvas.getAllByText("Answered · 2 questions")).toHaveLength(1);
+    await expect(canvasElement.querySelector("[data-group-live]")?.textContent ?? "").toBe("All 2 answered. Submitted.");
     await expect(canvas.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
     await expect(overflowing(canvasElement)).toEqual([]);
   },

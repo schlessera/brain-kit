@@ -125,7 +125,6 @@ export function AskUserGroupCard(p: AskUserGroupCardProps) {
             <Button label="Dismiss" tone="quiet" size="sm" block={false} style={buttonTarget} onClick={p.onDismiss} />
             <div data-group-primary><Button label={complete ? "Submit" : "Go to unanswered"} tone="affirm" size="sm" block={false} style={buttonTarget} onClick={p.onSubmit ? submit : undefined} /></div>
           </div>
-          <div data-group-live aria-live="polite" aria-atomic="true" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}><span key={announcement.sequence}>{announcement.text}</span></div>
         </>
       ) : (
         <>
@@ -149,6 +148,7 @@ export function AskUserGroupCard(p: AskUserGroupCardProps) {
           </div> : null}
         </>
       )}
+      <div data-group-live aria-live="polite" aria-atomic="true" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}><span key={announcement.sequence}>{announcement.text}</span></div>
     </div>
   );
 }
