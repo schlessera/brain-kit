@@ -4,7 +4,7 @@
 import { unregisterAskUserDom } from "./ask-user-dom.js";
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import type { ToolCallView } from "@schlessera/brain-ui-sdk/client";
 
@@ -16,7 +16,8 @@ import {
   quoted,
   recordedAnswers,
 } from "../../src/components/chat/ask-user-card.js";
-import { reaskMessage } from "../../src/components/chat/ask-user-typed.js";
+import { reaskMessage, takeComposerTextAsAnswer } from "../../src/components/chat/ask-user-typed.js";
+import { createBrainUiRoot } from "../../src/root.js";
 import {
   ImageMaskFallback,
   ImageMaskResultCard,
@@ -235,7 +236,7 @@ describe("AskUserCard · pending", () => {
     expect(queryByText("Preview")).toBeNull();
   });
 
-  test("with several questions only the last card carries the actions and answers gather", () => {
+  test("several questions share one header and action row, and answers gather", () => {
     const submitted: unknown[] = [];
     const two: AskUserQuestion[] = [
       single[0],
@@ -249,9 +250,10 @@ describe("AskUserCard · pending", () => {
         onCancel={() => {}}
       />
     );
-    expect(getAllByText("Submit")).toHaveLength(1);
+    expect(getAllByText(/needs your input/)).toHaveLength(1);
+    expect(getAllByText("Go to unanswered")).toHaveLength(1);
     fireEvent.click(getByText("Beta"));
-    fireEvent.click(getByText("Submit"));
+    fireEvent.click(getByText("Go to unanswered"));
     expect(submitted).toHaveLength(0);
     fireEvent.click(getByText("Keep"));
     fireEvent.click(getByText("Submit"));
@@ -392,6 +394,153 @@ describe("AskUserCard · answered, typed, dismissed — all stay in the transcri
     expect(reaskMessage([{ question: "A?" }, { question: "B?" }], { "A?": "x", "B?": "y, z" })).toBe(
       "Answering \u201CA?\u201D: x\n\nAnswering \u201CB?\u201D: y, z"
     );
+  });
+});
+
+const grouped: AskUserQuestion[] = [single[0]!, multi[0]!, {
+  question: "When should the digest arrive?", header: "Delivery", multiSelect: false,
+  options: [{ label: "Dawn", description: "" }, { label: "Evening", description: "" }],
+}];
+
+describe("AskUserCard · grouped exchange", () => {
+  test.each([2, 3, 4])("%i questions render exactly one surface and primary", (count) => {
+    const questions = [...grouped, { ...single[0]!, header: "Fourth", question: "Fourth question?" }].slice(0, count);
+    const view = render(<AskUserCard requestId="group" questions={questions} onSubmit={() => {}} onCancel={() => {}} />);
+    expect(view.getAllByText(/needs your input/)).toHaveLength(1);
+    expect(view.container.querySelectorAll("[data-ask-group]")).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: "Go to unanswered" })).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: "Dismiss" })).toHaveLength(1);
+    expect(view.container.querySelectorAll("[data-question-index]")).toHaveLength(count);
+  });
+
+  test("incomplete activation sends nothing, flags every gap and focuses the first", () => {
+    const submitted: unknown[] = [];
+    const view = render(<AskUserCard requestId="group" questions={grouped} onSubmit={(...args) => submitted.push(args)} onCancel={() => {}} />);
+    fireEvent.click(view.getByText("Alpha"));
+    const primary = view.getByRole("button", { name: "Go to unanswered" });
+    expect(primary.hasAttribute("aria-disabled")).toBe(false);
+    fireEvent.click(primary);
+    expect(submitted).toEqual([]);
+    const gaps = view.container.querySelectorAll('[aria-invalid="true"]');
+    expect(gaps).toHaveLength(2);
+    expect(document.activeElement?.closest("[data-question-index]")).toBe(gaps[0]!);
+    expect(view.container.querySelector("[data-group-live]")!.textContent).toBe("2 questions still need an answer. Moved to Sections.");
+    fireEvent.click(view.getByText("Intro"));
+    expect(view.container.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1);
+    fireEvent.click(view.getByText("Dawn"));
+    expect(view.container.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
+    expect(view.container.querySelector("[data-group-live]")!.textContent).toBe("All 3 answered. Submit is ready.");
+    fireEvent.click(view.getByRole("button", { name: "Submit" }));
+    expect(submitted).toEqual([["group", { [QUESTION]: "Alpha", "Which sections stay?": "Intro", "When should the digest arrive?": "Dawn" }, undefined]]);
+  });
+
+  test("Other text survives blur, rerender and validation; previews travel per question", () => {
+    const submitted: unknown[] = [];
+    const questions = [{ ...grouped[0]!, options: [{ label: "Alpha", description: "", preview: "# First preview" }, single[0]!.options[1]!] }, ...grouped.slice(1)];
+    const props = { requestId: "group", questions, onSubmit: (...args: unknown[]) => submitted.push(args), onCancel: () => {} };
+    const view = render(<AskUserCard {...props} />);
+    const delivery = view.getByRole("radiogroup", { name: questions[2]!.question });
+    fireEvent.click(within(delivery).getByText("Other"));
+    const field = view.getByRole("textbox", { name: "Your own answer, Delivery" });
+    act(() => field.focus());
+    fireEvent.change(field, { target: { value: "after landfall" } });
+    fireEvent.keyUp(field, { key: "l" });
+    fireEvent.blur(field);
+    view.rerender(<AskUserCard {...props} questions={[...questions]} />);
+    expect((view.getByRole("textbox") as HTMLInputElement).value).toBe("after landfall");
+    fireEvent.click(view.getByRole("button", { name: "Go to unanswered" }));
+    expect(delivery.hasAttribute("aria-invalid")).toBe(false);
+    fireEvent.click(view.getByText("Alpha"));
+    fireEvent.click(view.getByText("Method"));
+    fireEvent.click(view.getByText("Notes"));
+    fireEvent.click(view.getByRole("button", { name: "Submit" }));
+    expect(submitted).toEqual([["group", { [QUESTION]: "Alpha", "Which sections stay?": "Method, Notes", "When should the digest arrive?": "after landfall" }, { [QUESTION]: { preview: "# First preview" } }]]);
+    view.rerender(<AskUserCard {...props} requestId="new-group" />);
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(view.getByText("0 of 3 answered")).toBeTruthy();
+  });
+
+  test("answered and dismissed retain one record, wrapping rows and one meta or lapsed row", () => {
+    const view = render(<AskUserCard requestId="group" questions={grouped} answered={{ [QUESTION]: "Alpha", "Which sections stay?": "Intro, Notes", "When should the digest arrive?": "after landfall" }} onSubmit={() => {}} onCancel={() => {}} />);
+    expect(view.getAllByText("Answered · 3 questions")).toHaveLength(1);
+    expect(view.container.querySelectorAll("[data-group-record-row]")).toHaveLength(3);
+    expect(view.getByText("Intro · Notes")).toBeTruthy();
+    expect(view.getByText(quoted("after landfall"))).toBeTruthy();
+    expect(view.getAllByText("you answered")).toHaveLength(1);
+    expect(view.queryByRole("radio")).toBeNull();
+    view.rerender(<AskUserCard requestId="group" questions={grouped} cancelled onSubmit={() => {}} onCancel={() => {}} onReask={() => {}} />);
+    expect(view.getAllByText("Unanswered — the turn ended")).toHaveLength(1);
+    expect(view.getAllByText(DISMISSED_NOTE)).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: "Ask again" })).toHaveLength(1);
+    expect(view.container.querySelectorAll("[data-group-record-row]")).toHaveLength(3);
+  });
+
+  test("Other Enter commits only its section and multi-select keeps focus there", () => {
+    const submitted: unknown[] = [];
+    const view = render(<AskUserCard requestId="group" questions={grouped} onSubmit={(...args) => submitted.push(args)} onCancel={() => {}} />);
+    const first = view.getByRole("radiogroup", { name: QUESTION });
+    fireEvent.click(within(first).getByText("Other"));
+    const firstField = view.getByRole("textbox", { name: "Your own answer, Draft" }) as HTMLInputElement;
+    act(() => firstField.focus());
+    firstField.value = "keep both accounts";
+    fireEvent.keyDown(firstField, { key: "Enter", isComposing: true });
+    expect(view.getByRole("textbox", { name: "Your own answer, Draft" })).toBe(firstField);
+    expect(submitted).toEqual([]);
+    fireEvent.keyDown(firstField, { key: "Enter" });
+    expect(submitted).toEqual([]);
+    expect(view.queryByRole("textbox")).toBeNull();
+    const middle = view.getByRole("group", { name: grouped[1]!.question });
+    expect(document.activeElement?.closest('[role="group"]')).toBe(middle);
+    fireEvent.click(within(middle).getByText("Other"));
+    const middleField = view.getByRole("textbox", { name: "Your own answer, Sections" }) as HTMLInputElement;
+    act(() => middleField.focus());
+    middleField.value = "Charts";
+    fireEvent.keyDown(middleField, { key: "Enter" });
+    expect(submitted).toEqual([]);
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement?.closest('[role="group"]')).toBe(middle);
+    fireEvent.click(view.getByText("Method"));
+    fireEvent.click(view.getByText("Dawn"));
+    fireEvent.click(view.getByRole("button", { name: "Submit" }));
+    expect(submitted).toEqual([["group", { [QUESTION]: "keep both accounts", "Which sections stay?": "Charts, Method", "When should the digest arrive?": "Dawn" }, undefined]]);
+  });
+
+  test("reopened group submits one ordinary reask message and closes locally", () => {
+    const submitted: unknown[] = [], reasked: string[] = [], cancelled: string[] = [];
+    const view = render(<AskUserCard requestId="group" questions={grouped} cancelled onSubmit={(...args) => submitted.push(args)} onCancel={(id) => cancelled.push(id)} onReask={(text) => reasked.push(text)} />);
+    fireEvent.click(view.getByRole("button", { name: "Ask again" }));
+    fireEvent.click(view.getByText("Beta"));
+    fireEvent.click(view.getByText("Intro"));
+    fireEvent.click(view.getByText("Dawn"));
+    fireEvent.click(view.getByRole("button", { name: "Submit" }));
+    expect(reasked).toEqual([reaskMessage(grouped, { [QUESTION]: "Beta", "Which sections stay?": "Intro", "When should the digest arrive?": "Dawn" })]);
+    expect(submitted).toEqual([]);
+    expect(view.queryByRole("radio")).toBeNull();
+    expect(view.getByText(DISMISSED_NOTE)).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Ask again" }));
+    fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
+    expect(cancelled).toEqual([]);
+    expect(reasked).toHaveLength(1);
+    expect(view.queryByRole("radio")).toBeNull();
+  });
+
+  test("a composer send does not consume or mutate a pending group", () => {
+    const root = createBrainUiRoot({ storage: null });
+    root.stores.chat.getState().startAssistantMessage(null);
+    root.stores.chat.getState().setAskUserRequest(null, "group", grouped);
+    const exchange = root.stores.chat.getState().draft!.askUser!;
+    const sent: unknown[] = [];
+    const view = render(<AskUserCard requestId={exchange.requestId} questions={exchange.questions} onSubmit={() => {}} onCancel={() => {}} />);
+    fireEvent.click(view.getByText("Alpha"));
+    expect(takeComposerTextAsAnswer(root.stores.chat.getState(), null, "ordinary message", (message) => sent.push(message))).toBe(false);
+    expect(root.stores.chat.getState().draft!.askUser).toBe(exchange);
+    expect(exchange.questions).toHaveLength(3);
+    expect(exchange.answers).toBeUndefined();
+    expect(sent).toEqual([]);
+    view.rerender(<AskUserCard requestId={exchange.requestId} questions={exchange.questions} onSubmit={() => {}} onCancel={() => {}} />);
+    expect(view.getByText("1 of 3 answered")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Go to unanswered" })).toBeTruthy();
+    root.dispose();
   });
 });
 

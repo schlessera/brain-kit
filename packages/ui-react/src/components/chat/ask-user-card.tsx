@@ -1,40 +1,14 @@
 /**
- * The `ask_user` exchange, one kit `AskUserCard` per question (D38 §1).
- *
- * An exchange is not a tool card. It has four states and all four stay in
- * the transcript at full contrast — nothing rolls up or fades, because a
- * question the agent asked is part of the record whichever way it was
- * answered:
- *
- *   `pending`   — the options, one focus stop, Submit / Dismiss. "Other"
- *                 opens the kit's free-text field in place of the Submit row:
- *                 a typed alternative is the same exchange, not a new one.
- *   `answered`  — the chosen answer in mono teal, with when. The alternatives
- *                 are GONE, not dimmed: they were never the record. A
- *                 multi-select lists every choice as its own row.
- *   `typed`     — the user answered in the composer instead. The card quotes
- *                 what it took, under a neutral border.
- *   `dismissed` — the question the turn outlived, in gold (seventh drop,
- *                 ruling 7): no options, a lapsed row stating the fact, and
- *                 "Ask again". The server-side request is already resolved,
- *                 so asking again reopens the card LOCALLY to pending, and a
- *                 submit from a reopened card goes out as a normal composer
- *                 message quoting the question and the chosen answer(s)
- *                 (`onReask`) rather than as an `ask_user_response` nobody is
- *                 waiting for. No `onReask`, no button (D20).
- *
- * Multi-select questions ride the same kit card with `multi` (ruling 6): the
- * options are `ChoiceOption multiple` — checkbox role, square mark — inside a
- * `role="group"`, and "Other" toggles like any other row. The exchange's
- * answers are keyed by question text and submitted together, so the action
- * row sits on the LAST question's card and gathers every question's
- * selection.
+ * The ask_user exchange (D38 §1): a single question retains its four-state
+ * kit card; two to four questions share one grouped card (#541).
+ * Dismissed requests reopen locally and send a normal composer reask message.
  */
 
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import {
   AskUserCard as KitAskUserCard,
+  AskUserGroupCard,
   Surface,
   type AskUserOption as KitAskUserOption,
 } from "@schlessera/brain-ui-kit";
@@ -217,8 +191,6 @@ export function AskUserCard({
     );
   }
 
-  const complete = questions.every((_q, i) => answerFor(state[i]).length > 0);
-
   function submit(override?: { qi: number; text: string }) {
     const answers: Record<string, string> = {};
     const annotations: Record<string, AskUserAnnotation> = {};
@@ -264,8 +236,8 @@ export function AskUserCard({
 
   /**
    * The kit's Other field submitted. With one question that IS the answer;
-   * with several, the text is held for that question and the last card's
-   * Submit sends everything together.
+   * with several, the text is held for that section and the group's Submit
+   * sends everything together.
    */
   function takeOther(qi: number, text: string) {
     const trimmed = text.trim();
@@ -276,6 +248,51 @@ export function AskUserCard({
     }
     setState((prev) =>
       prev.map((s, i) => (i === qi ? { ...s, otherOpen: false, otherText: trimmed } : s))
+    );
+  }
+
+  if (questions.length > 1) {
+    return (
+      <AskUserGroupCard
+        key={requestId}
+        id={requestId}
+        state={answered ? "answered" : dismissed ? "dismissed" : "pending"}
+        prompt={prompt}
+        questions={questions.map((q, qi) => {
+          const s = state[qi] ?? defaultState();
+          const preview = previewFor(q, s);
+          const picked = !q.multiSelect && s.selected.length === 1
+            ? q.options.find((o) => o.label === s.selected[0]) : undefined;
+          return {
+            header: q.header, question: q.question, multi: q.multiSelect,
+            answer: answered
+              ? recordedAnswers(q, answered).map((text) => q.options.some((o) => o.label === text) ? text : quoted(text)).join(" · ")
+              : answerFor(s).join(MULTI_JOIN),
+            annotation: picked?.preview ? { preview: picked.preview } : undefined,
+            options: [
+              ...q.options.map((o) => ({ title: o.label, subtitle: o.description,
+                selected: s.selected.includes(o.label), onClick: () => pick(qi, o.label), onFocus: () => focus(qi, o.label) })),
+              { title: OTHER_LABEL, subtitle: s.otherText || "Provide a custom answer.",
+                italic: !s.otherText, dim: !s.otherText, selected: s.selected.includes(OTHER_LABEL),
+                onClick: () => pick(qi, OTHER_LABEL), onFocus: () => focus(qi, null) },
+            ],
+            otherOpen: s.otherOpen, otherText: s.otherText,
+            onOtherChange: (otherText: string) => setState((prev) => prev.map((value, i) => i === qi ? { ...value, otherText } : value)),
+            onOtherSubmit: (text: string) => takeOther(qi, text),
+            preview: preview ? <PreviewPane content={preview} /> : undefined,
+          };
+        })}
+        answerMeta={answeredAt === undefined ? "you answered" : `you answered · ${formatRelativeTime(answeredAt)}`}
+        lapsedNote={DISMISSED_NOTE}
+        onSubmit={(answers, annotations) => {
+          if (reopened) {
+            onReask?.(reaskMessage(questions, answers));
+            setReopened(false);
+          } else onSubmit(requestId, answers, annotations);
+        }}
+        onDismiss={() => reopened ? setReopened(false) : onCancel(requestId)}
+        onAskAgain={onReask ? () => setReopened(true) : undefined}
+      />
     );
   }
 
@@ -358,9 +375,7 @@ export function AskUserCard({
               otherPlaceholder="Type your answer…"
               onOtherSubmit={(text) => takeOther(qi, text)}
               showActions={isLast}
-              // The kit's action row cannot be disabled from here; an
-              // incomplete Submit is a no-op rather than a partial answer.
-              onPrimary={() => (complete ? submit() : undefined)}
+              onPrimary={() => submit()}
               // A reopened card's Dismiss closes it again locally: there is
               // no server-side request left to cancel.
               onSecondary={() => (reopened ? setReopened(false) : onCancel(requestId))}

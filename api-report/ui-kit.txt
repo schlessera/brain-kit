@@ -18,6 +18,9 @@ export "." (./src/index.ts)
   type ApprovalCardProps
   AskUserCard
   type AskUserCardProps
+  AskUserGroupCard
+  type AskUserGroupCardProps
+  type AskUserGroupQuestion
   AskUserListCard
   type AskUserListCardProps
   type AskUserListItem

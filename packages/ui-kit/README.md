@@ -25,6 +25,15 @@ accessibility gate — is in `docs/decisions/design-kit.md`, and the measured
 design divergences several components ship on purpose are in
 `docs/decisions/design-feedback.md`.
 
+## Grouped questions
+
+`AskUserGroupCard` presents two to four questions as one exchange, with one
+header and action row. The caller supplies each section's options, current
+answer, controlled Other text and callbacks. The kit marks unanswered sections
+and moves focus when **Go to unanswered** is activated; **Submit** returns all
+answers together. Answered and dismissed exchanges keep one row per question.
+Use `AskUserCard` for a single question, including its composer-typed state.
+
 ## Link policy
 
 `@schlessera/brain-ui-kit/links` exports `classifyLink`, the one decision about

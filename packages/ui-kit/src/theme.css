@@ -118,3 +118,12 @@
   --animate-breathe: breathe 2s ease-in-out infinite;
   --animate-breathe-slow: breathe 3s ease-in-out infinite; /* AgentOrbit core */
 }
+
+/* A grouped question keeps the existing option paint with a full touch target. */
+.bk-ask-group [data-group-option] > .bk-row {
+  min-height: 44px;
+  overflow-wrap: anywhere;
+}
+.bk-ask-group .bk-field {
+  min-height: 44px;
+}

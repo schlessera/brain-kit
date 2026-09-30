@@ -11,6 +11,7 @@
 //      card, never a phrase inside the model's prose.
 
 import { REFERENCE_DATE, TIMEZONE_FOOTNOTE, daysAfter } from "./time.js";
+import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import type { AskOption, ButtonTone, EmptyTone, IconKey, ReceiptRow, ToastTone, Tone } from "./types.js";
 
 export type ActionKind =
@@ -485,4 +486,36 @@ export const emptyStates: EmptyStateFixture[] = [
     icon: "sunrise",
     tone: "neutral",
   },
+];
+
+/** A homeward plan asks several independent questions in one exchange. */
+export const groupedQuestions: AskUserQuestion[] = [
+  { header: "Homeward", question: "Which route should the crew take on the next leg towards Ithaca?", multiSelect: false,
+    options: [
+      { label: "Along the coast", description: "Keep the headlands in sight and make shelter before nightfall.", preview: "Follow the coast; stop at the next sheltered harbour." },
+      { label: "Across open water", description: "Take the shorter passage while the west wind holds." },
+      { label: "Wait in harbour", description: "Rest the crew and ask for a fresh account of the wind." },
+      { label: "Return to Aeaea", description: "Seek another account of the passage before choosing a course." },
+    ] },
+  { header: "Voyage notes", question: "Which parts of the voyage should the next digest keep following?", multiSelect: true,
+    options: [
+      { label: "The crew", description: "Oaths, supplies and each sailor's account of the passage." },
+      { label: "The wind", description: "Changes in direction and the shelter available ahead." },
+      { label: "The harbours", description: "Landfalls, hospitality and the distance to the next refuge." },
+      { label: "The omens", description: "Reported signs and the source of each interpretation." },
+    ] },
+  { header: "Departure", question: "When should the crew leave the sheltered harbour on the next passage?", multiSelect: false,
+    options: [
+      { label: "At dawn", description: "Set sail as soon as the headlands can be seen." },
+      { label: "After the meal", description: "Finish the provisions and speak to the watch first." },
+      { label: "At midday", description: "Give the crew time to repair the oars before leaving." },
+      { label: "The next day", description: "Wait for another account of the wind." },
+    ] },
+  { header: "Return route", question: "How much of the return route should the digest describe for the crew?", multiSelect: false,
+    options: [
+      { label: "The next landfall", description: "Name the next shelter and the signs used to reach it." },
+      { label: "The next two days", description: "Include a second refuge in case the wind changes." },
+      { label: "All the way home", description: "Keep the full route to Ithaca visible beside its uncertainties." },
+      { label: "Only the risks", description: "List the disputed passages and the observations still needed." },
+    ] },
 ];

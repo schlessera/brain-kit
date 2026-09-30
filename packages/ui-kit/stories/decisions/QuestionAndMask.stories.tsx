@@ -1,8 +1,10 @@
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { useState } from "react";
+import { expect, fn, within } from "storybook/test";
 
 import {
   askOptions,
+  groupedQuestions,
   askUser,
   followAnswers,
   followOptions,
@@ -14,6 +16,7 @@ import {
   receiptDiff,
 } from "../../fixtures/actions.js";
 import { AskUserCard } from "../../src/decisions/AskUserCard.js";
+import { AskUserGroupCard, type AskUserGroupCardProps } from "../../src/decisions/AskUserGroupCard.js";
 import { AskUserListCard } from "../../src/decisions/AskUserListCard.js";
 import { Receipt } from "../../src/evidence/Receipt.js";
 import { Callout } from "../../src/primitives/Callout.js";
@@ -657,3 +660,207 @@ export const ListDismissed = meta.story({
     await expect(canvas.getAllByRole("button", { name: "Ask again" })).toHaveLength(1);
   },
 });
+
+
+/* Multi-question ask_user (#541): one exchange, in both themes and widths. */
+function GroupHarness(p: {
+  state?: AskUserGroupCardProps["state"];
+  all?: boolean;
+  firstAnswered?: boolean;
+  onSubmit?: AskUserGroupCardProps["onSubmit"];
+  onAskAgain?: () => void;
+}) {
+  const questions = p.all
+    ? groupedQuestions.map((q, i) => ({ ...q, header: ["Homeward leg", "Voyage notes", "Set sail now", "Return route"][i]! }))
+    : groupedQuestions.slice(0, 3);
+  const [values, setValues] = useState(() => questions.map((_q, i) => ({
+    selected: p.firstAnswered && i === 0 ? [questions[0]!.options[0]!.label] : [] as string[],
+    text: "", open: false, focused: "",
+  })));
+  function pick(i: number, label: string) {
+    setValues((prev) => prev.map((v, j) => {
+      if (i !== j) return v;
+      const selected = questions[i]!.multiSelect
+        ? v.selected.includes(label) ? v.selected.filter((s) => s !== label) : [...v.selected, label]
+        : v.selected[0] === label ? [] : [label];
+      return { ...v, selected, open: selected.includes("Other") };
+    }));
+  }
+  function update(i: number, patch: Partial<(typeof values)[number]>) {
+    setValues((prev) => prev.map((v, j) => i === j ? { ...v, ...patch } : v));
+  }
+  const records = ["Along the coast", "The crew · The wind", "“after the watch changes, before nightfall”", "All the way home, with each uncertainty stated beside the passage it affects"];
+  return <AskUserGroupCard id="group-story" state={p.state} onSubmit={p.onSubmit ?? fn()} onDismiss={fn()} onAskAgain={p.onAskAgain} answerMeta="you answered · 2m ago"
+    questions={questions.map((q, i) => {
+      const value = values[i]!;
+      const preview = q.options.find((o) => o.label === value.focused)?.preview
+        ?? (value.selected.length === 1 ? q.options.find((o) => o.label === value.selected[0])?.preview : undefined);
+      return { header: q.header, question: q.question, multi: q.multiSelect,
+        answer: p.state === "answered" ? records[i] : value.selected.flatMap((s) => s === "Other" ? value.text.trim() ? [value.text.trim()] : [] : [s]).join(", "),
+        annotation: value.selected.length === 1 && value.selected[0] === q.options[0]!.label && q.options[0]!.preview ? { preview: q.options[0]!.preview } : undefined,
+        options: [...q.options.map((o) => ({ title: o.label, subtitle: o.description, selected: value.selected.includes(o.label), onClick: () => pick(i, o.label), onFocus: () => update(i, { focused: o.label }) })),
+          { title: "Other", subtitle: value.text || "Provide a custom answer.", selected: value.selected.includes("Other"), onClick: () => pick(i, "Other"), onFocus: () => update(i, { focused: "Other" }) }],
+        otherOpen: value.open, otherText: value.text, onOtherChange: (text) => update(i, { text }), onOtherSubmit: (text) => update(i, { text: text.trim(), open: false }),
+        preview: preview ? <Surface label="Preview" labelIcon="file" pad={10}>{preview}</Surface> : undefined,
+      };
+    })} />;
+}
+
+async function groupFits(root: HTMLElement) {
+  await expect(overflowing(root)).toEqual([]);
+  await expect(root.querySelectorAll("[data-group-head]")).toHaveLength(1);
+  for (const el of root.querySelectorAll<HTMLElement>("*")) await expect(getComputedStyle(el).opacity).toBe("1");
+}
+
+export const MultiQuestion = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness />,
+  play: async ({ canvas, canvasElement }) => {
+    await groupFits(canvasElement);
+    await expect(canvas.getAllByRole("button", { name: "Dismiss" })).toHaveLength(1);
+    await expect(canvasElement.querySelectorAll("[data-group-actions]")).toHaveLength(1);
+    for (const q of groupedQuestions.slice(0, 3)) await expect(canvas.getByRole(q.multiSelect ? "group" : "radiogroup", { name: q.question })).toBeInTheDocument();
+  },
+});
+
+const groupIncompleteSubmit = fn();
+export const MultiQuestionIncomplete = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness firstAnswered onSubmit={groupIncompleteSubmit} />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const primary = canvas.getByRole("button", { name: "Go to unanswered" });
+    await expect(primary).not.toHaveAttribute("disabled");
+    await expect(primary).not.toHaveAttribute("aria-disabled");
+    await expect(canvas.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
+    const live = canvasElement.querySelector("[data-group-live]")!;
+    let announcements = 0;
+    const observer = new MutationObserver(() => announcements++);
+    observer.observe(live, { childList: true, subtree: true, characterData: true });
+    await userEvent.click(primary);
+    await expect(groupIncompleteSubmit).not.toHaveBeenCalled();
+    await expect(canvasElement.querySelectorAll('[aria-invalid="true"]')).toHaveLength(2);
+    await expect(document.activeElement?.closest('[role="group"]')).toHaveAccessibleName(groupedQuestions[1]!.question);
+    await expect(live.textContent).toBe("2 questions still need an answer. Moved to Voyage notes.");
+    await expect(announcements).toBe(1);
+    await userEvent.click(primary);
+    await expect(announcements).toBe(2);
+    await expect(groupIncompleteSubmit).not.toHaveBeenCalled();
+    observer.disconnect();
+    await userEvent.click(canvas.getByRole("checkbox", { name: /The crew/ }));
+    await expect(canvasElement.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1);
+    await expect(live.textContent).toBe("2 questions still need an answer. Moved to Voyage notes.");
+    await userEvent.click(canvas.getByRole("radio", { name: /At dawn/ }));
+    await expect(live.textContent).toBe("All 3 answered. Submit is ready.");
+    await expect(canvas.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+    await groupFits(canvasElement);
+  },
+});
+
+const groupKeepSubmit = fn();
+export const MultiQuestionKeepsAnswers = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness onSubmit={groupKeepSubmit} />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByRole("radio", { name: /Along the coast/ }));
+    const departure = within(canvas.getByRole("radiogroup", { name: groupedQuestions[2]!.question }));
+    await userEvent.click(departure.getByRole("radio", { name: /Other/ }));
+    await userEvent.type(canvas.getByRole("textbox", { name: "Your own answer, Departure" }), "after landfall");
+    await userEvent.tab();
+    await userEvent.click(canvas.getByRole("checkbox", { name: /The crew/ }));
+    await userEvent.click(canvas.getByRole("checkbox", { name: /The wind/ }));
+    await expect(canvas.getByRole("textbox")).toHaveValue("after landfall");
+    await userEvent.click(canvas.getByRole("button", { name: "Submit" }));
+    await expect(groupKeepSubmit).toHaveBeenCalledTimes(1);
+    await expect(groupKeepSubmit).toHaveBeenCalledWith({
+      [groupedQuestions[0]!.question]: "Along the coast", [groupedQuestions[1]!.question]: "The crew, The wind", [groupedQuestions[2]!.question]: "after landfall",
+    }, { [groupedQuestions[0]!.question]: { preview: groupedQuestions[0]!.options[0]!.preview } });
+    await groupFits(canvasElement);
+  },
+});
+
+export const MultiQuestionHandOn = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const first = canvas.getByRole("radio", { name: /Along the coast/ });
+    first.focus();
+    await userEvent.keyboard("{Enter}");
+    const crew = canvas.getByRole("checkbox", { name: /The crew/ });
+    await expect(document.activeElement).toBe(crew);
+    await userEvent.keyboard(" ");
+    await expect(document.activeElement).toBe(crew);
+    const across = canvas.getByRole("radio", { name: /Across open water/ });
+    across.focus();
+    await userEvent.click(across);
+    await expect(document.activeElement).toBe(across);
+    const departure = within(canvas.getByRole("radiogroup", { name: groupedQuestions[2]!.question }));
+    departure.getByRole("radio", { name: /Other/ }).focus();
+    await userEvent.keyboard("{Enter}{Tab}");
+    await userEvent.type(canvas.getByRole("textbox"), "after landfall{Enter}");
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
+    await expect(document.activeElement).toHaveAccessibleName("Submit");
+    await groupFits(canvasElement);
+  },
+});
+
+export const MultiQuestionLongest = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness all />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const departure = within(canvas.getByRole("radiogroup", { name: groupedQuestions[2]!.question }));
+    await userEvent.click(departure.getByRole("radio", { name: /Other/ }));
+    await expect(canvas.getByRole("textbox").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await groupFits(canvasElement);
+    const controls = canvasElement.querySelectorAll<HTMLElement>('[role="radio"], [role="checkbox"], [role="button"]');
+    await expect(controls).toHaveLength(22);
+    for (const control of controls) await expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  },
+});
+
+export const MultiQuestionAnswered = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness all state="answered" />,
+  play: async ({ canvas, canvasElement }) => {
+    await groupFits(canvasElement);
+    await expect(canvasElement.querySelectorAll("[data-group-record-row]")).toHaveLength(4);
+    await expect(canvasElement.querySelectorAll("[data-group-meta]")).toHaveLength(1);
+    await expect(canvas.getByText("The crew · The wind")).toBeInTheDocument();
+    await expect(canvas.queryAllByRole("radio")).toHaveLength(0);
+    for (const row of canvasElement.querySelectorAll<HTMLElement>("[data-group-record-row]")) await expect(getComputedStyle(row).textOverflow).not.toBe("ellipsis");
+  },
+});
+
+export const MultiQuestionDismissed = meta.story({
+  parameters: at320,
+  render: () => <GroupHarness all state="dismissed" onAskAgain={fn()} />,
+  play: async ({ canvas, canvasElement }) => {
+    await groupFits(canvasElement);
+    await expect(canvasElement.querySelectorAll("[data-group-lapsed]")).toHaveLength(1);
+    await expect(canvasElement.querySelectorAll("[data-group-record-row]")).toHaveLength(4);
+    await expect(canvas.getAllByRole("button", { name: "Ask again" })).toHaveLength(1);
+    await expect(canvas.queryAllByRole("radio")).toHaveLength(0);
+  },
+});
+
+const singleOtherSubmit = fn();
+export const SingleQuestionUnchanged = meta.story({
+  parameters: at320,
+  render: () => <AskUserCard {...ask} options={options} otherOpen onOtherSubmit={singleOtherSubmit} onPrimary={fn()} onSecondary={fn()} />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getAllByRole("radiogroup")).toHaveLength(1);
+    await expect(canvas.queryAllByRole("button")).toHaveLength(0);
+    const field = canvas.getByRole("textbox", { name: "Your own answer" });
+    await userEvent.type(field, "keep the omens{Enter}");
+    await expect(singleOtherSubmit).toHaveBeenCalledTimes(1);
+    await expect(singleOtherSubmit).toHaveBeenCalledWith("keep the omens");
+  },
+});
+
+export const MultiQuestionWide = MultiQuestion.extend({ parameters: wide });
+export const MultiQuestionIncompleteWide = MultiQuestionIncomplete.extend({ parameters: wide });
+export const MultiQuestionKeepsAnswersWide = MultiQuestionKeepsAnswers.extend({ parameters: wide });
+export const MultiQuestionHandOnWide = MultiQuestionHandOn.extend({ parameters: wide });
+export const MultiQuestionLongestWide = MultiQuestionLongest.extend({ parameters: wide });
+export const MultiQuestionAnsweredWide = MultiQuestionAnswered.extend({ parameters: wide });
+export const MultiQuestionDismissedWide = MultiQuestionDismissed.extend({ parameters: wide });
+export const SingleQuestionUnchangedWide = SingleQuestionUnchanged.extend({ parameters: wide });
