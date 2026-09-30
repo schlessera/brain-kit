@@ -46,8 +46,10 @@ const outcomes = await runAdapters({
 Enforced by default, because this is a library and the consumer who never
 thinks about it should still behave.
 
-- **`robots.txt`** is fetched once per origin, cached for the process, and
-  applied before any request goes out. A disallowed URL throws
+- **`robots.txt`** is fetched once per origin and cached by the caller-owned
+  cache. HTTP checks each hop; Chrome checks HTTP(S) main-frame navigation,
+  including redirects and subsequent navigation during a load, before dispatch.
+  Browser subresources are outside these checks (see below). A disallowed URL throws
   `RobotsDisallowedError` rather than being fetched. The escape hatch is
   per-call — `{ allowDisallowed: true }` — so it is always visible which site
   it applies to.
@@ -78,6 +80,53 @@ but the two must never share an instance. That renderer's identity is
 to personal data. A scraper is the exact inverse. Two packages, two postures,
 no flag between them.
 
+Every session enforces robots.txt and per-host pacing on HTTP(S) main-frame
+navigation before dispatch: the initial page, every redirect target and later
+navigation while `load` is active. The `userAgent` option is both the Chrome
+request identity and the robots matching token; it defaults to this package's
+identity. Scripts, images, child frames and page-generated API calls are
+continued without these policy checks or pacing. This is a navigation policy,
+not a browser network sandbox. Adapters must still follow the
+[rule against intentional circumvention](../../docs/decisions/scraping-politeness.md).
+
+`PageRequest.allowDisallowed`, default off, is a per-call permission for an
+owned host or written site authorization. It covers only the original URL's
+origin, including same-origin redirects; another origin is checked normally,
+and the option never carries into the next call. Ordinary pacing and usable
+`Crawl-delay` still apply. An adapter setting it cites its authorization.
+There is no session-wide browser opt-out. `SCRAPE_RESPECT_ROBOTS` and the
+HTTP client's `respectRobots` option affect HTTP only.
+
+`BrowserSessionOptions.robots` and `.rateLimiter` accept the run's owned cache
+and limiter. Omitted, each session creates its own. `ScrapeClient` exposes its
+readonly `robots`, `rateLimiter` and `userAgent` so a preconstructed client can
+share them too. Both `runAdapters` and the jobs runner wire this sharing;
+custom browser options can supply their own objects deliberately.
+
+```ts
+import { ScrapeClient, createBrowserSession } from "@schlessera/brain-scrape";
+
+const http = new ScrapeClient();
+const browser = createBrowserSession({
+  robots: http.robots,
+  rateLimiter: http.rateLimiter,
+  userAgent: http.userAgent,
+});
+try {
+  const title = await browser.load({ url: "https://example.com/list", extract: () => document.title });
+} finally {
+  await browser.close();
+}
+```
+
+The page's `pageBudgetMs` (45 seconds by default) starts after acquiring concurrency capacity and
+includes browser/page acquisition, policy waits, navigation, selector/settle
+waits and extraction. A refusal or timeout rejects `load`, closes the page
+and releases capacity. Policy cancellation does not discard a shared robots
+fetch; a cancelled limiter acquisition preserves the order of other waiters
+and never records a dispatched request. `RateLimiter.acquire` and an injected
+clock's `sleep` accept an optional `AbortSignal` for these waits.
+
 ## Configuration
 
 <!-- env:begin -->
@@ -87,7 +136,7 @@ no flag between them.
 | `SCRAPE_CHROME_NO_SANDBOX` | Set to 1 to launch Chrome with --no-sandbox. Required only when the process runs as root (a container). Weaker: a renderer exploit then lands on the host user. | unset (sandbox stays on) |
 | `SCRAPE_CHROME_PATH` | Chrome/Chromium executable to launch for browser-rendered sites. Unset falls back to the usual distro paths. | — |
 | `SCRAPE_CHROME_URL` | DevTools endpoint of an ALREADY RUNNING Chrome to drive instead of launching one (e.g. http://127.0.0.1:9222). Unset means this package launches and owns its own browser. | — |
-| `SCRAPE_RESPECT_ROBOTS` | Set to 0/off/false to stop enforcing robots.txt in every client built from resolveEnv() (a ScrapeClient constructed directly follows its own respectRobots option). The per-site opt-out is preferred; this exists for a run against a host you operate. | on |
+| `SCRAPE_RESPECT_ROBOTS` | Set to 0/off/false to stop enforcing robots.txt in every HTTP client built from resolveEnv() (a ScrapeClient constructed directly follows its own respectRobots option). Browser navigation is unaffected. The per-site opt-out is preferred; this exists for a run against a host you operate. | on |
 | `SCRAPE_USER_AGENT` | User-Agent sent with every request, and the token matched against robots.txt groups. Override per site via fetch options rather than globally where possible. | brain-scrape (+https://github.com/schlessera/brain-kit) |
 
 Generated from `packages/scrape/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.

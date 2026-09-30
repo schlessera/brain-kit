@@ -36,6 +36,9 @@ class FakeBrowser {
     this.pagesOpened++;
     return {
       setUserAgent: async () => {},
+      setBypassServiceWorker: async () => {},
+      setRequestInterception: async () => {},
+      on: () => {},
       setDefaultTimeout: () => {},
       setDefaultNavigationTimeout: () => {},
       goto: async () => {},

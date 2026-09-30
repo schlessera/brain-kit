@@ -51,7 +51,13 @@ export async function runAdapters<T>(options: RunAdaptersOptions<T>): Promise<Ar
       browser = options.browser as BrowserSession;
     } else {
       try {
-        browser = createBrowserSession((options.browser as BrowserSessionOptions) ?? {});
+        const browserOptions = (options.browser as BrowserSessionOptions) ?? {};
+        browser = createBrowserSession({
+          ...browserOptions,
+          robots: browserOptions.robots ?? http.robots,
+          rateLimiter: browserOptions.rateLimiter ?? http.rateLimiter,
+          userAgent: browserOptions.userAgent ?? http.userAgent,
+        });
         ownBrowser = true;
       } catch (e) {
         // No Chrome, or no puppeteer-core. Browser adapters will skip; the

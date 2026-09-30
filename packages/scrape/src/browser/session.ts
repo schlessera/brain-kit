@@ -25,6 +25,12 @@
  * without it installed throws a message that says so.
  */
 import { existsSync } from "node:fs";
+import type { HTTPRequest } from "puppeteer-core";
+import { DEFAULT_USER_AGENT } from "../config/env.js";
+import { abortable, sleep } from "../politeness/abort.js";
+import { clearToFetch } from "../politeness/policy.js";
+import { RateLimiter } from "../politeness/rate-limit.js";
+import { RobotsCache } from "../politeness/robots.js";
 
 import { Semaphore } from "./semaphore.js";
 
@@ -61,6 +67,9 @@ export interface BrowserSessionOptions {
   /** Cap on queued page requests before the session refuses more. */
   maxQueue?: number;
   userAgent?: string;
+  /** Share the run's HTTP robots cache and per-host scheduling. Defaults are owned by this session. */
+  robots?: RobotsCache;
+  rateLimiter?: RateLimiter;
   /**
    * How a browser is obtained. Defaults to `puppeteer.launch` (or `connect`
    * when `browserUrl` is set).
@@ -77,6 +86,11 @@ export interface BrowserSessionOptions {
 /** What a caller does with one loaded page. */
 export interface PageRequest<T> {
   url: string;
+  /**
+   * Written site permission or an owned host, for this call's original origin
+   * only. Cross-origin navigation is checked normally. Pacing still applies.
+   */
+  allowDisallowed?: boolean;
   /** CSS selector to await before extracting; skipped when absent. */
   waitForSelector?: string;
   /** Additional settle time after the selector appears. */
@@ -89,7 +103,11 @@ export interface PageRequest<T> {
 }
 
 export interface BrowserSession {
-  /** Load `request.url` and return what `extract` produced. */
+  /**
+   * Check/pace HTTP(S) main-frame navigation (redirects and later navigation
+   * included), then extract. Subresources, child frames and page API calls are
+   * outside these checks. The page budget includes policy waits.
+   */
   load<T>(request: PageRequest<T>): Promise<T>;
   /** Close the browser if this session launched it. Idempotent. */
   close(): Promise<void>;
@@ -127,6 +145,13 @@ async function loadPuppeteer() {
 export function createBrowserSession(options: BrowserSessionOptions = {}): BrowserSession {
   const pageBudgetMs = options.pageBudgetMs ?? DEFAULT_PAGE_BUDGET_MS;
   const idleCloseMs = options.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS;
+  const policy = {
+    robots: options.robots ?? new RobotsCache(),
+    rateLimiter: options.rateLimiter ?? new RateLimiter(),
+    userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
+    // HTTP's process/client opt-out does not grant browser site permission.
+    respectRobots: true,
+  };
   const semaphore = new Semaphore(
     options.concurrency ?? DEFAULT_CONCURRENCY,
     options.maxQueue ?? DEFAULT_MAX_QUEUE
@@ -162,6 +187,7 @@ export function createBrowserSession(options: BrowserSessionOptions = {}): Brows
       .then((launched) => {
         browser = launched;
         if (launching === pending) launching = null;
+        if (inFlight === 0) scheduleIdleClose();
         // Chrome dying (OOM is the realistic trigger for a scrape over a big
         // listing) must not leave a dead handle cached, or every later load
         // fails against it until the process restarts. Drop it and let the
@@ -206,22 +232,50 @@ export function createBrowserSession(options: BrowserSessionOptions = {}): Brows
     cancelIdleClose();
     inFlight++;
     let page: any | null = null;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const timeout = setTimeout(() => controller.abort(new Error(`Browser page budget exceeded (${pageBudgetMs} ms): ${request.url}`)), pageBudgetMs);
     try {
-      const b = await getBrowser();
-      page = await b.newPage();
-      if (options.userAgent) await page.setUserAgent(options.userAgent);
+      const originalOrigin = new URL(request.url).origin;
+      const b = await abortable(getBrowser(), signal);
+      page = await abortable(b.newPage().then(async (opened: any) => {
+        if (signal.aborted) await opened.close().catch(() => {});
+        return opened;
+      }), signal);
+      await abortable(page.setUserAgent(policy.userAgent), signal);
       page.setDefaultTimeout(pageBudgetMs);
       page.setDefaultNavigationTimeout(pageBudgetMs);
 
-      await page.goto(request.url, { waitUntil: "domcontentloaded", timeout: pageBudgetMs });
+      await abortable(page.setBypassServiceWorker(true), signal);
+      await abortable(page.setRequestInterception(true), signal);
+      page.on("request", async (intercepted: HTTPRequest) => {
+        try {
+          if (intercepted.isNavigationRequest() && intercepted.frame() === page.mainFrame() && /^https?:/.test(intercepted.url())) {
+            await clearToFetch(intercepted.url(), policy, {
+              allowDisallowed: request.allowDisallowed === true && new URL(intercepted.url()).origin === originalOrigin,
+              signal,
+            });
+          }
+          signal.throwIfAborted();
+          if (!intercepted.isInterceptResolutionHandled()) await intercepted.continue();
+        } catch (error) {
+          // A later navigation can fail while load is awaiting a selector;
+          // propagate its diagnostic immediately rather than an empty result.
+          controller.abort(error);
+          if (!intercepted.isInterceptResolutionHandled()) await intercepted.abort().catch(() => {});
+        }
+      });
+      await abortable(page.goto(request.url, { waitUntil: "domcontentloaded", timeout: pageBudgetMs }), signal);
       if (request.waitForSelector) {
-        await page.waitForSelector(request.waitForSelector, { timeout: pageBudgetMs });
+        await abortable(page.waitForSelector(request.waitForSelector, { timeout: pageBudgetMs }), signal);
       }
       if (request.settleMs) {
-        await new Promise((resolve) => setTimeout(resolve, request.settleMs));
+        await sleep(request.settleMs, signal);
       }
-      return (await page.evaluate(request.extract)) as T;
+      return (await abortable(page.evaluate(request.extract), signal)) as T;
     } finally {
+      clearTimeout(timeout);
+      controller.abort(new Error("Browser load finished"));
       // Always, including on the failure path: a leaked page holds a renderer
       // process for the life of the browser.
       if (page) await page.close().catch(() => {});

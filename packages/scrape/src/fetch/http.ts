@@ -17,8 +17,9 @@
  * clock and a fake robots fetcher and touches no network at all.
  */
 import { DEFAULT_USER_AGENT } from "../config/env.js";
-import { MAX_DELAY_MS, RateLimiter, hostOf } from "../politeness/rate-limit.js";
-import { RobotsCache, RobotsDisallowedError } from "../politeness/robots.js";
+import { RateLimiter, hostOf } from "../politeness/rate-limit.js";
+import { RobotsCache } from "../politeness/robots.js";
+import { clearToFetch } from "../politeness/policy.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_RETRIES = 3;
@@ -189,10 +190,11 @@ function forAnotherOrigin(headers: Record<string, string>): Record<string, strin
 }
 
 export class ScrapeClient {
-  private readonly userAgent: string;
+  readonly userAgent: string;
   private readonly respectRobots: boolean;
-  private readonly rateLimiter: RateLimiter;
-  private readonly robots: RobotsCache;
+  /** Share these owned objects with a browser to coordinate one run's requests. */
+  readonly rateLimiter: RateLimiter;
+  readonly robots: RobotsCache;
 
   constructor(options: ScrapeClientOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
@@ -212,38 +214,10 @@ export class ScrapeClient {
    * property of the site's rules and not of the caller's configuration.
    */
   private async clearToFetch(url: string, opts: FetchOptions): Promise<number> {
-    let crawlDelayMs: number | undefined;
-    const userAgent = opts.userAgent ?? this.userAgent;
-
-    if (this.respectRobots) {
-      const rules = await this.robots.forUrl(url);
-      if (!opts.allowDisallowed && !rules.isAllowed(url, userAgent)) {
-        throw new RobotsDisallowedError(url, userAgent);
-      }
-      crawlDelayMs = rules.crawlDelayMs(userAgent);
-      // A Crawl-delay longer than any wait a crawler can make is the site
-      // asking not to be crawled at this pace at all. Honouring the intent
-      // means not fetching, not ignoring the line (see
-      // docs/decisions/scraping-politeness.md).
-      if (!opts.allowDisallowed && crawlDelayMs !== undefined && !(crawlDelayMs <= MAX_DELAY_MS)) {
-        throw new RobotsDisallowedError(
-          url,
-          userAgent,
-          `its Crawl-delay is longer than this client can wait, 2^31 - 1 ms`
-        );
-      }
-      // Overridden, an unfollowable Crawl-delay contributes nothing: not a
-      // clamped wait of weeks, and not an Infinity that would take the
-      // caller's own delay down with it through Math.max.
-      if (crawlDelayMs !== undefined && !(crawlDelayMs <= MAX_DELAY_MS)) crawlDelayMs = undefined;
-    }
-
-    // Each delay is checked on its own before they are combined, so an
-    // unusable caller value cannot take the site's Crawl-delay down with it.
-    const callerDelayMs = Number.isFinite(opts.delayMs) ? (opts.delayMs as number) : 0;
-    const delayMs = Math.max(callerDelayMs, crawlDelayMs ?? 0);
-    await this.rateLimiter.acquire(hostOf(url), delayMs);
-    return delayMs;
+    return clearToFetch(url, {
+      robots: this.robots, rateLimiter: this.rateLimiter,
+      userAgent: this.userAgent, respectRobots: this.respectRobots,
+    }, opts);
   }
 
   /**

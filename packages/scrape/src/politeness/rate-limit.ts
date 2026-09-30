@@ -12,15 +12,17 @@
  * each other.
  */
 
+import { abortable, sleep } from "./abort.js";
+
 /** How the limiter measures and waits — injected so tests need no real time. */
 export interface RateLimiterClock {
   now(): number;
-  sleep(ms: number): Promise<void>;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
 const realClock: RateLimiterClock = {
   now: () => Date.now(),
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep,
 };
 
 export interface RateLimiterOptions {
@@ -74,7 +76,8 @@ export class RateLimiter {
    * actually happened, and re-checked after every sleep, so a timer that
    * fires late never lets the next caller in early.
    */
-  async acquire(host: string, delayMs?: number): Promise<void> {
+  async acquire(host: string, delayMs?: number, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const delay = Math.max(spacing(delayMs), this.defaultDelayMs);
     if (delay <= 0) {
       this.lastStart.set(host, this.clock.now());
@@ -86,18 +89,25 @@ export class RateLimiter {
     const mine = new Promise<void>((resolve) => (granted = resolve));
     this.queue.set(host, mine);
     try {
-      if (ahead) await ahead;
+      if (ahead) await abortable(ahead, signal);
       for (;;) {
         const last = this.lastStart.get(host);
         if (last === undefined) break;
         const elapsed = this.clock.now() - last;
         if (elapsed >= delay) break;
-        await this.clock.sleep(delay - elapsed);
+        await abortable(this.clock.sleep(delay - elapsed, signal), signal);
       }
+      signal?.throwIfAborted();
       this.lastStart.set(host, this.clock.now());
     } finally {
-      granted();
-      if (this.queue.get(host) === mine) this.queue.delete(host);
+      const release = () => {
+        granted();
+        if (this.queue.get(host) === mine) this.queue.delete(host);
+      };
+      // A cancelled waiter must not let its successor overtake the caller
+      // ahead of it. Release its queue link only after that caller is granted.
+      if (signal?.aborted && ahead) void ahead.then(release);
+      else release();
     }
   }
 
