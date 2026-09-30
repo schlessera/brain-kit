@@ -162,7 +162,7 @@ describe("sync pull with a locally rewritten cache", () => {
   const OURS = '{"k":"ours","v":"rebuilt from this brain.db"}\n';
 
   for (const [ahead, hooked] of [[false, false], [true, false], [false, true]] as const) {
-    const name = `${ahead ? "merge" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
+    const name = `${ahead ? "rebase" : "fast-forward"}${hooked ? " with a reindexing post-checkout hook" : ""}`;
     test(`does not fail the ${name}; the cache keeps both clones' entries`, async () => {
       // Another clone's post-sync pushed its cache while this clone's reindex
       // rewrote the same file. `ahead` adds a local content commit, so the
@@ -188,7 +188,7 @@ describe("sync pull with a locally rewritten cache", () => {
 
       const result = await runCli(root, ["sync", "pull", "--json"]);
       const body = JSON.parse(result.stdout);
-      expect(body.status).toBe(ahead ? "merged" : "fast-forwarded");
+      expect(body.status).toBe(ahead ? "rebased" : "fast-forwarded");
       expect(body.conflicts).toEqual([]);
       expect(body.mergedCaches).toEqual([CACHE]);
       expect(result.code).toBe(0);
@@ -443,6 +443,8 @@ describe("sync pull when the merge does not finish", () => {
     git(root, "add", "local-note.md");
     git(root, "commit", "-qm", "local content");
     hook(root, "pre-merge-commit", "exit 1");
+    // Exercise merge-hook refusal explicitly; the default would rebase cleanly.
+    writeFileSync(join(root, "brain.config.ts"), 'export default { sync: { pull: "merge" } };\n');
 
     const result = await runCli(root, ["sync", "pull", "--json"]);
     const body = JSON.parse(result.stdout);

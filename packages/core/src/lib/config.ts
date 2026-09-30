@@ -410,6 +410,8 @@ export const brainConfigSchema = z
     /** How `brain sync` resolves what git cannot. */
     sync: z
       .object({
+        /** Replay unpublished commits before trying a merge; `merge` keeps merge-only pulls. */
+        pull: z.enum(["rebase", "merge"]).optional(),
         /**
          * Who answers the judgments a merge or an unclassified file needs.
          * `jev` (the default): TypeSafe's classifier, when `TYPESAFE_API_KEY`

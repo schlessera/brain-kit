@@ -173,8 +173,8 @@ describe("runSync", () => {
 
     const run = await runSync(env);
     expect(run.status).toBe("complete");
-    // The first pull found the leftover and merged nothing; the second merged the remote.
-    expect(run.steps.pull.map((p) => p.status)).toEqual(["conflicted", "merged"]);
+    // The first pull found the leftover and integrated nothing; the second rebased onto the remote.
+    expect(run.steps.pull.map((p) => p.status)).toEqual(["conflicted", "rebased"]);
     expect(run.steps.push.map((p) => p.status)).toEqual(["pushed"]);
     expect(remoteHead(brain)).toBe(head(brain.root));
   });
@@ -357,6 +357,7 @@ describe("runSync: what it refuses to commit or push", () => {
     const theirs = remoteHead(brain);
     const env = await envFor(brain.root, judgeWith(null));
 
+    env.pullStrategy = "merge"; // This regression injects its unmerged path from post-merge.
     const run = await runSync(env);
     expect(run.steps.pull.map((p) => p.status)).toEqual(["merged"]);
     expect(run.steps.push).toEqual([]);

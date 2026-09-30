@@ -180,6 +180,7 @@ function syncEnv(cli: CliContext, judge: SyncJudge = syncJudge(cli)): SyncEnv {
     taxonomy: cli.brain.taxonomy,
     media: mediaPolicy(cli.brain.config),
     judge,
+    pullStrategy: cli.brain.config?.sync?.pull,
     today: localDate(),
     postSync: () => postSync(cli),
   };
@@ -363,7 +364,7 @@ export const syncCommand: CoreCommand = {
       }
 
       case "pull": {
-        const result = pull(root);
+        const result = pull(root, cli.brain.config?.sync?.pull);
         const { status, localAhead, remoteAhead, conflicts, mergedCaches, concluded, reason } = result;
         emit(cli.json, status === "fetch-failed" ? { status, ...(reason ? { reason } : {}) } : result, () => {
           if (status === "fetch-failed") {

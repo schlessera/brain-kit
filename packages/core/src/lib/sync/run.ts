@@ -78,6 +78,8 @@ export interface SyncEnv {
   media: MediaPolicy;
   /** One per sync, so every judgment of one run lands in one report. */
   judge: SyncJudge;
+  /** Divergent pull policy; unset defaults to rebase with merge fallback. */
+  pullStrategy?: "rebase" | "merge";
   /** The local calendar date, `YYYY-MM-DD`, that `updated` is bumped to. */
   today: string;
   /** The reindex and skill sync; it needs the CLI's providers, so it is passed in. */
@@ -609,7 +611,7 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
       }
 
       pulls++;
-      const pulled = await timed("pull", () => pull(root));
+      const pulled = await timed("pull", () => pull(root, env.pullStrategy));
       steps.pull.push(pulled);
       if (pulled.status === "fetch-failed" || pulled.status === "merge-failed") {
         return finish("failed", `pull: ${pulled.status}${pulled.reason ? ` — ${pulled.reason}` : ""}`);

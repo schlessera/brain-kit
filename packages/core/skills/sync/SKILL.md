@@ -29,7 +29,9 @@ it.
   in the output. Take the default, and note what was decided in the final report.
 - **Conservative default everywhere:** when two resolution options exist, pick the one that keeps
   more content (union / keep-both over overwrite) and touches less state. Never delete, reset, or
-  rewrite history to make a problem go away.
+  rewrite published history to make a problem go away. The CLI may replay
+  unpublished local commits on `origin/main` under `sync.pull`; never resolve
+  a stopped rebase by hand as part of this skill.
 - **Truly unresolvable items** (binary conflicts, files over 100 KB, a stash entry `run` kept)
   and **media nobody has approved** are the only allowed leftovers: leave them untouched and list
   them in the final report. The only reasons to stop early are the ones `run` reports as `failed`.
@@ -43,6 +45,13 @@ brain sync run --json
 It prints one envelope: `{ status, reason?, steps, leftovers: { unresolved, unknown, media },
 judge, timings, report }`. Use `run`, never bare `brain sync`: bare sync is the workflow that
 handed you this work, and it hands its leftovers to an agent.
+
+`steps.pull` may report `rebased`, just like `merged` or `fast-forwarded`: remote
+commits are integrated. The default `sync.pull: "rebase"` tries replaying only
+unpublished commits; on any stop it aborts and falls back to the ordinary merge.
+Set `sync.pull: "merge"` for merge-only pulls. Existing merge/index state is
+handled first, and an existing rebase is left for its owner. Conflicts this
+workflow hands you are always merge conflicts: OURS is local and THEIRS remote.
 
 - `status: "complete"` (exit 0) — pushed and reindexed. If `leftovers.unknown` and
   `leftovers.media` are both empty, print `report` and stop. Otherwise go to Step 3.
