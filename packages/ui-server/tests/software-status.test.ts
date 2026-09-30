@@ -3,7 +3,7 @@ import { version } from "@schlessera/brain-ui-server/package.json";
 import { createTestApp } from "./helpers/test-app";
 
 test("mounted status reports the installed release and preserves the application commit", async () => {
-  const t = createTestApp({ env: { SOURCE_COMMIT: "a".repeat(40) } });
+  const t = await createTestApp({ env: { SOURCE_COMMIT: "a".repeat(40) } });
   try {
     const response = await t.fetch("/api/status");
     expect(response.status).toBe(200);

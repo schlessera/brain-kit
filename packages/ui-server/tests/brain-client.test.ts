@@ -233,20 +233,16 @@ describe("search cancellation and deadlines", () => {
 });
 
 describe("brain CLI version probe", () => {
-  test("a below-minimum brain repo pin refuses app creation", () => {
+  test("a below-minimum brain repo pin refuses app creation", async () => {
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.32.9");\n`);
     const observability = createRecordingObservability();
 
-    expect(() =>
-      createApp({
+    await expect(createApp({
         config: appConfig(root),
         observability,
         registry: registry(),
-      })
-    ).toThrow(
-      /brain CLI version 0\.32\.9.*version 0\.33\.0.*bump the brain repo's @schlessera\/brain pin/
-    );
+      })).rejects.toThrow(/brain CLI version 0\.32\.9.*version 0\.33\.0.*bump the brain repo's @schlessera\/brain pin/);
   });
 
   test("a malformed version string warns and still boots", async () => {
@@ -257,7 +253,7 @@ describe("brain CLI version probe", () => {
     installBrainCli(root, `console.log("0.32.9-..");\n`);
     const observability = createRecordingObservability();
 
-    const app = createApp({
+    const app = await createApp({
       config: appConfig(root),
       observability,
       registry: registry(),
@@ -272,7 +268,7 @@ describe("brain CLI version probe", () => {
   test("an unresolvable CLI warns and still boots", async () => {
     const root = temporaryBrain();
     const observability = createRecordingObservability();
-    const app = createApp({
+    const app = await createApp({
       config: appConfig(root),
       observability,
       registry: registry(),
@@ -291,13 +287,13 @@ describe("brain CLI version probe", () => {
 
 // These tests require the brain repo at ~/brain
 const LOCAL_BRAIN_PATH = `${process.env.HOME}/brain`;
-const BRAIN_AVAILABLE = (() => {
+const BRAIN_AVAILABLE = await (async () => {
   if (Bun.spawnSync(["test", "-d", `${LOCAL_BRAIN_PATH}/.git`]).exitCode !== 0) {
     return false;
   }
   const observability = createRecordingObservability();
   try {
-    probeBrainCliVersion(LOCAL_BRAIN_PATH, observability.logger("brain"));
+    await probeBrainCliVersion(LOCAL_BRAIN_PATH, observability.logger("brain"));
     return observability.logs.count({ severity: "WARN" }) === 0;
   } catch {
     return false;
@@ -511,7 +507,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
     // Times out after 5s, logs a warning, and continues — the probe is
     // advisory. What must not survive it is the child.
-    probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+    await probeBrainCliVersion(root, createRecordingObservability().logger("test"));
 
     const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
     const deadline = Date.now() + 10_000;
@@ -529,14 +525,14 @@ describe("the exec wrapper covers the shared CLI client", () => {
     expect(alive()).toBe(false);
   }, 60_000);
 
-  test("the version probe goes through it too, so a broken wrapper fails at boot", () => {
+  test("the version probe goes through it too, so a broken wrapper fails at boot", async () => {
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.36.0");\n`);
     const log = installWrapper(root);
     previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     process.env.BRAIN_UI_EXEC_WRAPPER = join(root, "wrapper.sh");
 
-    probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+    await probeBrainCliVersion(root, createRecordingObservability().logger("test"));
 
     expect(readFileSync(log, "utf-8")).toContain("--version");
   }, 30_000);

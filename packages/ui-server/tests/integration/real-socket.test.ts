@@ -27,7 +27,7 @@ import { makeFakeBackend } from "../helpers/fake-backend";
 
 interface Running {
   server: ReturnType<typeof Bun.serve>;
-  app: ReturnType<typeof createApp>;
+  app: Awaited<ReturnType<typeof createApp>>;
   url: string;
 }
 
@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 /** Boot a real app on an ephemeral port, loopback so AUTH_MODE=none is legal. */
-function start(env: Record<string, string> = {}) {
+async function start(env: Record<string, string> = {}) {
   const observability = createRecordingObservability();
   const backend = makeFakeBackend({ id: "fake" });
   const config = resolveServerConfig({
@@ -52,7 +52,7 @@ function start(env: Record<string, string> = {}) {
     BRAIN_UI_PRICING_DISCOVERY: "0",
     ...env,
   });
-  const app = createApp({
+  const app = await createApp({
     config,
     dbPath: ":memory:",
     observability,
@@ -98,7 +98,7 @@ function connect(url: string) {
 
 describe("a real client on a real socket", () => {
   test("completes the handshake the client half now reads", async () => {
-    const { url } = start();
+    const { url } = await start();
     const { client, waitFor } = connect(url);
 
     const arrived = await waitFor((f) => f.some((m) => m.type === "server_hello"));
@@ -114,7 +114,7 @@ describe("a real client on a real socket", () => {
     // The drift check. If the server emits a shape the schemas do not allow,
     // it lands as a protocol error rather than a frame.
     const errors: string[] = [];
-    const { url } = start();
+    const { url } = await start();
     const frames: ServerMessage[] = [];
     const client = new BrainUiClient({
       url,
@@ -134,7 +134,7 @@ describe("a real client on a real socket", () => {
   test("a malformed client frame is refused, answered, and counted", async () => {
     // The server-side loop, end to end: the rejection reaches the client as an
     // error frame AND lands on the counter /api/status serves.
-    const { url, observability } = start();
+    const { url, observability } = await start();
     const frames: ServerMessage[] = [];
     const client = new BrainUiClient({ url, handlers: { onAny: (f) => frames.push(f) } });
     client.connect();
@@ -166,16 +166,14 @@ describe("a real client on a real socket", () => {
 });
 
 describe("auth refuses to boot through a real socket", () => {
-  test("AUTH_MODE=none on a non-loopback host refuses to start", () => {
+  test("AUTH_MODE=none on a non-loopback host refuses to start", async () => {
     // The ROADMAP gap. Previously asserted only against the validator; this
     // drives the same path createApp takes on a real deployment.
-    expect(() =>
-      start({ HOST: "0.0.0.0", AUTH_MODE: "none" })
-    ).toThrow(/refuses to start/);
+    await expect(start({ HOST: "0.0.0.0", AUTH_MODE: "none" })).rejects.toThrow(/refuses to start/);
   });
 
-  test("the refusal is bypassable only by the documented escape hatch", () => {
-    const { observability } = start({
+  test("the refusal is bypassable only by the documented escape hatch", async () => {
+    const { observability } = await start({
       HOST: "0.0.0.0",
       AUTH_MODE: "none",
       BRAIN_UI_DANGEROUSLY_DISABLE_AUTH: "1",
@@ -204,7 +202,7 @@ describe("the SPA fallback", () => {
       BRAIN_UI_PRICING_DISCOVERY: "0",
     });
     const backend = makeFakeBackend({ id: "fake" });
-    const app = createApp({
+    const app = await createApp({
       config,
       dbPath: ":memory:",
       staticRoot: dir,
@@ -227,7 +225,7 @@ describe("rev-3 negotiation end to end", () => {
     // The deprecation window's whole mechanism: without a client_hello the
     // server cannot tell a current client from a two-year-old one, so no
     // field could ever be made mandatory.
-    const { url, observability } = start();
+    const { url, observability } = await start();
     const client = new BrainUiClient({ url, handlers: { onAny: () => {} } });
     client.connect();
 

@@ -2,6 +2,8 @@
  * CI's file partition. Costs include imports/hooks: median elapsed file time
  * on Ubuntu 24.04 with Bun 1.3.14 in #629 (runs 36710401927/36712389676,
  * source ac5741eb). Each file was measured in three different layouts.
+ * The fixed-deadline suites added in #286 use weights from their five-second
+ * waits and bounded cleanup budgets.
  * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
  * New/renamed tests are discovered on every run and receive the small-file cost.
  */

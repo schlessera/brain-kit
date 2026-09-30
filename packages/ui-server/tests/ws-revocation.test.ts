@@ -167,7 +167,7 @@ describe("principal revocation boundary", () => {
         starts += 1;
       },
     });
-    const app = createApp({
+    const app = await createApp({
       config: resolveServerConfig({
         AUTH_MODE: "password",
         BRAIN_UI_PASSWORD_HASH: "test-password-hash",

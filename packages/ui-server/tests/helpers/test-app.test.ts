@@ -24,8 +24,8 @@ const envBeforeSuite = new Map(
 let testApp: TestApp;
 
 describe("test-app helper", () => {
-  beforeAll(() => {
-    testApp = createTestApp({
+  beforeAll(async () => {
+    testApp = await createTestApp({
       env: {
         SOURCE_COMMIT: "test-app-helper",
       },

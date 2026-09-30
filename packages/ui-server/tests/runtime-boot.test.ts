@@ -34,12 +34,12 @@ function fakeClaude(output: string, exitCode = 0): string {
 }
 
 describe("boot", () => {
-  test("refuses when the binary a turn would spawn does not exist", () => {
+  test("refuses when the binary a turn would spawn does not exist", async () => {
     const missing = join(tmpdir(), `no-such-claude-${process.pid}`);
-    expect(() => createTestApp({ env: { CLAUDE_CODE_PATH: missing } })).toThrow(missing);
+    await expect(createTestApp({ env: { CLAUDE_CODE_PATH: missing } })).rejects.toThrow(missing);
   });
 
-  test("a refused boot opens nothing: no database is created", () => {
+  test("a refused boot opens nothing: no database is created", async () => {
     const dir = mkdtempSync(join(tmpdir(), "boot-refused-"));
     scratch.push(dir);
     const brainPath = join(dir, "brain");
@@ -54,18 +54,16 @@ describe("boot", () => {
       BRAIN_UI_PRICING_DISCOVERY: "0",
       CLAUDE_CODE_PATH: join(dir, "no-such-claude"),
     });
-    expect(() => createApp({ config })).toThrow("no-such-claude");
+    await expect(createApp({ config })).rejects.toThrow("no-such-claude");
     expect(existsSync(dbPath)).toBe(false);
   });
 
-  test("refuses when that binary exits non-zero on --version", () => {
-    expect(() => createTestApp({ env: { CLAUDE_CODE_PATH: fakeClaude("broken", 2) } })).toThrow(
-      /exited 2 on --version: broken/
-    );
+  test("refuses when that binary exits non-zero on --version", async () => {
+    await expect(createTestApp({ env: { CLAUDE_CODE_PATH: fakeClaude("broken", 2) } })).rejects.toThrow(/exited 2 on --version: broken/);
   });
 
   test("reports what it found on /api/status, and leaves /api/health's body alone", async () => {
-    const t = createTestApp({ env: { CLAUDE_CODE_PATH: fakeClaude(`${MEASURED_RUNTIME.claudeCode} (Claude Code)`) } });
+    const t = await createTestApp({ env: { CLAUDE_CODE_PATH: fakeClaude(`${MEASURED_RUNTIME.claudeCode} (Claude Code)`) } });
     try {
       const status = (await (await t.fetch("/api/status")).json()) as {
         runtime: { boot: Array<{ backendId: string } & BackendRuntimeReport> };
@@ -86,9 +84,9 @@ describe("boot", () => {
 });
 
 describe("a runtime other than the measured one", () => {
-  function probeWith(report: BackendRuntimeReport) {
+  async function probeWith(report: BackendRuntimeReport) {
     const observability = createRecordingObservability();
-    const probes = probeBackendRuntimes(
+    const probes = await probeBackendRuntimes(
       resolveServerConfig({ AGENT_BACKEND: "claude" }).agent,
       tmpdir(),
       observability.logger("agent"),
@@ -98,15 +96,15 @@ describe("a runtime other than the measured one", () => {
           resolveFromEnv: () => ({ ok: false, error: new Error("unused") }),
           profileSchema: { parse: () => ({ ok: true, profiles: [] }) },
           settingsHooks: {},
-          probeRuntime: () => report,
+          probeRuntime: async () => report,
         },
       })
     );
     return { probes, warnings: observability.logs.find({ scope: "agent", severity: "WARN" }) };
   }
 
-  test("warns once, naming both pairs, and boot continues", () => {
-    const { probes, warnings } = probeWith({
+  test("warns once, naming both pairs, and boot continues", async () => {
+    const { probes, warnings } = await probeWith({
       runtime: { name: "claude-code", version: "2.1.999", command: "/x/claude", hostProvided: true },
       sdk: { name: "@anthropic-ai/claude-agent-sdk", version: MEASURED_RUNTIME.agentSdk },
       measured: { runtime: MEASURED_RUNTIME.claudeCode, sdk: MEASURED_RUNTIME.agentSdk, matches: false },
@@ -117,13 +115,83 @@ describe("a runtime other than the measured one", () => {
     expect(String(warnings[0]!.body)).toContain(`${MEASURED_RUNTIME.claudeCode} / SDK ${MEASURED_RUNTIME.agentSdk}`);
   });
 
-  test("the same CLI under a different SDK is a different pair, and warns too", () => {
-    const { warnings } = probeWith({
+  test("the same CLI under a different SDK is a different pair, and warns too", async () => {
+    const { warnings } = await probeWith({
       runtime: { name: "claude-code", version: MEASURED_RUNTIME.claudeCode, command: "/x/claude", hostProvided: true },
       sdk: { name: "@anthropic-ai/claude-agent-sdk", version: "0.3.999" },
       measured: { runtime: MEASURED_RUNTIME.claudeCode, sdk: MEASURED_RUNTIME.agentSdk, matches: false },
     });
     expect(warnings).toHaveLength(1);
     expect(String(warnings[0]!.body)).toContain(`${MEASURED_RUNTIME.claudeCode} / SDK 0.3.999`);
+  });
+});
+
+
+describe("asynchronous startup resource ordering", () => {
+  for (const succeeds of [false, true]) {
+    test(`a pending required probe opens no resources; ${succeeds ? "successful" : "refused"} startup ${succeeds ? "then serves" : "never serves"}`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "async-startup-"));
+      scratch.push(dir);
+      const brainPath = join(dir, "brain");
+      mkdirSync(brainPath);
+      const dbPath = join(dir, "ui.db");
+      const marker = join(dir, "probe-started");
+      const completedProbe = join(dir, "probe-finished");
+      const path = join(dir, "claude");
+      writeFileSync(path, `#!/bin/sh\ntouch '${marker}'\nsleep 0.3\ntouch '${completedProbe}'\necho '2.0.0 (Claude Code)'\nexit ${succeeds ? 0 : 2}\n`);
+      chmodSync(path, 0o755);
+      const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: brainPath, DB_PATH: dbPath, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: path });
+      let app: Awaited<ReturnType<typeof createApp>> | undefined;
+      let server: ReturnType<typeof Bun.serve> | undefined;
+      const startup = createApp({ config }).then(ready => {
+        app = ready;
+        server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: ready.fetch, websocket: ready.websocket });
+      });
+      // Observe any refusal immediately, including when a mutation removes the await.
+      const outcome = startup.then(() => undefined, error => error as Error);
+      try {
+        expect(startup).toBeInstanceOf(Promise);
+        const until = Date.now() + 2_000;
+        while (!existsSync(marker) && Date.now() < until) await Bun.sleep(5);
+        expect(existsSync(marker)).toBe(true);
+        while (!existsSync(completedProbe) && Date.now() < until) {
+          expect(existsSync(dbPath)).toBe(false);
+          expect(server).toBeUndefined();
+          await Bun.sleep(5);
+        }
+        expect(existsSync(completedProbe)).toBe(true);
+        const error = await outcome;
+        if (succeeds) {
+          expect(error).toBeUndefined();
+          expect(existsSync(dbPath)).toBe(true);
+          expect(server).toBeDefined();
+          const response = await fetch(`http://127.0.0.1:${server!.port}/api/health`);
+          expect(response.status).toBe(200);
+          expect(await response.json()).toHaveProperty("status", "healthy");
+        } else {
+          expect(error?.message).toContain("exited 2 on --version");
+          expect(existsSync(dbPath)).toBe(false);
+          expect(server).toBeUndefined();
+        }
+      } finally {
+        await outcome;
+        await server?.stop(true);
+        await app?.close();
+      }
+    });
+  }
+
+  test("invalid subscription configuration refuses before invoking a runtime probe", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "async-validation-"));
+    scratch.push(dir);
+    const marker = join(dir, "invoked");
+    const path = join(dir, "claude");
+    writeFileSync(path, `#!/bin/sh\ntouch '${marker}'\necho '2.0.0 (Claude Code)'\n`);
+    chmodSync(path, 0o755);
+    const dbPath = join(dir, "ui.db");
+    const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: dir, DB_PATH: dbPath, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: path, BRAIN_UI_CLAUDE_TOKEN_MINTED_AT: "last spring" });
+    await expect(createApp({ config })).rejects.toThrow("BRAIN_UI_CLAUDE_TOKEN_MINTED_AT");
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(dbPath)).toBe(false);
   });
 });

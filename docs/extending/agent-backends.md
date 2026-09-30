@@ -37,6 +37,7 @@ export interface BackendModule {
   profileSchema: BackendProfileSchema;
   settingsHooks: BackendSettingsHooks;
   modelSource?(context: BackendModuleContext): BackendModelSource | null;
+  probeRuntime?(context: BackendModuleContext): Promise<BackendRuntimeReport>;
 }
 ```
 
@@ -52,6 +53,12 @@ export interface BackendModule {
   overrides; each owns its own billing classifier.
 - `modelSource` is optional. The Claude descriptor uses it for Anthropic model
   discovery; pi has no discovery source.
+- `probeRuntime` is optional and asynchronous. It checks the runtime a turn
+  would spawn, returning its `BackendRuntimeReport` or rejecting to refuse
+  startup. `createApp` awaits it before opening application resources. Migrate
+  synchronous descriptors to `async probeRuntime(context)`; no synchronous
+  compatibility signature is retained. A host injecting its own registry
+  owns any required runtime check before `await createApp({ registry })`.
 - `resolveFromEnv` returns `{ ok: true, value }` with the `AgentBackend` and its
   registry hooks, or `{ ok: false, error }`. Construction errors therefore stay
   explicit without teaching the host a backend's options.
@@ -384,7 +391,7 @@ const registry = createStaticBackendRegistry(
   resolved.value.backend.id,
   { modelSource },
 );
-const app = createApp({ registry });
+const app = await createApp({ registry });
 ```
 
 That import is ordinary application code: the package manager and deployment

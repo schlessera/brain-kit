@@ -95,10 +95,10 @@ function headlessHost(): { brainPath: string; dbPath: string } {
 }
 
 /** Step 2 of the procedure: the token and today's date go in the secret store, then a redeploy. */
-function deploy(token: string, mintedAt: string): BrainUiApp {
+async function deploy(token: string, mintedAt: string): Promise<BrainUiApp> {
   process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
   process.env.BRAIN_UI_CLAUDE_TOKEN_MINTED_AT = mintedAt;
-  return createApp({ config: resolveServerConfig(process.env) });
+  return await createApp({ config: resolveServerConfig(process.env) });
 }
 
 /** Send one turn and return every frame the client got. */
@@ -129,7 +129,7 @@ describe("the re-login procedure, headless and keyless", () => {
   test("rotating the token and its date is a redeploy, and the server then runs on the new one", async () => {
     headlessHost();
 
-    const first = deploy(FIRST_TOKEN, "2025-10-01");
+    const first = await deploy(FIRST_TOKEN, "2025-10-01");
     try {
       await sendTurn(first);
       const status = await subscriptionStatus(first);
@@ -144,7 +144,7 @@ describe("the re-login procedure, headless and keyless", () => {
     expect(new Set(seen.map((request) => request.authorization))).toEqual(new Set([`Bearer ${FIRST_TOKEN}`]));
 
     seen.length = 0;
-    const rotated = deploy(ROTATED_TOKEN, "2026-09-23");
+    const rotated = await deploy(ROTATED_TOKEN, "2026-09-23");
     try {
       await sendTurn(rotated);
       expect((await subscriptionStatus(rotated)).mintedAt).toBe("2026-09-23T00:00:00.000Z");
@@ -159,7 +159,7 @@ describe("the re-login procedure, headless and keyless", () => {
 describe("a rejected subscription token", () => {
   test("ends the turn with authentication_failed, and nothing retries with the API key", async () => {
     headlessHost();
-    const app = deploy(FIRST_TOKEN, "2026-09-01");
+    const app = await deploy(FIRST_TOKEN, "2026-09-01");
     try {
       await sendTurn(app);
       const failure = (await subscriptionStatus(app)).lastAuthFailure;

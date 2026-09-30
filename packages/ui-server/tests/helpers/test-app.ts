@@ -83,7 +83,7 @@ export function withHeaders(base: HeadersInit, init: RequestInit = {}): RequestI
  * Boot one real app for a test suite using a disposable database and brain
  * root. Call once from `beforeAll` and call `teardown` from `afterAll`.
  */
-export function createTestApp(options: TestAppOptions = {}): TestApp {
+export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const id = nextId++;
   const stem = `brain-ui-test-app-${process.pid}-${id}`;
   const dbPath = join(tmpdir(), `${stem}.db`);
@@ -134,7 +134,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   let app: BrainUiApp;
   try {
-    app = createApp(options.appOptions);
+    app = await createApp(options.appOptions);
   } catch (error) {
     removeTemporaryState();
     restoreEnv();

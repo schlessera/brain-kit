@@ -326,22 +326,23 @@ export interface BackendRuntimeProbe {
  * measured against is a warning naming both, not a refusal
  * (docs/decisions/claude-code-runtime.md).
  */
-export function probeBackendRuntimes(
+export async function probeBackendRuntimes(
   agent: AgentConfig,
   brainPath: string,
   log?: Logger,
   load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier)
-): BackendRuntimeProbe[] {
+): Promise<BackendRuntimeProbe[]> {
   const probes: BackendRuntimeProbe[] = [];
   for (const entry of activeFirstPartyBackends(agent)) {
     const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
     if (!descriptor.probeRuntime) continue;
-    const report = descriptor.probeRuntime({
+    const report = await descriptor.probeRuntime({
       brainPath,
       config: { ...agent },
       profiles: [],
       confirmBashPatterns: agent.confirmBashPatterns,
       settings: {},
+      ...(log ? { log: toBackendLog(log) } : {}),
     });
     const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
     log?.emit({

@@ -10,11 +10,11 @@ const FRAME_ANCESTORS = "frame-ancestors 'none'";
 let app: TestApp;
 let staticRoot: string;
 
-beforeAll(() => {
+beforeAll(async () => {
   staticRoot = mkdtempSync(join(tmpdir(), "brain-ui-frame-headers-"));
   writeFileSync(join(staticRoot, "index.html"), "<!doctype html><title>shell</title>");
   writeFileSync(join(staticRoot, "asset.js"), "export {};\n");
-  app = createTestApp({ appOptions: { staticRoot } });
+  app = await createTestApp({ appOptions: { staticRoot } });
   writeFileSync(join(app.brainPath, "note.md"), "# Frame header fixture\n");
 });
 

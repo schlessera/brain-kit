@@ -19,9 +19,10 @@ import { dirname, join } from "node:path";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 import {
-  execWrapperSpawnOptions,
-  killWrapped,
-  wrapCommand,
+  probeVersionCommand,
+  VERSION_PROBE_TIMEOUT_MS,
+  type VersionProbeResult,
+  type BackendLogFn,
   type ExecWrapperConfig,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -120,15 +121,14 @@ export interface ClaudeRuntimeProbeOptions {
   /** The environment a turn's CLI gets. */
   env: Record<string, string | undefined>;
   exec: ExecWrapperConfig;
+  log?: BackendLogFn;
 }
-
-const PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Probe the binary a turn would spawn. Throws `ClaudeRuntimeUnavailableError`
  * when it is missing or will not report a version; returns what it found.
  */
-export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendRuntimeReport {
+export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Promise<BackendRuntimeReport> {
   const spawn = selectedSpawn({
     ...(options.claudeCodePath ? { pathToClaudeCodeExecutable: options.claudeCodePath } : {}),
     env: options.env,
@@ -141,34 +141,25 @@ export function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): BackendR
   if (!existsSync(cwd)) {
     throw new ClaudeRuntimeUnavailableError(`Claude Code cannot be probed: the brain path ${cwd} does not exist`);
   }
-  let result: ReturnType<typeof Bun.spawnSync>;
+  let result: VersionProbeResult;
   try {
-    result = Bun.spawnSync(wrapCommand(argv, options.exec.wrapper), {
-      cwd,
-      env: spawn.env,
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: PROBE_TIMEOUT_MS,
-      // A process that ignores SIGTERM would hold boot past the deadline.
-      killSignal: "SIGKILL",
-      ...execWrapperSpawnOptions(options.exec.wrapper),
-    });
-    // As for the brain CLI probe: a timed-out wrapper leaves its child behind,
-    // so the group is swept whatever happened.
-    if (options.exec.wrapper) killWrapped({ pid: result.pid, kill: () => {} }, options.exec, "SIGKILL");
+    result = await probeVersionCommand(argv, { cwd, env: spawn.env, exec: options.exec });
   } catch (error) {
     throw new ClaudeRuntimeUnavailableError(
       `Claude Code at ${spawn.command} cannot be started: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  if (result.exitedDueToTimeout) {
+  if (result.timedOut) {
     throw new ClaudeRuntimeUnavailableError(
-      `Claude Code at ${spawn.command} did not answer --version within ${PROBE_TIMEOUT_MS / 1000} s`
+      `Claude Code at ${spawn.command} did not answer --version within ${VERSION_PROBE_TIMEOUT_MS / 1000} s${result.cleanupWarnings.length ? `; ${result.cleanupWarnings.join("; ")}` : ""}`
     );
   }
-  const stdout = new TextDecoder().decode(result.stdout).trim();
+  for (const warning of result.cleanupWarnings) {
+    if (options.log) options.log("warn", warning); else console.error(warning);
+  }
+  const stdout = result.stdout.trim();
   if (result.exitCode !== 0) {
-    const stderr = new TextDecoder().decode(result.stderr).trim();
+    const stderr = result.stderr.trim();
     throw new ClaudeRuntimeUnavailableError(
       `Claude Code at ${spawn.command} exited ${result.exitCode} on --version: ${stderr || stdout || "(no output)"}`
     );

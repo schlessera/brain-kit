@@ -26,6 +26,36 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
+## Asynchronous UI startup
+
+**Approved pre-1.0 breaking API change (#286):**
+`createApp(options?: CreateAppOptions): Promise<BrainUiApp>` from
+`@schlessera/brain-ui-server` replaces the synchronous factory. Consumers
+must `await createApp(...)` before reading the handle or passing its `fetch`
+and `websocket` to `Bun.serve`. Startup refusals now reject the promise, so
+catch them around the awaited call. There is no synchronous compatibility API.
+
+The experimental `BackendModule.probeRuntime?(context: BackendModuleContext)`
+from `@schlessera/brain-ui-sdk/server` now returns
+`Promise<BackendRuntimeReport>`. Descriptor authors make their implementation
+asynchronous and reject when their required runtime is unavailable. The
+server awaits active backend probes, then the brain CLI version probe, before
+opening its database or starting application services. Injecting a registry
+continues to bypass first-party backend probes, while retaining the brain CLI
+check and configuration validation.
+
+Both built-in version probes run only `--version`, with a five-second deadline
+and up to 250 ms of cleanup, subject to event-loop scheduling. At the deadline
+cancellation sends `SIGKILL` through `killWrapped`, including the configured
+group killer while the command is running. Killer-helper execution is bounded
+to 200 ms for these probes. Probe settlement never waits indefinitely for exit,
+inherited output pipes or the helper; incomplete cleanup is reported as
+unconfirmed, not as proof that work stopped. Turn cancellation retains its
+existing behavior. Printing a version before timing out does not count as
+success. Claude runtime failure refuses startup; an unknown or unreadable
+brain CLI version warns and continues, and a known incompatible version
+refuses. Compatibility floors and version report shapes are unchanged.
+
 ## HTML renderer budgets
 
 The deliberately public `createRenderer` API of

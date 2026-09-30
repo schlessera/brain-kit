@@ -70,9 +70,9 @@ afterAll(() => {
   }
 });
 
-const app = () => createApp();
-const get = (path: string, headers?: Record<string, string>) =>
-  app().fetch(new Request(`http://localhost${path}`, { headers }));
+const app = async () => await createApp();
+const get = async (path: string, headers?: Record<string, string>) =>
+  (await app()).fetch(new Request(`http://localhost${path}`, { headers }));
 
 describe("app wiring — auth guard ordering", () => {
   test("/api/health is public and carries no version/SHA", async () => {
@@ -94,7 +94,7 @@ describe("app wiring — auth guard ordering", () => {
   });
 
   test("principal management routes are mounted behind the auth guard", async () => {
-    const instance = app();
+    const instance = await app();
     try {
       expect(
         (
@@ -171,7 +171,7 @@ describe("app wiring — auth guard ordering", () => {
     // The 401 list above would pass for a path that does not exist at all —
     // the guard runs before routing. Authenticate and read it back, so the
     // guard assertion is about a route rather than about a typo.
-    const instance = app();
+    const instance = await app();
     try {
       const login = await instance.fetch(
         new Request("http://localhost/api/auth/login", {
@@ -212,8 +212,8 @@ describe("app wiring — auth guard ordering", () => {
   });
 
   test("the model catalog routes are behind the auth guard", async () => {
-    const send = (path: string, init?: RequestInit) =>
-      app().fetch(new Request(`http://localhost${path}`, init));
+    const send = async (path: string, init?: RequestInit) =>
+      (await app()).fetch(new Request(`http://localhost${path}`, init));
 
     expect((await send("/api/models")).status).toBe(401);
     expect(
@@ -234,7 +234,7 @@ describe("app wiring — auth guard ordering", () => {
     // No service worker intercepted it — the POST must not become a bare 404
     // inside the app window. Public by necessity: a share navigation is
     // cross-site, so the SameSite=Strict cookie is absent by construction.
-    const res = await app().fetch(
+    const res = await (await app()).fetch(
       new Request("http://localhost/share-target", { method: "POST" })
     );
 
@@ -245,7 +245,7 @@ describe("app wiring — auth guard ordering", () => {
   test("the share intake route is behind the auth guard", async () => {
     // It writes files into the brain root, so mount position is the whole
     // defense: an unauthenticated POST must never reach the staging code.
-    const res = await app().fetch(
+    const res = await (await app()).fetch(
       new Request("http://localhost/api/share", {
         method: "POST",
         body: new FormData(),
@@ -271,7 +271,7 @@ describe("app wiring — auth guard ordering", () => {
 
 describe("app wiring — password auth", () => {
   test("valid login round-trips a hardened cookie that unlocks a guarded route", async () => {
-    const a = app();
+    const a = await app();
     const login = await a.fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
@@ -297,7 +297,7 @@ describe("app wiring — password auth", () => {
   });
 
   test("wrong password is rejected", async () => {
-    const res = await app().fetch(
+    const res = await (await app()).fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -312,7 +312,7 @@ describe("app wiring — passkey route gating", () => {
   const sameOrigin = { origin: "http://localhost", host: "localhost" };
 
   test("passkey assertion routes are public (not behind the guard)", async () => {
-    const res = await app().fetch(
+    const res = await (await app()).fetch(
       new Request("http://localhost/api/auth/passkey/login-options", {
         method: "POST",
         headers: { "content-type": "application/json", ...sameOrigin },
@@ -326,7 +326,7 @@ describe("app wiring — passkey route gating", () => {
     const list = await get("/api/auth/passkey/list", sameOrigin);
     expect(list.status).toBe(401);
 
-    const register = await app().fetch(
+    const register = await (await app()).fetch(
       new Request("http://localhost/api/auth/passkey/register-options", {
         method: "POST",
         headers: { "content-type": "application/json", ...sameOrigin },
@@ -337,7 +337,7 @@ describe("app wiring — passkey route gating", () => {
   });
 
   test("a login cookie unlocks passkey management", async () => {
-    const a = app();
+    const a = await app();
     const login = await a.fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
@@ -377,7 +377,7 @@ describe("app wiring — WebSocket origin check (CSWSH)", () => {
 
   test("an authorized upgrade keeps its status and attributes the request", async () => {
     const observability = createRecordingObservability();
-    const wired = createApp({ observability });
+    const wired = await createApp({ observability });
     const login = await wired.fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
@@ -455,31 +455,31 @@ describe("createApp refuses unsafe configuration", () => {
     }
   }
 
-  test("AUTH_MODE=none on a non-loopback host fails inside the factory", () => {
+  test("AUTH_MODE=none on a non-loopback host fails inside the factory", async () => {
     snapshot();
     try {
       process.env.AUTH_MODE = "none";
       process.env.HOST = "0.0.0.0";
       delete process.env.NODE_ENV; // the refusal must not depend on it
-      expect(() => createApp()).toThrow(/refuses to start/);
+      await expect(createApp()).rejects.toThrow(/refuses to start/);
 
       // The explicit escape hatch is the only way through.
       process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH = "1";
-      expect(() => createApp()).not.toThrow();
+      await (await createApp()).close();
       delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
     } finally {
       reset();
     }
   });
 
-  test("an over-long WEBAUTHN_USER_ID fails inside the factory", () => {
+  test("an over-long WEBAUTHN_USER_ID fails inside the factory", async () => {
     snapshot();
     try {
       process.env.AUTH_MODE = "password";
       process.env.WEBAUTHN_USER_ID = "x".repeat(65);
-      expect(() => createApp()).toThrow(/WEBAUTHN_USER_ID/);
+      await expect(createApp()).rejects.toThrow(/WEBAUTHN_USER_ID/);
       process.env.WEBAUTHN_USER_ID = "x".repeat(64);
-      expect(() => createApp()).not.toThrow();
+      await (await createApp()).close();
     } finally {
       reset();
     }
@@ -505,10 +505,10 @@ describe("createApp principal retention", () => {
     );
     await seed.close();
 
-    let wired: ReturnType<typeof createApp> | undefined;
+    let wired: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
       const backend = makeFakeBackend({ id: "fake" });
-      wired = createApp({
+      wired = await createApp({
         dbPath,
         registry: createStaticBackendRegistry([backend], backend.id),
       });
@@ -525,7 +525,7 @@ describe("createApp principal retention", () => {
 describe("app wiring — request logging", () => {
   test("requests are logged through the observability layer, /api/health excepted", async () => {
     const observability = createRecordingObservability();
-    const wired = createApp({ observability });
+    const wired = await createApp({ observability });
     const send = (path: string) =>
       wired.fetch(new Request(`http://localhost${path}`));
 
@@ -550,7 +550,7 @@ describe("app wiring — request logging", () => {
 
   test("an authenticated request log carries the resolved principal", async () => {
     const observability = createRecordingObservability();
-    const wired = createApp({ observability });
+    const wired = await createApp({ observability });
     const login = await wired.fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
@@ -578,7 +578,7 @@ describe("app wiring — request logging", () => {
 
   test("a successful logout log retains the principal that revoked the sessions", async () => {
     const observability = createRecordingObservability();
-    const wired = createApp({ observability });
+    const wired = await createApp({ observability });
     const login = await wired.fetch(
       new Request("http://localhost/api/auth/login", {
         method: "POST",
@@ -607,7 +607,7 @@ describe("app wiring — request logging", () => {
   test("a proxy identity is sanitized and bounded before storage and logging", async () => {
     const observability = createRecordingObservability();
     const backend = makeFakeBackend({ id: "fake" });
-    const wired = createApp({
+    const wired = await createApp({
       config: resolveServerConfig({
         AUTH_MODE: "proxy",
         TRUST_PROXY: "1",
@@ -650,7 +650,7 @@ describe("app wiring — request logging", () => {
       write: (_severity, line) => lines.push(line),
     });
     const backend = makeFakeBackend({ id: "fake" });
-    const wired = createApp({
+    const wired = await createApp({
       config: resolveServerConfig({
         AUTH_MODE: "proxy",
         TRUST_PROXY: "1",
@@ -683,7 +683,7 @@ describe("app wiring — request logging", () => {
 
 describe("app wiring — health probes the database", () => {
   test("a dead SQLite handle turns /api/health into 503 unhealthy", async () => {
-    const wired = createApp();
+    const wired = await createApp();
     const send = () => wired.fetch(new Request("http://localhost/api/health"));
 
     expect((await send()).status).toBe(200);

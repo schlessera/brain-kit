@@ -154,7 +154,7 @@ test("the server instrument counts parsed top-level calls over a real socket", a
     emit({ type: "result", sessionId, outcome: sessionId === "failed" ? "error" : "success", isError: sessionId === "failed", durationMs: 1, numTurns: 1 });
   } });
   const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: "/tmp/fictional-brain", BRAIN_UI_COASTLINE: "0", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" });
-  const app = createApp({ config, dbPath: ":memory:", registry: createStaticBackendRegistry([backend], "fake"), observability: createRecordingObservability() });
+  const app = await createApp({ config, dbPath: ":memory:", registry: createStaticBackendRegistry([backend], "fake"), observability: createRecordingObservability() });
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch, websocket: app.websocket });
   try {
     const url = `ws://127.0.0.1:${server.port}/ws`;
