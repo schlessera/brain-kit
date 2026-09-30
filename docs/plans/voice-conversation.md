@@ -300,6 +300,10 @@ stop to refuse." Neither script reads `input`, arbitrary descriptions or command
 payloads. Use a bounded, plain tool label, not text obtained by inspecting the
 payload. Missing or oversized effect copy needs a payload-free fallback and a
 visible reason; target roughly ten seconds, not a payload-dependent recitation.
+Require identifiable host-approved effect copy; a free-text request description
+is not by itself evidence that it is a speakable pattern effect. #317 assesses
+how that provenance reaches the client, and #114 uses the tool-name fallback
+when it is absent. This proposal selects no new wire field or interface.
 While mic is off, replace the phrase offer with "Mic is off. Use Deny on screen,
 or unmute to refuse." This remains the request's one announcement; unmuting
 does not cause a repeat. A refusal detector never claims to work without capture.
@@ -536,7 +540,7 @@ the boundaries above, obtains the maintainer's architecture/seam ruling and
 files the resulting implementation units under #54. Closing #316 clears the
 design-production dependency, not `needs: decision`. #317 must explicitly
 resolve ambiguity evidence, echo-safe refusal during playback, host cancellation
-acknowledgement, reliable pending-resolution/terminal reconciliation, transcript
+acknowledgement, effect-copy provenance, reliable pending-resolution/terminal reconciliation, transcript
 provenance and audio-destination disclosures. It identifies any contract changes
 before implementation; this proposal changes no contract. The epic keeps its
 existing outcome, and does not treat a merged proposal as shipped conversation.
