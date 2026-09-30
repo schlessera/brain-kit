@@ -14,12 +14,12 @@ const HELP = `brain search <query> — hybrid FTS5 + vector search
   --relevance <level>     Filter by relevance (primary|secondary|historical)
   --status <status>       Filter by status (active|archived|draft)
   --mode <mode>           Search mode: fts|vector|hybrid (default: hybrid)
-  --rerank <mode>         none|heuristic|jev (default: the configured reranker,
-                          jev when its key is set, else heuristic). jev orders
-                          by relevance judgment, then applies the lifecycle
-                          factors heuristic applies alone
+  --rerank <mode>         none|heuristic|jev (default: heuristic; configured
+                          provider when reranker.enabled is true and available).
+                          jev requires opt-in and orders by relevance judgment;
+                          heuristic applies lifecycle factors locally
   --rerank-dry-run        Print the exact rerank request to stderr, send
-                          nothing, and return the lifecycle ordering
+                          nothing, and return the retrieval ordering
   --include-archived      Include archived documents
   --assets-only           Only return non-markdown assets (images, PDFs)
   --chunks                Add each result's chunks that match the query, best

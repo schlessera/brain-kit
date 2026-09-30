@@ -299,15 +299,16 @@ export const brainConfigSchema = z
       .optional(),
     agentRunner: z.union([z.string(), agentRunnerValue]).optional(),
     /**
-     * Search reranking. `provider`: "jev" (default; judgment ordering, needs
-     * its key, else the lifecycle ordering), "heuristic" (lifecycle factors
+     * Search reranking. Model judgments require `enabled: true` (default off).
+     * `provider`: "jev" (default; needs its key, else lifecycle ordering), "heuristic" (lifecycle factors
      * only), "none", or a Reranker value. `exclude` lists paths (prefixes or
      * globs) a network reranker never receives; they keep their retrieval
      * rank. `depth`, `skipMargin` and `timeoutMs` bound the call.
      */
     reranker: z
       .object({
-        provider: z.union([z.string(), rerankerValue]),
+        enabled: z.boolean().optional(),
+        provider: z.union([z.string(), rerankerValue]).optional(),
         model: z.string().optional(),
         apiKeyEnv: z.string().optional(),
         exclude: z.array(z.string()).optional(),

@@ -26,6 +26,35 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
+## Model reranker activation
+
+**Approved pre-1.0 breaking behavior change (#406):** judgment reranking now
+requires `reranker.enabled: true` in canonical `brain.config.ts` or
+`brain.config.json`. Omitted or false means off, even with credentials, a
+provider, `--rerank jev`, MCP `rerank: "jev"` or `BRAIN_RERANK_MODE=jev`.
+The boolean is runtime validated; provider is optional (default `jev`).
+The same setting governs CLI search/context/process, MCP search/context,
+eval and configured library/backend access. Direct `hybridSearch` injection
+also requires `SearchDeps.rerankerEnabled: true`; provider construction through
+`resolveReranker` alone does not activate it. `rerankSetup` forwards the flag.
+
+Off uses local lifecycle `heuristic` ordering, or retrieval order for `none`.
+An explicit model-mode request warns and falls back; eval refuses disabled
+flag/environment requests with exit `2` and no score, including context eval.
+Dry-run previews can be constructed while disabled or keyless and send
+nothing. Enabled behavior retains missing-key fallback, deadlines,
+cancellation, exclusions, provider-result validation and degraded warnings.
+No JSON envelopes, MCP names/schemas or frontmatter fields change.
+
+Migration: add `enabled: true` to retain former credential-triggered model
+ordering. Toggling it off preserves provider/model/key-variable/exclusion and
+bound fields; re-enabling reuses them. New CLI processes reload config;
+running MCP/embedding hosts restart or rebuild their context from newly loaded
+config (TypeScript imports require process restart). See
+[configuration](configuration.md#reranker) and the
+[decision](decisions/reranker-activation.md) for the retained provider seam
+and measurement limits.
+
 ## Asynchronous UI startup
 
 **Approved pre-1.0 breaking API change (#286):**
@@ -102,7 +131,7 @@ policy. The rationale and measurements are in
 
 | Command | Shape |
 |---------|-------|
-| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (default `jev` when its key is set, else `heuristic`). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
+| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |
@@ -725,7 +754,7 @@ applies one:
 
 | Tool | Inputs |
 |------|--------|
-| `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured reranker. 0.39.0 added `jev` and dropped the schema default of `heuristic`, so an omitted value now follows `reranker.provider`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
+| `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
 | `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
 | `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (default `20`) |

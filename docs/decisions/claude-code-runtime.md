@@ -64,7 +64,7 @@ next to it.
   `packages/ui-server/src/brain/client.ts:134-186`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:203`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
-  `packages/core/src/cli/commands/doctor.ts:494-496`) — the user's own Claude
+  `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
   binary.
 - **Two moving parts.** The SDK is a runtime dependency of

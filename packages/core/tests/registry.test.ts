@@ -149,7 +149,7 @@ describe("rerankers", () => {
   }
   const keyed = <T>(fn: () => T) => withEnv({ [KEY_ENV]: "k", BRAIN_RERANK_MODE: undefined }, fn);
   const keyless = <T>(fn: () => T) => withEnv({ [KEY_ENV]: undefined, BRAIN_RERANK_MODE: undefined }, fn);
-  const cfg = { provider: "jev", apiKeyEnv: KEY_ENV };
+  const cfg = { enabled: true, provider: "jev", apiKeyEnv: KEY_ENV };
 
   test("jev is the one built-in judgment reranker", () => {
     expect(Object.keys(RERANKERS)).toEqual(["jev"]);
@@ -163,7 +163,7 @@ describe("rerankers", () => {
     expect(() => resolveReranker({ provider: "title" })).toThrow(/Unknown reranker "title"/);
   });
 
-  test("the configured default is jev with a key and the lifecycle ordering without, silently", () => {
+  test("the enabled default is jev with a key and the lifecycle ordering without, silently", () => {
     const withKey = keyed(() => selectReranker(cfg));
     expect(withKey.rerank).toBe("jev");
     expect(withKey.reranker!.id).toMatch(/^jev:/);
@@ -181,7 +181,7 @@ describe("rerankers", () => {
     withEnv({ [KEY_ENV]: "k", BRAIN_RERANK_MODE: "none" }, () => {
       expect(selectReranker(cfg).rerank).toBe("none");
       expect(selectReranker(cfg, "heuristic").rerank).toBe("heuristic");
-      expect(selectReranker({ provider: "heuristic", apiKeyEnv: KEY_ENV }, "jev").rerank).toBe("jev");
+      expect(selectReranker({ enabled: true, provider: "heuristic", apiKeyEnv: KEY_ENV }, "jev").rerank).toBe("jev");
     });
   });
 
@@ -194,8 +194,8 @@ describe("rerankers", () => {
 
   test("a custom value is the default and needs no key; named modes still override it", () => {
     keyless(() => {
-      expect(selectReranker({ provider: custom })).toEqual({ rerank: "jev", reranker: custom, warning: undefined });
-      expect(selectReranker({ provider: custom }, "heuristic").rerank).toBe("heuristic");
+      expect(selectReranker({ enabled: true, provider: custom })).toEqual({ rerank: "jev", reranker: custom, warning: undefined });
+      expect(selectReranker({ enabled: true, provider: custom }, "heuristic").rerank).toBe("heuristic");
     });
   });
 
@@ -203,6 +203,7 @@ describe("rerankers", () => {
     const full = { ...cfg, exclude: ["career"], timeoutMs: 1500, depth: 30, skipMargin: 0.02 };
     const on = keyed(() => rerankSetup(full));
     expect(on.rerank).toBe("jev");
+    expect(on.deps.rerankerEnabled).toBe(true);
     expect(on.deps.rerankTimeoutMs).toBe(1500);
     expect(on.deps.rerankDepth).toBe(30);
     expect(on.deps.rerankSkipMargin).toBe(0.02);
@@ -212,14 +213,14 @@ describe("rerankers", () => {
   });
 
   test("a misspelled configured provider keeps search working and says why", () => {
-    const s = keyed(() => selectReranker({ provider: "jve", apiKeyEnv: KEY_ENV }));
+    const s = keyed(() => selectReranker({ enabled: true, provider: "jve", apiKeyEnv: KEY_ENV }));
     expect(s.rerank).toBe("heuristic");
     expect(s.warning).toMatch(/reranker.provider "jve" is not one of none, heuristic, jev/);
   });
 
   test("an inherited property name is not a built-in", () => {
     for (const provider of ["toString", "constructor", "__proto__"]) {
-      const s = keyed(() => selectReranker({ provider, apiKeyEnv: KEY_ENV }));
+      const s = keyed(() => selectReranker({ enabled: true, provider, apiKeyEnv: KEY_ENV }));
       expect(s.rerank).toBe("heuristic");
       expect(s.warning).toMatch(/is not one of/);
       expect(() => resolveReranker({ provider })).toThrow(/Unknown reranker/);

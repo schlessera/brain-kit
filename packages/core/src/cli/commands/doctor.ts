@@ -350,6 +350,9 @@ function checkReranker(cli: CliContext): Check {
   } catch (e) {
     return { id: "reranker", status: "fail", detail: (e as Error).message, fix: "fix `reranker.provider` in brain.config" };
   }
+  if (cfg?.enabled !== true) {
+    return { id: "reranker", status: "pass", detail: "model reranking disabled (reranker.enabled defaults to false)" };
+  }
   if (cfg && typeof cfg.provider === "object") {
     return { id: "reranker", status: "pass", detail: `custom reranker '${resolved?.id ?? "(unresolved)"}'` };
   }
@@ -362,7 +365,7 @@ function checkReranker(cli: CliContext): Check {
       id: "reranker",
       status: "warn",
       detail: `${keyEnv} not set — search keeps the lifecycle (heuristic) ordering`,
-      fix: `set ${keyEnv} to enable jev reranking, or set reranker.provider to "heuristic"`,
+      fix: `set ${keyEnv} for enabled jev reranking, or set reranker.enabled to false`,
     };
   }
   const model = cfg?.model ?? JEV_MODEL;

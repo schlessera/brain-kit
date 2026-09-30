@@ -200,9 +200,12 @@ Scores are only comparable within one mode and one rerank setting:
 | `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 | `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 
-The default is the brain's configured reranker: `jev` when its key is set,
-else `heuristic`. `meta.rerank` records which one ran and `meta.reranker` its
-model. Comparing `--rerank heuristic` with `--rerank jev` through
+The default is local `heuristic` ordering. Set `reranker.enabled: true` in
+the canonical config to use its judgment provider (`jev` by default, with a
+key). Credentials and mode selection cannot enable it. An explicit
+`--rerank jev` or `BRAIN_RERANK_MODE=jev` while disabled or unavailable refuses
+the run with exit `2` and no score, including `--context` evaluation.
+`meta.rerank` records which mode ran and `meta.reranker` its model. Comparing `--rerank heuristic` with `--rerank jev` through
 `--baseline` shows which queries a judgment wins and loses on your brain.
 
 The lifecycle factors are relevance (`primary` ×1.15, `historical` ×0.85),

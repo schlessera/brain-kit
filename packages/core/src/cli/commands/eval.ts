@@ -8,6 +8,7 @@ import type { BrainContext } from "../../lib/context.js";
 import { loadVecSupport } from "../../lib/db.js";
 import { getMarkdownFiles } from "../../lib/indexer.js";
 import { rerankSetup, type RerankSetup } from "../../lib/registry.js";
+import { envRerankMode } from "../../lib/reranker.js";
 import {
   aggregate,
   EVAL_SCHEMA_VERSION,
@@ -574,7 +575,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
   }
   const modes = MODES[modeFlag];
   // The same selection `brain search` makes: --rerank, else BRAIN_RERANK_MODE,
-  // else the configured reranker. An explicit jev without its key is a
+  // else the configured reranker. An explicit jev while disabled or keyless is a
   // warning, which refuses the run below rather than scoring the fallback
   // under jev's name.
   let setup: RerankSetup;
@@ -668,10 +669,11 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
     // see the same search it does.
     if (modes.some((m) => m !== "fts") || budgets.length > 0) await loadVecSupport(db);
 
-    // A requested reranking that cannot run (jev without its key) would
+    // A requested reranking that cannot run (disabled or keyless jev) would
     // score the fallback under the requested name: refuse, like a degraded lane.
-    if (setup.warning && typeof flags.rerank === "string" && flags.rerank !== setup.rerank) {
-      throw new EvalRefused(`--rerank ${flags.rerank} cannot run`, [setup.warning]);
+    const requestedRerank = typeof flags.rerank === "string" ? flags.rerank : envRerankMode();
+    if (setup.warning && requestedRerank === "jev" && setup.rerank !== "jev") {
+      throw new EvalRefused(`${typeof flags.rerank === "string" ? "--rerank jev" : "BRAIN_RERANK_MODE=jev"} cannot run`, [setup.warning]);
     }
     if (setup.warning) warnings.push(setup.warning);
     const pool = poolSize(ks);

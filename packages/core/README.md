@@ -28,13 +28,13 @@ to touch `process.env`.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Default API key for the built-in Anthropic completion provider (default name only — a config `apiKeyEnv` can point elsewhere). | — |
 | `BRAIN_CHROME_NO_SANDBOX` | "1" launches the render Chrome without its sandbox (required when running as root). | sandbox on |
-| `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. | the configured reranker (jev with its key, else heuristic) |
+| `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. Cannot enable model reranking: reranker.enabled must be true. | the configured provider when enabled and available, else heuristic |
 | `BRAIN_ROOT` | Brain repository root, overriding cwd-based discovery. | nearest ancestor with brain.config.* or .git, else cwd |
 | `BRAIN_UI_CHROME_NO_SANDBOX` | Same as BRAIN_CHROME_NO_SANDBOX, in the BRAIN_UI_* spelling a chat-server deployment sets; the server passes it to the brain CLI it spawns. | sandbox on |
 | `CLAUDE_CODE_PATH` | Claude Code binary the Claude agent runner spawns, as for the chat server. | the Agent SDK's built-in binary when the SDK is installed, else `claude` on PATH |
 | `GEMINI_API_KEY` | Default API key for the built-in Gemini embedding/completion providers (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades vector search to FTS. | — |
 | `NO_COLOR` | Any non-empty value suppresses ANSI color in CLI output. | — |
-| `TYPESAFE_API_KEY` | Default TypeSafe AI key for Jev: the built-in jev search reranker (default name only — a config `apiKeyEnv` can point elsewhere) and the judgments `brain sync` asks. Absent key keeps the lifecycle (heuristic) search ordering, and every sync judgment takes its conservative default. | — |
+| `TYPESAFE_API_KEY` | Default TypeSafe AI key for Jev: the built-in jev search reranker (default name only — a config `apiKeyEnv` can point elsewhere) and the judgments `brain sync` asks. Search also requires reranker.enabled: true. Absent key keeps the lifecycle (heuristic) search ordering, and every sync judgment takes its conservative default. | — |
 | `XDG_BIN_HOME` | Directory the `brain` CLI symlink is installed into. | ~/.local/bin |
 
 Reads whose variable *name* is configuration rather than code:

@@ -422,12 +422,14 @@ agentRunner: "claude"
 ### `reranker`
 
 How search orders what it retrieves, for `brain search`, `brain context`,
-`brain eval`, the MCP tools and the chat backends. When omitted, the `jev`
-built-in is used but stays dormant until `TYPESAFE_API_KEY` is present;
-without it, search keeps the `heuristic` ordering.
+`brain eval`, the MCP tools and the chat backends. Model judgment is off by
+default: only `reranker.enabled: true` activates it. A key, a provider,
+`--rerank jev`, MCP `rerank: "jev"` or `BRAIN_RERANK_MODE=jev` cannot enable
+it. While off, search uses local `heuristic` ordering unless `none` is selected.
 
 | Key          | Type                   | Default            | Notes |
 | ------------ | ---------------------- | ------------------ | ----- |
+| `enabled`    | `boolean`              | `false`            | Explicit opt-in for built-in and custom judgment providers; omission means off. |
 | `provider`   | `string \| Reranker`   | `"jev"`            | `jev` (relevance judgment), `heuristic` (lifecycle multipliers only), `none`, or a custom value. |
 | `model`      | `string`               | `jev-1.13.0`       | Pinned on purpose; `jev-latest` moves and `brain doctor` warns on it. |
 | `apiKeyEnv`  | `string`               | `TYPESAFE_API_KEY` | Env var holding the key. |
@@ -437,7 +439,7 @@ without it, search keeps the `heuristic` ordering.
 | `skipMargin` | `number` (≥ 0)         | —                  | Skip the judgment when the vector lane's top result leads the second by this similarity margin. A cost lever, off by default; derive it with `brain eval`. |
 
 ```ts
-reranker: { provider: "jev", exclude: ["career", "clients/**/ledger.md"] }
+reranker: { enabled: true, provider: "jev", exclude: ["career", "clients/**/ledger.md"] }
 ```
 
 `jev` does not apply the `heuristic` lifecycle multipliers on top of its
@@ -445,9 +447,29 @@ order. It sends each candidate's `status`, `relevance` and `updated` as
 evidence instead: measured, the multipliers after a judgment undid most of its
 gain. `supersedes` demotion still applies in every mode.
 
-Per request, `brain search --rerank none|heuristic|jev` overrides the default,
-and `--rerank-dry-run` prints the exact outbound request to stderr without
-sending it. See [extending/rerankers.md](extending/rerankers.md) for the
+Per request, `brain search --rerank none|heuristic|jev` overrides the selected
+mode, subject to activation. Explicit `jev` requests while off warn and return
+local heuristic results; `brain eval` refuses to score that fallback, including
+when `BRAIN_RERANK_MODE=jev` made the request. When enabled, missing-key
+fallback and the existing deadlines, exclusions and validation still apply.
+`--rerank-dry-run` constructs the outbound request without sending it, even
+while disabled or without a key.
+
+To turn judgment off, change only `enabled` to `false` in the canonical
+`brain.config.ts` or `brain.config.json`. Keep provider, model, key-variable,
+exclusion and bound fields there; setting `enabled` back to `true` reuses them.
+The JSON equivalent is `{ "reranker": { "enabled": true, "provider": "jev" } }`.
+The field accepts booleans only, and the provider may be omitted to use `jev`.
+Each CLI invocation reloads configuration. Restart a running MCP or embedding
+host after editing it; libraries recreate their context with freshly loaded
+config. TypeScript config imports are cached within a process, so restart that
+process to reload them. This setting adds no live reload or separate store.
+
+**Migration from credential-triggered activation (0.39.0):** add
+`enabled: true` to retain model ordering. Leaving it out now keeps model
+judgment off even if `TYPESAFE_API_KEY` is set. Local `heuristic` and `none`
+modes remain available. The approved behavior change is recorded in
+[decisions/reranker-activation.md](decisions/reranker-activation.md). See [extending/rerankers.md](extending/rerankers.md) for the
 interface, the measurements and how to add your own.
 
 ## `skills`
@@ -699,8 +721,8 @@ path and says so, rather than failing at the call.
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
-| `BRAIN_RERANK_MODE` | search | Overrides the configured reranker: `jev`, `heuristic` or `none`. An explicit `--rerank` still wins. |
-| `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Absent → the `heuristic` ordering. |
+| `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
+| `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
