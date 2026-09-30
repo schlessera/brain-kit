@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -7,11 +7,16 @@ import type { query, Options } from "@anthropic-ai/claude-agent-sdk";
 import {
   API_FAILURE_DETAIL,
   runBackendContract,
+  runBackendModuleContract,
   type BackendContractHarness,
+  type PermissionProbe,
+  type PermissionScenario,
   type TurnScript,
 } from "@schlessera/brain-ui-sdk/testing";
 
 import { createClaudeBackend } from "../src/backend";
+import { backendModule } from "../src/module";
+import { runToolCall } from "./helpers/run-tool-call";
 
 const temps: string[] = [];
 function tempBrain(): string {
@@ -139,6 +144,7 @@ function claudeRetryingQuery(script: TurnScript): typeof query {
 
 const harness: BackendContractHarness = {
   name: "claude",
+  permission: claudePermissionProbe,
   scripted: (script) =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script) }),
   hanging: () =>
@@ -155,3 +161,69 @@ const harness: BackendContractHarness = {
 };
 
 runBackendContract(harness, { describe, test, expect });
+
+function claudePermissionProbe(scenario: PermissionScenario): PermissionProbe {
+  const brainPath = tempBrain();
+  const witness = join(brainPath, "tool-body-ran");
+  const toolName = scenario === "mutation" ? "Write" : "Bash";
+  const input = scenario === "mutation"
+    ? { file_path: join(brainPath, "note.md"), content: "fixture" }
+    : { command: scenario === "command" ? "rm -rf notes/old" : "echo contract" };
+  let starts = 0;
+  let attempts = 0;
+  const queryFn = ((params: { options: Options }) => {
+    starts++;
+    return (async function* () {
+      yield { type: "system", subtype: "init", session_id: "permission-probe" };
+      attempts++;
+      // Use the adapter's actual SDK options/hooks, including the runtime
+      // shortcut that would skip canUseTool without the enforcement hook.
+      const outcome = await runToolCall(params.options, toolName, input, "probe-tool", scenario === "shortcut");
+      if (outcome.executed) writeFileSync(witness, "tool body executed");
+      yield {
+        type: "user", session_id: "permission-probe",
+        message: { content: [{ type: "tool_result", tool_use_id: "probe-tool", is_error: !outcome.executed, content: outcome.message ?? "tool body executed" }] },
+      };
+      yield { type: "result", subtype: "success", session_id: "permission-probe", total_cost_usd: 0, duration_ms: 1, num_turns: 1 };
+    })();
+  }) as unknown as typeof query;
+  return {
+    backend: createClaudeBackend({ brainPath, queryFn, allowedTools: scenario === "command" ? [toolName] : [], log: () => {} }),
+    toolName,
+    toolUseId: "probe-tool",
+    starts: () => starts,
+    attempts: () => attempts,
+    effects: () => existsSync(witness) ? 1 : 0,
+  };
+}
+
+// First-party backends must demonstrate enforcement, rather than relying on
+// the shared suite's permitted pre-runtime rejection for unsupported callers.
+test("Claude executes approved restricted turns instead of rejecting them", async () => {
+  const probe = claudePermissionProbe("mutation");
+  await probe.backend.startTurn({ prompt: "write", signal: new AbortController().signal, enforceAllowedTools: true,
+    bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } });
+  expect(probe.starts()).toBe(1);
+  expect(probe.effects()).toBe(1);
+});
+
+runBackendModuleContract({
+  name: "claude", module: backendModule,
+  validProfilesJson: JSON.stringify([{ id: "contract-profile", label: "Contract profile", model: "contract-model" }]),
+  profileIds: ["contract-profile"],
+  context: () => ({ brainPath: tempBrain(), config: {}, confirmBashPatterns: null, settings: {} }),
+}, { describe, test, expect });
+
+for (const scenario of ["mutation", "shortcut", "command"] as const) {
+  test("claude: no-grant " + scenario + " is enforced rather than rejected", async () => {
+    const probe = claudePermissionProbe(scenario);
+    let cards = 0;
+    await probe.backend.startTurn({ prompt: "exercise tool", signal: new AbortController().signal,
+      enforceAllowedTools: true, noGrantSurface: true,
+      bridge: { emit: () => {}, requestPermission: async () => { cards++; return { behavior: "allow" }; } } });
+    expect(probe.starts()).toBe(1);
+    expect(probe.attempts()).toBe(1);
+    expect(probe.effects()).toBe(0);
+    expect(cards).toBe(0);
+  });
+}

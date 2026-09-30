@@ -1161,9 +1161,13 @@ export "./sw-policy" (./src/client/sw-policy.ts)
 export "./testing" (./src/testing/index.ts)
   API_FAILURE_DETAIL
   type BackendContractHarness
+  type BackendModuleContractHarness
   type ContractTestPrimitives
+  type PermissionProbe
+  type PermissionScenario
   type TurnScript
   runBackendContract
+  runBackendModuleContract
 
 export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_CONTRACT

@@ -164,7 +164,14 @@ deployment that narrows the list for one kind of turn (a voice posture, an
 unattended profile) otherwise gets a list that several shortcuts quietly
 re-admit tools past.
 
-A backend that honours it must:
+Every conforming backend must enforce a requested restricted posture or reject
+it with `BackendRequestError` before runtime acquisition or execution. Silent
+ignoring is forbidden. This is a mandatory pre-1.0 conformance baseline,
+recorded in [backend-conformance.md](../decisions/backend-conformance.md), not a
+general freeze of the experimental seam. The optional request fields do not
+enable restrictions on ordinary turns.
+
+A backend enforcing it must:
 
 - **override its runtime's own auto-approval, not merely stop adding to it.**
   Withholding the backend's own shortcuts is not enough if the runtime admits
@@ -193,9 +200,8 @@ A backend that honours it must:
   remembered "always allow" grants. A grant belongs to the posture it was given
   under, in both directions.
 
-A turn that does not declare it behaves exactly as it always has, and a backend
-that ignores the field is simply a backend a narrower posture cannot be built
-on: check before relying on one.
+A turn that does not declare it behaves exactly as it always has. A backend
+that cannot enforce it must reject the restricted turn before starting work.
 
 `enforceAllowedTools` does not itself deny anything. It removes the ways a
 decision gets skipped; what happens to a request that reaches the host is the
@@ -230,9 +236,10 @@ refuses too, although its runtime has none of the shortcuts that make the
 unpaired declaration unreachable on Claude — every pi tool call passes its
 gate — so that one rule describes the declaration on either backend, and a
 posture that works on one does not start failing when moved to the other. A
-third-party backend that honours the field should call the same function.
+third-party backend must reject this invalid combination too; it can call the
+same function.
 
-A backend that honours it must:
+A backend enforcing it must:
 
 - refuse **both** request kinds. Removing a tool from the allowlist is not what
   raises most requests: a shell command matching a confirm pattern raises a
@@ -411,6 +418,16 @@ server never interprets an npm specifier from configuration.
   `BackendContractHarness` backed by your own fake runtime and inject your test
   runner's `{ describe, test, expect }`; the same assertions used by both
   first-party backends then run in your package.
+- The harness's required `permission(scenario)` drives the adapter's actual
+  tool path and observes runtime starts, attempts and tool-body effects for
+  off-list mutation, runtime-shortcut and allowlisted confirmation scenarios.
+  Restrictions are tested without an optional capability or harness opt-in.
+  Unsupported restricted turns may safely reject before acquisition, frames
+  or effects. First-party adapters additionally prove actual enforcement.
+- Run `runBackendModuleContract` from the same testing entry with your actual
+  descriptor, valid nonempty profile JSON, expected profile ids and an isolated
+  construction context. It checks `defineBackendModule`, parsing, resolution,
+  confirmation-pattern defaults, invalid JSON and occupied-id collisions.
 
 ## See also
 

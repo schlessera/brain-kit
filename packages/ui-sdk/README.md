@@ -73,6 +73,7 @@ import {
 
 const harness: BackendContractHarness = {
   name: "example",
+  permission: (scenario) => createExamplePermissionProbe(scenario),
   scripted: (script) => createExampleBackend({ runtime: scriptedRuntime(script) }),
   hanging: () => createExampleBackend({ runtime: hangingRuntime() }),
   failing: (script) => createExampleBackend({ runtime: failingRuntime(script) }),
@@ -81,6 +82,31 @@ const harness: BackendContractHarness = {
 
 runBackendContract(harness, { describe, test, expect });
 ```
+
+`permission(scenario)` is required. Its scripted runtime attempts one tool
+through the adapter's actual permission path: `mutation` is off the allowlist,
+`shortcut` is off it but the runtime would normally auto-approve it, and
+`command` is allowlisted but requires command confirmation. Return the backend,
+its `toolName` and `toolUseId`, and `starts()`, `attempts()` and `effects()` observations. Observe
+the tool body's effect on a fixture; a denial frame alone cannot prove it did
+not run. An allowing bridge must let that same body run.
+
+The suite checks both restricted-turn fields for every backend, independently
+of capability flags. A backend must enforce them or reject an unsupported turn
+with `BackendRequestError` before starting its runtime, emitting frames or
+producing effects. `noGrantSurface` requires `enforceAllowedTools: true`, denies
+both tool grants and command confirmations promptly, and never waits on an
+unanswerable bridge request. Ordinary turns keep their existing defaults.
+Both first-party adapters additionally prove actual enforcement; rejecting all
+restricted turns is not enough for them.
+
+`runBackendModuleContract` also checks a descriptor passed through
+`defineBackendModule`: supply the actual `module`, a nonempty
+`validProfilesJson` with backend-specific fields, its expected `profileIds`, and
+a keyless `context()` without profiles. It checks parsing, resolution with
+default (`null`) and disabled (`[]`) confirmation patterns, profile preservation,
+typed invalid-JSON errors and collisions with an occupied profile id. No live
+turn is started by descriptor tests.
 
 The caller owns fake-runtime setup and per-test cleanup; the published subpath
 does not import a test runner or Node/Bun filesystem APIs.
