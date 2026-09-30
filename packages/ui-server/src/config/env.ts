@@ -183,7 +183,9 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "command matching any of them raises a confirmation card before it runs. " +
       "Unset uses the shipped defaults " +
       "(brain archive, rm -r, git push --force, git reset --hard, git clean -f, " +
-      "git checkout -- ). An empty array [] disables the confirmation. Not a " +
+      "git checkout -- ). An empty array [] disables the confirmation. A nonempty " +
+      "list with no compilable regex fails backend initialization; repair it or " +
+      "explicitly use []. Mixed lists report invalid entries and keep valid ones. Not a " +
       "security boundary — an agent with Bash can reach the same effect another " +
       "way; it stops a destructive command you did not intend, not one that is " +
       "trying to get past you.",
@@ -675,7 +677,8 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
  * choice a deployment is allowed to make, and silently re-enabling it would be
  * worse than obeying. Malformed JSON falls back to the defaults rather than
  * throwing — a typo here must not stop the server booting, and the safe
- * direction to fail is "more confirmation", not less.
+ * direction to fail is "more confirmation", not less. Regex validation belongs
+ * to backend initialization: a nonempty all-invalid regex list is rejected.
  */
 function parseConfirmBash(raw: string | undefined): ConfirmPatternSource[] | null {
   const text = raw?.trim();

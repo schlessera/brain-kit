@@ -102,6 +102,55 @@ describe("configurability", () => {
 });
 
 describe("unparseable patterns", () => {
+  test("an all-invalid list rejects construction before the scripted runtime or tools run", async () => {
+    let queries = 0;
+    let toolCalls = 0;
+    const queryFn = ((params: { options?: Options }) => {
+      queries++;
+      return (async function* () {
+        const group = params.options!.hooks!.PreToolUse!.find(
+          (entry) => entry.matcher === MUTATING_TOOL_MATCHER
+        )!;
+        const decision = await group.hooks[0]!(
+          {
+            hook_event_name: "PreToolUse", tool_name: "Bash",
+            tool_input: { command: "git push --force" }, tool_use_id: "invalid-patterns-tool",
+          } as never,
+          "invalid-patterns-tool",
+          { signal: new AbortController().signal }
+        );
+        const output = "hookSpecificOutput" in decision ? decision.hookSpecificOutput : undefined;
+        if (output?.hookEventName !== "PreToolUse" || output.permissionDecision !== "deny") {
+          toolCalls++;
+        }
+        yield {
+          type: "result", subtype: "success", session_id: "invalid-patterns",
+          total_cost_usd: 0, duration_ms: 1, num_turns: 1,
+        };
+      })();
+    }) as unknown as typeof query;
+    let backend: ReturnType<typeof createClaudeBackend> | undefined;
+    let constructionError: unknown;
+    try {
+      backend = createClaudeBackend({
+        brainPath: "/tmp", confirmBashPatterns: ["("], queryFn, log: () => {},
+      });
+    } catch (error) {
+      constructionError = error;
+    }
+    // On the old behavior the real backend constructs and runs this runtime.
+    if (backend) {
+      await backend.startTurn({
+        prompt: "test", signal: new AbortController().signal,
+        bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "No." }) },
+      });
+    }
+    expect(constructionError).toBeInstanceOf(Error);
+    expect((constructionError as Error).message).toMatch(/confirmBashPatterns.*BRAIN_UI_CONFIRM_BASH/);
+    expect(queries).toBe(0);
+    expect(toolCalls).toBe(0);
+  });
+
   test("are reported through the injected log callback, with the source", () => {
     const calls: Array<{ level: string; message: string; attrs?: Record<string, unknown> }> = [];
 
@@ -129,8 +178,10 @@ describe("what the card says (#112)", () => {
     confirmBashPatterns?: Parameters<typeof createClaudeBackend>[0]["confirmBashPatterns"]
   ): Promise<string | undefined> {
     let description: string | undefined;
-    const queryFn = ((params: { options?: Options }) =>
-      (async function* () {
+    let queries = 0;
+    const queryFn = ((params: { options?: Options }) => {
+      queries++;
+      return (async function* () {
         yield { type: "system", subtype: "init", session_id: "card" };
         const group = params.options!.hooks!.PreToolUse!.find(
           (entry) => entry.matcher === MUTATING_TOOL_MATCHER
@@ -153,7 +204,8 @@ describe("what the card says (#112)", () => {
           duration_ms: 1,
           num_turns: 1,
         };
-      })()) as unknown as typeof query;
+      })();
+    }) as unknown as typeof query;
     const backend = createClaudeBackend({
       brainPath: "/tmp",
       queryFn,
@@ -171,6 +223,7 @@ describe("what the card says (#112)", () => {
         },
       },
     });
+    expect(queries).toBe(1);
     return description;
   }
 
@@ -192,5 +245,15 @@ describe("what the card says (#112)", () => {
         { pattern: String.raw`\bdeploy\s+prod\b`, effect: "ship this build to production" },
       ])
     ).toBe("ship this build to production");
+  });
+
+  test("mixed valid/invalid patterns still run and confirm with the valid effect", async () => {
+    expect(await descriptionFor("deploy prod", [
+      "(", { pattern: String.raw`\bdeploy\b`, effect: "ship to production" },
+    ])).toBe("ship to production");
+  });
+
+  test("an explicit empty list still runs without confirmation", async () => {
+    expect(await descriptionFor("git push --force", [])).toBeUndefined();
   });
 });

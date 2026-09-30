@@ -49,7 +49,8 @@ export interface ClaudeBackendOptions {
    * Regex sources; a Bash command matching any of them raises a confirmation
    * card before it runs. Defaults to the shared confirm patterns. An EMPTY
    * array disables the confirmation entirely — which is a real choice, not a
-   * misconfiguration, so it is honoured as given.
+   * misconfiguration, so it is honoured as given. A nonempty list with no valid
+   * regex throws during construction; mixed lists report and skip invalid ones.
    *
    * Each entry is a bare regex source or `{ pattern, effect }`, where `effect`
    * says in words what a matching command does and becomes what the approval

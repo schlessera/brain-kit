@@ -245,6 +245,21 @@ A backend that honours it must:
   the host would otherwise show up in the activity record as a call that
   errored rather than one that was denied.
 
+## Confirmation-pattern configuration
+
+Both shipped backends compile `confirmBashPatterns` through the SDK's
+`compileConfirmPatterns` during construction, before starting a runtime or
+executing tools. Missing configuration uses `DEFAULT_CONFIRM_BASH_PATTERNS`;
+an explicit `[]` disables confirmation. Invalid entries are reported and
+skipped when at least one valid regex remains, preserving the valid entries'
+matching order and effects. A nonempty list with no valid regex throws an
+actionable configuration error instead of becoming an empty policy.
+
+The server passes regex sources from `BRAIN_UI_CONFIRM_BASH` through this same
+compiler. Its existing malformed-JSON and structural-entry fallback still
+uses defaults; a syntactically valid JSON list such as `["("]` fails backend
+initialization. See [the ruling](../decisions/confirm-patterns.md).
+
 ## The bridge
 
 `BackendBridge` is the host plumbing handed to the backend for one turn:
