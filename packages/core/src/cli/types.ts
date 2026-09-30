@@ -20,6 +20,8 @@ export interface CliContext {
   json: boolean;
   /** Set when the brain.config failed schema validation (initContext threw). */
   configError?: string;
+  /** Original failure, retained only for commands that diagnose rejected config. */
+  configCause?: unknown;
   embeddings?: EmbeddingProvider;
   completions?: CompletionProvider;
   enrichment?: Enrichment;

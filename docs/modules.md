@@ -47,6 +47,7 @@ load, and unknown keys are load errors):
 | `taxonomy`      | `{ types?, classifierHints?, assetTitleRules?, propagation? }` | Types, capture hints, and rules merged into the effective taxonomy.                     |
 | `skills`        | `string`                                         | Path to the module's `skills/` directory (relative to the package root).                             |
 | `commands`      | `Record<word, () => import(...)>`                | **One** namespaced top-level CLI word, lazily imported (e.g. `brain jobs …`).                         |
+| `tools`         | `Record<localName, () => import(...)>`           | Lazy MCP tools served as `<module>_<localName>`; each wraps the same operation as its CLI subcommand. |
 | `hygieneChecks` | `((ctx) => AuditIssue[])[]`                       | Extra checks surfaced by `brain audit` and counted in `brain maintain`'s audit step; a check that throws becomes one `module-hygiene` warning. `ctx` is `{ db, root, config }`, with `config` typed by your configSchema. |
 | `indexRules`    | `{ dirAnchors?: string[] }`                       | Directory anchor files (for `[[dir/]]` wiki-link resolution).                                         |
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
@@ -85,6 +86,97 @@ and a cast would hide the contract regressing back to `unknown`.
 How the contribution merges into the taxonomy — collisions, ordering,
 overrides — is covered in
 [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
+
+## Authoring MCP tools
+
+Declare a tool when an existing CLI operation needs to be reachable from an
+MCP client without a shell. Keep its deterministic operation in one function
+that both the CLI subcommand and tool call. Declare each tool explicitly;
+CLI commands are not exported automatically.
+
+```ts
+// Inside defineModule({ name: "catalog", configSchema, setup: … })
+setup: () => ({
+  tools: { lookup: () => import("./mcp/lookup.js") },
+}),
+```
+
+Core composes `catalog_lookup`. A module with tools uses a lowercase name
+matching `^[a-z][a-z0-9-]{0,30}$`, and cannot be named `brain`. Local names
+match `^[a-z][a-z0-9_]{0,31}$`. The full name is at most 64 characters and
+cannot replace or shadow a core tool. Modules without tools retain their
+existing naming rules.
+
+Author the definition with `defineModuleTool`:
+
+```ts
+import { defineModuleTool } from "@schlessera/brain";
+import type { ToolContext } from "@schlessera/brain";
+import { z } from "zod";
+import type { CatalogConfig } from "../module.js";
+import { lookupCatalog } from "../operations.js";
+
+export default defineModuleTool({
+  description: "Look up catalog entries. limit defaults to 10 and permits at most 50 entries.",
+  inputSchema: z.strictObject({
+    query: z.string().describe("Text to find in the catalog"),
+    limit: z.number().int().min(1).max(50).default(10).describe("Maximum entries to return"),
+  }),
+  outputSchema: z.strictObject({
+    entries: z.array(z.strictObject({ title: z.string() })),
+  }),
+  annotations: { readOnlyHint: true, openWorldHint: false },
+  async run(input, ctx: ToolContext<CatalogConfig>) {
+    return lookupCatalog(input, ctx);
+  },
+});
+```
+
+The helper infers `input` and the result from the schemas. `ToolContext<C>`
+provides `root`, the owning module's validated `config`, the effective
+`taxonomy` and the request's abort `signal`. Use that config directly, with no
+cast or re-read. Both schemas must be strict zod 4 objects representable as
+JSON Schema; every input needs a description. State defaults and result caps
+in the tool's description, and enforce the cap in the shared operation.
+
+`readOnlyHint` and `openWorldHint` are required. A writing tool also states
+`destructiveHint`; `idempotentHint` and a title are optional. These are client
+hints, not permission grants. Backend permissions are decided by tool name.
+
+The module README must have a level-two `MCP tools` section naming every
+canonical tool, with inputs, defaults, limits, result shape and compatibility
+ownership. For example:
+
+```md
+## MCP tools
+
+`catalog_lookup` accepts query and limit (default 10, maximum 50) and returns
+{ entries: [{ title }] }. This read-only tool calls the same catalog lookup
+operation as the CLI. The module owns this supported name and schema under
+its documented versioning policy.
+```
+
+Run `brain module lint catalog --json` before shipping. Tool findings use
+`tool-load` for import/general definition failures, `tool-name` for naming
+errors, `tool-annotations` for required hints, `tool-schema` for invalid
+schemas or undescribed inputs, and `tool-docs` for the README section.
+Annotation and schema failures use their specific rule, so one defect does
+not also produce a duplicate `tool-load` finding. A rejected name remains a
+load error for normal commands and receives a `tool-name` diagnostic in lint.
+
+`brain module list --json` includes each enabled module's declared canonical
+`tools` in declaration order, or `[]`. Listing does not import definitions.
+MCP startup uses the same definition validator as lint; one invalid
+definition prevents every tool from that module from registering. Lint also
+checks input descriptions and README coverage. See
+[mcp.md](mcp.md#module-tools) for discovery and the fixed process lifecycle.
+
+Each module owns the names, schemas and behavior of its supported tools.
+First-party tools enter the integration contract and follow the project's
+versioning rules; third-party modules document the same policy in their own
+packages. Namespacing prevents collisions and does not exempt a tool from
+compatibility. The authoring exports are experimental until 1.0. See the
+[module-tool decision](decisions/module-mcp-tools.md#8-compatibility-who-owes-what).
 
 ## Enabling and disabling modules
 
@@ -260,7 +352,7 @@ gates, chiefly:
 
 ```sh
 brain module lint <name>   # validates the manifest, skill frontmatter, and config block,
-                           # and detects command/type/dir collisions
+                           # detects command/type/dir collisions, and checks MCP tools
 brain validate             # must be green
 brain skills sync          # must pick the new skills up
 ```
@@ -269,6 +361,8 @@ brain skills sync          # must pick the new skills up
 the skill-lint rules, detects command/type/directory collisions, and verifies the
 module's `configSchema` parses your config block. Write the module README to the
 same structure the first-party modules use — they are the reference examples.
+If it declares tools, lint also validates their imports, definitions, names,
+annotations, schemas, input descriptions and README coverage.
 
 ## See also
 

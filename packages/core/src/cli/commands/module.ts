@@ -6,12 +6,14 @@ import type { LintFinding } from "../../lib/skills/index.js";
 import { CORE_COMMAND_NAMES } from "../core-command-names.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, UsageError } from "../io.js";
+import { lintModuleTools } from "../../lib/module-tool-lint.js";
+import { ModuleToolNameError } from "../../lib/module-tool-names.js";
 
 const HELP = `brain module <list|lint>
 
   list          Enabled modules + available @schlessera/brain-module-* packages
   lint <name>   Validate an enabled module: manifest, skills, command/type
-                collisions, and configSchema against the user's config block`;
+                collisions, MCP tools, and configSchema against the user's config block`;
 
 function pkgInfo(dir: string): { name?: string; description?: string } {
   try {
@@ -41,6 +43,7 @@ function moduleList(cli: CliContext): Record<string, unknown> {
     description: pkgInfo(m.dir).description ?? null,
     types: Object.keys(m.manifest.taxonomy?.types ?? {}),
     commands: Object.keys(m.manifest.commands ?? {}),
+    tools: Object.keys(m.manifest.tools ?? {}).map((local) => `${m.manifest.name}_${local}`),
     cron: m.manifest.cron ?? [],
   }));
 
@@ -54,13 +57,19 @@ function moduleList(cli: CliContext): Record<string, unknown> {
   return { enabled, available };
 }
 
-function moduleLint(cli: CliContext, name: string): { findings: LintFinding[] } {
+async function moduleLint(cli: CliContext, name: string): Promise<{ findings: LintFinding[] }> {
   const findings: LintFinding[] = [];
   const add = (severity: LintFinding["severity"], rule: string, message: string) =>
     findings.push({ skill: name, rule, severity, message });
 
   const mod = cli.brain.modules.find((m) => m.manifest.name === name);
   if (!mod) {
+    // The loader still rejects malformed declarations for every command.
+    // Retain the specific finding when lint is diagnosing that rejection.
+    if (cli.configCause instanceof ModuleToolNameError && cli.configCause.moduleName === name) {
+      for (const issue of cli.configCause.issues) add("error", "tool-name", issue);
+      return { findings };
+    }
     add("error", "load", `module "${name}" is not enabled in brain.config (only enabled modules can be linted)`);
     return { findings };
   }
@@ -91,6 +100,7 @@ function moduleLint(cli: CliContext, name: string): { findings: LintFinding[] } 
   const moduleSkills = skills.filter((s) => s.source === "module");
   findings.push(...lintSkills(moduleSkills));
   for (const w of warnings) add("error", "skill-frontmatter", w);
+  findings.push(...await lintModuleTools(mod));
 
   // Config validity needs no re-check here: loadModules() hard-fails on a
   // config the module's configSchema rejects, so a loaded module implies a
@@ -123,7 +133,7 @@ export const moduleCommand: CoreCommand = {
     if (sub === "lint") {
       const name = args[1];
       if (!name) throw new UsageError("Usage: brain module lint <name>");
-      const { findings } = moduleLint(cli, name);
+      const { findings } = await moduleLint(cli, name);
       const errors = findings.filter((f) => f.severity === "error").length;
       emit(cli.json, { module: name, findings, errors }, () => {
         if (findings.length === 0) {

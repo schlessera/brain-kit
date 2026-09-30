@@ -431,6 +431,10 @@ export default defineModule({
   setup: () => ({
     taxonomy: { types: { stubnote: { dir: "stubnotes" } } },
     commands: { stub: async () => ({ summary: "stub", async run() { return 0; } }) },
+    tools: {
+      second: async () => { throw new Error("list must not import tool definitions"); },
+      first: async () => { throw new Error("list must not import tool definitions"); },
+    },
     cron: [{ name: "stub-nightly", schedule: "0 3 * * *", command: "stub run" }],
   }),
 });
@@ -447,20 +451,25 @@ export default defineModule({
       writeFileSync(
         join(brain, "brain.config.ts"),
         `import { defineConfig } from "@schlessera/brain";
-export default defineConfig({ modules: { "./modules/stub": {} } });
+export default defineConfig({ modules: { "./modules/stub": {}, "./modules/empty": {} } });
 `
       );
+      mkdirSync(join(brain, "modules/empty"), { recursive: true });
+      writeFileSync(join(brain, "modules/empty/module.ts"), 'export default { name: "empty", setup: () => ({}) };');
 
       const { stdout, code } = await runCli(brain, ["module", "list", "--json"]);
       expect(code).toBe(0);
       const out = JSON.parse(stdout);
-      expect(out.enabled).toHaveLength(1);
-      const [mod] = out.enabled;
+      expect(out.enabled).toHaveLength(2);
+      const [mod, empty] = out.enabled;
       expect(mod.name).toBe("stub");
       expect(mod.key).toBe("./modules/stub");
       expect(mod.description).toBe("A stub module");
       expect(mod.types).toEqual(["stubnote"]);
       expect(mod.commands).toEqual(["stub"]);
+      expect(mod.tools).toEqual(["stub_second", "stub_first"]);
+      expect(empty.name).toBe("empty");
+      expect(empty.tools).toEqual([]);
       expect(mod.cron).toEqual([{ name: "stub-nightly", schedule: "0 3 * * *", command: "stub run" }]);
 
       // Declared in package.json, not enabled, and not installed.

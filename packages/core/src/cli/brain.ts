@@ -184,10 +184,12 @@ async function main(): Promise<number> {
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;
   let configError: string | undefined;
+  let configCause: unknown;
   try {
     brain = await initContext();
   } catch (e) {
     configError = (e as Error).message;
+    configCause = e;
     brain = degradedContext();
   }
 
@@ -244,7 +246,7 @@ async function main(): Promise<number> {
   }
 
   const providers = resolveProviders(brain);
-  const cli: CliContext = { brain, json, configError, ...providers };
+  const cli: CliContext = { brain, json, configError, configCause, ...providers };
 
   const code = await entry.run(argv.slice(1), cli);
   return typeof code === "number" ? code : 0;
