@@ -282,6 +282,7 @@ They live in `.agents/skills/` and are symlinked into `.claude/skills/`.
 | --- | --- |
 | `release` | Versioning, publishing, or changing what a release ships. |
 | `github` | Filing, triaging, picking up or closing work in either tracker. |
+| `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 
 A skill records what actually works. When one of them is wrong — a command that
 changed, a limit that bit, an API shape that moved — fix it in the same PR that

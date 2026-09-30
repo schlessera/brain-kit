@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work one brain-kit issue"
+  short_description: "Take one ready issue through implementation and merge"
+  default_prompt: "Use $work-issue to claim the highest-priority eligible brain-kit issue, check readiness, implement it, and merge once current-commit CI is green or hand it off if blocked."
