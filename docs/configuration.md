@@ -4,7 +4,8 @@
 its taxonomy, providers, and enabled modules. This reference follows `main`;
 check `brain --version` and the installed package changelog for release
 availability. In particular, per-type `embed` and explicit `reranker.enabled`
-are 0.40.0 additions and are absent from published 0.39.0.
+are 0.40.0 additions and are absent from published 0.39.0. The travel module
+also joins 0.40.0; its config below assumes that release is installed.
 
 The file default-exports `defineConfig({...})`. `defineConfig` is a typed
 identity helper — it gives you autocomplete and type-checking while you edit;

@@ -1,7 +1,9 @@
 # Evaluating search
 
 `brain eval` scores a set of queries against the brain it runs in. You write down
-questions you actually ask and the documents that answer them. The command runs
+questions you actually ask and the documents that answer them. The template
+does not ship a personal query set: create one before running the commands
+below, with expected paths that exist and have been indexed. The command runs
 each question through the same search `brain search` uses and reports how often
 a right document came first.
 
@@ -22,12 +24,15 @@ points at another (a relative path is relative to the brain root). It is JSON Li
 object, with its right answers inline.
 
 ```jsonl
-{"id": "scope-setup", "q": "how is the telescope set up", "class": "question", "expected": ["studies/telescope-setup.md"]}
-{"id": "dob", "q": "the Dobsonian", "class": "alias", "expected": ["studies/telescope-setup.md"]}
-{"id": "bookshelf-status", "q": "bookshelf status", "class": "ambiguous-filename", "expected": ["projects/active/bookshelf/status.md"]}
-{"id": "bio", "q": "short bio", "class": "exact", "expected": ["me/basics/short-bio.md", "me/basics/long-bio.md"]}
-{"id": "tax", "q": "tax return deadline", "class": "no-answer", "expected": []}
+{"id": "raft-supplies", "q": "sailcloth", "class": "exact", "expected": ["notes/raft-supplies.md"]}
+{"id": "timber", "q": "timber for the raft", "class": "question", "expected": ["notes/raft-supplies.md"]}
 ```
+
+These two queries work with the note created by [daily workflow](daily-workflow.md).
+Save them as `evals/retrieval.jsonl` (create the directory first), then run
+`brain eval --mode fts`. Adapt the expected path if capture added a filename
+suffix. Grow the set with real questions and paths from your own brain; an
+alias query should name an alias your document actually declares.
 
 | Field | Required | Meaning |
 | --- | --- | --- |

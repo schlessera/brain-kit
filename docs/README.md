@@ -37,8 +37,8 @@ the published template rather than a source checkout.
 | --- | --- |
 | [configuration.md](configuration.md) | The full `brain.config.ts` reference — every key, its type, default, and an example — plus every environment variable brain-kit reads, root resolution, and the `brain.config.json` variant. |
 | [cli.md](cli.md) | Command reference for the `brain` bin — all commands, key flags, and which `--json` shapes are contract-bound. |
-| [mcp.md](mcp.md) | The stdio MCP server: registration, the eight `brain_*` tools, staleness warnings, and taxonomy-generated type filters. |
-| [extending/README.md](extending/README.md) | The seam meta-mechanism (typed interface → string-or-value config → optional package), the bar for promoting a community provider to a built-in, and the verbatim not-pluggable list. |
+| [mcp.md](mcp.md) | The stdio MCP server: registration, the eight core `brain_*` tools and module tools, staleness warnings, and taxonomy-generated type filters. |
+| [extending/README.md](extending/README.md) | Provider configuration and each seam's registration entry point, the bar for promoting a community provider to a built-in, and the verbatim not-pluggable list. |
 | [extending/embeddings.md](extending/embeddings.md) | The `EmbeddingProvider` seam. |
 | [extending/completions.md](extending/completions.md) | The `CompletionProvider` seam. |
 | [extending/agent-runners.md](extending/agent-runners.md) | The `AgentRunner` seam. |

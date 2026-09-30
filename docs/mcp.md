@@ -68,6 +68,8 @@ Notes:
 
 ## Module tools
 
+Available in 0.40.0+. Published 0.39.0 serves the eight core tools only.
+
 Enabled modules may declare tools served as `<module>_<local>`, after the
 eight core tools in config and declaration order. Discover them through
 `tools/list`; their descriptions, input and output schemas, and annotations
