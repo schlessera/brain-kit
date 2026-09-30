@@ -61,6 +61,23 @@ before any test warms Chrome, printing launch, rendering and total times
 separately. It asserts that real PNG bytes were produced; it has no performance
 threshold and loads no remote content.
 
+Three fresh GitHub Actions `ubuntu-24.04` runners in the
+[implementation CI run](https://github.com/schlessera/brain-kit/actions/runs/36719415467)
+measured the phases before their test process warmed Chrome. Bun was 1.3.14;
+the sandbox remained enabled and the standard renderer flags were used.
+
+| Runner sample | Chrome version | Launch (ms) | First render (ms) | Total (ms) |
+| --- | --- | --- | --- | --- |
+| Test shard 1 | 153.0.8010.52 | 7563 | 1459 | 9022 |
+| Test shard 2 | 154.0.8037.57 | 1173 | 1136 | 2308 |
+| Test shard 3 | 153.0.8010.52 | 13483 | 1494 | 14977 |
+
+Launch median was 7563 ms (range 1173–13483), first-render median 1459 ms
+(range 1136–1494), and total median 9022 ms (range 2308–14977). The provisioned
+Chrome version differed between runner images; this is a small heterogeneous
+sample, not a universal host bound. Its startup spread supports keeping
+acquisition separate and retaining headroom above these observed launches.
+
 ## Resource ownership and shutdown
 
 Calls share a launch but each has its own acquisition deadline. A timed-out
