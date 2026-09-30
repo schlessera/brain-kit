@@ -130,6 +130,31 @@ describe("a failed launch", () => {
 });
 
 describe("ordinary lifecycle", () => {
+  test("a browser acquired after a timed-out load and close is cleaned up", async () => {
+    let finish!: (browser: FakeBrowser) => void;
+    const pending = new Promise<FakeBrowser>((resolve) => { finish = resolve; });
+    const browser = new FakeBrowser();
+    const session = createBrowserSession({ launch: () => pending, pageBudgetMs: 10 });
+    await expect(session.load(request)).rejects.toThrow("budget");
+    await session.close();
+    finish(browser);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(browser.closed).toBe(true);
+    expect(browser.pagesOpened).toBe(0);
+  });
+
+  test("a page acquired after a timed-out load is closed before it can navigate", async () => {
+    let finish!: (page: { close(): Promise<void> }) => void;
+    const pending = new Promise<{ close(): Promise<void> }>((resolve) => { finish = resolve; });
+    let closes = 0;
+    const session = createBrowserSession({ launch: async () => ({ newPage: () => pending, close: async () => {} }), pageBudgetMs: 10 });
+    await expect(session.load(request)).rejects.toThrow("budget");
+    finish({ close: async () => { closes++; } });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(closes).toBe(1);
+    await session.close();
+  });
+
   test("one browser serves many loads", async () => {
     const l = launcher();
     const session = createBrowserSession({ launch: l.launch, idleCloseMs: 60_000 });

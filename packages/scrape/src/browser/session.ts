@@ -185,6 +185,14 @@ export function createBrowserSession(options: BrowserSessionOptions = {}): Brows
 
     pending
       .then((launched) => {
+        // close() may have abandoned this acquisition while a page's policy
+        // budget was expiring. A late result must neither leak nor replace a
+        // newer browser. Attached connections are disconnected, never killed.
+        if (launching !== pending) {
+          if (owned) void launched.close().catch(() => {});
+          else void launched.disconnect?.().catch(() => {});
+          return;
+        }
         browser = launched;
         if (launching === pending) launching = null;
         if (inFlight === 0) scheduleIdleClose();
