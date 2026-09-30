@@ -3711,7 +3711,7 @@ fifth `trend` turn and run 2's fourth each looked for git history. Both ran
 `find / -maxdepth 3 -iname "*.git" -type d` and got back repositories
 elsewhere on the host. The saved `escapedBrain` flag is `false` on both,
 because the rule (`export function escapesBrain`,
-`scripts/measure-show-block-server.ts:273`) looked only for `~/` and `/home/`
+`scripts/measure-show-block-server.ts:280`) looked only for `~/` and `/home/`
 paths when these turns ran. A bare `/` never matched that pattern. This brain
 lived under `/tmp`, so a path elsewhere outside `/home` would not have matched
 either. #360 closed the gap. So the
@@ -4285,3 +4285,68 @@ guard, the test named for it failed when the guard was removed: S1, S3, S4,
 S5 and S6, S7 (in the decision itself; ChatPage's `closing` prop is only a
 render filter), S8, S9, the drops, the last call winning, the empty call
 position, the kept draft, the share omission, and the classified-span filter.
+
+
+### D50 measurement instruments: description arms and item accounting (#550)
+
+The two harnesses select the same six prompts with `--suggestions`: three
+answers with a plausible next step, and three controls that ask the model to
+end its answer with a question. Both arms retain the shipped schema, brief and
+always-loaded bridge tools. `rule` carries the shipping description;
+`no-rule` removes only its `suggestions:` line, including the instruction to
+call it last. The description's opening sentence still names the variant in
+both arms. On the server, a Bun preload changes that single source line in
+memory before either backend loads, in a fresh subprocess for each arm. The
+keyless test lists both backends' tools and executes their real handlers to
+prove that their schemas and accepted suggestions are identical across arms.
+
+The rate is per completed turn with a parsed suggestions call. A parsed call
+whose items all drop still counts as a call. Rejected calls, subagent calls,
+incomplete turns and server turns that left the corpus are excluded. The
+question-control rate and the rate over answers whose actual final text part
+ends in a question are separate: asking the model to end with a question does
+not prove that it did. Item accounting follows the client in order: duplicate,
+repeated user prompt, then generic filler, using the same case/punctuation
+folding. Drops are measured over all accepted calls' items. Only the last
+accepted call supplies the transcript's kept-item sample; question-ending
+suppression is stated separately from item drops. A quality verdict needs a
+read of those transcripts, rather than another automated predicate.
+
+Keyless schema arithmetic on 2026-09-30, using Bun 1.3.14 and the Agent SDK's
+actual `tools/list` serialization: the description line adds **336 JSON
+characters**; adding the variant adds **808** characters to the shipped flat
+schema and **651** after D47's `definitions` transform. D47's calibrated
+marginal range estimates **131–140**, **315–337** and **254–272** input tokens,
+respectively, per model round trip. These are estimates; the counted command
+below measures the description and variant separately against the same tool
+name. The schema without the variant is only a token-count baseline, never a
+live arm. These character counts and their provenance do not establish a live
+rate or a keep/change/remove verdict.
+
+Reproduction commands (live commands require authorized API use):
+
+```sh
+# Keyless estimate and checks.
+bun scripts/measure-show-block.ts --suggestions --schema-cost
+bun run test tests/measure-suggestions.test.ts
+
+# SDK level: 6 prompts x 2 arms x 3 repetitions = 36 turns.
+bun scripts/measure-show-block.ts --suggestions --reps 3 --out sdk.json --md sdk.md
+bun scripts/measure-show-block.ts --suggestions --tokens
+
+# Server level: 36 turns per backend, each against a separate fixture copy.
+# Copies live outside any checkout and home directory and are indexed first.
+bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5 --runs 3 --out claude.json
+bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5 --runs 3 --out pi.json
+bun scripts/measure-show-block-server.ts --report claude.json
+bun scripts/measure-show-block-server.ts --report pi.json
+```
+
+Keep the reports separate by backend and model. The server report refuses to
+pool unlike backends/models or legacy block-rate records with suggestion
+records. The run files retain the answers, parsed items, drop reasons and
+runtime/package versions for review. Keyless tests compare the counter's
+survivors and question-ending decisions with the actual client's functions,
+and drive accepted, rejected, malformed, subagent and failed-turn frames
+through the server instrument over a real socket. Removing each guard makes
+its named behavioural assertion fail.
