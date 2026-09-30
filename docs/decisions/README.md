@@ -61,6 +61,46 @@ Keep them append-only. Supersede an entry; do not rewrite one.
 These files are inside the leakage gate, like the whole tree. Repo-relative
 paths, and attribute a ruling to "the maintainer" rather than by name.
 
+## Marking historical context and superseded decisions
+
+Put a dated note beside the passage whose present tense has become historical.
+A note at the top of a long record is easy to miss when a reader follows a
+section link. Preserve the original passage, its measurements and its citations.
+
+Each note names the affected passage, says what changed, and links to the
+replacement guidance or implementation. Distinguish two cases:
+
+- **Implementation context:** the code evolved or a planned fix landed, while
+  the decision still binds. Say which claim describes the old implementation;
+  do not call the decision superseded. The static-store audit in
+  [design-kit.md](design-kit.md#corrections-that-change-the-plan) is an example.
+- **Superseded decision:** a later ruling reverses the choice. Name the reversed
+  decision and link to the replacement ruling. Hardening's
+  [decision 3](hardening.md#key-technical-decisions) now points to the
+  [principal decision](session-principals.md#key-technical-decisions).
+
+For removed or changed code, verify the original evidence in git history and
+link to its full commit SHA and actual line range. Link the replacement
+separately. Do not move an old citation to unrelated current code; even the
+original line number may have drifted before the recorded snapshot. A new
+implementation note might look like this:
+
+```md
+> **2026-09-30 — Implementation context (the composer audit below).** The
+> [historical call](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205)
+> used a static store. [Root isolation](https://github.com/schlessera/brain-kit/commit/6b57843a471fc48ca3aa446f168aaf624b50b221)
+> replaced it. The isolation decision still binds.
+```
+
+A supersession note instead says which decision was reversed and where its
+replacement binds. These are local reading aids, not status fields or progress
+logs. When the record lives in another public repository, make the correction
+there or link a concrete counterpart issue; do not copy it back into this tree.
+Keep any necessary citation exception narrow and explained. A note or immutable
+link does not exempt the rest of the record from the citation checks below.
+The checker reads line fragments in links too: a commit-pinned historical
+permalink needs its own exact exception, verified against that commit's source.
+
 ## Citing code
 
 A `path:line` citation goes stale silently. When a PR inserts lines above cited
@@ -123,3 +163,6 @@ where each drifted anchor now is. What it does **not** check:
 When a later change removes or reverses the code a record describes, do not
 re-point the citation at code the record never described. List it as an
 exception, saying what happened to the code.
+
+Pair that exception with the local dated note and verified historical link
+described above, so the reader can see what the old citation meant.

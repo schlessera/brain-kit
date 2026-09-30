@@ -353,6 +353,19 @@ pass an arrow selector, 8 pass `useShallow`, and **0** omit the selector or
 destructure the whole store. No zustand middleware anywhere, no `.subscribe`,
 `.destroy` or `.persist` in source. So the selector-rewrite really is zero-churn.
 
+> **2026-09-30 — Implementation context (the static-store audit below).** These
+> sites describe the pre-isolation implementation: the
+> [chat handlers](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/chat-page.tsx#L142-L168),
+> [composer](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205),
+> [provider refresh](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/settings/pi-accounts.tsx#L71)
+> and [span loader](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/activity/span-bits.tsx#L88)
+> reached static stores, including the
+> [default activity store](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/activity-store.ts#L261-L270).
+> [Root isolation](https://github.com/schlessera/brain-kit/commit/6b57843a471fc48ca3aa446f168aaf624b50b221)
+> replaced those paths with root-owned stores. The
+> [D15 isolation decision](#2026-09-15--d15-the-default-root-shim-is-a-type-design-bug-not-a-migration-aid)
+> still binds; the following present tense is the audit's historical finding.
+
 **But "zero component edits" is false.** Five component call sites reach the
 store through a static and would silently bind to the *default* root while
 rendering under a provider — `chat-page.tsx:142,158,168` (tool approval,
@@ -398,12 +411,31 @@ a pure *type* break, and a type break is a breaking change for TS consumers. Fix
 is cheap (declare both overloads), but the "therefore it is a minor" reasoning
 does not stand on its own and must be re-argued after the wrapper is written.
 
+> **2026-09-30 — Implementation context (the SSR evidence below).** The import
+> experiment used the old guarded storage reads in
+> [chat-store](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/chat-store.ts#L228-L364),
+> [provider-store](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/provider-store.ts#L8-L44)
+> and [file-store](https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26-L135).
+> [Root isolation](https://github.com/schlessera/brain-kit/commit/6b57843a471fc48ca3aa446f168aaf624b50b221)
+> moved storage behind the injected store environment. These original file and
+> line citations preserve the experiment, not the current construction sites;
+> the SSR reasoning and D15's separate type-design ruling are unchanged.
+
 **SSR concern dismissed, with evidence.** All three construction-time
 `localStorage` reads are guarded (`chat-store.ts:364`/`228`,
 `provider-store.ts:44`/`8`, `file-store.ts:135`/`26`); no initialiser touches
 `matchMedia` or `window` unguarded, and fetches happen inside actions. A
 fresh-process import of `src/index.ts` with `window`/`localStorage` absent and
 `fetch` replaced by a throwing sentinel succeeded. An eager default root is safe.
+
+> **2026-09-30 — Implementation context (the renderer finding below).** The
+> [historical registration latch](https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10-L18)
+> caused this reproduced failure. The
+> [renderer fix](https://github.com/schlessera/brain-kit/commit/039f2c6a0d0baa1c8a4b260ccede6eecaff82836)
+> removed the latch and preserved built-ins through reset. The
+> [current registration](../../packages/ui-react/src/components/chat/renderers/index.ts)
+> relies on registry deduplication. The audit is evidence for the fix, not an
+> outstanding failure in current registration.
 
 **The renderer bug is real and was reproduced**: register → resolve (non-null) →
 reset → register → resolve (**null**). `registered` in
@@ -2378,6 +2410,16 @@ no route to `trend`, `bars` or `contact`:
 | yes | no-brief | 36 | 1 | 3% |
 | no | brief | 14 | 8 | 57% |
 | no | no-brief | 17 | 0 | 0% |
+
+> **2026-09-30 — Implementation context (D43's production deferral claim).** The
+> [bridge server before D44](https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104-L108)
+> omitted `alwaysLoad`. The
+> [D44 implementation](https://github.com/schlessera/brain-kit/commit/2efd725e233abefca36c25693cd362cf69a0b1bd)
+> sets it, under the
+> [D44 decision](#2026-09-22--d44-the-bridge-tools-are-always-loaded-not-deferred-behind-tool-search).
+> The following production claim and rate tables describe the pre-D44 runs;
+> they do not describe the current bridge-tool posture. The measurements remain
+> evidence for D44's choice.
 
 **Why the no-brief arm is near zero, which is the actual finding.** Not
 reluctance. The SDK **defers an MCP server's tools behind tool search by

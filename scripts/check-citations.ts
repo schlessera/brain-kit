@@ -429,6 +429,48 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   "docs/decisions/voice-permission.md|backend.ts:703-709":
     "inside a verbatim quote from docs/plans/async-collaboration.md; the file it meant is now too short to have these lines",
 
+  // Exact historical permalinks, not live-tree citations. parseCitations reads
+  // their line fragments too; each URL was verified against its pinned source.
+  // A changed SHA, path or first line needs its own verified exception.
+  ...Object.fromEntries(
+    [
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/app.ts#L267",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L221",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L74",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/run-session.ts#L133",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/turns.ts#L53",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/passkeys.ts#L578",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/activity/stream.ts#L153",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/activity/stream.ts#L326",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/cron/run-job.ts#L108",
+      "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/index.ts#L44",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/chat-page.tsx#L142",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/settings/pi-accounts.tsx#L71",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/activity/span-bits.tsx#L88",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/activity-store.ts#L261",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/chat-store.ts#L228",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/provider-store.ts#L8",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104",
+      "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
+      "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/b44fd7d356cf414de54bbb59c63fc966b10cca8b/packages/ui-server/src/agent/backend.ts#L1039",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/sdk-options.ts#L85",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/module.ts#L226",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/model-discovery.ts#L86",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/config.ts#L166",
+      "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/registry.ts#L40",
+    ].map((cited) => [
+      cited,
+      "verified commit-pinned historical evidence; the adjacent dated note scopes the old implementation and links its replacement",
+    ]),
+  ),
+
   // The code the record describes as it stood before the change the record
   // decided. That code is gone or now does the opposite, so there is nothing
   // current to anchor to, and re-pointing would make the record claim

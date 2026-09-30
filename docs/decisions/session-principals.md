@@ -9,6 +9,17 @@ The migration that advanced the legacy epoch once, and what that means for a
 rollback, is the part most worth reading before touching auth.
 ## Summary
 
+> **2026-09-30 — Implementation context (Summary and Problem frame).** The
+> identity-free cookie and global revocation below describe the baseline before
+> principals shipped, not the current session model. The
+> [epoch mint and verifier](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253-L330)
+> and [actor-free request log](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/app.ts#L267-L281)
+> preserve that evidence. The [key decisions below](#key-technical-decisions)
+> govern the replacement; the
+> [principal-cookie implementation](https://github.com/schlessera/brain-kit/commit/5300960db88d36399f76ee20ab5d66a714c298f2)
+> and [request attribution](https://github.com/schlessera/brain-kit/commit/0acd22d3fd27b4ce3c2fc41d22ef4ec4538ebf2f)
+> implement it. This is historical context, not a reversal of those decisions.
+
 A brain-ui session carries no identity. The signed cookie is
 `<issuedAt>.<epoch>` (`middleware/auth.ts:253`), validity is "the signature is
 ours, it is younger than 30 days, and its epoch equals the one global integer in
@@ -64,6 +75,21 @@ incident; neither should be the standing answer.
 
 Both reviewers verified every row below against the source.
 
+> **2026-09-30 — Implementation context (the table's pre-principal shapes).**
+> The epoch-cookie rows, boolean WS guard, identity-free upgrade/admission and
+> turn recorder, global passkey revocation and wrapper-keyed subscriptions are
+> historical. The original
+> [WS guard](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L221-L237),
+> [WS admission and upgrade](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L74-L253),
+> [recorder](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/run-session.ts#L133-L141),
+> [turn shape](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/turns.ts#L53-L77)
+> and [passkey delete](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/passkeys.ts#L578-L586)
+> show the old shapes; some original citation numbers had already drifted in
+> this snapshot. The [login change](https://github.com/schlessera/brain-kit/commit/ca6b0b276b38b57bbd2b8e2416c7327530990a8a)
+> and [revocation change](https://github.com/schlessera/brain-kit/commit/48348dfc2eba315f548788f7debaa590290892bf)
+> replace them under the key decisions below. Other anchored rows remain
+> maintained citations, not a claim that this whole table is current.
+
 | Thing | Where | Shape |
 | --- | --- | --- |
 | Cookie mint | `middleware/auth.ts:253` | `setSignedCookie(..., \`${Date.now()}.${epoch}\`, secret, { httpOnly, sameSite: "Strict", secure: true, path: "/", maxAge: 30d })` |
@@ -88,6 +114,15 @@ Both reviewers verified every row below against the source.
 | Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
+
+> **2026-09-30 — Implementation context (the first finding).** The subscription
+> leak below is the pre-U5 behaviour: the
+> [wrapper-keyed registry](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/activity/stream.ts#L153)
+> was [written and deleted through different wrappers](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/activity/stream.ts#L326-L354).
+> [U5](https://github.com/schlessera/brain-kit/commit/48348dfc2eba315f548788f7debaa590290892bf)
+> fixed the keying and principal cleanup; the
+> [current stream implementation](../../packages/ui-server/src/activity/stream.ts)
+> uses the raw socket. The second finding remains a contract requirement.
 
 - **The activity subscription registry leaks.** `subscribe` stores by the
   message-callback wrapper (`stream.ts:326`), `dropConnection` deletes by the
@@ -151,6 +186,12 @@ follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
 `ws/turns.ts:300`). The revocation itself is recorded in the activity record.
 
+> **2026-09-30 — Implementation context (decision 5's missing re-check).** The
+> [old dispatch](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162-L220)
+> did not re-check authorization. [U5](https://github.com/schlessera/brain-kit/commit/48348dfc2eba315f548788f7debaa590290892bf)
+> implemented this decision; [current WS handlers](../../packages/ui-server/src/ws/connection.ts)
+> enforce it. The boundary remains binding.
+
 **6. Only an owner mints or revokes.** Without R9, an agent can mint itself a
 replacement labelled "Safari on iPhone" before it is revoked, or revoke the
 owner's devices — a revocation that leaves a door open. `kind` is derived from
@@ -166,6 +207,13 @@ profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
 `activity/recorder.ts:130-145`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
+
+> **2026-09-30 — Implementation context (decision 7's cron example).** The
+> [old cron root span](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/cron/run-job.ts#L108-L118)
+> had no principal. [Current cron attribution](../../packages/ui-server/src/cron/activity.ts)
+> gives the root span the explicit scheduled-jobs system principal, as decision
+> 8 requires. Nullable historical rows remain part of decision 7; the old cron
+> example does not describe the current root span.
 
 **8. Ambient modes keep the identity they already have.** `proxy` mode reads an
 upstream user header (`auth.proxyAuthHeader`, `auth.ts:485`) — that becomes the
@@ -213,6 +261,14 @@ endpoint, so the shipped button (`Sign out everywhere`,
 `passkey-list.tsx:103-105`) does not silently become "sign out this device".
 
 ## System-wide impact
+
+> **2026-09-30 — Implementation context (export and migration impact).** The
+> API bullet records the change from the
+> [old root exports](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/index.ts#L44-L45).
+> [Current exports](../../packages/ui-server/src/index.ts) reflect the principal
+> implementation, not a pending epoch API change. The DB bullet's cron example
+> is likewise the old writer; current root-span attribution is described beside
+> decision 7 above. The compatibility and migration reasoning is preserved.
 
 - **Sessions:** one forced re-login on upgrade.
 - **Wire protocol:** no new frames; additive attribution fields on activity
