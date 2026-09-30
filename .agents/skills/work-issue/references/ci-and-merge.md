@@ -50,6 +50,14 @@ rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
 A run list alone does not establish all PR checks; use the check links for
 ruleset or synthetic-merge runs omitted by the head-SHA filter.
 
+While a workflow is still running, `gh run view --log` and `--log-failed`
+refuse logs even for a completed job. Read that job's log directly instead
+(`databaseId` in the run's jobs), then inspect its failing step:
+
+```sh
+rtk proxy gh api 'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs'
+```
+
 When Depot is enabled, use its results and logs directly:
 
 ```sh
