@@ -24,6 +24,19 @@ nothing would notice.
 Every line below was read on `origin/main` at `fe5a225` or shown by the command
 next to it.
 
+> **2026-09-30 — Implementation context (the problem and binary baseline).**
+> The missing version record and mandatory host-binary override describe the
+> [original server configuration](https://github.com/schlessera/brain-kit/blob/fe5a225a6f83b775d8180f3f6e9515ca5052e9bb/packages/ui-server/src/config/env.ts)
+> and its problem frame, before this record's changes landed. The
+> [runtime implementation](https://github.com/schlessera/brain-kit/commit/d33492e9d6680a7cb3c1e8a204aed7183431bc3d)
+> added version observation; making the override optional followed in
+> [#213](https://github.com/schlessera/brain-kit/commit/5f7dbb5f329634de46e2dfd7f5ff0a5659c1d8e6). The
+> [current runtime probe](../../packages/ui-backend-claude/src/runtime-probe.ts)
+> and [keyless re-check decision](#2026-09-23--the-re-check-runs-without-credentials-209)
+> replace the claimed gaps. The runtime decision still binds. Later corrections
+> already embedded in the bullets remain current; the baseline assertions and
+> recorded package versions are historical evidence.
+
 - **Located.** `CLAUDE_CODE_PATH` was declared with default
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
@@ -367,7 +380,16 @@ until re-measured.
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:618-628` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
 | `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:164-179` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2635-2658` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:75` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:763,781`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2677-2700` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:75` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:763,781`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+
+> **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
+> The [old harness](https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304-L369)
+> lacked runtime recording and an arm comparison. The
+> [#209 implementation](https://github.com/schlessera/brain-kit/commit/e08a3ba172307f86bb0e9785414c84d99147ddc9)
+> added both and a keyless CLI case. The
+> [re-check decision below](#2026-09-23--the-re-check-runs-without-credentials-209)
+> is the current guidance; the row and its opening unknown-version claim describe
+> the pre-#209 harness. Live-model rate and latency measurements remain separate.
 
 Historical anchors, **not** re-checked because they describe what was true when
 a record was written, not what the code relies on now: `Claude Agent SDK 0.3.241 typings`,
@@ -398,6 +420,20 @@ not cover auth or billing. This one does, and it is added rather than edited
 into them.
 
 ### How the subscription authenticates today
+
+> **2026-09-30 — Implementation context (the credential/profile baseline).**
+> The ambient-key pass-through, billing classification and API-key-first roster
+> below describe the pre-#253 implementation. The original
+> [profile environment](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/sdk-options.ts#L85),
+> [billing classification](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/module.ts#L226-L234)
+> and [model-discovery precedence](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/ui-backend-claude/src/model-discovery.ts#L86-L104)
+> preserve that evidence. The
+> [#253 implementation](https://github.com/schlessera/brain-kit/commit/af2affb2e939cc39446abeaccc704b617d9e6fd7)
+> clears API credentials for credential-free subscription profiles and prefers
+> the subscription token for discovery; declared API profiles remain explicit.
+> [The subscription rules below](#what-binds) still bind. The later billing corrections
+> in the original bullet are preserved, and the hosting table's counterpart
+> correction is [brain-hosting-template#8](https://github.com/schlessera/brain-hosting-template/issues/8).
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:92-96` and admitted
@@ -463,6 +499,14 @@ The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
 environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`).
+
+> **2026-09-30 — Implementation context (the core runner paragraph above).**
+> The [old Claude runners](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37-L72)
+> inherited the ambient key. [#253](https://github.com/schlessera/brain-kit/commit/af2affb2e939cc39446abeaccc704b617d9e6fd7)
+> replaced that path with cleared API credentials and a handshake check before
+> releasing the prompt, as the [current runners](../../packages/core/src/providers/agents/cli-runners.ts)
+> show. The measured binary precedence above remains evidence for that policy,
+> not a claim that current runners pass the key through.
 
 The SDK's bundled binary honours `CLAUDE_CODE_OAUTH_TOKEN` exactly as the host
 install does, in every row above. The runtime decision does not change how the
@@ -580,6 +624,15 @@ subscription authenticates.
    builds the provider with no options
    (`"anthropic-haiku": () => anthropicCompletions()`, `packages/core/src/lib/registry.ts:40`).
    A supported route to name that key is part of the work. Tracked in #253.
+
+   > **2026-09-30 — Implementation context (rule 1's completion-config gap).**
+   > The [old schema](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/config.ts#L166-L171)
+   > and [provider registry](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/registry.ts#L40)
+   > had no public key-name route. [#253](https://github.com/schlessera/brain-kit/commit/af2affb2e939cc39446abeaccc704b617d9e6fd7)
+   > added `completions.apiKeyEnv` and `fallbackApiKeyEnv` and passes them through
+   > the [current registry](../../packages/core/src/lib/registry.ts). That
+   > implements rule 1; the missing-route claim is historical.
+
 2. **The billing mode in effect is observed per turn, and checked against the
    profile's policy.** The run records `init.apiKeySource` and the
    `accountInfo()` fields (`tokenSource`, `subscriptionType`, `apiProvider`).

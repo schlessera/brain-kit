@@ -56,6 +56,14 @@ instead, and treat 8 as the question it was answering.
    upgrade. **Rollback below 0.32.0 revives revoked cookies** (the old
    verifier checks only signature and age), so the rollback step rotates
    `COOKIE_SECRET`.
+
+   > **2026-09-30 — Superseded decision (3).** The epoch choice was reversed by
+   > [session-principals, key decision 1](session-principals.md#key-technical-decisions):
+   > named rows support individual revocation and attribution. The
+   > [historical epoch implementation](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253-L330)
+   > is evidence for this original choice, not the current authority. The
+   > replacement decision binds future auth work.
+
 4. **Secrets leave the subprocess env in two steps, from one audience-tagged
    descriptor.** `ui-sdk/server` gains `SUBPROCESS_ENV`: a map of variable
    name → audiences (`cron`, `agent`, `brainCli`) with the server-only set
@@ -93,6 +101,14 @@ instead, and treat 8 as the question it was answering.
    is rewritten in the same PR. Unknown non-empty stored backend ids fail
    explicitly (today `getBackendForSession` silently substitutes the
    default, `backend.ts:1039`, against the fail-loud decision).
+
+   > **2026-09-30 — Implementation context (6's default substitution).** The
+   > [old session lookup](https://github.com/schlessera/brain-kit/blob/b44fd7d356cf414de54bbb59c63fc966b10cca8b/packages/ui-server/src/agent/backend.ts#L1039-L1046)
+   > substituted the default for an unknown id. The
+   > [registry implementation](https://github.com/schlessera/brain-kit/commit/c6d9a302af2ab2da94de04e45b661c87f726746c)
+   > fixed it; [current lookup](../../packages/ui-server/src/agent/backend.ts)
+   > throws for an unknown non-empty id. The fail-loud decision still binds.
+
 7. **Cron moves as a bin with a parameterised emitter and a golden test.**
    `brain-ui-cron` (`src/bin/brain-ui-cron.ts`, bun-only like the package)
    with `run`, `digest`, `crontab`, `environment` subcommands. The emitters
@@ -113,6 +129,15 @@ instead, and treat 8 as the question it was answering.
    `safe.directory` for both users). Everything is decided by a container
    spike in 0.33.0 (U24), recorded here before 0.34.0 is cut so 0.35.0 is
    designed a release ahead.
+
+   > **2026-09-30 — Superseded decision (8).** The spike reversed this sketch;
+   > [the container privilege decision](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md)
+   > in brain-hosting-template is the replacement, as the introduction records.
+   > Its own later runtime and credential context needs local notes in that
+   > repository: [brain-hosting-template#8](https://github.com/schlessera/brain-hosting-template/issues/8)
+   > carries that counterpart correction. This note does not assert that the
+   > hosting image has been implemented.
+
 9. **Deployments get tags.** A deployment tags each milestone's deps-bump
    merge commit `v<kit version>`.
 10. **The refactor release owns every refactor, as separately tagged
