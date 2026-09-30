@@ -676,3 +676,12 @@ What that changes and what it does not:
   does not audit connection attempts, so a background request that fails
   quietly would not fail a case. A failed or inconclusive case fails
   the job, and the job prints the JSON report.
+
+## 2026-09-30 — CI returns to GitHub Actions (#618)
+
+The `claude-runtime-probe` job now runs only from
+`.github/workflows/ci.yml`. The Depot workflow was removed when CI returned to
+GitHub Actions so agents can inspect failed checks through GitHub's log
+surfaces. This supersedes the workflow location above; the keyless probe and
+its network namespace remain the same. The migration findings and verification
+are recorded in #618.
