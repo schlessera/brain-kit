@@ -16,6 +16,7 @@ jobs:
         run: |
           mkdir -p packages/ui-kit/.vitest-attachments/probe
           echo "CI artifact proof for #618" > packages/ui-kit/.vitest-attachments/probe/proof.txt
+          test -s packages/ui-kit/.vitest-attachments/probe/proof.txt
           echo "::error::CI artifact proof controlled failure"
           exit 1
       - name: Upload diagnostics with the browser job's settings
