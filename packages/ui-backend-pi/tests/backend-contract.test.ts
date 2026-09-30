@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { compileConfirmPatterns, createKeyedLock, DEFAULT_CONFIRM_BASH_PATTERNS, type AgentBackend } from "@schlessera/brain-ui-sdk/server";
+import {
+  compileConfirmPatterns,
+  createKeyedLock,
+  type AgentBackend,
+} from "@schlessera/brain-ui-sdk/server";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
 import {
   API_FAILURE_DETAIL,
   runBackendContract,

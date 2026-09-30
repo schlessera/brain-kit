@@ -4,7 +4,7 @@ import {
   SUBPROCESS_ENV,
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
-} from "../src/server";
+} from "../src/internal";
 
 describe("subprocess environment descriptor", () => {
   test("server-only entries are filtered behaviorally for every audience", () => {

@@ -19,11 +19,10 @@ import type { DynamicEnvReadSpec } from "./env-core.js";
 import {
   EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
-  filterSubprocessEnv,
-  parseSubprocessEnvExtra,
   validateExecWrapper,
   type ExecWrapperConfig,
 } from "@schlessera/brain-ui-sdk/server";
+import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/internal";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
 // across every chokepoint via the sync-enforced copy in ./env-core.ts.

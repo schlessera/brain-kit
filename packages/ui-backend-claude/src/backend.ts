@@ -9,11 +9,8 @@ import type {
   ProviderInfo,
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/server";
-import {
-  compileConfirmPatterns,
-  createKeyedLock,
-  DEFAULT_CONFIRM_BASH_PATTERNS,
-} from "@schlessera/brain-ui-sdk/server";
+import { compileConfirmPatterns, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
 
 import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
@@ -40,10 +37,10 @@ export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
  * documentation steers away from.
  *
  * The pattern list itself is backend-independent policy and lives in
- * `@schlessera/brain-ui-sdk/server` (shared with the pi backend's tool_call
- * gate); re-exported here for compatibility.
+ * `@schlessera/brain-ui-sdk/internal` (shared with the pi backend's tool_call
+ * gate); available through the package's internal entry for first-party sharing.
  */
-export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
+export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
 
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session

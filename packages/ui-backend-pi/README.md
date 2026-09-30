@@ -274,3 +274,13 @@ Reads whose variable *name* is configuration rather than code:
 
 Generated from `packages/ui-backend-pi/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
+
+## Policy import migration
+
+`DEFAULT_PI_ALLOWED_TOOLS` and `TOOL_RISK` moved from the ordinary package
+entry to `@schlessera/brain-backend-pi/internal` for first-party implementation
+sharing, with no compatibility guarantee. External backend authors use the
+SDK's supported permission toolkit and their runtime's own policy. The
+[classification](../../docs/decisions/backend-authoring-toolkit.md) records
+these names separately from the supported input formats and turn posture.
+Runtime defaults and permission behavior are unchanged.

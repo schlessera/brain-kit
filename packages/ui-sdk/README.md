@@ -59,6 +59,17 @@ resources. Descriptor authors migrating from the synchronous signature use
 backend's version policy. `killWrapped` accepts optional bounded helper
 handling for these probes; omitting it retains turn cancellation behavior.
 
+The supported permission toolkit is `decideToolPermission`,
+`createToolPermissionRequest`, `requestToolPermission`, `checkEditedApproval`
+and `compileConfirmPatterns`, with their signature types. Use the
+[authoring workflow](../../docs/extending/agent-backends.md#the-public-permission-toolkit)
+to gate execution and check approved edits. The toolkit is experimental until
+1.0; its documented behavior and reachable types are included in the supported
+surface. Bundled defaults and subprocess-policy helpers moved to `/internal`,
+which has no compatibility guarantee. The
+[classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
+names every affected import. Subscription-auth helpers remain protocol API.
+
 ## Backend contract tests (`./testing`)
 
 Backend packages can run the same `startTurn` assertions as the first-party

@@ -110,13 +110,7 @@ export type {
   ConfirmPattern,
   ConfirmPatternSource,
 } from "./confirm-patterns.js";
-export {
-  DEFAULT_CONFIRM_BASH_PATTERNS,
-  ARCHIVING_UPDATE_REASON,
-  compileConfirmPatterns,
-  archivesDocument,
-  bashCommand,
-} from "./confirm-patterns.js";
+export { compileConfirmPatterns } from "./confirm-patterns.js";
 
 export type {
   ToolPermissionDecisionInput,
@@ -146,13 +140,6 @@ export * from "../classification/index.js";
 export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 
 export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
-
-export type { SubprocessEnvAudience } from "./subprocess-env.js";
-export {
-  SUBPROCESS_ENV,
-  filterSubprocessEnv,
-  parseSubprocessEnvExtra,
-} from "./subprocess-env.js";
 
 export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";

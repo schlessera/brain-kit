@@ -20,14 +20,16 @@ import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
 import {
-  filterSubprocessEnv,
-  parseSubprocessEnvExtra,
   validateExecWrapper,
   type ConfirmPatternSource,
   type ExecWrapperConfig,
-  type SubprocessEnvAudience,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
+import {
+  filterSubprocessEnv,
+  parseSubprocessEnvExtra,
+  type SubprocessEnvAudience,
+} from "@schlessera/brain-ui-sdk/internal";
 
 // --- descriptor -------------------------------------------------------------
 

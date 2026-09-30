@@ -68,7 +68,7 @@ describe("api surface reports", () => {
       for (const name of Object.values(subpaths).flat()) {
         const at = lines.findIndex((line) => line.startsWith(`  ${name} (`));
         expect(at, `${name} has no entry in api-report/${dir}.txt`).toBeGreaterThan(-1);
-        expect(lines[at + 1]).toMatch(new RegExp(`^    export (interface|type) ${name}\\b`));
+        expect(lines[at + 1]).toMatch(new RegExp(`^    export (interface|type|function) ${name}\\b`));
       }
     }
   });

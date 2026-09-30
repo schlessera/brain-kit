@@ -75,7 +75,12 @@
       "types": "./dist/client/sw-policy.d.ts",
       "default": "./dist/client/sw-policy.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal": {
+      "bun": "./src/internal.ts",
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    }
   },
   "files": [
     "src",
