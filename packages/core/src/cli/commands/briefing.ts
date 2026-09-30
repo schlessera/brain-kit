@@ -16,6 +16,8 @@ import type { Taxonomy } from "../../lib/taxonomy.js";
 import { openDatabase } from "../../lib/db.js";
 import { codeRanges, inRanges } from "../../lib/markdown-code.js";
 import { filterSearch } from "../../lib/search-engine.js";
+import { resolveStatsThresholds } from "../../lib/stats.js";
+import { readStatsTrends } from "../../lib/stats-trends.js";
 import type { CoreCommand } from "../types.js";
 import { parseArgs, UsageError } from "../io.js";
 
@@ -91,6 +93,8 @@ const HYGIENE_LAST_RUN = "context/hygiene/last-run.md";
 const HYGIENE_OPEN = "context/hygiene/open.md";
 
 export interface BriefingOptions {
+  /** Evaluation clock for deterministic corpus trend and briefing checks. */
+  now?: Date;
   /** Overdue reviews to list, oldest first, before `… and N more`. Default 5. */
   reviewLimit?: number;
 }
@@ -182,7 +186,7 @@ export function generateBriefing(brain: BrainContext, limit = 15, opts: Briefing
   }
   const db = openDatabase(brain.dbPath, { readonly: true });
   const lines: string[] = [];
-  const now = new Date();
+  const now = opts.now ?? new Date();
   const todayStr = isoDay(now.getTime());
   // One identity for the focus document: the indexed spelling, and only while
   // the file is there. Warnings, the section and its links all follow it.
@@ -191,6 +195,8 @@ export function generateBriefing(brain: BrainContext, limit = 15, opts: Briefing
 
   try {
     const docs = loadAuditDocs(db);
+    const trends = readStatsTrends(brain.root, resolveStatsThresholds(brain.config), now);
+    for (const v of trends.verdicts) if (v.state === "warning") lines.push(`> **Warning:** ${v.message}`, "");
 
     // 0. Warnings about the focus document, ahead of it, so stale priorities
     // are not read as current.

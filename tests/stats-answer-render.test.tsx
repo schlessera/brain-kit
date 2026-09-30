@@ -22,7 +22,7 @@ import { TOKENS } from "@schlessera/brain-ui-kit";
 
 import { composeStatsAnswer, type StatsInput } from "../packages/ui-react/src/components/chat/stats/compose-stats.ts";
 import { StatsAnswer } from "../packages/ui-react/src/components/chat/stats/stats-answer.tsx";
-import { corpusStats, runtimeStats } from "../packages/ui-react/tests/stats-fixtures.ts";
+import { actionableTrends, corpusStats, runtimeStats } from "../packages/ui-react/tests/stats-fixtures.ts";
 
 const chromePath = [
   process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -129,6 +129,7 @@ const big: StatsInput = {
 const CASES: [string, StatsInput][] = [
   ["the fixture brain", { corpus: { ok: true, value: corpusStats() }, runtime: { ok: true, value: runtimeStats() } }],
   ["maximum-size figures", big],
+  ["actionable recorded trends", { corpus: { ok: true, value: corpusStats({ trends: actionableTrends() }) }, runtime: { ok: true, value: runtimeStats() } }],
   ["runtime unavailable", { corpus: { ok: true, value: corpusStats() }, runtime: { ok: false, error: "the request timed out after 30 seconds" } }],
 ];
 
@@ -142,6 +143,11 @@ describe.skipIf(!chromePath)("the /stats answer at 320px", () => {
         // Something to measure in each kind the checks cover.
         const values = await p.$$eval('[data-stats-section="receipt"] [data-tone]', (els) => els.length);
         expect(values).toBeGreaterThan(10);
+        if (input.corpus.ok && input.corpus.value.trends) {
+          const text = await p.$eval('[data-stats-answer]', el => el.textContent ?? "");
+          expect(text).toContain("Recorded orphans");
+          for (const v of input.corpus.value.trends.verdicts) expect(text).toContain(v.message);
+        }
         const tileRows = await p.$$eval('[data-stats-section="tiles"]', (els) => els.length);
         expect(tileRows).toBe(name === "runtime unavailable" ? 1 : 2);
         expect(await misfits(p)).toEqual([]);

@@ -139,7 +139,7 @@ policy. The rationale and measurements are in
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
-| `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `audit` step's result is `<errors> error(s), <warnings> warning(s), <infos> info(s); <mustFix> must-fix, <informational> informational`, the totals `brain audit --json` reports for the same run (the must-fix and informational part additive in 0.40.0; the counts follow the grouped `todo`/`verify` issues from 0.40.0). The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
+| `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step also carries additive `trends` (see "Recorded corpus trend verdicts"), evaluated before recording. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `audit` step's result is `<errors> error(s), <warnings> warning(s), <infos> info(s); <mustFix> must-fix, <informational> informational`, the totals `brain audit --json` reports for the same run (the must-fix and informational part additive in 0.40.0; the counts follow the grouped `todo`/`verify` issues from 0.40.0). The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
 | `brain registry [--check] --json` | `{ "indexes", "written", "stale", "invalid": [{ "path", "error" }] }` (additive in 0.38.0). Regenerates the registry table of every `_index.md` whose frontmatter has a `registry:` block. `indexes` counts them, valid or not. `written` lists the files rewritten. `stale` lists out-of-date indexes left as they are: all of them under `--check`, which writes nothing, and otherwise one whose file changed between being read and being written (it is regenerated on the next run). `invalid` lists indexes that cannot be generated, which are left untouched: a `registry:` block that does not validate, an index or a child that cannot be read, whose frontmatter does not parse, or whose frontmatter opens and never closes (an `_index.md` whose frontmatter does not parse counts when it has a `registry:` line, quoted or not), or malformed region markers. Exit `1` under `--check` when anything is stale or invalid, `2` without it when anything is invalid, else `0` |
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
@@ -154,8 +154,8 @@ policy. The rationale and measurements are in
 | `brain graph stats --json` | `{ "computedAt", "root", "nodes", "edges", "brokenLinks", "components", "reachable", "layoutSkipped", "algo", "communities" }` |
 | `brain graph compute [--root <path>] --json` | `{ "nodes", "edges", "brokenLinks", "components", "communities", "root", "reachable", "layoutSkipped", "durationMs" }` |
 | `brain graph export --mode clusters\|discovery\|local\|maintenance --json` | `{ "nodes", "edges", "truncated" }`, except `maintenance` → `{ "staleDays", "root", "orphans", "unreachable", "brokenLinks", "stale" }` |
-| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size" }` — `health` and `size` added in 0.37.0, additively. **Breaking in 0.37.0:** `embeddings` is retyped from `number` to `number \| null` — `null` when a vector table exists but could not be counted, `0` when there is none. It also changed value: it reports the real vector count on an embedded brain, where before it read `0` on every brain. Every other earlier field keeps its name and type |
-| `brain stats --history --json` | `{ "dates", "recordedAt", "versions", "documents", "tags", "links", "brokenLinks", "chunks", "embeddings", "byType", "byStatus", "byRelevance", "health", "size" }` — the snapshots `.stats-history.jsonl` holds, oldest first, as one array per field (additive in 0.40.0). `--since <YYYY-MM-DD>` keeps the ones on and after that day. See "Stats history" below |
+| `brain stats --json` | `{ "documents", "byType", "byStatus", "byRelevance", "tags", "links", "brokenLinks", "chunks", "embeddings", "health", "size", "trends" }` — `trends` added in 0.40.0 (see "Recorded corpus trend verdicts"). `health` and `size` added in 0.37.0, additively. **Breaking in 0.37.0:** `embeddings` is retyped from `number` to `number \| null` — `null` when a vector table exists but could not be counted, `0` when there is none. It also changed value: it reports the real vector count on an embedded brain, where before it read `0` on every brain. Every other earlier field keeps its name and type |
+| `brain stats --history --json` | `{ "dates", "recordedAt", "versions", "documents", "tags", "links", "brokenLinks", "chunks", "embeddings", "byType", "byStatus", "byRelevance", "health", "size", "trends" }` — `trends` is the core-owned comparison over the full recorded history; `--since` filters the arrays only. The snapshots `.stats-history.jsonl` holds, oldest first, as one array per field (additive in 0.40.0). `--since <YYYY-MM-DD>` keeps the ones on and after that day. See "Stats history" below |
 | `brain eval [--set <file>] [--mode fts\|vector\|hybrid\|all] --json` | `{ "schema_version", "meta", "rows", "per_query", "warnings" }` — retrieval scores for a query set against this brain's index (additive in 0.38.0). See [`brain eval --json`](#brain-eval---json). Exit `2`, with nothing on stdout, when a validity gate refuses the run. With `--lint` (additive in 0.38.0): `{ "schema_version", "meta": { "set", "set_sha256", "queries" }, "warnings" }`, where `warnings` lists `paraphrase` queries that share a content word with an expected document's title. It does not score, never opens `brain.db`, exits `0` with or without findings, and exits `2` naming the line on a malformed set |
 | `brain tags --json` | `{ "tags", "documents", "variantGroups": [{ "canonical", "members": [{ "tag", "count" }] }], "redundant": [{ "path", "tag", "repeats": "type"\|"directory" }], "aliasHits": [{ "path", "tag", "canonical" }], "outOfVocabulary": [{ "tag", "count" }] \| null }` (additive in 0.38.0). Read-only. `tags` counts distinct tags and `documents` the markdown documents carrying one, both read from frontmatter, not the index. `members` is never empty, most used first, and includes `canonical`. `redundant` is `[]` under `taxonomy.tags.redundant: "off"`. `outOfVocabulary` is `null` when no `taxonomy.tags.vocabulary` is set, most used first otherwise. `path` is repo-relative |
 | `brain tags --apply [--dry-run] [--only <old>] [--groups] [--redundant] --json` | `{ "files": [{ "path", "from": string[], "to": string[] }], "skipped": [{ "path", "reason" }], "warnings": string[] }`. `files` lists every document whose tags changed (or would, under `--dry-run`), in path order. `skipped` lists documents left alone: frontmatter that does not parse, a `tags:` entry the rewrite does not edit, a tag on an alias cycle, a file edited while the command ran (`"changed during apply"`), or a rewrite that would not read back as the planned tags. A `reason` starting `failed:` is a read or write error; the run goes on, and the command exits `2` after indexing and accepting the files it did rewrite. An index that cannot be opened stops the run before any file is rewritten: `files` is empty, `warnings` says why, and the exit code is `2`. Only the `tags:` entries change, on the raw text. `updated` is not bumped. The touched files are reindexed, and a file's mtime is accepted only when the index read exactly the bytes the rewrite wrote; `warnings` names each one that was not. Explicit aliases take precedence over variant groups, and a second run reports no `files`. `reason` and `warnings` are prose (additive in 0.38.0) |
@@ -571,6 +571,71 @@ Older committed stats-history snapshots retain their recorded semantics; an
 index rebuild does not rewrite them. See the
 [eligibility decision](decisions/embedding-eligibility.md).
 
+### Recorded corpus trend verdicts (additive in 0.40.0)
+
+`brain stats --json` and `--history --json` include `trends`, and the `stats`
+entry of `brain maintain --json` carries the same object. Briefing retains
+plain text and includes only warning explanations. Ordinary library
+`collectStats` remains a current measurement; the CLI enriches it with history.
+
+`trends` is `{ evaluatedAt: <ISO timestamp>, verdicts: [...] }`, with exactly
+one verdict for each `metric`: `embeddingCoverage`, `brokenLinks`, `orphans`.
+Each verdict has:
+
+- `state`: `warning`, `measured-no-warning`, `insufficient`, `stale`, or
+  `incomparable`. An unusable comparison never becomes a healthy verdict.
+- `baseline` and `recent`: `{ start, end, dates, samples, median, countMedian,
+  versions }`. Dates are inclusive UTC calendar dates; `dates` lists the
+  actual valid daily observations and `samples` their count. Missing or
+  invalid values are excluded, not zero. `versions` lists known strings used
+  (a missing version still causes incomparability). `countMedian` is only
+  populated for the paired broken-link counts, otherwise null. Coverage and
+  broken-link `median` values are ratios, not percentages.
+- `latestAt`: the latest used recording timestamp, or null. Future dates and
+  recordings, and timestamps inconsistent with their stated UTC day, are
+  excluded. Duplicate days use the existing history reader's semantics.
+- `change`: recent minus baseline median; `countChange`: the paired
+  broken-link count delta; `relativeChange`: the orphan delta / baseline,
+  null at a zero baseline. Inapplicable fields and changes for unusable
+  comparisons are null. Partial window medians remain available as evidence.
+- `rule`: `{ minimumSamples: 3, maximumAgeHours: 48, minimumChange,
+  minimumCountChange, minimumRelativeChange, currentThreshold }`, naming the
+  effective fixed rule and configured floor/ceiling. Inapplicable fields are
+  null. `message` is the core-owned explanation, reused verbatim by consumers.
+
+Recent is today minus 6 days through today; baseline is today minus 13
+through minus 7. Each needs at least 3 valid days. Medians use the ordinary
+mean of the middle two values for even samples. Freshness is inclusive at
+48 hours. State precedence is insufficient samples, incompatible provenance,
+stale observations, then measured classification. A `--since` filter does
+not change the evaluation windows or sample membership.
+
+Coverage warns for a fall >= 0.05 and recent strictly below `coverageFloor`.
+Broken links warn for rate rise >= 0.01, count rise >= 3 and recent rate
+strictly above `brokenLinkCeiling`; rate and count use the same valid paired
+rows, with a positive link denominator and a recorded rate matching count /
+links. Orphans warn for absolute rise >= 5 and relative rise >= 0.20; from
+zero only the absolute gate applies. Decisions use unrounded values; numeric
+evidence and the explanation preserve enough precision to separate boundaries.
+These are initial uncalibrated policy thresholds, not inferred causes.
+
+Version compatibility is conservative and explicit. Reviewed 0.37.0/0.38.0
+coverage uses total chunks; 0.40.0 uses eligible chunks. They cannot be mixed.
+Development histories labelled 0.39.0 can contain either definition, so their
+coverage is incomparable. Broken-link/orphan definitions are compatible
+across those four exact versions. Other, missing or prerelease versions are
+unsupported until reviewed. See the [trend decision](decisions/stats-trends.md)
+for provenance evidence and rejected alternatives. Old snapshots and
+recording/retention rules are unchanged.
+
+A current-value finding takes precedence for its metric; the PWA adds trend
+evidence to that existing notice instead of a second warning. Complete
+comparisons remain in receipts. An incomparable metric chart is replaced by
+its explanation rather than connecting incompatible definitions.
+Missing/stale/incomparable history produces
+no alert or healthy claim there or in briefing. Malformed JSONL still follows
+the reader's existing explicit-error behavior; it is never silently repaired.
+
 ### Stats history (additive in 0.40.0)
 
 `brain stats --record`, and the `stats` step of `brain maintain`, keep the
@@ -589,8 +654,9 @@ validates or audits it, and `size.corpus` does not count it.
 - A line that is not a JSON object with a `YYYY-MM-DD` `date` (a conflict
   marker left by a merge, say) fails both the recording and `--history`, and
   the file is left untouched to be fixed by hand.
-- Recording does not change `brain stats --json`: stdout is the same object,
-  and the note about the recording goes to stderr.
+- Recording does not change current figures in `brain stats --json`; trend
+  evidence uses history available before the write. A later command can see
+  the newly recorded day. The recording note goes to stderr.
 
 A line holds `date`, `at` (ISO timestamp), `version` (the brain-kit version
 that recorded it), the flat counts and breakdowns of `brain stats --json`,

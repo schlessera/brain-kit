@@ -470,7 +470,8 @@ describe("brain stats (spawned)", () => {
 
     // Byte-identical but for free space, which measures the volume rather than
     // the brain and can move between two subprocesses on a busy machine.
-    const normalize = (s: string) => s.replace(/"freeBytes": \d+/, '"freeBytes": <volume>');
+    const normalize = (s: string) => s.replace(/"freeBytes": \d+/, '"freeBytes": <volume>')
+      .replace(/"evaluatedAt": "[^"]+"/, '"evaluatedAt": "<clock>"');
     expect(normalize(all.stdout)).toBe(normalize(plain.stdout));
 
     // And both carry the uncapped breakdowns.

@@ -254,18 +254,28 @@ describe("the CLI", () => {
     expect(readFileSync(join(root, STATS_HISTORY_FILE), "utf8")).toBe(before);
   });
 
-  test("brain stats --json is byte-for-byte the same with and without --record, and with a history on disk", async () => {
+  test("recording preserves current figures; trend evidence reflects the history available before the write", async () => {
     const root = tempBrain();
     await runCli(root, ["index", "--json"]);
     // Free space is the one figure that moves between two runs on a shared disk.
-    const pinned = (out: string) => out.replace(/"freeBytes": \d+/, '"freeBytes": 0');
+    const pinned = (out: string) => {
+      const value = JSON.parse(out);
+      delete value.trends;
+      value.size.freeBytes = 0;
+      return value;
+    };
     const plain = await runCli(root, ["stats", "--json"]);
     expect(existsSync(join(root, STATS_HISTORY_FILE))).toBe(false);
     const recording = await runCli(root, ["stats", "--record", "--json"]);
     expect(existsSync(join(root, STATS_HISTORY_FILE))).toBe(true);
     const after = await runCli(root, ["stats", "--json"]);
-    expect(pinned(recording.stdout)).toBe(pinned(plain.stdout));
-    expect(pinned(after.stdout)).toBe(pinned(plain.stdout));
+    expect(pinned(recording.stdout)).toEqual(pinned(plain.stdout));
+    expect(pinned(after.stdout)).toEqual(pinned(plain.stdout));
+    const beforeTrends = JSON.parse(plain.stdout).trends;
+    const recordedTrends = JSON.parse(recording.stdout).trends;
+    expect(beforeTrends.verdicts).toHaveLength(3);
+    expect(recordedTrends.verdicts).toEqual(beforeTrends.verdicts);
+    expect(JSON.parse(after.stdout).trends.verdicts.find((v: { metric: string }) => v.metric === "orphans").recent.samples).toBe(1);
     // The note goes to stderr, where it cannot corrupt the JSON.
     expect(recording.stderr).toContain("History: recorded");
   });

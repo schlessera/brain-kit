@@ -56,7 +56,7 @@ Zero eligible chunks means `null`, not zero, one, or a division result. An
 unreadable vector store remains unknown. A keyless brain without embeddings
 keeps its existing unmeasured semantics. A null value does not trigger the
 coverage-floor warning
-(`const embeddingCoverage =`, `packages/core/src/lib/stats.ts:284-287`).
+(`const embeddingCoverage =`, `packages/core/src/lib/stats.ts:287-290`).
 
 This changes the meaning of the existing ratio without adding a second
 ratio or changing its JSON shape. Consumers use that supplied nullable value

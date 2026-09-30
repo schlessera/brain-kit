@@ -185,3 +185,30 @@ keyword results with a degradation warning. Vector-only search returns an empty
 result and warning on timeout. Vector retrieval widens its candidate window
 when duplicate chunks or filters leave too few documents, up to 500 chunks;
 that bound can still produce fewer documents than `--limit` requests.
+
+## Recorded corpus trends
+
+Stats JSON includes core-owned `trends` for embedding coverage, broken links
+and orphans; `stats --history --json` and maintain's `stats` step carry the
+same evidence. Human stats attaches each comparison to its health figure;
+maintain and briefing print warning explanations only. The PWA merges
+current-value and trend evidence for the same metric in one notice.
+
+Compare seven UTC calendar days ending today with the preceding seven, using
+ordinary medians and at least three valid daily observations in each.
+Recordings must be within 48 hours; gaps and unknown values are never zero.
+Coverage warns for a fall of at least 0.05 below the configured floor;
+broken links require rate rise at least 0.01, paired count rise at least 3,
+and recent rate above the ceiling. Orphans require at least 5 more and a
+relative rise of at least 20%; a zero baseline uses the absolute gate alone.
+Floor/ceiling equality does not trigger those strict guards. Initial rules
+are uncalibrated and describe movement, not its cause.
+
+Insufficient, stale or incompatible provenance is explicit in JSON and
+creates no new alert. In particular, development 0.39.0 coverage histories
+cannot establish which side of the eligibility change they recorded.
+Unknown versions are declined until reviewed. `--since` filters chart arrays,
+not the comparison windows. Evaluation never writes history; `--record` and
+maintain evaluate before their existing recording step. See the
+[full trend contract](integration-contract.md#recorded-corpus-trend-verdicts-additive-in-0400)
+and [decision](decisions/stats-trends.md).

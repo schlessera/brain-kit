@@ -13,7 +13,7 @@ import {
   usd,
   type StatsSection,
 } from "../src/components/chat/stats/compose-stats.js";
-import { corpusStats, emptyRuntime, runtimeStats, statsHistory } from "./stats-fixtures.js";
+import { actionableTrends, corpusStats, emptyRuntime, runtimeStats, statsHistory } from "./stats-fixtures.js";
 
 const ok = <T>(value: T) => ({ ok: true as const, value });
 const failed = (error: string) => ({ ok: false as const, error });
@@ -31,6 +31,64 @@ const row = (r: Of<"receipt">, k: string) => {
   return found;
 };
 const text = (s: StatsSection[]) => JSON.stringify(s);
+
+describe("core-owned actionable trends", () => {
+  test("a current-value finding takes precedence and carries the same trend evidence in one callout", () => {
+    const trends = actionableTrends();
+    expect(trends.verdicts).toHaveLength(3);
+    expect(trends.verdicts.every(v => v.state === "warning")).toBe(true);
+    const c = corpusStats({ trends });
+    const sections = composeStatsAnswer({ corpus: ok(c), runtime: ok(emptyRuntime()) });
+    const callouts = all(sections, "callout").filter(v => v.tone !== "neutral");
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].title).toStartWith("Only 82.0%");
+    expect(callouts[0].body).toContain(trends.verdicts[0].message);
+    expect(callouts[0].body).toContain("2 more figures");
+    for (const v of trends.verdicts) {
+      const comparisons = all(sections, "receipt").filter(r => r.footnote === v.message);
+      expect(comparisons).toHaveLength(1);
+      expect(comparisons[0].rows.some(r => r.v === String(v.recent.median))).toBe(true);
+      expect(comparisons[0].rows.every(r => r.v.length <= VALUE_BUDGET.plain)).toBe(true);
+    }
+  });
+
+  test("an orphan warning comes from the supplied verdict even when current counts are low", () => {
+    const trends = actionableTrends();
+    trends.verdicts = trends.verdicts.filter(v => v.metric === "orphans");
+    const c = corpusStats({ trends, health: { ...corpusStats().health, embeddingCoverage: 1, brokenLinkRate: 0, orphans: 0 } });
+    const sections = composeStatsAnswer({ corpus: ok(c), runtime: ok(emptyRuntime()) });
+    const callouts = all(sections, "callout").filter(v => v.tone === "gold");
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0].body).toBe(trends.verdicts[0].message);
+    expect(callouts[0].title).toContain("orphans");
+  });
+
+  test.each(["insufficient", "stale", "incomparable", "measured-no-warning"] as const)("state %s is never reclassified as a warning in the UI", state => {
+    const trends = actionableTrends();
+    for (const v of trends.verdicts) v.state = state;
+    const c = corpusStats({ trends, health: { ...corpusStats().health, embeddingCoverage: 1, brokenLinkRate: 0 } });
+    const sections = composeStatsAnswer({ corpus: ok(c), runtime: ok(emptyRuntime()) });
+    expect(all(sections, "callout").filter(v => v.tone === "gold" || v.tone === "red")).toHaveLength(0);
+    expect(all(sections, "receipt").filter(v => v.title.startsWith("Recorded "))).toHaveLength(state === "measured-no-warning" ? 3 : 0);
+    expect(text(sections)).not.toContain('"title":"Healthy');
+  });
+
+  test("incomparable coverage is explained instead of connected as a like-for-like chart", () => {
+    const history = statsHistory(3);
+    const trends = actionableTrends();
+    trends.verdicts = trends.verdicts.filter(v => v.metric === "embeddingCoverage");
+    trends.verdicts[0].state = "incomparable";
+    trends.verdicts[0].message = "Coverage definitions differ; recorded versions cannot establish comparability.";
+    history.trends = trends;
+    const sections = composeStatsAnswer({ corpus: ok(corpusStats()), runtime: ok(emptyRuntime()), history: ok(history) });
+    expect(all(sections, "trend").some(v => v.label.startsWith("embedding coverage"))).toBe(false);
+    const reason = receipt(sections, "Recorded embedding coverage");
+    expect(row(reason, "comparison").v).toBe("incomparable");
+    expect(reason.footnote).toBe(trends.verdicts[0].message);
+    expect(reason.footTone).toBe("neutral");
+    expect(all(sections, "trend").some(v => v.label.startsWith("documents"))).toBe(true);
+  });
+});
 
 describe("the full answer", () => {
   const sections = composeStatsAnswer({ corpus: ok(corpusStats()), runtime: ok(runtimeStats()) });

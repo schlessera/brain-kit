@@ -6,6 +6,7 @@ import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
 import { collectAndRecordStats, describeRecord } from "./stats.js";
+import type { StatsTrends } from "../../lib/stats-trends.js";
 import { GitUnavailableError, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -40,7 +41,7 @@ export const maintainCommand: CoreCommand = {
   async run(args, cli): Promise<number> {
     const { args: pos, flags } = parseArgs(args);
     if (pos.length > 0) throw new UsageError(`brain maintain takes no positional arguments (got "${pos[0]}")`);
-    const report: Array<{ step: string; result: string }> = [];
+    const report: Array<{ step: string; result: string; trends?: StatsTrends }> = [];
     const dims = embeddingDims(cli.embeddings);
 
     // 0. Registry tables, before the index so it reads what they wrote. The
@@ -134,7 +135,8 @@ export const maintainCommand: CoreCommand = {
     // 4. Stats history: the day's figures, after the index they describe. A
     // second run the same day replaces that day's snapshot.
     try {
-      report.push({ step: "stats", result: `ok — ${describeRecord(await collectAndRecordStats(cli))}` });
+      const recorded = await collectAndRecordStats(cli);
+      report.push({ step: "stats", result: `ok — ${describeRecord(recorded)}`, trends: recorded.trends });
     } catch (e) {
       report.push({ step: "stats", result: `FAILED — ${(e as Error).message}` });
     }
@@ -187,7 +189,10 @@ export const maintainCommand: CoreCommand = {
 
     emit(cli.json, report, () => {
       console.log("Maintenance run:\n");
-      for (const r of report) console.log(`  ${r.step.padEnd(10)} ${r.result}`);
+      for (const r of report) {
+        console.log(`  ${r.step.padEnd(10)} ${r.result}`);
+        for (const v of r.trends?.verdicts ?? []) if (v.state === "warning") console.log(`    ${v.message}`);
+      }
     });
 
     return report.some((r) => r.result.startsWith("FAILED")) ? 2 : 0;
