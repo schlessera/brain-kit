@@ -95,8 +95,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:1021`;
-  `Activity stream`, `:1060`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract.md:1060`;
+  `Activity stream`, `:1099`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -227,4 +227,3 @@ endpoint, so the shipped button (`Sign out everywhere`,
   cron.
 - **Per-request cost:** one primary-key read on local WAL SQLite, plus a
   `last_seen_at` write only when >60s stale.
-

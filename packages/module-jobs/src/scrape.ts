@@ -145,6 +145,8 @@ export async function runScrape(opts: {
       executablePath: env.chromePath,
       noSandbox: env.noSandbox,
       userAgent: env.userAgent,
+      robots: http.robots,
+      rateLimiter: http.rateLimiter,
     });
   }
 

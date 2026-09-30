@@ -97,6 +97,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   PageRequest (packages/scrape/src/browser/session.ts)
     export interface PageRequest<T> {
         url: string;
+        allowDisallowed?: boolean;
         waitForSelector?: string;
         settleMs?: number;
         extract: () => T;
@@ -104,13 +105,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   RateLimiter (packages/scrape/src/politeness/rate-limit.ts)
     export class RateLimiter {
         constructor(options?: RateLimiterOptions);
-        acquire(host: string, delayMs?: number): Promise<void>;
+        acquire(host: string, delayMs?: number, signal?: AbortSignal): Promise<void>;
         reset(): void;
     }
   RateLimiterClock (packages/scrape/src/politeness/rate-limit.ts)
     export interface RateLimiterClock {
         now(): number;
-        sleep(ms: number): Promise<void>;
+        sleep(ms: number, signal?: AbortSignal): Promise<void>;
     }
   RateLimiterOptions (packages/scrape/src/politeness/rate-limit.ts)
     export interface RateLimiterOptions {
@@ -140,6 +141,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   ScrapeClient (packages/scrape/src/fetch/http.ts)
     export class ScrapeClient {
+        readonly userAgent: string;
+        readonly rateLimiter: RateLimiter;
+        readonly robots: RobotsCache;
         constructor(options?: ScrapeClientOptions);
         get(url: string, opts?: FetchOptions): Promise<Response>;
         getJson<T = unknown>(url: string, opts?: FetchOptions): Promise<T>;

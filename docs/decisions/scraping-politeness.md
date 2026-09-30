@@ -106,6 +106,11 @@ site's permission. Fixture: `packages/module-jobs/tests/fixtures/boards/remotive
   `RobotsCache`, so the rule binds the three `needsBrowser` boards but nothing
   checks it for them today. Tracked in
   [#244](https://github.com/schlessera/brain-kit/issues/244).
+  **Implementation update 2026-09-30:** this gap is closed for HTTP(S)
+  main-frame navigation. The historical description above no longer describes
+  `BrowserSession.load`; the [browser enforcement ruling](#browser-enforcement-ruling)
+  below defines the checks and their deliberate boundary. The robots.txt-wins
+  decision remains binding.
 
 ## What does not change
 
@@ -161,3 +166,52 @@ The original text is left as written.
   how `runScrape` in `packages/module-jobs/src/scrape.ts` builds its client. A
   `ScrapeClient` constructed directly ignores it and follows its own
   `respectRobots` option.
+
+## Browser enforcement ruling
+
+**Decided 2026-09-29 by the maintainer**, on
+[#244](https://github.com/schlessera/brain-kit/issues/244), implemented
+2026-09-30. The rule at the start of this record remains unchanged.
+
+Enforcement lives in the shared `BrowserSession`, so adapters and standalone
+callers receive it by default. HTTP and Chrome use the same policy calculation
+(`clearToFetch`, `packages/scrape/src/politeness/policy.ts:6-29`) and can share
+their run's owned robots cache and rate limiter. The generic runner and jobs
+runner supply those shared objects; there is no new browser runner or copy of
+the robots rules. The HTTP client exposes its owned objects for callers that
+construct their client before constructing the browser.
+
+Coverage is **each HTTP(S) main-frame navigation before dispatch**: the initial
+URL, every redirect target and later page navigation during a load. The check
+runs in request interception, before Chrome can send the request, rather than
+after observing the final URL. Browser User-Agent and robots matching use the
+same token. `Crawl-delay` raises the shared per-host floor, including between
+HTTP and concurrent browser activity. A refused load rejects, so jobs retain
+their existing `not_run`/failed diagnostics rather than reporting empty success.
+
+Scripts, images, child frames and page-generated API calls are **outside these
+checks and pacing**. Checking all subresources was rejected because it would
+turn this navigation policy into a broader network policy and could prevent
+allowed listings from rendering when their asset paths are disallowed. This
+boundary grants no permission to intentionally route around a disallow; the
+rule against circumvention still binds adapters.
+
+An owned host or written site permission permits an explicit
+`PageRequest.allowDisallowed` for **one call's original origin**. It is off by
+default, includes same-origin redirects and cannot authorize another origin.
+Ordinary pacing and usable `Crawl-delay` remain in force. An adapter using it
+cites its authorization. A session-wide browser opt-out was not selected;
+HTTP's existing `respectRobots` option and environment switch remain HTTP-only.
+
+Policy waits are part of the page's wall-clock budget, after concurrency
+admission. Cancellation closes the page, releases capacity and prevents a late
+request without cancelling another caller's shared robots fetch. A cancelled
+limiter acquisition retains its place behind its predecessor until that
+predecessor is granted, so it cannot let a successor overtake it.
+
+Alternatives rejected: adapter-only checks leave standalone callers uncovered;
+a final-URL check sends the forbidden redirect first; independent HTTP/browser
+policy objects let mixed activity burst; carrying one site's override across
+origins treats permission for one host as permission for a different operator.
+The [package API guide](../../packages/scrape/README.md#headless-chrome) describes
+the sharing inputs and migration from the formerly unenforced browser path.

@@ -26,6 +26,46 @@ function fakeClock(): RateLimiterClock & { waits: number[]; time: number } {
 }
 
 describe("RateLimiter", () => {
+  test("cancelling a sleeping acquisition releases its successor without recording a request", async () => {
+    const controller = new AbortController();
+    const clock = fakeClock();
+    let waiting!: () => void;
+    const asleep = new Promise<void>((resolve) => { waiting = resolve; });
+    clock.sleep = async () => { waiting(); await new Promise(() => {}); };
+    const limiter = new RateLimiter({ clock });
+    await limiter.acquire("a.example", 1000);
+    const cancelled = limiter.acquire("a.example", 1000, controller.signal);
+    await asleep;
+    controller.abort(new Error("fixture cancellation"));
+    await expect(cancelled).rejects.toThrow("fixture cancellation");
+    clock.time += 1000;
+    await limiter.acquire("a.example", 1000);
+    expect(clock.waits).toEqual([]);
+  });
+
+  test("cancelling a queued acquisition never lets its successor overtake the preceding request", async () => {
+    let now = 0;
+    const pending: Array<() => void> = [];
+    const limiter = new RateLimiter({ clock: { now: () => now, sleep: () => new Promise<void>((resolve) => pending.push(resolve)) } });
+    await limiter.acquire("a.example", 1000);
+    const grants: string[] = [];
+    const before = limiter.acquire("a.example", 1000).then(() => grants.push("before"));
+    const controller = new AbortController();
+    const cancelled = limiter.acquire("a.example", 1000, controller.signal);
+    const after = limiter.acquire("a.example", 1000).then(() => grants.push("after"));
+    controller.abort(new Error("fixture cancellation"));
+    await expect(cancelled).rejects.toThrow("fixture cancellation");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(pending).toHaveLength(1);
+    expect(grants).toEqual([]);
+    now = 1000; pending.shift()!(); await before;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(pending).toHaveLength(1);
+    expect(grants).toEqual(["before"]);
+    now = 2000; pending.shift()!(); await after;
+    expect(grants).toEqual(["before", "after"]);
+  });
+
   test("spaces requests to one host and leaves other hosts alone", async () => {
     const clock = fakeClock();
     const limiter = new RateLimiter({ defaultDelayMs: 1000, clock });

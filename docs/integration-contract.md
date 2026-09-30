@@ -615,6 +615,45 @@ The jobs database records the same judgement in `scrape_runs.status`: `ok` and
 could not be read therefore stops advancing its cursor even when it threw
 nothing.
 
+## Browser scraping navigation policy
+
+`@schlessera/brain-scrape`'s `BrowserSession.load` checks robots.txt and applies
+per-host pacing before dispatching each HTTP(S) main-frame navigation: the
+initial URL, every redirect target and subsequent navigation during the load.
+`BrowserSessionOptions.userAgent` is both the sent identity and the robots
+matching token, defaulting to the package's identifying User-Agent.
+Scripts, images, child frames and page-generated API requests are outside
+these checks and pacing. The existing rule against intentional circumvention
+still applies; this is not a browser network sandbox.
+
+`PageRequest.allowDisallowed` is an explicit per-call option, default false,
+for an owned host or written site permission. It authorizes only the
+requested URL's original origin, never a cross-origin redirect, and never
+persists into another call. Ordinary pacing and usable Crawl-delay still
+apply. HTTP's `respectRobots`/`SCRAPE_RESPECT_ROBOTS` opt-out does not disable
+browser enforcement. No session-wide browser override is provided.
+
+Sessions own a robots cache and limiter by default; optional `robots` and
+`rateLimiter` inputs share the run's objects. `ScrapeClient` exposes readonly
+`robots`, `rateLimiter` and `userAgent` for this purpose. `runAdapters` and
+the jobs runner share these objects when constructing the browser. A supplied
+preconstructed BrowserSession retains the policy state chosen by its caller.
+`RateLimiter.acquire(host, delayMs?, signal?)` and an injected clock's
+`sleep(ms, signal?)` accept cancellation without granting a request or
+letting another waiter overtake a preceding acquisition.
+
+`pageBudgetMs` bounds the whole page operation after concurrency admission,
+including acquisition, policy waits, navigation and extraction. A refusal
+or timeout rejects the load, closes its page and releases capacity. Jobs
+report a board whose pages are all refused as `not_run` with errors and
+persist `failed`, using the existing JSON/status shapes above.
+
+This pre-1.0 tightening replaces unenforced browser navigation and the
+implicit Chrome User-Agent. Consumers needing a disallowed navigation must
+provide the authorized per-call option; HTTP behavior is preserved. The
+[scraping-politeness record](decisions/scraping-politeness.md#browser-enforcement-ruling)
+records the approved request boundary and override policy.
+
 ## MCP server (stdio, `brain mcp` or `src/mcp-server.ts`)
 
 Tool names and input schemas are stable:
