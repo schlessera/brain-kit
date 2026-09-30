@@ -5,12 +5,12 @@
  * `bun test packages tests --timeout 30000` could never be narrowed:
  * `bun run test packages/scrape` appended a third path and still ran the whole
  * suite. This wrapper adds the default roots only when the caller named no path
- * of their own, and passes every flag through untouched — CI's
- * `bun run test --shard=N/2` included.
+ * of their own, and passes Bun's flags through untouched. CI's
+ * `--balanced-shard=N/3` selects files by measured costs before that run.
  *
  *   bun run test                       # packages + tests
  *   bun run test packages/scrape       # just that package
- *   bun run test --shard=1/2           # the whole suite, one shard
+ *   bun run test --shard=1/3           # the whole suite, one shard
  *
  * The `--timeout 30000` lives in package.json, not here, so the manifest guard
  * in tests/release-manifest.test.ts still sees it on the root script.
@@ -102,7 +102,25 @@ export function testArgv(args: readonly string[]): string[] {
 }
 
 if (import.meta.main) {
-  const proc = Bun.spawn([process.execPath, "test", ...testArgv(process.argv.slice(2))], {
+  let args = process.argv.slice(2);
+  let argv: string[];
+  try {
+    const balanced = args.filter((arg) => arg.startsWith("--balanced-shard="));
+    args = args.filter((arg) => !arg.startsWith("--balanced-shard="));
+    argv = testArgv(args);
+    if (balanced.length) {
+      if (balanced.length !== 1 || argv.length === args.length ||
+          args.some((arg) => arg.startsWith("--shard") || arg.startsWith("--cwd"))) {
+        throw new Error("--balanced-shard requires the default roots and cannot combine with --shard or --cwd");
+      }
+      const { selectShard } = await import("./test-shards");
+      argv = [...selectShard(process.cwd(), DEFAULT_ROOTS, balanced[0]!.slice("--balanced-shard=".length)), ...args];
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+  const proc = Bun.spawn([process.execPath, "test", ...argv], {
     stdio: ["inherit", "inherit", "inherit"],
   });
   // A cancellation aimed at this process's PID (a CI runner stopping the
