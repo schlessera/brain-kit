@@ -11,6 +11,7 @@ export type {
   PermissionRequest,
   AskUserResult,
   AskUserListResult,
+  AskUserRankResult,
   LocationFix,
   SubscriptionAuthAction,
 } from "./backend.js";

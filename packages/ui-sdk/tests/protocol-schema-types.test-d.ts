@@ -4,6 +4,7 @@ import type {
   ClientAskUserCancel,
   ClientAskUserResponse,
   ClientAskUserListResponse,
+  ClientAskUserRankResponse,
   ClientCancelRequest,
   ClientChatMessage,
   ClientHello,
@@ -23,6 +24,7 @@ import type {
   ServerActivitySnapshot,
   ServerAskUserRequest,
   ServerAskUserListRequest,
+  ServerAskUserRankRequest,
   ServerError,
   ServerHello,
   ServerLocationRequest,
@@ -45,6 +47,7 @@ import {
   clientAskUserCancelSchema,
   clientAskUserResponseSchema,
   clientAskUserListResponseSchema,
+  clientAskUserRankResponseSchema,
   clientCancelSchema,
   clientChatMessageSchema,
   clientHelloSchema,
@@ -64,6 +67,7 @@ import {
   serverActivitySnapshotSchema,
   serverAskUserRequestSchema,
   serverAskUserListRequestSchema,
+  serverAskUserRankRequestSchema,
   serverErrorSchema,
   serverHelloSchema,
   serverLocationRequestSchema,
@@ -87,6 +91,8 @@ import type {
 } from "./type-equality.js";
 
 
+type ClientAskUserRankResponseMatches = Assert<SchemaEqualsProtocol<typeof clientAskUserRankResponseSchema, ClientAskUserRankResponse>>;
+type ServerAskUserRankRequestMatches = Assert<SchemaEqualsProtocol<typeof serverAskUserRankRequestSchema, ServerAskUserRankRequest>>;
 // Client -> server: all 15 frames.
 type ClientHelloMatches = Assert<SchemaEqualsProtocol<typeof clientHelloSchema, ClientHello>>;
 type ClientChatMessageMatches = Assert<
@@ -255,6 +261,7 @@ export type ProtocolSchemaAssertions = [
   ClientSessionResumeMatches,
   ClientAskUserResponseMatches,
   ClientAskUserListResponseMatches,
+  ClientAskUserRankResponseMatches,
   ClientAskUserCancelMatches,
   ClientLocationResponseMatches,
   ClientLocationErrorMatches,
@@ -279,6 +286,7 @@ export type ProtocolSchemaAssertions = [
   ServerSessionHistoryMatches,
   ServerAskUserRequestMatches,
   ServerAskUserListRequestMatches,
+  ServerAskUserRankRequestMatches,
   ServerLocationRequestMatches,
   ServerMaskRequestMatches,
   ServerActivitySnapshotMatches,

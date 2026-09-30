@@ -6,6 +6,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
+import { rankTouch } from "./tests/visual/rank-pointer.ts";
 import viteConfig from "./vite.config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,7 +66,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog },
+              commands: { startRequestLog, requestLog, rankTouch },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

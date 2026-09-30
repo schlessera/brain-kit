@@ -13,6 +13,7 @@ import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
+import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
 import { envSnapshot, resolveExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
@@ -75,6 +76,7 @@ export function createClaudeSdkTurn(options: {
   // that someone has to read and tap. It is not in the voice posture, so it is
   // withheld here rather than appended into an allowlist that left it out.
   const askUserList = req.noGrantSurface === true ? undefined : req.bridge.askUserList;
+  const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
   const queryActivity = req.bridge.queryActivity;
   const allowed = [...options.allowedTools];
   // Auto-allow the in-process MCP tools so they never trip a permission
@@ -82,6 +84,7 @@ export function createClaudeSdkTurn(options: {
   // handled by the browser's geolocation prompt).
   if (askUser) allowed.push(ASK_USER_TOOL_NAME);
   if (askUserList) allowed.push(ASK_USER_LIST_TOOL_NAME);
+  if (askUserRank) allowed.push(ASK_USER_RANK_TOOL_NAME);
   if (getLocation) allowed.push(GET_LOCATION_TOOL_NAME);
   // Auto-allowed like the other bridge tools: the approval is the editor
   // itself — nothing happens unless the user paints and confirms.
@@ -100,6 +103,7 @@ export function createClaudeSdkTurn(options: {
     {
       askUser: Boolean(askUser),
       askUserList: Boolean(askUserList),
+      askUserRank: Boolean(askUserRank),
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
       activity: Boolean(queryActivity),
@@ -179,6 +183,7 @@ export function createClaudeSdkTurn(options: {
     "brain-ui": createBrainUiMcpServer({
       askUser,
       askUserList,
+      askUserRank,
       getLocation,
       requestMask,
       queryActivity,
@@ -206,6 +211,7 @@ function buildAppend(
   tools: {
     askUser: boolean;
     askUserList: boolean;
+    askUserRank: boolean;
     location: boolean;
     mask: boolean;
     activity: boolean;
@@ -223,6 +229,7 @@ function buildAppend(
       tools: {
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         askUserList: tools.askUserList && ASK_USER_LIST_TOOL_NAME,
+        askUserRank: tools.askUserRank && ASK_USER_RANK_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,

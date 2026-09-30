@@ -212,6 +212,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_graph: "read",
   ask_user: "read",
   ask_user_list: "read",
+  ask_user_rank: "read",
   get_current_location: "read",
   query_activity: "read",
   // Echoes the block it was given; the surface draws it. Touches nothing.

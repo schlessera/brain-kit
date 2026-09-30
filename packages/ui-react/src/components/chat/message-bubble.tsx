@@ -11,6 +11,7 @@ import { ToolCallTimeline } from "./tool-call-timeline.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
+import { AskUserRankExchangeCard } from "./ask-user-rank-card.js";
 import { AskUserListExchangeCard } from "./ask-user-list-card.js";
 import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
 import { StatsAnswer } from "./stats/stats-answer.js";
@@ -55,6 +56,7 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserCancel,
   onAskUserReask,
   onAskUserListSubmit,
+  onAskUserRankSubmit,
   closing = false,
 }: {
   message: ChatMessage;
@@ -67,6 +69,8 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  /** An `ask_user_rank` answered: every item id in order. */
+  onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   /** An `ask_user_list` answered: answers and notes keyed by item id. */
   onAskUserListSubmit: (
     requestId: string,
@@ -120,6 +124,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserCancel={onAskUserCancel}
           onAskUserReask={onAskUserReask}
           onAskUserListSubmit={onAskUserListSubmit}
+          onAskUserRankSubmit={onAskUserRankSubmit}
           closing={closing}
         />
       )}
@@ -253,6 +258,7 @@ function AssistantContent({
   onAskUserCancel,
   onAskUserReask,
   onAskUserListSubmit,
+  onAskUserRankSubmit,
   closing,
 }: {
   message: ChatMessage;
@@ -265,6 +271,8 @@ function AssistantContent({
   onAskUserCancel: (requestId: string) => void;
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
+  /** An `ask_user_rank` answered: every item id in order. */
+  onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   /** An `ask_user_list` answered: answers and notes keyed by item id. */
   onAskUserListSubmit: (
     requestId: string,
@@ -303,10 +311,12 @@ function AssistantContent({
   );
   const unmatchedExchanges = (message.askUserExchanges ?? []).slice(askUserSlots);
 
-  // One exchange, one card: a list exchange draws the list card, anything
-  // else the question card.
+  // One exchange, one card, selected by its requested answer shape.
   const renderExchange = (ex: AskUserExchange, key: string | number) =>
-    ex.list ? (
+    ex.rank ? (
+      <AskUserRankExchangeCard key={key} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
+        cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+    ) : ex.list ? (
       <AskUserListExchangeCard
         key={key}
         requestId={ex.requestId}

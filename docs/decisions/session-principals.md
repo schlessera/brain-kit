@@ -102,7 +102,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:35-46`; `slot.queue.push(entry)`, `run-session.ts:489` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:37-48`; `slot.queue.push(entry)`, `run-session.ts:489` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:1285`;
-  `Activity stream`, `:1342`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract.md:1318`;
+  `Activity stream`, `:1375`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -184,7 +184,7 @@ server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:309`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:322`). The revocation itself is recorded in the activity record.
 
 > **2026-09-30 — Implementation context (decision 5's missing re-check).** The
 > [old dispatch](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162-L220)

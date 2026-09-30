@@ -23,6 +23,7 @@ function parse(frame: unknown) {
 
 /** One valid example of every member of the union. */
 const SAMPLES: ServerMessage[] = [
+  { type: "ask_user_rank_request", requestId: "r1", prompt: "Which first?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }], cutoff: 1 },
   { type: "retry_receipt", sessionId: "s1", requestId: "retry-one", state: "accepted", text: "Original", attachmentCount: 2 },
   { type: "server_hello", protocolRev: 2, capabilities: { multiSession: true } },
   { type: "text_delta", text: "hi", sessionId: "s1" },

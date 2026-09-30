@@ -672,6 +672,7 @@ async function schemaCost(credential: LiveCredential): Promise<{
   const server = createBrainUiMcpServer({
     askUser: unreachable as never,
     askUserList: unreachable as never,
+    askUserRank: unreachable as never,
     getLocation: unreachable as never,
     requestMask: unreachable as never,
     queryActivity: unreachable as never,
@@ -1104,9 +1105,9 @@ async function main(): Promise<void> {
           (row) =>
             `| \`${row.name}\` | ${row.loaded} | ${row.briefTokens} | ${row.briefLines} |`
         ),
-        `| **all five** | **${schema.loadedAll}** | **${schema.rows.reduce((sum, row) => sum + row.briefTokens, 0)}** | ${schema.rows.reduce((sum, row) => sum + row.briefLines, 0)} |`,
+        `| **all ${schema.rows.length}** | **${schema.loadedAll}** | **${schema.rows.reduce((sum, row) => sum + row.briefTokens, 0)}** | ${schema.rows.reduce((sum, row) => sum + row.briefLines, 0)} |`,
         "",
-        `All five DEFERRED, which is what shipped BEFORE D44: **${schema.deferredAll}** tokens — and the same number for one deferred tool as for five, so the API prices the deferred set as a fixed block rather than per tool.`,
+        `All ${schema.rows.length} deferred (comparison with the pre-D44 loading posture): **${schema.deferredAll}** tokens.`,
         "",
         `The block brief alone: ${brief.tokens} tokens, ${brief.lines} lines, ${brief.chars} characters.`,
         "",

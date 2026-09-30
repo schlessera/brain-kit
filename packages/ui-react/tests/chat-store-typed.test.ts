@@ -122,6 +122,20 @@ describe("takeComposerTextAsAnswer", () => {
     expect(draft().askUser?.answers).toBeUndefined();
   });
 
+  test("ranking keeps composer text ordinary and a completed order is no longer pending", () => {
+    const store = useChatStore.getState();
+    store.startAssistantMessage(null);
+    store.setAskUserRankRequest(null, "rank-1", { prompt: "Which first?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }] });
+    const sent: ClientMessage[] = [];
+    expect(draft().askUser?.rank?.items).toHaveLength(2);
+    expect(takeComposerTextAsAnswer(useChatStore.getState(), null, "B first", (message) => sent.push(message))).toBe(false);
+    expect(sent).toEqual([]);
+    expect(draft().askUser?.order).toBeUndefined();
+    store.submitAskUserRankOrder(null, "rank-1", ["b", "a"], false);
+    expect(draft().askUser?.order).toEqual(["b", "a"]);
+    expect(isPendingExchange(draft().askUser)).toBe(false);
+  });
+
   test("blank text takes nothing", () => {
     const store = useChatStore.getState();
     store.startAssistantMessage(null);

@@ -656,6 +656,22 @@ describe("bridge-capability tool registration", () => {
     }
   });
 
+  test("the rank card refuses a turn with no grant surface before calling the bridge", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      const mock = makeMockBridge();
+      turn.bridge = mock.bridge;
+      let called = false;
+      turn.bridge.askUserRank = async () => { called = true; return { order: ["a", "b"], unchanged: true }; };
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) }));
+      const input = { prompt: "Which first?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }] };
+      turn.noGrantSurface = true;
+      await expect(tools.ask_user_rank!.execute("r1", input, undefined, undefined, CTX)).rejects.toThrow(/no way to show anyone a card/);
+      expect(called).toBe(false);
+    } finally { brain.cleanup(); }
+  });
+
   test("risk-class table covers every registered tool", () => {
     const brain = makeEmptyBrain();
     try {

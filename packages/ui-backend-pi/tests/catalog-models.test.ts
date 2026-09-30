@@ -67,7 +67,7 @@ describe("pi builtin catalog", () => {
           profiles: [{ id: "configured-sol", label: "Sol 6.1", vendor, model: "gpt-6.1-sol", thinkingLevel: "high" as const }],
           loadExtensions: false,
         };
-        const caps = { askUser: false, askUserList: false, location: false, activity: false, mask: false };
+        const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
         const resources = createSessionResources({
           backend,
           brain: createBrainAccess(brain.root),

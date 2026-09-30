@@ -47,6 +47,7 @@ describe("the SDK options a turn is built with", () => {
       const { options } = turnFor(brain, {
         askUser: unreachable,
         askUserList: unreachable,
+        askUserRank: unreachable,
         getLocation: unreachable,
         requestMask: unreachable,
         queryActivity: unreachable,

@@ -207,7 +207,7 @@ function piPermissionProbe(scenario: PermissionScenario): PermissionProbe {
         process.env.PI_CODING_AGENT_DIR = join(brainPath, "agent-config");
         let loaded: Awaited<ReturnType<typeof resources.build>>;
         try {
-          loaded = await resources.build(toolkit, { caps: { location: false, activity: false, mask: false, askUser: false, askUserList: false } });
+          loaded = await resources.build(toolkit, { caps: { location: false, activity: false, mask: false, askUser: false, askUserList: false, askUserRank: false } });
         } finally {
           if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
           else process.env.PI_CODING_AGENT_DIR = previousAgentDir;

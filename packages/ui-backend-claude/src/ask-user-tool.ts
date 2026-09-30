@@ -18,6 +18,7 @@ import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-t
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
 import { createShowBlockTool } from "./show-block-tool.js";
 import { createAskUserListTool, type AskUserListHandler } from "./ask-user-list-tool.js";
+import { createAskUserRankTool, type AskUserRankHandler } from "./ask-user-rank-tool.js";
 
 /**
  * Bridge for the built-in `AskUserQuestion` tool.
@@ -88,6 +89,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
 export function createBrainUiMcpServer(handlers: {
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
+  askUserRank?: AskUserRankHandler;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
   queryActivity?: ActivityQueryHandler;
@@ -98,6 +100,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.getLocation) tools.push(createLocationTool(handlers.getLocation));
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
   if (handlers.askUserList) tools.push(createAskUserListTool(handlers.askUserList));
+  if (handlers.askUserRank) tools.push(createAskUserRankTool(handlers.askUserRank));
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath));
   }

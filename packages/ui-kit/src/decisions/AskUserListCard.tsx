@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 
 import { edgeFor } from "../internal/roving.js";
-import { classifyLink, refusalSentence } from "../links.js";
+import { DecisionRowText } from "./DecisionRow.js";
 import { Button } from "../primitives/Button.js";
 import { Icon } from "../primitives/Icon.js";
 import { InlineToast } from "../conversation/InlineToast.js";
@@ -572,7 +572,6 @@ function Row(r: {
   const labelId = `${r.base}-l-${r.index}`;
   const detailId = `${r.base}-d-${r.index}`;
   const flagId = `${r.base}-f-${r.index}`;
-  const verdict = item.link ? classifyLink(item.link) : null;
 
   const gutter: CSSProperties = {
     font: `500 10.5px/1.6 ${font.mono}`,
@@ -585,37 +584,7 @@ function Row(r: {
       <span style={gutter} aria-hidden="true">
         {flagged ? "!" : chosen ? "✓" : pad2(r.index + 1)}
       </span>
-      <div className="bk-asklist-text-col" style={{ minWidth: 0 }}>
-        <div id={labelId} style={{ font: `600 13px/1.45 ${font.body}`, color: color.ink, overflowWrap: "anywhere" }}>
-          {item.label}
-        </div>
-        {item.detail || verdict || r.notesOn ? (
-          <div
-            id={detailId}
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "baseline",
-              columnGap: 8,
-              font: `400 11px/1.5 ${font.body}`,
-              color: color.inkMute,
-            }}
-          >
-            {item.detail ? <span style={{ overflowWrap: "anywhere" }}>{item.detail}</span> : null}
-            {verdict?.ok ? (
-              <a
-                href={verdict.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bk-asklist-link"
-                aria-label={`${item.label} on ${verdict.host} (${verdict.host}), new tab`}
-                style={{ font: `400 10.5px/1.5 ${font.mono}`, color: color.inkMute }}
-              >
-                {verdict.hostUnicode ?? verdict.host}
-              </a>
-            ) : verdict ? (
-              <span style={{ font: `400 10.5px/1.5 ${font.mono}` }}>[link withheld — {refusalSentence(verdict)}]</span>
-            ) : null}
+      <DecisionRowText item={item} labelId={labelId} detailId={detailId}>
             {r.notesOn && !r.noteOpen ? (
               <button
                 type="button"
@@ -626,9 +595,7 @@ function Row(r: {
                 {r.note ? "✎ note" : "+ note"}
               </button>
             ) : null}
-          </div>
-        ) : null}
-      </div>
+      </DecisionRowText>
       <div
         className="bk-asklist-chips"
         role="radiogroup"

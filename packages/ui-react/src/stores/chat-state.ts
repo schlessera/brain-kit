@@ -7,6 +7,7 @@ import type {
   AskUserQuestion,
   AskUserAnnotation,
   AskUserListSpec,
+  AskUserRankSpec,
   TurnFailure,
   TurnRetry,
   ThinkingLevel,
@@ -150,6 +151,9 @@ export interface AskUserExchange {
    * keyed by item id rather than by question text.
    */
   list?: AskUserListSpec;
+  rank?: AskUserRankSpec;
+  order?: string[];
+  unchanged?: boolean;
   /** Filled in once the user submits. Keyed by question text, or by item id
    * for a list exchange. A skipped list item is absent. */
   answers?: Record<string, string>;
@@ -323,6 +327,8 @@ export interface ChatState {
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[]) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
   setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec) => void;
+  setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec) => void;
+  submitAskUserRankOrder: (key: ChatKey, requestId: string, order: string[], unchanged: boolean) => void;
   submitAskUserListAnswers: (
     key: ChatKey,
     requestId: string,
@@ -871,6 +877,26 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       setAskUserListRequest: (key, requestId, list) =>
         mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], list })),
+
+      setAskUserRankRequest: (key, requestId, rank) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], rank })),
+
+      submitAskUserRankOrder: (key, requestId, order, unchanged) =>
+        mutateBuffer(key, (chat) => {
+          const answeredAt = Date.now();
+          const update = (e: AskUserExchange): AskUserExchange =>
+            e.requestId === requestId
+              ? { ...e, order, unchanged, answeredAt }
+              : e;
+          const msgs = chat.messages.map((m) =>
+            m.askUserExchanges?.some((e) => e.requestId === requestId)
+              ? { ...m, askUserExchanges: m.askUserExchanges.map(update) }
+              : m
+          );
+          const askUser =
+            chat.askUser?.requestId === requestId ? update(chat.askUser) : chat.askUser;
+          return { messages: msgs, askUser };
+        }),
 
       submitAskUserListAnswers: (key, requestId, answers, notes) =>
         mutateBuffer(key, (chat) => {

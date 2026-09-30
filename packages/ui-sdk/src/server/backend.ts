@@ -37,6 +37,7 @@
 import type {
   AskUserAnnotation,
   AskUserListSpec,
+  AskUserRankSpec,
   AskUserQuestion,
   BillingMode,
   ChatImageAttachment,
@@ -114,6 +115,8 @@ export interface AskUserListResult {
   notes?: Record<string, string>;
 }
 
+export interface AskUserRankResult { order: string[]; unchanged: boolean }
+
 export interface LocationFix {
   coords: GeoCoords;
   /** Epoch millis when the fix was taken. */
@@ -140,6 +143,8 @@ export interface BackendBridge {
    * Resolves with the answers by item id; rejects on dismiss or cancel.
    */
   askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
+  /** Complete id order; rejects on dismiss or cancel. */
+  askUserRank?(requestId: string, request: AskUserRankSpec): Promise<AskUserRankResult>;
   getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
   /**
    * Ask the user to paint a mask over an image. Resolves with a PNG whose

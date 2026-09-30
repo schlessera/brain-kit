@@ -231,6 +231,36 @@ export const ASK_USER_LIST_CONTRACT = defineToolComponentContract({
 });
 
 // ---------------------------------------------------------------------------
+// ask_user_rank — an order of preference over a list (#584)
+// ---------------------------------------------------------------------------
+
+export const ASK_USER_RANK_TOOL_NAME = "ask_user_rank";
+export const ASK_USER_RANK_DESCRIPTION = [
+  "Ask the user to put 2-15 items in order of preference, in one card. Use ranking for priorities; use ask_user_list for buckets or ratings.",
+  "Give unique stable ids, in your suggested starting order. Optional cutoff says only the top N matter; the result still lists every id in order.",
+  "The result is JSON: order contains every item id exactly once, and unchanged says whether the user kept your starting order. Act on exactly that order.",
+].join("\n");
+
+export const ASK_USER_RANK_INPUT_SCHEMA = z.object({
+  prompt: z.string().min(1).max(300).describe("What order is being asked for."),
+  items: z.array(listItemSchema).min(2).max(15).describe("Items in your suggested order, with unique ids."),
+  cutoff: z.number().int().min(1).max(15).optional().describe("Only the top N matter; cannot exceed the item count."),
+});
+export type AskUserRankInput = z.infer<typeof ASK_USER_RANK_INPUT_SCHEMA>;
+export interface AskUserRankPayload { order: string[]; unchanged: boolean }
+export const ASK_USER_RANK_PAYLOAD_SCHEMA = z.looseObject({
+  order: z.array(z.string()).min(2).max(15),
+  unchanged: z.boolean(),
+}) satisfies z.ZodType<AskUserRankPayload>;
+export const ASK_USER_RANK_CONTRACT = defineToolComponentContract({
+  name: ASK_USER_RANK_TOOL_NAME,
+  description: ASK_USER_RANK_DESCRIPTION,
+  input: ASK_USER_RANK_INPUT_SCHEMA,
+  payload: ASK_USER_RANK_PAYLOAD_SCHEMA,
+  brief: (name) => `- **An order of preference is a ranking.** Call \`${name}\` with the list; use its returned id order rather than parsing prose.`,
+});
+
+// ---------------------------------------------------------------------------
 // get_current_location
 // ---------------------------------------------------------------------------
 
@@ -413,6 +443,7 @@ export const QUERY_ACTIVITY_CONTRACT = defineToolContract({
 export const BRIDGE_TOOL_CONTRACTS = [
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
+  ASK_USER_RANK_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
@@ -425,6 +456,7 @@ export type BridgeToolName = (typeof BRIDGE_TOOL_CONTRACTS)[number]["name"];
 const names = [
   ASK_USER_CONTRACT.name,
   ASK_USER_LIST_CONTRACT.name,
+  ASK_USER_RANK_CONTRACT.name,
   GET_CURRENT_LOCATION_CONTRACT.name,
   REQUEST_IMAGE_MASK_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,

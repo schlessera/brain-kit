@@ -28,3 +28,5 @@ export { handleQueryActivity, wrapUntrustedData } from "./activity.js";
 export { handleShowBlock } from "./show-block.js";
 
 export { resolveInRepo } from "./resolve-in-repo.js";
+
+export { handleAskUserRank, askUserRankSpec, askUserRankPayload } from "./ask-user-rank.js";

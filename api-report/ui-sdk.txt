@@ -27,6 +27,8 @@ export "." (./src/index.ts)
   type AskUserListSpec
   type AskUserOption
   type AskUserQuestion
+  type AskUserRankItem
+  type AskUserRankSpec
   type AsrEvent
   type AsrFinal
   type AsrPartial
@@ -39,6 +41,7 @@ export "." (./src/index.ts)
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserListResponse
+  type ClientAskUserRankResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -115,6 +118,7 @@ export "." (./src/index.ts)
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
+  type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -181,6 +185,11 @@ export "./client" (./src/client/index.ts)
   ASK_USER_LIST_PAYLOAD_SCHEMA
   ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
+  ASK_USER_RANK_CONTRACT
+  ASK_USER_RANK_DESCRIPTION
+  ASK_USER_RANK_INPUT_SCHEMA
+  ASK_USER_RANK_PAYLOAD_SCHEMA
+  ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
   type ActivityAggregate
   type ActivityDigest
@@ -208,6 +217,10 @@ export "./client" (./src/client/index.ts)
   type AskUserOption
   type AskUserPayload
   type AskUserQuestion
+  type AskUserRankInput
+  type AskUserRankItem
+  type AskUserRankPayload
+  type AskUserRankSpec
   type AsrClient
   type AsrClientFactory
   type AsrClientOptions
@@ -246,6 +259,7 @@ export "./client" (./src/client/index.ts)
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserListResponse
+  type ClientAskUserRankResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -373,6 +387,7 @@ export "./client" (./src/client/index.ts)
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
+  type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
   type ServerFrameHandlers
@@ -507,6 +522,8 @@ export "./protocol" (./src/protocol.ts)
   type AskUserListSpec
   type AskUserOption
   type AskUserQuestion
+  type AskUserRankItem
+  type AskUserRankSpec
   type AsrEvent
   type AsrFinal
   type AsrPartial
@@ -519,6 +536,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserListResponse
+  type ClientAskUserRankResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -595,6 +613,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
+  type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -663,6 +682,7 @@ export "./schemas" (./src/schemas.ts)
   clientActivityUnsubscribeSchema
   clientAskUserCancelSchema
   clientAskUserListResponseSchema
+  clientAskUserRankResponseSchema
   clientAskUserResponseSchema
   clientCancelSchema
   clientChatMessageSchema
@@ -687,6 +707,7 @@ export "./schemas" (./src/schemas.ts)
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
   serverAskUserListRequestSchema
+  serverAskUserRankRequestSchema
   serverAskUserRequestSchema
   serverErrorSchema
   serverHelloSchema
@@ -720,6 +741,11 @@ export "./server" (./src/server/index.ts)
   ASK_USER_LIST_PAYLOAD_SCHEMA
   ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
+  ASK_USER_RANK_CONTRACT
+  ASK_USER_RANK_DESCRIPTION
+  ASK_USER_RANK_INPUT_SCHEMA
+  ASK_USER_RANK_PAYLOAD_SCHEMA
+  ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
   type ActivityAggregate
   type ActivityDigest
@@ -751,6 +777,11 @@ export "./server" (./src/server/index.ts)
   type AskUserOption
   type AskUserPayload
   type AskUserQuestion
+  type AskUserRankInput
+  type AskUserRankItem
+  type AskUserRankPayload
+  type AskUserRankResult
+  type AskUserRankSpec
   type AskUserResult
   type AskedQuestion
   type AsrEvent
@@ -825,6 +856,7 @@ export "./server" (./src/server/index.ts)
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
   type ClientAskUserListResponse
+  type ClientAskUserRankResponse
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
@@ -976,6 +1008,7 @@ export "./server" (./src/server/index.ts)
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
+  type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
   type ServerHello
@@ -1053,6 +1086,8 @@ export "./server" (./src/server/index.ts)
   applyClassification
   askUserListPayload
   askUserListSpec
+  askUserRankPayload
+  askUserRankSpec
   assertTurnPosture
   bashLockKey
   bridgeContractForToolName
@@ -1081,6 +1116,7 @@ export "./server" (./src/server/index.ts)
   fetchCoastline
   handleAskUser
   handleAskUserList
+  handleAskUserRank
   handleGetCurrentLocation
   handleQueryActivity
   handleRequestImageMask
@@ -1186,11 +1222,18 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_LIST_PAYLOAD_SCHEMA
   ASK_USER_LIST_TOOL_NAME
   ASK_USER_PAYLOAD_SCHEMA
+  ASK_USER_RANK_CONTRACT
+  ASK_USER_RANK_DESCRIPTION
+  ASK_USER_RANK_INPUT_SCHEMA
+  ASK_USER_RANK_PAYLOAD_SCHEMA
+  ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
   type AskUserInput
   type AskUserListInput
   type AskUserListPayload
   type AskUserPayload
+  type AskUserRankInput
+  type AskUserRankPayload
   BARS_BLOCK_SCHEMA
   BLOCK_CONTACT_KINDS
   BLOCK_CONTACT_TONES
@@ -1378,6 +1421,19 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         header: string;
         multiSelect: boolean;
         options: AskUserOption[];
+    }
+  AskUserRankItem (packages/ui-sdk/src/protocol.ts)
+    export type AskUserRankItem = AskUserListItem;
+  AskUserRankResult (packages/ui-sdk/src/server/backend.ts)
+    export interface AskUserRankResult {
+        order: string[];
+        unchanged: boolean;
+    }
+  AskUserRankSpec (packages/ui-sdk/src/protocol.ts)
+    export interface AskUserRankSpec {
+        prompt: string;
+        items: AskUserRankItem[];
+        cutoff?: number;
     }
   AskUserResult (packages/ui-sdk/src/server/backend.ts)
     export interface AskUserResult {
@@ -1720,6 +1776,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
         askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
         askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
+        askUserRank?(requestId: string, request: AskUserRankSpec): Promise<AskUserRankResult>;
         getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
         requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
         pruneScratch?(): Promise<void>;
@@ -2045,6 +2102,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         type: "ask_user_list_request";
         requestId: string;
     }
+  ServerAskUserRankRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAskUserRankRequest extends SessionScoped, AskUserRankSpec {
+        type: "ask_user_rank_request";
+        requestId: string;
+    }
   ServerAskUserRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerAskUserRequest extends SessionScoped {
         type: "ask_user_request";
@@ -2087,7 +2149,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";

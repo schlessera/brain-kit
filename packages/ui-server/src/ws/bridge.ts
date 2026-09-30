@@ -4,6 +4,7 @@ import type {
   PermissionDecision,
   AskUserResult,
   AskUserListResult,
+  AskUserRankResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
@@ -237,7 +238,8 @@ export function makeBridge(
       return new Promise<AskUserResult>((resolve, reject) => {
         if (
           coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn) ||
-          coordinator.pendingAskUserList.has(requestId)
+          coordinator.pendingAskUserList.has(requestId) ||
+          coordinator.pendingAskUserRank.has(requestId)
         ) {
           reject(new Error("Duplicate ask-user request id"));
           return;
@@ -264,11 +266,12 @@ export function makeBridge(
         )
       );
       return new Promise<AskUserListResult>((resolve, reject) => {
-        // One id space across both ask kinds: a single `ask_user_cancel`
-        // dismisses either, so an id pending as one must not open as the other.
+        // One id space across all ask kinds: a single `ask_user_cancel`
+        // dismisses any of them, so an id pending as one must not open as the other.
         if (
           coordinator.collidesAcrossTurns(coordinator.pendingAskUserList, requestId, turn) ||
-          coordinator.pendingAskUser.has(requestId)
+          coordinator.pendingAskUser.has(requestId) ||
+          coordinator.pendingAskUserRank.has(requestId)
         ) {
           reject(new Error("Duplicate ask-user request id"));
           return;
@@ -281,6 +284,17 @@ export function makeBridge(
           resolve,
           reject,
         });
+      });
+    },
+    askUserRank: (requestId, request) => {
+      // Cancellation shares one id space across all three ask kinds.
+      if (coordinator.pendingAskUserRank.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId)) {
+        return Promise.reject(new Error("Duplicate ask-user request id"));
+      }
+      return new Promise<AskUserRankResult>((resolve, reject) => {
+        coordinator.pendingAskUserRank.set(requestId, { turn, turnId, requestId, request, resolve, reject });
+        host.sendToClients(withTurnScope({ type: "ask_user_rank_request", requestId, ...request }, turn, turnId));
+        host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
       });
     },
     getLocation: (options) => {
