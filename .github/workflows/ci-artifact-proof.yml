@@ -26,3 +26,4 @@ jobs:
           name: ci-node24-artifact-proof
           path: packages/ui-kit/.vitest-attachments/
           if-no-files-found: ignore
+          include-hidden-files: true

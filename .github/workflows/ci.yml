@@ -545,6 +545,8 @@ jobs:
           name: visual-diffs-${{ matrix.shard }}
           path: packages/ui-kit/.vitest-attachments/
           if-no-files-found: ignore
+          # The diagnostics directory itself is hidden.
+          include-hidden-files: true
 
   leakage:
     runs-on: ubuntu-24.04
