@@ -456,6 +456,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/2efd725e233abefca36c25693cd362cf69a0b1bd/docs/decisions/design-kit.md#L2522",
       "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
       "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/b44fd7d356cf414de54bbb59c63fc966b10cca8b/packages/ui-server/src/agent/backend.ts#L1039",
       "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304",

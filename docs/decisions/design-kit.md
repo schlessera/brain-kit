@@ -2416,7 +2416,7 @@ no route to `trend`, `bars` or `contact`:
 > omitted `alwaysLoad`. The
 > [D44 implementation](https://github.com/schlessera/brain-kit/commit/2efd725e233abefca36c25693cd362cf69a0b1bd)
 > sets it, under the
-> [D44 decision](#2026-09-22--d44-the-bridge-tools-are-always-loaded-not-deferred-behind-tool-search).
+> [D44 decision](https://github.com/schlessera/brain-kit/blob/2efd725e233abefca36c25693cd362cf69a0b1bd/docs/decisions/design-kit.md#L2522).
 > The following production claim and rate tables describe the pre-D44 runs;
 > they do not describe the current bridge-tool posture. The measurements remain
 > evidence for D44's choice.
