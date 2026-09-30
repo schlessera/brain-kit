@@ -482,8 +482,14 @@ emitter always runs; list additional built-in emitters to also emit for them.
 | `emitters` | `string[]` | `[]`    | `codex`, `gemini`, `pi` |
 
 ```ts
-skills: { emitters: ["codex", "pi"] }   // the agent contract in AGENTS.md; .pi/skills symlinks
+skills: { emitters: ["codex", "gemini", "pi"] }   // contract in AGENTS.md and GEMINI.md; .pi/skills symlinks
 ```
+
+Codex and Gemini discover `.agents/skills/` natively. Their emitters embed the
+installed `CONTRACT.md` in their instruction files and refresh it on every
+sync. Gemini's old Skills index is replaced by that contract; text outside
+managed blocks is preserved. Ambiguous markers or an unreadable installed
+contract leave `GEMINI.md` unchanged and produce a warning.
 
 See [extending/skill-emitters.md](extending/skill-emitters.md).
 

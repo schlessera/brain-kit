@@ -38,7 +38,7 @@ prefixed with the emitter's agent.
 | -------- | -------------------------------------------------------------- | ------------------------------------- |
 | `claude` | Symlinks in `.claude/skills/` (Windows junction fallback)      | Always.                               |
 | `codex`  | A managed contract block in `AGENTS.md` (the installed `CONTRACT.md`) | Opt-in via `skills.emitters`. |
-| `gemini` | A managed "Skills index" block in `GEMINI.md`                   | Opt-in via `skills.emitters`.         |
+| `gemini` | A managed contract block in `GEMINI.md` (the installed `CONTRACT.md`) | Opt-in via `skills.emitters`. |
 | `pi`     | Symlinks in `.pi/skills/` (Windows junction fallback)           | Opt-in via `skills.emitters`.         |
 
 The `claude` emitter always runs. Add others in `brain.config.ts`:
@@ -76,6 +76,32 @@ The emitter only edits a block whose markers are unambiguous: one start marker
 and one end marker, in that order. With a missing, repeated or misordered
 marker, it leaves `AGENTS.md` exactly as it is and warns, so fix the markers
 by hand.
+
+Gemini CLI also [discovers workspace skills in `.agents/skills/`](https://geminicli.com/docs/cli/skills/)
+and [loads `GEMINI.md` as instruction context](https://geminicli.com/docs/cli/gemini-md/).
+The `gemini` emitter therefore copies the installed `CONTRACT.md` body into
+`GEMINI.md`, using the same contract markers and renderer as Codex. Only
+whitespace before and after the contract body is normalized. There is one
+authored contract in the package; every `brain skills sync` refreshes its
+generated copy, including when there are no skills. An unchanged copy makes
+no write. Enable it with `skills: { emitters: ["gemini"] }`.
+
+The first sync replaces Gemini's old "Skills index" block in place. If a
+contract block already exists, it updates that block and removes a separate
+old index block. All bytes outside these spans stay intact, including text
+between the two blocks, line endings, spaces and a missing final newline.
+With no block, the emitter appends the contract after the existing text.
+Missing, repeated, reversed or overlapping markers leave `GEMINI.md`
+unchanged and produce a warning to repair the markers by hand. A failed read
+of the installed contract also preserves the file and warns to check the
+package installation and retry. Gemini's emitter removes no Codex prompts.
+
+This uses Gemini's default `GEMINI.md` context filename. Global context
+settings and manual-only skill policy are separate concerns. The upstream
+documentation was checked on 2026-09-30; keyless emitter tests verify the
+generated files, not whether a live Gemini session loaded them. See
+[the decision record](../decisions/gemini-agent-contract.md) for why the
+contract is embedded rather than imported.
 
 pi does **not** read `.agents/skills/`, despite the name. It discovers skills
 from `<agentDir>/skills` (user level — `$PI_AGENT_DIR`, else `~/.pi/agent`) and
@@ -134,7 +160,7 @@ are gone once removed, that every skill is reachable from what it wrote, that
 a skill dropped from the list leaves the layout, that re-emitting an
 unchanged list removes nothing, and that `.agents/skills/` itself is never
 written. An emitter for an agent that reads `.agents/skills/` natively, as
-Codex does, passes `readsCanonicalHome: true`: the reachability checks are
+Codex and Gemini do, passes `readsCanonicalHome: true`: the reachability checks are
 waived, and everything else still applies.
 
 ```ts
@@ -174,8 +200,8 @@ runSkillEmitterContract(
   cleanly everywhere.
 - **Block emitters are additive.** The codex and gemini emitters manage only a
   fenced block in `AGENTS.md` / `GEMINI.md`; everything you write around that
-  block is preserved byte for byte across syncs. The codex emitter refuses to
-  edit around markers it cannot pair unambiguously.
+  block is preserved byte for byte across syncs. Both emitters refuse to edit
+  around markers they cannot pair unambiguously or around overlapping blocks.
 
 ## See also
 

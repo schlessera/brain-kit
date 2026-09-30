@@ -1,6 +1,6 @@
 /**
  * Marker-fenced, machine-managed regions in a markdown file the user also
- * edits (AGENTS.md).
+ * edits (AGENTS.md or GEMINI.md).
  *
  * A region is trusted only when its markers are unambiguous: exactly one start
  * marker, exactly one end marker, in that order. Anything else is reported as
