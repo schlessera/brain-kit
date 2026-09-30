@@ -728,13 +728,14 @@ describe("path containment", () => {
  * predicate.
  */
 describe("archiving through brain_update", () => {
-  // Each case gets its own body: gray-matter caches parsed documents by their
-  // exact content, so byte-identical fixtures across cases would share one
-  // frontmatter object and leak one case's write into the next.
-  const docs = (marker: string) => ({
+  // Every case starts from the same bytes on purpose. Parses are independent
+  // (#142), so the case that archives cannot leak its write into a later case
+  // that reads the identical document; before that fix, each case needed its
+  // own body to keep gray-matter's cache from sharing one frontmatter object.
+  const docs = () => ({
     "notes/beta.md":
       "---\ntype: note\ntitle: Beta\ncreated: 2026-01-01\nupdated: 2026-01-02\n" +
-      `tags: [graph]\nstatus: active\nrelevance: primary\n---\n\nStands alone. ${marker}\n`,
+      "tags: [graph]\nstatus: active\nrelevance: primary\n---\n\nStands alone.\n",
   });
 
   /**
@@ -778,7 +779,7 @@ describe("archiving through brain_update", () => {
   }
 
   test("an archiving update asks, as a per-use confirmation", async () => {
-    const brain = await makeIndexedBrain(docs("asks"));
+    const brain = await makeIndexedBrain(docs());
     try {
       const { permissionCalls } = await updateThroughGate(
         brain,
@@ -803,7 +804,7 @@ describe("archiving through brain_update", () => {
   });
 
   test("denying it leaves the status unchanged on disk and in the index", async () => {
-    const brain = await makeIndexedBrain(docs("denied"));
+    const brain = await makeIndexedBrain(docs());
     try {
       const { gate, raw, searchText } = await updateThroughGate(
         brain,
@@ -823,7 +824,7 @@ describe("archiving through brain_update", () => {
   });
 
   test("approving it archives, which is what the card is about", async () => {
-    const brain = await makeIndexedBrain(docs("approved"));
+    const brain = await makeIndexedBrain(docs());
     try {
       const { gate, raw, searchText } = await updateThroughGate(
         brain,
@@ -846,7 +847,7 @@ describe("archiving through brain_update", () => {
       { path: "notes/beta.md", status: "draft" },
     ];
     for (const input of cases) {
-      const brain = await makeIndexedBrain(docs(JSON.stringify(input)));
+      const brain = await makeIndexedBrain(docs());
       try {
         const { gate, permissionCalls, raw, searchText } = await updateThroughGate(
           brain,

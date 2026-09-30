@@ -6,7 +6,7 @@
  * `--only`, so anything else already staged stays staged and out of it.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../frontmatter-parse.js";
 import { lstatSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { z } from "zod";
@@ -68,8 +68,7 @@ function headText(root: string, path: string): string | null {
 
 function frontmatterData(text: string): Record<string, unknown> | null {
   try {
-    // Options bypass gray-matter's cache, which shares one data object between identical inputs.
-    return matter(text, {}).data as Record<string, unknown>;
+    return parseFrontmatter(text).data as Record<string, unknown>;
   } catch {
     return null;
   }

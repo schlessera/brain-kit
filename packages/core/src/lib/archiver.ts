@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync, existsSync, linkSync, unlinkSync, mkdirSync, mkdtempSync, rmSync, statSync } from "fs";
 import { resolve, dirname, join } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./models.js";
@@ -44,7 +44,7 @@ function today(): string {
  * the relevance as it would otherwise be.
  */
 export function relevanceOnArchive(raw: string, requested?: string): "historical" | undefined {
-  const relevance = requested ?? matter(raw, {}).data.relevance;
+  const relevance = requested ?? parseFrontmatter(raw).data.relevance;
   return !relevance || relevance === "primary" ? "historical" : undefined;
 }
 

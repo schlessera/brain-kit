@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 import { archiveDocument } from "../src/lib/archiver";
 
 const roots: string[] = [];
@@ -69,7 +69,7 @@ describe("archive demotes a primary or unset relevance to historical", () => {
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes/x.md"), `---\ntitle: X\ntype: note\nstatus: active\n${line}---\nBody.\n`);
     await archiveDocument(root, "notes/x.md");
-    const data = matter(readFileSync(join(root, "notes/x.md"), "utf8")).data;
+    const data = parseFrontmatter(readFileSync(join(root, "notes/x.md"), "utf8")).data;
     expect(data.status).toBe("archived");
     return data.relevance;
   }
@@ -90,6 +90,6 @@ describe("archive demotes a primary or unset relevance to historical", () => {
     const root = corpus();
     writeFileSync(join(root, "projects/active/demo.md"), source.replace("status: active\n", "status: active\nrelevance: primary\n"));
     const result = await archiveDocument(root, "projects/active/demo.md");
-    expect(matter(readFileSync(join(root, result.path), "utf8")).data.relevance).toBe("historical");
+    expect(parseFrontmatter(readFileSync(join(root, result.path), "utf8")).data.relevance).toBe("historical");
   });
 });

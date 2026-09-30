@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { archiveDocument } from "../src/lib/archiver";
 import { editFrontmatter, updateDocument } from "../src/lib/frontmatter-edit";
@@ -152,7 +152,7 @@ describe("editFrontmatter", () => {
   test("an edit whose result would not parse is refused, though the input parses", () => {
     // Replacing the anchored value leaves `*b` pointing at nothing.
     const text = "---\nbase: &b x\ntitle: *b\n---\nbody\n";
-    expect(matter(text, {}).data).toEqual({ base: "x", title: "x" });
+    expect(parseFrontmatter(text).data).toEqual({ base: "x", title: "x" });
     expect(editFrontmatter(text, { base: "y" })).toBeNull();
   });
 
@@ -160,7 +160,7 @@ describe("editFrontmatter", () => {
     const text = "---\ntitle: T\ntags: [one]\n---\nbody\n";
     const out = editFrontmatter(text, { tags: ["2026-12-01", "two"] });
     expect(out).toBe('---\ntitle: T\ntags: ["2026-12-01", two]\n---\nbody\n');
-    expect(matter(out!, {}).data.tags).toEqual(["2026-12-01", "two"]);
+    expect(parseFrontmatter(out!).data.tags).toEqual(["2026-12-01", "two"]);
   });
 
   test("a block scalar is replaced with its text, every comment around it kept", () => {

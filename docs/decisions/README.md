@@ -27,6 +27,7 @@ somebody already learn the hard way?*
 | [module-mcp-tools.md](module-mcp-tools.md) | Why a module may contribute namespaced MCP tools under the same compatibility policy as core's: how they are declared, named, validated and registered, why the tool set is fixed per server process (and what that means for a dormant module), who owes what compatibility, and why `jobs_review` is the first. |
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
 | [document-render.md](document-render.md) | How `brain render` makes a document worth sending: one stylesheet, component classes as the contract, kinds as recipes with skeletons, full documents injected into rather than nested, a footer in CSS margin boxes, a lint on every render, a linear HTML tokenizer, and why chrome-headless-shell is opt-in. |
+| [frontmatter-parsing.md](frontmatter-parsing.md) | Why every frontmatter parse goes through one cache-free helper, copied into each package that parses, with a lint gate instead of a convention. |
 
 ## Writing one
 

@@ -11,7 +11,7 @@ import type { Database } from "bun:sqlite";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -49,7 +49,7 @@ describe("over fixtures/corpus", () => {
   const assemble = (query: string, maxTokens: number) => assembleContext(db, ctx, { query, maxTokens });
 
   test("includes identity whole when it fits, past its first 500 characters", async () => {
-    const identity = matter(readFileSync(join(ctx.root, "me/identity.md"), "utf8")).content;
+    const identity = parseFrontmatter(readFileSync(join(ctx.root, "me/identity.md"), "utf8")).content;
     // The premise: the heading sits past the 500 characters main kept.
     expect(identity.indexOf("## How to Work With Alex")).toBeGreaterThan(500);
     expect(await assemble("astronomy", 4000)).toContain("## How to Work With Alex");
@@ -74,7 +74,7 @@ describe("over fixtures/corpus", () => {
   });
 
   test("includes current focus whole when it fits", async () => {
-    const { content, data } = matter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8"));
+    const { content, data } = parseFrontmatter(readFileSync(join(ctx.root, "context/current-focus.md"), "utf8"));
     const focus = content.trim();
     // The premise: more than the 800 characters main kept.
     expect(focus.length).toBeGreaterThan(800);

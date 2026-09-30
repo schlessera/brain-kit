@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import type { RerankSetup } from "./registry.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";
@@ -137,8 +137,7 @@ function readMarkdownContent(root: string, relativePath: string): { body: string
   try {
     const fullPath = resolve(root, relativePath);
     const raw = readFileSync(fullPath, "utf-8");
-    // Options bypass gray-matter's cache (#142).
-    const { content, data } = matter(raw, {});
+    const { content, data } = parseFrontmatter(raw);
     // The summary opens a line of the output, so it must not open a block.
     const summary = typeof data.summary === "string" && data.summary.trim() ? blockSafe(data.summary) : null;
     // Leading blank lines and trailing whitespace go; the first line's

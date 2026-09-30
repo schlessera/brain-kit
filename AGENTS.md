@@ -106,6 +106,11 @@ on, links to or describes them.
   whitespace silently corrupts a zero-width delimiter. Escaping never changes
   the runtime value, so hashes and wire formats stay put. `bun run lint`
   enforces this; CI runs it as the invisible-character gate.
+- Parse frontmatter with `parseFrontmatter` from the package's
+  `src/lib/frontmatter-parse.ts`, never with gray-matter directly. Called
+  without options, gray-matter caches by content, so byte-identical documents
+  share one data object. `bun run lint` refuses a direct import
+  ([docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md)).
 - Config-driven taxonomy: document types are runtime-validated strings (zod),
   not compile-time unions.
 - Modules own content domains (types, skills, one CLI namespace) and are

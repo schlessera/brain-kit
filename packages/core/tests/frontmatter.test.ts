@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { normalizeFrontmatterDates, stringifyDocument } from "../src/lib/frontmatter";
 
@@ -24,10 +24,10 @@ summary: One-line summary for search results
 `;
 
 describe("stringifyDocument round-trip", () => {
-  const parsed = matter(SOURCE);
+  const parsed = parseFrontmatter(SOURCE);
   const output = stringifyDocument(parsed.content, parsed.data);
 
-  test("gray-matter parses unquoted dates as Date objects (precondition)", () => {
+  test("parsing reads unquoted dates as Date objects (precondition)", () => {
     expect(parsed.data.created).toBeInstanceOf(Date);
   });
 
@@ -49,7 +49,7 @@ describe("stringifyDocument round-trip", () => {
   });
 
   test("output re-parses to equivalent data", () => {
-    const reparsed = matter(output);
+    const reparsed = parseFrontmatter(output);
     expect(String(reparsed.data.title)).toBe("Example Opportunity");
     expect(reparsed.data.tags).toEqual(["job-search", "agentic", "interviews"]);
     // Dates parse back to Date objects pointing at the same day

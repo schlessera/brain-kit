@@ -14,7 +14,7 @@
  * the taxonomy so validation and the indexer's link graph agree exactly.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 
@@ -64,7 +64,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
     const basename = path.replace(/\.md$/, "").split("/").pop()!;
     basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
     try {
-      const { data } = matter(readFileSync(resolve(root, path), "utf-8"));
+      const { data } = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"));
       if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
       if (Array.isArray(data.aliases)) {
         for (const alias of data.aliases) {
@@ -98,7 +98,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
     let data: Record<string, any>;
     let content: string;
     try {
-      const parsed = matter(raw);
+      const parsed = parseFrontmatter(raw);
       data = parsed.data;
       content = parsed.content;
     } catch (e) {

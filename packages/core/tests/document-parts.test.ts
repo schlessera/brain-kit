@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { frontmatterLength, readDocumentPart, SectionNotFoundError } from "../src/lib/document-parts";
 
@@ -279,7 +279,7 @@ describe("frontmatter and line endings", () => {
       "\uFEFF## no frontmatter\n",
     ]) {
       // gray-matter strips a leading byte order mark from what it returns.
-      const body = matter(doc).content;
+      const body = parseFrontmatter(doc).content;
       expect({ doc, body: doc.slice(frontmatterLength(doc)).replace(/^\uFEFF/, "") }).toEqual({ doc, body });
     }
   });

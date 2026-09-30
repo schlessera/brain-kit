@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
 
 import type { BrainContext } from "../../lib/context.js";
 import {
@@ -101,7 +101,7 @@ export interface BriefingOptions {
  * Null when neither holds a date.
  */
 function lastHygieneRun(text: string): string | null {
-  const parsed = matter(text, {});
+  const parsed = parseFrontmatter(text);
   const heading = /^## Last run:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(parsed.content)?.[1];
   if (heading && isDay(heading)) return heading;
   const updated = parsed.data.updated;
@@ -111,7 +111,7 @@ function lastHygieneRun(text: string): string | null {
 
 /** Open hygiene entries: the `### ` heading lines of open.md that are not code. */
 function countOpenEntries(text: string): number {
-  const body = matter(text, {}).content;
+  const body = parseFrontmatter(text).content;
   const code = codeRanges(body);
   let count = 0;
   let offset = 0;
@@ -201,7 +201,7 @@ export function generateBriefing(brain: BrainContext, limit = 15, opts: Briefing
 
     // 1. Current focus (verbatim, without frontmatter)
     if (focusRel) {
-      const { content } = matter(readFileSync(resolve(brain.root, focusRel), "utf-8"));
+      const { content } = parseFrontmatter(readFileSync(resolve(brain.root, focusRel), "utf-8"));
       lines.push("## Current Focus\n");
       lines.push(content.trim());
     }

@@ -11,7 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
@@ -41,7 +41,7 @@ async function update(relevance: string | null, args: Record<string, unknown>) {
   const res = await client.callTool({ name: "brain_update", arguments: { path: "notes/demo.md", ...args } });
   expect(res.isError).toBeFalsy();
   const text = (res.content as Array<{ text: string }>)[0].text;
-  const data = matter(readFileSync(join(root, "notes/demo.md"), "utf8"), {}).data;
+  const data = parseFrontmatter(readFileSync(join(root, "notes/demo.md"), "utf8")).data;
   return { changes: JSON.parse(text).changes as string[], relevance: data.relevance, status: data.status };
 }
 
