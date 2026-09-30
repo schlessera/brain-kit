@@ -22,9 +22,8 @@ describe("module manifest", () => {
     expect(contribution.taxonomy?.types?.opportunity?.dir).toBe("career/opportunities");
     expect(contribution.commands).toHaveProperty("jobs");
     expect(contribution.indexRules?.dirAnchors).toContain("status.md");
-    // --browser is additive, so the scheduled run covers the API boards AND
-    // the headless-Chrome ones in a single pass.
-    expect(contribution.cron?.[0]?.command).toBe("jobs scrape --all --browser");
+    // Scheduling follows ordinary configured board selection.
+    expect(contribution.cron?.[0]?.command).toBe("jobs scrape");
   });
 
   test("setup shapes the opportunity dir from config", () => {

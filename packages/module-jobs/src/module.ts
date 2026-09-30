@@ -61,9 +61,9 @@ export default defineModule({
     commands: { jobs: () => import("./cli.js") },
     indexRules: { dirAnchors: ["status.md"] },
     hygieneChecks: [(ctx) => checkOpportunityStages(ctx)],
-    // One run, one pipeline: `--browser` adds the boards that need Chrome to
-    // the source list, and a host without Chrome loses those boards rather
-    // than the whole scrape.
-    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all --browser" }],
+    // Follow the same configured board selection as a manual scrape. Selected
+    // browser boards get Chrome from their adapter's needsBrowser flag; the
+    // schedule must not add boards that the user left out.
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape" }],
   }),
 });

@@ -74,9 +74,11 @@ opportunity directory (`[[career/opportunities/acme]]`) resolves to that dir's
 ### Cron
 
 Advisory schedule (consumed by container entrypoints / `brain doctor`):
-`scrape` daily at 06:00 — `jobs scrape --all --browser`, i.e. one run covering
-every board including the ones that need Chrome. A host without a usable
-browser loses those boards rather than the whole scrape.
+`scrape` daily at 06:00 — `jobs scrape`, following the effective module settings
+just like a manual scrape. Scheduling adds no boards outside that selection.
+Selected browser boards get Chrome automatically; a host without a usable
+browser loses those boards rather than the whole scrape. Existing user-authored
+schedules are not rewritten.
 
 ## The scoring criteria file
 
