@@ -54,6 +54,18 @@ no path it runs `packages` and `tests`. A `--timeout` of your own overrides the
 script's, because the last one wins. A flag whose value is optional
 (`--changed`) takes it only as `--changed=<ref>`.
 
+The test preload rejects accidental real external `fetch` calls and real curl
+execution, even when the code under test catches the error. Real HTTP(S)
+fixture servers on `localhost`, `127.0.0.1` and `[::1]` remain available;
+redirects are checked before following them. Install fetch/spawn mocks after
+preload and restore saved originals or spies in teardown. Bun child processes
+started through the guarded spawn functions receive the runtime guard too;
+assert their exit codes. Direct `bun test` commands from the repository or a
+package root load that directory's `bunfig.toml`; Bun does not inherit a
+parent config. See [AGENTS.md](AGENTS.md#testing-expectations)
+for child-process coverage, safe probe harnesses and uninstrumented transports.
+Measurement scripts started outside tests keep their ordinary transports.
+
 CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
 (then `2/3` and `3/3`), each in one Bun process. This option uses the default
 `packages`/`tests` roots and cannot combine with paths, `--cwd` or native

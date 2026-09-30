@@ -238,6 +238,9 @@ describe("createApp boot validation", () => {
     HOST: "127.0.0.1",
     AUTH_MODE: "none",
     DB_PATH: ":memory:",
+    // These boot tests do not exercise pricing; custom env records do not
+    // inherit the runner's NODE_ENV=test default that disables discovery.
+    BRAIN_UI_PRICING_DISCOVERY: "0",
   } as const;
 
   test("an unrecognized AGENT_BACKEND refuses to boot", () => {
@@ -363,7 +366,7 @@ describe("createApp boot validation", () => {
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = createApp({
-      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:" }),
+      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");

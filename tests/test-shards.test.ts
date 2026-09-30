@@ -59,7 +59,7 @@ describe("balanced shards run the root command for real", () => {
       mkdirSync(join(dir, "scripts"));
       const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts: { test: manifest.scripts.test } }));
-      for (const script of ["test.ts", "test-shards.ts", "test-shard-costs.json"]) {
+      for (const script of ["test.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts"]) {
         cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
       }
       for (const file of files) addTest(dir, file);

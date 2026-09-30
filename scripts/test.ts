@@ -17,6 +17,7 @@
  */
 
 import { constants } from "node:os";
+import { join } from "node:path";
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
@@ -139,7 +140,7 @@ if (import.meta.main) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  const proc = Bun.spawn([process.execPath, "test", ...argv], {
+  const proc = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], {
     stdio: ["inherit", "inherit", "inherit"],
   });
   // A cancellation aimed at this process's PID (a CI runner stopping the

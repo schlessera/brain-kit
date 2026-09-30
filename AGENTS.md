@@ -139,6 +139,34 @@ on, links to or describes them.
 - Predicate-only unit tests are not proof for anything with a runtime: the
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
+- Test doubles must replace the lowest shared request method (`get` for a
+  `ScrapeClient`), or explicitly stub every inherited request path. Use the
+  smallest collaborator that proves the behavior; borrowing a real adapter
+  for a helper's test couples that assertion to unrelated adapter changes.
+- The test preload in root/package `bunfig.toml` and `scripts/test.ts` wraps real `fetch`,
+  `Bun.spawn` and `Bun.spawnSync`. Real HTTP(S) fetches permit only the parsed
+  hosts `localhost`, `127.0.0.1` and `[::1]`; every followed redirect is checked
+  before dispatch, and explicit proxies are refused. Real curl execution is
+  refused, including absolute executable paths and both spawn argument forms.
+  Attempts are recorded: test hooks fail even when a client catches/retries
+  the error. Saved originals and restored spies refer to the guarded functions;
+  install mocks after preload and restore them in teardown.
+- Run tests from the repository root with `bun run test [paths/flags]` or
+  `bun test [paths/flags]` (the latter still needs the documented timeout).
+  Each package's own `bun run test`/`bun test` also loads its local preload;
+  new workspaces must include the same test config, because Bun does not
+  inherit it from parent directories.
+  Guarded Bun spawns add an absolute runtime preload to children, even with a
+  different cwd or replaced environment. Child test hooks and ordinary child
+  exit checks reject swallowed escapes; callers must assert child exit codes.
+  This covers Bun executables named `bun` or matching `process.execPath`.
+  Bun's `node:child_process` delegates to the patched spawn path too. Node
+  transports, subprocess APIs in a Node runtime, shell commands, arbitrary executables,
+  browser egress and deliberate replacement of the guard are not instrumented:
+  use an explicitly offline harness for those, not a claim of sandboxing.
+  Intentional measurement scripts launched outside tests retain normal
+  transports. Guard regression probes use controlled native sentinels so
+  failing-first and mutation runs cannot send external requests or start curl.
 
 ### Tests that cannot fail
 

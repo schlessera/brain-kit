@@ -36,6 +36,7 @@ const ENV = [
   "DB_PATH",
   "BRAIN_PATH",
   "CLAUDE_CODE_PATH",
+  "BRAIN_UI_PRICING_DISCOVERY",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 const TEST_DB = join(tmpdir(), `app-wiring-test-${process.pid}.db`);
@@ -55,6 +56,8 @@ beforeAll(async () => {
   mkdirSync(process.env.BRAIN_PATH, { recursive: true });
   // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
   process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
+  // Production NODE_ENV cases below still test wiring, not live pricing.
+  process.env.BRAIN_UI_PRICING_DISCOVERY = "0";
 });
 
 afterAll(() => {

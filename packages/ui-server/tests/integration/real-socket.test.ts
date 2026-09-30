@@ -49,6 +49,7 @@ function start(env: Record<string, string> = {}) {
     HOST: "127.0.0.1",
     DB_PATH: ":memory:",
     BRAIN_PATH: "/tmp/brain-real-socket-test",
+    BRAIN_UI_PRICING_DISCOVERY: "0",
     ...env,
   });
   const app = createApp({
@@ -200,6 +201,7 @@ describe("the SPA fallback", () => {
       HOST: "127.0.0.1",
       DB_PATH: ":memory:",
       BRAIN_PATH: "/tmp/brain-spa-test",
+      BRAIN_UI_PRICING_DISCOVERY: "0",
     });
     const backend = makeFakeBackend({ id: "fake" });
     const app = createApp({
