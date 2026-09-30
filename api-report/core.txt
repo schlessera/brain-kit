@@ -6,6 +6,7 @@
 export "." (./src/index.ts)
   ASSET_EXTENSIONS
   type AgentRunner
+  type AgentRuntime
   type ArchiveOptions
   type ArchiveResult
   type AssembleOptions
@@ -227,6 +228,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         run(prompt: string, opts: {
             cwd: string;
             timeoutMs?: number;
+            onRuntime?: (runtime: AgentRuntime) => void;
         }): Promise<string>;
         runStreaming?(prompt: string, opts: {
             cwd: string;
@@ -234,7 +236,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
                 kind: "tool" | "text";
                 label: string;
             }) => void;
+            onRuntime?: (runtime: AgentRuntime) => void;
         }): Promise<string>;
+    }
+  AgentRuntime (packages/core/src/lib/seams.ts)
+    export interface AgentRuntime {
+        name: string;
+        version?: string;
     }
   CompletionProvider (packages/core/src/lib/seams.ts)
     export interface CompletionProvider {

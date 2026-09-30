@@ -35,7 +35,9 @@ function fakeClaude(
   result: string | null,
   settings: unknown = { effective: {}, sources: [] },
   /** A JavaScript file, not executable: what a JS `CLAUDE_CODE_PATH` names. */
-  asScript = false
+  asScript = false,
+  /** Extra fields on the session's `system`/`init` event. */
+  init: Record<string, unknown> = {}
 ): { log: string; cwd: string } {
   const dir = mkdtempSync(join(tmpdir(), "fake-claude-"));
   scratch.push(dir);
@@ -62,7 +64,7 @@ for await (const chunk of process.stdin) {
     } else if (event.type === "control_request" && event.request.subtype === "get_settings") {
       out({ type: "control_response", response: { subtype: "success", request_id: event.request_id, response: ${JSON.stringify(settings)} } });
     } else if (event.type === "user") {
-      out({ type: "system", subtype: "init" });
+      out({ type: "system", subtype: "init", ...${JSON.stringify(init)} });
       out({ type: "assistant", message: { content: [{ type: "text", text: "working" }] } });
       if (${JSON.stringify(result)} === null) process.exit(0);
       out({ type: "result", subtype: "success", result: ${JSON.stringify(result)} });
@@ -137,5 +139,45 @@ describe("the Claude runner's protocol", () => {
   test("a CLI that exits cleanly without a result is a failed run, not an empty answer", async () => {
     const { cwd } = fakeClaude(OAUTH_ACCOUNT, null);
     await expect(claudeRunner().run("hi", { cwd })).rejects.toThrow("ended without a result");
+  });
+});
+
+describe("the runtime a Claude run reports (#290)", () => {
+  test("init's claude_code_version reaches onRuntime unchanged, from run() and runStreaming()", async () => {
+    const { cwd } = fakeClaude(OAUTH_ACCOUNT, "done", undefined, false, { claude_code_version: "9.8.7-fake" });
+    const seen: unknown[] = [];
+    expect(await claudeRunner().run("hi", { cwd, onRuntime: (r) => seen.push(r) })).toBe("done");
+    await claudeRunner().runStreaming!("hi", { cwd, onEvent: () => {}, onRuntime: (r) => seen.push(r) });
+    expect(seen).toEqual([
+      { name: "claude-code", version: "9.8.7-fake" },
+      { name: "claude-code", version: "9.8.7-fake" },
+    ]);
+  });
+
+  test("an init without a version names the runtime and claims no version", async () => {
+    const { cwd } = fakeClaude(OAUTH_ACCOUNT, "done");
+    const seen: unknown[] = [];
+    await claudeRunner().run("hi", { cwd, onRuntime: (r) => seen.push(r) });
+    expect(seen).toEqual([{ name: "claude-code" }]);
+  });
+
+  test("a run that fails after init has already reported its runtime", async () => {
+    const { cwd } = fakeClaude(OAUTH_ACCOUNT, null, undefined, false, { claude_code_version: "9.8.7-fake" });
+    const seen: unknown[] = [];
+    await expect(claudeRunner().run("hi", { cwd, onRuntime: (r) => seen.push(r) })).rejects.toThrow(
+      "ended without a result"
+    );
+    expect(seen).toEqual([{ name: "claude-code", version: "9.8.7-fake" }]);
+  });
+
+  test("a refused run never reaches init and reports nothing", async () => {
+    const { cwd } = fakeClaude({ ...OAUTH_ACCOUNT, apiKeySource: "ANTHROPIC_API_KEY" }, "unused", undefined, false, {
+      claude_code_version: "9.8.7-fake",
+    });
+    const seen: unknown[] = [];
+    await expect(claudeRunner().run("hi", { cwd, onRuntime: (r) => seen.push(r) })).rejects.toBeInstanceOf(
+      ClaudeSubscriptionError
+    );
+    expect(seen).toEqual([]);
   });
 });

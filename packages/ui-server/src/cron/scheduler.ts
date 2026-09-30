@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
-import type { BrainClient } from "../brain/client.js";
+import { BrainSyncError, type BrainClient } from "../brain/client.js";
+import { syncActivityAttrs } from "../brain/sync-result.js";
+import type { ActivityStore } from "../activity/store.js";
+import { startCronSpan, type CronSpan } from "./activity.js";
 
 // Scheduling is owned by the container crontab (config/crontab) — sync at
 // 02:00, validate at 03:00, job scrape at 04:00. This module only provides
@@ -21,7 +24,8 @@ export interface CronScheduler {
 
 interface CronJob {
   name: string;
-  handler: () => Promise<void>;
+  /** `annotate` adds attributes to the run's root span, written when it ends. */
+  handler: (run: { annotate(attrs: Record<string, string>): void }) => Promise<void>;
 }
 
 /** One in-flight job run being recorded into `cron_runs`. */
@@ -69,14 +73,28 @@ export function createCronScheduler(deps: {
   brain: BrainClient;
   /** Where run outcomes are reported; absent means silence. */
   log?: Logger;
+  /**
+   * The activity store each run's root span goes into, as the container cron
+   * wrapper writes it; absent records only `cron_runs`.
+   */
+  activity?: ActivityStore;
 }): CronScheduler {
-  const { db, brain, log } = deps;
+  const { db, brain, log, activity } = deps;
 
   const jobs: CronJob[] = [
     {
       name: "sync",
-      handler: async () => {
-        await brain.sync();
+      handler: async (run) => {
+        // What the sync reported about its agent goes on this run, and only
+        // this one: a failed sync keeps what it observed before it failed,
+        // and one whose result cannot be read records "unknown" (#290).
+        try {
+          const synced = await brain.sync();
+          run.annotate(syncActivityAttrs(synced.result ?? null));
+        } catch (err) {
+          run.annotate(syncActivityAttrs(err instanceof BrainSyncError ? err.result ?? null : null));
+          throw err;
+        }
         await brain.index();
       },
     },
@@ -93,10 +111,37 @@ export function createCronScheduler(deps: {
     // Same recorder the external-scheduler path uses, so the two can never
     // drift in what a cron_runs row looks like.
     const record = recordCronRun(db, job.name);
+    // Fail-open, as the wrapper's tracking is: the activity record never
+    // stops the job it observes.
+    let span: CronSpan | null = null;
+    try {
+      if (activity) span = startCronSpan(db, activity, job.name);
+    } catch (err) {
+      log?.emit({
+        severityText: "WARN",
+        body: "job activity unavailable",
+        attributes: { job: job.name, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+    const attrs: Record<string, string> = {};
+    const endSpan = (error?: string) => {
+      if (!activity || !span) return;
+      try {
+        activity.endSpan(span.rootSpanId, {
+          outcome: error === undefined ? "success" : "error",
+          reason: error,
+          attrs,
+        });
+        activity.rollupRun(span.runId);
+      } catch {
+        // Observability must not break the observed.
+      }
+    };
 
     try {
-      await job.handler();
+      await job.handler({ annotate: (more) => Object.assign(attrs, more) });
       record.finish();
+      endSpan();
       log?.emit({
         severityText: "INFO",
         body: "job completed",
@@ -105,6 +150,7 @@ export function createCronScheduler(deps: {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       record.finish(message);
+      endSpan(message);
       log?.emit({
         severityText: "ERROR",
         body: "job failed",

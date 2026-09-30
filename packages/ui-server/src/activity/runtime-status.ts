@@ -21,6 +21,8 @@ import {
 
 import type { Logger } from "@opentelemetry/api-logs";
 
+import type { SyncRuntimeStatus } from "./sync-runtime.js";
+
 type RuntimeObserved = Extract<BackendActivityEvent, { kind: "runtime_observed" }>;
 type AuthFailure = Extract<BackendActivityEvent, { kind: "auth_failure" }>;
 
@@ -45,6 +47,12 @@ export interface RuntimeStatusSnapshot {
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */
   lastAuthFailure?: RecordedAuthFailure;
+  /**
+   * What scheduled `brain sync` runs recorded (#290), read from the activity
+   * store because the container cron wrapper is another process. Set by the
+   * status route, not by this module.
+   */
+  sync?: SyncRuntimeStatus;
 }
 
 export interface RuntimeStatus {

@@ -82,10 +82,18 @@ export {
 // Brain repo access (spawned CLI wrapper) — useful for embedders that add
 // their own routes on top.
 export {
+  BrainSyncError,
   createBrainClient,
   MIN_BRAIN_CLI_VERSION,
   type BrainClient,
 } from "./brain/client.js";
+export {
+  parseSyncResult,
+  syncActivityAttrs,
+  syncMessage,
+  type BrainSyncAgent,
+  type BrainSyncOutput,
+} from "./brain/sync-result.js";
 
 // Cron run history. Scheduling belongs to the deployment (container crontab);
 // an external scheduler's wrapper records each run here so /api/status's

@@ -270,7 +270,9 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         const sync = execConfig();
         const proc = Bun.spawn(
           wrapCommand(
-            ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync"],
+            // `--human`: stdout is a pipe, which would make it the JSON
+            // result (#290); this route streams the readable report.
+            ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync", "--human"],
             sync.wrapper
           ),
           {

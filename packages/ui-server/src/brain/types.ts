@@ -1,3 +1,5 @@
+import type { BrainSyncOutput } from "./sync-result.js";
+
 export interface BrainSearchResult {
   path: string;
   title: string;
@@ -49,9 +51,15 @@ export interface BrainStatsHistory {
   [field: string]: unknown;
 }
 
-/** What a `brain sync` that exited 0 printed; a failed sync throws instead. */
+/**
+ * What a `brain sync --json` that exited 0 printed; a failed sync throws
+ * `BrainSyncError` instead. `message` is the readable report (and the agent's
+ * text); `result` is the structured result, absent when stdout was not one —
+ * a CLI older than it, or a malformed document.
+ */
 export interface BrainSyncResult {
   message: string;
+  result?: BrainSyncOutput;
 }
 
 /** Outcome of saving content, including a recoverable indexing failure. */

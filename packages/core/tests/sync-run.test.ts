@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { chmodSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { needsAgent, syncCommand } from "../src/cli/commands/sync";
+import { needsAgent, syncCommand, type SyncResult } from "../src/cli/commands/sync";
 import { initContext } from "../src/lib/context";
 import type { AgentRunner } from "../src/lib/seams";
 import { conclude } from "../src/lib/sync/merge-state";
@@ -586,32 +586,42 @@ describe("bare `brain sync`", () => {
     if (saved !== undefined) process.env.TYPESAFE_API_KEY = saved;
   });
 
-  async function bare(root: string, agent: boolean): Promise<{ code: number | void; prompts: string[]; lines: string[] }> {
+  type Runner = "none" | "plain" | ((opts: { onRuntime?: (r: { name: string; version?: string }) => void }) => Promise<string>);
+
+  async function bare(
+    root: string,
+    agent: Runner,
+    json = false
+  ): Promise<{ code: number | void; prompts: string[]; lines: string[]; errors: string[] }> {
     const prompts: string[] = [];
     const agentRunner: AgentRunner = {
       id: "stub",
       capabilities: { streaming: false, skills: true },
-      async run(prompt) {
+      async run(prompt, opts) {
         prompts.push(prompt);
-        return "agent finished the merge";
+        return typeof agent === "function" ? agent(opts) : "agent finished the merge";
       },
     };
-    const cli = { brain: await initContext({ root }), json: true, ...(agent ? { agentRunner } : {}) };
+    const cli = { brain: await initContext({ root }), json, ...(agent !== "none" ? { agentRunner } : {}) };
     const lines: string[] = [];
+    const errors: string[] = [];
     const log = console.log;
+    const error = console.error;
     console.log = (line: string) => lines.push(String(line));
+    console.error = (line: string) => errors.push(String(line));
     try {
       const code = await syncCommand.run([], cli as never);
-      return { code, prompts, lines };
+      return { code, prompts, lines, errors };
     } finally {
       console.log = log;
+      console.error = error;
     }
   }
 
   test("a conflict it cannot resolve: the report, then the agent", async () => {
     const brain = brainWithRemote();
     codeConflict(brain);
-    const { prompts, lines } = await bare(brain.root, true);
+    const { prompts, lines } = await bare(brain.root, "plain");
     expect(prompts).toEqual(["/sync"]);
     expect(lines[0]).toStartWith("brain sync: needs-judgment");
     expect(lines[1]).toBe("agent finished the merge");
@@ -620,7 +630,7 @@ describe("bare `brain sync`", () => {
   test("the same conflict without an agent runner exits 3, the report as text", async () => {
     const brain = brainWithRemote();
     codeConflict(brain);
-    const { code, lines } = await bare(brain.root, false);
+    const { code, lines } = await bare(brain.root, "none");
     expect(code).toBe(3);
     expect(lines[0]).toStartWith("brain sync: needs-judgment");
     expect(() => JSON.parse(lines.join("\n"))).toThrow();
@@ -629,10 +639,156 @@ describe("bare `brain sync`", () => {
   test("a sync the rules finish never calls the agent", async () => {
     const brain = brainWithRemote();
     sameNote(brain);
-    const { code, prompts, lines } = await bare(brain.root, true);
+    const { code, prompts, lines } = await bare(brain.root, "plain");
     expect(code).toBe(0);
     expect(prompts).toEqual([]);
     expect(lines[0]!.split("\n")[0]).toBe("brain sync: complete");
     expect(readFileSync(join(brain.root, FIELD_NOTE), "utf-8")).toContain(THEIRS_RIDGE);
+  });
+});
+
+describe("bare `brain sync --json`: one result for the whole workflow (#290)", () => {
+  let saved: string | undefined;
+  beforeAll(() => {
+    saved = process.env.TYPESAFE_API_KEY;
+    delete process.env.TYPESAFE_API_KEY;
+  });
+  afterAll(() => {
+    if (saved !== undefined) process.env.TYPESAFE_API_KEY = saved;
+  });
+
+  async function bareJson(root: string, runner: AgentRunner | undefined) {
+    const cli = { brain: await initContext({ root }), json: true, ...(runner ? { agentRunner: runner } : {}) };
+    const lines: string[] = [];
+    const errors: string[] = [];
+    const log = console.log;
+    const error = console.error;
+    console.log = (line: string) => lines.push(String(line));
+    console.error = (line: string) => errors.push(String(line));
+    try {
+      const code = await syncCommand.run(["--json"], cli as never);
+      // Everything on stdout is the one document.
+      return { code, body: JSON.parse(lines.join("\n")) as SyncResult, errors };
+    } finally {
+      console.log = log;
+      console.error = error;
+    }
+  }
+
+  function stub(run: AgentRunner["run"]): AgentRunner & { prompts: string[] } {
+    const prompts: string[] = [];
+    return {
+      id: "stub",
+      capabilities: { streaming: false, skills: true },
+      prompts,
+      run(prompt, opts) {
+        prompts.push(prompt);
+        return run(prompt, opts);
+      },
+    };
+  }
+
+  test("nothing for an agent: the run, and no agent invoked", async () => {
+    const brain = brainWithRemote();
+    sameNote(brain);
+    const runner = stub(async () => "unused");
+    const { code, body } = await bareJson(brain.root, runner);
+    expect(code).toBe(0);
+    expect(runner.prompts).toEqual([]);
+    expect(body.run.status).toBe("complete");
+    expect(body.run.report).toStartWith("brain sync: complete");
+    expect(body.agent).toEqual({ invoked: false, reason: "not-needed" });
+  });
+
+  test("a conflict and no runner: exit 3, no agent, and says why", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const { code, body } = await bareJson(brain.root, undefined);
+    expect(code).toBe(3);
+    expect(body.run.status).toBe("needs-judgment");
+    expect(body.agent).toEqual({ invoked: false, reason: "no-runner" });
+  });
+
+  test("an agent that reports its version: the version, unchanged, and its text in the result only", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const runner = stub(async (_prompt, opts) => {
+      opts.onRuntime?.({ name: "claude-code", version: "9.8.7-fake" });
+      return "agent finished the merge";
+    });
+    const { code, body } = await bareJson(brain.root, runner);
+    // No code is main's 0, as the human path has always returned after the agent.
+    expect(code ?? 0).toBe(0);
+    expect(runner.prompts).toEqual(["/sync"]);
+    expect(body.run.status).toBe("needs-judgment");
+    expect(body.agent).toEqual({
+      invoked: true,
+      runner: "stub",
+      outcome: "success",
+      runtime: { name: "claude-code", version: "9.8.7-fake" },
+      text: "agent finished the merge",
+    });
+  });
+
+  test("an agent that reports nothing: invoked, runtime unknown, nothing borrowed", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const { body } = await bareJson(brain.root, stub(async () => "merged"));
+    expect(body.agent).toMatchObject({ invoked: true, outcome: "success", runtime: null, text: "merged" });
+  });
+
+  test("an agent that names itself without a version: version null", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const { body } = await bareJson(
+      brain.root,
+      stub(async (_prompt, opts) => {
+        opts.onRuntime?.({ name: "claude-code" });
+        return "merged";
+      })
+    );
+    expect(body.agent).toMatchObject({ invoked: true, runtime: { name: "claude-code", version: null } });
+  });
+
+  test("an agent that fails after reporting: exit 2, the error on stderr, and the runtime kept", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const { code, body, errors } = await bareJson(
+      brain.root,
+      stub(async (_prompt, opts) => {
+        opts.onRuntime?.({ name: "claude-code", version: "9.8.7-fake" });
+        throw new Error("claude CLI failed (exit 1): boom");
+      })
+    );
+    expect(code).toBe(2);
+    expect(errors).toEqual(["claude CLI failed (exit 1): boom"]);
+    expect(body.run.status).toBe("needs-judgment");
+    expect(body.agent).toEqual({
+      invoked: true,
+      runner: "stub",
+      outcome: "failed",
+      runtime: { name: "claude-code", version: "9.8.7-fake" },
+      text: null,
+      error: "claude CLI failed (exit 1): boom",
+    });
+  });
+
+  test("a failed agent in human mode still throws, as it always did", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const cli = {
+      brain: await initContext({ root: brain.root }),
+      json: false,
+      agentRunner: stub(async () => {
+        throw new Error("boom");
+      }),
+    };
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await expect(syncCommand.run([], cli as never)).rejects.toThrow("boom");
+    } finally {
+      console.log = log;
+    }
   });
 });

@@ -42,14 +42,33 @@ export interface CompletionProvider {
 export interface AgentRunner {
   id: string;
   capabilities: { streaming: boolean; skills: boolean };
-  run(prompt: string, opts: { cwd: string; timeoutMs?: number }): Promise<string>;
+  run(
+    prompt: string,
+    opts: { cwd: string; timeoutMs?: number; onRuntime?: (runtime: AgentRuntime) => void }
+  ): Promise<string>;
   runStreaming?(
     prompt: string,
     opts: {
       cwd: string;
       onEvent: (e: { kind: "tool" | "text"; label: string }) => void;
+      onRuntime?: (runtime: AgentRuntime) => void;
     }
   ): Promise<string>;
+}
+
+/**
+ * What an agent run said about the runtime that executed it (#290), passed to
+ * `onRuntime` as soon as the runtime reports it — before the run can still
+ * fail, so a caller keeps it when the run then throws. Observed, never probed:
+ * a runner that cannot tell does not call it, and `version` is absent when the
+ * runtime named itself but not its version.
+ *
+ * @experimental Part of the `AgentRunner` seam; may change before 1.0.
+ */
+export interface AgentRuntime {
+  /** e.g. `claude-code`, the name chat records for the same binary. */
+  name: string;
+  version?: string;
 }
 
 /**

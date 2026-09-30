@@ -5,7 +5,7 @@ import { mediaPolicy } from "../../lib/media.js";
 import { resolveEnv } from "../../config/env.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
-import { runAgent } from "../agent.js";
+import { AgentRunError, runAgent, type AgentInvocation } from "../agent.js";
 import { resolveEmitters } from "../skills-util.js";
 import { assess, classifyPostSyncDirt, domainFor, workingTreeDirt } from "../../lib/sync/assess.js";
 import { currentBranch, git, unmergedPaths } from "../../lib/sync/git.js";
@@ -35,8 +35,9 @@ const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 With no verb, runs the whole sync (\`run\`) and prints its report; then, when
 an agent runner is configured, hands the agent (/sync skill) what the rules
 could not settle: a conflict no strategy resolves, a file nothing could
-classify, or media to ask about (interactive terminals only). For the
-structured result use \`brain sync run --json\`.
+classify, or media to ask about (interactive terminals only). With --json it
+prints one result instead: the run's envelope and whether an agent was
+invoked, and if so which runtime it reported.
 
   run          The whole sync: stash, assess --fix, commit, pull, resolve,
                conclude, push (re-pulling up to 3 times), post-sync.
@@ -195,6 +196,22 @@ function printFields(result: object): void {
 const RUN_EXIT: Record<RunEnvelope["status"], number> = { complete: 0, "needs-judgment": 3, failed: 1 };
 
 /**
+ * Whether bare `brain sync` invoked an agent (#290). Not invoked says why:
+ * the rules left nothing for one, or they did and no runner was available.
+ * Invoked carries the runner's own report — its `runtime` is what the run
+ * observed, null when it observed nothing.
+ */
+export type SyncAgent =
+  | { invoked: false; reason: "not-needed" | "no-runner" }
+  | ({ invoked: true } & AgentInvocation);
+
+/** What `brain sync --json` prints: the whole workflow, deterministic run first. */
+export interface SyncResult {
+  run: RunEnvelope;
+  agent: SyncAgent;
+}
+
+/**
  * Whether bare `brain sync` hands on to the agent after `run`: a conflict
  * blocked the push, a file nothing classified, or media, which only a person
  * at a terminal can be asked about.
@@ -229,17 +246,34 @@ export const syncCommand: CoreCommand = {
     };
 
     if (!verb) {
-      // Always the report as text, never JSON: callers read it as the sync's
-      // message (ui-server's BrainClient.sync), as they read the agent's
-      // before. `brain sync run --json` is the structured form.
+      // Human mode: the report, then the agent's text when it ran. JSON mode:
+      // one SyncResult and nothing else on stdout, whatever the agent did,
+      // so a caller records the runtime a sync actually ran (#290). The exit
+      // codes are the same in both.
       const result = await runSync(syncEnv(cli));
-      console.log(result.report);
+      const printResult = (agent: SyncAgent) => {
+        const body: SyncResult = { run: result, agent };
+        console.log(JSON.stringify(body, null, 2));
+      };
+      if (!cli.json) console.log(result.report);
       const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY;
-      if (cli.agentRunner && needsAgent(result, interactive)) {
-        await runAgent(cli.agentRunner, "/sync", root);
-        return;
+      const wanted = needsAgent(result, interactive);
+      if (!wanted || !cli.agentRunner) {
+        if (cli.json) printResult({ invoked: false, reason: wanted ? "no-runner" : "not-needed" });
+        return RUN_EXIT[result.status];
       }
-      return RUN_EXIT[result.status];
+      try {
+        const invocation = await runAgent(cli.agentRunner, "/sync", root, { quiet: cli.json });
+        if (cli.json) printResult({ invoked: true, ...invocation });
+        return;
+      } catch (e) {
+        if (!cli.json || !(e instanceof AgentRunError)) throw e;
+        // What the CLI's own handler does with a thrown failure — the message
+        // on stderr, exit 2 — with the result on stdout as well.
+        printResult({ invoked: true, ...e.invocation });
+        console.error(e.message);
+        return 2;
+      }
     }
 
     switch (verb) {

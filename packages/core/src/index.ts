@@ -72,6 +72,7 @@ export type {
   CompletionProvider,
   EmbeddingProvider,
   AgentRunner,
+  AgentRuntime,
   SkillEmitter,
   SkillManifest,
   ContentPart,

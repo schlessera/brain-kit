@@ -16,7 +16,7 @@
 
 import { inheritedEnv } from "../../config/env.js";
 import { claudeCommand } from "./claude-binary.js";
-import type { AgentRunner } from "../../lib/seams.js";
+import type { AgentRunner, AgentRuntime } from "../../lib/seams.js";
 import {
   CLEARED_API_CREDENTIALS,
   ClaudeSubscriptionError,
@@ -80,10 +80,19 @@ type RunnerEvent = { kind: "tool" | "text"; label: string };
  *
  * Tool activity streams to `onEvent` as it happens; the final result text is
  * returned. Ported from agent-commands.ts's callClaudeStreaming.
+ *
+ * The session's `system`/`init` event names the binary that actually ran
+ * (`claude_code_version`, the field chat records); it goes to `onRuntime` the
+ * moment it arrives, so a run that fails later still reports it (#290).
  */
 async function claudeSession(
   prompt: string,
-  opts: { cwd: string; timeoutMs: number; onEvent?: (e: RunnerEvent) => void }
+  opts: {
+    cwd: string;
+    timeoutMs: number;
+    onEvent?: (e: RunnerEvent) => void;
+    onRuntime?: (runtime: AgentRuntime) => void;
+  }
 ): Promise<string> {
   const proc = Bun.spawn(
     [
@@ -124,6 +133,7 @@ async function claudeSession(
   // Both answers are needed before the prompt may be written.
   let account: { reply: unknown } | undefined;
   let settings: { reply: unknown } | undefined;
+  let sawInit = false;
 
   read: for (;;) {
     const { done, value } = await reader.read();
@@ -174,6 +184,16 @@ async function claudeSession(
         continue;
       }
 
+      // The first init only: one session, one binary.
+      if (!sawInit && event.type === "system" && event.subtype === "init") {
+        sawInit = true;
+        const version = event.claude_code_version;
+        opts.onRuntime?.({
+          name: "claude-code",
+          ...(typeof version === "string" && version.trim() ? { version: version.trim() } : {}),
+        });
+      }
+
       if (event.type === "assistant" && Array.isArray(event.message?.content) && opts.onEvent) {
         for (const block of event.message.content) {
           if (block.type === "tool_use") {
@@ -216,10 +236,19 @@ export function claudeRunner(): AgentRunner {
     id: "claude",
     capabilities: { streaming: true, skills: true },
     run(prompt, opts) {
-      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS });
+      return claudeSession(prompt, {
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        onRuntime: opts.onRuntime,
+      });
     },
     runStreaming(prompt, opts) {
-      return claudeSession(prompt, { cwd: opts.cwd, timeoutMs: DEFAULT_TIMEOUT_MS, onEvent: opts.onEvent });
+      return claudeSession(prompt, {
+        cwd: opts.cwd,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+        onEvent: opts.onEvent,
+        onRuntime: opts.onRuntime,
+      });
     },
   };
 }
