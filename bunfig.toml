@@ -4,3 +4,6 @@
 # (oven-sh/bun#23615).
 [install]
 linker = "hoisted"
+
+[test]
+preload = ["./scripts/test-network-preload.ts"]

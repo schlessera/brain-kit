@@ -26,6 +26,8 @@ const BOARDS = join(FIXTURES, "boards");
 /**
  * What sits beside a record and is not one of the bytes it describes. These
  * are structural: any record directory may hold them.
+ * README.md also keeps the README-only boards/ directory from qualifying
+ * as a capture directory that would need its own capture.json.
  */
 const NOT_A_FIXTURE = new Set(["capture.json", "README.md"]);
 
@@ -264,7 +266,8 @@ describe("capture records", () => {
   test("every directory holding fixtures has a record, and none is empty", () => {
     const dirs = fixtureDirs();
     expect(dirs.length).toBeGreaterThan(0);
-    // Both roots are covered: the per-board captures and #34's per-shape ones.
+    // These names deliberately couple the guard to both fixture shapes: a
+    // walk silently narrowed back to boards alone must fail this assertion.
     expect(dirs.some((dir) => dir.startsWith("boards"))).toBe(true);
     expect(dirs).toContain("jsonld");
     expect(dirs).toContain("reporting");

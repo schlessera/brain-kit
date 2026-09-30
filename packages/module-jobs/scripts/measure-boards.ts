@@ -83,7 +83,7 @@ const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engi
  * measurement, not noise. A robots.txt refusal still produces nothing here,
  * correctly: no request went out.
  */
-class TeeingClient extends ScrapeClient {
+export class TeeingClient extends ScrapeClient {
   readonly captures: Array<{ url: string; status: number; finalUrl?: string; body: string }> = [];
 
   override async get(url: string, opts: FetchOptions = {}): Promise<Response> {
@@ -542,4 +542,4 @@ async function main() {
   console.log(JSON.stringify({ ...result, sample: undefined }, null, 2));
 }
 
-await main();
+if (import.meta.main) await main();

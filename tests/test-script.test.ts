@@ -30,7 +30,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
     if (existsSync(script)) {
       mkdirSync(join(dir, "scripts"));
       cpSync(script, join(dir, "scripts/test.ts"));
-      for (const helper of ["test-shards.ts", "test-shard-costs.json"]) {
+      for (const helper of ["test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts"]) {
         cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
       }
     }
