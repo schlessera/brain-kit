@@ -1157,6 +1157,24 @@ exported from `@schlessera/brain` — and that test fails when this document, th
 
 ### Revision negotiation
 
+The client/server wire protocol, published as
+`@schlessera/brain-ui-sdk/protocol`, is a **machine compatibility contract now**,
+distinct from the experimental extension interfaces. Its frames, validation
+policies and documented behavior follow this document's versioning rules:
+
+- Additive changes ship in minors.
+- Before 1.0, a break ships in a minor only after a maintainer ruling recorded
+  before implementation, with the `breaking` label and a changeset naming it.
+- From 1.0, a break requires a major.
+
+Every contract change needs `CONTRACT:` and a same-commit contract update.
+This classification does not freeze the experimental seams or schedule 1.0.
+See the [wire-protocol decision](decisions/contract-versioning.md#wire-protocol-classification--2026-09-28).
+
+Revision negotiation determines which rules apply to a connection; incrementing
+the revision does not waive compatibility guarantees or semantic versioning.
+The legacy tolerance and validation policies below remain binding.
+
 `PROTOCOL_REV` is **4**. A client announces what it speaks with a `client_hello`
 as its first frame; a host that does not understand the frame ignores it, and a
 client that never sends one is treated as rev 2.
@@ -1565,6 +1583,11 @@ own `@experimental` tag. So do eleven of the types they are made of:
 Whether the other types in a seam's signature belong in the frozen set is open
 in [#343](https://github.com/schlessera/brain-kit/issues/343).
 [extending/README.md](extending/README.md#the-seams) says what each one swaps.
+
+The client/server wire protocol is a machine contract rather than an
+experimental extension interface, including when an experimental backend
+implements it. Its [revision negotiation](#revision-negotiation) and documented
+compatibility guarantees follow the contract-versioning rules above.
 
 | Interface | Imported from |
 |-----------|---------------|

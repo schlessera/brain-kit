@@ -66,6 +66,17 @@ announced in the CHANGELOG; a change to the stable contract requires a
 `CONTRACT:` commit prefix, and a breaking one a maintainer ruling first (a major
 version bump from 1.0). See [integration-contract.md](../integration-contract.md).
 
+The client/server wire protocol is a machine compatibility contract now,
+separate from those experimental seams. Implementing `AgentBackend` means
+speaking that contract. Protocol additions ship in minors. Before 1.0, a break
+requires a maintainer ruling before implementation, the `breaking` label and a
+changeset naming the break, and ships in a minor. From 1.0, a break requires a
+major. Every contract change needs `CONTRACT:` and the contract doc updated in
+the same commit. Revision negotiation selects connection rules and does not
+waive those requirements or the documented compatibility guarantees. This
+classification does not freeze the seams immediately or schedule 1.0; see the
+[decision](../decisions/contract-versioning.md#wire-protocol-classification--2026-09-28).
+
 ## The seams
 
 There are ten. This table is the list; the integration contract's
@@ -299,7 +310,8 @@ there is no ambiguity:
   second implementation plainly within a year.
 - The wire protocol (`packages/ui-sdk/src/protocol.ts`, published as
   `@schlessera/brain-ui-sdk/protocol`) — it is the contract every backend
-  targets.
+  targets, governed by the [machine-contract versioning rules](#stability).
+  Revision negotiation does not make it an experimental extension interface.
 - Bun + Hono server, React PWA client — no framework adapters.
 - The `brain` CLI surface and MCP tool names (contract-stable per the integration
   contract).

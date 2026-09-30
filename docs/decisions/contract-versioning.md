@@ -47,3 +47,40 @@ discussion". Three things showed the rule was not the one being followed:
 - The contract's scope. Anything not in `integration-contract.md` can still
   change without notice.
 - Epic #56. 1.0 is still the point at which rule 2 stops being available.
+
+## Wire protocol classification — 2026-09-28
+
+The [maintainer's ruling on #343 question 5](https://github.com/schlessera/brain-kit/issues/343#issuecomment-5865905459)
+classifies the client/server wire protocol as a **machine compatibility
+contract now**. The protocol header already calls it that
+(`COMPATIBILITY CONTRACT`, `packages/ui-sdk/src/protocol.ts:5-8`). Its frames,
+validation policies and documented behavior follow the versioning rules above:
+additions ship in minors; pre-1.0 breaks ship in minors only after a prior
+maintainer ruling, with the `breaking` label and a changeset naming the break;
+from 1.0, breaks require a major. Contract changes require `CONTRACT:` and a
+same-commit integration-contract update.
+
+The protocol is distinct from the experimental extension interfaces. A backend
+implements the experimental `AgentBackend` seam and speaks the wire contract;
+shipping both in `@schlessera/brain-ui-sdk` does not give them the same stability
+classification. This ruling records the current boundary. It does not freeze
+experimental interfaces immediately or schedule 1.0.
+
+[Revision negotiation](../integration-contract.md#revision-negotiation) selects
+which connection rules apply. It does not replace semantic versioning
+or waive a documented compatibility guarantee. For example, requiring a reply
+field from a previously tolerated client can be breaking even when the protocol
+revision is incremented. The existing promises still bind: no hello means rev 2,
+the host does not require `client_hello`, legacy clients keep the documented
+tolerance, and an unknown declared revision is held to the newest rules the
+host knows. These specific guarantees do not create a new promise to support
+every past revision forever.
+
+Two alternatives were rejected:
+
+- **Treat the protocol as an experimental seam because of its package.** This
+  would exempt client/server compatibility promises which already govern every
+  backend, and contradict the explicitly non-pluggable protocol boundary.
+- **Use a revision bump as permission to break compatibility.** A connection
+  handshake determines applicable rules, not release versioning. Removing a
+  documented guarantee still needs the breaking-contract process.

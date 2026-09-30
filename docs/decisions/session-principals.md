@@ -131,7 +131,7 @@ Two findings that are true today, independent of this plan:
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
   (`Revision negotiation`, `docs/integration-contract.md:1158`;
-  `Activity stream`, `:1197`), so how attribution reaches a client is a
+  `Activity stream`, `:1215`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
