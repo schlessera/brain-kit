@@ -299,7 +299,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:52`), so bumping the SDK in this repo fails CI until
+  `.github/workflows/ci.yml:56`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:127-128`). It is the only automatic check
   this has.
@@ -676,3 +676,12 @@ What that changes and what it does not:
   does not audit connection attempts, so a background request that fails
   quietly would not fail a case. A failed or inconclusive case fails
   the job, and the job prints the JSON report.
+
+## 2026-09-30 — CI returns to GitHub Actions (#618)
+
+The `claude-runtime-probe` job now runs only from
+`.github/workflows/ci.yml`. The Depot workflow was removed when CI returned to
+GitHub Actions so agents can inspect failed checks through GitHub's log
+surfaces. This supersedes the workflow location above; the keyless probe and
+its network namespace remain the same. The migration findings and verification
+are recorded in #618.
