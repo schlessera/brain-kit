@@ -13,7 +13,7 @@ const chromePath = [process.env.PUPPETEER_EXECUTABLE_PATH, process.env.BRAIN_UI_
   .find((p) => p && existsSync(p));
 if (!chromePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Chrome required for export link policy proof");
 let renderer: Renderer;
-const observations: { labels: string[]; hidden: number; clipped: number; blocks: { kind: string | undefined; height: number }[]; controls: string[] }[] = [];
+const observations: { labels: string[]; dnsLabels: { text: string; height: number; lineHeight: number }[]; hidden: number; clipped: number; blocks: { kind: string | undefined; height: number }[]; controls: string[] }[] = [];
 const requested: string[] = [];
 beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: chromePath, noSandbox: true,
   launch: async (args) => {
@@ -27,6 +27,7 @@ beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: ch
         observations.push(await page.evaluate(() => {
           const labels = [...document.querySelectorAll<HTMLElement>("[data-brain-link-destination]")];
           return { labels: labels.map((el) => el.innerText),
+            dnsLabels: labels.flatMap((el) => [...el.querySelectorAll<HTMLElement>(":scope > span")].map((label) => ({ text: label.innerText, height: label.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(label).lineHeight) }))),
             blocks: [...document.querySelectorAll<HTMLElement>("[data-block]")].map((el) => ({ kind: el.dataset.block, height: el.getBoundingClientRect().height })),
             controls: [...document.querySelectorAll<HTMLAnchorElement>("a.bk-control")].map((a) => getComputedStyle(a).display),
             hidden: labels.filter((el) => getComputedStyle(el).display === "none" || getComputedStyle(el).visibility !== "visible" || parseFloat(getComputedStyle(el).opacity) < 1 || parseFloat(getComputedStyle(el).fontSize) < 12).length,
@@ -103,6 +104,15 @@ const alternateMarkup = `
 `;
 
 describe.skipIf(!chromePath)("alternate markup and final styled output", () => {
+  test("a DNS label that fits a line moves intact instead of splitting beside the words", async () => {
+    const html = buildHtmlDocument({ content: '<p><a href="https://ithaca-harbour.example/">Safe-looking words</a> continues.</p>', contentType: "html", linkPolicy: "visible-destinations" });
+    observations.length = 0;
+    await renderer.renderPng({ html, width: 320, linkPolicy: "visible-destinations" });
+    expect(observations).toHaveLength(1);
+    const label = observations[0].dnsLabels.find((label) => label.text === "(ithaca-harbour.");
+    expect(label).toBeDefined();
+    expect(label!.height).toBeLessThanOrEqual(label!.lineHeight + 1);
+  });
   test("SVG, shadow content, frames, hidden strings and relative bases leave only accepted actual PDF targets", async () => {
     requested.length = 0;
     const html = buildHtmlDocument({ content: alternateMarkup, contentType: "html", linkPolicy: "visible-destinations" });
@@ -195,13 +205,13 @@ describe.skipIf(!chromePath)("finished PDF disclosure", () => {
     await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination");
   });
   test("host words in author-supplied code cannot stand in for the cropped disclosure", async () => {
-    const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:320px 300px;margin:0}body{width:600px;font:32px system-ui;margin:8px}</style></head><body><a href="https://ithaca-harbour.example/tides"><code>ithaca-harbour.example</code></a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
-    const unchecked = await readPdf(await renderer.renderPdf({ html }));
+    const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:320px 300px;margin:0}body{width:2000px;font:32px system-ui;margin:8px}a{display:flex;width:2000px;justify-content:space-between}</style></head><body><a href="https://ithaca-harbour.example/tides"><code>ithaca-harbour.example</code></a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
+    const unchecked = await readPdf(await renderer.renderPdf({ html, width: 4096 }));
     expect(unchecked.text).toContain("ithaca-harbour.example");
     expect(unchecked.annotations.some((a) => a.url === "https://ithaca-harbour.example/tides")).toBe(true);
     expect(unchecked.heights.length).toBeGreaterThan(0);
     expect(Math.min(...unchecked.heights)).toBeGreaterThanOrEqual(8.99);
-    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination is incomplete");
+    await expect(renderer.renderPdf({ html, width: 4096, linkPolicy: "visible-destinations" })).rejects.toThrow("PDF link destination is incomplete");
   });
   test("exact URL words and multiple mail recipients retain useful finished PDF links", async () => {
     const html = buildHtmlDocument({ content: '<p><a href="https://ithaca.example/">https://ithaca.example/</a></p><p><a href="mailto:odysseus@ithaca.example,crew@ithaca.example?subject=Private">Write</a></p>', contentType: "html", linkPolicy: "visible-destinations" });

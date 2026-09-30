@@ -49,7 +49,7 @@ export async function assertPdfLinkDestinations(bytes: Buffer, checkActive: () =
         // the disclosure when printing has removed the final owned child.
         const children = node.children.filter((n): n is StructTreeNode => "role" in n);
         const last = children.at(-1);
-        if (!last || !["Code", "NonStruct"].includes(last.role) || children.slice(0, -1).some((n) => n.role !== "P")) throw failure();
+        if (!last || !["Code", "NonStruct"].includes(last.role) || children.slice(0, -1).some((n) => n.role !== "P")) throw new Error("PDF link destination is incomplete");
         const ids = new Set([...descendants(last)].filter((n): n is StructTreeContent => "type" in n && n.type === "content").map((n) => n.id));
         const items = [...ids].flatMap((id) => marked.get(id) ?? []).filter((i) => i.str.trim());
         if (!items.map((i) => i.str).join("").replace(/\s/g, "").includes(destination)) throw new Error("PDF link destination is incomplete");

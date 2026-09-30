@@ -157,7 +157,7 @@ export function applyExportLinkPolicy(html: string): string {
       for (const child of [...anchor.childNodes]) { tree.detachNode(child); tree.appendChild(words, child); }
       for (const child of all(words)) child.attrs = child.attrs.filter((a) => a.name !== "role" && !["aria-owns", "aria-labelledby"].includes(a.name));
       tree.appendChild(anchor, words);
-      const labels = destination.split(".").map((s, i, parts) => `<span style="display:inline-block;max-width:100%;overflow-wrap:anywhere">${i === 0 ? "(" : ""}${escape(s)}${i === parts.length - 1 ? ")" : "."}</span>${i === parts.length - 1 ? "" : "<wbr>"}`).join("");
+      const labels = destination.split(".").map((s, i, parts) => `<span style="display:inline-block;width:max-content;max-width:100%;overflow-wrap:anywhere">${i === 0 ? "(" : ""}${escape(s)}${i === parts.length - 1 ? ")" : "."}</span>${i === parts.length - 1 ? "" : "<wbr>"}`).join("");
       tree.appendChild(anchor, element(`<code ${HOST}> ${labels}</code>`));
     }
   }
@@ -194,10 +194,14 @@ export async function protectExportLinkDestinations(maxCaptureHeight?: number): 
     if (!destination) throw new Error("Export link has no visible destination");
     const safe = { "mix-blend-mode": "normal", "backdrop-filter": "none", animation: "none", transition: "none", opacity: "1", visibility: "visible", filter: "none", "clip-path": "none", mask: "none", "content-visibility": "visible" };
     const display = getComputedStyle(anchor).display;
+    destination.removeAttribute("style");
     force(anchor, { ...safe, "-webkit-text-fill-color": "currentcolor", "letter-spacing": "normal", "text-indent": "0px", display: display === "inline" || display === "none" ? "inline-block" : display, position: "static", transform: "none", "break-inside": "avoid", "box-sizing": "border-box", "white-space": "normal", "text-overflow": "clip", overflow: "visible", height: "auto", "max-height": "none", "max-width": "100%" });
     force(destination, { all: "revert", ...safe, display: "inline", "font-family": "monospace", "font-size": "max(12px, .8em)", "font-weight": "500", "line-height": "1.6", color: "#595650", "-webkit-text-fill-color": "#595650", "-webkit-text-stroke-width": "0px", "text-shadow": "none", "text-indent": "0px", "letter-spacing": "normal", "word-spacing": "normal", "writing-mode": "horizontal-tb", transform: "none", background: "#ffffff", "white-space": "normal", "overflow-wrap": "anywhere", "text-decoration": "none", position: "relative", "z-index": "2147483647", "unicode-bidi": "isolate", direction: "ltr" });
     for (const child of destination.querySelectorAll<HTMLElement>("span")) {
-      force(child, { all: "revert", ...safe, display: "inline-block", "max-width": "100%", "overflow-wrap": "anywhere", "font-family": "inherit", "font-size": "inherit", color: "inherit", "-webkit-text-fill-color": "inherit", "-webkit-text-stroke-width": "0px", background: "inherit", "white-space": "normal" });
+      // Updating an existing longhand keeps its old declaration order. Clear
+      // our owned inline styles so the reset precedes every protected value.
+      child.removeAttribute("style");
+      force(child, { all: "revert", ...safe, display: "inline-block", width: "max-content", "max-width": "100%", "overflow-wrap": "anywhere", "font-family": "inherit", "font-size": "inherit", color: "inherit", "-webkit-text-fill-color": "inherit", "-webkit-text-stroke-width": "0px", background: "inherit", "white-space": "normal" });
     }
     // A suffix must not be clipped by the link's surrounding card or supplied
     // fixed-height/hidden container. Preserve the normal layout properties.
