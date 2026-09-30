@@ -25,12 +25,12 @@ concurrency:
 
 jobs:
   contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # The PR's head commit, not the default synthetic merge commit: the
       # merge commit, diffed against the base, drops a doc edit that also
       # landed on the base through another PR. Full history for the merge base.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
