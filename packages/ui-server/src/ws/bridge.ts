@@ -34,6 +34,8 @@ export function makeBridge(
   // through this bridge after its startTurn resolved. Stamping from the live
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
+  const requestId = turn.requestId;
+  const thinkingLevel = turn.retryRequest?.thinkingLevel;
   let pendingSessionNamed = onSessionNamed;
   const queryActivity = host.activity?.query;
   // The assistant text, kept as the client numbers its parts, for the
@@ -46,6 +48,13 @@ export function makeBridge(
     ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),
     emit: (message) => {
       let msg = message;
+      if (msg.type === "error" && requestId) msg = { ...msg, requestId };
+      if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
+        msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };
+        if (thinkingLevel !== undefined && msg.effectiveThinkingLevel !== undefined && turn.sessionId) {
+          host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
+        }
+      }
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         turn.sessionId = msg.sessionId;
@@ -65,6 +74,9 @@ export function makeBridge(
           const named = pendingSessionNamed;
           pendingSessionNamed = undefined;
           named(msg.sessionId);
+        }
+        if (thinkingLevel !== undefined && msg.effectiveThinkingLevel !== undefined) {
+          host.catalog.recordEffectiveThinkingLevel?.(msg.sessionId, turnId, msg.effectiveThinkingLevel);
         }
       }
       if (msg.type === "result") {
@@ -325,6 +337,7 @@ export function makeBridge(
 }
 
 export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): void {
+  const correlation = turn.requestId ? { requestId: turn.requestId } : {};
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
@@ -332,20 +345,20 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
     host.reportTurnFailed("SESSION_BUSY", turn);
     host.sendToClients(
       withTurnScope(
-        { type: "error", code: "SESSION_BUSY", message: "That session already has a running turn." },
+        { type: "error", code: "SESSION_BUSY", message: "That session already has a running turn.", ...correlation },
         turn
       )
     );
   } else if (err instanceof BackendRequestError) {
     host.reportTurnFailed("BACKEND_REQUEST_ERROR", turn, err.message);
     host.sendToClients(
-      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message }, turn)
+      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message, ...correlation }, turn)
     );
   } else {
     const message = err instanceof Error ? err.message : String(err);
     host.reportTurnFailed("BACKEND_ERROR", turn, message);
     host.sendToClients(
-      withTurnScope({ type: "error", code: "BACKEND_ERROR", message }, turn)
+      withTurnScope({ type: "error", code: "BACKEND_ERROR", message, ...correlation }, turn)
     );
   }
 }

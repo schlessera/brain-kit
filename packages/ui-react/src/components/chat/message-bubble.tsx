@@ -94,6 +94,11 @@ export const MessageBubble = memo(function MessageBubble({
         who={isUser ? "You" : root.config.assistantName}
         when={formatTime(message.timestamp)}
         voice={isUser && message.source && message.source !== "typed" ? message.source : undefined}
+        effort={isUser && message.thinkingLevel !== undefined ? (
+          message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
+          message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
+          `effort ${message.thinkingLevel} → ${message.effectiveThinkingLevel} (backend)`
+        ) : undefined}
         tone={isUser ? "user" : "brain"}
       />
 

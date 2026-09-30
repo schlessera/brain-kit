@@ -1332,6 +1332,58 @@ Rules a consumer may rely on:
 - **Blocks contain only what the text carried.** The classifier chooses a
   shape and a tone; it never invents a footnote, a figure, or a source line.
 
+### Per-message reasoning effort (additive, #543)
+
+`chat_message.thinkingLevel?: ThinkingLevel` overrides effort for that message
+only, including a resumed session. Its seven values are `off`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, and `max`; an invalid value is rejected by
+frame validation before routing or backend execution. `StartTurnRequest`
+accepts the same optional field. Each turn resolves request override → saved
+profile override → configured profile/backend default → backend default.
+Effort is re-read on resumes; model/session ownership remains pinned.
+
+Claude's built-in profile uses `claude-opus-5-5` at `medium`. The Claude module
+accepts `config.defaultThinkingLevel` beside `defaultModel`; the shipped host
+sets it from `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` (default `medium`).
+Declared profiles can supply `thinkingLevel` and `supportedThinkingLevels`.
+Claude passes the resolved supported choice as the Agent SDK's `effort`.
+`off` and `minimal` map to `low`; otherwise an unsupported choice resolves to
+the nearest lower supported level, or the lowest supported level. Pi uses the
+same downward resolution before setting its session effort, without writing
+the global default. Unknown effort-less models omit the option.
+
+`ProviderInfo` and `ModelCatalogEntry` optionally carry
+`supportedThinkingLevels: ThinkingLevel[]` and the effective default
+`thinkingLevel`. Claude now exposes these too, and `PUT /api/models/thinking`
+accepts effort-capable Claude profile ids. A saved unsupported override stays
+in `thinkingOverride`; `thinkingLevel` reports what it resolves to. Discovery
+uses Models API effort capabilities; absent metadata uses conservative known
+model capabilities. A proxy/unknown model may declare its supported choices.
+
+Hosts supporting this path advertise `server_hello.capabilities.chatRequestAck`.
+An optional `chat_message.requestId` is echoed on `session_info` when that turn
+starts, on `status: queued` when parked, and on correlated refusals (`error`).
+It is correlation, not durable deduplication. Clients clear a sent draft and
+its override only on matching acceptance; a refusal keeps them. Messages with
+`requestId` or `thinkingLevel` sent during a run queue as distinct next turns,
+so they cannot alter a running turn's effort. Older messages without either
+field retain native follow-up behavior. Clients on older hosts omit these
+fields and keep their prior send behavior. If acceptance cannot be confirmed
+across a disconnect or an uncorrelated frame refusal, the draft and override
+remain editable with an explicit unconfirmed-send notice; reconnection never
+resends them automatically.
+
+`session_info`, effort-reporting `status` frames, and replayed user
+`SessionHistoryMessage` may carry the requested `thinkingLevel` and a
+runtime-confirmed `effectiveThinkingLevel`. Absent effective effort means
+unconfirmed, not equal: consumers render “requested” until confirmed. Pi reads
+its actual session level; Claude observes the main-turn Stop hook's active
+effort after managed settings clamp it. Default-effort messages omit this
+provenance. The host keeps it beside message source metadata in its UI database
+and joins it on replay by exact text and ordinal. Retry retains the original
+effort override; an accepted `retry_receipt` may echo `thinkingLevel` for the
+new user row. No wire revision or required field changes.
+
 ### Message source (additive in 0.39.0)
 
 `chat_message` may carry `source` — `typed` | `voice-dictate` |

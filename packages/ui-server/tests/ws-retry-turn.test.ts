@@ -36,7 +36,7 @@ function harness(failure: TurnFailure = { errorClass: "server_error", status: 50
   addClient(ws);
   const original: ClientChatMessage = { type: "chat_message", text: "Describe both images", providerId: "claude",
     attachments: [{ mediaType: "image/png", data: "YWJj" }, { mediaType: "image/jpeg", data: "ZGVm" }],
-    client: { formFactor: "phone", locale: "en", touch: true }, source: "voice-dictate" };
+    client: { formFactor: "phone", locale: "en", touch: true }, source: "voice-dictate", thinkingLevel: "max" };
   async function fail() {
     await handleClientMessage(ws, original); await settled();
     const result = frames.findLast(f => f.type === "result");
@@ -61,6 +61,8 @@ test("Retry after reload starts one distinct turn with nonempty original images 
   expect(h.calls).toHaveLength(2);
   expect(h.calls[1].attachments).toEqual(h.calls[0].attachments);
   expect(h.calls[1].client).toEqual(h.calls[0].client);
+  expect(h.calls[0].thinkingLevel).toBe("max");
+  expect(h.calls[1].thinkingLevel).toBe("max");
   expect(h.calls[1].prompt).toBe(h.calls[0].prompt);
   expect(h.calls[1].profileId).toBe(h.calls[0].profileId);
   const results = h.frames.filter(f => f.type === "result");

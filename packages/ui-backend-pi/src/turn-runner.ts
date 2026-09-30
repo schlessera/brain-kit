@@ -7,6 +7,9 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture } from "@schlessera/brain-ui-sdk/server";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import type { CreatePiBackendOptions } from "./backend-options.js";
+import { configuredProfiles, resolveModelSpec } from "./profiles.js";
 
 import { mapPiEvent } from "./event-adapter.js";
 import type { SessionPool } from "./session-pool.js";
@@ -25,7 +28,8 @@ import {
 const BACKEND_ID = "pi";
 
 export function createPiTurnRunner(
-  pool: SessionPool
+  pool: SessionPool,
+  options: CreatePiBackendOptions
 ): (req: StartTurnRequest) => Promise<void> {
   return async function startTurn(req: StartTurnRequest): Promise<void> {
     const startedAt = Date.now();
@@ -66,6 +70,15 @@ export function createPiTurnRunner(
     let thrown: TurnFailure | null = null;
 
     try {
+      // Always reset from the current profile, even for an in-memory resume.
+      // Pre-resolve downward: pi's own unsupported-level clamp can raise effort.
+      const profile = req.profileId || !session.model
+        ? resolveModelSpec(options, req.profileId)
+        : configuredProfiles(options)?.find((candidate) => candidate.model === session.model?.id && candidate.vendor === session.model?.provider);
+      const defaultLevel = profile?.thinkingLevel ?? "medium";
+      const levels = session.getAvailableThinkingLevels?.();
+      const effort = levels ? resolveThinkingLevel(req.thinkingLevel ?? defaultLevel, levels) : undefined;
+      if (effort !== undefined) session.setThinkingLevel?.(effort, { persist: false });
       if (!req.signal.aborted) {
         req.signal.addEventListener("abort", onAbort, { once: true });
       }
@@ -77,6 +90,10 @@ export function createPiTurnRunner(
         isNew,
         backendId: BACKEND_ID,
         ...(req.profileId ? { providerId: req.profileId } : {}),
+        ...(req.thinkingLevel !== undefined ? {
+          thinkingLevel: req.thinkingLevel,
+          ...(session.thinkingLevel !== undefined ? { effectiveThinkingLevel: session.thinkingLevel } : {}),
+        } : {}),
       });
       // An already-aborted signal never fires "abort", and aborting a session
       // that has not been prompted does not cancel a LATER prompt — so never

@@ -164,14 +164,14 @@ export function createWebSocketClient(root: BrainUiServices) {
     chat.setTurnRetry(sessionId, null);
     const buffer = chat.buffers[sessionId];
     if (msg.text !== undefined && pending.state === "waiting" && buffer?.messages.at(-1)?.retryOfTurnId === pending.failedTurnId) {
-      chat.addUserMessage(sessionId, msg.text, msg.source);
+      chat.addUserMessage(sessionId, msg.text, msg.source, undefined, { requestId: msg.requestId, thinkingLevel: msg.thinkingLevel });
       if (msg.attachmentCount) {
         const current = root.stores.chat.getState().buffers[sessionId];
         const messages = [...current.messages];
         messages[messages.length - 1] = { ...messages.at(-1)!, attachmentCount: msg.attachmentCount };
         root.stores.chat.setState({ buffers: { ...root.stores.chat.getState().buffers, [sessionId]: { ...current, messages } } });
       }
-      chat.startAssistantMessage(sessionId);
+      chat.startAssistantMessage(sessionId, undefined, msg.requestId);
     } else {
       // A receipt recovered after a lost acknowledgement heals from history;
       // it never sends the original request a second time.
@@ -189,6 +189,11 @@ export function createWebSocketClient(root: BrainUiServices) {
 
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     const state = root.stores.chat.getState();
+    if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
+      state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+    } else if (msg.type === "error" && msg.requestId) {
+      state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
+    }
 
     // Activity stream frames feed their own store and never touch chat state.
     // So do local exchange results (#582): one names its message by exchange
@@ -231,7 +236,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       // `message_blocks` arrives AFTER the turn's result (D42); it must not
       // reopen a finished session, and it must not touch a queued follow-up
       // that may already be running, so it takes no part in run state.
-      if (msg.type !== "message_blocks") {
+      if (msg.type !== "message_blocks" && !(msg.type === "error" && msg.requestId && !msg.turnId)) {
         state.setRunState(frameSessionId, runStateForFrame(msg), queueNote);
       }
     }
@@ -267,6 +272,9 @@ export function createWebSocketClient(root: BrainUiServices) {
       const s = root.stores.chat.getState();
       return key === null ? s.draft : s.buffers[key];
     };
+    if ((msg.type === "session_info" || msg.type === "status") && msg.requestId && msg.thinkingLevel !== undefined) {
+      root.stores.chat.getState().setMessageEffort(key, msg.requestId, msg.thinkingLevel, msg.effectiveThinkingLevel);
+    }
 
     dispatchServerMessage(msg, {
       stores: root.stores,

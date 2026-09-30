@@ -22,7 +22,8 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { MessageSource, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { MessageSource, SessionHistoryMessage, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 /** The key one message's text gets. Exported so the writer and the joiner agree by construction. */
@@ -39,7 +40,8 @@ export function saveMessageSource(
   db: Database,
   sessionId: string,
   text: string,
-  source: MessageSource
+  source: MessageSource,
+  effort?: { thinkingLevel?: ThinkingLevel; turnId: string }
 ): void {
   const hash = messageTextHash(text);
   db.transaction(() => {
@@ -47,10 +49,15 @@ export function saveMessageSource(
       .query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id = ? AND text_hash = ?")
       .get(sessionId, hash) as { n: number };
     db.prepare(
-      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(sessionId, hash, row.n, source, Date.now());
+      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, hash, row.n, source, Date.now(), effort?.thinkingLevel ?? null, effort?.turnId ?? null);
   }).immediate();
+}
+
+export function saveEffectiveThinkingLevel(db: Database, sessionId: string, turnId: string, level: ThinkingLevel): void {
+  db.prepare("UPDATE message_sources SET effective_thinking_level = ? WHERE session_id = ? AND turn_id = ? AND thinking_level IS NOT NULL")
+    .run(level, sessionId, turnId);
 }
 
 /**
@@ -63,16 +70,20 @@ export function attachMessageSources(
   messages: SessionHistoryMessage[]
 ): SessionHistoryMessage[] {
   const rows = db
-    .query("SELECT text_hash AS hash, ordinal, source FROM message_sources WHERE session_id = ?")
-    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string }>;
-  const stored = new Map<string, MessageSource>();
+    .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level FROM message_sources WHERE session_id = ?")
+    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null }>;
+  const stored = new Map<string, Partial<SessionHistoryMessage>>();
   for (const row of rows) {
     // Re-validated on the way out: a row written by a newer server with a
     // source this one does not know reads as typed.
     const parsed = messageSourceSchema.safeParse(row.source);
-    if (parsed.success && parsed.data !== "typed") {
-      stored.set(`${row.hash}:${row.ordinal}`, parsed.data);
+    const metadata: Partial<SessionHistoryMessage> = {};
+    if (parsed.success && parsed.data !== "typed") metadata.source = parsed.data;
+    if (isThinkingLevel(row.thinking_level)) {
+      metadata.thinkingLevel = row.thinking_level;
+      if (isThinkingLevel(row.effective_thinking_level)) metadata.effectiveThinkingLevel = row.effective_thinking_level;
     }
+    if (Object.keys(metadata).length) stored.set(`${row.hash}:${row.ordinal}`, metadata);
   }
   if (stored.size === 0) return messages;
 
@@ -82,7 +93,7 @@ export function attachMessageSources(
     const hash = messageTextHash(message.content);
     const ordinal = seen.get(hash) ?? 0;
     seen.set(hash, ordinal + 1);
-    const source = stored.get(`${hash}:${ordinal}`);
-    return source ? { ...message, source } : message;
+    const metadata = stored.get(`${hash}:${ordinal}`);
+    return metadata ? { ...message, ...metadata } : message;
   });
 }

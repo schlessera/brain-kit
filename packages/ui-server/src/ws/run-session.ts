@@ -5,6 +5,7 @@ import type {
   LocalExchange,
   MessageSource,
   PricingRoute,
+  ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
@@ -77,6 +78,8 @@ type RunSessionInput = {
   providerId?: string;
   client?: ClientEnvironment;
   source?: MessageSource;
+  thinkingLevel?: ThinkingLevel;
+  requestId?: string;
   /** Client correlation id for a new conversation; echoed on session_info. */
   draftId?: string;
   /**
@@ -135,6 +138,7 @@ async function runRetainedSession(
       code: "BACKEND_ERROR",
       message,
       ...(initial.sessionId ? { sessionId: initial.sessionId } : {}),
+      ...(initial.requestId ? { requestId: initial.requestId } : {}),
     });
     return;
   } finally {
@@ -193,6 +197,8 @@ async function runRetainedSession(
     attachments: initial.attachments,
     ...(initial.client ? { client: initial.client } : {}),
     ...(initial.source ? { source: initial.source } : {}),
+    ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
+    ...(initial.requestId ? { requestId: initial.requestId } : {}),
     releaseAuthorization: () => {},
   };
   let releaseActiveAuthorization: (() => void) | undefined;
@@ -212,7 +218,8 @@ async function runRetainedSession(
         }
         continue;
       }
-      const { text, attachments, client, source } = next;
+      const { text, attachments, client, source, thinkingLevel, requestId } = next;
+      turn.requestId = requestId;
       next = null;
 
       const abortController = new AbortController();
@@ -294,7 +301,7 @@ async function runRetainedSession(
       // its text, which is the order replay counts identical texts in. A
       // resumed session is known now; a new one is named by session_info.
       const recordSource = (sid: string): void =>
-        host.catalog.recordMessageSource?.(sid, text, source ?? "typed");
+        host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId });
       if (resumeId) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is
@@ -311,6 +318,8 @@ async function runRetainedSession(
         type: "chat_message", text, attachments,
         ...(profileId ? { providerId: profileId } : {}),
         ...(client ? { client } : {}), ...(source ? { source } : {}),
+        ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+        ...(requestId ? { requestId } : {}),
       };
       turn.retryPrompt = prompt;
       turn.isManualRetry = initial.isRetry === true && turn.turnId === firstTurnId;
@@ -342,6 +351,7 @@ async function runRetainedSession(
           turnBudgetMs: host.turnTimeoutMs,
           bridge,
           ...(client ? { client } : {}),
+          ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         });
         // A resolved startTurn is not a successful turn: backends resolve for
         // runtime failures and report them on the terminal result frame, which
@@ -458,6 +468,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
         {
           type: "error",
           code: "SESSION_QUEUE_FULL",
+          ...(entry.requestId ? { requestId: entry.requestId } : {}),
           message: overBudget
             ? `This session's queue is full (${formatMb(parked)} of ${formatMb(QUEUE_MAX_BYTES)}; this message needs ${formatMb(incoming)}). Wait for it to catch up.`
             : `This session's queue is full (${MAX_SESSION_QUEUE} messages). Wait for it to catch up.`,
@@ -495,7 +506,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
     });
   }
   host.sendToClients(
-    withSessionId({ type: "status", status: "queued", ...(detail ? { detail } : {}) }, sessionId)
+    withSessionId({ type: "status", status: "queued", ...(entry.requestId ? { requestId: entry.requestId } : {}), ...(detail ? { detail } : {}) }, sessionId)
   );
 }
 
@@ -511,6 +522,8 @@ export async function handleChatMessage(
     providerId?: string;
     client?: ClientEnvironment;
     source?: MessageSource;
+    thinkingLevel?: ThinkingLevel;
+    requestId?: string;
     draftId?: string;
     localExchanges?: LocalExchange[];
     replayPrompt?: string;
@@ -525,6 +538,8 @@ export async function handleChatMessage(
     providerId: requestedProviderId,
     client,
     source,
+    thinkingLevel,
+    requestId,
     draftId,
     localExchanges,
   } = msg;
@@ -549,7 +564,7 @@ export async function handleChatMessage(
   const starting = sessionId ? coordinator.startingBySession.get(sessionId) : undefined;
   if (starting && sessionId) {
     if (starting.cancelled) {
-      host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, message: "This session is cancelling. Wait before sending again." });
+      host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, ...(requestId ? { requestId } : {}), message: "This session is cancelling. Wait before sending again." });
     } else {
       queueFollowUp(host, ws, sessionId, starting, {
         principalId: authorization.principalId,
@@ -558,6 +573,8 @@ export async function handleChatMessage(
         attachments,
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
+        ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+        ...(requestId ? { requestId } : {}),
         releaseAuthorization: authorization.retain(),
       });
     }
@@ -568,7 +585,7 @@ export async function handleChatMessage(
     const backend = runningTurn.backend;
     // Drain older messages queued during routing before allowing native
     // injection to overtake them.
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.queue.length === 0) {
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
@@ -601,6 +618,8 @@ export async function handleChatMessage(
         attachments,
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
+        ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+        ...(requestId ? { requestId } : {}),
         releaseAuthorization: authorization.retain(),
       });
     }
@@ -613,6 +632,7 @@ export async function handleChatMessage(
     host.sendMessage(ws, {
       type: "error",
       code: "SESSION_LIMIT",
+      ...(requestId ? { requestId } : {}),
       message: `Too many concurrent sessions (max ${cap}). Wait for one to finish.`,
       ...(sessionId ? { sessionId } : {}),
     });
@@ -633,6 +653,8 @@ export async function handleChatMessage(
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
   });

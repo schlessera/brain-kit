@@ -8,9 +8,10 @@ import type {
   MessageSource,
   ServerResultMessage,
   SessionHistoryMessage,
+  ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import { attachMessageSources, saveMessageSource } from "./message-sources.js";
+import { attachMessageSources, saveMessageSource, saveEffectiveThinkingLevel } from "./message-sources.js";
 import {
   loadLocalExchanges,
   saveLocalExchange,
@@ -61,7 +62,8 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string }): void;
+  recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /**
@@ -169,12 +171,17 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
       }
     },
 
-    recordMessageSource(sessionId, text, source) {
+    recordMessageSource(sessionId, text, source, effort) {
       try {
-        saveMessageSource(db(), sessionId, text, source);
+        saveMessageSource(db(), sessionId, text, source, effort);
       } catch (err) {
         reportWriteFailure(sessionId, err);
       }
+    },
+
+    recordEffectiveThinkingLevel(sessionId, turnId, level) {
+      try { saveEffectiveThinkingLevel(db(), sessionId, turnId, level); }
+      catch (err) { reportWriteFailure(sessionId, err); }
     },
 
     recordLocalExchange(sessionId, exchange, delivered) {

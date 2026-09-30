@@ -26,7 +26,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+import { canonicalModelId, THINKING_LEVELS } from "@schlessera/brain-ui-sdk/protocol";
+import type { ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/server";
 import { resolveEnv } from "./config/env.js";
 import type { BackendLogFn } from "./options.js";
@@ -50,6 +51,7 @@ interface AnthropicModel {
   id: string;
   display_name?: string;
   max_input_tokens?: number;
+  capabilities?: { effort?: Partial<Record<ThinkingLevel, { supported?: boolean }>> | null };
 }
 
 interface ModelsListResponse {
@@ -215,6 +217,9 @@ export async function discoverAnthropicModels(
       vendor: "anthropic",
       model: id,
       source: "discovered",
+      ...(row.capabilities && typeof row.capabilities === "object" && "effort" in row.capabilities
+        ? { supportedThinkingLevels: THINKING_LEVELS.filter((level) => row.capabilities?.effort?.[level]?.supported === true) }
+        : {}),
       ...(typeof row.max_input_tokens === "number"
         ? { contextWindow: row.max_input_tokens }
         : {}),

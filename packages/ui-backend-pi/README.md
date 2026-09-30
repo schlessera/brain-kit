@@ -60,12 +60,29 @@ on the provider's credentials and model availability.
 |---|---|---|
 | `brainPath` | — | Absolute path to the brain repo; the agent's cwd. |
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
-| `profiles` | — | Selectable `{id,label,vendor?,model}` profiles; first is the default for new sessions. |
+| `profiles` | — | Selectable `{id,label,vendor?,model,thinkingLevel?}` profiles; first is the default for new sessions. |
 | `sessionDir` | `<brainPath>/.brain-kit-ui/sessions` | Where pi stores session JSONL trees. |
 | `loadExtensions` | `true` | pi extensions (installed pi packages, repo-local extensions) load by default — the `tool_call` gate covers their tools, so e.g. `pi-mcp-adapter` (MCP servers from `.mcp.json`) and `pi-web-access` (web search/fetch) extend the surface safely. Set `false` to pin the surface to the curated tools. Skills + `AGENTS.md`/`CLAUDE.md` context always load — and BOTH cwd context files load when both exist, matching what the Claude backend reads. |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
 | `writeLock` | fresh in-process lock | Serializes mutating tool executions across all sessions of this backend (shared working tree). Inject one to share a lock with another in-process writer. |
+
+## Reasoning effort
+
+`profiles[].thinkingLevel` is the per-model default (`medium` when omitted).
+`startTurn({ thinkingLevel })` overrides it for one message. Each prompt,
+including an in-memory or reopened resume, resets from the current profile
+before applying an override; a prior message never changes the next default.
+
+`listProfiles()` advertises the model's supported levels from pi's installed
+catalog. Unsupported requests resolve to the nearest lower supported level,
+or the lowest supported level if none is lower. The runtime setter uses
+`persist: false`, so neither a message nor a profile default rewrites pi's
+global settings. For explicit overrides, `session_info` reports both the
+requested level and the runtime-confirmed level.
+
+The host queues messages carrying an effort override or a correlated chat
+request as separate turns. Legacy messages can still use native `followUp()`.
 
 ## Capabilities
 

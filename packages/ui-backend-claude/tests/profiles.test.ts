@@ -23,7 +23,8 @@ describe("defineProfiles / buildEnv", () => {
     expect(claude.id).toBe("claude");
     expect(claude.label).toBe("Claude");
     expect(claude.vendor).toBe("anthropic");
-    expect(claude.model).toBeUndefined();
+    expect(claude.model).toBe("claude-opus-5-5");
+    expect(claude.thinkingLevel).toBe("medium");
     expect(claude.requiredEnvKeys).toEqual([]);
     expect(claude.buildEnv()).toEqual({});
     expect(isAvailable(claude)).toBe(true);

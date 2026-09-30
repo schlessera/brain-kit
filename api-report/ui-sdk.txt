@@ -165,6 +165,7 @@ export "." (./src/index.ts)
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
 
@@ -460,6 +461,7 @@ export "./client" (./src/client/index.ts)
   registerToolRenderers
   resetAsrClients
   resetToolRenderers
+  resolveThinkingLevel
   resolveToolRenderer
   showBlockInputSchema
   speechUiHints
@@ -643,6 +645,7 @@ export "./protocol" (./src/protocol.ts)
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
 
@@ -1103,6 +1106,7 @@ export "./server" (./src/server/index.ts)
   requestToolPermission
   resetRtkProbe
   resolveInRepo
+  resolveThinkingLevel
   resolveWebSearchConfigPath
   reverseGeocode
   rtkAvailable
@@ -1998,6 +2002,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         backendId?: string;
         contextWindow?: number;
         thinkingLevel?: ThinkingLevel;
+        supportedThinkingLevels?: ThinkingLevel[];
         source?: "builtin" | "declared" | "discovered";
         billingMode?: BillingMode;
         pricingRoute?: PricingRoute;
@@ -2052,6 +2057,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         code: string;
         message: string;
         failure?: TurnFailure;
+        requestId?: string;
     }
   ServerHello (packages/ui-sdk/src/protocol.ts)
     export interface ServerHello {
@@ -2112,6 +2118,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         text?: string;
         attachmentCount?: number;
         source?: MessageSource;
+        thinkingLevel?: ThinkingLevel;
     }
   ServerSessionHistory (packages/ui-sdk/src/protocol.ts)
     export interface ServerSessionHistory extends SessionScoped {
@@ -2127,6 +2134,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         providerId?: string;
         backendId?: string;
         draftId?: string;
+        requestId?: string;
+        thinkingLevel?: ThinkingLevel;
+        effectiveThinkingLevel?: ThinkingLevel;
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
@@ -2135,6 +2145,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         detail?: string;
         retry?: TurnRetry;
         activeSessionId?: string;
+        requestId?: string;
+        thinkingLevel?: ThinkingLevel;
+        effectiveThinkingLevel?: ThinkingLevel;
     }
   ServerTextDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerTextDelta extends SessionScoped {
@@ -2200,6 +2213,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         attachmentCount?: number;
         blocks?: MessageBlock[];
         source?: MessageSource;
+        thinkingLevel?: ThinkingLevel;
+        effectiveThinkingLevel?: ThinkingLevel;
         localAnswer?: LocalAnswer;
         failure?: TurnFailure;
         retryOfTurnId?: string;
@@ -2237,6 +2252,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         attachments?: ChatImageAttachment[];
         sessionId?: string;
         profileId?: string;
+        thinkingLevel?: ThinkingLevel;
         signal: AbortSignal;
         turnBudgetMs?: number;
         bridge: BackendBridge;

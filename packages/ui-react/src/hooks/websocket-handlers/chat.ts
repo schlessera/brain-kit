@@ -67,6 +67,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     // Absent means typed: an older host never sends it, and a newer one
     // leaves it off typed messages.
     ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
+    ...(msg.role === "user" && msg.thinkingLevel !== undefined ? { thinkingLevel: msg.thinkingLevel, effectiveThinkingLevel: msg.effectiveThinkingLevel } : {}),
     ...localAnswerFields(msg),
     // The failure that ended the turn (#575), drawn as it was live.
     ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure, retryOfTurnId: msg.retryOfTurnId } : {}),

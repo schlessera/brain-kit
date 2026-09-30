@@ -103,7 +103,13 @@ export interface ComposerProps {
   blockedWhy?: string;
   /** The model in use, as a mono chip at the start of the hint row. */
   provider?: string;
-  /** Makes the provider chip a picker trigger (`aria-haspopup="listbox"`). */
+  /** One-message override detail, amber inside the same provider chip. */
+  providerDetail?: string;
+  /** Accessible explanation when the requested detail is unsupported. */
+  providerDetailExplanation?: string;
+  providerExpanded?: boolean;
+  providerControls?: string;
+  /** Makes the provider chip a picker trigger (`aria-haspopup="dialog"`). */
   onProvider?: () => void;
   /** Context attached to the next question, as chips above the field. */
   recall?: ComposerRecall[];
@@ -359,13 +365,17 @@ export function Composer(p: ComposerProps) {
               }
               className={p.onProvider ? "bk-control" : undefined}
               role={p.onProvider ? "button" : undefined}
-              aria-label={p.onProvider ? `Model — ${p.provider}` : undefined}
-              aria-haspopup={p.onProvider ? "listbox" : undefined}
+              aria-label={p.onProvider ? `Model — ${p.provider}${p.providerDetail ? ` · effort ${p.providerDetail} for the next message${p.providerDetailExplanation ? ` (${p.providerDetailExplanation})` : ""}` : ""}` : undefined}
+              aria-haspopup={p.onProvider ? (p.providerControls ? "dialog" : "listbox") : undefined}
+              aria-expanded={p.onProvider ? p.providerExpanded : undefined}
+              aria-controls={p.onProvider ? p.providerControls : undefined}
+              data-model-trigger={p.onProvider ? "" : undefined}
               tabIndex={p.onProvider ? 0 : undefined}
               onClick={p.onProvider}
               onKeyDown={p.onProvider ? pressable(() => p.onProvider?.()) : undefined}
             >
               {p.provider}
+              {p.providerDetail ? <span style={{ color: accent.amber.ink }}> · {p.providerDetail}</span> : null}
             </span>
           ) : null}
           {hint ? <span style={{ flex: 1, minWidth: 0, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}

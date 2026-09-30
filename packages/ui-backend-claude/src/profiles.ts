@@ -1,4 +1,5 @@
-import type { ProviderInfo } from "@schlessera/brain-ui-sdk";
+import type { ProviderInfo, ThinkingLevel } from "@schlessera/brain-ui-sdk";
+import { claudeEffort, supportedClaudeEffort } from "./effort.js";
 
 import { readEnvVar } from "./config/env.js";
 
@@ -20,6 +21,8 @@ export interface InferenceProfile {
   vendor?: string;
   /** Model id passed to the SDK. Undefined = the SDK/CLI default model. */
   model?: string;
+  thinkingLevel?: ThinkingLevel;
+  supportedThinkingLevels?: ThinkingLevel[];
   allowedTools?: string[];
   /** Context window in tokens, when known. Presentation only. */
   contextWindow?: number;
@@ -46,6 +49,8 @@ export interface InferenceProfileInput {
   vendor?: string;
   /** Model id. Undefined = the SDK/CLI default model. */
   model?: string;
+  thinkingLevel?: ThinkingLevel;
+  supportedThinkingLevels?: ThinkingLevel[];
   /** Anthropic-compatible endpoint. Sets `ANTHROPIC_BASE_URL`. */
   baseUrl?: string;
   /** Name of the env var holding a bearer token. Sets `ANTHROPIC_AUTH_TOKEN`. */
@@ -95,6 +100,8 @@ export function defineProfiles(
       label: input.label,
       vendor: input.vendor,
       model: input.model,
+      thinkingLevel: input.thinkingLevel,
+      supportedThinkingLevels: input.supportedThinkingLevels,
       allowedTools: input.allowedTools,
       contextWindow: input.contextWindow,
       source: input.source,
@@ -125,11 +132,11 @@ export function defineProfiles(
 }
 
 /**
- * The single built-in profile: native Claude on the SDK's default model and
+ * The single built-in profile: native Claude Opus 5.5 at medium effort and
  * ambient credentials. Always available (no env keys required).
  */
 export const DEFAULT_PROFILES: InferenceProfile[] = defineProfiles([
-  { id: "claude", label: "Claude", vendor: "anthropic" },
+  { id: "claude", label: "Claude", vendor: "anthropic", model: "claude-opus-5-5", thinkingLevel: "medium" },
 ]);
 
 export function getProfile(
@@ -150,11 +157,15 @@ export function isAvailable(profile: InferenceProfile): boolean {
 export function listProfiles(profiles: InferenceProfile[]): ProviderInfo[] {
   return profiles
     .filter(isAvailable)
-    .map(({ id, label, vendor, contextWindow, source }) => ({
-      id,
-      label,
-      ...(vendor !== undefined ? { vendor } : {}),
-      ...(contextWindow !== undefined ? { contextWindow } : {}),
-      ...(source !== undefined ? { source } : {}),
-    }));
+    .map((profile) => {
+      const levels = supportedClaudeEffort(profile);
+      return {
+        ...(levels.length ? { thinkingLevel: claudeEffort(profile), supportedThinkingLevels: levels } : {}),
+        id: profile.id,
+        label: profile.label,
+        ...(profile.vendor !== undefined ? { vendor: profile.vendor } : {}),
+        ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
+        ...(profile.source !== undefined ? { source: profile.source } : {}),
+      };
+    });
 }

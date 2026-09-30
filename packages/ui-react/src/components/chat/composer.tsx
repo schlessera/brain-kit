@@ -1,8 +1,10 @@
+import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect } from "react";
-import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { resolveThinkingLevel, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
+import type { ConnectionError } from "../../stores/connection-state.js";
 import { deriveConnectionIssue } from "../connectivity/connection-state.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import {
@@ -39,10 +41,15 @@ import { insertSuggestion } from "../../lib/answer-suggestions.js";
  * and their object URLs, the provider choice and the voice review live here;
  * `ComposerView` draws the field.
  */
-export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
+type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: ThinkingLevel };
+type PendingSend = { requestId: string; key: string | null; input: string; review: string; attachments: PendingAttachment[]; effort: DraftEffort; error: ConnectionError | null };
+
+export function Composer({ send }: { send: (msg: ClientMessage) => void | boolean }) {
   const root = useBrainUiRoot();
   const [input, setInput] = useState("");
   const [lastPrompt, setLastPrompt] = useState("");
+  const [effort, setEffort] = useState<DraftEffort>({ key: null });
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   /** The kit owns the textarea; the frame finds it when a recall or a voice edit needs focus. */
@@ -51,6 +58,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   // Image attachments. `attachmentsRef` mirrors state so async add/merge logic
   // reads the current set synchronously (avoids stale closures / updater races).
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const transferredPreviews = useRef(new Set<string>());
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const [attachErrors, setAttachErrors] = useState<string[]>([]);
   const libraryInputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +70,9 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   // sent attachments transfer URL ownership to the message in the chat store).
   useEffect(
     () => () => {
-      for (const a of attachmentsRef.current) URL.revokeObjectURL(a.previewUrl);
+      for (const a of attachmentsRef.current) {
+        if (!transferredPreviews.current.has(a.previewUrl)) URL.revokeObjectURL(a.previewUrl);
+      }
     },
     []
   );
@@ -74,6 +84,8 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  const chatRequestAck = useConnectionStore((s) => s.chatRequestAck);
+  const connectionError = useConnectionStore((s) => s.lastError);
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
@@ -89,6 +101,47 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   const setSelectedProvider = useProviderStore((s) => s.setSelected);
   const loadProviders = useProviderStore((s) => s.loadProviders);
   const backends = useProviderStore((s) => s.backends);
+  const receipt = useChatStore((s) => pendingSend ? s.chatReceipts[pendingSend.requestId] : undefined);
+  useEffect(() => {
+    // Naming our accepted new conversation is not a conversation switch.
+    // Carry a newer choice to its identity; consume only the sent choice.
+    const namedDraft = pendingSend?.key === null && receipt?.state === "accepted" && receipt.sessionId === sessionId;
+    setEffort((current) => namedDraft && current !== pendingSend.effort ? { ...current, key: sessionId } : { key: sessionId });
+    setEffortNotice("");
+    // Receipt changes consume a send below; this runs only when identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+  useEffect(() => {
+    if (!receipt || !pendingSend) return;
+    const visible = sessionId === pendingSend.key || (pendingSend.key === null && sessionId === receipt.sessionId);
+    if (receipt.state === "accepted" && visible) {
+      setInput((value) => value === pendingSend.input ? "" : value);
+      if (root.stores.voice.getState().reviewText === pendingSend.review) root.stores.voice.getState().clearReview();
+      const remaining = attachmentsRef.current.filter((attachment) => !pendingSend.attachments.includes(attachment));
+      attachmentsRef.current = remaining;
+      setAttachments(remaining);
+      setAttachErrors([]);
+      setEffortNotice("");
+      setEffort((current) => current === pendingSend.effort ? { key: sessionId } : current);
+    }
+    root.stores.chat.getState().clearChatReceipt(pendingSend.requestId);
+    setPendingSend(null);
+  }, [receipt, pendingSend, sessionId, root]);
+
+  useEffect(() => {
+    if (!pendingSend || receipt) return;
+    const uncorrelatedRefusal = connectionError !== pendingSend.error && connectionError &&
+      ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"].includes(connectionError.code);
+    if (wsStatus === "connected" && !uncorrelatedRefusal) return;
+    // No acknowledgement means no automatic resend and no consumed override.
+    // Release the local wait so reconnecting cannot strand this draft forever.
+    setPendingSend(null);
+    setEffortNotice("Send was not confirmed. Check the conversation before sending again.");
+    const chat = root.stores.chat.getState();
+    const buffer = pendingSend.key === null ? chat.draft : chat.buffers[pendingSend.key];
+    const optimistic = buffer?.messages.find((message) => message.requestId === pendingSend.requestId && message.role === "assistant" && !message.turnId && message.isStreaming);
+    if (optimistic) chat.failAssistantMessage(pendingSend.key, { errorClass: "unknown", message: "Send was not confirmed. Your draft is kept." });
+  }, [pendingSend, receipt, connectionError, wsStatus, root]);
 
   // Voice dictation state
   const voiceMode = useVoiceStore((s) => s.mode);
@@ -111,6 +164,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   // the reader is writing a message now, not picking a command.
   const composerInsert = useChatStore((s) => s.composerInsert);
   const [insertNotice, setInsertNotice] = useState("");
+  const [effortNotice, setEffortNotice] = useState("");
   useEffect(() => {
     if (!composerInsert) return;
     root.stores.chat.getState().clearComposerInsert(composerInsert.seq);
@@ -138,7 +192,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   useEffect(() => {
     if (!providerMenuOpen && !attachMenuOpen) return;
     const onDocClick = (e: MouseEvent) => {
-      if (!providerMenuRef.current?.contains(e.target as Node)) setProviderMenuOpen(false);
+      if (!providerMenuRef.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest?.("[data-model-trigger]")) setProviderMenuOpen(false);
       if (!(e.target as HTMLElement).closest?.('[role="menu"][aria-label="Attach"], [role="dialog"][aria-label="Attach"]')) setAttachMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -220,7 +274,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
   function handleSubmit() {
     const text = draftText();
     const hasAttachments = attachments.length > 0;
-    if ((!text && !hasAttachments) || wsStatus !== "connected") return;
+    if ((!text && !hasAttachments) || wsStatus !== "connected" || pendingSend?.key === sessionId) return;
 
     // A send while a question is pending is the ANSWER to it, not a new
     // message (D38 §1): the text binds to the question, the card quotes it,
@@ -243,24 +297,30 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
     }));
     const chat = root.stores.chat.getState();
     const source = reviewText.trim() ? "voice-dictate" : "typed";
+    const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
+    for (const attachment of attachments) transferredPreviews.current.add(attachment.previewUrl);
     chat.addUserMessage(
       sessionId,
       text,
       source,
-      messageAttachments.length > 0 ? messageAttachments : undefined
+      messageAttachments.length > 0 ? messageAttachments : undefined,
+      requestId ? { requestId, thinkingLevel: selectedEffort } : undefined
     );
     // A send while the session is already streaming is a follow-up — the server
     // queues it or delivers it live; don't pre-start a second assistant bubble
     // (the backend's next frames start it).
-    if (!isStreaming) chat.startAssistantMessage(sessionId);
+    if (!isStreaming) chat.startAssistantMessage(sessionId, undefined, requestId);
     // Correlate this turn when it is starting a NEW conversation, so its
     // session_info can be told apart from a background turn's.
     const draftId = sessionId ? undefined : chat.startDraftTurn();
-    send({
+    if (requestId) setPendingSend({ requestId, key: sessionId, input, review: reviewText, attachments, effort, error: connectionError });
+    const sent = send({
       type: "chat_message",
       text,
       sessionId: sessionId ?? undefined,
       ...(draftId ? { draftId } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
       // Provider only applies to new conversations; resumed sessions are
       // pinned server-side to their original combo.
       // Only send a provider the server actually offers — a stale persisted
@@ -280,6 +340,14 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
       // as dictated after a reload or on another device.
       source,
     });
+    if (requestId) {
+      if (sent === false) {
+        setPendingSend(null);
+        if (!isStreaming) chat.failAssistantMessage(sessionId, { errorClass: "unknown", message: "The message could not be sent. Your draft is kept." });
+        root.stores.connection.getState().reportError("CHAT_NOT_SENT", "The message could not be sent. Your draft is kept.");
+      }
+      return;
+    }
     setInput("");
     clearReview();
     // Ownership of the preview URLs transfers to the rendered user message
@@ -342,28 +410,28 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
     input.trim() || reviewText.trim() || attachments.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
-  const canSend = hasDraft && wsStatus === "connected";
+  const canSend = hasDraft && wsStatus === "connected" && pendingSend?.key !== sessionId;
 
   // Provider picker: locked to the pinned combo once a session is live.
   // Lock while streaming too: the first send of a new conversation pins the
   // provider server-side before session_info delivers the sessionId.
-  const providerLocked = sessionId != null || isStreaming;
+  const providerLocked = sessionId != null || isStreaming || pendingSend?.key === sessionId;
   const displayProviderId = providerLocked
     ? pinnedProviderId ?? selectedProviderId
     : selectedProviderId;
   const displayProvider = providers.find((p) => p.id === displayProviderId);
+  const effortLevels = chatRequestAck ? displayProvider?.supportedThinkingLevels : undefined;
+  const selectedEffort = effort.key === sessionId && effort.level !== undefined && effortLevels?.includes(effort.level) ? effort.level : undefined;
   // A session can be pinned to a profile the user has since hidden — it is gone
   // from the picker but still running the turn. Show its id rather than
   // claiming "Default model", which would name a different model than the one
   // actually answering.
   const displayProviderLabel =
     displayProvider?.label ?? displayProviderId ?? "Default model";
-  const showProviderPicker = providers.length > 1;
+  const showProviderPicker = providers.length > 1 || Boolean(effortLevels?.length);
   // What happens if the user sends into the currently-running session.
   const displayBackendId = displayProvider?.backendId;
-  const followUpLive = displayBackendId
-    ? backends[displayBackendId]?.capabilities.followUp ?? false
-    : false;
+  const followUpLive = !chatRequestAck && (displayBackendId ? backends[displayBackendId]?.capabilities.followUp ?? false : false);
   const followUpHint =
     isStreaming && sessionId
       ? followUpLive
@@ -386,6 +454,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
           {insertNotice}
         </div>
         <div className="mx-auto max-w-3xl">
+          {effortNotice && <div className="mb-2"><InlineToast text={effortNotice} target="" effect="" undoLabel="" tone="amber" /></div>}
           {/* Anything shared from the OS waits here for a tap. Above the
               composer, so it reads as something to act on rather than a
               notification that has already happened. */}
@@ -444,7 +513,12 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
                   locked: providerLocked,
                   menuOpen: providerMenuOpen,
                   options: providers.map((p) => ({ id: p.id, label: p.label })),
-                  selectedId: selectedProviderId,
+                  selectedId: displayProviderId,
+                  defaultEffort: displayProvider?.thinkingLevel,
+                  effortLevels,
+                  selectedEffort,
+                  effortExplanation: selectedEffort && effort.requested && !effortLevels?.includes(effort.requested)
+                    ? `${effort.requested} not supported` : undefined,
                 }
               : null
           }
@@ -473,10 +547,29 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void }) {
           onEscape={() => setPaletteDismissed(true)}
           onRemoveAttachment={removeAttachment}
           onDismissErrors={() => setAttachErrors([])}
-          onProviderToggle={() => !providerLocked && setProviderMenuOpen((v) => !v)}
+          onProviderToggle={() => setProviderMenuOpen((v) => !v)}
           onProviderSelect={(id) => {
+            if (providerLocked) return;
             setSelectedProvider(id);
+            const next = providers.find((profile) => profile.id === id);
+            if (selectedEffort !== undefined) {
+              const resolved = resolveThinkingLevel(selectedEffort, next?.supportedThinkingLevels ?? []);
+              setEffort({ key: sessionId, level: resolved, requested: resolved ? effort.requested ?? selectedEffort : undefined });
+              if (resolved !== selectedEffort) {
+                setEffortNotice(resolved ? `Effort changed from ${selectedEffort} to ${resolved} for this model` : "This model has no effort setting; the next message uses its default");
+              }
+            }
+          }}
+          onProviderDismiss={() => {
             setProviderMenuOpen(false);
+            setTimeout(() => frameRef.current?.querySelector<HTMLElement>("[data-model-trigger]")?.focus(), 0);
+          }}
+          onEffortSelect={(level) => {
+            setEffortNotice("");
+            setEffort({ key: sessionId, level: level ?? undefined });
+            setInsertNotice(level ? `Effort ${level} for the next message` : `Default effort${displayProvider?.thinkingLevel ? ` ${displayProvider.thinkingLevel}` : ""} for the next message`);
+            setProviderMenuOpen(false);
+            setTimeout(focusField, 0);
           }}
         />
       </div>

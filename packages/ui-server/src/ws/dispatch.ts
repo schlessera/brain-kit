@@ -82,6 +82,7 @@ export async function handleClientMessage(
         host.sendMessage(ws, {
           type: "error",
           code: "ATTACHMENT_REJECTED",
+          ...(msg.requestId ? { requestId: msg.requestId } : {}),
           message: attachmentResult.reason,
           ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
         });
@@ -96,6 +97,8 @@ export async function handleClientMessage(
         client: msg.client,
         source: msg.source,
         draftId: msg.draftId,
+        thinkingLevel: msg.thinkingLevel,
+        requestId: msg.requestId,
         ...(msg.localExchanges?.length ? { localExchanges: msg.localExchanges } : {}),
       });
       break;
@@ -133,10 +136,12 @@ export async function handleClientMessage(
         host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
           text: reserved.request.text, attachmentCount: reserved.request.attachments?.length ?? 0,
           source: reserved.request.source ?? "typed",
+          ...(reserved.request.thinkingLevel !== undefined ? { thinkingLevel: reserved.request.thinkingLevel } : {}),
         } : {}) });
         if (reserved.request) {
           await handleChatMessage(host, ws, {
             ...reserved.request, authorization: connection.authorization,
+            requestId: msg.requestId,
             attachments: reserved.request.attachments ?? [], replayPrompt: reserved.prompt, isRetry: true,
           });
         }

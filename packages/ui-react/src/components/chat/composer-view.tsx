@@ -1,7 +1,8 @@
-import { BottomSheet, Button, Callout, Composer as KitComposer, Icon, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
+import { BottomSheet, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
 import { X } from "lucide-react";
+import { useId } from "react";
 import type { ClipboardEvent, KeyboardEvent, ReactNode, RefObject } from "react";
-import { cn } from "../../lib/utils.js";
+import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 /**
  * The composer's frame, rendered from props (S7, the `chat` directory).
@@ -31,11 +32,15 @@ export interface ComposerAttachment {
 
 export interface ComposerProvider {
   label: string;
-  /** Fixed for this conversation: the chip is text, not a control. */
+  /** The model is fixed for this conversation; effort remains editable. */
   locked: boolean;
   menuOpen: boolean;
   options: { id: string; label: string }[];
   selectedId: string | null;
+  defaultEffort?: ThinkingLevel;
+  effortLevels?: ThinkingLevel[];
+  selectedEffort?: ThinkingLevel;
+  effortExplanation?: string;
 }
 
 export interface ComposerViewProps {
@@ -72,9 +77,12 @@ export interface ComposerViewProps {
   onDismissErrors: () => void;
   onProviderToggle: () => void;
   onProviderSelect: (id: string) => void;
+  onProviderDismiss: () => void;
+  onEffortSelect: (level: ThinkingLevel | null) => void;
 }
 
 export function ComposerView(p: ComposerViewProps) {
+  const pickerId = useId();
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if ((e.target as HTMLElement).tagName !== "TEXTAREA") return;
     if (e.key === "ArrowUp" && !p.value.trim()) p.onRecall();
@@ -133,24 +141,11 @@ export function ComposerView(p: ComposerViewProps) {
 
       {/* The provider list, anchored above the field: the chip that opens it
           sits in the kit's hint line, so the list is the frame's. */}
-      {p.provider && p.provider.menuOpen && !p.provider.locked && (
-        <div ref={p.providerMenuRef} role="menu" aria-label="Model" className="absolute bottom-full left-4 z-50 mb-1 min-w-[14rem] overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] py-1 shadow-2xl">
-          {p.provider.options.map((o) => (
-            <button
-              key={o.id}
-              role="menuitem"
-              type="button"
-              onClick={() => p.onProviderSelect(o.id)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
-            >
-              <span className={cn("flex w-3.5 shrink-0", o.id === p.provider!.selectedId ? "opacity-100" : "opacity-0")}>
-                <Icon icon="confirm" size={14} color="var(--bk-amber-ink)" />
-              </span>
-              <span className="truncate">{o.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {p.provider?.menuOpen && <ModelPicker id={pickerId} containerRef={p.providerMenuRef}
+        models={p.provider.options} selectedModelId={p.provider.selectedId} modelLocked={p.provider.locked}
+        phone={!pointer} defaultEffort={p.provider.defaultEffort} effortLevels={p.provider.effortLevels}
+        selectedEffort={p.provider.selectedEffort ?? null} onModel={p.onProviderSelect}
+        onEffort={(level) => { if (level === null || isThinkingLevel(level)) p.onEffortSelect(level); }} onDismiss={p.onProviderDismiss} />}
 
       {/* Capture is a MENU behind the paperclip (D37): a popover on a pointer
           screen, the kit sheet on a phone. */}
@@ -182,7 +177,11 @@ export function ComposerView(p: ComposerViewProps) {
         blockedWhy={p.blockedWhy}
         value={p.value}
         provider={p.provider?.label}
-        onProvider={p.provider && !p.provider.locked ? p.onProviderToggle : undefined}
+        providerDetail={p.provider?.selectedEffort}
+        providerDetailExplanation={p.provider?.effortExplanation}
+        providerExpanded={p.provider?.menuOpen}
+        providerControls={pickerId}
+        onProvider={p.provider && (!p.provider.locked || p.provider.effortLevels?.length) ? p.onProviderToggle : undefined}
         onChange={p.onChange}
         onSend={p.onSend}
         onStop={p.onStop}

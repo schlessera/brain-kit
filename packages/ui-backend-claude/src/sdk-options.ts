@@ -8,6 +8,7 @@ import type {
   StartTurnRequest,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
+import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
@@ -20,6 +21,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWrappedSpawn } from "./spawn-wrapper.js";
+import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 
@@ -142,6 +144,24 @@ export function createClaudeSdkTurn(options: {
   };
 
   if (profile.model !== undefined) sdkOptions.model = profile.model;
+  const effort = claudeEffort(profile, req.thinkingLevel);
+  if (effort !== undefined) sdkOptions.effort = effort;
+  if (req.thinkingLevel !== undefined) {
+    // Options are a request, not evidence: managed CLI settings can clamp them.
+    // Stop reports the main turn's active effort after that clamp. Preserve all
+    // permission hooks and never let this observation decide tool permission.
+    sdkOptions.hooks = {
+      ...sdkOptions.hooks,
+      Stop: [...(sdkOptions.hooks?.Stop ?? []), { hooks: [async (input) => {
+        const effective = input.effort?.level;
+        if (isThinkingLevel(effective)) {
+          req.bridge.emit({ type: "status", status: "thinking", sessionId: input.session_id,
+            thinkingLevel: req.thinkingLevel, effectiveThinkingLevel: effective });
+        }
+        return {};
+      }] }],
+    };
+  }
   if (backend.claudeCodePath !== undefined) {
     sdkOptions.pathToClaudeCodeExecutable = backend.claudeCodePath;
   }

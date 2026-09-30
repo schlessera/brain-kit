@@ -7,6 +7,7 @@ import type {
   ProviderInfo,
 } from "@schlessera/brain-ui-sdk/server";
 import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
+import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createClaudeBackend } from "./backend.js";
 import { readEnvVar, resolveExecConfig } from "./config/env.js";
@@ -31,6 +32,8 @@ const BUILTIN_PROFILE: InferenceProfileInput = {
   vendor: "anthropic",
   modelAliases: true,
   source: "builtin",
+  model: "claude-opus-5-5",
+  thinkingLevel: "medium",
 };
 
 function parseProfiles(
@@ -73,6 +76,12 @@ function parseProfiles(
       });
     }
     seen.add(input.id);
+    if (input.thinkingLevel !== undefined && !isThinkingLevel(input.thinkingLevel)) {
+      return failure({ code: "invalid_entry", profileId: input.id, message: `Invalid thinkingLevel for profile "${input.id}".` });
+    }
+    if (input.supportedThinkingLevels !== undefined && (!Array.isArray(input.supportedThinkingLevels) || !input.supportedThinkingLevels.every(isThinkingLevel))) {
+      return failure({ code: "invalid_entry", profileId: input.id, message: `Invalid supportedThinkingLevels for profile "${input.id}".` });
+    }
   }
 
   return {
@@ -148,6 +157,7 @@ export const backendModule: BackendModule = defineBackendModule({
     defaultModelId: true,
     customOpenRouterModels: true,
     billingOverrides: true,
+    thinkingOverrides: true,
   },
   async probeRuntime(context) {
     const claudeCodePath = configString(context, "claudeCodePath");
@@ -173,6 +183,18 @@ export const backendModule: BackendModule = defineBackendModule({
   },
   resolveFromEnv(context) {
     try {
+      const configuredThinking = context.config.defaultThinkingLevel;
+      if (configuredThinking !== undefined && !isThinkingLevel(configuredThinking)) {
+        throw new Error("Invalid Claude defaultThinkingLevel.");
+      }
+      const withThinking = (profiles: InferenceProfile[]): InferenceProfile[] => {
+        const overrides = context.settings.getThinkingOverrides?.() ?? {};
+        return profiles.map((profile): InferenceProfile => {
+          const override = overrides[profile.id];
+          const configured = profile.source === "builtin" ? configuredThinking ?? profile.thinkingLevel : profile.thinkingLevel ?? configuredThinking;
+          return { ...profile, thinkingLevel: isThinkingLevel(override) ? override : configured ?? "medium" };
+        });
+      };
       const inputs = context.profiles as InferenceProfileInput[];
       const declaredApiProfileIds = new Set<string>();
       // Declared endpoint per profile id, for pricing-route classification.
@@ -217,7 +239,7 @@ export const backendModule: BackendModule = defineBackendModule({
           mergeCache.discovered === discovered &&
           mergeCache.customKey === customKey
         ) {
-          return mergeCache.result;
+          return withThinking(mergeCache.result);
         }
         const declaredIds = new Set(declared.map((profile) => profile.id));
         const customExtra = custom.filter((input) => !declaredIds.has(input.id));
@@ -231,9 +253,13 @@ export const backendModule: BackendModule = defineBackendModule({
         ]);
         const extra = discovered.filter((input) => !knownIds.has(input.id));
         for (const input of extra) rememberRoute(input);
-        const result = [...declared, ...defineProfiles([...customExtra, ...extra])];
+        const result = [...declared.map((profile) => {
+          const metadata = discovered.find((input) => input.model === profile.model);
+          return metadata?.supportedThinkingLevels !== undefined && profile.supportedThinkingLevels === undefined
+            ? { ...profile, supportedThinkingLevels: metadata.supportedThinkingLevels } : profile;
+        }), ...defineProfiles([...customExtra, ...extra])];
         mergeCache = { discovered, customKey, result };
-        return result;
+        return withThinking(result);
       };
 
       const claudeCodePath = configString(context, "claudeCodePath");

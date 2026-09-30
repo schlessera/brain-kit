@@ -116,6 +116,10 @@ export interface ClientChatMessage {
    */
   providerId?: string;
   attachments?: ChatImageAttachment[];
+  /** Reasoning effort for this message only; absent uses the current profile default. */
+  thinkingLevel?: ThinkingLevel;
+  /** Correlates acceptance/refusal of this message, including queued follow-ups. */
+  requestId?: string;
   /**
    * Client-minted correlation id for a NEW conversation (rev 2, additive).
    *
@@ -341,6 +345,7 @@ export interface ServerRetryReceipt extends SessionScoped {
   text?: string;
   attachmentCount?: number;
   source?: MessageSource;
+  thinkingLevel?: ThinkingLevel;
 }
 
 // --- Server -> Client ---
@@ -436,6 +441,10 @@ export interface SessionHistoryMessage {
    * as text the host cannot match to what was sent.
    */
   source?: MessageSource;
+  /** Explicit effort requested for this user message. Absent means the default was used. */
+  thinkingLevel?: ThinkingLevel;
+  /** Runtime-confirmed effort, when the backend can report it. */
+  effectiveThinkingLevel?: ThinkingLevel;
   /**
    * On an `assistant` message: the answer of a locally answered command
    * (additive; #582), replayed from what the host recorded. `content` is
@@ -784,6 +793,8 @@ export interface ServerError extends SessionScoped {
    * session, so it is the only frame that can carry it.
    */
   failure?: TurnFailure;
+  /** Correlation of a refused chat message, when the client supplied it. */
+  requestId?: string;
 }
 
 export interface ServerStatus extends SessionScoped {
@@ -798,6 +809,12 @@ export interface ServerStatus extends SessionScoped {
   retry?: TurnRetry;
   /** @deprecated single-session era; multi-session servers set `sessionId`. */
   activeSessionId?: string;
+  /** On queued: acknowledgement that this chat request was accepted. */
+  requestId?: string;
+  /** Explicit effort requested for the current message, when reported. */
+  thinkingLevel?: ThinkingLevel;
+  /** Runtime-confirmed effort; never inferred merely from the requested option. */
+  effectiveThinkingLevel?: ThinkingLevel;
 }
 
 export interface ServerSessionInfo {
@@ -818,6 +835,10 @@ export interface ServerSessionInfo {
    * any turn whose client did not send one.
    */
   draftId?: string;
+  /** Acknowledgement of the chat request that started this turn. */
+  requestId?: string;
+  thinkingLevel?: ThinkingLevel;
+  effectiveThinkingLevel?: ThinkingLevel;
 }
 
 /** Safe profile metadata exposed to the client (never keys/env). */
@@ -840,11 +861,12 @@ export interface ProviderInfo {
   /** Context window in tokens, when the backend knows it. Presentation only. */
   contextWindow?: number;
   /**
-   * Effective reasoning-effort level, for backends whose models take one
-   * (the pi backend's profiles). Presence doubles as "this profile supports
-   * a per-model effort setting" — absent on Claude rows.
+   * Effective profile default for models that support reasoning effort.
+   * A saved unsupported level is resolved against supportedThinkingLevels.
    */
   thinkingLevel?: ThinkingLevel;
+  /** Supported choices, in increasing effort order, when the backend knows them. */
+  supportedThinkingLevels?: ThinkingLevel[];
   /**
    * Where the profile came from: the backend's own pinned default, a
    * host-declared profile (env/config), or provider-API discovery. Presentation
@@ -944,6 +966,16 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
 /** THE membership check for {@link ThinkingLevel} at validation boundaries. */
 export function isThinkingLevel(v: unknown): v is ThinkingLevel {
   return typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v);
+}
+
+/** Resolve unsupported effort to the nearest lower supported choice, or the lowest. */
+export function resolveThinkingLevel(
+  requested: ThinkingLevel,
+  supported: readonly ThinkingLevel[]
+): ThinkingLevel | undefined {
+  const choices = THINKING_LEVELS.filter((level) => supported.includes(level));
+  return choices.filter((level) => THINKING_LEVELS.indexOf(level) <= THINKING_LEVELS.indexOf(requested)).at(-1)
+    ?? choices[0];
 }
 
 /**

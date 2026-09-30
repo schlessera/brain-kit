@@ -141,6 +141,8 @@ export "." (./src/index.ts)
   type MessageRole
   Meter
   type MeterProps
+  ModelPicker
+  type ModelPickerProps
   type NotificationAction
   NotificationCard
   type NotificationCardProps
