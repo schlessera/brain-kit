@@ -167,7 +167,13 @@ merge path runs, keeping conflict stages local as OURS and remote as THEIRS.
 `sync pull`, `sync run` and bare `sync`.
 
 Module packages add ONE namespaced top-level command each (`brain jobs …`,
-`brain finance …`, `brain image …`) — see [modules.md](modules.md).
+`brain finance …`, `brain image …`, `brain travel …`) — see [modules.md](modules.md).
+
+`brain travel validate --json` checks canonical journey/trip/place formats,
+references and relative assets: `{validation: {valid, files, issues}}`.
+`brain travel migrate [--dry-run] --json` moves literal legacy speaking party
+settings: `{migration: {path, changed, dry_run}}`. Refusals leave configuration
+and content unchanged; see the [travel upgrade guide](../packages/module-travel/README.md#upgrade-from-speaking).
 
 See also: [integration-contract.md](integration-contract.md) ·
 [quickstart.md](quickstart.md) · [concepts.md](concepts.md)

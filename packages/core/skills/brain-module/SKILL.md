@@ -1,6 +1,6 @@
 ---
 name: brain-module
-description: Use when turning a workflow domain on or off — jobs, speaking, finance, or a locally authored module — or when a module's directories, taxonomy types, and skills should start or stop appearing.
+description: Use when turning a workflow domain on or off — jobs, speaking, travel, finance, or a locally authored module — or when a module's directories, taxonomy types, and skills should start or stop appearing.
 compatibility: Requires git.
 ---
 
@@ -19,8 +19,8 @@ brain module list
 ```
 
 Show each available module with its one-liner (e.g. "jobs — scrape, score, and track job
-opportunities"; "speaking — talks, conferences, and travel"; "finance — client ledgers and
-accounts-receivable"). Mark which are already enabled.
+opportunities"; "speaking — talks and conferences"; "travel — journeys, day trips and visited places";
+"finance — client ledgers and accounts-receivable"). Mark which are already enabled.
 
 ## Enable a module
 

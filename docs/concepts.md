@@ -109,7 +109,8 @@ effective taxonomy = core built-ins  ⊕  module contributions  ⊕  your brain.
    | `index`    | *(any dir)* | `_index.md` registry files; skips dir checks.    |
 
 2. **Module contributions.** Enabling a module adds its types — for example
-   `@schlessera/brain-module-speaking` adds `talk`, `conference`, and `travel`. See
+   `@schlessera/brain-module-speaking` adds `talk` and `conference`;
+   `@schlessera/brain-module-travel` adds `travel`, `trip` and `place`. See
    [modules.md](modules.md).
 
 3. **Your `brain.config.ts`.** You add your own types and may override any

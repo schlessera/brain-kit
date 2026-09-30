@@ -1,4 +1,5 @@
 ---
+"@schlessera/brain": minor
 "@schlessera/brain-module-travel": minor
 "@schlessera/brain-module-speaking": minor
 ---
