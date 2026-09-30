@@ -1,101 +1,62 @@
 # @schlessera/brain-module-speaking
 
-> **Requires Bun ≥ 1.3** (via `@schlessera/brain`'s `bun:sqlite`) — npm/npx will not
-> warn you (npm ignores `engines.bun`); install from https://bun.sh.
+Requires Bun ≥ 1.3.5. A brain-kit module for researching conferences,
+developing talk ideas, submitting to CFPs, tracking outcomes, preparing talks
+and wrapping up afterward. It contributes content and seven skills.
 
-A brain-kit module for the speaking lifecycle: researching conferences, developing
-talk ideas, submitting to CFPs, tracking outcomes, preparing talks, planning
-travel, and wrapping up after a conference.
+## Types and index rules
 
-This module is **content + skills only** — it contributes taxonomy, classifier
-hints, index-sync rules, and eight skills. It ships no CLI command and no
-database.
+| Type | Default directory |
+| --- | --- |
+| `talk` | `talks/` |
+| `conference` | `conferences/` |
 
-## Contributed document types
+User `taxonomy.types` overrides can retain custom directories. Conference
+classifier hints include `cfp`, `call for papers`, `keynote`, `conference`,
+`submission deadline` and `speaker slot`; add personal vocabulary in your
+own configuration.
 
-| Type         | Directory      | What lives there                                        |
-|--------------|----------------|---------------------------------------------------------|
-| `talk`       | `talks/`       | Talk registry entries + prep materials (`talks/{slug}/`) |
-| `conference` | `conferences/` | Per-conference dirs (`conferences/{name}-{year}/`)       |
-| `travel`     | `travel/`      | Per-trip dirs (`travel/{trip-slug}/`)                    |
-
-The directories above are the module's **static defaults**. A default-exported
-manifest cannot read user config, so if you relocate one of these, also override
-the type in your `brain.config` `taxonomy.types` so path inference stays correct.
-
-## Classifier hints
-
-Keyword/phrase heuristics used to guess a document's type during capture:
-
-- **conference**: `cfp`, `call for papers`, `keynote`, `conference`, `submission deadline`, `speaker slot`
-- **travel**: `itinerary`, `flight`, `hotel booking`, `accommodation`, `road trip`, `check-in`, `train to`
-
-Personal venue vocabulary (a conference series you attend every year, a home
-airport, etc.) is intentionally **not** here — put those in your own
-`brain.config` `taxonomy.classifierHints` so they layer on top.
-
-## Index-sync rules
-
-Contributes directory anchors so a wiki-link to a conference/talk/trip directory
-resolves to the right file:
-
-- `dirAnchors`: `status.md`, `itinerary.md`, `outline.md` (in addition to the core `_index.md`)
-
-## Excluded path segments
-
-Slide-deck working directories are excluded from indexing (drafts and alternate
-cuts are noise for search):
-
-- `exclude.segments`: `alt-decks`, `versions`, `deck`
+The shared directory anchors `status.md`, `itinerary.md`, `outline.md` remain
+available, preserving existing speaking links. Slide-deck working segments
+`alt-decks`, `versions`, `deck` remain excluded from indexing.
 
 ## Skills
 
-| Skill                  | Purpose                                                                        |
-|------------------------|--------------------------------------------------------------------------------|
-| `conference-research`  | Research a conference's CFP, past themes, audience, and differentiation angles. |
-| `talk-ideas`           | One-shot generation of 3-5 talk concepts mapped to a conference.                |
-| `brainstorm-talks`     | Interactive, iterative development of talk concepts.                            |
-| `new-submission`       | Build a CFP submission (bio, abstract, takeaways) and start status tracking.    |
-| `submission-outcome`   | Record an accept/reject/waitlist decision and sync every tracking layer.        |
-| `talk-prep`            | Generate description, outline, audience analysis, and speaking notes.           |
-| `plan-travel`          | Plan a trip with per-traveler requirements, index sync, and conference links.   |
-| `conference-aftermath` | Write a retrospective, record the delivery, and archive the conference + trip.  |
+| Skill | Purpose |
+| --- | --- |
+| `conference-research` | Research a conference's CFP, past themes and audience. |
+| `talk-ideas` | Generate talk concepts for a conference. |
+| `brainstorm-talks` | Develop concepts in dialogue. |
+| `new-submission` | Build a CFP submission and start tracking it. |
+| `submission-outcome` | Record the outcome and sync tracking layers. |
+| `talk-prep` | Prepare the description, outline and speaking notes. |
+| `conference-aftermath` | Write a retrospective and close the conference. |
 
-### Genericization notes
+`submission-outcome` links to the travel module's `plan-travel` capability.
+Conference hubs keep their existing journey links. `conference-aftermath`
+can close a linked completed journey with the ordinary archive command.
+Its publishing handoff still uses your configured content workflow, or a
+plain retrospective note when none is configured.
 
-- **plan-travel** reads the travel party from the `travelParty` config below
-  rather than hardcoding names, and builds a per-member requirements checklist
-  from each member's optional `requirementsDoc`.
-- **conference-aftermath** ends in a **pluggable** publishing handoff: if you've
-  configured a content/publishing workflow (e.g. a personal overlay skill), it
-  hands the reflection off; otherwise it writes a plain retrospective note in the
-  conference directory. No platform is baked in.
+## Configuration and travel upgrade
 
-## Config schema
+Enable speaking with an empty block:
 
 ```ts
-// modules["@schlessera/brain-module-speaking"]
-{
-  travelParty?: Array<{
-    name: string;
-    role?: string;            // e.g. "partner", "assistance-dog", "child"
-    requirementsDoc?: string; // path (relative to brain root) to that member's needs
-  }>;                         // default: []
-}
+modules: { "@schlessera/brain-module-speaking": {} }
 ```
 
-Example:
+Travel taxonomy, `plan-travel` and `travelParty` now belong to
+[`@schlessera/brain-module-travel`](../module-travel/README.md). Speaking
+retains `talk` and `conference`. This is an approved pre-1.0 breaking
+ownership change: existing travel paths, types and links remain intact,
+but travel must be enabled explicitly after upgrading.
 
-```ts
-"@schlessera/brain-module-speaking": {
-  travelParty: [
-    { name: "Alex Example", role: "partner" },
-    { name: "Rover", role: "assistance-dog", requirementsDoc: "me/family/rover.md" },
-  ],
-}
-```
-
-## Scope note
-
-Travel lives **inside** the speaking module for v1. A standalone travel module is
-a post-v1 open item.
+Install and enable the matching travel package, then run
+`brain travel migrate --dry-run --json` and `brain travel migrate --json`.
+Review the config edit, restart the session and sync skills. The deprecated
+speaking `travelParty` field remains accepted during the transition and is
+retained until migrated; a nonempty legacy value produces an actionable warning.
+The migration preserves every member, role and requirements-document path,
+refuses conflicting or ambiguous values, and is a no-op after completion.
+See the travel README for complete JSON/TypeScript and saved-settings handling.

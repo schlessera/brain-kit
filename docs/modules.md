@@ -2,7 +2,7 @@
 
 A **module** packages a domain workflow — its document types, its skills, and
 optionally a CLI command — so you can turn a whole area of your life on with one
-config entry. brain-kit ships three first-party modules and a `/new-module`
+config entry. brain-kit ships first-party modules and a `/new-module`
 skill for authoring your own.
 
 ## What a module is
@@ -147,22 +147,39 @@ opportunity notes.
 ### `@schlessera/brain-module-speaking`
 
 The speaking lifecycle: researching conferences, developing talk ideas,
-submitting to CFPs, tracking outcomes, preparing talks, planning travel, and
-wrapping up afterward. Content and skills only — no CLI command, no database.
+submitting to CFPs, tracking outcomes, preparing talks and wrapping up afterward.
 
-- **Types contributed:** `talk` → `talks/`, `conference` → `conferences/`,
-  `travel` → `travel/` (dir anchors `status.md`, `itinerary.md`, `outline.md`;
-  excludes `alt-decks`, `versions`, `deck` from indexing).
-- **Config:** `travelParty` — an array of `{ name, role?, requirementsDoc? }`
-  members. `plan-travel` reads this instead of hardcoding names and builds a
-  per-member requirements checklist from each member's optional `requirementsDoc`
-  (accessibility, an assistance animal, a child, visas, dietary needs).
+- **Types contributed:** `talk` → `talks/`, `conference` → `conferences/`.
+  Shared anchors `status.md`, `itinerary.md`, `outline.md` remain; slide-deck
+  segments `alt-decks`, `versions`, `deck` remain excluded.
+- **Config:** an empty block for new users. Deprecated `travelParty` remains
+  accepted during the travel transition, with an actionable warning when nonempty.
 - **Skills:** `conference-research`, `talk-ideas`, `brainstorm-talks`,
-  `new-submission`, `submission-outcome`, `talk-prep`, `plan-travel`,
-  `conference-aftermath`. The aftermath skill ends in a *pluggable* publishing
-  handoff — it uses a configured content workflow if you have one, otherwise
-  writes a plain retrospective note.
+  `new-submission`, `submission-outcome`, `talk-prep`, `conference-aftermath`.
+  Speaking links to travel's planning capability and existing journey documents.
 - **CLI word:** none.
+
+### `@schlessera/brain-module-travel`
+
+Standalone journeys, repeated day trips and visited places. The package joins
+the next lockstep release. See its [README](../packages/module-travel/README.md)
+for canonical formats and the complete upgrade path.
+
+- **Types contributed:** `travel` → `travel/`, `trip` → `trips/`,
+  `place` → `places/`; shared `status.md`, `itinerary.md`, `outline.md` anchors. Travel alone
+  brings no conference types or slide-deck exclusions.
+- **Config:** `travelParty`, an array of `{name, role?, requirementsDoc?}`;
+  default `[]`. Existing paths and values move losslessly from speaking.
+- **Skill:** `plan-travel`, for conference-linked and personal journeys.
+- **CLI word:** `brain travel validate`, `brain travel migrate [--dry-run]`;
+  both have documented `--json` envelopes.
+- **Migration:** install/enable travel, preview/apply migration, restart and
+  sync skills. Documents keep their paths, types, links and bytes. Conflicts
+  and ambiguous TypeScript construction are reported without writes. Existing
+  module settings JSON files require explicit review with the settings path.
+- **History:** visit IDs belong to their canonical journey/trip document;
+  place references deduplicate that pair. Unknown dates/coordinates remain
+  unknown, and counts/date bounds derive from visits rather than stored totals.
 
 ### `@schlessera/brain-module-finance`
 

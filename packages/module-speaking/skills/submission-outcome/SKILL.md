@@ -40,7 +40,7 @@ email → all tracking layers updated in the same operation (Index Sync Principl
 6. **On acceptance**:
    - Update the canonical current-focus doc (e.g. `context/current-focus.md`): add the accepted talk + conference dates to the relevant section (keep the file concise), bump `updated`
    - Suggest running `/talk-prep` to build presentation materials
-   - Remind about travel: check `travel/_index.md` for an existing trip; if none, suggest `/plan-travel` (if the travel party includes companions or anyone with a `requirementsDoc`, logistics need lead time)
+   - Remind about travel: check `travel/_index.md` for an existing trip; if none, suggest the travel module's `/plan-travel`. If travel is not enabled, explain how to enable `@schlessera/brain-module-travel` before planning. Link the resulting journey from the conference hub (if the travel party includes companions or anyone with a `requirementsDoc`, logistics need lead time)
 
 7. **On rejection**:
    - Record it; keep the conference files `status: active` until the CFP season is over or the conference has passed (other submissions or next steps may still be live)

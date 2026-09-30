@@ -149,8 +149,8 @@ needs an API key or the network.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group, including packages whose own code did not change and receive
-   only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
+   `fixed` group: all fifteen packages, including packages whose own code did
+   not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line
    each. The commit it links to carries the reasoning.
@@ -248,7 +248,7 @@ turns every release into a major (0.4.0 → 1.0.0 instead of 0.5.0):
   can't evaluate the `workspace:` protocol as a semver range, so it treats every
   new version as out of range and majors anyway.
 
-With the `fixed` group, one such major promotes all fourteen packages.
+With the `fixed` group, one such major promotes the whole lockstep group.
 `tests/release-manifest.test.ts` asserts both guards, so this fails the build
 rather than the release.
 

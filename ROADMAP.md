@@ -19,12 +19,13 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Fourteen packages ship in lockstep on npm under `@schlessera/brain-*`:
+Fifteen packages version in lockstep under `@schlessera/brain-*`. The travel module
+joins the next release; existing published packages remain independently consumable:
 
 | Package | What it is |
 | --- | --- |
 | `brain` | Core: CLI, MCP server, hybrid search, indexer, config/taxonomy, skills |
-| `brain-module-jobs` / `-speaking` / `-finance` / `-images` | First-party content modules |
+| `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` | First-party content modules |
 | `brain-ui-sdk` | Chat-UI wire protocol, runtime schemas, `AgentBackend`/`SpeechProvider` seams |
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |

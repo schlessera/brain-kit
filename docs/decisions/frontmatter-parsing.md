@@ -44,7 +44,7 @@ maintainer chose option B on #142 on 2026-09-28.
 - **A copy per parsing package, not an export.** `ui-server` does not depend
   on core. Exporting the helper from `@schlessera/brain` would also widen the
   public API that #534 is curating. So core holds the canonical copy, and
-  `module-finance`, `module-jobs` and `ui-server` each carry a byte-identical
+  `module-finance`, `module-jobs`, `module-travel` and `ui-server` each carry a byte-identical
   `src/lib/frontmatter-parse.ts`, held identical by
   `tests/frontmatter-parse-sync.test.ts`. This follows the `env-core.ts`
   precedent. Tests and root scripts import core's copy by path.

@@ -6,8 +6,11 @@ description: Use when a trip needs planning, for a conference or otherwise — e
 # Plan Travel
 
 Turns the documented travel conventions into an executable workflow. The travel
-party is not hardcoded: read it from the speaking module's `travelParty` config
+party is not hardcoded: read it from the travel module's `travelParty` config
 (in `brain.config`) and plan for every configured member unless told otherwise.
+Read the complete module mapping with `brain config get modules` and select
+`@schlessera/brain-module-travel`; package names contain dots, so they are not
+a single segment of the config command's dotted-path syntax.
 Each member may have a `requirementsDoc` — a file describing their
 travel-relevant needs (accessibility, an assistance animal, a child, a visa or
 passport constraint, dietary needs). Read those docs and fold each member's
@@ -24,7 +27,7 @@ requirements into the itinerary.
 ## Actions
 
 1. **Derive the trip slug**: kebab-case, descriptive, matching existing patterns
-   (`fooconf-2026-road-trip`, `barcity-2026`, `metroplex-2026`). Check
+   (`ithaca-homecoming`, `scheria-visit`, `troy-to-ithaca`). Check
    `travel/{trip-slug}/` doesn't already exist; if it does, update rather than duplicate.
 
 2. **Read context**:
@@ -76,7 +79,7 @@ requirements into the itinerary.
 ## References
 
 ### Files to Read
-- The speaking module `travelParty` config (members + each `requirementsDoc`)
+- The travel module `travelParty` config (members + each `requirementsDoc`)
 - `travel/_index.md` (registry + directory convention)
 - An existing `travel/*/itinerary.md` (structural model), if you have one
 - Each traveler's `requirementsDoc` (accessibility, assistance animal, child, visa, dietary)
@@ -89,11 +92,11 @@ requirements into the itinerary.
 
 ### Workflow Position
 - **Before**: talk accepted (`/submission-outcome`) or attendance decided
-- **After**: bookings land → update itinerary + index Status to `Booked`; trip done → `/conference-aftermath` archives it
+- **After**: bookings land → update itinerary + index Status to `Booked`; journey completed → use `brain archive <path>` for its completed files. A conference-linked journey can close during `/conference-aftermath`; personal journeys do not need a conference.
 
 ## Notes
 
-- Status progression in `travel/_index.md`: Planning → Booked → archived (archiving happens post-trip, usually via `/conference-aftermath`)
+- Status progression in `travel/_index.md`: Planning → Booked → archived. Confirm completion before archiving; an elapsed departure date does not prove the journey happened.
 - The `deadline` frontmatter (departure date) makes the trip surface in `/whatsup` — keep it accurate if dates shift
 - Flights are the high-friction mode for travelers with an assistance animal or accessibility need — carrier policies differ; flag this early so notification happens at booking, not at check-in
 - Don't guess an unconfirmed traveler's availability — list it under Open Items until confirmed

@@ -19,17 +19,17 @@ function loaded(): LoadedModule {
 }
 
 describe("speaking manifest", () => {
-  it("declares talk/conference/travel types with their dirs", () => {
+  it("declares only talk/conference types with their dirs", () => {
     const types = contribution.taxonomy?.types ?? {};
     expect(types.talk?.dir).toBe("talks");
     expect(types.conference?.dir).toBe("conferences");
-    expect(types.travel?.dir).toBe("travel");
+    expect(Object.keys(types).sort()).toEqual(["conference", "talk"]);
   });
 
-  it("contributes classifier hints for conference and travel", () => {
+  it("contributes conference hints while travel owns its hints", () => {
     const hints = contribution.taxonomy?.classifierHints ?? {};
     expect(hints.conference).toContain("call for papers");
-    expect(hints.travel).toContain("itinerary");
+    expect(hints.travel).toBeUndefined();
   });
 
   it("contributes the conference/travel/talk dir anchors", () => {
@@ -56,15 +56,15 @@ describe("speaking configSchema", () => {
   it("parses a travel party with roles and requirement docs", () => {
     const parsed = configSchema.parse({
       travelParty: [
-        { name: "Alex Example", role: "partner" },
-        { name: "Rover", role: "assistance-dog", requirementsDoc: "me/family/rover.md" },
+        { name: "Odysseus", role: "partner" },
+        { name: "Penelope", role: "partner", requirementsDoc: "people/penelope.md" },
       ],
     });
     expect(parsed.travelParty).toHaveLength(2);
     expect(parsed.travelParty[1]).toEqual({
-      name: "Rover",
-      role: "assistance-dog",
-      requirementsDoc: "me/family/rover.md",
+      name: "Penelope",
+      role: "partner",
+      requirementsDoc: "people/penelope.md",
     });
   });
 
@@ -77,7 +77,7 @@ describe("speaking taxonomy roundtrip", () => {
   const taxonomy = buildTaxonomy({ modules: [loaded()] });
 
   it("resolves each contributed type's dir back to the type", () => {
-    for (const type of ["talk", "conference", "travel"]) {
+    for (const type of ["talk", "conference"]) {
       const dir = taxonomy.dirForType(type);
       expect(dir).not.toBeNull();
       expect(taxonomy.typeForPath(`${dir}/x.md`)).toBe(type);
@@ -88,8 +88,8 @@ describe("speaking taxonomy roundtrip", () => {
     expect(taxonomy.classify("submission deadline for the keynote")).toBe("conference");
   });
 
-  it("classifies travel vocabulary", () => {
-    expect(taxonomy.classify("flight and hotel booking confirmed")).toBe("travel");
+  it("does not contribute the moved travel type", () => {
+    expect(taxonomy.validTypes()).not.toContain("travel");
   });
 });
 
@@ -114,13 +114,12 @@ describe("shipped skills", () => {
     return skills;
   }
 
-  it("ships the eight speaking skills", () => {
+  it("ships the seven speaking skills", () => {
     expect(skills().map((s) => s.name).sort()).toEqual([
       "brainstorm-talks",
       "conference-aftermath",
       "conference-research",
       "new-submission",
-      "plan-travel",
       "submission-outcome",
       "talk-ideas",
       "talk-prep",

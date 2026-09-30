@@ -55,6 +55,51 @@ config (TypeScript imports require process restart). See
 [decision](decisions/reranker-activation.md) for the retained provider seam
 and measurement limits.
 
+## Travel ownership and canonical content
+
+**Approved pre-1.0 breaking ownership change (#566):**
+`@schlessera/brain-module-speaking` contributes `talk` and `conference`;
+`@schlessera/brain-module-travel` owns the existing `travel` type and
+`plan-travel` skill, and adds `trip` and `place`. The
+[maintainer ruling](https://github.com/schlessera/brain-kit/issues/60#issuecomment-5869107262)
+requires existing content paths, type values, links and travel-party settings
+to survive. Both modules retain the shared `status.md`, `itinerary.md` and
+`outline.md` directory anchors; travel alone has no speaking deck exclusions.
+
+Install and enable travel before indexing an upgraded speaking-only brain.
+Run `brain travel migrate --dry-run --json`, then apply without `--dry-run`,
+restart the process and sync skills. The explicit source migration moves the
+complete literal `travelParty` field between the canonical package-keyed
+config blocks; JSON and directly exported TS literals are supported.
+Existing equal values are deduplicated, conflicting or dynamic values are
+refused without writes. Content is never rewritten. Speaking temporarily
+accepts deprecated `travelParty` and warns when it is nonempty. Existing
+`settings/speaking.json` or `settings/travel.json` also causes refusal: #528
+owns future JSON precedence and its shared writer. See the
+[upgrade instructions](../packages/module-travel/README.md#upgrade-from-speaking).
+
+Additive travel frontmatter: a `trip` has `trip_status` (`proposed`, `done`,
+`dismissed`), optional routes and repeated visits; a done trip has at least
+one visit. Visit identity is the owning document's root-relative `.md` path
+plus its unique lowercase-slug `id`, independent of date or party. A nonempty
+route list has unique labels and exactly one primary; visits name those
+labels. `cover`, route GPX and visit tracks/photos resolve relative to their
+document within the brain root. Places have `place_kind` (`country`, `city`,
+`town`, `spot`), optional parent and coordinates, and references to canonical
+visits. Country → city/town → spot ancestry must resolve without cycles.
+An existing journey needs no new fields. The full
+[field formats](../packages/module-travel/README.md#canonical-formats) apply.
+
+Visit dates and coordinates stay omitted or null when unknown; `(0, 0)` is
+valid. Place counts deduplicate canonical document/visit pairs, including
+references from both places and journeys/trips. Stored `visit_count`,
+`first_visit`, `last_visit` are display caches and never authority. Bounds
+are null if any included date is unknown, and counts still include those
+visits. Domain validation uses `brain travel validate`; ordinary
+`brain validate` retains its common metadata and wiki-link checks. No schema
+version, MCP tool, existing core envelope or database authority changes.
+The [decision](decisions/travel-module.md) explains the boundary.
+
 ## Asynchronous UI startup
 
 **Approved pre-1.0 breaking API change (#286):**
@@ -161,6 +206,8 @@ policy. The rationale and measurements are in
 | `brain tags --apply [--dry-run] [--only <old>] [--groups] [--redundant] --json` | `{ "files": [{ "path", "from": string[], "to": string[] }], "skipped": [{ "path", "reason" }], "warnings": string[] }`. `files` lists every document whose tags changed (or would, under `--dry-run`), in path order. `skipped` lists documents left alone: frontmatter that does not parse, a `tags:` entry the rewrite does not edit, a tag on an alias cycle, a file edited while the command ran (`"changed during apply"`), or a rewrite that would not read back as the planned tags. A `reason` starting `failed:` is a read or write error; the run goes on, and the command exits `2` after indexing and accepting the files it did rewrite. An index that cannot be opened stops the run before any file is rewritten: `files` is empty, `warnings` says why, and the exit code is `2`. Only the `tags:` entries change, on the raw text. `updated` is not bumped. The touched files are reindexed, and a file's mtime is accepted only when the index read exactly the bytes the rewrite wrote; `warnings` names each one that was not. Explicit aliases take precedence over variant groups, and a second run reports no `files`. `reason` and `warnings` are prose (additive in 0.38.0) |
 | `brain hygiene reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run] --json` | `{ "opened", "reopened", "resolved", "stillOpen", "snoozed", "changedFiles": string[], "detected": [{ "id", "category", "path", "message" }], "autoFixed", "failedChecks": string[] }`. The counts are this run's transitions: `opened` new issues, `reopened` issues back from resolved or an expired snooze, `resolved` issues no longer detected, `stillOpen` open issues still detected (or kept open while a check could not run), and `snoozed` the entries left snoozed. `changedFiles` lists the files under `context/hygiene/` written (or, with `--dry-run`, that would be); it is empty on a run that changes nothing. `detected` is every issue found this run, with its stable ID `{category}-{shortpath}-{hash4}` (hash4: SHA-1 over `{category}\|{path}\|{evidence}`). `--extra` is a JSON array of `{ "category", "path", "evidence", "message" }`, and `--fixed` a JSON array of `{ "path", "fix" }`, the auto-fixes to record in `last-run.md` (`autoFixed` counts them); a malformed one exits `1` and writes nothing. `failedChecks` names each check that could not run: a module whose hygiene check threw, or a core check that could not read its input (`fact-drift`, `tag-noise`); while any is named, no entry is resolved unless it was detected again. `--dry-run` writes no log file (the index is still refreshed). A log file that cannot be parsed safely (broken frontmatter, a section mixing entries with other text), or that changes while the command runs, exits `2` without writing it (a save in the instant between the last check and the rename can still be lost; there is no lock) (additive in 0.38.0) |
 | `brain hygiene list [--state open\|snoozed\|resolved] --json` | `{ "entries": [{ "id", "state": "open"\|"snoozed"\|"resolved", "path", "issue", "firstSeen", "lastSeen", "until", "resolvedBy", "resolvedOn" }] }`, the log as the files hold it; a field the entry does not carry is `null` (additive in 0.38.0) |
+| `brain travel validate --json` | `{ "validation": { "valid": boolean, "files": number, "issues": [{ "file", "level": "error", "message" }] } }` — read-only canonical format, reference and asset checks. `files` counts successfully parsed travel/trip/place documents. Exit `0` when valid, `1` on domain errors. File paths are root-relative; messages are prose |
+| `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
@@ -1813,7 +1860,9 @@ Module manifests are two-phase: `defineModule({ name, configSchema?, setup })`,
 where `setup(validatedConfig)` returns the contribution. The contribution is
 schema-validated at load — unknown keys are load errors — and module commands
 receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
-`brain.config` itself. See [modules.md](modules.md).
+`brain.config` itself. The explicit `brain travel migrate` source-edit job
+above is an exception: it never computes effective configuration or
+serializes evaluated TypeScript. See [modules.md](modules.md).
 
 ## Module tools
 

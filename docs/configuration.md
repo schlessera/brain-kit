@@ -750,7 +750,8 @@ order follows config order. See [modules.md](modules.md).
 
 ```ts
 modules: {
-  "@schlessera/brain-module-speaking": { travelParty: [{ name: "Alex Example", role: "partner" }] },
+  "@schlessera/brain-module-speaking": {},
+  "@schlessera/brain-module-travel": { travelParty: [{ name: "Odysseus" }, { name: "Penelope", role: "partner" }] },
   "@schlessera/brain-module-finance":  { clientsDir: "clients", feeTolerance: 30 },
   "./modules/catalog":          { owners: ["your-org"] },
 }

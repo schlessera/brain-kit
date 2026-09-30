@@ -37,6 +37,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
     optionalPeers: [],
   },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  "@schlessera/brain-module-travel": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   // Leaves: no internal edges at all.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   "@schlessera/brain-render-puppeteer": { dependencies: [], optionalPeers: [] },

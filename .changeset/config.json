@@ -17,7 +17,8 @@
       "@schlessera/brain-module-finance",
       "@schlessera/brain-module-images",
       "@schlessera/brain-module-jobs",
-      "@schlessera/brain-module-speaking"
+      "@schlessera/brain-module-speaking",
+      "@schlessera/brain-module-travel"
     ]
   ],
   "linked": [],

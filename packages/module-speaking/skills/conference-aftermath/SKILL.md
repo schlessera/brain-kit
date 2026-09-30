@@ -54,8 +54,9 @@ Principle — "conference over" must propagate to every layer).
      `status.md`) with `brain archive <path>` (or the `brain_archive` tool), one
      file at a time. Do not set `status: archived` by hand: archiving also
      demotes the file's relevance, so it stops outranking current work.
-   - Archive the linked trip's files in `travel/{trip-slug}/` the same way, if
-     the trip is completed
+   - Travel owns the journey. Follow its existing link from the conference;
+     archive the linked journey's files in `travel/{trip-slug}/` the same way
+     once the journey is completed
    - Update the corresponding rows in `conferences/_index.md` and
      `travel/_index.md` to an archived/past status, and bump `updated` on each
      index you edit

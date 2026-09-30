@@ -12,8 +12,8 @@ once, and most were documented in prose before they happened again. A release
 that hits something new is not finished until that lands here or in a test — see
 [When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
-Fourteen packages move in lockstep through a changesets `fixed` group. One
-mistake therefore lands on all fourteen at once.
+All fifteen packages move in lockstep through a changesets `fixed` group. One
+mistake therefore lands on the whole group at once.
 
 ## Before you version
 
@@ -63,7 +63,7 @@ retrying a third time.
 ## The version is wrong — usually a surprise major
 
 A release of minor changesets that lands on `1.0.0` instead of `0.10.0` means
-something was promoted to a major and the fixed group spread it to all fourteen.
+something was promoted to a major and the fixed group spread it to the whole group.
 It is nearly always a peer dependency:
 
 - **An internal peer dependency with a range that the new version escapes.**

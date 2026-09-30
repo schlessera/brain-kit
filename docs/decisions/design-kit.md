@@ -4084,7 +4084,7 @@ found, and what the ruling did not say:
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:48`), and ui-kit now
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:49`), and ui-kit now
   builds and publishes ahead of ui-sdk. The kit's own row is unchanged. It
   still depends on nothing internal, and D13's purity gate still holds over
   everything under `src/`, `links.ts` included.

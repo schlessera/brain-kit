@@ -50,7 +50,7 @@ describe("frontmatter-parse sync", () => {
   test("the packages that parse frontmatter are the ones carrying a copy", () => {
     // A package gaining a parser must copy the helper in; this list moving is
     // the review trail for that.
-    expect(withCopy).toEqual(["core", "module-finance", "module-jobs", "ui-server"]);
+    expect(withCopy).toEqual(["core", "module-finance", "module-jobs", "module-travel", "ui-server"]);
   });
 
   test("every copy is used by its package", () => {
