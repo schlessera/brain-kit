@@ -299,7 +299,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:56`), so bumping the SDK in this repo fails CI until
+  `.github/workflows/ci.yml:55`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:132-133`). It is the only automatic check
   this has.
