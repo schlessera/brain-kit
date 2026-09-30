@@ -425,10 +425,6 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   "docs/decisions/session-principals.md|hono/utils/cookie.js:79-89":
     "hono's installed cookie utility, not in this tree",
 
-  // A quotation. The words are another document's and are not reworded here.
-  "docs/decisions/voice-permission.md|backend.ts:703-709":
-    "inside a verbatim quote from docs/plans/async-collaboration.md; the file it meant is now too short to have these lines",
-
   // Exact historical permalinks, not live-tree citations. parseCitations reads
   // their line fragments too; each URL was verified against its pinned source.
   // A changed SHA, path or first line needs its own verified exception.

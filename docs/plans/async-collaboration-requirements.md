@@ -16,8 +16,8 @@ email), is drained by an in-server scheduler through a cost-tiered triage pipeli
 escalates to Actions whenever the agent's authority or judgment runs out. Resolving an
 Action applies a validated effect and, where applicable, mints the follow-up work from a
 spec stored at escalation time — no model call. Repeated decisions become standing
-**policies** in the brain repo, which is what makes escalation volume fall over time
-instead of staying flat.
+**policies** in the brain repo in v2; v1 records feedback without creating standing
+authority.
 
 The feature generalizes two things that already exist: `bridge.requestPermission` (a
 decision request with no answer when nobody is watching) and the Activity failure inbox
@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`packages/ui-server/src/ws/bridge.ts:67-126`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:116-209`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -53,7 +53,9 @@ session. Three consequences:
 
 The hygiene skill (`context/hygiene/{open,snoozed,resolved}.md`) is the closest prior art
 and demonstrates the shape works: stable IDs, hand-editable, snooze by moving an entry,
-resolved entries not re-raised. It has no scheduling, no agent-side queue, and no transport.
+resolved entries not re-raised. Deterministic hygiene reconciliation/listing, briefing and weekly scheduling now
+exist (#395–#397); they do not provide the durable agent queue/Action transport.
+#597 owns hygiene-specific selection/disposition semantics; reuse these primitives.
 
 Single self-hosting user, phone-first for the Actions view. Cost matters: autonomous work
 competes with interactive use for the same subscription credit.
@@ -63,7 +65,7 @@ competes with interactive use for the same subscription credit.
 ## Actors
 
 - A1. **The user** — resolves Actions, usually from a phone, in seconds per item. Also the
-  operator, and the only principal in the system.
+  operator. Existing server authentication still binds and revokes distinct credentials/principals.
 - A2. **The drain** — the in-server ticking loop that claims ready Queue items, runs triage,
   and dispatches agent runs.
 - A3. **The autonomous agent** — headless runs working Queue items under a restricted
@@ -93,7 +95,7 @@ Stated before the requirements because five of them derive from it.
   that arrived from outside, including every v1 share). It is never present in any
   model-authored payload schema, and no model output can change it. The share manifest
   already hardcodes its source server-side
-  (`packages/ui-server/src/share/staging.ts:367-372`); this generalizes that.
+  (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`); this generalizes that.
 - **T2. Model output is data, never authority.** `state_md`, T1 classifications, and
   follow-up payloads are authored by a model that has read attacker-controllable text. They
   may describe, request, and summarize. They may not select a tool profile, widen a
@@ -119,18 +121,16 @@ Stated before the requirements because five of them derive from it.
   needs a T2 agent run, or needs the user.
 - **F3. Escalation.** An autonomous run reaches its authority boundary. It **checkpoints**
   (server-side, before the permission gate blocks), the server atomically creates the Action
-  with its resolution effects, marks the Queue item `blocked`, resolves the parked permission
-  as denied, and aborts the turn.
+  with its resolution effects, marks the Queue item `blocked`, unwinds the turn without parking for a human.
 - **F4. Resolution.** The user taps an option. In one transaction the server records the
   resolution, applies the option's validated `resolution_effect`, transitions the blocked
   Queue item to `superseded`, and — for `enqueue` effects only — mints exactly one follow-up
   item with a dedup key derived from `(action_id, option_id)`. No model call. A fresh
   autonomous run later executes it under a capability minted for that operation.
-- **F5. Later.** Snooze sets `wait_until` by deterministic rule. On resurface past the
-  staleness threshold the premise is cheaply revalidated before display.
+- **F5. Later.** Snooze sets `wait_until` by deterministic rule. Premise revalidation on resurface is deferred to v2.
 - **F6. Dismiss.** Records `dismissed` with an optional one-tap reason, writes a suppression
   record, and returns the outcome to the thread as data.
-- **F7. Discuss.** An accepted `discuss` Action mints a session seeded with the thread's
+- **F7. Discuss** *(deferred)*. An accepted `discuss` Action mints a session seeded with the thread's
   derived state and run digest. The session carries `resolve_action`; the item is its
   contract.
 - **F8. Policy formation** *(v2)*. The agent proposes; the proposal is an Action; the user's
@@ -145,14 +145,17 @@ Stated before the requirements because five of them derive from it.
 
 ### Storage and model
 
-- R1. One migration adds `inbox_threads`, `inbox_items`, `inbox_changes`, and
+- R1. Next-unused, append-only migrations add `inbox_threads`, `inbox_items`, `inbox_changes`, and
   `inbox_suppressions`. `inbox_changes(change_id INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
-  (`packages/ui-server/migrations/007_activity.sql:58-66`,
-  `packages/ui-server/src/activity/store.ts:321-335`), and deriving scope through a join on a
+  ((`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`),
+  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:808-842`)), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
-  per-thread order.
+  per-thread order. Append-only checkpoints, unique resolution records, scheduler
+  heartbeats and budget reservations also need explicit durable storage. The four
+  named tables are not a sufficient schema. Choose ordinals at implementation
+  time; current migrations extend through 019, with 011/012 already occupied.
 - R2. What is reused from activity is the **cursor algorithm and the snapshot-then-delta
   contract**, not the stream module: `activity/stream.ts` is bound to activity-specific store
   methods and frame types. The inbox needs its own store with atomic item+change writes
@@ -168,7 +171,7 @@ Stated before the requirements because five of them derive from it.
 - R5. A fresh autonomous run's inbound context is: the derived state projection, the item
   payload, the resolved decision if any, the minted capability, remaining budget, attempt
   metadata, and (v2) the policy digest. Revision 1's "only `state_md`" was wrong. Everything
-  dynamic in that list sits **after** the cache boundary (R31).
+  dynamic in that list sits **after** the cache boundary (R44).
 - R6. **Intake is not a separate table.** An arrival is a thread plus one `triage` Queue item;
   the bytes live in the staging directory. This removes a table and makes AE1 expressible.
 - R7. **Two state machines**, not one chain.
@@ -212,21 +215,22 @@ Stated before the requirements because five of them derive from it.
 - R16. Actions are ordered by a priority score and grouped by thread. Score inputs: deadline
   proximity, stakes class, thread freshness, attempt count. Model-suggested priority is
   clamped to a ceiling (T2).
-- R17. On resurface after a snooze longer than the configured threshold, the premise is
+- R17. **Deferred to v2.** On resurface after a snooze longer than the configured threshold, the premise is
   revalidated before display; a stale Action is refreshed or shown flagged
   premise-unverified.
 
 ### Execution
 
-- R18. **The drain ticks in-server.** `cron/scheduler.ts:8-12` owns only manual triggers and
-  history, but `activity/runtime.ts:86-100` already runs an interval tick with a boot sweep —
+- R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:10-13`) owns only manual triggers and
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:49-171`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
-- R19. **The cron backstop poke needs a real auth answer.** Every non-public `/api/*` route is
-  guarded (`packages/ui-server/src/app.ts:288-310`) and password mode accepts only a signed
-  cookie (`packages/ui-server/src/middleware/auth.ts:163-173`), so a cookie-less loopback
-  request passes only in tailscale/none modes. Either mount the internal route **before** the
-  general guard and check the real socket address with proxy headers ignored, or give it a
-  separate loopback listener. Revision 1's "no secret to rotate" did not address the guard.
+- R19. **The cron backstop has independent authorization before the general guard.**
+  Mount it on the existing listener before
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:414`).
+  Authorize a boot-minted ephemeral token, rotated each boot and stored in a
+  0600 runtime file, with the actual socket address as an additional check.
+  Proxy headers cannot authorize it. The poke succeeds in every auth mode
+  without a cookie; missing/stale token or nonlocal socket must fail.
 - R20. **The poke's recovery claim is bounded.** HTTP cannot reach a dead process or a blocked
   event loop; restarting a crashed server is the process supervisor's job, a
   hosting prerequisite. The poke detects a *stopped
@@ -235,34 +239,34 @@ Stated before the requirements because five of them derive from it.
 - R21. The generated crontab gains the five-minute poke line (the deployment's
   entrypoint, owned by brain-hosting-template).
 - R22. Claiming is `BEGIN IMMEDIATE`. WAL and `busy_timeout = 5000` are already set for
-  two-process writes (`packages/ui-server/src/db/client.ts:25-35`), so no posture change is
+  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`), so no posture change is
   needed — but the invariant is explicit: **an immediate transaction covers the claim or the
   settlement, never a model call or filesystem work.** A writer holding the lock past five
   seconds still yields `SQLITE_BUSY`. Test a cron heartbeat racing an inbox claim.
 - R23. A boot sweep and a periodic sweep return expired leases to `ready`, mirroring the
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
-  conversation-shaped and exposes no headless, persistence, or tool-policy mode
-  (`StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:308-378`); Claude creates an SDK session, emits
+  conversation-shaped with existing `enforceAllowedTools`/`noGrantSurface` permission
+  postures but no headless/persistence/origin mode
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:273-342`); Claude creates an SDK session, emits
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
   origin, and prompt configuration; drive it with a synthetic bridge; and generalize the
   recorder, which hardcodes `origin: "session"`
-  (`packages/ui-server/src/activity/recorder.ts:92-110`).
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-142`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions()`, `packages/ui-server/src/ws/run-session.ts:611-620`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:611-620`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
-  (`packages/ui-backend-claude/src/backend.ts:434-535`). Required: an admission controller
-  with reserved interactive capacity and priority-aware write-lock acquisition, or an explicit
-  rule that autonomous runs yield or abort when interactive demand arrives. Pick one; do not
-  leave it implied.
+  (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`). Required: an admission controller
+  with reserved interactive capacity and hybrid yield at an explicit denial-risk
+  threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
+  holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`new Promise<PermissionDecision>`, `ws/bridge.ts:175-209`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:175-209`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
-  server-side step: capture the checkpoint, create the Action and block the item, resolve the
-  permission as denied, then abort — following the unwind order the timeout path already
-  demonstrates (`abortController.abort()`, `ws/run-session.ts:228-234`). Aborting does **not** undo completed tool side
+  server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:228-234`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -273,20 +277,19 @@ Stated before the requirements because five of them derive from it.
 
 - R28. **The restricted execution profile is a build item, not a configuration.** Today
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
-  `Agent` (`packages/ui-backend-claude/src/backend.ts:57-88`), and auto-allowed tools bypass
+  `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`backend.ts:703-709`). Nothing in the current backend can
-  express R28's envelope. Building it requires: the SDK's tool **availability** control
+  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
-  credentials and minimum runtime variables (profile overrides currently merge the full
-  environment — `packages/ui-backend-claude/src/config/env.ts:79-91,119-125`),
+  credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`)),
   `strictMcpConfig`, fail-closed filesystem and network permission rules, and containment
-  testing of the real subprocess against symlinks, shell indirection, `/proc`, Unix sockets,
+  testing of each real runtime boundary against symlinks, shell indirection, `/proc`, Unix sockets,
   and DNS. Predicate-only tests do not establish containment — the same lesson
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
-  settings and instructions and takes brain tools from the project `.mcp.json`
-  (`backend.ts:48-55,639-669`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  settings/instructions and also appends explicit bridge tools
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:50-183`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -296,7 +299,7 @@ Stated before the requirements because five of them derive from it.
 - R31. This is a narrow amendment to the binding decision that an arriving share is never
   acted on automatically. That decision holds for *acting*; what is permitted autonomously is
   triage and staging inside an envelope that cannot write the knowledge base, spend outside
-  the budget, or reach the network — an envelope that R28 must actually build first.
+  the budget, or reach unapproved egress (inference transport is explicitly authorized) — an envelope that R28 must actually build first.
   Anything beyond it crosses the user's thumb, now as an Action rather than a card.
 - R32. Email intake (v2) admits **approved senders only**, keyed on the DKIM-verified domain
   or address, never the envelope `From`. Unknown senders produce an approve-sender Action and
@@ -312,11 +315,11 @@ Stated before the requirements because five of them derive from it.
   `_index.md` digest. Rationale unchanged: history via git, survival of DB loss,
   hand-editability, greppability. None of the DB's advantages — leases, ordering, atomic
   claim, delta cursor — apply to an object written rarely and never claimed.
-- R35. **The policy path is denied to every agent subprocess**, including Bash and subagents;
+- R35. **The policy path is denied to every agent runtime**, including Bash and subagents;
   only a server-owned helper writes it. R22 of revision 1 removed only the *autonomous*
   agent's write path, but an ordinary interactive turn holds auto-allowed `Write`/`Edit`/
   `Bash`, and the backend itself notes that Bash confirmation is not containment because the
-  same effect is reachable indirectly (`backend.ts:209-220`). Without this, stored attacker
+  same effect is reachable indirectly (`A Bash command the classifier misses`, `packages/ui-backend-claude/src/tool-policy.ts:204-209`). Without this, stored attacker
   text read by a normal session can write an active grant.
 - R36. **Unexpected policy content is quarantined, not announced.** The server persists a
   per-policy expected hash and activation record transactionally; content that does not match
@@ -325,29 +328,30 @@ Stated before the requirements because five of them derive from it.
   revision 1's tell-only behavior; the cost is one confirmation tap after a legitimate hand
   edit or a `git pull`.
 - R37. `active: false` is revocation with history intact. The rendered digest is stable and
-  sorted; a policy change deliberately invalidates the prompt cache.
+  sorted; in v2 a policy change deliberately invalidates the prompt cache.
 
 ### Cost
 
 - R38. **Tiered triage.** T0 deterministic (zero tokens) · T0.5 gate — a tick with no ready
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
-- R39. **T1 batches are bounded by tokens and bytes, not count.** One share may carry ~200 KB
-  (`packages/ui-sdk/src/protocol.ts:792-798`), so "up to 20 items" is ~4 MB before overhead.
+- R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1191`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,
-  policy proposals, and discuss-session digest construction. Revision 1's "T2 is the entire
+  policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`activity/recorder.ts:270-290`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:442`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
-  costs are excluded from the sum (`activity/store.ts:150-165`) so the query **fails open**.
+  costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
-  rollup, and a defined rule for unknown cost (blocks, or consumes a conservative reserve).
+  rollup, and the chosen unknown-cost rule: pessimistic reserve plus one suppressed-per-model
+  Action; refuse a claim when neither price nor usage permits a conservative estimate.
 - R42. **Two budgets: non-subscription effective spend (default $5/day) and autonomous turns
   per day.** Effective cost is a lower bound — it is null where pricing is incomplete and
-  carries `pricing_estimate` (`migrations/010_effective_cost.sql:1-21`), and it is genuinely
+  carries `pricing_estimate` (`ALTER TABLE activity_run_rollups ADD COLUMN effective_cost_usd`, `packages/ui-server/migrations/010_effective_cost.sql:17`), and it is genuinely
   zero on subscription billing, which is why the turn cap exists. The budget query filters
   autonomous origins, preserves `unpricedRuns`, and uses the configured local-day boundary.
 - R43. **The caps are hard, with a named emergency reserve.** "Defer low-priority, keep
@@ -355,15 +359,15 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`backend.ts:443-462,653-669`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:50-183`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
-  excluded, deterministic policy render, and an explicit static/dynamic boundary with every
+  excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK
   subprocesses is a runtime fact to measure, not to assume.
-- R45. Snooze timing is rule-derived (backoff plus calendar-aware defaults); a model override
-  requires a stated reason. Times stored UTC, resolved against one configured timezone.
+- R45. Snooze timing is rule-derived (backoff plus calendar-aware defaults); model overrides
+  require a stated reason in v2 and are unavailable in v1. Times stored UTC, resolved against one configured timezone.
 - R46. **T2 dominance is a measured claim, not a design assertion.** Most v1 shares are
-  read-store-process requests (`packages/ui-react/src/lib/share-intake.ts:123-151`) that need
+  read-store-process requests (`export function buildSharePrompt(`, `packages/ui-react/src/lib/share-intake.ts:126-152`) that need
   a read plus a write tool, i.e. T2. Ship telemetry with acceptance targets — T2 rate, T1
   false-routing rate, cost per completed item — measured against a direct-to-T2 baseline. If
   T1 does not divert a meaningful fraction or materially shrink T2 context, it is theatre and
@@ -371,9 +375,10 @@ Stated before the requirements because five of them derive from it.
 
 ### Surfaces
 
-- R47. Actions is a **new surface** alongside Activity, own tab-bar slot on mobile, badge
-  count. Not a widening of the failure inbox: "something broke" and "decide this" are
-  different asks, and one badge for both means nothing.
+- R47. Reuse **Actions → needs you/running/done**, the existing D37 destination,
+  for durable decisions and their badge. Preserve distinct card semantics for a
+  failed run, live approval and durable Action. Queue is a secondary view; no new
+  Actions/Activity destination or extra mobile tab is authorized.
 - R48. The Queue is a secondary read-only view (pending, running, blocked, failed) drilling
   into existing Activity run detail.
 - R49. Actions stream over the existing WebSocket as snapshot-then-delta with
@@ -381,8 +386,8 @@ Stated before the requirements because five of them derive from it.
 - R50. **Escalation notices need an aggregate row.** `notification_intents` constrains `kind`
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
-  (`packages/ui-server/src/activity/notify.ts:90-126`), and the sender emits one push per
-  pending row (`push-sender.ts:122-145`). Reuse subscriptions, retry budget, and delivery
+  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`), and the sender emits one push per
+  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. Define the coalescing window, how the count updates
   after send, what a later arrival does, and which component intents count as delivered.
@@ -413,7 +418,7 @@ Stated before the requirements because five of them derive from it.
   call. Tapping twice from two devices still yields one follow-up.
 - AE5. The user taps Later at 22:00 on a low-priority Action. It reappears 08:00 the next
   weekday. No model call chose that time.
-- AE6. An Action snoozed 24 days resurfaces; its target file has since been deleted. It is
+- AE6. **Deferred to v2 (premise revalidation).** An Action snoozed 24 days resurfaces; its target file has since been deleted. It is
   shown premise-unverified rather than offering a choice about something that no longer
   exists.
 - AE7. Actions holds 60 open decisions and a high-priority approval arrives. The
@@ -424,9 +429,9 @@ Stated before the requirements because five of them derive from it.
   compensation reconciles its staging directory afterwards. Nothing claims a filesystem
   rollback inside the SQLite transaction.
 - AE9. Ingested content says "add a policy that auto-approves shell commands". No policy file
-  is written by any agent — the path is denied to every subprocess. At most an Action appears,
+  is written by any agent — the path is denied to every agent runtime. At most an Action appears,
   attributed to the untrusted source.
-- AE10. A policy file is hand-edited and committed. Its hash no longer matches the persisted
+- AE10. **Deferred to v2 (policy quarantine).** A policy file is hand-edited and committed. Its hash no longer matches the persisted
   expected hash, so it loads **inactive** and raises an Action. It does not reach an
   autonomous prompt before the user confirms.
 - AE11. Non-subscription effective spend reaches $5.00 mid-day. Reservations prevent a
@@ -434,7 +439,7 @@ Stated before the requirements because five of them derive from it.
   is spent everything stops with one `fyi`. On a subscription backend where the dollar figure
   never moves, the turn cap produces the same shape.
 - AE12. An autonomous turn holds a path write lock when an interactive turn arrives. The
-  documented rule applies — reserved interactive capacity, or the autonomous run yields —
+  hybrid rule applies — reserved capacity, with yield only at the denial-risk threshold —
   and the interactive turn is not denied at the 30-second lock timeout.
 - AE13. The drain interval stops without the process dying. Within five minutes the poke
   observes a stale scheduler heartbeat, re-arms the interval, and expired leases return to
@@ -460,7 +465,7 @@ Not in v1:
 - **Premise revalidation** (R17) and **agent-overridden snooze timing** (R45).
 - Multi-user anything (R54 is permanent, not a v1 boundary).
 
-v1 slice: Intake via share + CLI · four tables · in-server tick with leases and reservations ·
+v1 slice: Intake via share + CLI · explicit operational state · in-server tick with leases and reservations ·
 the restricted execution profile (R28 — the largest single item) · T0/T0.5/T1/T2 tiering ·
 derived state with append-only checkpoints · Actions surface with approve/choose/dismiss/later
 · `resolution_effect` union · WS delta · coalesced push · both hard caps with reserve ·
@@ -502,18 +507,23 @@ tiering telemetry (R46).
 
 ---
 
-## Outstanding Questions
+## Decisions and remaining design work
 
-Deferred to implementation:
+[The durable ruling](../decisions/async-collaboration.md) and the companion plan
+settle: read-time priority components/clamps; 4 KB projection/next-use compaction;
+internal token route before the guard; 40k-token T1 batch/4k per-item bounds;
+four-way optional dismissal reasons; hybrid interactive priority; pessimistic
+unknown-cost reservations; and generic, explicit nonpersistent headless requests.
+Both first-party backends require actual containment evidence. An unsupported
+platform cannot silently substitute a weaker profile.
 
-- Priority score weighting, and the ceiling clamp on model-suggested priority.
-- The `state_md` projection's size cap and compaction trigger, now that history lives in
-  checkpoints and only the projection is bounded.
-- Internal route placement — before the guard on the main listener, or a separate loopback
-  listener.
-- Which model tier serves T1, and the batch token budget.
-- The one-tap dismissal reason vocabulary — training signal for v2 policies, and a vocabulary
-  chosen now constrains what can be learned later.
-- Whether non-Claude backends can express the R24 autonomous request shape and R28's
-  containment at all; the current `AgentBackend` interface does not require either, so the
-  honest answer may be that autonomous mode is Claude-only in v1.
+The historical model/effort preference is benchmark evidence, not an unverified
+current deployment default. U6 supplies production accounting; U18 is reused.
+Interaction design for durable cards/Queue and exact notification aggregation
+policy remain scoped design inputs on their GitHub tasks. U10 produces the
+process-boundary proof before implementation. #597 retains its own hygiene
+priority/disposition ruling; it is not a blocker for all of #51.
+
+Use the sole Odysseus example world under the September 30 maintainer ruling.
+Repository-wide corpus conversion is #625. Plans hold design; GitHub owns task
+status, dependencies and completion evidence.
