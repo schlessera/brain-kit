@@ -10,10 +10,11 @@ judge any part of it. Once it ships, the plan stops being a plan: the durable
 half moves to [`../decisions/`](../decisions/README.md) and the rest is deleted,
 because the code has become the better answer to "what does this do".
 
-| Plan | State |
+| Plan | Design |
 | --- | --- |
-| [async-collaboration.md](async-collaboration.md) | Designed, reviewed, unbuilt. Tracked as an epic in the issue tracker; not scheduled. |
+| [async-collaboration.md](async-collaboration.md) | The cross-package containment and collaboration design. |
 | [async-collaboration-requirements.md](async-collaboration-requirements.md) | The requirements it came from. |
+| [voice-conversation.md](voice-conversation.md) | Proposed turn-taking, screen and interruption model; requirements for the later speech-architecture ruling. |
 
 ## What does not live here
 
