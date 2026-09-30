@@ -5,13 +5,13 @@
  * The rewrite edits only the entries of the `tags:` key inside the
  * frontmatter fence, on the raw text. Every other byte of the file stays as
  * it was: comments, quoting, key order, flow or block style, the body. Parsed
- * frontmatter is read, never written back, and always parsed with options so
- * gray-matter's cache cannot hand one file's data object to another (#142).
+ * frontmatter is read, never written back, and parsed with parseFrontmatter,
+ * so no two files share a data object (#142).
  * Each rewrite is parsed again and must yield exactly the planned tags, or
  * the file is skipped.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { createHash } from "crypto";
 import { chmodSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -313,9 +313,7 @@ export function rewriteTags(
 ): { text: string; from: string[]; to: string[] } | { skip: string } | null {
   let data: Record<string, unknown>;
   try {
-    // Options bypass gray-matter's cache, which shares one data object between
-    // byte-identical inputs (#142).
-    data = matter(text, {}).data;
+    data = parseFrontmatter(text).data;
   } catch {
     return { skip: "frontmatter does not parse" };
   }
@@ -380,7 +378,7 @@ export function rewriteTags(
   const result = text.slice(0, bounds.start) + rewritten + text.slice(bounds.end);
   let check: unknown;
   try {
-    check = matter(result, {}).data.tags;
+    check = parseFrontmatter(result).data.tags;
   } catch {
     return { skip: "the rewritten frontmatter does not parse" };
   }
@@ -451,7 +449,7 @@ export function applyTagChanges(root: string, taxonomy: Taxonomy, opts: TagApply
       const text = readFileSync(fullPath, "utf-8");
       let type: string | null = null;
       try {
-        const data = matter(text, {}).data;
+        const data = parseFrontmatter(text).data;
         type = typeof data.type === "string" ? data.type : null;
       } catch {
         // rewriteTags reports it as skipped.

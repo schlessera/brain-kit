@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./lib/frontmatter-parse.js";
 import type { ScoreBreakdown } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ export function loadScoringConfig(root: string, criteriaPath: string): ScoringCo
         `or set the module "criteria" config to an existing file.`
     );
   }
-  const { data } = matter(readFileSync(abs, "utf8"));
+  const { data } = parseFrontmatter(readFileSync(abs, "utf8"));
   return parseScoringConfig((data as Record<string, unknown>).scoring);
 }
 

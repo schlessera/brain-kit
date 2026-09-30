@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 import {
   mkdirSync,
   symlinkSync,
@@ -166,7 +166,7 @@ describe("OKF exporter", () => {
     const root = fullFixture();
     await exportOkfBundle({ root, taxonomy: taxonomy() });
     const sourceRaw = readFileSync(join(root, "okf-dist/notes/source.md"), "utf-8");
-    const source = matter(sourceRaw);
+    const source = parseFrontmatter(sourceRaw);
 
     expect(source.data.description).toBe("A portable source note.");
     expect(source.data.summary).toBeUndefined();
@@ -182,7 +182,7 @@ describe("OKF exporter", () => {
     expect(sourceRaw).toMatch(/^updated: 2026-02-03$/m);
     expect(sourceRaw).toMatch(/^deadline: 2026-09-10$/m);
 
-    const nativeResource = matter(readFileSync(join(root, "okf-dist/library/reference.md"), "utf-8"));
+    const nativeResource = parseFrontmatter(readFileSync(join(root, "okf-dist/library/reference.md"), "utf-8"));
     expect(nativeResource.data.resource).toBe("https://example.test/reference");
   });
 
@@ -210,7 +210,7 @@ describe("OKF exporter", () => {
     expect(commit.exitCode).toBe(0);
 
     await exportOkfBundle({ root, taxonomy: taxonomy() });
-    const exported = matter(readFileSync(join(root, "okf-dist/notes/committed.md"), "utf-8"));
+    const exported = parseFrontmatter(readFileSync(join(root, "okf-dist/notes/committed.md"), "utf-8"));
     expect(exported.data.timestamp).toBe("2026-03-04T12:34:56+02:00");
     expect(typeof exported.data.timestamp).toBe("string");
   });

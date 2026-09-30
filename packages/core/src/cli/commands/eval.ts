@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "fs";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";
@@ -178,7 +178,7 @@ function resolveQueries(brain: BrainContext, queries: EvalQuery[], now: Date): R
   const load = (): FrontmatterDocument[] =>
     (documents ??= getMarkdownFiles(brain.root, brain.taxonomy).flatMap((path) => {
       try {
-        const parsed = matter(readFileSync(join(brain.root, path), "utf-8"));
+        const parsed = parseFrontmatter(readFileSync(join(brain.root, path), "utf-8"));
         return [{ path, data: parsed.data, raw: parsed.matter }];
       } catch {
         return []; // unreadable or invalid frontmatter: the indexer skips it too
@@ -274,7 +274,7 @@ function checkIndexFresh(brain: BrainContext, db: Database, scanner: Contaminati
       continue;
     }
     try {
-      const { data } = matter(raw);
+      const { data } = parseFrontmatter(raw);
       if (data.title && data.type) stale.push(`${path}: not indexed yet`);
     } catch {
       /* invalid frontmatter: the indexer skips it too */
@@ -518,7 +518,7 @@ function lintSet(json: boolean, root: string, setPath: string, redact: boolean):
     const full = safeResolve(root, path);
     if (!full || !existsSync(full)) return null;
     try {
-      const title = matter(readFileSync(full, "utf-8"), {}).data.title;
+      const title = parseFrontmatter(readFileSync(full, "utf-8")).data.title;
       return typeof title === "string" ? title : null;
     } catch {
       return null;

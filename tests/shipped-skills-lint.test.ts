@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { dirname, relative, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 
 import { lintSkills } from "../packages/core/src/lib/skills/lint";
 import type { SkillManifest } from "../packages/core/src/lib/seams";
@@ -19,7 +19,7 @@ test("every shipped skill lints without errors or warnings", () => {
   const skills: SkillManifest[] = [...new Bun.Glob("packages/*/skills/*/SKILL.md").scanSync({ cwd: ROOT })]
     .sort()
     .map((rel) => {
-      const data = matter(readFileSync(resolve(ROOT, rel), "utf8")).data as Record<string, unknown>;
+      const data = parseFrontmatter(readFileSync(resolve(ROOT, rel), "utf8")).data as Record<string, unknown>;
       return {
         name: String(data.name ?? ""),
         description: String(data.description ?? ""),

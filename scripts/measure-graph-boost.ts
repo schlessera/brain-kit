@@ -33,7 +33,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 
 import { initContext } from "../packages/core/src/lib/context.js";
 import { openDatabase } from "../packages/core/src/lib/db.js";
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
 
     // Selectors resolve against the markdown on disk, as `brain eval` does.
     const documents = getMarkdownFiles(root, brain.taxonomy).map((path) => {
-      const parsed = matter(readFileSync(join(root, path), "utf-8"));
+      const parsed = parseFrontmatter(readFileSync(join(root, path), "utf-8"));
       return { path, data: parsed.data, raw: parsed.matter };
     });
     const resolved: ResolvedQuery[] = queries.map((q) =>

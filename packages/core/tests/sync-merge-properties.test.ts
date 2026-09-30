@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { stringifyDocument } from "../src/lib/frontmatter";
 import { parseDoc, type Unit } from "../src/lib/sync/resolve/markdown";
@@ -314,7 +314,7 @@ function propertyA(merge: Merge): Failure[] {
 
 /** Frontmatter fields as comparable strings, dates as their day. */
 function fields(text: string): Record<string, string> {
-  const data = matter(text, {}).data as Record<string, unknown>;
+  const data = parseFrontmatter(text).data as Record<string, unknown>;
   return Object.fromEntries(
     Object.entries(data).map(([k, v]) => [k, JSON.stringify(v instanceof Date ? v.toISOString().slice(0, 10) : v)])
   );
@@ -383,7 +383,7 @@ function propertyD(merge: Merge): Failure[] {
     for (const text of [outcome.content, ...outcome.extraFiles.map((file) => file.content)]) {
       try {
         parseDoc(text, "ours", { tables: "rows" });
-        const data = matter(text, {}).data as unknown;
+        const data = parseFrontmatter(text).data as unknown;
         if (!data || typeof data !== "object" || Array.isArray(data) || !("title" in data)) throw new Error("frontmatter lost its fields");
       } catch (e) {
         failures.push({ seed, why: `${strategy}: result does not parse: ${(e as Error).message}` });
@@ -464,7 +464,7 @@ const oursWins: Merge = (input, strategy, decide) => {
 const reserialized: Merge = (input, strategy, decide) => {
   const real = realMerge(input, strategy, decide);
   if (real.outcome.status !== "resolved" || real.outcome.content === null) return real;
-  const parsed = matter(real.outcome.content, {});
+  const parsed = parseFrontmatter(real.outcome.content);
   return { ...real, outcome: { ...real.outcome, content: stringifyDocument(parsed.content, parsed.data) } };
 };
 
@@ -481,7 +481,7 @@ const walksAliases: Merge = (input, strategy, decide) => {
   for (const text of [input.base, input.ours, input.theirs]) {
     if (text === null) continue;
     try {
-      JSON.stringify(matter(text, {}).data);
+      JSON.stringify(parseFrontmatter(text).data);
     } catch (e) {
       if (e instanceof TypeError) throw e;
     }

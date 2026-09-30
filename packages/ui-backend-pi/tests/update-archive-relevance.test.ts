@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../core/src/lib/frontmatter-parse";
 
 import { createBrainAccess } from "../src/brain-access";
 import { makeIndexedBrain, type TempBrain } from "./helpers";
@@ -22,7 +22,7 @@ afterAll(() => brain.cleanup());
 async function updateWithChanges(relevance: string | null, input: { status?: "active" | "archived" | "draft"; relevance?: "primary" | "secondary" | "historical" }) {
   writeFileSync(join(brain.root, "notes/demo.md"), doc(relevance));
   const { changes } = await createBrainAccess(brain.root).update({ path: "notes/demo.md", ...input });
-  return { changes, relevance: matter(readFileSync(join(brain.root, "notes/demo.md"), "utf8"), {}).data.relevance };
+  return { changes, relevance: parseFrontmatter(readFileSync(join(brain.root, "notes/demo.md"), "utf8")).data.relevance };
 }
 
 const update = async (...args: Parameters<typeof updateWithChanges>) => (await updateWithChanges(...args)).relevance;

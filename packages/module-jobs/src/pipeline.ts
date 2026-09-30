@@ -17,7 +17,7 @@
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./lib/frontmatter-parse.js";
 import { safeResolve, splitFrontmatterBlock, writeFileSafely, type AuditIssue, type HygieneContext } from "@schlessera/brain";
 
 import type { JobsConfig } from "./module.js";
@@ -100,7 +100,7 @@ export function ensurePipelineIndex(
     throw new Error(`${path}: ${(error as Error).message}; fix it by hand before adding the registry spec`);
   }
   if (!frontmatter) throw new Error(`${path} has no frontmatter block to add a registry spec to`);
-  if (matter(raw, {}).data.registry !== undefined) return { path, action: "kept" };
+  if (parseFrontmatter(raw).data.registry !== undefined) return { path, action: "kept" };
   // The block ends in its closing `---`; the spec goes on the lines before it.
   const beforeClose = frontmatter.slice(0, -3);
   const eol = beforeClose.endsWith("\r\n") ? "\r\n" : "\n";
@@ -118,7 +118,7 @@ export function ensurePipelineIndex(
 }
 
 /** The registry spec as the pipeline index should read it back. */
-const PIPELINE_SPEC = matter(`---\n${PIPELINE_REGISTRY_YAML}\n---\n`, {}).data.registry as unknown;
+const PIPELINE_SPEC = parseFrontmatter(`---\n${PIPELINE_REGISTRY_YAML}\n---\n`).data.registry as unknown;
 
 /**
  * Whether `next` parses to `raw`'s frontmatter plus exactly the pipeline
@@ -129,8 +129,8 @@ function readsBackWithSpec(raw: string, next: string): boolean {
   let after: Record<string, unknown>;
   try {
     splitFrontmatterBlock(next);
-    before = matter(raw, {}).data;
-    after = matter(next, {}).data;
+    before = parseFrontmatter(raw).data;
+    after = parseFrontmatter(next).data;
   } catch {
     return false;
   }
@@ -160,7 +160,7 @@ export function checkOpportunityStages(ctx: HygieneContext<JobsConfig>, now = ne
   for (const row of rows) {
     let data: Record<string, unknown>;
     try {
-      data = matter(readFileSync(join(ctx.root, row.path), "utf8"), {}).data;
+      data = parseFrontmatter(readFileSync(join(ctx.root, row.path), "utf8")).data;
     } catch {
       continue; // unreadable or invalid frontmatter: `brain validate` reports it
     }

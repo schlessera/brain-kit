@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync } from "fs";
 import { dirname, relative } from "path";
 
@@ -206,7 +206,7 @@ export async function ingest(
     const fullPath = resolvePath(classification.path);
     if (existsSync(fullPath)) {
       const raw = readFileSync(fullPath, "utf-8");
-      const parsed = matter(raw);
+      const parsed = parseFrontmatter(raw);
       if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
         // Only `updated` changes in the frontmatter; its other bytes stay as written.
         const section = `## ${today()} Update\n\n${content.trim()}`;

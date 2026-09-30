@@ -10,7 +10,7 @@
  * document emitted from its own units comes back byte for byte.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../frontmatter-parse.js";
 import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -404,9 +404,7 @@ export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
   if (length > 0) {
     let parsed: unknown;
     try {
-      // Options bypass gray-matter's cache, which shares one data object
-      // between byte-identical inputs (#142).
-      parsed = matter(raw, {}).data;
+      parsed = parseFrontmatter(raw).data;
     } catch (e) {
       throw new UnparseableError(`${side}: frontmatter is not valid YAML (${(e as Error).message.split("\n")[0]})`);
     }
