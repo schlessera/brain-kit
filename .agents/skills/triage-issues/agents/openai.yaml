@@ -1,0 +1,4 @@
+interface:
+  display_name: "Triage brain-kit issues"
+  short_description: "Resolve readiness gaps and classify brain-kit issues"
+  default_prompt: "Use $triage-issues to triage open brain-kit issues without agent-ready, resolve factual gaps, update prompts and labels, and mark fully specified issues ready."
