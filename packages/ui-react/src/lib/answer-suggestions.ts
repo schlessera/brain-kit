@@ -131,7 +131,8 @@ export function visibleSuggestions(message: ChatMessage, context: SuggestionsCon
   const prompt = promptOf(message, context.messages);
   // S9: the reader never saw the answer.
   if (prompt?.source === "voice-conversation") return [];
-  // S2 is #191's error card, which does not exist yet.
+  // S2: failed turns keep their partial output but make no follow-up offer.
+  if (message.failure) return [];
   // S8: no valid call, or nothing survived the drops.
   const block = suggestionsOf(message);
   return block ? keptSuggestions(block, prompt?.content) : [];

@@ -122,6 +122,63 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
   }
 
+  const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function retryTurn(failedTurnId: string): "sent" | "pending" | "refused" {
+    const chat = root.stores.chat.getState();
+    const sessionId = chat.activeSessionId;
+    if (!sessionId) return "refused";
+    const pending = chat.turnRetries[sessionId];
+    if (pending?.failedTurnId === failedTurnId && pending.state !== "refused") return "pending";
+    const buffer = chat.buffers[sessionId];
+    const last = buffer?.messages.at(-1);
+    if (buffer?.isStreaming || chat.runStates[sessionId] === "streaming" || last?.retryOfTurnId !== failedTurnId || !last.failure) return "refused";
+    const retry = { requestId: crypto.randomUUID(), failedTurnId, state: "waiting" as const };
+    chat.setTurnRetry(sessionId, retry);
+    if (!sendClientMessage({ type: "retry_turn", sessionId, failedTurnId, requestId: retry.requestId })) {
+      chat.setTurnRetry(sessionId, { ...retry, state: "refused", message: "Couldn't send. Check the connection and try again." });
+      return "refused";
+    }
+    retryTimers.set(sessionId, setTimeout(() => {
+      const state = root.stores.chat.getState();
+      const current = state.turnRetries[sessionId];
+      if (current?.requestId === retry.requestId && current.state === "waiting") state.setTurnRetry(sessionId, { ...current, state: "unknown" });
+      retryTimers.delete(sessionId);
+    }, 5000));
+    return "sent";
+  }
+
+  function checkRetryDelivery(sessionId: string): boolean {
+    const pending = root.stores.chat.getState().turnRetries[sessionId];
+    return Boolean(pending && sendClientMessage({ type: "retry_status", sessionId, requestId: pending.requestId }));
+  }
+
+  function handleRetryReceipt(msg: Extract<ServerMessage, { type: "retry_receipt" }>): void {
+    const sessionId = msg.sessionId;
+    if (!sessionId) return;
+    const chat = root.stores.chat.getState();
+    const pending = chat.turnRetries[sessionId];
+    if (!pending || pending.requestId !== msg.requestId) return;
+    clearTimeout(retryTimers.get(sessionId)); retryTimers.delete(sessionId);
+    if (msg.state === "unknown") { chat.setTurnRetry(sessionId, { ...pending, state: "unknown" }); return; }
+    if (msg.state === "refused") { chat.setTurnRetry(sessionId, { ...pending, state: "refused", message: msg.message ?? "The server refused this retry." }); return; }
+    chat.setTurnRetry(sessionId, null);
+    const buffer = chat.buffers[sessionId];
+    if (msg.text !== undefined && pending.state === "waiting" && buffer?.messages.at(-1)?.retryOfTurnId === pending.failedTurnId) {
+      chat.addUserMessage(sessionId, msg.text, msg.source);
+      if (msg.attachmentCount) {
+        const current = root.stores.chat.getState().buffers[sessionId];
+        const messages = [...current.messages];
+        messages[messages.length - 1] = { ...messages.at(-1)!, attachmentCount: msg.attachmentCount };
+        root.stores.chat.setState({ buffers: { ...root.stores.chat.getState().buffers, [sessionId]: { ...current, messages } } });
+      }
+      chat.startAssistantMessage(sessionId);
+    } else {
+      // A receipt recovered after a lost acknowledgement heals from history;
+      // it never sends the original request a second time.
+      sendClientMessage({ type: "session_resume", sessionId });
+    }
+  }
+
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
     // Every frame that is not itself a delta must see the transcript fully
@@ -130,6 +187,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     // the message.
     if (msg.type !== "text_delta" && msg.type !== "thinking_delta") flushDeltas();
 
+    if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     const state = root.stores.chat.getState();
 
     // Activity stream frames feed their own store and never touch chat state.
@@ -336,6 +394,7 @@ export function createWebSocketClient(root: BrainUiServices) {
 
     if (status === "connected") {
       root.stores.connection.getState().noteSocketOpen();
+      for (const sessionId of Object.keys(root.stores.chat.getState().turnRetries)) checkRetryDelivery(sessionId);
     }
 
     // A status change can be followed by a history replay that rewrites the
@@ -345,6 +404,10 @@ export function createWebSocketClient(root: BrainUiServices) {
     flushDeltas();
 
     if (status === "disconnected") {
+      const chat = root.stores.chat.getState();
+      for (const [sessionId, pending] of Object.entries(chat.turnRetries)) {
+        if (pending.state === "waiting") chat.setTurnRetry(sessionId, { ...pending, state: "unknown" });
+      }
       wasDisconnected = true;
       // Allow a fresh cold-resume attempt after we reconnect.
       coldResumedSessionId = null;
@@ -444,12 +507,16 @@ export function createWebSocketClient(root: BrainUiServices) {
   return {
     connect,
     send: sendClientMessage,
+    retryTurn,
+    checkRetryDelivery,
     reconnectNow: reconnectWebSocketNow,
     handleServerMessage,
     flushChatDeltas,
     dispose() {
       if (disposed) return;
       disposed = true;
+      for (const timer of retryTimers.values()) clearTimeout(timer);
+      retryTimers.clear();
       disconnect();
       resyncSessionId = null;
       coldResumedSessionId = null;

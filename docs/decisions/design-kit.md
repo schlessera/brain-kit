@@ -382,7 +382,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:175,176`, `getInitialState()`,
+`render-smoke.test.tsx:176,177`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -2355,7 +2355,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:217`), so
+  `packages/ui-server/src/ws/run-session.ts:220`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -4273,12 +4273,12 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:201`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:202`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
 5. **Replay draws what live drew.** One pure function decides the row
-   (`visibleSuggestions`, `packages/ui-react/src/lib/answer-suggestions.ts:118-138`).
+   (`visibleSuggestions`, `packages/ui-react/src/lib/answer-suggestions.ts:118-139`).
    It reads only the transcript and state that is current either way. The
    flip (D38 §8) is any message after this one. S1 is the session's run
    state, which a resume sets from the status frame the server sends after
@@ -4392,3 +4392,51 @@ survivors and question-ending decisions with the actual client's functions,
 and drive accepted, rejected, malformed, subagent and failed-turn frames
 through the server instrument over a real socket. Removing each guard makes
 its named behavioural assertion fail.
+
+
+## 2026-09-30 — D51: recoverable failures stay in their turn, and outward diagnostics require review (#576)
+
+**Ruling.** The [recovered composition](https://github.com/schlessera/brain-kit/issues/576#issuecomment-5906135339)
+and the [maintainer's corrections](https://github.com/schlessera/brain-kit/issues/576#issuecomment-5906946639)
+are the design. A red or gold hairline `Surface` follows the partial answer
+and tool timeline under the existing turn header. Class-driven copy states
+only what the payload establishes. It promises no empty workspace, rollback,
+fixed recovery time or absence of prior tool effects. Missing model, runtime
+version, time, attempt totals and reset times are omitted; #630 and #631 own
+the remaining normalized-payload gaps. D50's error suppression now applies
+live and on replay, even when the failed turn had offered valid suggestions.
+
+`TurnErrorCard` composes the kit's `Receipt`, `Disclosure`, inert `DiffBlock`,
+`Button` and polite `InlineToast`. The provider message is redacted as best
+effort before display, never parsed as markup or allowed to choose actions.
+Long messages wrap; the initial preview is capped at forty explicit lines
+or 4,000 characters, with a named expansion showing the full text. All
+controls have 44px targets. Only live arrival creates an alert; its text is
+fixed for the life of the card, and replay creates none. Reduced motion
+removes the transcript entrance animation.
+
+Subscription `authAction` remains authoritative: its established instruction
+is reproduced verbatim with `for whoever runs this server`. An explicit-key
+profile or generic pi auth failure gets neutral credential wording. No
+Settings sign-in, new auth workflow or model-switch action is invented. All
+model switches wait for #61's linked-session design.
+
+Retry is confined to the latest eligible failure and starts a distinct turn
+with the host-retained original request, including image bytes and effective
+prompt. The warning says prior actions may run again. An atomic delivery
+receipt prevents duplicate starts from a double tap or repeated delivery.
+The client stores only correlation ids and checks delivery after reconnect;
+unconfirmed delivery is not an invitation to resend. A refusal restores the
+action. An unclassified failure gets one manual retry. Server errors offer
+Report after a repeated observed failure.
+
+Copy and Report first open an editable, exact outgoing preview in the kit's
+`BottomSheet` inside a native modal. Its keyboard focus is trapped and
+returned to the opener. The default diagnostic allowlist contains protocol,
+known class and observed status, plus product auth instructions when relevant.
+Provider text is optional, redacted as best effort and capped visibly at
+1,500 characters. The reader can edit every byte. Copy occurs only on the
+final Copy action; opening Report transmits the reviewed URL payload to
+GitHub before issue submission, which the sheet states explicitly. A long
+URL is refused with a copy-and-paste fallback, never silently shortened.
+There is no promise that heuristic redaction catches all private content.

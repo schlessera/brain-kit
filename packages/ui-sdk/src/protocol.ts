@@ -68,6 +68,8 @@ export interface SessionRef {
 
 export type ClientMessage =
   | ClientHello
+  | ClientRetryTurn
+  | ClientRetryStatus
   | ClientChatMessage
   | ClientToolApproval
   | ClientToolDenial
@@ -313,10 +315,39 @@ export interface ClientSessionResume {
   sessionId: string;
 }
 
+/** Exact retry of a host-retained failed request. A repeated requestId never starts another turn. */
+export interface ClientRetryTurn {
+  type: "retry_turn";
+  sessionId: string;
+  failedTurnId: string;
+  requestId: string;
+}
+
+/** Reconcile delivery without submitting another turn. */
+export interface ClientRetryStatus {
+  type: "retry_status";
+  sessionId: string;
+  requestId: string;
+}
+
+export interface ServerRetryReceipt extends SessionScoped {
+  sessionId: string;
+  type: "retry_receipt";
+  requestId: string;
+  state: "accepted" | "refused" | "unknown";
+  /** Neutral refusal or reconciliation guidance; inert text. */
+  message?: string;
+  /** Original user text for the accepted new turn's local row. */
+  text?: string;
+  attachmentCount?: number;
+  source?: MessageSource;
+}
+
 // --- Server -> Client ---
 
 export type ServerMessage =
   | ServerHello
+  | ServerRetryReceipt
   | ServerTextDelta
   | ServerThinkingDelta
   | ServerToolUseStart
@@ -419,6 +450,8 @@ export interface SessionHistoryMessage {
    * whatever the turn answered before it failed.
    */
   failure?: TurnFailure;
+  /** Host-held exact original request, present only on an eligible latest failure. */
+  retryOfTurnId?: string;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -584,6 +617,8 @@ export interface ServerResultMessage {
    * turn failed for another reason, or the backend predates the field.
    */
   failure?: TurnFailure;
+  /** Host-retained original request; absent when an exact retry is unavailable. */
+  retryOfTurnId?: string;
 }
 
 /**

@@ -134,6 +134,7 @@ const motionElements = new Map<
   ReturnType<typeof createMotionElement>
 >();
 mock.module("framer-motion", () => ({
+  useReducedMotion: () => true,
   AnimatePresence: ({ children }: { children?: ReactNode }) => children,
   motion: new Proxy(
     {},

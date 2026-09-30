@@ -50,6 +50,8 @@ export "." (./src/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientRetryStatus
+  type ClientRetryTurn
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
@@ -122,6 +124,7 @@ export "." (./src/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerResultMessage
+  type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
   type ServerStatus
@@ -253,6 +256,8 @@ export "./client" (./src/client/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientRetryStatus
+  type ClientRetryTurn
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
@@ -377,6 +382,7 @@ export "./client" (./src/client/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerResultMessage
+  type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
   type ServerStatus
@@ -512,6 +518,8 @@ export "./protocol" (./src/protocol.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientRetryStatus
+  type ClientRetryTurn
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
@@ -584,6 +592,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerResultMessage
+  type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
   type ServerStatus
@@ -652,6 +661,8 @@ export "./schemas" (./src/schemas.ts)
   clientMaskErrorSchema
   clientMaskResponseSchema
   clientMessageSchema
+  clientRetryStatusSchema
+  clientRetryTurnSchema
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
@@ -672,6 +683,7 @@ export "./schemas" (./src/schemas.ts)
   serverMessageBlocksSchema
   serverMessageSchema
   serverResultSchema
+  serverRetryReceiptSchema
   serverSessionHistorySchema
   serverSessionInfoSchema
   serverStatusSchema
@@ -812,6 +824,8 @@ export "./server" (./src/server/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientRetryStatus
+  type ClientRetryTurn
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
@@ -961,6 +975,7 @@ export "./server" (./src/server/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerResultMessage
+  type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
   type ServerStatus
@@ -2033,7 +2048,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -2052,6 +2067,18 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         usage?: TurnUsage;
         outcomeDetail?: string;
         failure?: TurnFailure;
+        retryOfTurnId?: string;
+    }
+  ServerRetryReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ServerRetryReceipt extends SessionScoped {
+        sessionId: string;
+        type: "retry_receipt";
+        requestId: string;
+        state: "accepted" | "refused" | "unknown";
+        message?: string;
+        text?: string;
+        attachmentCount?: number;
+        source?: MessageSource;
     }
   ServerSessionHistory (packages/ui-sdk/src/protocol.ts)
     export interface ServerSessionHistory extends SessionScoped {
@@ -2142,6 +2169,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         source?: MessageSource;
         localAnswer?: LocalAnswer;
         failure?: TurnFailure;
+        retryOfTurnId?: string;
     }
   SessionScoped (packages/ui-sdk/src/protocol.ts)
     export interface SessionScoped {

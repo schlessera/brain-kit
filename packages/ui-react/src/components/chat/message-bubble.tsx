@@ -18,7 +18,7 @@ import { LocalExchangeNote } from "./local-exchange-note.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { AnswerSuggestions } from "./answer-suggestions.js";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
@@ -30,7 +30,7 @@ import {
   TurnHeader,
   UserTurn,
 } from "./transcript-turn.js";
-import { failureMarkdown } from "../../lib/turn-failure.js";
+import { TurnError } from "./turn-error.js";
 
 /**
  * One message in the transcript.
@@ -81,10 +81,11 @@ export const MessageBubble = memo(function MessageBubble({
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
+  const reducedMotion = useReducedMotion();
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={reducedMotion ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
       className="py-4"
@@ -392,11 +393,7 @@ function AssistantContent({
 
       {/* The failure that ended the turn (#575), after whatever it answered
           first, live and on replay alike. */}
-      {message.failure && (
-        <div className="chat-message-body" data-turn-failure={message.failure.errorClass}>
-          <MarkdownContent content={failureMarkdown(message.failure)} streaming={false} />
-        </div>
-      )}
+      {message.failure && !message.isStreaming ? <TurnError message={message} latest={closing} /> : null}
 
       {message.isStreaming && message.retry && <RetryIndicator retry={message.retry} />}
 

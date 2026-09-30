@@ -17,7 +17,7 @@ import {
   visibleToolName,
   type Block,
 } from "@schlessera/brain-ui-sdk/client";
-import type { MessageSource, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { MessageSource, SessionHistoryMessage, TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -43,6 +43,7 @@ function motionElement(tag: string) {
   );
 }
 mock.module("framer-motion", () => ({
+  useReducedMotion: () => true,
   AnimatePresence: ({ children }: { children?: ReactNode }) => children,
   motion: new Proxy(
     {},
@@ -180,6 +181,7 @@ async function mount(): Promise<Page> {
 // ---------------------------------------------------------------------------
 
 interface Turn {
+  failure?: TurnFailure;
   prompt?: string;
   source?: MessageSource;
   text?: string;
@@ -234,7 +236,7 @@ function liveTurn(page: Page, turn: Turn): void {
       { type: "tool_result", toolUseId: `b${i}`, ...toolOutput(call) }
     );
   });
-  if (!turn.running) page.deliver({ type: "result", outcome: "success" }, { type: "status", status: "idle" });
+  if (!turn.running) page.deliver({ type: "result", outcome: turn.failure ? "error" : "success", isError: Boolean(turn.failure), numTurns: 1, durationMs: 1, failure: turn.failure }, { type: "status", status: "idle" });
 }
 
 function historyOf(turn: Turn): SessionHistoryMessage[] {
@@ -256,7 +258,7 @@ function historyOf(turn: Turn): SessionHistoryMessage[] {
   return [
     // `source` is how the message was spoken; ui-server replays it (#549).
     { role: "user", content: turn.prompt ?? PROMPT, toolCalls: [], ...(turn.source ? { source: turn.source } : {}) } as SessionHistoryMessage,
-    { role: "assistant", content: turn.text ?? ANSWER, toolCalls, parts },
+    { role: "assistant", content: turn.text ?? ANSWER, toolCalls, parts, ...(turn.failure ? { failure: turn.failure } : {}) },
   ];
 }
 
@@ -377,6 +379,19 @@ describe("the welcome chips", () => {
 
 describe("suppression", () => {
   for (const [mode, build] of MODES) {
+    test(`S2 · ${mode}: a failed turn suppresses nonempty suggestions`, async () => {
+      const page = await mount();
+      try {
+        build(page, { calls: [SUGGESTIONS] });
+        expect(page.shown()).toBe(true);
+        expect(page.chips()).toHaveLength(2);
+        act(() => page.root.stores.chat.getState().setMessages(SESSION, []));
+        build(page, { calls: [SUGGESTIONS], failure: { errorClass: "server_error", message: "Provider failed" } });
+        expect(page.shown()).toBe(false);
+        expect(page.view.getByRole("region", { name: "Turn failed" })).toBeTruthy();
+      } finally { page.done(); }
+    });
+
     test(`S3 · ${mode}: a question in the turn still waiting on the reader`, async () => {
       const page = await mount();
       try {

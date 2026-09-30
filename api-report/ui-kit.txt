@@ -224,6 +224,9 @@ export "." (./src/index.ts)
   type TraceStepsProps
   TrendChart
   type TrendChartProps
+  type TurnErrorAction
+  TurnErrorCard
+  type TurnErrorCardProps
   type ValueTone
   type ViewState
   canvas

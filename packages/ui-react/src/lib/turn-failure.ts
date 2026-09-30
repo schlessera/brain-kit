@@ -1,14 +1,50 @@
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/protocol";
 
-/**
- * A failed turn as the transcript draws it (#575): the `**Error:**` line the
- * client has always drawn for an error, then, for a subscription auth
- * failure, what the operator does about it — the #254 split, word for word.
- * One function, so the live turn and its replay cannot differ.
- */
-export function failureMarkdown(failure: TurnFailure): string {
-  const lines = [`**Error:** ${failure.message}`];
-  if (failure.authAction) lines.push(SUBSCRIPTION_AUTH_INSTRUCTIONS[failure.authAction]);
-  return lines.join("\n\n");
+const AUTH = new Set(["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "billing_error", "subscription_required"]);
+const TRANSIENT = new Set(["rate_limit", "overloaded", "server_error", "max_output_tokens"]);
+const HEADLINES: Record<string, string> = {
+  rate_limit: "The provider rate limited this request.",
+  overloaded: "The provider is overloaded.",
+  server_error: "The provider failed to complete this request.",
+  invalid_request: "The provider rejected this request.",
+  model_not_found: "This model is unavailable on the backend.",
+  max_output_tokens: "The answer reached its length limit and stopped.",
+};
+
+/** Class-driven copy; a class never establishes whether tools already ran. */
+export function failurePresentation(failure: TurnFailure) {
+  if (failure.authAction) {
+    const instruction = SUBSCRIPTION_AUTH_INSTRUCTIONS[failure.authAction];
+    const headline = failure.authAction === "check_config" ? "The Claude subscription configuration was refused."
+      : failure.authAction === "check_account" ? "The Claude account itself was refused."
+      : "The Claude subscription token was rejected.";
+    return { headline, explanation: instruction, operator: true, tone: "red" as const, retry: false, report: false };
+  }
+  if (AUTH.has(failure.errorClass)) return {
+    headline: "The backend's credential was refused.",
+    explanation: "Check the credential configured for this provider. The provider's message is available below.",
+    operator: true, tone: "red" as const, retry: false, report: false,
+  };
+  return {
+    headline: HEADLINES[failure.errorClass] ?? "This turn failed.",
+    explanation: failure.errorClass === "max_output_tokens" ? "The partial answer above is kept."
+      : "Any partial answer and tool activity above are kept. The provider's message is available below.",
+    operator: false, tone: TRANSIENT.has(failure.errorClass) ? "gold" as const : "red" as const,
+    retry: ["rate_limit", "overloaded", "server_error", "unknown"].includes(failure.errorClass),
+    report: failure.errorClass === "invalid_request" || !HEADLINES[failure.errorClass],
+  };
+}
+
+/** Optional provider text only; this heuristic is followed by explicit editable review. */
+export function redactProviderMessage(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s<>]+/gi, "[redacted URL]")
+    .replace(/\b(?:Bearer\s+|sk-[\w-]*|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,;]+/gi, "[redacted credential]")
+    .replace(/\b(?:cookie|authorization)\s*[:=]\s*[^\n]+/gi, "[redacted credential]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted host]")
+    .replace(/\b(?:[a-z0-9-]+\.)+(?:[a-z]{2,63})\b/gi, "[redacted host]")
+
+    .replace(/(?:\/[\w.-]+){2,}/g, "[redacted path]")
+    .replace(/\b[A-Z]:\\[^\s<>]+/gi, "[redacted path]");
 }

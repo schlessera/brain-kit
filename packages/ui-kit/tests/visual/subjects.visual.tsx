@@ -89,6 +89,7 @@ import { page } from "vitest/browser";
 
 import * as agentOrbit from "../../stories/agents/AgentOrbit.stories.js";
 import * as agentRunCard from "../../stories/agents/AgentRunCard.stories.js";
+import * as turnErrorCard from "../../stories/conversation/TurnErrorCard.stories.js";
 import * as graphView from "../../stories/agents/GraphView.stories.js";
 import * as laneChart from "../../stories/agents/LaneChart.stories.js";
 import * as inPrint from "../../stories/blocks/InPrint.stories.js";
@@ -399,6 +400,21 @@ async function inViewport(width: number, height: number, body: () => Promise<voi
   } finally {
     await page.viewport(before.width, before.height);
   }
+}
+
+// The two failure tones, with the closed disclosure on a phone and the
+// initially open unknown explanation on desktop (#576).
+for (const light of [false, true]) {
+  test(`dense: failed turn, phone${light ? ", on paper" : ""}`, async () => {
+    await inViewport(320, 900, () => light
+      ? looksRightOnPaper(turnErrorCard.Default, "dense-failed-turn-phone")
+      : looksRight(turnErrorCard.Default, "dense-failed-turn-phone"));
+  });
+  test(`dense: failed turn, desktop${light ? ", on paper" : ""}`, async () => {
+    await inViewport(900, 900, () => light
+      ? looksRightOnPaper(turnErrorCard.UnknownWide, "dense-failed-turn-wide")
+      : looksRight(turnErrorCard.UnknownWide, "dense-failed-turn-wide"));
+  });
 }
 
 test("dense: ask list, thirty by three at 320px", async () => {

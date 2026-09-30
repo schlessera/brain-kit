@@ -28,6 +28,7 @@ function createMotionElement(tag: string) {
 }
 const motionElements = new Map<string, ReturnType<typeof createMotionElement>>();
 mock.module("framer-motion", () => ({
+  useReducedMotion: () => true,
   AnimatePresence: ({ children }: { children?: ReactNode }) => children,
   motion: new Proxy({}, {
     get: (_target, tag: string) => {

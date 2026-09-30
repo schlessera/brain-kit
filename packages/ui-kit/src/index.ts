@@ -201,6 +201,7 @@ export {
 } from "./conversation/DigestCard.js";
 export { EmptyState, type EmptyStateProps } from "./conversation/EmptyState.js";
 export { InlineToast, type InlineToastProps } from "./conversation/InlineToast.js";
+export { TurnErrorCard, type TurnErrorCardProps, type TurnErrorAction } from "./conversation/TurnErrorCard.js";
 export {
   RelatedFiles,
   type RelatedFileItem,

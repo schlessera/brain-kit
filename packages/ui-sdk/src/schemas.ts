@@ -22,6 +22,9 @@ import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 import type {
   AskUserAnnotation,
   ClientHello,
+  ClientRetryTurn,
+  ClientRetryStatus,
+  ServerRetryReceipt,
   MessagePart,
   SessionHistoryMessage,
   ServerAskUserListRequest,
@@ -474,7 +477,12 @@ export const clientActivityUnsubscribeSchema = z.looseObject({
   runId: id.optional(),
 }) satisfies z.ZodType<ClientActivityUnsubscribe>;
 
+export const clientRetryTurnSchema = z.looseObject({ type: z.literal("retry_turn"), sessionId: id, failedTurnId: id, requestId: id }) satisfies z.ZodType<ClientRetryTurn>;
+export const clientRetryStatusSchema = z.looseObject({ type: z.literal("retry_status"), sessionId: id, requestId: id }) satisfies z.ZodType<ClientRetryStatus>;
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
+  clientRetryTurnSchema,
+  clientRetryStatusSchema,
   clientHelloSchema,
   clientChatMessageSchema,
   clientToolApprovalSchema,
@@ -652,6 +660,7 @@ const historyMessageSchema = z.looseObject({
   // A replayed answer this build cannot read is dropped, not the history.
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
+  retryOfTurnId: id.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -746,6 +755,7 @@ export const serverResultSchema = z.looseObject({
   usage: turnUsageSchema.optional(),
   outcomeDetail: z.string().max(200).optional(),
   failure: turnFailureSchema.optional().catch(undefined),
+  retryOfTurnId: id.optional().catch(undefined),
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
@@ -914,7 +924,13 @@ export const serverLocalExchangeResultSchema = z.looseObject({
   turnId: z.string().max(MAX_ID_CHARS).optional(),
 }) satisfies z.ZodType<ServerLocalExchangeResult>;
 
+export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_receipt"), ...sessionScoped, sessionId: id, requestId: id,
+  state: z.enum(["accepted", "refused", "unknown"]), message: z.string().optional(), text: z.string().optional(),
+  attachmentCount: z.number().int().min(0).optional(), source: optionalMessageSource,
+}) satisfies z.ZodType<ServerRetryReceipt>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
+  serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,
   serverThinkingDeltaSchema,

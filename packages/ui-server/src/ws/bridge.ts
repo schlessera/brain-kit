@@ -67,6 +67,17 @@ export function makeBridge(
           named(msg.sessionId);
         }
       }
+      if (msg.type === "result") {
+        catalog.persistSession(msg, promptText, turn.providerId, backendId);
+        const eligible = msg.failure && ["rate_limit", "overloaded", "server_error", "unknown"].includes(msg.failure.errorClass)
+          && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
+        if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
+          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")) {
+          if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
+            msg = { ...msg, retryOfTurnId: turnId };
+          }
+        }
+      }
       // Persist-then-emit: the span write commits before the frame goes out,
       // so a subscriber's snapshot can never be behind what it just saw live.
       // Late frames through a previous turn's bridge stay un-recorded — the
@@ -84,7 +95,6 @@ export function makeBridge(
                 ? "cancelled"
                 : "success";
         }
-        catalog.persistSession(msg, promptText, turn.providerId, backendId);
         if (
           collector &&
           host.classifier &&

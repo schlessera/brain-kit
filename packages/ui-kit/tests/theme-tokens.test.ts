@@ -181,7 +181,10 @@ describe("design tokens", () => {
     // override therefore has one stop and it is the 0%/100% end of the
     // animation, so the pulse resolves to a full-opacity static dot.
     const block = theme.slice(theme.indexOf("@media (prefers-reduced-motion: reduce)"));
-    const frame = block.slice(block.indexOf("@keyframes breathe"));
+    // Scope this to the keyframe, not every later selector (sr-only uses 50%).
+    const match = block.match(/@keyframes breathe\s*\{((?:[^{}]|\{[^{}]*\})*)\}/);
+    expect(match).not.toBeNull();
+    const frame = match![1]!;
     expect(frame).toContain("opacity: 1;");
     expect(frame).not.toContain("opacity: 0.6");
     expect(frame).not.toContain("50%");
