@@ -331,7 +331,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
 
 describe("/api/status shows the sync runtime beside chat's", () => {
   test("a wrapper-recorded sync reaches the mounted status, apart from the chat runtime", async () => {
-    const t = createTestApp();
+    const t = await createTestApp();
     try {
       const brain = fakeBrain();
       brain.set({ stdout: INVOKED_KNOWN, exit: 0 });

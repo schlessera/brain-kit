@@ -31,7 +31,7 @@ describe("the /ws route at connection capacity", () => {
       BRAIN_UI_PRICING_DISCOVERY: "0",
       BRAIN_UI_WS_MAX_CONNECTIONS: "1",
     });
-    app = createApp({
+    app = await createApp({
       config,
       observability,
       registry: createStaticBackendRegistry([backend], backend.id),
@@ -87,7 +87,7 @@ describe("the /ws route at connection capacity", () => {
       BRAIN_UI_MODEL_DISCOVERY: "0",
       BRAIN_UI_PRICING_DISCOVERY: "0",
     });
-    app = createApp({
+    app = await createApp({
       config,
       registry: createStaticBackendRegistry([backend], backend.id),
     });

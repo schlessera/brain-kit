@@ -402,7 +402,7 @@ async function measure(): Promise<void> {
   // classification pass's outcome and latency come from the instrumentation
   // D42 already writes instead of being guessed from the frames.
   const observability = createRecordingObservability();
-  const app = createApp({ config, dbPath, observability });
+  const app = await createApp({ config, dbPath, observability });
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",

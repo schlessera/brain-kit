@@ -141,6 +141,14 @@ export interface ExecWrapperConfig {
   killer?: string;
 }
 
+/** Optional bounded helper handling for boot probes; turn cancellation keeps its existing behavior. */
+export interface WrappedKillOptions {
+  /** Bound the helper and try the ordinary signal route when it expires. */
+  helperTimeoutMs: number;
+  /** The signalling attempt has finished; this does not prove the target exited. */
+  onComplete(): void;
+}
+
 /**
  * Abort a spawn made through {@link execWrapperSpawnOptions}.
  *
@@ -162,7 +170,8 @@ export function killWrapped(
   proc: KillableProcess,
   config: ExecWrapperConfig = {},
   signal: NodeJS.Signals = "SIGTERM",
-  onFailure: (message: string) => void = (message) => console.error(message)
+  onFailure: (message: string) => void = (message) => console.error(message),
+  bounded?: WrappedKillOptions
 ): void {
   const { wrapper, killer } = config;
   if (!wrapper) {
@@ -171,6 +180,7 @@ export function killWrapped(
     // survive until the search deadline. Dropping it here was a regression on
     // the path every existing deployment is on.
     proc.kill(signal);
+    bounded?.onComplete();
     return;
   }
 
@@ -199,14 +209,17 @@ export function killWrapped(
 
   if (!killer) {
     signalGroup();
+    bounded?.onComplete();
     return;
   }
 
-  let helper: { exited: Promise<number> };
+  let helper: Bun.Subprocess<"ignore", "ignore", "ignore">;
   try {
     helper = Bun.spawn([killer, String(proc.pid), signal.replace(/^SIG/, "")], {
+      stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
+      ...(bounded ? { detached: true } : {}),
     });
   } catch (error) {
     onFailure(
@@ -215,7 +228,37 @@ export function killWrapped(
         "Falling back to an unprivileged signal, which fails if the wrapper changed uid."
     );
     signalGroup();
+    bounded?.onComplete();
     return;
+  }
+
+  let finished = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const complete = (): void => {
+    finished = true;
+    clearTimeout(timer);
+    bounded?.onComplete();
+  };
+  if (bounded) {
+    timer = setTimeout(() => {
+      if (finished) return;
+      onFailure(
+        `${EXEC_KILLER_ENV} at ${killer} did not finish cancelling process group ${proc.pid} ` +
+          `within ${bounded.helperTimeoutMs} ms; helper cleanup is unconfirmed. Trying an unprivileged signal.`
+      );
+      try {
+        process.kill(-helper.pid, "SIGKILL");
+      } catch {
+        try {
+          helper.kill("SIGKILL");
+        } catch (error) {
+          onFailure(`Could not stop cancellation helper ${helper.pid}: ${String(error)}.`);
+        }
+      }
+      helper.unref();
+      signalGroup();
+      complete();
+    }, bounded.helperTimeoutMs);
   }
 
   // Not awaited — an abort path must not wait on a process spawn — but not
@@ -224,20 +267,27 @@ export function killWrapped(
   // successful cancellation is how a turn keeps running with a clean log.
   void helper.exited.then(
     (code) => {
-      if (code === 0) return;
+      if (finished) return;
+      if (code === 0) {
+        complete();
+        return;
+      }
       onFailure(
         `${EXEC_KILLER_ENV} at ${killer} exited ${code} cancelling process group ` +
           `${proc.pid}. Falling back to an unprivileged signal, which fails if the ` +
           "wrapper changed uid."
       );
       signalGroup();
+      complete();
     },
     (error: unknown) => {
+      if (finished) return;
       onFailure(
         `${EXEC_KILLER_ENV} at ${killer} failed cancelling process group ${proc.pid}: ` +
           `${error instanceof Error ? error.message : String(error)}.`
       );
       signalGroup();
+      complete();
     }
   );
 }

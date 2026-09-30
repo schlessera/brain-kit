@@ -156,7 +156,7 @@ function isWebSocketUpgradeAttempt(request: Request): boolean {
   );
 }
 
-export function createApp(options: CreateAppOptions = {}): BrainUiApp {
+export async function createApp(options: CreateAppOptions = {}): Promise<BrainUiApp> {
   // The edge: ambient environment becomes explicit configuration exactly once.
   // options.dbPath folds into the config here, so the handle's `config` and
   // the database actually opened can never disagree.
@@ -195,12 +195,12 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   // nothing behind. Skipped with an injected registry, like the check above.
   const runtimeProbes = options.registry
     ? []
-    : probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  probeBrainCliVersion(config.brainPath, observability.logger("brain"));
+  await probeBrainCliVersion(config.brainPath, observability.logger("brain"));
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
   prunePrincipals(db, Date.now());

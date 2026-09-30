@@ -6,6 +6,8 @@ import {
   execWrapperSpawnOptions,
   killWrapped,
   wrapCommand,
+  probeVersionCommand,
+  type VersionProbeResult,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
   BrainSearchResult,
@@ -130,38 +132,25 @@ function isBelowMinimum(found: ParsedVersion, minimum: ParsedVersion): boolean {
 }
 
 /** Probe the brain repo's own CLI pin, refusing only known-incompatible versions. */
-export function probeBrainCliVersion(brainPath: string, log: Logger): void {
-  let result: ReturnType<typeof Bun.spawnSync>;
+export async function probeBrainCliVersion(brainPath: string, log: Logger): Promise<void> {
+  let result: VersionProbeResult;
   try {
-    // Through the wrapper like every other CLI launch. Deliberately including
-    // the probe: it proves at boot that the wrapper can actually run the CLI,
-    // rather than leaving that to be discovered by the first user request.
-    const exec = execConfig();
-    result = Bun.spawnSync(
-      wrapCommand([...brainCliCommand(brainPath), "--version"], exec.wrapper),
-      {
-        cwd: brainPath,
-        stdout: "pipe",
-        stderr: "pipe",
-        env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-        timeout: 5_000,
-        ...execWrapperSpawnOptions(exec.wrapper),
-      }
-    );
-    // spawnSync's timeout kills the process it started — with a supervising
-    // wrapper that is the wrapper, and the CLI it launched is orphaned for as
-    // long as it feels like running. Sweep the group unconditionally: when
-    // everything already exited this is an ESRCH no-op, and when it did not,
-    // a hung `brain --version` does not outlive the boot that gave up on it.
-    if (exec.wrapper) killWrapped({ pid: result.pid, kill: () => {} }, exec, "SIGKILL");
-  } catch (error) {
-    log.emit({
-      severityText: "WARN",
-      body: "brain CLI version probe failed; continuing",
-      attributes: {
-        reason: error instanceof Error ? error.message : String(error),
-      },
+    result = await probeVersionCommand([...brainCliCommand(brainPath), "--version"], {
+      cwd: brainPath,
+      env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+      exec: execConfig(),
     });
+  } catch (error) {
+    log.emit({ severityText: "WARN", body: "brain CLI version probe failed; continuing", attributes: {
+      reason: error instanceof Error ? error.message : String(error),
+    } });
+    return;
+  }
+  for (const warning of result.cleanupWarnings) {
+    log.emit({ severityText: "WARN", body: warning });
+  }
+  if (result.timedOut) {
+    log.emit({ severityText: "WARN", body: "brain CLI did not answer --version within 5 s; continuing" });
     return;
   }
 
@@ -174,7 +163,7 @@ export function probeBrainCliVersion(brainPath: string, log: Logger): void {
     return;
   }
 
-  const foundText = new TextDecoder().decode(result.stdout).trim();
+  const foundText = result.stdout.trim();
   const found = parseVersion(foundText);
   const minimum = parseVersion(MIN_BRAIN_CLI_VERSION)!;
   if (!found) {

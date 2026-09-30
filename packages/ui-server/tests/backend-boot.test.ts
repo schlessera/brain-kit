@@ -243,26 +243,21 @@ describe("createApp boot validation", () => {
     BRAIN_UI_PRICING_DISCOVERY: "0",
   } as const;
 
-  test("an unrecognized AGENT_BACKEND refuses to boot", () => {
-    expect(() =>
-      createApp({ config: resolveServerConfig({ ...baseEnv, AGENT_BACKEND: "gemini" }) })
-    ).toThrow('AGENT_BACKEND="gemini" does not match any configured backend');
+  test("an unrecognized AGENT_BACKEND refuses to boot", async () => {
+    await expect(createApp({ config: resolveServerConfig({ ...baseEnv, AGENT_BACKEND: "gemini" }) })).rejects.toThrow('AGENT_BACKEND="gemini" does not match any configured backend');
   });
 
-  test("a pi profile missing required fields refuses to boot", () => {
-    expect(() =>
-      createApp({
+  test("a pi profile missing required fields refuses to boot", async () => {
+    await expect(createApp({
         config: resolveServerConfig({
           ...baseEnv,
           BRAIN_UI_PI_PROFILES: JSON.stringify([{}]),
         }),
-      })
-    ).toThrow("Each BRAIN_UI_PI_PROFILES entry needs a non-empty string id.");
+      })).rejects.toThrow("Each BRAIN_UI_PI_PROFILES entry needs a non-empty string id.");
   });
 
-  test("a reserved pi profile id refuses to boot", () => {
-    expect(() =>
-      createApp({
+  test("a reserved pi profile id refuses to boot", async () => {
+    await expect(createApp({
         config: resolveServerConfig({
           ...baseEnv,
           BRAIN_UI_PI_PROFILES: JSON.stringify([
@@ -274,13 +269,11 @@ describe("createApp boot validation", () => {
             },
           ]),
         }),
-      })
-    ).toThrow('BRAIN_UI_PI_PROFILES id "claude-shadow" is reserved for the Claude roster');
+      })).rejects.toThrow('BRAIN_UI_PI_PROFILES id "claude-shadow" is reserved for the Claude roster');
   });
 
-  test("an invalid pi thinking level refuses to boot", () => {
-    expect(() =>
-      createApp({
+  test("an invalid pi thinking level refuses to boot", async () => {
+    await expect(createApp({
         config: resolveServerConfig({
           ...baseEnv,
           BRAIN_UI_PI_PROFILES: JSON.stringify([
@@ -293,13 +286,11 @@ describe("createApp boot validation", () => {
             },
           ]),
         }),
-      })
-    ).toThrow('BRAIN_UI_PI_PROFILES entry "gpt-test" has invalid thinkingLevel "ultra"');
+      })).rejects.toThrow('BRAIN_UI_PI_PROFILES entry "gpt-test" has invalid thinkingLevel "ultra"');
   });
 
-  test("pi-primary still rejects ids declared in the inactive Claude roster", () => {
-    expect(() =>
-      createApp({
+  test("pi-primary still rejects ids declared in the inactive Claude roster", async () => {
+    await expect(createApp({
         config: resolveServerConfig({
           ...baseEnv,
           AGENT_BACKEND: "pi",
@@ -315,16 +306,13 @@ describe("createApp boot validation", () => {
             },
           ]),
         }),
-      })
-    ).toThrow(
-      'BRAIN_UI_PI_PROFILES id "shared" collides with a BRAIN_UI_CLAUDE_PROFILES entry.'
-    );
+      })).rejects.toThrow('BRAIN_UI_PI_PROFILES id "shared" collides with a BRAIN_UI_CLAUDE_PROFILES entry.');
   });
 
   test("an injected registry skips the resolvability check", async () => {
     // The embedder took ownership of backend wiring — AGENT_BACKEND is then
     // irrelevant and must not be able to block boot.
-    const app = createApp({
+    const app = await createApp({
       config: resolveServerConfig({ ...baseEnv, AGENT_BACKEND: "gemini" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
@@ -336,7 +324,7 @@ describe("createApp boot validation", () => {
     // A truthiness check here once made the empty override fall through to
     // the resolved config — exactly the coercion class the injection refactor
     // was meant to end. "" is a valid SQLite database name.
-    const app = createApp({
+    const app = await createApp({
       config: resolveServerConfig({ ...baseEnv, DB_PATH: "/tmp/should-not-open.db" }),
       dbPath: "",
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
@@ -350,7 +338,7 @@ describe("createApp boot validation", () => {
     // The option must fold into the returned config — an embedder inspecting
     // "the configuration this instance runs on" gets one answer, not two.
     const override = `/tmp/brain-ui-boot-config-${process.pid}.db`;
-    const app = createApp({
+    const app = await createApp({
       config: resolveServerConfig(baseEnv), // DB_PATH=:memory:
       dbPath: override,
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
@@ -365,7 +353,7 @@ describe("createApp boot validation", () => {
 
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
-    const app = createApp({
+    const app = await createApp({
       config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });

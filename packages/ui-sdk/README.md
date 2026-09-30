@@ -50,6 +50,15 @@ actually blocks a mutation, and the shared contract test suite enforces it for
 every in-tree backend. The transcript store persists session metadata without
 prescribing storage for the transcripts themselves (backends own those).
 
+`BackendModule.probeRuntime?(context): Promise<BackendRuntimeReport>` is the
+optional asynchronous startup check. The host awaits it before opening app
+resources. Descriptor authors migrating from the synchronous signature use
+`async probeRuntime(context)` and reject to refuse startup. The shared
+`probeVersionCommand` runs a version argv with the five-second deadline,
+250 ms cleanup budget and explicit `cleanupWarnings`; it does not decide the
+backend's version policy. `killWrapped` accepts optional bounded helper
+handling for these probes; omitting it retains turn cancellation behavior.
+
 ## Backend contract tests (`./testing`)
 
 Backend packages can run the same `startTurn` assertions as the first-party

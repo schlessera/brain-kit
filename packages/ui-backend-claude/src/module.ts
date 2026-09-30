@@ -149,15 +149,16 @@ export const backendModule: BackendModule = defineBackendModule({
     customOpenRouterModels: true,
     billingOverrides: true,
   },
-  probeRuntime(context) {
+  async probeRuntime(context) {
     const claudeCodePath = configString(context, "claudeCodePath");
-    return probeClaudeRuntime({
+    return await probeClaudeRuntime({
       ...(claudeCodePath ? { claudeCodePath } : {}),
       brainPath: context.brainPath,
       // The environment a turn on the default profile gets: the built-in one,
       // resolved as resolveFromEnv resolves it.
       env: turnEnv(defineProfiles([builtinWithDefaultModel(BUILTIN_PROFILE, context)])[0]!),
       exec: resolveExecConfig(),
+      ...(context.log ? { log: context.log } : {}),
     });
   },
   modelSource(context) {

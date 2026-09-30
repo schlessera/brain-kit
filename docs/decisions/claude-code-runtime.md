@@ -44,8 +44,8 @@ next to it.
   `packages/ui-server/src/config/env.ts:357-362`) and is null when unset
   (`claudeCodePath`, `packages/ui-server/src/config/env.ts:792`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:428`), read back as a string
-  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
+  `packages/ui-server/src/agent/backend.ts:429`), read back as a string
+  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:239-242`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:145-146`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
@@ -61,7 +61,7 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:132-197`, called at
+  `packages/ui-server/src/brain/client.ts:134-186`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:203`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:494-496`) — the user's own Claude
@@ -238,7 +238,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:132`). The SDK's
+  `packages/ui-server/src/brain/client.ts:134`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -379,7 +379,7 @@ until re-measured.
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:618-628` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:164-179` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:171-186` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2677-2700` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:75` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:763,781`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
@@ -796,3 +796,39 @@ diagnostics and evidence for initial requirements. Compatibility and measured
 pair status remain separate. The lockfile/rebuild update model, immutable
 executables, permission checks, keyless measurement guard and per-turn
 provenance remain binding. This specification changes no runtime behavior.
+
+## 2026-09-30 — Boot probes and app initialization are asynchronous (#286)
+
+The maintainer chose asynchronous startup over a shipped supervisor executable
+or a synchronous compatibility path. A synchronous subprocess wait prevented
+calling the configured group killer at its five-second deadline when a wrapper
+dropped uid. The brain CLI probe also waited on a TERM-ignoring command and
+could accept the version it printed before timing out.
+
+`createApp` now returns a promise and awaits required backend probes and the
+brain CLI check before opening SQLite or starting application services.
+`BackendModule.probeRuntime` and both built-in probes return promises too.
+External consumers await the factory before wiring a server and handle
+startup refusals as promise rejections; descriptors migrate directly to an
+asynchronous implementation. Configuration validation order, injected-registry
+behavior, subscription checks and version compatibility policy remain intact.
+
+The shared version-command lifecycle has a five-second deadline and a separate
+250 ms cleanup budget. Deadline cancellation invokes `killWrapped` with
+`SIGKILL` while the child is running, including the configured group helper.
+For these calls only, helper execution has a 200 ms limit and falls back to
+the ordinary signal route on failure or expiration. Existing turn cancellation
+uses its original unbounded helper handling. Readers and timers are cancelled,
+and abandoned subprocesses are unreferenced, so inherited pipes or an
+unsignalable command cannot keep probe settlement or host exit waiting.
+Unconfirmed cleanup is reported explicitly; neither a successful signal nor
+a helper exit code proves every descendant stopped.
+
+Real local subprocess tests show cancellation reaches the correct group while
+the child is alive, preserve timeout despite a printed version, and exercise
+missing, failing, hung and ineffective helpers plus inherited output pipes.
+A standalone host exits after giving up on an ineffective killer. Startup
+integration tests observe the pending probe before any database exists and
+serve a real health request only after successful startup. Tests allow a
+1.5-second scheduling margin beyond the five-second deadline; production
+cleanup adds at most 250 ms, subject to event-loop scheduling.

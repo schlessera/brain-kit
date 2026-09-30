@@ -21,8 +21,8 @@ const URL_PATH = "/api/files/content?path=clip.mp4&raw=1";
 let app: TestApp;
 let server: ReturnType<typeof Bun.serve>;
 
-beforeAll(() => {
-  app = createTestApp();
+beforeAll(async () => {
+  app = await createTestApp();
   writeFileSync(join(app.brainPath, "clip.mp4"), BYTES);
   writeFileSync(join(app.brainPath, "empty.mp4"), new Uint8Array(0));
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req, srv) => app.app.fetch(req, srv as never) });

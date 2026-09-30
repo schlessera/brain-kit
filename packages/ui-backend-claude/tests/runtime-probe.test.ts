@@ -52,10 +52,10 @@ function invocations(log: string): string[] {
 const env = () => ({ PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir(), PROBE_MARK: "turn-env" });
 
 describe("probeClaudeRuntime", () => {
-  test("runs only --version of a native CLAUDE_CODE_PATH, and reports it", () => {
+  test("runs only --version of a native CLAUDE_CODE_PATH, and reports it", async () => {
     const dir = tempDir("probe-native-");
     const fake = fakeBinary(dir, "claude", `${MEASURED_RUNTIME.claudeCode} (Claude Code)`);
-    const report = probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: {} });
+    const report = await probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: {} });
 
     expect(invocations(fake.log)).toEqual(["--version"]);
     expect(report.runtime).toEqual({
@@ -68,7 +68,7 @@ describe("probeClaudeRuntime", () => {
     expect(report.measured?.matches).toBe(true);
   });
 
-  test("keeps the interpreter and script of a JavaScript CLAUDE_CODE_PATH, and only swaps the session flags", () => {
+  test("keeps the interpreter and script of a JavaScript CLAUDE_CODE_PATH, and only swaps the session flags", async () => {
     const dir = tempDir("probe-js-");
     const log = join(dir, "cli.log");
     const script = join(dir, "cli.js");
@@ -76,27 +76,25 @@ describe("probeClaudeRuntime", () => {
       script,
       `require("node:fs").appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nconsole.log("9.9.9 (Claude Code)");\n`
     );
-    const report = probeClaudeRuntime({ claudeCodePath: script, brainPath: dir, env: env(), exec: {} });
+    const report = await probeClaudeRuntime({ claudeCodePath: script, brainPath: dir, env: env(), exec: {} });
 
     expect(invocations(log)).toEqual(["--version"]);
     expect(report.runtime.version).toBe("9.9.9");
     expect(report.measured?.matches).toBe(false);
   });
 
-  test("an interpreter answering for a script it could not run is not taken for Claude Code", () => {
+  test("an interpreter answering for a script it could not run is not taken for Claude Code", async () => {
     // A script path the interpreter reads as its own flag: the interpreter
     // prints ITS version. That must refuse, not pass as Claude's.
     const dir = tempDir("probe-dash-");
     writeFileSync(join(dir, "-cli.js"), `console.log("7.7.7 (Claude Code)");\n`);
-    expect(() => probeClaudeRuntime({ claudeCodePath: "-cli.js", brainPath: dir, env: env(), exec: {} })).toThrow(
-      ClaudeRuntimeUnavailableError
-    );
+    await expect(probeClaudeRuntime({ claudeCodePath: "-cli.js", brainPath: dir, env: env(), exec: {} })).rejects.toThrow(ClaudeRuntimeUnavailableError);
   });
 
-  test("with CLAUDE_CODE_PATH unset it probes what the SDK selects, not a `claude` on PATH", () => {
+  test("with CLAUDE_CODE_PATH unset it probes what the SDK selects, not a `claude` on PATH", async () => {
     const dir = tempDir("probe-unset-");
     const decoy = fakeBinary(dir, "claude", "0.0.1 (Claude Code)");
-    const report = probeClaudeRuntime({
+    const report = await probeClaudeRuntime({
       brainPath: dir,
       env: { ...env(), PATH: `${dir}:${env().PATH}` },
       exec: {},
@@ -108,7 +106,7 @@ describe("probeClaudeRuntime", () => {
     expect(report.runtime.version).toBe(MEASURED_RUNTIME.claudeCode);
   });
 
-  test("goes through the exec wrapper, with the turn's environment and working directory", () => {
+  test("goes through the exec wrapper, with the turn's environment and working directory", async () => {
     const dir = tempDir("probe-wrap-");
     const fake = fakeBinary(dir, "claude", "2.0.0 (Claude Code)");
     const wrapperLog = join(dir, "wrapper.log");
@@ -120,7 +118,7 @@ describe("probeClaudeRuntime", () => {
       `#!/bin/sh\necho "argv=$* cwd=$(pwd) mark=$PROBE_MARK entrypoint=$CLAUDE_CODE_ENTRYPOINT" >> ${JSON.stringify(wrapperLog)}\nexec "$@"\n`
     );
     chmodSync(wrapper, 0o755);
-    probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: { wrapper } });
+    await probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: { wrapper } });
 
     expect(invocations(wrapperLog)).toEqual([
       `argv=${fake.path} --version cwd=${dir} mark=turn-env entrypoint=sdk-ts`,
@@ -128,7 +126,7 @@ describe("probeClaudeRuntime", () => {
     expect(invocations(fake.log)).toEqual(["--version"]);
   });
 
-  test("the module probes with the environment the default profile's turn gets, model aliases included", () => {
+  test("the module probes with the environment the default profile's turn gets, model aliases included", async () => {
     const dir = tempDir("probe-profile-env-");
     const log = join(dir, "env.log");
     const path = join(dir, "claude");
@@ -137,7 +135,7 @@ describe("probeClaudeRuntime", () => {
       `#!/bin/sh\necho "opus=$ANTHROPIC_DEFAULT_OPUS_MODEL subagent=$CLAUDE_CODE_SUBAGENT_MODEL key=\${ANTHROPIC_API_KEY-unset}" >> ${JSON.stringify(log)}\necho "2.0.0 (Claude Code)"\n`
     );
     chmodSync(path, 0o755);
-    backendModule.probeRuntime!({
+    await backendModule.probeRuntime!({
       brainPath: dir,
       config: { claudeCodePath: path, defaultModel: "claude-probe-model" },
       profiles: [],
@@ -148,23 +146,17 @@ describe("probeClaudeRuntime", () => {
     expect(invocations(log)).toEqual(["opus=claude-probe-model subagent=claude-probe-model key="]);
   });
 
-  test("a binary that does not exist refuses, naming the path", () => {
+  test("a binary that does not exist refuses, naming the path", async () => {
     const dir = tempDir("probe-missing-");
     const missing = join(dir, "no-such-claude");
-    expect(() => probeClaudeRuntime({ claudeCodePath: missing, brainPath: dir, env: env(), exec: {} })).toThrow(
-      ClaudeRuntimeUnavailableError
-    );
-    expect(() => probeClaudeRuntime({ claudeCodePath: missing, brainPath: dir, env: env(), exec: {} })).toThrow(
-      missing
-    );
+    await expect(probeClaudeRuntime({ claudeCodePath: missing, brainPath: dir, env: env(), exec: {} })).rejects.toThrow(ClaudeRuntimeUnavailableError);
+    await expect(probeClaudeRuntime({ claudeCodePath: missing, brainPath: dir, env: env(), exec: {} })).rejects.toThrow(missing);
   });
 
-  test("a binary that exits non-zero on --version refuses, with what it said", () => {
+  test("a binary that exits non-zero on --version refuses, with what it said", async () => {
     const dir = tempDir("probe-broken-");
     const fake = fakeBinary(dir, "claude", "cannot load libc", 3);
-    expect(() => probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: {} })).toThrow(
-      /exited 3 on --version: cannot load libc/
-    );
+    await expect(probeClaudeRuntime({ claudeCodePath: fake.path, brainPath: dir, env: env(), exec: {} })).rejects.toThrow(/exited 3 on --version: cannot load libc/);
   });
 });
 
@@ -177,16 +169,14 @@ describe("installedAgentSdkVersion", () => {
 });
 
 describe("isMeasuredRuntime", () => {
-  test("a binary that ignores SIGTERM past the deadline refuses at the deadline", () => {
+  test("a binary that ignores SIGTERM past the deadline refuses at the deadline", async () => {
     const dir = tempDir("probe-stuck-");
     const path = join(dir, "claude");
     // Answers at once, then will not exit and ignores the polite signal.
     writeFileSync(path, `#!/bin/sh\ntrap "" TERM\necho "2.0.0 (Claude Code)"\nsleep 8\n`);
     chmodSync(path, 0o755);
     const started = Date.now();
-    expect(() => probeClaudeRuntime({ claudeCodePath: path, brainPath: dir, env: env(), exec: {} })).toThrow(
-      /did not answer --version within 5 s/
-    );
+    await expect(probeClaudeRuntime({ claudeCodePath: path, brainPath: dir, env: env(), exec: {} })).rejects.toThrow(/did not answer --version within 5 s/);
     expect(Date.now() - started).toBeLessThan(7_000);
   });
 

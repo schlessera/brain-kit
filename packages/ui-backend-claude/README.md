@@ -199,3 +199,15 @@ Reads whose variable *name* is configuration rather than code:
 
 Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
+
+## Asynchronous runtime probe
+
+`probeClaudeRuntime(options): Promise<BackendRuntimeReport>` and the module's
+`probeRuntime(context)` are asynchronous. Await the probe and catch
+`ClaudeRuntimeUnavailableError` from the rejected promise. It still executes
+only `--version` of the SDK-selected binary with the turn's wrapper,
+environment and working directory. A timeout rejects even if a version was
+printed. The five-second deadline starts cancellation while the child is
+running; settlement includes at most 250 ms of cleanup. Failed or unconfirmed
+cleanup is included in the refusal diagnostic. The app factory awaits this
+required check before opening its resources.

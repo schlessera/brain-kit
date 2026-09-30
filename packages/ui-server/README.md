@@ -16,7 +16,7 @@ import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { MAX_CLIENT_FRAME_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import { renderPng, renderPdf, shutdownRenderer } from "./renderer.js";
 
-const app = createApp({
+const app = await createApp({
   staticRoot: "./client/dist",        // optional: serve a built SPA + fallback
   renderer: { renderPng, renderPdf }, // optional
   appName: "Brain UI",                // branding in status copy
@@ -73,6 +73,24 @@ injected) configuration, so two differently-configured apps coexist in one
 process. The returned handle carries `config`, `db`, `wsHost`,
 `isTurnActive()`, `cancelActiveTurns()` and `close()` for the deployment
 shell's lifecycle wiring.
+
+## Migrating asynchronous startup
+
+`createApp(options): Promise<BrainUiApp>` must be awaited before wiring the
+handle to a server. Replace `const app = createApp(options)` with
+`const app = await createApp(options)`, make a containing startup function
+`async`, and catch startup refusals around that awaited call. Tests assert
+rejected promises instead of synchronous throws.
+
+Configuration validation keeps its ordering. Active first-party runtime
+probes and the brain CLI version check finish before SQLite or background
+services open. An injected registry still bypasses first-party probes.
+Each built-in probe has a five-second deadline plus at most 250 ms of cleanup;
+its group killer runs at the deadline, with a 200 ms helper budget. A hung
+helper, child or inherited output pipe cannot hold the returned promise open.
+Warnings distinguish unconfirmed cleanup from a process observed to exit.
+A timed-out Claude probe rejects startup; an unreadable brain version warns
+and continues; a known incompatible brain version rejects startup.
 
 ## Interactive search
 
@@ -141,7 +159,7 @@ brain repository.
 
 ## What it owns
 
-- **`createApp(options)`** — route mounting order, CORS (split topology via
+- **`await createApp(options)`** — route mounting order, CORS (split topology via
   `ALLOWED_ORIGINS`), the auth guard, and the `/ws` upgrade (CSWSH origin check
   + cookie/IP auth). Refuses to boot on an unsafe auth configuration.
 - **Auth** (`AUTH_MODE`): `password` (+ passkeys/WebAuthn), `tailscale`,
@@ -181,7 +199,7 @@ brain repository.
   optional model source. `AGENT_BACKEND` selects among the FIRST-PARTY ids only
   (`claude`, `pi`) — it is not a package specifier, and there is no runtime
   discovery. A third-party backend is imported and passed by value:
-  `createApp({ registry: createStaticBackendRegistry({ ... }) })`, which keeps
+  `await createApp({ registry: createStaticBackendRegistry({ ... }) })`, which keeps
   the descriptor's hooks and model source. See
   [docs/extending/agent-backends.md](../../docs/extending/agent-backends.md).
   A session whose stored `backend_id` names a backend this deployment does not

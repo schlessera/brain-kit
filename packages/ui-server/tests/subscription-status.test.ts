@@ -216,13 +216,13 @@ function host(): Host {
 
 type Script = (bridge: BackendBridge) => void;
 
-function boot(
+async function boot(
   at: Host,
   env: Record<string, string>,
   script: Script = () => {},
   observability = createRecordingObservability(),
   modelSource: BackendModelSource | null = null
-): { app: BrainUiApp; observability: RecordingObservability } {
+): Promise<{ app: BrainUiApp; observability: RecordingObservability }> {
   const config = resolveServerConfig({
     AUTH_MODE: "none",
     HOST: "127.0.0.1",
@@ -239,7 +239,7 @@ function boot(
       script(bridge);
     },
   });
-  const app = createApp({
+  const app = await createApp({
     config,
     observability,
     registry: createStaticBackendRegistry([backend], backend.id, { modelSource }),
@@ -290,7 +290,7 @@ describe("/api/status's subscription", () => {
   test("has every field, and never the token", async () => {
     const at = host();
     const minted = daysBefore(10);
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: minted }, subscriptionRun);
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: minted }, subscriptionRun);
     try {
       await turn(app);
       const { raw, subscription } = await status(app);
@@ -311,13 +311,13 @@ describe("/api/status's subscription", () => {
 
   test("the last proof is a successful subscription turn from the store, and survives a new app on the same database", async () => {
     const at = host();
-    const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    const first = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     await turn(first.app);
     const proven = (await status(first.app)).subscription.lastProvenAt;
     await first.app.close();
     expect(proven).not.toBeNull();
 
-    const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
+    const second = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     try {
       const { subscription } = await status(second.app);
       expect(subscription.lastProvenAt).toBe(proven);
@@ -329,7 +329,7 @@ describe("/api/status's subscription", () => {
 
   test("the last proof outlives the span detail, even when nothing read it first", async () => {
     const at = host();
-    const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    const first = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     await turn(first.app);
     const ended = (first.app.db.query("SELECT MAX(ended_at) AS at FROM activity_spans").get() as { at: number }).at;
     // What detail retention does to a digested run after its window, before
@@ -337,7 +337,7 @@ describe("/api/status's subscription", () => {
     first.app.db.run("DELETE FROM activity_spans");
     await first.app.close();
 
-    const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
+    const second = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     try {
       expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
     } finally {
@@ -347,14 +347,14 @@ describe("/api/status's subscription", () => {
 
   test("a proof recorded before this version is kept at boot, before retention can prune it", async () => {
     const at = host();
-    const first = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    const first = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     await turn(first.app);
     const ended = (first.app.db.query("SELECT MAX(ended_at) AS at FROM activity_spans").get() as { at: number }).at;
     // As an older server leaves it: the span, and nothing kept.
     first.app.db.run("DELETE FROM settings WHERE key = ?", [LAST_PROVEN_SETTING]);
     await first.app.close();
 
-    const second = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
+    const second = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN });
     second.app.db.run("DELETE FROM activity_spans");
     try {
       expect((await status(second.app)).subscription.lastProvenAt).toBe(new Date(ended).toISOString());
@@ -365,7 +365,7 @@ describe("/api/status's subscription", () => {
 
   test("a turn that ran on an API key proves nothing about the subscription", async () => {
     const at = host();
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
       bridge.activity?.({ kind: "runtime_observed", billing: "api", policy: "subscription" });
       bridge.emit({ type: "result", sessionId: "sess-1", outcome: "success", costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
     });
@@ -387,7 +387,7 @@ describe("/api/status's subscription", () => {
   ] as const) {
     test(`a turn failing with ${errorClass} says ${action}, on the status and in one WARN`, async () => {
       const at = host();
-      const { app, observability } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, failingRun(errorClass));
+      const { app, observability } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, failingRun(errorClass));
       try {
         await turn(app);
         const { subscription } = await status(app);
@@ -416,7 +416,7 @@ describe("/api/status's subscription", () => {
 
   test("a failure on a profile with its own credential is not the subscription's", async () => {
     const at = host();
-    const { app, observability } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+    const { app, observability } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
       bridge.activity?.({ kind: "runtime_observed", billing: "api", policy: "api" });
       failingRun("authentication_failed")(bridge);
     });
@@ -438,7 +438,7 @@ describe("/api/status's subscription", () => {
 
   test("a runtime message that quotes the token does not carry it onto the status", async () => {
     const at = host();
-    const { app, observability } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+    const { app, observability } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
       bridge.activity?.({
         kind: "auth_failure",
         errorClass: "authentication_failed",
@@ -462,7 +462,7 @@ describe("/api/status's subscription", () => {
     const otherKey = `sk-or-v1-${"0".repeat(64)}`;
     const opaque = "q".repeat(40);
     const at = host();
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
       bridge.activity?.({ kind: "runtime_observed", billing: "api", policy: "api" });
       bridge.activity?.({
         kind: "auth_failure",
@@ -488,7 +488,7 @@ describe("/api/status's subscription", () => {
   test("the last proof is the last successful root turn: a later failed one does not move it", async () => {
     const at = host();
     let fail = false;
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, (bridge) => {
       bridge.activity?.({ kind: "runtime_observed", billing: "subscription", policy: "subscription" });
       bridge.emit({ type: "result", sessionId: "sess-1", outcome: fail ? "error" : "success", costUsd: 0, durationMs: 1, numTurns: 1, isError: fail });
     });
@@ -509,7 +509,7 @@ describe("/api/status's subscription", () => {
     const state: ReturnType<BackendModelSource["state"]> = { enabled: true, refreshedAt: null, stale: false };
     const source: BackendModelSource = { list: () => [], state: () => state, ensureFresh: async () => {}, refresh: async () => {} };
     const at = host();
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, undefined, undefined, source);
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, undefined, undefined, source);
     try {
       state.subscriptionProvenAt = Date.parse("2026-09-20T10:00:00Z");
       expect((await status(app)).subscription).toMatchObject({
@@ -529,7 +529,7 @@ describe("/api/status's subscription", () => {
 
   test("only a root turn counts, not a later successful child or cron span", async () => {
     const at = host();
-    const { app } = boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
+    const { app } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN }, subscriptionRun);
     try {
       await turn(app);
       const proven = (await status(app)).subscription.lastProvenAt;
@@ -548,11 +548,9 @@ describe("/api/status's subscription", () => {
     }
   });
 
-  test("an unparseable mint date refuses boot, naming the variable", () => {
+  test("an unparseable mint date refuses boot, naming the variable", async () => {
     const at = host();
-    expect(() => boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: "last spring" })).toThrow(
-      MINTED_AT_ENV
-    );
+    await expect(boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: "last spring" })).rejects.toThrow(MINTED_AT_ENV);
   });
 });
 

@@ -159,11 +159,11 @@ export interface BackendModule {
   settingsHooks: BackendSettingsHooks;
   modelSource?(context: BackendModuleContext): BackendModelSource | null;
   /**
-   * Probe the runtime a turn would spawn, synchronously, at boot. Throws when
+   * Probe the runtime a turn would spawn asynchronously, before app resources open. Rejects when
    * that runtime is missing or will not start, which refuses the boot; returns
    * what it found otherwise.
    */
-  probeRuntime?(context: BackendModuleContext): BackendRuntimeReport;
+  probeRuntime?(context: BackendModuleContext): Promise<BackendRuntimeReport>;
 }
 
 /** @experimental Identity helper providing inference and excess-property checks. */

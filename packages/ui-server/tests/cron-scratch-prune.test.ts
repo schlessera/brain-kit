@@ -246,7 +246,7 @@ describe("BrainUiApp.close", () => {
     );
     chmodSync(join(binDir, "brain"), 0o755);
     try {
-      const app = createApp({
+      const app = await createApp({
         config: resolveServerConfig({
           AUTH_MODE: "none",
           HOST: "127.0.0.1",
@@ -275,7 +275,7 @@ describe("BrainUiApp.close", () => {
 describe("the shared test-app helper", () => {
   test("teardown awaits the app's close: the prune child is gone before state is removed", async () => {
     let capture = "";
-    const harness = createTestApp({
+    const harness = await createTestApp({
       prepare: (brainPath) => {
         const binDir = join(brainPath, "node_modules", ".bin");
         mkdirSync(binDir, { recursive: true });

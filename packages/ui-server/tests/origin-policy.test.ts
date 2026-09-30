@@ -15,13 +15,13 @@ let splitApp: TestApp;
 let trustedProxyApp: TestApp;
 let webauthnOverrideApp: TestApp;
 
-beforeAll(() => {
-  app = createTestApp();
-  splitApp = createTestApp({
+beforeAll(async () => {
+  app = await createTestApp();
+  splitApp = await createTestApp({
     env: { ALLOWED_ORIGINS: "https://client.example" },
   });
-  trustedProxyApp = createTestApp({ env: { TRUST_PROXY: "1" } });
-  webauthnOverrideApp = createTestApp({
+  trustedProxyApp = await createTestApp({ env: { TRUST_PROXY: "1" } });
+  webauthnOverrideApp = await createTestApp({
     env: {
       AUTH_MODE: "password",
       BRAIN_UI_PASSWORD_HASH: "unused-test-hash",

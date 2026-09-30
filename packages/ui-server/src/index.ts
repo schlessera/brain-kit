@@ -5,7 +5,7 @@
  * decides the port/idleTimeout, wires SIGTERM, and injects deployment-only
  * pieces (static client build, PNG/PDF renderer). Everything else — routes,
  * auth, passkeys, the WebSocket turn coordinator, the session catalog — lives
- * behind createApp(), which returns a handle carrying the app's own resources
+ * behind the awaited createApp(), which resolves to a handle carrying the app's own resources
  * (config, database, ws host) instead of module-level singletons.
  */
 export {
