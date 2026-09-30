@@ -32,27 +32,31 @@ function mount(failure: TurnFailure, options: { width?: number; live?: boolean; 
 
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('[role="button"], button')].find(node => node.textContent?.trim().startsWith(label))!;
 
+const ERROR_CLASSES = ["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "billing_error", "subscription_required", "rate_limit", "overloaded", "server_error", "invalid_request", "model_not_found", "max_output_tokens", "unknown"];
+
 for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
-  test(`${theme} ${width}: every class wraps, has reachable actions, and announces only live arrival`, async () => {
+  // Each class is its own test: twelve sequential browser interactions in
+  // one test can exhaust the timeout when the whole Storybook suite runs.
+  for (const errorClass of ERROR_CLASSES) test(`${theme} ${width} ${errorClass}: wraps, has reachable actions, and announces live arrival`, async () => {
     await page.viewport(width, 1000);
-    for (const errorClass of ["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "billing_error", "subscription_required", "rate_limit", "overloaded", "server_error", "invalid_request", "model_not_found", "max_output_tokens", "unknown"]) {
-      const el = mount({ errorClass, status: 400, message: "Provider failure: " + "unbroken".repeat(550) }, { width, theme, live: true, retry: true });
-      expect(el.querySelectorAll('[role="alert"]')).toHaveLength(1);
-      expect(el.querySelector('[aria-label="Turn failed"]')).not.toBeNull();
-      const actionRow = el.querySelector<HTMLElement>(".bk-turn-error-actions")!;
-      const firstAction = actionRow.firstElementChild!.getBoundingClientRect();
-      if (width === 320) expect(firstAction.width).toBeCloseTo(actionRow.getBoundingClientRect().width, 0);
-      else expect(firstAction.width).toBeLessThan(actionRow.getBoundingClientRect().width / 2);
-      // Open the provider disclosure before checking layout: a closed
-      // disclosure would give an overflowing message nowhere to render.
-      const disclosure = el.querySelector<HTMLElement>('[aria-expanded]')!;
-      if (disclosure.getAttribute("aria-expanded") === "false") await userEvent.click(disclosure);
-      await userEvent.click(button(el, "Show all · 4418 chars"));
-      expect(el.querySelector("pre")?.textContent?.length).toBe(4418);
-      expect(overflowing(el).filter(line => !line.includes("bk-sr"))).toEqual([]);
-      for (const control of el.querySelectorAll<HTMLElement>('[role="button"]')) expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-      renderer!.unmount(); host!.remove(); root!.dispose();
-    }
+    const el = mount({ errorClass, status: 400, message: "Provider failure: " + "unbroken".repeat(550) }, { width, theme, live: true, retry: true });
+    expect(el.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(el.querySelector('[aria-label="Turn failed"]')).not.toBeNull();
+    const actionRow = el.querySelector<HTMLElement>(".bk-turn-error-actions")!;
+    const firstAction = actionRow.firstElementChild!.getBoundingClientRect();
+    if (width === 320) expect(firstAction.width).toBeCloseTo(actionRow.getBoundingClientRect().width, 0);
+    else expect(firstAction.width).toBeLessThan(actionRow.getBoundingClientRect().width / 2);
+    // Open the provider disclosure before checking layout: a closed
+    // disclosure would give an overflowing message nowhere to render.
+    const disclosure = el.querySelector<HTMLElement>('[aria-expanded]')!;
+    if (disclosure.getAttribute("aria-expanded") === "false") await userEvent.click(disclosure);
+    await userEvent.click(button(el, "Show all · 4418 chars"));
+    expect(el.querySelector("pre")?.textContent?.length).toBe(4418);
+    expect(overflowing(el).filter(line => !line.includes("bk-sr"))).toEqual([]);
+    for (const control of el.querySelectorAll<HTMLElement>('[role="button"]')) expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+  test(`${theme} ${width}: replay has no alert or historical Retry`, async () => {
+    await page.viewport(width, 1000);
     const replay = mount({ errorClass: "unknown", message: "Replay failure" }, { width, theme, latest: false, retry: true });
     expect(replay.querySelector('[role="alert"]')).toBeNull();
     expect(button(replay, "Retry")).toBeUndefined();
