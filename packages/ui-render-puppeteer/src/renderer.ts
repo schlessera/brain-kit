@@ -22,8 +22,11 @@
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 import { existsSync } from "node:fs";
 
+import { applyExportLinkPolicy, protectExportLinkDestinations, type ExportLinkPolicy } from "@schlessera/brain-render-template";
+
 import { resolveEnv } from "./config/env.js";
 import { Semaphore } from "./semaphore.js";
+import { assertPdfLinkDestinations } from "./pdf-links.js";
 
 const CHROME_PATH_FALLBACKS = [
   "/usr/bin/google-chrome-stable",
@@ -127,6 +130,8 @@ export interface RenderOptions {
   html: string;
   /** Viewport width for layout (px), clamped to [320, 4096]. Default 768. */
   width?: number;
+  /** Disclose live destinations; forces scriptless rendering and verifies final layout. */
+  linkPolicy?: ExportLinkPolicy;
 }
 
 export interface Renderer {
@@ -321,7 +326,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
           checkActive();
         }
         page = opened;
-        await opened.setJavaScriptEnabled(allowScripts);
+        await opened.setJavaScriptEnabled(opts.linkPolicy ? false : allowScripts);
         checkActive();
         await opened.setRequestInterception(true);
         checkActive();
@@ -331,7 +336,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
           width: clampWidth(opts.width), height: 1024, deviceScaleFactor: DEVICE_SCALE_FACTOR,
         });
         checkActive();
-        await opened.setContent(opts.html, { waitUntil: "load" });
+        await opened.setContent(opts.linkPolicy ? applyExportLinkPolicy(opts.html) : opts.html, { waitUntil: "load" });
         checkActive();
         return produce(opened, checkActive);
       })(), renderTimeoutMs, `Render exceeded ${renderTimeoutMs}ms budget`);
@@ -357,6 +362,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   return {
     renderPng(opts: RenderOptions): Promise<Buffer> {
       return withPage(opts, async (page, checkActive) => {
+        if (opts.linkPolicy) { await page.evaluate(protectExportLinkDestinations, MAX_CAPTURE_HEIGHT / DEVICE_SCALE_FACTOR); checkActive(); }
         const bodyHandle = await page.$("body");
         checkActive();
         const box = bodyHandle ? await bodyHandle.boundingBox() : null;
@@ -389,7 +395,11 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
     },
 
     renderPdf(opts: RenderOptions): Promise<Buffer> {
-      return withPage(opts, async (page) => {
+      return withPage(opts, async (page, checkActive) => {
+        if (opts.linkPolicy) {
+          await page.emulateMediaType("print"); checkActive();
+          await page.evaluate(protectExportLinkDestinations); checkActive();
+        }
         // The document's @page rule owns size and margins: the shell's is A4
         // with no side margins, so its opener bleeds to the page edge, and a
         // footer in its margin boxes. A document with no @page rule of its own
@@ -400,8 +410,12 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
           printBackground: true,
           pageRanges: `1-${MAX_PDF_PAGES}`,
           margin: { top: "16mm", bottom: "16mm", left: "16mm", right: "16mm" },
+          ...(opts.linkPolicy ? { tagged: true } : {}),
         });
-        return Buffer.from(pdf);
+        checkActive();
+        const result = Buffer.from(pdf);
+        if (opts.linkPolicy) { await assertPdfLinkDestinations(result, checkActive); checkActive(); }
+        return result;
       });
     },
 

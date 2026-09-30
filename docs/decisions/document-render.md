@@ -36,7 +36,7 @@ Rejected:
 `buildHtmlDocument` used to wrap everything in its own `<html><body>`, so a
 full document arrived nested and relied on the browser's error recovery.
 Content that starts with a doctype or `<html>` now gets the stylesheet as the
-first child of its `<head>` (`function injectShell`, `packages/render-template/src/template.ts:96-123`).
+first child of its `<head>` (`function injectShell`, `packages/render-template/src/template.ts:106-133`).
 Every shell rule is in `@layer brain-document`, `@page` rules and the footer
 included, so any unlayered author rule wins whatever its specificity. The drop
 kept `@page` outside the layer. Chrome 140 happens to let an author's

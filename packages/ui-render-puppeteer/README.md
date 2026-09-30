@@ -100,3 +100,26 @@ to touch `process.env`.
 
 Generated from `packages/ui-render-puppeteer/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
+
+## Visible destinations in app exports
+
+The optional per-render `linkPolicy: "visible-destinations"` is shared with
+`buildHtmlDocument`. `POST /api/render` always supplies it for PNG and PDF;
+request fields and bare/full HTML cannot disable it. Omission preserves the
+renderer/CLI defaults. The option adds canonical ASCII hosts or validated mail
+addresses, makes refused/unavailable targets inert, removes content bases and
+nested-document navigation, and does not fetch links.
+
+This policy forces document JavaScript off, freezes motion and protects real
+destination text after loading in the final screen/print mode. Hidden/clipping
+styles are repaired without replacing normal block layouts. If every glyph
+cannot be drawn and hit-tested, an overlay obscures it, or PNG would crop it at
+the existing capture limit, rendering rejects. The existing render deadline
+bounds these checks. For PDF the renderer also checks the finished bytes with
+its lazily loaded PDF.js dependency: every external annotation must belong to
+a tagged link with its own complete disclosure on that physical page, at least
+9 PDF points (12 CSS pixels). Custom page sizes or print scaling that crop or
+shrink that disclosure reject. Unrelated body text cannot satisfy this check.
+Network denial, sandboxing and concurrency/budget defaults
+stay unchanged. Custom implementations injected into the app's rendering seam
+must honor both structural classification and final visible disclosure.

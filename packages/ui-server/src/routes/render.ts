@@ -22,8 +22,8 @@ import { requireJson } from "../middleware/origin.js";
  * itself never spawns a browser.
  */
 export interface AppRenderer {
-  renderPng(options: { html: string }): Promise<Buffer | Uint8Array>;
-  renderPdf(options: { html: string }): Promise<Buffer | Uint8Array>;
+  renderPng(options: { html: string; linkPolicy?: "visible-destinations" }): Promise<Buffer | Uint8Array>;
+  renderPdf(options: { html: string; linkPolicy?: "visible-destinations" }): Promise<Buffer | Uint8Array>;
 }
 
 const bodySchema = z.object({
@@ -52,11 +52,12 @@ export function createRenderRoutes(renderer?: AppRenderer, log?: Logger) {
     }
 
     try {
-      const html = buildHtmlDocument(parsed);
+      const linkPolicy = "visible-destinations" as const;
+      const html = buildHtmlDocument({ ...parsed, linkPolicy });
       const buf =
         parsed.format === "png"
-          ? await renderer.renderPng({ html })
-          : await renderer.renderPdf({ html });
+          ? await renderer.renderPng({ html, linkPolicy })
+          : await renderer.renderPdf({ html, linkPolicy });
       const filename = (parsed.title ?? "share")
         .replace(/[^a-z0-9_.-]+/gi, "_")
         .slice(0, 60) || "share";
