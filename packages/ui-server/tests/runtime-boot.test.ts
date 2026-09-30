@@ -154,11 +154,14 @@ describe("asynchronous startup resource ordering", () => {
         const until = Date.now() + 2_000;
         while (!existsSync(marker) && Date.now() < until) await Bun.sleep(5);
         expect(existsSync(marker)).toBe(true);
+        let pendingObservations = 0;
         while (!existsSync(completedProbe) && Date.now() < until) {
+          pendingObservations++;
           expect(existsSync(dbPath)).toBe(false);
           expect(server).toBeUndefined();
           await Bun.sleep(5);
         }
+        expect(pendingObservations).toBeGreaterThan(0);
         expect(existsSync(completedProbe)).toBe(true);
         const error = await outcome;
         if (succeeds) {
