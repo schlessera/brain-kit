@@ -663,7 +663,8 @@ describe("the commands", () => {
     return { abs, dir };
   }
 
-  test("brain scratch prune exits 2 when a file could not be removed, prints the report, and names it", async () => {
+  // Root writes through the directory mode, so the removal failure cannot be staged there.
+  test.skipIf(process.getuid?.() === 0)("brain scratch prune exits 2 when a file could not be removed, prints the report, and names it", async () => {
     const stuck = stuckFile();
     try {
       const res = await runCli(brain, ["scratch", "prune", "--json"]);
@@ -682,7 +683,8 @@ describe("the commands", () => {
     }
   });
 
-  test("brain maintain reports the scratch step as failed and exits 2 when a file could not be removed", async () => {
+  // Root writes through the directory mode, so the removal failure cannot be staged there.
+  test.skipIf(process.getuid?.() === 0)("brain maintain reports the scratch step as failed and exits 2 when a file could not be removed", async () => {
     const stuck = stuckFile();
     try {
       const res = await runCli(brain, ["maintain", "--json"]);
