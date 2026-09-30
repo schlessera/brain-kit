@@ -146,7 +146,7 @@ describe("read", () => {
 });
 
 describe("audit", () => {
-  test("returns the { issues, errors, warnings, infos } envelope", async () => {
+  test("returns the { issues, errors, warnings, infos, mustFix, informational } envelope", async () => {
     const { stdout, code } = await runCli(root, ["audit", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
@@ -178,6 +178,55 @@ describe("audit", () => {
     expect(out.errors).toBe(count("error"));
     expect(out.warnings).toBe(count("warning"));
     expect(out.infos).toBe(count("info"));
+    // #394: must-fix and informational totals, over the same findings.
+    expect(out.mustFix).toBe(out.errors + out.warnings);
+    expect(out.informational).toBe(out.infos);
+    expect(out.warnings).toBeGreaterThan(0);
+    expect(out.infos).toBeGreaterThan(0);
+  });
+
+  test("groups the fixture's markers per document, both info, with count and examples (#394)", async () => {
+    const { stdout } = await runCli(root, ["audit", "--json"]);
+    const markers = (JSON.parse(stdout).issues as Array<{ category: string }>).filter(
+      (i) => i.category === "todo" || i.category === "verify"
+    );
+    expect(markers).toEqual([
+      // Documents in path order.
+      expect.objectContaining({
+        category: "verify",
+        path: "notes/quick-note-owl.md",
+        severity: "info",
+        count: 1,
+        examples: ["[VERIFY: confirm barred vs. spotted owl — check call recording against the field guide]"],
+      }),
+      expect.objectContaining({
+        category: "todo",
+        path: "notes/quick-note-trailhead.md",
+        severity: "info",
+        count: 1,
+        examples: ["[TODO: measure the kiosk frame opening before cutting the blank]"],
+      }),
+    ]);
+  });
+
+  test("reports the fixture's broken links as warnings, the same ones brain validate reports (#394)", async () => {
+    const audited = JSON.parse((await runCli(root, ["audit", "--json"])).stdout).issues as Array<{
+      category: string;
+      path: string;
+      severity: string;
+      message: string;
+    }>;
+    const broken = audited.filter((i) => i.category === "broken-link").map((i) => [i.path, i.severity, i.message]);
+    expect(broken).toEqual([
+      ["context/current-focus.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
+      ["notes/quick-note-owl.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
+    ]);
+    const validated = JSON.parse((await runCli(root, ["validate", "--json"])).stdout).issues as Array<{
+      file: string;
+      level: string;
+      message: string;
+    }>;
+    expect(validated.filter((i) => i.message.includes("wiki-link")).map((i) => [i.file, i.level, i.message])).toEqual(broken);
   });
   test("reports the fixture's one drifted fact, on long-bio.md (#392)", async () => {
     const { stdout } = await runCli(root, ["audit", "--json"]);

@@ -35,6 +35,15 @@ function generatedFrom(value: unknown): string | null {
 }
 
 /**
+ * `verification` as stored: the string as written, else null. `brain audit`
+ * reads only `unverified`, the value `brain validate` accepts, compared the
+ * same way (exactly), so the two cannot disagree about a document.
+ */
+function verification(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
  * The statements this phase runs, prepared once per transaction.
  *
  * Grouped into an object rather than left as 14 locals so the write helpers
@@ -49,8 +58,8 @@ function prepareStatements(db: Database) {
     // is still passed explicitly from the existing row, the silent-edit
     // baseline this write must not reset.
     insertDoc: db.prepare(`INSERT INTO documents
-      (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, file_mtime, deadline, next_review, accepted_mtime, generated_from, indexed_at, chunker_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (path, title, type, status, relevance, summary, created, updated, content, content_hash, asset_type, file_mtime, deadline, next_review, accepted_mtime, generated_from, verification, indexed_at, chunker_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET
         title = excluded.title, type = excluded.type, status = excluded.status,
         relevance = excluded.relevance, summary = excluded.summary,
@@ -59,6 +68,7 @@ function prepareStatements(db: Database) {
         asset_type = excluded.asset_type, file_mtime = excluded.file_mtime,
         deadline = excluded.deadline, next_review = excluded.next_review,
         accepted_mtime = excluded.accepted_mtime, generated_from = excluded.generated_from,
+        verification = excluded.verification,
         indexed_at = excluded.indexed_at, chunker_version = excluded.chunker_version`),
     insertTag: db.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?)"),
     getTagId: db.prepare("SELECT id FROM tags WHERE name = ?"),
@@ -163,6 +173,7 @@ function writeDocument(
     nextReview,
     existing?.accepted_mtime ?? null,
     generatedFrom(data.generated_from),
+    verification(data.verification),
     run.now,
     CHUNKER_VERSION
   );

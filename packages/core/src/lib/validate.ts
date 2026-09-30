@@ -20,7 +20,7 @@ import { resolve } from "path";
 
 import { VALID_STATUSES, VALID_RELEVANCES } from "./types.js";
 import type { Taxonomy } from "./taxonomy.js";
-import { createWikiLinkResolver } from "./indexer/links.js";
+import { createUnresolvedLinkDescriber, createWikiLinkResolver } from "./indexer/links.js";
 import { supersedesTargets } from "./supersedes.js";
 import {
   getMarkdownFiles,
@@ -56,13 +56,10 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   // Build the same maps the indexer uses, so validation and resolution agree
   const fileMap = new Map<string, string>();
   const aliasMap = new Map<string, string[]>();
-  const basenameCounts = new Map<string, number>();
   // `supersedes` values as written, checked once every file is known.
   const supersedes = new Map<string, unknown>();
   for (const path of files) {
     fileMap.set(path, path);
-    const basename = path.replace(/\.md$/, "").split("/").pop()!;
-    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
     try {
       const { data } = matter(readFileSync(resolve(root, path), "utf-8"));
       if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
@@ -81,6 +78,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
   }
 
   const resolveLink = createWikiLinkResolver(fileMap, taxonomy.dirAnchors);
+  const describeUnresolved = createUnresolvedLinkDescriber(files);
   for (const filePath of files) {
     const fullPath = resolve(root, filePath);
     const raw = readFileSync(fullPath, "utf-8");
@@ -175,6 +173,15 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         message: `Invalid generated_from: ${describeValue(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
       });
     }
+    // `verification` (#394): `unverified` is the one value brain reads. Any
+    // other would read as a claim (say, "verified") that nothing checks.
+    if ("verification" in data && data.verification !== "unverified") {
+      issues.push({
+        file: filePath,
+        level: "warning",
+        message: `Unrecognised verification: ${typeof data.verification === "string" ? `"${data.verification}"` : describeValue(data.verification)}. The only value brain reads is "unverified"; otherwise leave the field out`,
+      });
+    }
     if (data.status === "archived" && data.relevance === "primary") {
       issues.push({
         file: filePath,
@@ -218,21 +225,8 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         resolveLink(link, filePath) ??
         resolveAlias(link, aliasMap, filePath);
       if (resolved) continue;
-
-      const candidates = basenameCounts.get(link.split("/").pop()!) ?? 0;
-      if (candidates > 1) {
-        issues.push({
-          file: filePath,
-          level: "warning",
-          message: `Ambiguous wiki-link: [[${link}]] matches ${candidates} files and none is a same-directory sibling — qualify it (e.g. [[dir/${link}]])`,
-        });
-      } else {
-        issues.push({
-          file: filePath,
-          level: "warning",
-          message: `Unresolved wiki-link: [[${link}]]`,
-        });
-      }
+      // `brain audit` words its broken-link findings with the same describer.
+      issues.push({ file: filePath, level: "warning", message: describeUnresolved(link) });
     }
   }
 

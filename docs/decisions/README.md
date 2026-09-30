@@ -25,6 +25,7 @@ somebody already learn the hard way?*
 | [deterministic-sync.md](deterministic-sync.md) | Why `brain sync` runs without an agent: a pull that finishes pending merge state first (#328), deterministic merge strategies built from verbatim blocks, Jev for two fixed-answer judgments under D42's rules with an order-consistency check, keep-both as the unjudged default, and what stays with the agent. |
 | [contract-versioning.md](contract-versioning.md) | How a change to the integration contract is versioned before 1.0: additive ships in a minor, breaking needs a ruling first. |
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
+| [audit-markers.md](audit-markers.md) | Why `brain audit` reports TODO and VERIFY markers as one informational finding per document and kind, what `verification: unverified` means (and why there is no `verified`), why must-fix is errors plus warnings, and why broken links reuse the indexer's resolution. |
 | [document-render.md](document-render.md) | How `brain render` makes a document worth sending: one stylesheet, component classes as the contract, kinds as recipes with skeletons, full documents injected into rather than nested, a footer in CSS margin boxes, a lint on every render, a linear HTML tokenizer, and why chrome-headless-shell is opt-in. |
 
 ## Writing one

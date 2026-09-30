@@ -90,7 +90,7 @@ per fix, for Phase 4):**
    when the diverging text is ≤2 lines and the canonical text is obviously substitutable in
    context. If unsure: log instead.
 
-**Log-only (never auto-fix):** staleness past threshold, TODO/VERIFY markers, propagation/derivative
+**Log-only (never auto-fix):** staleness past threshold, TODO/VERIFY markers, broken links, propagation/derivative
 drift, `fact-drift` from `brain audit` (never rewrite the restated value), silent edits, orphans, type/directory mismatches, conflicts with no canonical or a recency
 gap <30 days, and anything ambiguous.
 
@@ -142,7 +142,8 @@ included) turned into one `-`; `hash4` is the first 4 hex characters of a SHA-1 
 `{category}|{path}|{evidence}`. The evidence is the smallest stable piece for the category:
 staleness → the document's type; conflict → the canonical fact text you gave; index-lag → the
 row's first cell (the whole-file audit finding: the index path); propagation, silent-edit,
-orphan and stale-draft → the file path; todo/verify → the marker text; type-mismatch → the type
+orphan and stale-draft → the file path; todo and verify → empty (one per document and kind,
+so a marker added or resolved keeps the ID); broken-link → the link target; type-mismatch → the type
 name; budget → the canonical key; past-date → the date and the line's text; fact-drift →
 `{key}={found}`, so the ID holds while the document keeps the same wrong value; repeated-text →
 the paragraph's excerpt; module-hygiene → the module's name; review-overdue and tag-noise →

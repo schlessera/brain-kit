@@ -210,6 +210,19 @@ correctness (schema, unresolved links); audit is about health.
   derives from (configured via `taxonomy.propagation`).
 - **Silent edits** — content changed without bumping `updated`. `brain accept-mtime`
   baselines these once you have reviewed them.
+- **Broken links** — a wiki-link that resolves to nothing, by the same rules
+  `brain validate` uses (a `warning`).
+- **Markers** — `[TODO: …]` and `[VERIFY: …]` notes, one `info` finding per
+  document and kind with the count and the first three. A document whose
+  frontmatter says `verification: unverified` gets one `verify` finding
+  whatever it contains.
+
+Severity is the one classification. Errors and warnings are **must-fix**: a
+defect the audit can show. Infos are **informational**: worth reading, not
+wrong. `brain audit` and `brain maintain` report both totals beside the
+severity counts, and every count is of findings, so a research file with forty
+markers counts once per kind. The reasoning is in
+[decisions/audit-markers.md](decisions/audit-markers.md).
 
 Skills (`audit`, `content-hygiene`) sit on top: they triage findings, apply the
 mechanically-safe fixes, and propose the judgment calls to you.

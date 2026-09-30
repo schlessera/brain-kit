@@ -33,7 +33,19 @@ surfaced by `brain briefing`), `generated_from` (the source a tool or an
 agent pass produced this document from: a repo-relative path or a tool name),
 `supersedes` (on a newer version, the document it replaces: `"[[plan]]"`, or
 an inline list of them; search then ranks the replaced one lower and marks it
-`supersededBy`, without hiding it).
+`supersededBy`, without hiding it), `verification: unverified` (the whole
+document still needs checking; the only value, see below).
+
+Markers and verification:
+- `[TODO: …]` and `[VERIFY: …]` in the body are notes for a later pass.
+  `brain audit` reports each kind once per document (`todo`, `verify`), as
+  `info`, with the count and the first three: they are worth reading, not
+  defects to fix before anything else.
+- `verification: unverified` says the whole document is unverified, when
+  marking every claim would be noise (a research dump, an import). The audit
+  then reports one `verify` finding for it, inline markers or not. Remove the
+  field once the document is checked. There is no `verified` value, and a
+  document without the field is not thereby verified.
 
 Facts, for documents that restate the same facts (bios, fact sheets):
 - `facts` — on the canonical document a `taxonomy.facts` entry names as its
@@ -64,7 +76,8 @@ Rules:
 1. Qualified targets containing `/` match by path suffix (`[[a/b]]` → `**/a/b.md`).
 2. Unique basename match anywhere in the corpus.
 3. Ambiguous basenames resolve to a same-directory sibling of the linking file.
-4. Otherwise unresolved — `brain validate` reports it; never guess.
+4. Otherwise unresolved — `brain validate` reports it, and `brain audit` as a
+   `broken-link` warning; never guess.
 
 A directory link (`[[some/dir/]]`) resolves to its anchor file (`_index.md`
 first; modules may add anchors like `status.md`). `[[file#heading]]` links to

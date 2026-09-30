@@ -30,7 +30,8 @@ Parse the findings and group them by category.
 | propagation | a derivative is older than its canonical source | propose — regenerating derivatives is judgment work |
 | orphan | referenced target missing / unreferenced file | propose — could be a rename or a genuine loss |
 | type-mismatch | document lives outside its type's directory | **fix** if the move is unambiguous; else propose |
-| todo / verify | `TODO` / `VERIFY` markers in content | propose — surface them, don't resolve silently |
+| todo / verify | `TODO` / `VERIFY` markers in content, one info finding per document and kind (`count`, first three in `examples`); `verify` also for `verification: unverified` | propose — surface them, don't resolve silently |
+| broken-link | a wiki-link that resolves to nothing (`target` names it) | propose — could be a rename, a missing alias or a genuine loss |
 | tag-noise | near-duplicate or one-off tags | **fix** — normalize obvious duplicates |
 
 ## 3. Fix the safe ones

@@ -47,14 +47,14 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | Command | Shape |
 |---------|-------|
 | `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (default `jev` when its key is set, else `heuristic`). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
-| `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos" }` — markdown documents only (assets excluded). The three counts are the number of issues at each severity. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
+| `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
-| `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
+| `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `audit` step's result is `<errors> error(s), <warnings> warning(s), <infos> info(s); <mustFix> must-fix, <informational> informational`, the totals `brain audit --json` reports for the same run (the must-fix and informational part additive in 0.40.0; the counts follow the grouped `todo`/`verify` issues from 0.40.0). The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
 | `brain registry [--check] --json` | `{ "indexes", "written", "stale", "invalid": [{ "path", "error" }] }` (additive in 0.38.0). Regenerates the registry table of every `_index.md` whose frontmatter has a `registry:` block. `indexes` counts them, valid or not. `written` lists the files rewritten. `stale` lists out-of-date indexes left as they are: all of them under `--check`, which writes nothing, and otherwise one whose file changed between being read and being written (it is regenerated on the next run). `invalid` lists indexes that cannot be generated, which are left untouched: a `registry:` block that does not validate, an index or a child that cannot be read, whose frontmatter does not parse, or whose frontmatter opens and never closes (an `_index.md` whose frontmatter does not parse counts when it has a `registry:` line, quoted or not), or malformed region markers. Exit `1` under `--check` when anything is stale or invalid, `2` without it when anything is invalid, else `0` |
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
@@ -105,16 +105,55 @@ joined with `", "`, or `null` when it has none — a string, not an array);
 `score` (always `0`, since a filter has nothing to rank) and `snippet` (always
 `""`).
 
+#### `AuditIssue`
+
 `AuditIssue` fields: `path`, a repo-relative document path or a
 parenthesised sentinel for an issue that belongs to no one file — `"(corpus)"`
 for the corpus-wide `tag-noise` check, `"(module)"` for a failing module check
 — so a consumer must not open a `path` that starts with `(`; `severity`, one of `"error"`,
 `"warning"`, `"info"`; `category`, a string naming the check; `message`; and
-`suggestion`, a string present only when the check has one. Core categories are
-`staleness`, `propagation`, `index-lag`, `stale-draft`, `tag-noise`, `todo`,
-`verify`, `type-mismatch`, `orphan`, and, added in 0.38.0 additively,
-`budget`, `review-overdue`, `past-date`, `fact-drift`, `repeated-text`,
-`index-stale` and `duplicate-title`. `duplicate-title` is a non-archived
+`suggestion`, a string present only when the check has one. Three optional
+fields are additive in 0.40.0, each present only on the categories named:
+`count` (a number) and `examples` (strings) on `todo` and `verify`, and
+`target` (a string, the wiki-link target as written) on `broken-link`. Core
+categories are `staleness`, `propagation`, `index-lag`, `stale-draft`,
+`tag-noise`, `todo`, `verify`, `type-mismatch`, `orphan`, added in 0.38.0
+additively, `budget`, `review-overdue`, `past-date`, `fact-drift`,
+`repeated-text`, `index-stale` and `duplicate-title`, and added in 0.40.0
+additively, `broken-link`.
+
+`todo` and `verify` are one issue per document and category, both `info`
+(**breaking in 0.40.0**: they were one issue per marker, and `verify` was a
+`warning`; the maintainer ruling is on
+[#394](https://github.com/schlessera/brain-kit/issues/394), the reasoning in
+[decisions/audit-markers.md](decisions/audit-markers.md)). A marker is a
+`[TODO: …]` or `[VERIFY: …]` span in the body, as before. `count` is the
+number of markers of that kind in the document, and `examples` the first
+three of them, in source order, each as written. A document with both kinds
+has two issues. `message` is `<n> TODO marker(s): <examples>` (with `, the
+first 3` after the count when there are more than three), and the same for
+`VERIFY`. A document whose frontmatter declares `verification: unverified` has
+exactly one `verify` issue, markers or not: its `message` starts `Declared
+verification: unverified`, followed by `; ` and the marker summary when it also
+has inline markers, and its `count` is the number of inline markers, `0` when
+it has none. A document that does not declare it is judged by its markers
+alone; the absence of the declaration never means verified. Migration: a
+consumer that counted `todo` or `verify` issues to count markers should sum
+`count` instead, and one that treated a `verify` issue as must-fix should read
+it as informational.
+
+`broken-link` is a wiki-link in a document's body that resolves to nothing,
+one `warning` per source document and target, with the target in `target`
+and a `message` worded exactly as `brain validate` words the same link
+(`Unresolved wiki-link: [[x]]`, or `Ambiguous wiki-link: …` when the name
+matches several documents and none is a same-directory sibling). Resolution
+is the indexer's own, the one `brain validate` uses: path suffixes,
+basenames, same-directory disambiguation, directory anchors, `[[target#heading]]`
+and `[[target|label]]`, then `aliases`. So a link `brain validate` accepts is
+never a `broken-link`, and on a current index the issues are the rows
+`brain stats` counts as `brokenLinks`.
+
+`duplicate-title` is a non-archived
 markdown document whose exact title another non-archived one shares, one
 `info` issue on each, with the others' paths in `message`.
 `fact-drift` is a document that restates a keyed fact (`taxonomy.facts`) with a value other than
@@ -129,7 +168,9 @@ count, the first three paths and the paragraph's first 80 characters in
 generated table no longer matches its children (or whose block is invalid),
 `warning`; such an index is never reported as `index-lag`. `budget` is a canonical document
 over its `taxonomy.canonicalPolicy.<key>.maxTokens`. `review-overdue` is a
-passed `next_review`, or a lapsed `canonicalPolicy.<key>.reviewDays` cadence.
+passed `next_review` (strictly before today; a review due today is not
+overdue), or a lapsed `canonicalPolicy.<key>.reviewDays` cadence, never on an
+archived document, and one issue per document.
 `past-date` is a line in a canonical document with a policy that names an
 earlier `YYYY-MM-DD` day, with the line number in `message`. All three are
 `warning`. `taxonomy.canonicalPolicy` is an optional `brain.config` key,
@@ -869,7 +910,7 @@ Rules a consumer may rely on:
 
 Prefer the CLI/MCP. If reading directly:
 
-- Check `index_metadata` first: `schema_version` (currently **14**),
+- Check `index_metadata` first: `schema_version` (currently **15**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -908,7 +949,11 @@ Prefer the CLI/MCP. If reading directly:
   aliases. It also adds `name_keys` (key, document_id): each markdown
   document's title and aliases, case-folded with whitespace collapsed, the
   lookup exact-name search uses. Titles are keyed at migration; the next index
-  run adds the aliases.
+  run adds the aliases. Schema 15 (0.40.0) adds only the nullable
+  `documents.verification` column: a markdown document's `verification`
+  frontmatter as written when it is a non-empty string, else `NULL`. A reader
+  that accepts 14 reads 15 unchanged. Its migration clears the markdown rows'
+  `content_hash`, as schema 11's did, so the next index run fills it.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
@@ -1164,6 +1209,12 @@ SessionHistoryMessage.localAnswer?: { exchangeId, command, answer }
   hand. `brain validate` reports any other value as an error. `brain audit`
   reports a `propagation` issue when it names a markdown document updated
   after this one. The heuristic reranker weights a generated document ×0.85.
+- Optional `verification` (additive in 0.40.0): `verification: unverified`
+  declares the whole document unverified. `brain audit` then reports exactly
+  one `verify` issue (`info`) for it, however many inline `[VERIFY: …]`
+  markers it has. It is a declaration, not a state machine: there is no
+  `verified` value, and a document without the field is not thereby verified.
+  `brain validate` warns on any other value.
 - Optional `supersedes` (additive in 0.38.0): on a newer document, the
   document or documents it replaces, as a wiki-link target (`"[[plan]]"` or
   `plan`) or an inline list of them, resolved like a body wiki-link, aliases

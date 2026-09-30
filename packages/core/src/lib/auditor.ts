@@ -8,6 +8,7 @@ import { estimateTokens } from "./context-assembler.js";
 import { hasDocumentsColumn } from "./db.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { planRegistry } from "./index-registry.js";
+import { createUnresolvedLinkDescriber } from "./indexer/links.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
 import type { AuditIssue } from "./types.js";
@@ -55,6 +56,8 @@ export interface AuditDoc {
   content: string;
   /** `generated_from` frontmatter: the source the document is produced from, or null. */
   generated_from: string | null;
+  /** `verification` frontmatter as written, or null; only `unverified` means anything. */
+  verification: string | null;
 }
 
 /**
@@ -65,9 +68,11 @@ export interface AuditDoc {
 export function loadAuditDocs(db: Database): AuditDoc[] {
   return db
     .prepare(
-      // A read-only connection on a schema-9 index has no generated_from yet.
+      // A read-only connection on an older index has no generated_from
+      // (schema 10) or verification (schema 14) yet.
       `SELECT id, path, title, type, status, relevance, updated, next_review, content,
-         ${hasDocumentsColumn(db, "generated_from") ? "generated_from" : "NULL AS generated_from"}
+         ${hasDocumentsColumn(db, "generated_from") ? "generated_from" : "NULL AS generated_from"},
+         ${hasDocumentsColumn(db, "verification") ? "verification" : "NULL AS verification"}
        FROM documents
        WHERE asset_type = 'markdown'
        ORDER BY path`
@@ -546,6 +551,71 @@ export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
   return repeated.sort((a, b) => b.paths.length - a.paths.length || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
 }
 
+/** Examples a grouped finding carries, at most. */
+export const MARKER_EXAMPLES = 3;
+
+/** `[TODO: …]` and `[VERIFY: …]` markers, each list in source order. */
+export function findMarkers(content: string): { todo: string[]; verify: string[] } {
+  return {
+    todo: content.match(/\[TODO:[^\]]*\]/g) ?? [],
+    verify: content.match(/\[VERIFY:[^\]]*\]/g) ?? [],
+  };
+}
+
+/** `3 TODO markers: a, b, c`, or `5 TODO markers, the first 3: a, b, c`. */
+function markerSummary(kind: string, markers: string[]): string {
+  const shown = markers.slice(0, MARKER_EXAMPLES);
+  const counted = `${markers.length} ${kind} marker${markers.length === 1 ? "" : "s"}`;
+  return `${counted}${markers.length > shown.length ? `, the first ${shown.length}` : ""}: ${shown.join(", ")}`;
+}
+
+export interface BrokenLink {
+  doc: AuditDoc;
+  /** The wiki-link target as written, anchor included. */
+  target: string;
+}
+
+/**
+ * Wiki-links from `docs` that resolve to nothing: the `links` rows the indexer
+ * wrote with no target, in path then target order. The indexer resolves each
+ * link with the resolver and alias rules `brain validate` uses, so the two
+ * agree about which links are broken, and `brain stats` counts the same rows.
+ */
+export function findBrokenLinks(db: Database, docs: AuditDoc[]): BrokenLink[] {
+  const byId = new Map(docs.map((d) => [d.id, d]));
+  const rows = db
+    .prepare("SELECT source_id, target FROM links WHERE target_id IS NULL")
+    .all() as { source_id: number; target: string }[];
+  const broken: BrokenLink[] = [];
+  for (const { source_id, target } of rows) {
+    const doc = byId.get(source_id);
+    if (doc) broken.push({ doc, target });
+  }
+  const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return broken.sort((a, b) => order(a.doc.path, b.doc.path) || order(a.target, b.target));
+}
+
+export interface AuditTotals {
+  errors: number;
+  warnings: number;
+  infos: number;
+  /** Errors plus warnings: the findings a run should leave fixed. */
+  mustFix: number;
+  /** Infos: the findings worth reading, none of them a defect. */
+  informational: number;
+}
+
+/**
+ * The counts `brain audit` and `brain maintain` report, one per finding, so
+ * a grouped finding counts once however many markers it covers.
+ */
+export function auditTotals(issues: AuditIssue[]): AuditTotals {
+  const errors = issues.filter((i) => i.severity === "error").length;
+  const warnings = issues.filter((i) => i.severity === "warning").length;
+  const infos = issues.filter((i) => i.severity === "info").length;
+  return { errors, warnings, infos, mustFix: errors + warnings, informational: infos };
+}
+
 /**
  * Run all audit checks against the indexed database.
  *
@@ -564,7 +634,8 @@ export function audit(
   const now = (opts.now ?? new Date()).getTime();
 
   const exclude = opts.exclude;
-  const docs = exclude ? loadAuditDocs(db).filter((d) => !exclude(d.path)) : loadAuditDocs(db);
+  const indexed = loadAuditDocs(db);
+  const docs = exclude ? indexed.filter((d) => !exclude(d.path)) : indexed;
 
   // ---------------------------------------------------------------
   // 1. Staleness checks
@@ -783,36 +854,58 @@ export function audit(
   }
 
   // ---------------------------------------------------------------
-  // 3. TODO / VERIFY marker detection
+  // 3. TODO / VERIFY markers — one finding per document and kind, info
   // ---------------------------------------------------------------
-  const todoRegex = /\[TODO:[^\]]*\]/g;
-  const verifyRegex = /\[VERIFY:[^\]]*\]/g;
-
+  // A marker is a note to the reader, not a demonstrated defect, so neither
+  // kind is must-fix, and a long research file counts once, not once per
+  // marker (#394, docs/decisions/audit-markers.md). `verification:
+  // unverified` declares the whole document unverified: one verify finding,
+  // whatever inline markers it also has.
   for (const doc of docs) {
-    const todoMatches = doc.content.match(todoRegex);
-    if (todoMatches) {
-      for (const match of todoMatches) {
-        issues.push({
-          path: doc.path,
-          severity: "info",
-          category: "todo",
-          message: `Contains marker: ${match}`,
-        });
-      }
+    const { todo, verify } = findMarkers(doc.content);
+    if (todo.length > 0) {
+      issues.push({
+        path: doc.path,
+        severity: "info",
+        category: "todo",
+        message: markerSummary("TODO", todo),
+        count: todo.length,
+        examples: todo.slice(0, MARKER_EXAMPLES),
+      });
     }
+    const declared = doc.verification === "unverified";
+    if (declared || verify.length > 0) {
+      issues.push({
+        path: doc.path,
+        severity: "info",
+        category: "verify",
+        message: declared
+          ? `Declared verification: unverified${verify.length > 0 ? `; ${markerSummary("VERIFY", verify)}` : ""}`
+          : markerSummary("VERIFY", verify),
+        suggestion: declared
+          ? "Verify the document, then remove verification: unverified and any VERIFY markers"
+          : "Verify this information and remove the markers",
+        count: verify.length,
+        examples: verify.slice(0, MARKER_EXAMPLES),
+      });
+    }
+  }
 
-    const verifyMatches = doc.content.match(verifyRegex);
-    if (verifyMatches) {
-      for (const match of verifyMatches) {
-        issues.push({
-          path: doc.path,
-          severity: "warning",
-          category: "verify",
-          message: `Contains unverified content: ${match}`,
-          suggestion: "Verify this information and remove the marker",
-        });
-      }
-    }
+  // ---------------------------------------------------------------
+  // 3b. Broken links — a wiki-link that resolves to nothing
+  // ---------------------------------------------------------------
+  // Ambiguity is judged against every indexed document, as validate judges
+  // it against every file: leaving a document out does not unmake a clash.
+  const describeUnresolved = createUnresolvedLinkDescriber(indexed.map((d) => d.path));
+  for (const { doc, target } of findBrokenLinks(db, docs)) {
+    issues.push({
+      path: doc.path,
+      severity: "warning",
+      category: "broken-link",
+      message: describeUnresolved(target),
+      suggestion: "Point it at an existing document, add the target as an alias, or remove the link",
+      target,
+    });
   }
 
   // ---------------------------------------------------------------
