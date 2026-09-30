@@ -26,7 +26,7 @@ export default defineModule({
     taxonomy: { types: { opportunity: { dir: config.opportunitiesDir } } },
     commands: { jobs: () => import("./cli") },
     indexRules: { dirAnchors: ["status.md"] },
-    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all --browser" }],
+    cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape" }],
   }),
 });
 ```
@@ -136,9 +136,10 @@ opportunity notes.
   without a `stage` and one still `researching` after 60 days.
 - **CLI word:** `brain jobs` — `scrape`, `score`, `triage`, `review`, `stats`,
   `scaffold <id>`, `pipeline`, `show`, `open`, `decide`, `search`, `gc`. `scrape --browser`
-  appends the headless-Chrome pass to the API pass; `--browser-only` runs just
-  the former.
-- **Cron:** advisory `scrape` daily at 06:00, unified across both passes.
+  adds browser boards to the configured selection; `--browser-only` selects
+  only browser boards. Selected adapters receive Chrome automatically.
+- **Cron:** advisory `scrape` daily at 06:00 runs plain `jobs scrape`, following
+  the same effective module settings as a manual run without adding boards.
 - **Caveat:** scraping may violate a board's Terms of Service — review each
   board's ToS and `robots.txt`, keep volume low, and prefer official feeds. See
   the module README.
