@@ -634,16 +634,28 @@ media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
 
 ## `sync`
 
-How `brain sync` settles what git cannot: a note both clones changed, and a
-changed file its classifier has no rule for.
+How `brain sync` integrates remote commits and settles what git cannot: a
+note both clones changed, and a changed file its classifier has no rule for.
 
 | Key     | Type              | Default | Means |
 | ------- | ----------------- | ------- | ----- |
+| `pull` | `"rebase" \| "merge"` | `"rebase"` | For divergent history, replay unpublished local commits on `origin/main`; if rebase stops, abort it and use the usual merge. `"merge"` always uses the merge path. Applies to `sync pull`, `sync run` and bare `sync`. |
 | `judge` | `"jev" \| "off"` | `"jev"` | Who answers the two judgments a sync needs. `"jev"` asks TypeSafe AI's Jev classifier when `TYPESAFE_API_KEY` is set. `"off"` never calls it. |
 
 ```ts
-sync: { judge: "off" }
+sync: { pull: "merge", judge: "off" }
 ```
+
+The default keeps history linear when local commits apply cleanly. It replays
+only commits absent from `origin/main`, never autostashes unrelated work or
+updates another local branch, and does not preserve local merge commits with
+`--rebase-merges`. A successful pull reports `rebased`; a stopped attempt is
+aborted before merge conflicts are exposed, so OURS remains local and THEIRS
+remote. Existing merge/index state is handled first; an existing rebase or
+apply operation is left untouched. Local derived-cache changes are set aside
+and restored or unioned with the integrated cache. If an abort cannot restore
+the original HEAD and clear operation state, the pull reports `merge-failed`
+with a reason and leaves that operation for its owner.
 
 The two judgments are whether an `UNKNOWN` file is an artifact or content to
 track, and how two edits of one passage relate: the same fact, one replacing

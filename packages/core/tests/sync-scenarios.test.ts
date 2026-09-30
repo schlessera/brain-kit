@@ -73,12 +73,12 @@ const ROWS: Row[] = [
     },
   },
   {
-    name: "(c) two clones, different files: merged and pushed",
+    name: "(c) two clones, different files: rebased and pushed",
     setup: SCENARIO_SETUPS.differentFiles,
     code: 0,
     status: "complete",
     check(brain, body) {
-      expect(body.steps.pull[0].status).toBe("merged");
+      expect(body.steps.pull[0].status).toBe("rebased");
       expect(body.steps.resolve).toEqual([]);
       expect(pushedFile(brain, "notes/elk-sighting.md")).toContain("bull elk");
       expect(pushedFile(brain, "notes/owl-count.md")).toContain("Three barred owls");

@@ -13,7 +13,7 @@ import { conclude, foreignReason, pendingState, rememberStash, type PendingKind 
 
 /** What `brain sync pull` reports. */
 export interface PullEnvelope {
-  status: "fetch-failed" | "synced" | "fast-forwarded" | "merged" | "conflicted" | "merge-failed" | string;
+  status: "fetch-failed" | "synced" | "fast-forwarded" | "rebased" | "merged" | "conflicted" | "merge-failed" | string;
   /** Commits on each side before anything below moved HEAD. */
   localAhead: number;
   remoteAhead: number;
@@ -80,15 +80,21 @@ function unionDerivedCaches(
   root: string,
   files: Iterable<string>,
   aside: Map<string, CacheAside>,
-  conflicted: ReadonlySet<string>
+  conflicted: ReadonlySet<string>,
+  includeHead = false
 ): void {
   for (const file of files) {
     const path = resolve(root, file);
     const sources = [aside.get(file)?.file ?? ""];
     if (conflicted.has(file)) {
       for (const stage of [2, 3]) sources.push(git(root, ["show", `:${stage}:${file}`], true).stdout);
-    } else if (existsSync(path)) {
-      sources.push(readFileSync(path, "utf-8"));
+    } else {
+      // Rebase runs post-checkout. A reindexing hook may prune the fetched
+      // cache before union sees the working file; the integrated commit
+      // still holds it. Never read HEAD for a conflict: its ancestor's
+      // entries are deliberately excluded by the two-stage merge above.
+      if (includeHead) sources.push(git(root, ["show", `HEAD:${file}`], true).stdout);
+      if (existsSync(path)) sources.push(readFileSync(path, "utf-8"));
     }
     const byKey = new Map<string, string>();
     const all = sources.join("\n").split("\n").filter((line) => line.trim());
@@ -118,7 +124,7 @@ interface PullPass {
 }
 
 /** The statuses that claim origin/main is in HEAD. */
-const INTEGRATED = new Set(["synced", "fast-forwarded", "merged"]);
+const INTEGRATED = new Set(["synced", "fast-forwarded", "rebased", "merged"]);
 
 function countCommits(root: string, range: string): number {
   return parseInt(git(root, ["rev-list", "--count", range]).stdout || "0", 10);
@@ -126,10 +132,10 @@ function countCommits(root: string, range: string): number {
 
 /**
  * Bring origin/main into HEAD once: synced when it is there already, else a
- * fast-forward or a merge. The counts are taken afresh on each pass, because
- * concluding a pending merge before it moves HEAD.
+ * fast-forward, rebase or merge. The counts are taken afresh on each pass, because
+ * concluding a pending merge can move HEAD.
  */
-function mergeOriginMain(root: string): PullPass {
+function mergeOriginMain(root: string, strategy: "rebase" | "merge"): PullPass {
   const localAhead = countCommits(root, "origin/main..HEAD");
   const remoteAhead = countCommits(root, "HEAD..origin/main");
 
@@ -152,6 +158,29 @@ function mergeOriginMain(root: string): PullPass {
     status = "synced";
   } else if (localAhead === 0) {
     status = git(root, ["merge", "--ff-only", "origin/main"]).code === 0 ? "fast-forwarded" : "merge-failed";
+  } else if (strategy === "rebase" && pendingState(root).kind === "none") {
+    const before = git(root, ["rev-parse", "HEAD"]).stdout;
+    // Only commits origin/main lacks are replayed. Never autostash other
+    // work or update another branch, even when the user's git config asks
+    // for it. A stopped rebase is never exposed to the merge resolver.
+    const rebased = git(root, ["rebase", "--no-autostash", "--no-update-refs", "--no-rebase-merges", "origin/main"]);
+    if (rebased.code === 0) {
+      status = "rebased";
+    } else {
+      const aborted = git(root, ["rebase", "--abort"]);
+      const restored = pendingState(root).kind === "none" && git(root, ["rev-parse", "HEAD"]).stdout === before;
+      putDerivedCachesBack(root, aside);
+      if (!restored) {
+        return {
+          status: "merge-failed", conflicts: [], mergedCaches: [],
+          reason: `could not abort rebase: ${aborted.stderr || aborted.stdout || "original HEAD or clean operation state was not restored"}`,
+        };
+      }
+      // A refusal before rebase started has nothing to abort. Restored HEAD
+      // and operation state, rather than abort's exit code, establish that
+      // today's merge path may run with the original cache/index bytes.
+      return mergeOriginMain(root, "merge");
+    }
   } else if (git(root, ["merge", "origin/main", "--no-edit"]).code === 0) {
     status = "merged";
   } else {
@@ -170,9 +199,10 @@ function mergeOriginMain(root: string): PullPass {
   const merging =
     conflicts.length > 0 || git(root, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).code === 0;
   const cacheConflicts = conflicts.filter((file) => DERIVED_CACHES.has(file));
-  const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts])];
-  if (status === "fast-forwarded" || status === "merged" || merging) {
-    unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts));
+  const hookCaches = status === "rebased" ? classifyPostSyncDirt(workingTreeDirt(root)).caches : [];
+  const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts, ...hookCaches])];
+  if (status === "fast-forwarded" || status === "rebased" || status === "merged" || merging) {
+    unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts), status === "rebased");
     if (cacheConflicts.length > 0) {
       git(root, ["add", "--", ...cacheConflicts]);
       conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
@@ -202,7 +232,7 @@ function mergeOriginMain(root: string): PullPass {
  * pass can leave it out (a squash merge never records it as a parent), so a
  * pass that does gets one more, and after that the pull is merge-failed.
  */
-function pullOriginMain(root: string): { pass: PullPass; concluded: PendingKind | null } {
+function pullOriginMain(root: string, strategy: "rebase" | "merge"): { pass: PullPass; concluded: PendingKind | null } {
   const pending = pendingState(root);
   if (pending.kind === "blocked") {
     const reason = `a ${pending.blocker} is in progress`;
@@ -246,12 +276,12 @@ function pullOriginMain(root: string): { pass: PullPass; concluded: PendingKind 
     committed = done.outcome === "committed";
   }
 
-  let pass = mergeOriginMain(root);
+  let pass = mergeOriginMain(root, strategy);
   if (INTEGRATED.has(pass.status) && !isAncestor(root, "origin/main", "HEAD")) {
     // A pass that left state pending (a squash merge git did not commit)
     // would only be refused by a second merge.
     if (pendingState(root).kind === "none") {
-      const again = mergeOriginMain(root);
+      const again = mergeOriginMain(root, strategy);
       pass = { ...again, mergedCaches: [...new Set([...pass.mergedCaches, ...again.mergedCaches])] };
     }
     if (INTEGRATED.has(pass.status) && !isAncestor(root, "origin/main", "HEAD")) {
@@ -264,7 +294,7 @@ function pullOriginMain(root: string): { pass: PullPass; concluded: PendingKind 
 }
 
 /** Fetch origin/main, then `pullOriginMain`. */
-export function pull(root: string): PullEnvelope {
+export function pull(root: string, strategy: "rebase" | "merge" = "rebase"): PullEnvelope {
   const fetch = git(root, ["fetch", "origin", "main"]);
   if (fetch.code !== 0) {
     return {
@@ -280,7 +310,7 @@ export function pull(root: string): PullEnvelope {
   // Measured before anything below moves HEAD.
   const localAhead = countCommits(root, "origin/main..HEAD");
   const remoteAhead = countCommits(root, "HEAD..origin/main");
-  const { pass, concluded } = pullOriginMain(root);
+  const { pass, concluded } = pullOriginMain(root, strategy);
   const { status, conflicts, mergedCaches, reason } = pass;
   return { status, localAhead, remoteAhead, conflicts, mergedCaches, concluded, ...(reason === undefined ? {} : { reason }) };
 }

@@ -29,7 +29,7 @@ back.
    cherry-pick, revert or am in progress is never finished: the pull reports
    `merge-failed` with the reason. Then the normal pull runs, and if
    `origin/main` is still not an ancestor of HEAD, it runs once more.
-   `synced`, `fast-forwarded` and `merged` therefore imply that HEAD contains
+   `synced`, `fast-forwarded`, `rebased` and `merged` therefore imply that HEAD contains
    `origin/main`; when a second pass cannot make that true, the result is
    `merge-failed`, never a loop.
    - *Rejected: option B, refuse any pending state and tell the user.* It is
@@ -195,12 +195,12 @@ it from.
 
 What changes. With `--json`, or stdout not a TTY, bare sync prints
 `{ run, agent }` and nothing else on stdout (the bare branch, `if (!verb) {`,
-`packages/core/src/cli/commands/sync.ts:248-277`). `run` is `run`'s own
+`packages/core/src/cli/commands/sync.ts:249-278`). `run` is `run`'s own
 envelope. `agent` says whether the agent was invoked, and if not, why
 (`not-needed`, or `no-runner` when a run needed one and none was available).
 An invoked agent carries its runner, its outcome, its final text, and the
 runtime that run reported about itself (`SyncAgent`,
-`packages/core/src/cli/commands/sync.ts:204-207`). The agent runs quietly in
+`packages/core/src/cli/commands/sync.ts:205-208`). The agent runs quietly in
 this mode: its progress and text go into the result, not beside it.
 
 What does not change: the deterministic run comes first, the handoff rules of
@@ -229,3 +229,31 @@ version.
 
 The runtime half of this ruling, what is recorded and where it shows, is in
 [claude-code-runtime.md](claude-code-runtime.md), "What a sync ran".
+
+## 2026-09-30 — Rebase unpublished commits before merging (#399)
+
+**Decision (maintainer, 2026-09-25, on #399): divergent pulls default to rebase,
+with abort-and-merge fallback.** This waited for #328's pending-state handling
+and #408's removal of sidecar-cache churn. Only local commits absent from
+`origin/main` are replayed, keeping history linear when they apply cleanly;
+published history is never rewritten. `sync.pull: "merge"` selects the
+previous merge-only policy. The setting applies to standalone pull and the
+whole deterministic sync, including retries after a rejected push.
+
+A stopped rebase is aborted and the original HEAD and operation state checked
+before the existing merge path runs (`mergeOriginMain`,
+`packages/core/src/lib/sync/pull.ts:138-188`). Thus the resolver still sees
+local OURS and remote THEIRS, rather than the reversed rebase stages. Pending
+merge/index state is handled before any attempt; #328 may conclude a
+sync-owned cache-only merge first. An existing rebase/apply operation is
+refused and left untouched. If abort cannot restore the original state, pull
+reports `merge-failed` with a reason instead of attempting a merge over it.
+
+Derived-cache index and working-file changes are set aside before the attempt
+and restored before fallback. Successful rebases union them with the resulting
+commit and working file: Git runs post-checkout during rebase, so a reindexing
+hook must not erase cache entries from the integrated commit. The rebase
+explicitly disables autostash, other-branch ref updates and merge-preserving
+replay, even when Git config enables them. No rebase conflict is handed to the
+agent, and the mechanical pull status `rebased` is outside the stable CLI
+contract, as the other sync verb details are.

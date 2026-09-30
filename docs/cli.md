@@ -160,6 +160,12 @@ Sync assessment and grouping preserve literal Git paths, including Unicode,
 newlines, and rename destinations. Untracked directories are expanded so
 sensitive files inside them receive their own classification.
 
+Divergent sync pulls try rebasing unpublished local commits by default and
+report `rebased` on success. A stopped rebase is aborted before the existing
+merge path runs, keeping conflict stages local as OURS and remote as THEIRS.
+[`sync.pull: "merge"`](configuration.md#sync) selects merge-only pulls for
+`sync pull`, `sync run` and bare `sync`.
+
 Module packages add ONE namespaced top-level command each (`brain jobs …`,
 `brain finance …`, `brain image …`) — see [modules.md](modules.md).
 
