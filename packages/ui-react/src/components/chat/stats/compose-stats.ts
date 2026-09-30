@@ -155,7 +155,7 @@ function corpusRungs(c: CorpusStats): Rung[] {
       kind: "callout",
       tone: "red",
       variant: "boxed",
-      title: `Only ${shown.ratio} of ${count(c.chunks)} chunks have a vector, under the ${shown.threshold} floor.`,
+      title: `Only ${shown.ratio} of eligible chunks have a vector, under the ${shown.threshold} floor.`,
       body: "Meaning-based search cannot reach the text in the rest. Run `brain index --embeddings`.",
     });
   }
@@ -333,7 +333,7 @@ function corpusReceipt(c: CorpusStats): StatsSection {
     { k: "embeddings", v: c.embeddings === null ? "not counted" : count(c.embeddings) },
     {
       k: "coverage",
-      // Null is not "not configured": it is also a brain with no chunks, or
+      // Null is not "not configured": it is also no eligible chunks, or
       // a vector count that failed. It is only ever "not measured".
       v: coverage === null ? "not measured" : judgedPair(coverage, thresholds.coverageFloor).ratio,
       ...(coverageUnder ? { tone: "red" as const } : coverage === null ? { tone: "dim" as const } : {}),

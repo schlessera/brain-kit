@@ -15,6 +15,7 @@ import { join, relative } from "path";
 import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
 import { loadVecSupport, vecTableExists } from "./db.js";
+import { embeddingEligibilitySql } from "./embedding-policy.js";
 import { gitIgnoredMatcher, isAssetPath } from "./git-ignore.js";
 import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -41,7 +42,7 @@ export interface BrainStats {
   health: {
     /** brokenLinks / links; null when the corpus has no links to judge. */
     brokenLinkRate: number | null;
-    /** embeddings / chunks; null when this brain neither embeds nor holds vectors, or has no chunks. */
+    /** Eligible chunks with vectors / eligible chunks; null with no eligible chunks or no measurable coverage. */
     embeddingCoverage: number | null;
     /** Markdown documents past their type's staleDays — the audit definition. */
     stale: number;
@@ -235,6 +236,10 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   const linkCount = count(db, "SELECT COUNT(*) as count FROM links");
   const brokenLinks = count(db, "SELECT COUNT(*) as count FROM links WHERE target_id IS NULL");
   const chunkCount = count(db, "SELECT COUNT(*) as count FROM chunks");
+  const eligible = embeddingEligibilitySql(taxonomy);
+  const eligibleChunkCount = (db.prepare(`SELECT COUNT(*) AS count FROM chunks c
+    JOIN documents d ON d.id = c.document_id WHERE ${eligible.sql}`)
+    .get(...eligible.params) as { count: number }).count;
 
   // vec_chunks is a vec0 virtual table: counting it needs the extension on
   // this connection, and an older or hand-built database may not have it at
@@ -253,11 +258,15 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   // and counting rows is not a reason to migrate anything.
   let vecTable = vecTableExists(db);
   let embeddingCount: number | null = null;
+  let eligibleEmbeddingCount: number | null = null;
   if (vecTable) {
     const vec = await loadVecSupport(db);
     if (vec.ok) {
       try {
         embeddingCount = count(db, "SELECT COUNT(*) as count FROM vec_chunks");
+        eligibleEmbeddingCount = (db.prepare(`SELECT COUNT(*) AS count FROM vec_chunks v
+          JOIN chunks c ON c.id = v.chunk_id JOIN documents d ON d.id = c.document_id
+          WHERE ${eligible.sql}`).get(...eligible.params) as { count: number }).count;
       } catch {
         // a table the extension cannot read — still unknown, still not 0
       }
@@ -271,10 +280,10 @@ export async function collectStats(db: Database, opts: CollectStatsOptions): Pro
   // provider configured, or one that already holds vectors. A keyless brain
   // gets an empty vec_chunks from every `brain index`, and "0% embedded"
   // there would be a warning nobody can act on. A brain with no vec_chunks at
-  // all has no coverage either, even though its count is a known 0.
+  // all has no coverage either. Neither does one with no eligible chunks.
   const embeddingCoverage =
-    embeddingCount !== null && (opts.embeddingsConfigured || embeddingCount > 0) && chunkCount > 0
-      ? embeddingCount / chunkCount
+    eligibleEmbeddingCount !== null && (opts.embeddingsConfigured || (embeddingCount ?? 0) > 0) && eligibleChunkCount > 0
+      ? eligibleEmbeddingCount / eligibleChunkCount
       : null;
 
   const docs = loadAuditDocs(db);

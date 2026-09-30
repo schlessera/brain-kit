@@ -12,11 +12,13 @@ import {
   embeddingIdentityMatches,
   getMeta,
   hasVecSupport,
+  loadVecSupport,
   migrateVecSchema,
   setMeta,
   vecTableExists,
 } from "../db.js";
 import { chunkTextForEmbedding } from "../chunker.js";
+import { embeddingEligibilitySql, embedsType } from "../embedding-policy.js";
 import type { EmbeddingProvider } from "../seams.js";
 import type { IndexRun } from "./types.js";
 
@@ -109,6 +111,21 @@ export function dropOrphanedVectors(db: Database): void {
     db.run("DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)");
   } catch {
     // vec_chunks may not exist
+  }
+}
+
+/** Reconcile config-only opt-outs even on unchanged, non-embedding runs. */
+export async function dropIneligibleVectors(run: IndexRun): Promise<void> {
+  const eligible = embeddingEligibilitySql(run.taxonomy);
+  if (!eligible.params.length || !vecTableExists(run.db)) return;
+  // Load existing vectors without changing their width or migrating them.
+  if (!(await loadVecSupport(run.db)).ok) return;
+  try {
+    run.db.prepare(`DELETE FROM vec_chunks WHERE chunk_id IN (
+      SELECT c.id FROM chunks c JOIN documents d ON d.id = c.document_id
+      WHERE NOT (${eligible.sql}))`).run(...eligible.params);
+  } catch (error) {
+    run.warn(`  Could not reconcile embedding eligibility: ${(error as Error).message}`);
   }
 }
 
@@ -233,6 +250,7 @@ export function createVectorWriter(run: IndexRun, provider: EmbeddingProvider) {
     for (const row of rows) {
       const chunk = current.get(row.chunkId) as { content: string; status: string; type: string } | null;
       if (!chunk || chunk.content !== row.content || hasVector.get(row.chunkId)) continue;
+      if (!embedsType(run.taxonomy, chunk.type)) continue;
       if (row.embedding.length !== provider.dimensions) throw new Error("Embedding provider returned incorrect vector dimensions");
       const bytes = new Uint8Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength);
       insert.run(row.chunkId, bytes, chunk.status === "archived" ? 1 : 0, chunk.type);

@@ -339,11 +339,11 @@ describe("null figures never read as a number", () => {
       { all: false, stale: STALE }
     );
     expect(over).toContain("  Broken links:       3 of 10 (30.0%), over the 5.0% ceiling");
-    expect(over).toContain("  Embedding coverage: 40.0% of 12 chunks, below the 90.0% floor");
+    expect(over).toContain("  Embedding coverage: 40.0% of eligible chunks, below the 90.0% floor");
 
     const within = formatStats(statsWith(), { all: false, stale: STALE });
     expect(within).toContain("  Broken links:       0 of 4 (0.0%), within the 5.0% ceiling");
-    expect(within).toContain("  Embedding coverage: 100.0% of 12 chunks, meets the 90.0% floor");
+    expect(within).toContain("  Embedding coverage: 100.0% of eligible chunks, meets the 90.0% floor");
   });
 });
 
@@ -651,7 +651,7 @@ describe("a ratio next to its threshold never reads as the same number", () => {
     expect(coverage.ratio).not.toBe(coverage.threshold);
     expect(Number(coverage.ratio)).toBeLessThan(Number(coverage.threshold));
     expect(line(out, "Embedding coverage")).toBe(
-      "  Embedding coverage: 89.96% of 5000 chunks, below the 90.00% floor"
+      "  Embedding coverage: 89.96% of eligible chunks, below the 90.00% floor"
     );
   });
 
@@ -797,10 +797,10 @@ describe("a ratio next to its threshold never reads as the same number", () => {
   });
 
   test("the line parser refuses a signed or exponent figure instead of reading its tail", () => {
-    expect(() => parts("  Embedding coverage: 1e+21% of 1 chunk, meets the 100.0% floor")).toThrow();
+    expect(() => parts("  Embedding coverage: 1e+21% of eligible chunks, meets the 100.0% floor")).toThrow();
     expect(() => parts("  Broken links:       1 of 2 (-2.0%), within the 5.0% ceiling")).toThrow();
     expect(() => parts("  Broken links:       1 of 2 (2.0%), within the -5.0% ceiling")).toThrow();
-    expect(() => parts("  Embedding coverage: 50.0% of 1 chunk, meets the 1e-5% floor")).toThrow();
+    expect(() => parts("  Embedding coverage: 50.0% of eligible chunks, meets the 1e-5% floor")).toThrow();
     expect(parts("  Broken links:       1 of 2 (5.04%), over the 5.00% ceiling")).toEqual({
       ratio: "5.04",
       verdict: "over",
@@ -860,7 +860,7 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       { all: false, stale: STALE }
     );
     expect(line(at, "Broken links")).toBe("  Broken links:       5 of 100 (5.0%), within the 5.0% ceiling");
-    expect(line(at, "Embedding coverage")).toBe("  Embedding coverage: 90.0% of 100 chunks, meets the 90.0% floor");
+    expect(line(at, "Embedding coverage")).toBe("  Embedding coverage: 90.0% of eligible chunks, meets the 90.0% floor");
 
     const far = formatStats(
       statsWith({
@@ -871,7 +871,7 @@ describe("a ratio next to its threshold never reads as the same number", () => {
       { all: false, stale: STALE }
     );
     expect(line(far, "Broken links")).toBe("  Broken links:       2 of 37 (5.4%), over the 5.0% ceiling");
-    expect(line(far, "Embedding coverage")).toBe("  Embedding coverage: 50.0% of 12 chunks, below the 90.0% floor");
+    expect(line(far, "Embedding coverage")).toBe("  Embedding coverage: 50.0% of eligible chunks, below the 90.0% floor");
   });
 });
 

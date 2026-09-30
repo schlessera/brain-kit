@@ -77,7 +77,7 @@ describe("the full answer", () => {
     expect(callouts).toHaveLength(1);
     const [callout] = callouts;
     expect(callout.tone).toBe("red");
-    expect(callout.title).toBe("Only 82.0% of 3,118 chunks have a vector, under the 90.0% floor.");
+    expect(callout.title).toBe("Only 82.0% of eligible chunks have a vector, under the 90.0% floor.");
     // Chunk coverage, never a claim about notes.
     expect(callout.title + callout.body).not.toContain("notes");
     expect(callout.body).toEndWith("2 more figures are flagged below.");
@@ -131,6 +131,17 @@ describe("the full answer", () => {
 });
 
 describe("health thresholds", () => {
+  test("the coverage warning names its eligible denominator, not the total chunk inventory", () => {
+    const sections = composeStatsAnswer({
+      corpus: ok(corpusStats({ chunks: 999, embeddings: 50,
+        health: { ...corpusStats().health, brokenLinkRate: 0, embeddingCoverage: 0.5 } })),
+      runtime: ok(runtimeStats({ window: { failures: 0 } })),
+    });
+    const [callout] = all(sections, "callout");
+    expect(callout.title).toBe("Only 50.0% of eligible chunks have a vector, under the 90.0% floor.");
+    expect(row(receipt(sections, "Corpus"), "chunks").v).toBe("999");
+  });
+
   test("no callout when nothing crosses a threshold", () => {
     const quiet = corpusStats({
       brokenLinks: 3,

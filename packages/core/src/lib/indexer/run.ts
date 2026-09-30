@@ -12,7 +12,7 @@
  *   scan       what is on disk, and what the index already holds
  *   parse      read/hash/diff markdown, build the corpus-wide link maps
  *   persist    one transaction: documents, deletions, the whole link graph
- *   vectors    orphan hygiene, which needs the deletions to have happened
+ *   vectors    type eligibility and orphan hygiene after the persist phase
  *   assets     describe images/PDFs (async, billable, failure-tolerant)
  *   embeddings contexts then vectors, for chunks and assets alike
  *   caches     bank descriptions and contexts, then prune what is unreachable
@@ -35,7 +35,7 @@ import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
 import { getAssetFiles, getMarkdownFiles, loadExistingDocs } from "./scan.js";
 import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats } from "./types.js";
-import { carryMarkdownVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
+import { carryMarkdownVectors, dropIneligibleVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
 
 function emptyStats(): IndexStats {
   return {
@@ -209,6 +209,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     assetsOnDisk
   );
 
+  await dropIneligibleVectors(run);
   dropOrphanedVectors(run.db);
   syncVectorFilters(run.db);
 
@@ -218,8 +219,8 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   );
 
   // --- assets + embeddings ------------------------------------------------
-  // Describing an asset is only worth paying for if something will vectorize
-  // it, so the asset phase rides along with the embedding request.
+  // Asset descriptions feed FTS and still ride with an embedding request.
+  // Type eligibility gates their vectors, without suppressing descriptions.
   let assetQueue: AssetEmbedTask[] = [];
   if (run.wantEmbeddings) {
     assetQueue = await indexAssets(run, assetFiles, existingDocs, assetsOnDisk);
