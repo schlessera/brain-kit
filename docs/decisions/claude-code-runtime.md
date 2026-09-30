@@ -393,7 +393,7 @@ until re-measured.
 
 Historical anchors, **not** re-checked because they describe what was true when
 a record was written, not what the code relies on now: `Claude Agent SDK 0.3.241 typings`,
-`docs/decisions/agent-observability.md:118` (SDK 0.3.241 typings). The
+`docs/decisions/agent-observability.md:128` (SDK 0.3.241 typings). The
 container privilege record's own version anchors moved with it to
 brain-hosting-template.
 
