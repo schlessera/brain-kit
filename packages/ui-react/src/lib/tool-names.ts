@@ -57,7 +57,7 @@ export const isAskUserListTool = (name: string | undefined): boolean =>
  * must count them together or a list card would take a question's slot.
  */
 export const isAskExchangeTool = (name: string | undefined): boolean =>
-  isAskUserTool(name) || isAskUserListTool(name);
+  isAskUserTool(name) || isAskUserListTool(name) || isAskUserRankTool(name);
 
 const SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
 const PI_SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "pi");
@@ -71,3 +71,7 @@ export const isShowBlockTool = (name: string | undefined): boolean =>
 // `isLocationTool` used to live here and was never called: the location result
 // is rendered by the contract-bound renderer now, which matches every spelling
 // of the name rather than the MCP-prefixed one alone.
+
+/** A ranking exchange, under either backend spelling. */
+export const isAskUserRankTool = (name: string | undefined): boolean =>
+  name === "ask_user_rank" || name === "mcp__brain-ui__ask_user_rank";

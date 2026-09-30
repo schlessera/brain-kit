@@ -151,6 +151,7 @@ function buildAppend(
       tools: {
         askUser: env.caps.askUser && PI_ASK_USER_TOOL_NAME,
         askUserList: env.caps.askUserList && "ask_user_list",
+        askUserRank: env.caps.askUserRank && "ask_user_rank",
         location: env.caps.location && "get_current_location",
         activity: env.caps.activity && "query_activity",
         mask: env.caps.mask && "request_image_mask",

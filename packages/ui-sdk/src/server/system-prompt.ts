@@ -2,6 +2,7 @@ import type { ClientEnvironment } from "../protocol.js";
 import {
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
+  ASK_USER_RANK_CONTRACT,
   BRIDGE_TOOL_CONTRACTS,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
@@ -176,6 +177,7 @@ export interface SurfaceTools {
   askUser?: string | false;
   /** Name of the one-scale-over-many-items tool, or false when absent. */
   askUserList?: string | false;
+  askUserRank?: string | false;
   /** Name of the browser-geolocation tool, or false when absent. */
   location?: string | false;
   /** Name of the mask-painting tool, or false when absent. */
@@ -194,6 +196,7 @@ export interface SurfaceTools {
 const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [ASK_USER_CONTRACT.name]: "askUser",
   [ASK_USER_LIST_CONTRACT.name]: "askUserList",
+  [ASK_USER_RANK_CONTRACT.name]: "askUserRank",
   [GET_CURRENT_LOCATION_CONTRACT.name]: "location",
   [REQUEST_IMAGE_MASK_CONTRACT.name]: "mask",
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",

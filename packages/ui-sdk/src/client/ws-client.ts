@@ -101,6 +101,7 @@ const REQUEST_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
   tool_approval_request: "toolUseId",
   ask_user_request: "requestId",
   ask_user_list_request: "requestId",
+  ask_user_rank_request: "requestId",
   location_request: "requestId",
   mask_request: "requestId",
 };
@@ -111,6 +112,7 @@ const REPLY_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
   tool_denial: "toolUseId",
   ask_user_response: "requestId",
   ask_user_list_response: "requestId",
+  ask_user_rank_response: "requestId",
   ask_user_cancel: "requestId",
   location_response: "requestId",
   location_error: "requestId",

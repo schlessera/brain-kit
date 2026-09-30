@@ -98,6 +98,7 @@ import * as placeMap from "../../stories/blocks/PlaceMap.stories.js";
 import * as statTiles from "../../stories/blocks/StatTiles.stories.js";
 import * as trendChart from "../../stories/blocks/TrendChart.stories.js";
 import * as approvalCard from "../../stories/decisions/ApprovalCard.stories.js";
+import * as rankedQuestion from "../../stories/decisions/AskUserRankCard.stories.js";
 import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
@@ -430,3 +431,27 @@ test("dense: ask list, thirty by three at 320px, on paper", async () => {
 test("dense: ask list, desktop", async () => {
   await inViewport(1024, 1500, () => looksRight(questionAndMask.ListWide, "dense-ask-list-wide"));
 });
+
+/** The image resolves the unbundled mono stack differently before and after
+ * earlier subjects (the host label measured 57.75px alone and 69.31px after
+ * them). Pin the same local 0.6em stand-in used by the receipt budget tests
+ * for these new baselines, then remove it so existing subjects keep their
+ * incumbent environment. No network or product font override is involved. */
+async function rankLooksRight(story: unknown, name: string, light: boolean) {
+  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
+  document.fonts.add(await face.load());
+  try {
+    await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
+  } finally {
+    document.fonts.delete(face);
+  }
+}
+
+for (const light of [false, true]) {
+  test(`dense: rank fifteen, phone${light ? ", on paper" : ""}`, async () => {
+    await inViewport(320, 2000, () => rankLooksRight(rankedQuestion.RankFifteenCutoff, "dense-rank-fifteen", light));
+  });
+  test(`dense: rank five, desktop${light ? ", on paper" : ""}`, async () => {
+    await inViewport(1024, 1000, () => rankLooksRight(rankedQuestion.RankWide, "dense-rank-wide", light));
+  });
+}

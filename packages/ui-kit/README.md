@@ -34,6 +34,15 @@ and moves focus when **Go to unanswered** is activated; **Submit** returns all
 answers together. Answered and dismissed exchanges keep one row per question.
 Use `AskUserCard` for a single question, including its composer-typed state.
 
+## Ranked questions
+
+`AskUserRankCard` orders two to fifteen stable item ids in one exchange. The
+caller supplies the question, labels and optional details, links and cutoff;
+Submit returns every id in order and whether the original order was kept.
+Users can drag a handle, tap an item then its destination, or use the keyboard.
+Handle gestures capture the pointer while the rest of the row scrolls the
+transcript. Answered cards retain the order; dismissed cards can be asked again.
+
 ## Link policy
 
 `@schlessera/brain-ui-kit/links` exports `classifyLink`, the one decision about

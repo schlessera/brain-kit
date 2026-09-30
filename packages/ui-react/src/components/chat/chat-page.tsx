@@ -173,6 +173,11 @@ export function ChatPage() {
     [send, sessionId, root]
   );
 
+  const handleAskUserRankSubmit = useCallback((requestId: string, order: string[], unchanged: boolean) => {
+    root.stores.chat.getState().submitAskUserRankOrder(sessionId, requestId, order, unchanged);
+    send({ type: "ask_user_rank_response", requestId, order, unchanged });
+  }, [root, sessionId, send]);
+
   const handleAskUserCancel = useCallback(
     (requestId: string) => {
       root.stores.chat.getState().cancelAskUser(sessionId, requestId);
@@ -343,6 +348,7 @@ export function ChatPage() {
                   onAskUserCancel={handleAskUserCancel}
                   onAskUserReask={handleAskUserReask}
                   onAskUserListSubmit={handleAskUserListSubmit}
+                  onAskUserRankSubmit={handleAskUserRankSubmit}
                   closing={msg === messages[messages.length - 1]}
                 />
               ))}

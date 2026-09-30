@@ -18,6 +18,7 @@ import { z } from "zod";
 import * as shared from "../packages/ui-sdk/src/server";
 import * as claudeAsk from "../packages/ui-backend-claude/src/ask-user-tool";
 import * as claudeAskList from "../packages/ui-backend-claude/src/ask-user-list-tool";
+import * as claudeAskRank from "../packages/ui-backend-claude/src/ask-user-rank-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
@@ -60,6 +61,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
       },
     ],
   },
+  ask_user_rank: { prompt: "Which first?", items: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] },
   ask_user_list: {
     prompt: "Rate these?",
     scale: [{ label: "loved" }, { label: "meh", description: "Fine, forgettable" }],
@@ -110,6 +112,7 @@ function makeAdapters(root: string) {
       annotations: { Choice: {} },
     }),
     askUserList: async () => ({ answers: { a: "loved" } }),
+    askUserRank: async () => ({ order: ["b", "a"], unchanged: false }),
     getLocation: async () => ({
       coords: { latitude: 1, longitude: 2, accuracy: 3.6 },
       timestamp: 0,
@@ -126,6 +129,7 @@ function makeAdapters(root: string) {
     claude: [
       claudeAsk.createAskUserTool(bridge.askUser),
       claudeAskList.createAskUserListTool(bridge.askUserList),
+      claudeAskRank.createAskUserRankTool(bridge.askUserRank),
       claudeLocation.createLocationTool(bridge.getLocation, {
         reverseGeocodeConfig: noGeocode,
       }),
@@ -501,6 +505,7 @@ describe("bridge tool adapter validation", () => {
       },
       { questions: "wrong type" },
     ],
+    ask_user_rank: [{ prompt: "Empty?", items: [] }, { prompt: "One?", items: [{ id: "a", label: "A" }] }, { prompt: "Order?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }], cutoff: 1.5 }],
     ask_user_list: [
       // One scale option is not a scale.
       {
@@ -740,6 +745,7 @@ describe("bridge tool loading posture", () => {
     return claudeAsk.createBrainUiMcpServer({
       askUser: unreachable as never,
       askUserList: unreachable as never,
+      askUserRank: unreachable as never,
       getLocation: unreachable as never,
       requestMask: unreachable as never,
       queryActivity: unreachable as never,

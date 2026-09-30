@@ -2,12 +2,13 @@ import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {
   AskUserListSpec,
+  AskUserRankSpec,
   AskUserQuestion,
   ServerMessage,
   SessionHistoryMessage,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { isAskUserListTool, isAskUserTool } from "../../lib/tool-names.js";
+import { isAskUserListTool, isAskUserRankTool, isAskUserTool } from "../../lib/tool-names.js";
 import { replayedStatsSections } from "../../components/chat/stats/context-text.js";
 import type { ServerMessageHandlerMap } from "./types.js";
 
@@ -21,6 +22,7 @@ type ChatFrame =
   | "tool_result"
   | "ask_user_request"
   | "ask_user_list_request"
+  | "ask_user_rank_request"
   | "result"
   | "retry_receipt"
   | "message_blocks"
@@ -135,6 +137,10 @@ function reconstructAskUserExchanges(
 ): AskUserExchange[] | undefined {
   const exchanges: AskUserExchange[] = [];
   for (const tc of toolCalls) {
+    if (isAskUserRankTool(tc.name)) {
+      exchanges.push(reconstructRankExchange(tc));
+      continue;
+    }
     if (isAskUserListTool(tc.name)) {
       exchanges.push(reconstructListExchange(tc));
       continue;
@@ -224,6 +230,26 @@ function reconstructListExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
+export function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
+  const list = listSpecFromInput(input);
+  const cutoff = typeof input?.cutoff === "number" ? input.cutoff : undefined;
+  return { prompt: list.prompt, items: list.items, ...(cutoff !== undefined ? { cutoff } : {}) };
+}
+function reconstructRankExchange(tc: SessionHistoryMessage["toolCalls"][number]): AskUserExchange {
+  const rank = rankSpecFromInput(tc.input);
+  const exchange: AskUserExchange = { requestId: tc.id, questions: [], rank };
+  if (tc.output && !tc.isError) {
+    try {
+      const payload = JSON.parse(tc.output);
+      const ids = rank.items.map((item) => item.id);
+      if (!Array.isArray(payload.order) || payload.order.length !== ids.length || new Set(payload.order).size !== ids.length || payload.order.some((item: unknown) => typeof item !== "string" || !ids.includes(item)) || typeof payload.unchanged !== "boolean") throw new Error("Invalid rank result");
+      exchange.order = payload.order;
+      exchange.unchanged = ids.every((item, index) => item === payload.order[index]);
+    } catch { exchange.cancelled = true; }
+  } else if (tc.isError) exchange.cancelled = true;
+  return exchange;
+}
+
 /** Map a frame to the run-state its session should show in the session list. */
 export function runStateForFrame(msg: ServerMessage): "streaming" | "queued" | "idle" {
   if (msg.type === "result" || msg.type === "error") return "idle";
@@ -283,7 +309,7 @@ export const chatFrameHandlers = {
     // Once the agent receives the ask_user tool result, the exchange is
     // complete — drop any leftover ask_user UI state.
     const chat = context.buffer();
-    if (chat?.askUser?.answers || chat?.askUser?.cancelled) {
+    if (chat?.askUser?.answers || chat?.askUser?.order || chat?.askUser?.cancelled) {
       context.state.clearAskUser(context.key);
     }
   },
@@ -299,6 +325,10 @@ export const chatFrameHandlers = {
       allowSkip,
       notes,
     });
+  },
+  ask_user_rank_request: (msg, context) => {
+    const { prompt, items, cutoff } = msg;
+    context.state.setAskUserRankRequest(context.key, msg.requestId, { prompt, items, ...(cutoff !== undefined ? { cutoff } : {}) });
   },
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);

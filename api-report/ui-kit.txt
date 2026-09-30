@@ -28,6 +28,9 @@ export "." (./src/index.ts)
   type AskUserListState
   type AskUserListSubmission
   type AskUserOption
+  AskUserRankCard
+  type AskUserRankCardProps
+  type AskUserRankSubmission
   type AskUserState
   type AttachmentKind
   AttachmentRow
@@ -243,6 +246,7 @@ export "." (./src/index.ts)
   font
   groupAnswers
   mapViewBounds
+  moveRankItem
   narrowColumns
   printThemeCss
   refusalSentence

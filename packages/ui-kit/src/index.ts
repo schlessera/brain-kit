@@ -261,3 +261,5 @@ export {
   type PaletteItem,
 } from "./desktop/CommandPalette.js";
 export { SideRail, type RailItem, type SideRailProps } from "./desktop/SideRail.js";
+export { AskUserRankCard, moveRankItem } from "./decisions/AskUserRankCard.js";
+export type { AskUserRankCardProps, AskUserRankSubmission } from "./decisions/AskUserRankCard.js";

@@ -152,6 +152,7 @@ export interface CreatePiBackendOptions {
 export interface SessionCaps {
   askUser: boolean;
   askUserList: boolean;
+  askUserRank: boolean;
   location: boolean;
   activity: boolean;
   mask: boolean;
@@ -168,6 +169,7 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
   return {
     askUser: Boolean(bridge.askUser),
     askUserList: Boolean(bridge.askUserList),
+    askUserRank: Boolean(bridge.askUserRank),
     location: Boolean(bridge.getLocation),
     activity: Boolean(bridge.queryActivity),
     mask: Boolean(bridge.requestMask),

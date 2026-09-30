@@ -197,14 +197,28 @@ export async function handleClientMessage(
       break;
     }
 
+    case "ask_user_rank_response": {
+      const pending = coordinator.pendingAskUserRank.get(msg.requestId);
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
+        coordinator.pendingAskUserRank.delete(msg.requestId);
+        pending.turn.recorder?.recordAskUserResponse(
+          connection.authorization.principalId
+        );
+        pending.resolve({ order: msg.order, unchanged: msg.unchanged });
+      }
+      break;
+    }
+
     case "ask_user_cancel": {
-      // Dismisses either ask kind: the ids share one space.
+      // Dismisses any ask kind: the ids share one space.
       const pending =
         coordinator.pendingAskUser.get(msg.requestId) ??
-        coordinator.pendingAskUserList.get(msg.requestId);
+        coordinator.pendingAskUserList.get(msg.requestId) ??
+        coordinator.pendingAskUserRank.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
         coordinator.pendingAskUserList.delete(msg.requestId);
+        coordinator.pendingAskUserRank.delete(msg.requestId);
         pending.turn.recorder?.recordCancellation(
           connection.authorization.principalId,
           "ask_user"

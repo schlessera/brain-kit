@@ -32,6 +32,7 @@ import type {
   MessagePart,
   SessionHistoryMessage,
   ServerAskUserListRequest,
+  ServerAskUserRankRequest,
   ServerAskUserRequest,
   ServerError,
   ServerHello,
@@ -54,6 +55,7 @@ import type {
   ServerToolUseStart,
   ClientAskUserCancel,
   ClientAskUserListResponse,
+  ClientAskUserRankResponse,
   ClientAskUserResponse,
   ClientCancelRequest,
   ClientChatMessage,
@@ -414,6 +416,15 @@ export const clientAskUserListResponseSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserListResponse>;
 
+export const clientAskUserRankResponseSchema = z.looseObject({
+  type: z.literal("ask_user_rank_response"),
+  requestId: id,
+  order: z.array(z.string().min(1).max(64)).min(2).max(15),
+  unchanged: z.boolean(),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientAskUserRankResponse>;
+
+
 const geoCoordsSchema = z.looseObject({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -498,6 +509,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientAskUserResponseSchema,
   clientAskUserCancelSchema,
   clientAskUserListResponseSchema,
+  clientAskUserRankResponseSchema,
   clientLocationResponseSchema,
   clientLocationErrorSchema,
   clientMaskResponseSchema,
@@ -846,6 +858,16 @@ export const serverAskUserListRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerAskUserListRequest>;
 
+export const serverAskUserRankRequestSchema = z.looseObject({
+  type: z.literal("ask_user_rank_request"),
+  requestId: id,
+  prompt: z.string().min(1).max(300),
+  items: z.array(z.looseObject({ id: z.string().min(1).max(64), label: z.string().min(1).max(200), detail: z.string().max(200).optional(), link: z.string().max(2000).optional() })).min(2).max(15),
+  cutoff: z.number().int().min(1).max(15).optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerAskUserRankRequest>;
+
+
 export const serverLocationRequestSchema = z.looseObject({
   type: z.literal("location_request"),
   requestId: z.string().max(MAX_ID_CHARS),
@@ -962,6 +984,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverSessionHistorySchema,
   serverAskUserRequestSchema,
   serverAskUserListRequestSchema,
+  serverAskUserRankRequestSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
   serverActivitySnapshotSchema,

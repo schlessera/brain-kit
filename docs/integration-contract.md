@@ -911,7 +911,7 @@ than their `indexed_at`.
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
-key; its tool names are equally stable. `ask_user`, `ask_user_list` (additive
+key; its tool names are equally stable. `ask_user`, `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
 in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
 connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
@@ -921,7 +921,7 @@ connected browser. `query_activity`
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses.
-The six bridge tools are declared once as **tool contracts** in
+The seven bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -933,11 +933,44 @@ tool's result is meant to be rendered as a component rather than read as text:
 | Contract | Payload in `output` | Rendered as |
 |---|---|---|
 | `ask_user` | `{ questions, answers, annotations? }` | the picker's answered state |
+| `ask_user_rank` (0.40.0) | `{ order, unchanged }` — every requested id exactly once; the request is not echoed | final numbered order rebuilt from input and result |
 | `ask_user_list` (0.40.0) | `{ answers, skipped, notes? }` — the request is not echoed | the list card's answered record, rebuilt from the call's input plus this |
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
+
+#### `ask_user_rank` (additive in 0.40.0)
+
+- **Input:** `{ prompt, items, cutoff? }`. There are 2–15 items in the
+  suggested starting order. Each has a unique `id` (1–64 characters), a
+  `label` (1–200), optional `detail` (up to 200) and `link` (up to 2,000).
+  `prompt` is 1–300 characters. `cutoff` is an integer from 1 through the item
+  count: only that prefix matters, but the response includes every item.
+  Duplicate ids and a cutoff beyond the item count are refused before the
+  host receives a request.
+- **Result:** `{ order: string[], unchanged: boolean }`. `order` is a complete
+  permutation of the requested ids; missing, repeated, extra or unknown ids
+  are refused. The handler derives `unchanged` from equality with the input
+  sequence, rather than trusting the client's boolean. The request is not
+  echoed in the result.
+- **Frames:** hosts advertise `capabilities.askUserRank` in `server_hello`.
+  Session/turn-scoped `ask_user_rank_request` carries `{ requestId,
+  prompt, items, cutoff? }`. `ask_user_rank_response` carries `{ requestId,
+  order, unchanged, turnId? }`, with the same turn echo rules as other
+  interactive responses. `ask_user_cancel` dismisses it too; request ids share
+  the ask exchange namespace. Pending requests survive a temporary disconnect
+  and are delivered again on reconnect, and reject when their turn is cancelled.
+- **Backends:** optional `BackendBridge.askUserRank(requestId, spec)` returns
+  `AskUserRankResult { order, unchanged }`. Claude registers
+  `mcp__brain-ui__ask_user_rank`; pi registers `ask_user_rank`. Both use the
+  shared schema/handler. A turn with no grant surface does not open a rank card.
+- **Rendering/replay:** one kit `AskUserRankCard` supports handle drag,
+  tap-to-pick/tap-to-place and keyboard moves. Below-cutoff rows retain contrast.
+  The result plus the original tool input rebuild the answered numbered list.
+  Composer text stays an ordinary message; there is no inferred typed ranking.
+  Dismissed exchanges can reopen locally and send their new order as a normal
+  composer message, without answering the old server request.
 
 #### `ask_user_list` (additive in 0.40.0)
 
@@ -960,7 +993,7 @@ One scale applied to a list of items, answered in one card (#583).
   scale, items, allowSkip, notes }` (defaults applied, session- and
   turn-scoped); the client answers with `ask_user_list_response` `{ requestId,
   answers, notes?, turnId? }`, or dismisses with the existing `ask_user_cancel`
-  — request ids share one space across both ask kinds. A pending list survives
+  — request ids share one space across all ask kinds. A pending list survives
   a disconnect and is re-sent on reconnect, as an `ask_user` card is.
   `server_hello` advertises `capabilities.askUserList`.
 - **Backends:** the bridge method is `BackendBridge.askUserList?` (`AskUserListResult
@@ -1366,7 +1399,7 @@ recorded, and the `tool_approval_request` is sent again to the connection that
 replied, so its next answer is correlated — because the voice channel may deny and never grant
 ([decisions/voice-permission.md](decisions/voice-permission.md)), so a
 voice-attributed grant in the record is by construction a bug.
-An answered `ask_user` or `ask_user_list` interaction appends an
+An answered `ask_user`, `ask_user_list` or `ask_user_rank` interaction appends an
 `ask_user_response` event carrying the responder's `principalId`.
 A run's root span may additionally carry what the backend's runtime reported
 about itself (additive in 0.37.0): `brain.runtime.name` / `brain.runtime.version`

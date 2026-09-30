@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 77 keys, 75 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 77 are kept.
+ * 78 keys, 76 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 78 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -34,6 +34,7 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  GripVertical,
   AlarmClock,
   ArrowUp,
   ArrowUpRight,
@@ -117,6 +118,7 @@ import { warnOnce } from "../internal/dev.js";
  * stay comparable line by line.
  */
 export const ICONS = {
+  reorder: GripVertical,
   brain: Brain,
   approval: ShieldQuestion,
   choose: ListChecks,

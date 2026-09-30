@@ -78,6 +78,7 @@ export type ClientMessage =
   | ClientAskUserResponse
   | ClientAskUserCancel
   | ClientAskUserListResponse
+  | ClientAskUserRankResponse
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
@@ -367,6 +368,7 @@ export type ServerMessage =
   | ServerSessionHistory
   | ServerAskUserRequest
   | ServerAskUserListRequest
+  | ServerAskUserRankRequest
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
@@ -1342,8 +1344,8 @@ export interface ClientAskUserResponse {
 
 /**
  * Client → Server. User dismissed the ask-user prompt; the agent gets an error.
- * Cancels an `ask_user_list_request` too: request ids are unique across both
- * kinds, so one dismissal frame serves either card.
+ * Cancels `ask_user_list_request` and `ask_user_rank_request` too: ids are unique across all
+ * kinds, so one dismissal frame serves any card.
  */
 export interface ClientAskUserCancel {
   type: "ask_user_cancel";
@@ -1408,6 +1410,31 @@ export interface ClientAskUserListResponse {
   answers: Record<string, string>;
   notes?: Record<string, string>;
   /** Echo of the request's turnId for host-side correlation. */
+  turnId?: string;
+}
+
+// ============================================================
+// Ask User Rank (one complete id order — ask_user_rank bridge)
+// ============================================================
+
+export type AskUserRankItem = AskUserListItem;
+export interface AskUserRankSpec {
+  prompt: string;
+  items: AskUserRankItem[];
+  /** Only the first N matter; the response still includes every id. */
+  cutoff?: number;
+}
+/** Reply with ClientAskUserRankResponse, or dismiss with ClientAskUserCancel. */
+export interface ServerAskUserRankRequest extends SessionScoped, AskUserRankSpec {
+  type: "ask_user_rank_request";
+  requestId: string;
+}
+/** A complete permutation of the request's ids; the host verifies equality. */
+export interface ClientAskUserRankResponse {
+  type: "ask_user_rank_response";
+  requestId: string;
+  order: string[];
+  unchanged: boolean;
   turnId?: string;
 }
 

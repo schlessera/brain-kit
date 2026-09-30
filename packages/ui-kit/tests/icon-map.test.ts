@@ -4,8 +4,8 @@
  * lays out a correctly-sized empty box. Three assertions turn that whole class
  * of failure into a red build.
  *
- * It also pins the two counts the port was specified against — 77 semantic
- * keys over 75 distinct glyphs — so a key lost in a merge is caught, and the
+ * It also pins the two counts the port was specified against — 78 semantic
+ * keys over 76 distinct glyphs — so a key lost in a merge is caught, and the
  * two deprecated aliases stay repointed at their canonical exports.
  */
 
@@ -23,12 +23,12 @@ describe("icon map", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("all 77 keys survive, over 75 distinct glyphs", () => {
+  test("all 78 keys survive, over 76 distinct glyphs", () => {
     // Two pairs are aliases — deny/dismiss and settings/filter. They render
     // identically today but mean different things, and collapsing them would
     // leave a future icon set unable to tell them apart.
-    expect(entries.length).toBe(77);
-    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(75);
+    expect(entries.length).toBe(78);
+    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(76);
     expect(ICONS.deny).toBe(ICONS.dismiss);
     expect(ICONS.settings).toBe(ICONS.filter);
   });
