@@ -17,8 +17,6 @@ import { join } from "path";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 
-import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
-
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag } from "./env-core.js";
 import {
@@ -715,21 +713,6 @@ function parseSeverity(raw: string | undefined): Severity {
 }
 
 const AUTH_MODES: readonly AuthModeName[] = ["password", "tailscale", "proxy", "none"];
-
-/**
- * Ambient billing classification from an environment (presence-only reads).
- * The API key wins over the OAuth token — the Agent SDK's own precedence —
- * and no usable credential at all classifies "api" (nothing
- * subscription-billed can run without the token). Its one reader is the
- * activity store's rollup, for a non-session run whose root recorded no
- * billing mode. The rule predates #253 and is stale for Claude runs; what
- * replaces it is decided in #293.
- */
-export function resolveAmbientBillingMode(env: EnvRecord = process.env): BillingMode {
-  return !env.ANTHROPIC_API_KEY?.trim() && env.CLAUDE_CODE_OAUTH_TOKEN?.trim()
-    ? "subscription"
-    : "api";
-}
 
 /**
  * THE derivation of the pricing config (kill switch, TTL, brain path) —

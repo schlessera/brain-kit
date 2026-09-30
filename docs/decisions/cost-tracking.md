@@ -30,7 +30,7 @@ Runs record only backend list-price accounting; subscription-billed work is indi
 ### Deferred to Follow-Up Work
 
 - ~~Provider-route-aware price selection~~ — **shipped in #57**, see below.
-- Deployments: after release, each deployment bumps the dependency and verifies its cron env allowlist exposes the same credentials the server classifies against. That work belongs to the deployment, not to this repo.
+- The initial design relied on cron environment classification. #293 removes that assumption; the recorded-billing rule below supersedes it.
 
 ---
 
@@ -52,8 +52,8 @@ Runs record only backend list-price accounting; subscription-billed work is indi
   hold it together: an unknown route resolves as it did before routes existed
   (OpenRouter leads) rather than going unpriced; a rate borrowed from the
   catalog the run did *not* go through still prices the run but is flagged
-  `estimate`; and there is deliberately **no ambient route fallback** — unlike
-  billing, this process's environment says nothing about which endpoint another
+  `estimate`; and there is deliberately **no ambient route fallback** — this
+  process's environment says nothing about which endpoint another
   backend's turn went out on, and a guessed route would freeze the wrong
   catalog's rate into the rollup.
 - **Route awareness and exact OpenRouter accounting were separated** (#57): the
@@ -90,7 +90,7 @@ flowchart LR
   RU --> AGG --> UI
 ```
 
-Billing mode decision (per run, at start): declared profile with `apiKeyEnv`/`authTokenEnv` → `api`; ambient profile → `subscription` iff OAuth present and no `ANTHROPIC_API_KEY`; settings override wins over both.
+Initial billing mode decision (superseded by #253 and #293 below): declared profile with `apiKeyEnv`/`authTokenEnv` → `api`; ambient profile → `subscription` iff OAuth present and no `ANTHROPIC_API_KEY`; settings override wins over both.
 
 ---
 
@@ -100,7 +100,7 @@ Billing mode decision (per run, at start): declared profile with `apiKeyEnv`/`au
 - **Error propagation:** pricing failures degrade to state, never into the rollup transaction or a request path; a disabled/cold service yields NULL effective cost, which every surface renders as unknown
 - **State lifecycle risks:** freeze semantics guard against sweep-driven repricing; the settings override deliberately affects only future rollups (frozen history documented)
 - **API surface parity:** query_activity, REST rollups, WS frames, and the digest all gain the same triple — one surface lagging would resurrect the unknown-as-zero bug there
-- **Integration coverage:** migration-on-existing-DB, cron-origin classification from server env, and the digest-window-straddling-deploy case are the cross-layer scenarios unit tests alone won't prove
+- **Integration coverage:** migration-on-existing-DB, explicit/unknown cron-origin billing, and the digest-window-straddling-deploy case are the cross-layer scenarios unit tests alone won't prove
 - **Unchanged invariants:** `cost_usd` remains backend-authoritative; the span-sink JSONL contract is untouched; rollup root-span-only aggregation stands (cron child-sum is an origin-scoped exception, not a new rule); rollups still outlive detail forever. Retention changes in exactly one way (U7): the detail-prune predicate gains a minimum-age AND-condition — the digest floor's never-prune-uncovered guarantee and the hard ceiling's independence both stand
 
 ---
@@ -111,3 +111,28 @@ Billing mode decision (per run, at start): declared profile with `apiKeyEnv`/`au
 - Related code: `packages/ui-backend-claude/src/model-discovery.ts`, `packages/ui-server/src/activity/store.ts`, `packages/ui-server/src/activity/recorder.ts`
 - Related: [agent-observability.md](agent-observability.md) — the layer this extends.
 - External: LiteLLM `model_prices_and_context_window.json` (raw.githubusercontent.com/BerriAI/litellm/main/…), OpenRouter `GET /api/v1/models`
+
+## Recorded billing is the rollup source of truth (#293)
+
+The maintainer chose this rule on 2026-09-30: only a valid
+`brain.billing_mode` on the root span establishes a run's billing. Every
+origin, including cron, stays unknown without it. The previous environment
+fallback could label a subscription-enforced Claude child as API-billed after
+#253 cleared that child's API credentials; other runners may use entirely
+different credentials. Observing a runtime name/version does not establish
+billing, and a sync that invokes no agent may still pay for judge/enrichment
+calls. No runner, version or no-agent heuristic replaces the fallback.
+
+Unknown billing leaves effective cost and its estimate flag null. List-price
+math and authoritative backend cost remain available independently; aggregates
+exclude unknown effective costs from their sum and count the runs as unpriced.
+Explicit valid subscription/API classifications keep their existing behavior.
+The rollup reads the root attribute and prices child usage for cron locally
+(`const attrBilling`, `packages/ui-server/src/activity/store.ts:520-521`).
+
+This is a change to the evidence used for new computations, not a historical
+backfill. First non-null billing, list cost, effective cost and estimate values
+remain frozen. Later valid evidence may fill still-null slots; an effective
+cost/estimate fill must agree with any frozen billing classification
+(`upsertRollup`, `packages/ui-server/src/activity/sql.ts:19-50`). Recorded
+history is never silently rewritten from the current server environment.

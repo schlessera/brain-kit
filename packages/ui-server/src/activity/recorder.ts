@@ -136,10 +136,10 @@ export function createTurnRecorder(
       principalId: turn.principalId,
       // Profile, billing and pricing route ride the ROOT span so the rollup
       // can price the run without any registry or env lookup of its own (a
-      // root missing the billing attr falls back to env classification at
-      // rollup time; a root missing the route prices by model id alone, since
-      // this process's environment says nothing about where the turn's
-      // requests went).
+      // root missing a valid billing attr stays unclassified; a root missing
+      // the route prices by model id alone). Server credentials cannot prove
+      // the billing or endpoint of the run, so neither field is inferred
+      // from the environment.
       attrs: {
         "gen_ai.operation.name": SPAN_OP_INVOKE_AGENT,
         ...(turn.profileId ? { "brain.profile_id": turn.profileId } : {}),

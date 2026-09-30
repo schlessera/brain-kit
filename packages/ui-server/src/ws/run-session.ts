@@ -398,8 +398,8 @@ async function runRetainedSession(
  * profile's identity and billing are recorded, not the dead pin's. Hidden
  * profiles are included: a session pinned to a profile the user later hid
  * still runs on it and must classify as it. Never throws: an unreadable
- * roster records no billing attrs, and the rollup falls back to env
- * classification.
+ * roster records no billing attrs, and the rollup leaves billing unknown
+ * rather than inferring it from server credentials.
  */
 async function resolveRunBilling(
   registry: BackendRegistry,
