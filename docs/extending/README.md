@@ -255,7 +255,7 @@ there is no vote and no score.
    redistribution, or a vendor SDK that is not itself openly licensed, keeps
    the provider in community space.
 6. **Clean under the gates.** No personal data, no raw invisible characters,
-  fixtures in the approved Odysseus example world. A provider is not given an
+   fixtures in the approved Odysseus example world. A provider is not given an
    exemption from a gate; it is rewritten until it passes.
 7. **It fits the seam as it is.** A provider that needs a new method on the
    interface, a new config key, or a new capability flag is proposing a seam

@@ -782,7 +782,7 @@ the capability you need and read its command's requirements.
 |---|---|---|
 | `BRAIN_ROOT` | root resolution | Which brain to operate on. See below. |
 | `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
-| `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
+| `OPENAI_API_KEY` | images | OpenAI image generation. Mask, transparency, output-format and exact-size requirements route by capability; see the [images reference](../packages/module-images/README.md). |
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
@@ -804,8 +804,9 @@ Two notes that have cost people time:
   explicit admission through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. See
   [hosting](hosting/README.md#subprocess-environment-allowlist-0331).
 - **Keys are read at the moment a feature needs one.** `brain image models`,
-  `brain doctor` and `brain config check` all report what is actually reachable,
-  which is a faster way to answer "did my key land?" than reading a shell.
+  `brain doctor` and `brain config check` report catalog availability or
+  configuration health. Those checks do not prove that a provider will accept
+  a live request under your account's access and quota.
 
 ## Activity (chat-UI observability)
 

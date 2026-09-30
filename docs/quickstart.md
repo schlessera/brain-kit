@@ -197,10 +197,9 @@ the privacy check asks you to verify it manually. A public remote is a failure
 that must be fixed before storing personal content. See each check's detail
 and suggested fix; warning counts depend on the installed version and setup.
 
-The keyless published-template path has been exercised through setup, capture,
-search and validation. The live interview and in-agent MCP verification are
-tracked separately in [#26](https://github.com/schlessera/brain-kit/issues/26);
-this guide does not claim that reserved verification is complete.
+The interview is an agent workflow with client-specific setup. Its remaining
+live interview and in-agent MCP verification are tracked in
+[#26](https://github.com/schlessera/brain-kit/issues/26).
 
 ## See also
 
