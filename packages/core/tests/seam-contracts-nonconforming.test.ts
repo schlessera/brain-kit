@@ -173,7 +173,7 @@ describe("CompletionProvider contract suite", () => {
       const result = await failingCases((p) =>
         runCompletionProviderContract({ name: "fake", answering: completions(vision) }, p)
       );
-      expect({ vision, ...result }).toEqual({ vision, ran: 6, failed: [] });
+      expect({ vision, ...result }).toEqual({ vision, ran: 12, failed: [] });
     }
   });
 

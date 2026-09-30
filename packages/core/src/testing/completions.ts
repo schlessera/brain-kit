@@ -9,7 +9,7 @@
  *   4. `parts` are additive: text, image and PDF parts never make a request
  *      fail, whatever `capabilities.vision` says
  *   5. `capabilities.vision` is what core degrades against: with `false`, an
- *      asset description never sends the asset and falls back to its title;
+ *      asset description never calls complete and returns null;
  *      with `true`, the asset reaches `complete` as a part and the answer is
  *      the description
  *
@@ -94,7 +94,7 @@ export function runCompletionProviderContract(
       expect(await provider.complete({ prompt: "Describe these.", parts })).toBe(ANSWER);
     });
 
-    test("capabilities.vision decides whether core sends an image or falls back to its title", async () => {
+    test("capabilities.vision decides whether core sends an image or returns null", async () => {
       const { provider, requests } = recording(harness.answering(ANSWER));
       const title = "Harbour at dusk";
       const description = await createEnrichment(provider).describeAsset(PIXEL, "image/png", title);
@@ -103,12 +103,12 @@ export function runCompletionProviderContract(
         expect(binaryKinds(requests)).toEqual(["image"]);
         expect(description).toBe(ANSWER);
       } else {
-        expect(binaryKinds(requests)).toEqual([]);
-        expect(description).toBe(title);
+        expect(requests).toEqual([]);
+        expect(description).toBe(null);
       }
     });
 
-    test("capabilities.vision decides whether core sends a PDF or falls back to its title", async () => {
+    test("capabilities.vision decides whether core sends a PDF or returns null", async () => {
       const { provider, requests } = recording(harness.answering(ANSWER));
       const title = "Voyage itinerary";
       const description = await createEnrichment(provider).describeAsset(
@@ -121,9 +121,25 @@ export function runCompletionProviderContract(
         expect(binaryKinds(requests)).toEqual(["pdf"]);
         expect(description).toBe(ANSWER);
       } else {
-        expect(binaryKinds(requests)).toEqual([]);
-        expect(description).toBe(title);
+        expect(requests).toEqual([]);
+        expect(description).toBe(null);
       }
     });
+
+    for (const [mimeType, data] of [["image/png", PIXEL], ["application/pdf", PDF]] as const) {
+      for (const text of ["", " \n\t "]) {
+        test(`core returns null for ${mimeType} with ${text ? "whitespace" : "empty"} output`, async () => {
+          const { provider, requests } = recording(harness.answering(text));
+          expect(await createEnrichment(provider).describeAsset(data, mimeType, "Harbour")).toBe(null);
+          expect(requests.length).toBe(provider.capabilities.vision ? 1 : 0);
+        });
+      }
+      test(`core accepts a real ${mimeType} answer equal to the title`, async () => {
+        const { provider, requests } = recording(harness.answering("Harbour"));
+        const description = await createEnrichment(provider).describeAsset(data, mimeType, "Harbour");
+        expect(description).toBe(provider.capabilities.vision ? "Harbour" : null);
+        expect(requests.length).toBe(provider.capabilities.vision ? 1 : 0);
+      });
+    }
   });
 }

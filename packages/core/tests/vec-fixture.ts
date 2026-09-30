@@ -139,6 +139,17 @@ export async function embedTempBrain(
       quiet: true,
       embeddings: true,
       provider,
+      // A fully embedded fixture needs real descriptions: unfinished asset
+      // placeholders deliberately have no vector (#411). Keep chunk contexts
+      // on the same summary fallback this fixture used without enrichment.
+      enrichment: {
+        async describeAsset(_buffer, _mimeType, title) {
+          return `A fixture asset titled "${title}".`;
+        },
+        async generateChunkContext(_title, _text, _heading, _content, summary) {
+          return summary ?? "";
+        },
+      },
     });
 
     const { count } = db.query("SELECT COUNT(*) AS count FROM vec_chunks").get() as {

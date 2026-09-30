@@ -260,6 +260,35 @@ document's or asset's lines and resets it in `brain.db` (together with any other
 document or asset that shares those keys or bytes), so the next
 `brain index --embeddings` generates it again.
 
+Asset enrichment returns `null` when the completion provider has no vision
+or answers with empty/whitespace text. The asset keeps its `[Image: path]` or
+`[PDF: path]` placeholder and searchable title; its placeholder is neither
+cached as a description nor embedded. A later `--embeddings` run retries the
+unchanged asset and stores a real, non-empty description when one is returned.
+
+Before this behavior changed (#411), a title fallback could be stored as a
+successful description. Existing strings carry no provenance that separates
+those fallbacks from real descriptions that happen to equal a title. Upgrading
+does not automatically delete or reclassify them. Rebuilding `brain.db`, even
+with `--force`, can reuse a stale sidecar entry and does not repair it.
+
+For an entry you have identified as bad, with its asset still indexed, run:
+
+```sh
+brain index --forget-cache assets/diagram.png
+brain index --embeddings
+```
+
+The first command removes every sidecar description for those bytes under
+any title, restores placeholders in document, chunk and full-text rows for
+all indexed copies, and drops their vectors. It runs no index pass. The second
+command regenerates with the configured completion and embedding providers;
+a vision-capable completion provider must return non-empty text to finish the
+description. Other assets keep their cache entries. If the database was lost,
+first run `brain index --embeddings` to register the asset (it may reuse the
+bad entry), then forget that indexed path and regenerate. Do not hand-edit or
+mass-delete the cache to guess which historical strings were fallbacks.
+
 ## See also
 
 - [quickstart.md](quickstart.md) — go from clone to a working brain.

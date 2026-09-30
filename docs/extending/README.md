@@ -51,7 +51,7 @@ export default defineConfig({
 
 Each interface carries a `capabilities` object (and some optional methods). Core
 inspects these and **degrades rather than fails**: a completion provider without
-vision falls back to title-only asset descriptions; an embedding provider without
+vision leaves assets undescribed and retryable; an embedding provider without
 `embedImage` embeds the text description instead; with no usable embedder at all,
 search runs full-text-only. Degraded modes are reported through the existing
 `warnings` envelope — `brain search --json` returns `{ results, warnings }` where
