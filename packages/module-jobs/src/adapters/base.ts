@@ -205,11 +205,12 @@ export abstract class BaseAdapter implements JobAdapter {
     finally { this.context = undefined; }
   }
 
-  /** Keep board overrides while honoring per-run fetch inputs. */
+  /** Honor per-run fetch inputs while keeping board pacing as a floor. */
   protected fetchOptions(options: AdapterRunOptions, board: FetchOptions = {}): FetchOptions {
     return {
       ...board, ...options.fetch,
       headers: { ...board.headers, ...options.fetch?.headers },
+      ...(board.delayMs === undefined ? {} : { delayMs: Math.max(board.delayMs, options.fetch?.delayMs ?? 0) }),
       proxy: options.proxy ?? options.fetch?.proxy ?? board.proxy,
     };
   }

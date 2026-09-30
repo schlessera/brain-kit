@@ -167,7 +167,9 @@ site's actual empty envelope returns `{ items: [], status: "empty", errors: [] }
 `optionsFor` supplies the previous opaque `cursor`, `incremental`, `queries`,
 `proxy` and per-site `fetch` options. Adapters forward these to their requests;
 `fetch` is not applied to the shared client globally. Boards execute in
-selection order through the existing sequential runner. The jobs module keeps
+selection order, and jobs boards retain their explicit minimum delays when a
+per-run fetch override asks for less. The runner uses its existing sequential
+execution. The jobs module keeps
 source/tier metadata, its evidence ledger, persistence, fair enrichment limits
 and scoring; none of those types enter this package.
 

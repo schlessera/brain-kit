@@ -1637,7 +1637,8 @@ boundary and alternatives.
   `not_run`. Jobs retains its existing `PageLedger` checks and diagnostic text.
 - `AdapterRunOptions` supplies `incremental`, previous `cursor`, `queries`,
   `proxy` and per-site `fetch` overrides. Adapters forward applicable options
-  per request; one source's options never mutate the shared HTTP client.
+  per request; one source's options never mutate the shared HTTP client. Jobs
+  preserves explicit board pacing floors; a run may request a longer delay.
 - `runAdapters` executes in selection order, supplies the shared HTTP client,
   and supplies browser context only to adapters declaring `needsBrowser`.
   Unavailable required transports, thrown options or adapter failures yield

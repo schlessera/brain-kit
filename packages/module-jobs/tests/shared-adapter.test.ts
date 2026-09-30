@@ -93,7 +93,7 @@ describe("real job boards through the shared runner", () => {
     });
   }
 
-  test("cursor and query inputs reach the real HTTP adapters", async () => {
+  test("cursor/query/fetch inputs reach real HTTP adapters without lowering board pacing", async () => {
     const http = new FixtureClient(listing.remoteok);
     const [outcome] = await runAdapters<RawJob>({
       adapters: [getAdapter("remoteok")], client: http, browser: false,
@@ -104,11 +104,17 @@ describe("real job boards through the shared runner", () => {
     const queries = new FixtureClient(listing.simplyhired);
     await runAdapters<RawJob>({
       adapters: [getAdapter("simplyhired")], client: queries, browser: false,
-      optionsFor: () => ({ queries: ["fixture role"], proxy: "http://proxy.example:3128", fetch: { headers: { "X-Fixture": "yes" } } }),
+      optionsFor: () => ({ queries: ["fixture role"], proxy: "http://proxy.example:3128", fetch: { delayMs: 1, headers: { "X-Fixture": "yes" } } }),
     });
     expect(queries.requests).toHaveLength(1);
     expect(queries.requests[0].url).toContain("q=fixture%20role");
     expect(queries.requests[0].options).toMatchObject({ delayMs: 3000, proxy: "http://proxy.example:3128", headers: { "X-Fixture": "yes" } });
+    await runAdapters<RawJob>({
+      adapters: [getAdapter("simplyhired")], client: queries, browser: false,
+      optionsFor: () => ({ queries: ["fixture role"], fetch: { delayMs: 6000 } }),
+    });
+    expect(queries.requests).toHaveLength(2);
+    expect(queries.requests[1].options.delayMs).toBe(6000);
   });
 
   test("unavailable browser/proxy never invoke requesting real boards; later HTTP still runs", async () => {

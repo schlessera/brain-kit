@@ -63,7 +63,8 @@ remains binding, including its deliberate subresource boundary.
 
 Cursor and query inputs use the generic options directly. HTTP boards forward
 per-run fetch overrides with their board options, merged headers and proxy;
-query-driven boards prefer nonempty run queries over constructor defaults.
+an explicit board delay remains a floor even when a run asks for a shorter one.
+Query-driven boards prefer nonempty run queries over constructor defaults.
 Job-specific detail metadata still passes to the existing enricher, which
 follows only allowed board hosts and preserves proxy, pacing, caps and errors.
 No apply-host permission or new robots opt-out is inferred from the migration.
