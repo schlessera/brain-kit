@@ -9,6 +9,11 @@ now. What survives is the reasoning a later change has to respect.
 
 One follow-up from this work is still open and tracked in the issue tracker: an
 agent-written prose pass over the deterministic digest.
+
+> **2026-09-28 — Superseded (the prose-pass follow-up above).** The maintainer
+> rejected this proposal as not planned. The original deferral is preserved;
+> [the ruling below](#2026-09-28-keep-the-activity-digest-deterministic) now binds.
+
 ## Summary
 
 Build the observability layer as a new activity module inside `ui-server`'s existing observability seam: an OTel-GenAI-aligned span store in the server SQLite written at span start (persist-then-emit with per-run sequence numbers), streamed to clients through additive protocol frames behind a `server_hello` capability flag, rendered by generalizing the existing tool-call timeline into a reusable trace tree, indexed by a new Activity surface, and completed with an in-app failure inbox + web push, a deterministic digest cron job, and a host-injected MCP query tool.
@@ -37,6 +42,11 @@ Plan-local additions:
 - The `packages/core` span-sink emitting call: core currently runs no agent loop (single-shot completion seam only), so the emitter lands when core gains one; until then the cron-agent-trace acceptance is fixture-verified (see U6).
 
 - Agent-written digest prose (v1 digest is deterministically rendered from rollups; an LLM-polish pass is a later, separately-scoped addition).
+
+> **2026-09-28 — Superseded (agent-written digest prose).** This deferral was
+> reversed: the digest stays deterministic, and a prose pass is not planned.
+> See [the decision below](#2026-09-28-keep-the-activity-digest-deterministic).
+
 - pi-side MCP query tool parity (v1 registers the query tool in the Claude backend; pi gains it when its custom-tool surface is confirmed).
 - Deep instrumentation of `brain` core CLI agent steps beyond the JSONL span-sink contract defined in the cron unit (core-repo work rides the same lockstep release but can trail the UI units).
 
@@ -116,3 +126,28 @@ Span lifecycle (write-once terminal): `running → success | error | timeout | c
 - **Origin:** a requirements pass on 2026-08-24, not kept — this record is what survived it.
 - Key code: `packages/ui-server/src/observability/`, `packages/ui-backend-claude/src/stream-adapter.ts`, `packages/ui-sdk/src/protocol.ts`, `packages/ui-react/src/components/chat/tool-call-timeline.tsx`, and the deployment's cron runner
 - External: OTel GenAI semantic conventions; Claude Agent SDK 0.3.241 typings (`sdk.d.ts`); Web Push/VAPID
+
+---
+
+## 2026-09-28: keep the activity digest deterministic
+
+The [maintainer's ruling on #58](https://github.com/schlessera/brain-kit/issues/58#issuecomment-5866433411)
+supersedes the agent-written prose deferral above. The activity digest stays
+deterministic; the proposed prose pass is **not planned**. Templates remain
+the presentation mechanism, with no cosmetic model rewrite or separate AI
+interpretation layer added by this proposal.
+
+The existing generator reads per-run rollups, computes counts and costs, and
+selects notable failures (`generateInTx`,
+`packages/ui-server/src/activity/digest.ts:41-102`). Those counts and the failure
+list do not justify the model cost and latency of an additional prose pass.
+It would also need factual validation to keep the summary faithful to the
+rollups, plus a fallback when the model is unavailable or returns unusable
+prose. The maintainer chose to keep the current deterministic presentation
+rather than add that complexity for a cosmetic rewrite.
+
+Reconsideration requires a concrete user need for interpretation or
+prioritization. The original deferral remains as historical rationale, not a
+commitment to add model-written prose. This ruling changes no runtime
+generation, digest format, rollups, retention or delivery behavior, and no
+public contract.
