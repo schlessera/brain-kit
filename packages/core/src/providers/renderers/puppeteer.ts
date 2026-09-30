@@ -25,7 +25,7 @@ export async function resolveDocumentRenderer(opts: {
   noSandbox?: boolean;
   /** Image hosts the page may resolve. Default: none — the page is offline. */
   allowHosts?: string[];
-  /** Per-render budget in ms, browser launch included. */
+  /** Page creation/rendering budget in ms; excludes queue/browser acquisition. */
   renderTimeoutMs?: number;
 }): Promise<DocumentRenderer> {
   const mod = await import("@schlessera/brain-render-puppeteer").catch(() => {

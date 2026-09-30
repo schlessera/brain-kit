@@ -13,8 +13,8 @@ SSRF and exfiltration vector, so the page gets nothing:
 - **No JavaScript.** Scripting is disabled for rendered content.
 - **Chrome's sandbox stays on** by default (opt out only where the process
   already runs as root, e.g. minimal containers).
-- **Bounded everything**: per-render wall-clock budget (30 s, launch included),
-  bounded concurrency (2) with a bounded queue, clamped output geometry, idle
+- **Bounded everything**: separate queue (30 s), browser acquisition (60 s), and
+  page creation/rendering (30 s) budgets, bounded concurrency (2) with a bounded queue, clamped output geometry, idle
   browser shutdown, crash recovery, terminal `shutdown()`.
 
 Practical consequence: remote images and webfonts do not render. Inline assets
@@ -46,11 +46,36 @@ working Chrome installed.
 | Option | Default | Notes |
 |---|---|---|
 | `executablePath` | `PUPPETEER_EXECUTABLE_PATH` / well-known paths | Chrome binary. |
-| `renderTimeoutMs` | `30_000` | Per-render wall clock, browser launch included. |
+| `queueTimeoutMs` | `30_000` | Waiting for a concurrency slot; expiry rejects immediately and removes the waiter. |
+| `browserTimeoutMs` | `60_000` | Acquiring the shared browser, including a cold launch. |
+| `renderTimeoutMs` | `30_000` | Page creation, setup, and PNG/PDF production; excludes queue waiting and browser acquisition. |
 | `maxConcurrent` | `2` | Renders in flight; more queue. |
 | `maxQueue` | `16` | Waiting renders beyond the cap before "renderer busy". |
 | `idleTimeoutMs` | 5 min | Close the browser after this long without a render. |
 | `allowHosts` | `[]` | Explicit host allowlist excluded from **both** the DNS blackhole and interception. A predicate was rejected by design — it could only gate the interceptable channels. |
+
+The phases are sequential. A render rejects or returns within
+`queueTimeoutMs + browserTimeoutMs + renderTimeoutMs` (120 s by default),
+subject to event-loop scheduling. Timeouts identify the phase: `Render queue
+exceeded …ms budget`, `Browser acquisition exceeded …ms budget`, or `Render
+exceeded …ms budget`. A full queue still rejects immediately as renderer busy.
+All three budgets must be positive integers within JavaScript's timer range.
+
+**Pre-1.0 behavior change (#72):** `renderTimeoutMs` previously covered the
+queue and browser launch too. Set the three phase allowances explicitly if you
+need a particular total duration; setting only `renderTimeoutMs` now limits
+page creation/rendering. The 60 s acquisition allowance accommodates the
+measured CI startup tail, while rendering retains its 30 s allowance. See
+[the measurements and ruling](../../docs/decisions/renderer-budgets.md).
+
+Timed-out calls release capacity. An abandoned launch is detached and any
+browser it returns later is closed, so the next call can relaunch. A shared
+launch survives while another caller needs it; a render timeout closes only
+that call's page. Late pages are closed without use. `shutdown()` is terminal:
+it rejects queued calls immediately, drains active phases, and gives browser
+closure at most another 2 s. Its maximum wait is therefore
+`browserTimeoutMs + renderTimeoutMs + 2_000` (92 s by default). Shutdown calls
+share one drain/close operation. Page cleanup never holds a concurrency slot.
 
 ## Verification
 

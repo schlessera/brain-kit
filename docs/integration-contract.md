@@ -26,6 +26,32 @@ the private brain's `scripts` directory; shapes are unchanged unless marked.
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
+## HTML renderer budgets
+
+The deliberately public `createRenderer` API of
+`@schlessera/brain-render-puppeteer` accepts `RendererOptions` and returns a
+`Renderer`: `renderPng({ html, width? })` and `renderPdf({ html, width? })`
+resolve to `Buffer`; `shutdown()` is terminal. Width is clamped to
+320–4096 CSS pixels. The package README documents the remaining options.
+This documents the renderer's intended API without classifying other exports;
+the broader export inventory is tracked in #534.
+
+**Pre-1.0 breaking behavior change (#72):** `renderTimeoutMs` now bounds page
+creation, setup and PNG/PDF production, excluding queue waiting and browser
+acquisition. `queueTimeoutMs` bounds waiting for a concurrency slot;
+`browserTimeoutMs` bounds acquiring the shared browser, including a cold
+launch. Defaults are 30_000, 60_000 and 30_000 ms respectively, so the maximum
+request duration is their sum (120_000 ms), subject to event-loop scheduling.
+Budgets are positive integers within the JavaScript timer range. Timeout errors
+identify queue, browser acquisition or rendering; exact prose is not a machine
+schema. Expired queue entries are removed and timed-out calls release capacity.
+Shutdown rejects queued/new calls, drains active phases and bounds browser
+closure to another 2_000 ms. It therefore completes within
+`browserTimeoutMs + renderTimeoutMs + 2_000`, subject to scheduling. Default
+network denial, disabled scripting and opt-in sandbox removal retain their
+policy. The rationale and measurements are in
+[renderer-budgets.md](decisions/renderer-budgets.md).
+
 ## CLI conventions
 
 - Bin name: `brain` (stable). Runs under Bun.
