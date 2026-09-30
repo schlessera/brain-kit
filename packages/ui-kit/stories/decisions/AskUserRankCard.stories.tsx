@@ -59,3 +59,13 @@ export const RankKeyboard = meta.story({ args, play: async ({ canvas, args: curr
   await expect(current.onSubmit).toHaveBeenCalledWith({ order: [ids[2], ids[0], ids[4], ids[1], ids[3]], unchanged: false });
   await geometry(canvasElement);
 } });
+
+// Every interaction/record state also holds at the design’s wide width.
+export const RankPickedUpWide = RankPickedUp.extend({ parameters: wide });
+export const RankMidDragWide = RankMidDrag.extend({ parameters: wide });
+export const RankAnsweredWide = RankAnswered.extend({ parameters: wide });
+export const RankKeptWide = RankKept.extend({ parameters: wide });
+export const RankFifteenCutoffWide = RankFifteenCutoff.extend({ parameters: wide });
+export const RankFifteenAnsweredWide = RankFifteenAnswered.extend({ parameters: wide });
+export const RankDismissedWide = RankDismissed.extend({ parameters: wide });
+export const RankKeyboardWide = RankKeyboard.extend({ parameters: wide });
