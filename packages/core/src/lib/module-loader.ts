@@ -32,6 +32,17 @@ const contributionSchema = z
       .optional(),
     skills: repoRelativePathSchema.optional(),
     commands: z.record(z.string(), z.custom<() => Promise<unknown>>((v) => typeof v === "function")).optional(),
+    tools: z.record(
+      z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, {
+        message: "tool local name must match ^[a-z][a-z0-9_]{0,31}$ (max 32 chars)",
+      }),
+      z.custom<() => Promise<unknown>>((v) => typeof v === "function", {
+        message: "tool definition loader must be a function",
+      }),
+      { error: (issue) => issue.code === "invalid_key"
+        ? "tool local name must match ^[a-z][a-z0-9_]{0,31}$ (max 32 chars)"
+        : undefined },
+    ).optional(),
     hygieneChecks: z.array(z.custom<(ctx: unknown) => unknown>((v) => typeof v === "function")).optional(),
     indexRules: z.object({ dirAnchors: z.array(repoRelativePathSchema).optional() }).strict().optional(),
     exclude: z.object({ segments: z.array(z.string()).optional() }).strict().optional(),
@@ -111,6 +122,15 @@ export async function loadModules(
         .map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`)
         .join("\n");
       throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n${issues}`);
+    }
+
+    if (parsed.data.tools && Object.keys(parsed.data.tools).length > 0) {
+      if (manifest.name === "brain") {
+        throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n  tools: module name "brain" is reserved for core tools`);
+      }
+      if (!/^[a-z][a-z0-9-]{0,30}$/.test(manifest.name)) {
+        throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n  tools: module name must match ^[a-z][a-z0-9-]{0,30}$ (max 31 chars)`);
+      }
     }
 
     loaded.push({

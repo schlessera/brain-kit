@@ -2,7 +2,7 @@
 //
 // Why: `ModuleManifest<C>` validates the user's config block to `C`, and the
 // module contract threads that type through `CommandContext<C>` and
-// `HygieneContext<C>` (see packages/core/src/lib/module-types.ts). A module
+// `HygieneContext<C>` / `ToolContext<C>` (see packages/core/src/lib/module-types.ts). A module
 // authored with `defineModule` + a configSchema gets `ctx.config` fully typed,
 // so `ctx.config as MyConfig` is never necessary — and worse, it papers over a
 // regression: if the generic is ever dropped again, casts keep every
@@ -129,9 +129,9 @@ if (import.meta.main) {
   }
   console.error(
     "\nThe module contract already delivers this type: defineModule threads the " +
-      "configSchema's parsed type through CommandContext<C> and HygieneContext<C>, " +
+      "configSchema's parsed type through CommandContext<C>, HygieneContext<C> and ToolContext<C>, " +
       "so `ctx.config` is typed with no cast. Type the command as " +
-      "`CommandModule<MyConfig>` (or the check as `HygieneContext<MyConfig>`) " +
+      "`CommandModule<MyConfig>` (or use `HygieneContext<MyConfig>` / `ToolContext<MyConfig>`) " +
       "and drop the assertion."
   );
   process.exit(1);

@@ -27,7 +27,7 @@ injected `ctx.db` uses throughout package source, then traced each connection.
 
 Sources: (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`); graph meta (`getGraphMeta`, `packages/ui-server/src/graph/reader.ts:437-471`), edges (`DISTINCT_EDGES_SQL`, `packages/ui-server/src/graph/reader.ts:253-258`), neighborhood (`getNeighborhood`, `packages/ui-server/src/graph/reader.ts:525-540`),
 discovery (`getDiscovery`, `packages/ui-server/src/graph/reader.ts:542-617`) and maintenance (`getMaintenance`, `packages/ui-server/src/graph/reader.ts:619-673`); voice (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`) and content
-extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi (`async graph`, `packages/ui-backend-pi/src/brain-access.ts:280-367`); jobs (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`); raw module context (`HygieneContext`, `packages/core/src/lib/module-types.ts:10-15`).
+extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi (`async graph`, `packages/ui-backend-pi/src/brain-access.ts:280-367`); jobs (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`); raw module context (`HygieneContext`, `packages/core/src/lib/module-types.ts:11-16`).
 
 The UI operational database (`src/db/client.ts`, sessions/settings/principals/
 activity and related callers) is separate authoritative UI state, not `brain.db`.

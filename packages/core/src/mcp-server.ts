@@ -39,6 +39,7 @@ import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
 import { SEARCH_SORTS, type SearchOptions, type DocumentType } from "./lib/types.js";
 import type { EmbeddingProvider } from "./lib/seams.js";
 import { packageVersion } from "./package-version.js";
+import { registerModuleTools } from "./lib/module-mcp-tools.js";
 
 // Server-side result caps — agents can ask for less, never more.
 export const MAX_SEARCH_LIMIT = 50;
@@ -96,6 +97,7 @@ export async function startMcpServer(
   const configWarning = configError
     ? `brain.config is invalid; using degraded core defaults: ${configError.split("\n")[0]}`
     : null;
+  const moduleWarnings: string[] = [];
 
   // Embeddings resolve from config, but only when a key is present — otherwise
   // vector/hybrid degrade to FTS with a warning (same as keyless CLI).
@@ -182,6 +184,7 @@ export async function startMcpServer(
   });
   const toolWarnings = (...warnings: Array<string | null>) => [
     ...(configWarning ? [configWarning] : []),
+    ...moduleWarnings,
     ...warnings.filter((warning): warning is string => warning !== null),
   ];
   const degradedWriteError = () =>
@@ -673,6 +676,14 @@ export async function startMcpServer(
   // Note: brain_process was removed intentionally in the reference too — it
   // spawned a nested agent with write tools from within the server. Note
   // processing goes through the /process-notes skill (or `brain process`).
+
+  // Core's names are registered first. Module tools are fixed for this
+  // process and registered before connect, so no list-changed event is sent.
+  const owners = new Map<string, string | null>([
+    "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
+    "brain_add", "brain_update", "brain_archive",
+  ].map((name) => [name, null]));
+  moduleWarnings.push(...await registerModuleTools(server, brain.modules, brain.root, brain.taxonomy, owners));
 
   await ensureVec();
   const transport = new StdioServerTransport();

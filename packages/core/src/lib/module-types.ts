@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { z } from "zod";
 import type { AuditIssue } from "./types.js";
 import type { TypeSpec } from "./config.js";
 
@@ -35,6 +36,53 @@ export interface CommandContext<C = unknown> {
   config: C;
   /** The fully-merged taxonomy (core + user + every loaded module). */
   taxonomy: import("./taxonomy.js").Taxonomy;
+}
+
+/** Context for a module tool, with its owning module's validated config.
+ * @experimental Until 1.0; follows the shared integration contract.
+ */
+export interface ToolContext<C = unknown> {
+  root: string;
+  config: C;
+  taxonomy: import("./taxonomy.js").Taxonomy;
+  /** Aborted when the client cancels this request. */
+  signal: AbortSignal;
+}
+
+/** A namespaced MCP wrapper over a module operation.
+ * Both schemas must be strict zod 4 objects.
+ * @experimental Until 1.0; follows the shared integration contract.
+ */
+export interface ModuleTool<C = unknown, I = unknown, O = unknown> {
+  title?: string;
+  description: string;
+  inputSchema: z.ZodObject;
+  outputSchema: z.ZodObject;
+  annotations: {
+    readOnlyHint: boolean;
+    /** Required when readOnlyHint is false. */
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: boolean;
+  };
+  run(input: I, ctx: ToolContext<C>): Promise<O>;
+}
+
+/** Identity helper: infer run's input and result from the schemas.
+ * @experimental Until 1.0; follows the shared integration contract.
+ */
+export function defineModuleTool<
+  C = unknown,
+  Input extends z.ZodObject = z.ZodObject,
+  Output extends z.ZodObject = z.ZodObject,
+>(tool: ModuleTool<C, z.output<Input>, z.output<Output>> & {
+  inputSchema: Input;
+  outputSchema: Output;
+}): ModuleTool<C, z.output<Input>, z.output<Output>> & {
+  inputSchema: Input;
+  outputSchema: Output;
+} {
+  return tool;
 }
 
 /**
@@ -81,6 +129,10 @@ export interface ModuleContribution<C = unknown> {
   skills?: string;
   /** ONE namespaced top-level CLI word per module (e.g. `brain jobs …`). */
   commands?: Record<string, () => Promise<{ default: CommandModule<C> } | CommandModule<C>>>;
+  /** Lazy MCP definitions, served as `<module-name>_<local-name>`.
+   * @experimental Until 1.0; follows the shared integration contract.
+   */
+  tools?: Record<string, () => Promise<{ default: ModuleTool<C> } | ModuleTool<C>>>;
   hygieneChecks?: HygieneCheck<C>[];
   indexRules?: { dirAnchors?: string[] };
   exclude?: { segments?: string[] };

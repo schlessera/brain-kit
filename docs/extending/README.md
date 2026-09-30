@@ -326,7 +326,8 @@ there is no ambiguity:
   Revision negotiation does not make it an experimental extension interface.
 - Bun + Hono server, React PWA client — no framework adapters.
 - The `brain` CLI surface and MCP tool names (contract-stable per the integration
-  contract).
+  contract). Module tools are namespaced contributions under the shared
+  compatibility policy, not a way to replace or shadow a core tool.
 
 ## See also
 

@@ -24,8 +24,8 @@ import { z } from "zod";
 import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
 import { buildTaxonomy } from "../src/lib/taxonomy";
-import { defineModule } from "../src/lib/module-types";
-import type { CommandModule, HygieneContext } from "../src/lib/module-types";
+import { defineModule, defineModuleTool } from "../src/index";
+import type { CommandModule, HygieneContext, ModuleContribution, ToolContext } from "../src/index";
 import type { AuditIssue } from "../src/lib/types";
 
 /**
@@ -47,7 +47,29 @@ const configSchema = z
 type FixtureConfig = z.infer<typeof configSchema>;
 
 // What the fixture's command and hygiene check observed at runtime.
-const seen: { command?: FixtureConfig; hygiene?: FixtureConfig } = {};
+const seen: { command?: FixtureConfig; hygiene?: FixtureConfig; tool?: FixtureConfig } = {};
+
+const fixtureTool = defineModuleTool({
+  description: "Echo the fixture's parsed config and input.",
+  inputSchema: z.strictObject({ message: z.string(), count: z.number().default(1) }),
+  outputSchema: z.strictObject({ message: z.string(), count: z.number() }),
+  annotations: { readOnlyHint: true, openWorldHint: false },
+  async run(input, ctx: ToolContext<FixtureConfig>) {
+    expectType<string>(input.message);
+    expectType<number>(input.count);
+    // These compile errors must remain errors: input is inferred, not any.
+    // @ts-expect-error A strict input has no undeclared field.
+    expectType<unknown>(input.missing);
+    // @ts-expect-error message is a string.
+    expectType<number>(input.message);
+    expectType<FixtureConfig>(ctx.config);
+    expectType<string>(ctx.config.dir);
+    expectType<number>(ctx.config.limit);
+    expectType<AbortSignal>(ctx.signal);
+    seen.tool = ctx.config;
+    return { message: input.message, count: input.count };
+  },
+});
 
 const fixtureCommand: CommandModule<FixtureConfig> = {
   summary: "fixture",
@@ -77,6 +99,7 @@ const manifest = defineModule({
     expectType<FixtureConfig>(config);
     return {
       commands: { fixture: async () => fixtureCommand },
+      tools: { echo: async () => fixtureTool },
       hygieneChecks: [
         fixtureHygiene,
         // Fully inferred: no annotation anywhere, ctx.config must still be
@@ -90,6 +113,9 @@ const manifest = defineModule({
     };
   },
 });
+
+// A typed contribution still belongs in the heterogeneous loader's list.
+expectType<ModuleContribution>(manifest.setup(configSchema.parse({})));
 
 const temps: string[] = [];
 afterAll(() => {
@@ -142,6 +168,15 @@ describe("module author typing (G7)", () => {
       taxonomy: buildTaxonomy({}),
     });
     expect(seen.command).toEqual({ dir: "notes", limit: 5 });
+
+    const imported = await contribution.tools!.echo!();
+    const tool = "default" in imported ? imported.default : imported;
+    const result = await tool.run({ message: "fixture", count: 2 }, {
+      root: "/tmp/brain", config, taxonomy: buildTaxonomy({}),
+      signal: new AbortController().signal,
+    });
+    expect(result).toEqual({ message: "fixture", count: 2 });
+    expect(seen.tool).toEqual({ dir: "notes", limit: 5 });
 
     // Same context shape cli/commands/audit.ts constructs for hygiene checks.
     const db = new Database(":memory:");

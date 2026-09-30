@@ -56,4 +56,35 @@ Notes:
 - Search degradation (no embeddings key, model mismatch) is reported in
   `warnings`, identical to the CLI.
 
+## Module tools
+
+Enabled modules may declare tools served as `<module>_<local>`, after the
+eight core tools in config and declaration order. Discover them through
+`tools/list`; their descriptions, input and output schemas, and annotations
+travel with each entry. Server instructions continue to describe core tools.
+Module tools follow the same compatibility policy as core tools, with each
+module documenting the supported surface of its own tools.
+
+Each call receives its module's validated config and the effective taxonomy.
+Input and output use strict schemas. Results provide structured content and
+a compact JSON text copy; invalid calls and failed operations return tool
+errors. Client cancellation aborts the call's signal, allowing the operation
+to stop; effects already completed remain completed.
+
+Definitions load once at server startup. If one definition fails, none of
+that module's tools are registered; other modules and core still work. The
+failure is reported on stderr and in core tools' warnings. Invalid module
+declarations instead trigger the existing degraded core mode for an invalid
+config.
+
+The tool list stays fixed until the process restarts, with no list-changed
+notifications. A config edit takes effect in the next process and does not
+revoke a running process's tools. A stale name that was not registered returns
+`MCP error -32602: Tool <name> not found`. Annotations do not grant backend
+permissions; a module tool needs the same explicit name-based permission as
+other tools.
+
+See [Module tools in the integration contract](integration-contract.md#module-tools)
+and the [module-tool decision](decisions/module-mcp-tools.md).
+
 See also: [cli.md](cli.md) · [integration-contract.md](integration-contract.md)
