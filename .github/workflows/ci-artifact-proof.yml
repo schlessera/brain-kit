@@ -1,0 +1,27 @@
+name: CI artifact runtime proof
+
+on:
+  push:
+    branches: [chore/618-ci-runtime-warnings]
+
+permissions:
+  contents: read
+
+jobs:
+  artifact-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create a diagnostic and fail deliberately
+        run: |
+          mkdir -p packages/ui-kit/.vitest-attachments/probe
+          echo "CI artifact proof for #618" > packages/ui-kit/.vitest-attachments/probe/proof.txt
+          echo "::error::CI artifact proof controlled failure"
+          exit 1
+      - name: Upload diagnostics with the browser job's settings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-node24-artifact-proof
+          path: packages/ui-kit/.vitest-attachments/
+          if-no-files-found: ignore
