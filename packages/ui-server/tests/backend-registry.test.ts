@@ -309,8 +309,13 @@ describe("configured GPT-6 profiles", () => {
       });
       const providers = createProviderRoutes({ registry });
       const models = createModelRoutes({ registry, db });
-      const expected = profiles.map(({ id, label, vendor, thinkingLevel }) => ({
+      const expected = profiles.map(({ id, label, vendor, model, thinkingLevel }) => ({
         id, label, vendor, thinkingLevel, backendId: "pi",
+        supportedThinkingLevels: [
+          ...(["gpt-5.6-sol", "gpt-6-sol", "gpt-6-luna"].includes(model) ? ["off"] : []),
+          ...(vendor === "openai-codex" ? ["minimal"] : []),
+          "low", "medium", "high", "xhigh", "max",
+        ],
         billingMode: vendor === "openai-codex" ? "subscription" : "api",
         pricingRoute: "direct",
       }));
