@@ -3,7 +3,7 @@
  * the pipeline.
  *
  * The governing idea is that embedding coverage is DECOUPLED from change
- * detection. Both passes here select their work by "has no vector" rather than
+ * detection. Both passes select eligible work by "has no vector" rather than
  * "changed this run", which makes every `--embeddings` run a backfill. That
  * closes a real hole: the no-embeddings post-commit hook updates
  * `content_hash`, so a later embeddings run would otherwise treat those
@@ -17,6 +17,7 @@ import { resolve } from "path";
 
 import { chunkTextForEmbedding } from "../chunker.js";
 import { hasVecSupport } from "../db.js";
+import { embeddingEligibilitySql, embedsType } from "../embedding-policy.js";
 import type { EmbeddingProvider } from "../seams.js";
 import { queueAssetsMissingVectors } from "./assets.js";
 import { loadContextCache } from "./caches.js";
@@ -32,13 +33,15 @@ const ASSET_CONCURRENCY = 10;
 
 /** One page of missing chunks; the parent body is fetched once per document later. */
 function chunksNeedingVectors(run: IndexRun, after: number, through: number): EmbeddableChunk[] {
+  const eligible = embeddingEligibilitySql(run.taxonomy);
   return run.db.prepare(
     `SELECT c.id, c.document_id, c.heading, c.content, c.context, d.title, d.summary
      FROM chunks c JOIN documents d ON d.id = c.document_id
      WHERE d.asset_type = 'markdown' AND c.id > ? AND c.id <= ?
+       AND (${eligible.sql})
        AND NOT EXISTS (SELECT 1 FROM vec_chunks v WHERE v.chunk_id = c.id)
      ORDER BY c.id LIMIT ?`
-  ).all(after, through, BATCH_SIZE * CONCURRENCY) as EmbeddableChunk[];
+  ).all(after, through, ...eligible.params, BATCH_SIZE * CONCURRENCY) as EmbeddableChunk[];
 }
 
 /** Generate contexts and vectors for one bounded page at a time. */
@@ -121,6 +124,9 @@ async function embedAssets(
   provider: EmbeddingProvider,
   queue: AssetEmbedTask[]
 ): Promise<void> {
+  // Descriptions also feed FTS. Gate only their vector work, including both
+  // newly described assets and the unchanged-asset backfill queue.
+  queue = queue.filter((asset) => embedsType(run.taxonomy, asset.docType));
   if (queue.length === 0) return;
   run.report(`  Embedding ${queue.length} assets...`);
 

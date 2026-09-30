@@ -65,6 +65,8 @@ export const typeSpecSchema = z
     inbox: z.boolean().optional(),
     /** Exempt from the orphan (no wiki-links) audit check. */
     orphanExempt: z.boolean().optional(),
+    /** Generate chunk contexts and vectors for this type. Unset means true. */
+    embed: z.boolean().optional(),
     /**
      * `brain add` content titled exactly after an existing document of this
      * type appends into that document instead of creating a new file.
@@ -344,7 +346,7 @@ export const brainConfigSchema = z
      */
     stats: z
       .object({
-        /** Embedding coverage (vec_chunks / chunks) below this ratio needs attention. */
+        /** Coverage of embedding-eligible chunks below this ratio needs attention. */
         coverageFloor: z.number().min(0).max(1).optional(),
         /** Broken-link rate (broken / links) above this ratio needs attention. */
         brokenLinkCeiling: z.number().min(0).max(1).optional(),

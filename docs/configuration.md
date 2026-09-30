@@ -74,6 +74,7 @@ Each type spec (`TypeSpec`) accepts:
 | `staleSeverity` | `"error" \| "warning" \| "info"`  | `"warning"` when `staleDays` set | Severity of staleness findings.                                                                       |
 | `inbox`         | `boolean`                         | `false`                     | This type's dir is the quick-capture inbox (`brain add`'s default target). **Exactly one type must set this.** |
 | `orphanExempt`  | `boolean`                         | `false`                     | Exempt from the "no wiki-links point here" orphan audit.                                                    |
+| `embed`         | `boolean`                         | `true`                      | Generate chunk contexts and vectors for this type. `false` keeps keyword search, links, audit and ordinary counts. |
 | `appendMatch`   | `boolean`                         | `false`                     | `brain add` content titled exactly like an existing doc of this type appends into it instead of creating a new file. |
 | `halfLifeDays`  | `number` (positive int)           | `staleDays`, else `365`     | Search recency half-life: a doc of this type loses half its recency boost per `halfLifeDays` since its `updated` date. |
 | `mergeStrategy` | `"synthesize" \| "table-union" \| "timeline-append" \| "keep-both" \| "latest-wins-additive" \| "code-merge" \| "cache-union"` | chosen from the file | How `brain sync` merges a document of this type that both sides changed. See [`sync`](#sync). |
@@ -97,6 +98,30 @@ Three core types set `mergeStrategy`: `identity` is `latest-wins-additive`,
 `note` is `keep-both`, and `index` is `table-union`. Overriding a core type
 keeps its strategy unless you set `mergeStrategy` again. What each strategy
 does, and how a file without one gets its strategy, is under [`sync`](#sync).
+
+### Per-type embedding eligibility
+
+Set `taxonomy.types.<type>.embed` to `false` for bulk or generated material
+that should remain findable by keyword without paying for chunk context or
+embedding generation:
+
+```ts
+taxonomy: { types: { generated: { dir: "imports", embed: false } } }
+```
+
+The next `brain index` removes that type's stored vectors, including when
+files are unchanged and the run omits `--embeddings`. Its documents, chunks,
+full-text entries, links and audit findings stay in the index. Existing chunk
+contexts and committed caches may remain; they cannot restore opted-out
+vectors, including during `--force` rebuilds. Image/PDF vectors obey the same
+policy. Their descriptions still follow the existing enrichment behavior,
+because keyword search uses them too.
+
+Set `embed` back to `true`, then run `brain index --embeddings` to generate
+missing vectors. A plain index makes the type eligible but does not generate
+vectors. Omitting the setting in an override preserves an earlier layer's
+type policy; when no layer sets it, eligibility defaults to `true`. Values are
+validated as booleans. See the [decision](decisions/embedding-eligibility.md).
 
 ### `taxonomy.dirAnchors`
 
@@ -529,7 +554,7 @@ Warn levels for the health figures `brain stats` reports. Both are **ratios in
 
 | Key                 | Type     | Default | Means                                                            |
 | ------------------- | -------- | ------- | ---------------------------------------------------------------- |
-| `coverageFloor`     | `number` | `0.9`   | Embedding coverage (vectors / chunks) below this needs attention |
+| `coverageFloor`     | `number` | `0.9`   | Coverage of embedding-eligible chunks below this needs attention |
 | `brokenLinkCeiling` | `number` | `0.05`  | Broken-link rate (broken / links) above this needs attention     |
 
 ```ts

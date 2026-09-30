@@ -504,8 +504,8 @@ stderr, never on stdout.
   // never 0 — an unmeasurable ratio must not read as a failing one.
   "health": {
     "brokenLinkRate": 0.054,       // brokenLinks / links; null when there are no links
-    "embeddingCoverage": null,     // vectors / chunks; null when this brain neither
-                                   // embeds nor holds vectors, or has no chunks
+    "embeddingCoverage": null,     // eligible chunks with vectors / eligible chunks; null when this brain neither
+                                   // embeds nor holds vectors, has no eligible chunks, or vectors cannot be read
     "stale": 2,                    // past the per-type staleDays — the `brain audit` definition
     "orphans": 1,                  // no link either way, honouring orphanExempt — likewise
     "untagged": 1,                 // non-archived markdown documents with no tags
@@ -541,6 +541,35 @@ stderr, never on stdout.
 configuration it adds is the `stats` block on `brain.config.*`
 (`coverageFloor`, `brokenLinkCeiling`, both ratios in 0..1), which supplies the
 `health.thresholds` echoed above and defaults to the values shown when absent.
+
+### Embedding eligibility and coverage semantics
+
+`taxonomy.types.<type>.embed` is an optional boolean. With no effective value,
+it defaults to `true`. `false` keeps the document/chunk keyword indexes,
+links, audit and ordinary counts, but excludes that type from chunk-context
+and vector generation. It also removes existing vectors on the next index
+pass, even without `--embeddings` or a content change. Enabling the type again
+makes missing vectors eligible for the next embeddings pass. The policy
+applies to markdown and image/PDF vectors, including cache and carried-vector
+reuse; asset description enrichment remains independent.
+
+`health.embeddingCoverage` is **eligible chunks with vectors / eligible
+chunks**, using the current resolved taxonomy for both sides. Stored vectors
+for opted-out types cannot inflate the numerator. `chunks` and `embeddings`
+remain total inventory counts; they must not be divided to reconstruct this
+health ratio. Zero eligible chunks returns `null` and carries no coverage-floor
+verdict. An unavailable/unreadable vector store is still unknown (`null`), as
+is a brain that neither embeds nor holds vectors. The field remains
+`number | null`; no competing coverage ratio is added.
+
+**Migration note:** this is an approved pre-1.0 semantic break
+([maintainer ruling](https://github.com/schlessera/brain-kit/issues/429#issuecomment-5906802435)).
+Previously coverage used all stored vectors / all chunks. Consumers must use
+the supplied health field and handle its null cases. A coverage increase after
+opting out a type reflects the new denominator, rather than new embeddings.
+Older committed stats-history snapshots retain their recorded semantics; an
+index rebuild does not rewrite them. See the
+[eligibility decision](decisions/embedding-eligibility.md).
 
 ### Stats history (additive in 0.40.0)
 

@@ -294,7 +294,7 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
   if (health.embeddingCoverage !== null) {
     const shown = judgedPair(health.embeddingCoverage, coverageFloor);
     coverage =
-      `${shown.ratio} of ${plural(stats.chunks, "chunk")}, ` +
+      `${shown.ratio} of eligible chunks, ` +
       `${health.embeddingCoverage < coverageFloor ? "below" : "meets"} the ${shown.threshold} floor`;
   }
 

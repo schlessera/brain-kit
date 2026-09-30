@@ -303,8 +303,8 @@ async function describeAssets(
 /**
  * Run the whole asset phase and return what the embedding phase should embed.
  *
- * Only reached when the run wants embeddings: describing an asset is only
- * worth paying for if something is going to vectorize it.
+ * Descriptions feed FTS as well as embeddings. This phase still rides with
+ * the embedding request, independently of per-type vector eligibility.
  */
 export async function indexAssets(
   run: IndexRun,
