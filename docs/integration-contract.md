@@ -1134,6 +1134,59 @@ SessionHistoryMessage.localAnswer?: { exchangeId, command, answer }
 - **Recording an id twice keeps the first**, so a client may resend an
   exchange it is unsure was kept.
 
+### Turn failures (additive in 0.40.0)
+
+A turn whose model call failed says so on its terminal frame, in one shape
+for every backend (#575). A turn that is retrying a failed call says that
+while it runs.
+
+```
+TurnFailure = { errorClass, status?, message, authAction? }
+TurnRetry   = { attempt, maxAttempts?, delayMs?, errorClass?, status? }
+
+result.failure?: TurnFailure                  // on outcome: "error" only
+error.failure?: TurnFailure                   // a bare error that ends a turn with no session
+status.retry?: TurnRetry                      // on status: "thinking"
+SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the failure ended
+```
+
+- **`errorClass`** uses the Claude Agent SDK's class names
+  (`authentication_failed`, `rate_limit`, `overloaded`, `invalid_request`,
+  `model_not_found`, `server_error`, …), plus `subscription_required` for a
+  turn the backend refused before sending it. It is free-form, so a new value
+  is not a breaking change. `unknown` means the backend could not tell, and is
+  never a guess. **`status`** is the provider's HTTP status. Absent means
+  unknown, not "no status". **`message`** is the runtime's own text.
+- **`authAction`** is set only on a Claude subscription's auth failure:
+  `relogin`, `check_account` or `check_config`, as
+  `subscriptionAuthAction(errorClass)` maps it, with
+  `SUBSCRIPTION_AUTH_INSTRUCTIONS` for the wording (exported from
+  `@schlessera/brain-ui-sdk/protocol`, and still from `/server`). A profile
+  that bills its own API credential never gets one.
+- **One failure is reported once.** It rides the turn's terminal frame, and
+  no other frame of the turn carries it. A diagnostic `error` sent before the
+  `result` does not carry it. A consumer that shows both the diagnostic and the
+  terminal failure must show them as one.
+- **A partial answer is kept.** Text streamed before the failure stays the
+  turn's text. `usage` and `costUsd` on a failed turn are what the turn spent,
+  counted once.
+- **`retry`** fields are present only when the runtime reported them.
+  `detail` on the same frame says the same thing in words ("Retrying
+  (attempt 2 of 10) in 5s after rate_limit, HTTP 429"), for a client that does
+  not read `retry`.
+- **Replay** carries `failure` on the assistant message the failure ended,
+  after any partial answer, with the failure's text removed from `content`.
+  The Claude backend recognises the runtime's own API-error message by its
+  model (`<synthetic>`) and wording, because its transcript does not keep the
+  class. So a replayed Claude failure has `errorClass: "unknown"` unless the
+  wording names an auth or billing failure, and a status only when the text
+  states one. The pi backend replays its failed answer's text, and does not
+  replay an attempt that pi retried.
+- **Tolerance.** A client that does not know these fields behaves exactly as
+  before. A client that validates with `@schlessera/brain-ui-sdk/schemas`
+  drops an unreadable `failure` or `retry` and keeps the frame, because the
+  frame is a turn's terminal.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

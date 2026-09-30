@@ -5,6 +5,7 @@ import type {
   AskUserQuestion,
   ServerMessage,
   SessionHistoryMessage,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { isAskUserListTool, isAskUserTool } from "../../lib/tool-names.js";
 import { replayedStatsSections } from "../../components/chat/stats/context-text.js";
@@ -66,6 +67,22 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     // leaves it off typed messages.
     ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
     ...localAnswerFields(msg),
+    // The failure that ended the turn (#575), drawn as it was live.
+    ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure } : {}),
+  };
+}
+
+/**
+ * What a failed turn shows when its terminal frame names no failure: an
+ * older host, or a turn that stopped for a reason other than the provider.
+ * Never nothing — an error outcome with an empty row is the bug (#191).
+ */
+function unreportedFailure(outcomeDetail: string | undefined): TurnFailure {
+  return {
+    errorClass: "unknown",
+    message: outcomeDetail
+      ? `The turn ended with an error (${outcomeDetail}).`
+      : "The turn ended with an error.",
   };
 }
 
@@ -283,6 +300,19 @@ export const chatFrameHandlers = {
   },
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);
+    // An absent outcome is the legacy wire, where `isError` alone decides.
+    const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);
+    if (failed) {
+      // The terminal frame's failure is the fullest account, so it replaces
+      // whatever a diagnostic `error` frame recorded first; without one, a
+      // failure already shown stands.
+      context.state.failAssistantMessage(
+        context.key,
+        msg.failure ?? unreportedFailure(msg.outcomeDetail),
+        context.frameTurnId,
+        msg.failure !== undefined
+      );
+    }
     context.resyncIfNeeded(msg.sessionId);
   },
   message_blocks: (msg, context) => {
@@ -309,6 +339,11 @@ export const chatFrameHandlers = {
     }
   },
   status: (msg, context) => {
+    // A model call the runtime is retrying: the turn is alive, and says why
+    // it is waiting (#575). Any other progress means the retry is behind it.
+    if (msg.status === "thinking" || msg.status === "tool_executing") {
+      context.state.setRetry(context.key, msg.retry ?? null);
+    }
     // Only finish streaming if this buffer actually started it
     if (
       (msg.status === "idle" || msg.status === "cancelled") &&

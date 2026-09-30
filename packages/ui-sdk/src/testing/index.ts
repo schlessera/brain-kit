@@ -59,9 +59,23 @@ export interface BackendContractHarness {
   failing(script: TurnScript): AgentBackend;
   /** Backend whose stream ends WITHOUT a terminal result (claude-only shape). */
   truncated?(script: TurnScript): AgentBackend;
+  /**
+   * Backend whose runtime reports the model call rejected with HTTP 400,
+   * worded as that runtime words it and containing {@link API_FAILURE_DETAIL}
+   * (#575). The runtime's own failure path, not a thrown error.
+   */
+  apiFailure?(script: TurnScript): AgentBackend;
+  /**
+   * Backend whose runtime retries one failed call (HTTP 429, `rate_limit`)
+   * and then plays the script to success (#575).
+   */
+  retrying?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
 }
+
+/** What a harness's `apiFailure` runtime says went wrong, in its own wording. */
+export const API_FAILURE_DETAIL = "model not supported by this runtime";
 
 function makeBridge(): { frames: ServerMessage[]; bridge: BackendBridge } {
   const frames: ServerMessage[] = [];
@@ -254,6 +268,51 @@ export function runBackendContract(
           expect(last.outcome).toBe("error");
           expect(last.isError).toBe(true);
         }
+      });
+    }
+
+    if (harness.apiFailure) {
+      test("a provider failure → one terminal result outcome:error carrying the failure, once", async () => {
+        const backend = harness.apiFailure!({ sessionId: "api-fail-1", textDeltas: [] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+        const results = frames.filter((f) => f.type === "result");
+        expect(results.length).toBe(1);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type !== "result") return;
+        expect(last.outcome).toBe("error");
+        expect(last.isError).toBe(true);
+        // Both backends name it alike: the class a 400 means, the status,
+        // and the runtime's own text.
+        expect(last.failure?.errorClass).toBe("invalid_request");
+        expect(last.failure?.status).toBe(400);
+        expect(last.failure?.message ?? "").toMatch(new RegExp(API_FAILURE_DETAIL));
+        // One failure, reported once: nothing else in the turn carries it.
+        expect(frames.filter((f) => (f as { failure?: unknown }).failure !== undefined)).toHaveLength(1);
+      });
+    }
+
+    if (harness.retrying) {
+      test("a retried call → a status:thinking frame carrying the retry, then success", async () => {
+        const backend = harness.retrying!({ sessionId: "retry-1", textDeltas: ["ok"] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+
+        const retry = frames.find((f) => f.type === "status" && f.retry !== undefined);
+        expect(retry?.type).toBe("status");
+        if (retry?.type !== "status" || !retry.retry) return;
+        expect(retry.status).toBe("thinking");
+        expect(retry.retry.attempt).toBe(1);
+        expect(retry.retry.status).toBe(429);
+        expect(retry.retry.errorClass).toBe("rate_limit");
+        expect(retry.detail ?? "").toMatch(/^Retrying \(attempt 1/);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type !== "result") return;
+        expect(last.outcome).toBe("success");
+        expect(last.failure === undefined).toBe(true);
       });
     }
 

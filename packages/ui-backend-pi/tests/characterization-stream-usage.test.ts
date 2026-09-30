@@ -333,6 +333,10 @@ describe("createPiBackend stream and usage characterization", () => {
           durationMs: 654,
           numTurns: 1,
           isError: true,
+          // Behaviour change (#575): the terminal frame carries the failure
+          // the diagnostic error reported, normalised. The error frame above
+          // is unchanged, so an older client shows what it always did.
+          failure: { errorClass: "unknown", message: "provider unavailable" },
         },
       ]);
     } finally {
