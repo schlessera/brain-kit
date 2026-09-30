@@ -123,6 +123,13 @@ Note the split: **modules** contribute content-domain things (types, skills, CLI
 words — see [modules.md](../modules.md)); **provider seams** are infrastructure.
 They are separate mechanisms. A module never contributes an embedding provider.
 
+Core's `DocumentRenderer` is an **internal adapter**, declared beside the
+optional Puppeteer loader in `packages/core/src/providers/renderers/puppeteer.ts`.
+It describes that one dependency; it is not exported by core's public entry
+points, accepted by config or registered as a provider. The public
+`@schlessera/brain-render-puppeteer` API and CLI PDF/PNG/HTML behavior retain
+their own documented guarantees. See [the decision record](../decisions/document-renderer-adapter.md).
+
 ## Promoting a community provider to a built-in
 
 A built-in is a string name in a registry: `{ provider: "gemini" }` instead of
