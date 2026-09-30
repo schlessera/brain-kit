@@ -119,16 +119,21 @@ The first five live in core. The self-hosted chat UI adds four in
   `packages/ui-sdk/src/client/renderers.ts`.
 
 `@schlessera/brain-scrape` adds one more, `SiteAdapter`, for modules that fetch
-from the web. It exists because the alternative was observed: without a
-shared seam, `module-jobs` grew a SECOND scraper with its own site registry and
-its own browser client, and implemented one site through both. No production
-adapter implements `SiteAdapter` yet. `module-jobs`' ten boards implement that
-module's own `ScraperAdapter`
-(`ScraperAdapter`, `packages/module-jobs/src/types.ts:147-170`), which takes
-the package's `ScrapeContext` through `bind` rather than through `scrape`, and
-they do not run through `runAdapters`. `needsBrowser` on the
-adapter is the only thing that decides how it is served. Contract:
-`packages/scrape/src/adapter/types.ts`.
+from the web. All ten `module-jobs` boards implement it through the concrete
+jobs base. `JobAdapter` adds only source/tier/detail-page metadata
+(`JobAdapter`, `packages/module-jobs/src/types.ts:135-143`); it inherits the
+shared `scrape(ctx, options)` lifecycle. Production jobs orchestration calls
+`runAdapters`, which owns transport admission, source failure isolation and
+browser cleanup. `PageLedger` in the jobs module still derives the four source
+states from observed pages, including positive evidence before `empty`.
+
+The runner supplies one shared HTTP client, and browser context only to boards
+that declare `needsBrowser`. `cursor`, `queries`, `proxy` and per-site `fetch`
+options reach the same call. The seam remains experimental until 1.0; the
+[package guide](../../packages/scrape/README.md#adapters),
+[contract](../integration-contract.md#siteadapter-conformance-and-migration) and
+[decision](../decisions/site-adapter-adoption.md) cover conformance and the
+approved pre-1.0 migration.
 
 Note the split: **modules** contribute content-domain things (types, skills, CLI
 words — see [modules.md](../modules.md)); **provider seams** are infrastructure.

@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const API_URL = "https://remoteok.com/api";
 
@@ -32,18 +33,17 @@ export class RemoteOKAdapter extends BaseAdapter {
   readonly name = "RemoteOK";
   readonly tier = 1 as const;
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
-      if (opts.verbose) console.log("[remoteok] Fetching API...");
+      this.ctx.log("[remoteok] Fetching API...");
 
-      const data = await this.http.getJson<RemoteOKJob[]>(API_URL, {
+      const data = await this.http.getJson<RemoteOKJob[]>(API_URL, this.fetchOptions(opts, {
         headers: { Accept: "application/json" },
         delayMs: 1000,
-        proxy: opts.proxy,
-      });
+      }));
 
       // The feed is a legal notice followed by one object per posting. The
       // notice is dropped by NAME rather than by position, because the two
@@ -61,7 +61,7 @@ export class RemoteOKAdapter extends BaseAdapter {
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
       // only tracks the newest publication date for run metadata.
-      let newestDate = opts.incremental && opts.lastCursor ? opts.lastCursor : "";
+      let newestDate = opts.incremental && opts.cursor ? opts.cursor : "";
 
       for (const entry of jobEntries) {
         const pubDate = entry.date || (entry.epoch ? new Date(entry.epoch * 1000).toISOString() : undefined);
@@ -99,7 +99,7 @@ export class RemoteOKAdapter extends BaseAdapter {
         declaredEmpty: Array.isArray(data) && entries.length === 0,
       });
 
-      if (opts.verbose) console.log(`[remoteok] Found ${jobs.length} jobs`);
+      this.ctx.log(`[remoteok] Found ${jobs.length} jobs`);
 
       return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {

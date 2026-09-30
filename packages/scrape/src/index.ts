@@ -53,6 +53,7 @@ export type {
   ScrapeContext,
   AdapterRunOptions,
   AdapterResult,
+  AdapterStatus,
 } from "./adapter/types.js";
 export { extractCards, readField } from "./adapter/selectors.js";
 export type { SiteSelectors, FieldSelector } from "./adapter/selectors.js";

@@ -7,6 +7,7 @@ export "." (./src/index.ts)
   type AdapterOutcome
   type AdapterResult
   type AdapterRunOptions
+  type AdapterStatus
   type BrowserSession
   type BrowserSessionOptions
   type CheerioAPI
@@ -59,9 +60,15 @@ export "." (./src/index.ts)
 export "./package.json" (./package.json) [asset]
 
 signatures (the seams in docs/extending/README.md and the types they are made of)
+  AdapterOutcome (packages/scrape/src/adapter/runner.ts)
+    export interface AdapterOutcome<T> extends AdapterResult<T> {
+        id: string;
+        durationMs: number;
+    }
   AdapterResult (packages/scrape/src/adapter/types.ts)
     export interface AdapterResult<T> {
         items: T[];
+        status: AdapterStatus;
         cursor?: string;
         errors: string[];
     }
@@ -73,10 +80,26 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         proxy?: string;
         fetch?: FetchOptions;
     }
+  AdapterStatus (packages/scrape/src/adapter/types.ts)
+    export type AdapterStatus = "ok" | "empty" | "unparseable" | "not_run";
   BrowserSession (packages/scrape/src/browser/session.ts)
     export interface BrowserSession {
         load<T>(request: PageRequest<T>): Promise<T>;
         close(): Promise<void>;
+    }
+  BrowserSessionOptions (packages/scrape/src/browser/session.ts)
+    export interface BrowserSessionOptions {
+        browserUrl?: string;
+        executablePath?: string;
+        noSandbox?: boolean;
+        pageBudgetMs?: number;
+        idleCloseMs?: number;
+        concurrency?: number;
+        maxQueue?: number;
+        userAgent?: string;
+        robots?: RobotsCache;
+        rateLimiter?: RateLimiter;
+        launch?: () => Promise<any>;
     }
   FetchOptions (packages/scrape/src/fetch/http.ts)
     export interface FetchOptions {
@@ -139,6 +162,14 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         isAllowed(url: string, userAgent: string): boolean;
         crawlDelayMs(userAgent: string): number | undefined;
     }
+  RunAdaptersOptions (packages/scrape/src/adapter/runner.ts)
+    export interface RunAdaptersOptions<T> {
+        adapters: Array<SiteAdapter<T>>;
+        optionsFor?(adapter: SiteAdapter<T>): AdapterRunOptions;
+        client?: ScrapeClientOptions | ScrapeClient;
+        browser?: BrowserSessionOptions | BrowserSession | false;
+        verbose?: boolean;
+    }
   ScrapeClient (packages/scrape/src/fetch/http.ts)
     export class ScrapeClient {
         readonly userAgent: string;
@@ -172,3 +203,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         readonly needsProxy: boolean;
         scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;
     }
+  ok (packages/scrape/src/adapter/types.ts)
+    export function ok<T>(items: T[], cursor?: string): AdapterResult<T>;
+  partial (packages/scrape/src/adapter/types.ts)
+    export function partial<T>(items: T[], error: unknown, cursor?: string): AdapterResult<T>;
+  runAdapters (packages/scrape/src/adapter/runner.ts)
+    export function runAdapters<T>(options: RunAdaptersOptions<T>): Promise<Array<AdapterOutcome<T>>>;

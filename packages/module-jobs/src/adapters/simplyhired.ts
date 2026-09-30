@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 // SimplyHired uses Chakra UI with consistent class patterns
 const BASE_URL = "https://www.simplyhired.com/search";
@@ -24,20 +25,19 @@ export class SimplyHiredAdapter extends BaseAdapter {
     this.queries = queries && queries.length > 0 ? queries : DEFAULT_QUERIES;
   }
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const allJobs: RawJob[] = [];
     const seenIds = new Set<string>();
 
-    for (const query of this.queries) {
+    for (const query of opts.queries?.length ? opts.queries : this.queries) {
       const url = `${BASE_URL}?q=${encodeURIComponent(query)}&l=remote&pn=1`;
       try {
-        if (opts.verbose) console.log(`[simplyhired] Searching: ${query}...`);
+        this.ctx.log(`[simplyhired] Searching: ${query}...`);
 
-        const page = await this.http.getPage(url, {
+        const page = await this.http.getPage(url, this.fetchOptions(opts, {
           delayMs: 3000,
-          proxy: opts.proxy,
-        });
+        }));
 
         const jobs = this.parseListings(page.body);
         // No `declaredEmpty`: nothing in the captured markup identifies a
@@ -54,13 +54,13 @@ export class SimplyHiredAdapter extends BaseAdapter {
           }
         }
 
-        if (opts.verbose) console.log(`[simplyhired] ${query}: ${jobs.length} jobs`);
+        this.ctx.log(`[simplyhired] ${query}: ${jobs.length} jobs`);
       } catch (err) {
         pages.unreachable(url, err);
       }
     }
 
-    if (opts.verbose) console.log(`[simplyhired] Total: ${allJobs.length} unique jobs`);
+    this.ctx.log(`[simplyhired] Total: ${allJobs.length} unique jobs`);
     return this.makeResult(allJobs, pages);
   }
 

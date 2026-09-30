@@ -418,8 +418,8 @@ async function main() {
   let errors: string[] = [];
   const t0 = Date.now();
   try {
-    const result = await adapter.bind(ctx).scrape({ incremental: false, queries: DEFAULT_QUERIES });
-    jobs = result.jobs;
+    const result = await adapter.scrape(ctx, { incremental: false, queries: DEFAULT_QUERIES });
+    jobs = result.items;
     errors = result.errors;
   } catch (e) {
     errors = [`${e}`];

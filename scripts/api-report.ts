@@ -39,7 +39,8 @@ const REPORT_DIR = join(ROOT, "api-report");
  */
 export const SEAMS: Record<string, Record<string, string[]>> = {
   core: { ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"] },
-  scrape: { ".": ["SiteAdapter"] },
+  scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },
+  "module-jobs": { ".": ["JobAdapter"] },
   "ui-sdk": {
     "./client": ["AsrClient", "ToolRenderer"],
     "./server": [

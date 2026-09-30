@@ -11,6 +11,7 @@ import { createBrowserSession, type BrowserSession, type BrowserSessionOptions }
 import { ScrapeClient, type ScrapeClientOptions } from "../fetch/http.js";
 import type { AdapterResult, AdapterRunOptions, ScrapeContext, SiteAdapter } from "./types.js";
 
+/** @experimental Part of the `SiteAdapter` seam. */
 export interface RunAdaptersOptions<T> {
   adapters: Array<SiteAdapter<T>>;
   /** Per-adapter run options, keyed by adapter id. */
@@ -20,7 +21,10 @@ export interface RunAdaptersOptions<T> {
   verbose?: boolean;
 }
 
-/** One adapter's outcome, with the timing a caller wants to log. */
+/**
+ * One adapter's outcome, with the timing a caller wants to log.
+ * @experimental Part of the `SiteAdapter` seam.
+ */
 export interface AdapterOutcome<T> extends AdapterResult<T> {
   id: string;
   durationMs: number;
@@ -72,36 +76,23 @@ export async function runAdapters<T>(options: RunAdaptersOptions<T>): Promise<Ar
 
   try {
     for (const adapter of options.adapters) {
-      const runOptions = options.optionsFor?.(adapter) ?? {};
       const started = Date.now();
-
-      if (adapter.needsBrowser && !browser) {
-        outcomes.push({
-          id: adapter.id,
-          items: [],
-          errors: [`${adapter.name} needs a browser and none is available`],
-          durationMs: Date.now() - started,
-        });
-        continue;
-      }
-      if (adapter.needsProxy && !runOptions.proxy) {
-        outcomes.push({
-          id: adapter.id,
-          items: [],
-          errors: [`${adapter.name} needs a proxy and none was configured`],
-          durationMs: Date.now() - started,
-        });
-        continue;
-      }
-
       try {
-        const result = await adapter.scrape(ctx, runOptions);
-        outcomes.push({ id: adapter.id, ...result, durationMs: Date.now() - started });
+        const runOptions = options.optionsFor?.(adapter) ?? {};
+        if (adapter.needsBrowser && !browser) {
+          throw new Error(`${adapter.name} needs a browser and none is available`);
+        }
+        if (adapter.needsProxy && !runOptions.proxy) {
+          throw new Error(`${adapter.name} needs a proxy and none was configured`);
+        }
+        const result = await adapter.scrape({ ...ctx, browser: adapter.needsBrowser ? browser : undefined }, runOptions);
+        outcomes.push({ ...result, id: adapter.id, durationMs: Date.now() - started });
       } catch (e) {
-        // One site failing is not the run failing.
+        // One site's unavailable transport, options or execution is not the run failing.
         outcomes.push({
           id: adapter.id,
           items: [],
+          status: "not_run",
           errors: [e instanceof Error ? e.message : String(e)],
           durationMs: Date.now() - started,
         });

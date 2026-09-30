@@ -1,7 +1,8 @@
 import { parseHtml } from "@schlessera/brain-scrape";
 
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 /**
  * remotely.de, parsed from the job cards its listing actually renders.
@@ -46,7 +47,7 @@ export class RemotelyDeAdapter extends BaseAdapter {
   /** Its job pages, which detail-page enrichment may follow (#36). */
   override readonly detailHosts = ["remotely.de"];
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const allJobs: RawJob[] = [];
     const seenIds = new Set<string>();
@@ -54,12 +55,11 @@ export class RemotelyDeAdapter extends BaseAdapter {
     for (let page = 1; page <= PAGES_TO_FETCH; page++) {
       const url = page === 1 ? `${ORIGIN}${LISTING_PATH}` : `${ORIGIN}${LISTING_PATH}/seite/${page}`;
       try {
-        if (opts.verbose) console.log(`[remotelyde] Fetching page ${page}...`);
+        this.ctx.log(`[remotelyde] Fetching page ${page}...`);
 
-        const fetched = await this.http.getPage(url, {
+        const fetched = await this.http.getPage(url, this.fetchOptions(opts, {
           delayMs: 2000,
-          proxy: opts.proxy,
-        });
+        }));
 
         const { jobs, missing } = this.parseCards(fetched.body);
         for (const [field, count] of Object.entries(missing)) {
@@ -84,13 +84,13 @@ export class RemotelyDeAdapter extends BaseAdapter {
           }
         }
 
-        if (opts.verbose) console.log(`[remotelyde] Page ${page}: ${jobs.length} jobs`);
+        this.ctx.log(`[remotelyde] Page ${page}: ${jobs.length} jobs`);
       } catch (err) {
         pages.unreachable(url, err);
       }
     }
 
-    if (opts.verbose) console.log(`[remotelyde] Total: ${allJobs.length} unique jobs`);
+    this.ctx.log(`[remotelyde] Total: ${allJobs.length} unique jobs`);
     return this.makeResult(allJobs, pages);
   }
 

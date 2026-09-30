@@ -1,4 +1,4 @@
-import type { FetchOptions, ScrapeContext } from "@schlessera/brain-scrape";
+import type { FetchOptions, SiteAdapter, AdapterStatus } from "@schlessera/brain-scrape";
 
 // All known source identifiers (adapters exist for all)
 export const ALL_SOURCES = [
@@ -126,48 +126,20 @@ export interface RawJob {
  * an adapter may only claim it from a positive signal — see `PageLedger.read`.
  */
 export const SOURCE_STATUSES = ["ok", "empty", "unparseable", "not_run"] as const;
-export type SourceStatus = (typeof SOURCE_STATUSES)[number];
+export type SourceStatus = AdapterStatus;
 
-export interface ScrapeResult {
-  source: Source;
-  jobs: RawJob[];
-  cursor?: string;
-  errors: string[];
-  /** See `SourceStatus`. Derived by `PageLedger`, never hand-set. */
-  status: SourceStatus;
-}
-
-export interface ScrapeOptions {
-  incremental?: boolean;
-  proxy?: string;
-  dryRun?: boolean;
-  verbose?: boolean;
-}
-
-export interface ScraperAdapter {
+/**
+ * Job metadata composed onto the shared adapter contract, not a second lifecycle.
+ * @experimental The `SiteAdapter` seam remains experimental until 1.0.
+ */
+export interface JobAdapter extends SiteAdapter<RawJob> {
+  readonly id: Source;
   readonly source: Source;
-  readonly name: string;
   readonly tier: 1 | 2 | 3;
-  /** Decides whether this adapter is handed a browser or an HTTP client. */
-  readonly needsBrowser: boolean;
-  readonly needsProxy: boolean;
-  /** Receive the run's shared scrape context. Called before `scrape()`. */
-  bind(ctx: ScrapeContext): this;
-  /**
-   * Fetch options for this board's detail pages (#36), when its host asks for
-   * more than the enrichment default — a `Crawl-delay` the site states but
-   * robots.txt does not carry, say.
-   */
+  /** Per-board pacing/headers for enrichment, kept in the jobs domain. */
   readonly detailFetchOptions?: FetchOptions;
-  /**
-   * The hosts this board's own job pages live on (#36). Enrichment follows a
-   * row's `source_url` only on these; a board that names none is not
-   * enriched.
-   */
+  /** Enrichment follows source_url only on these board-owned hosts. */
   readonly detailHosts?: readonly string[];
-  scrape(
-    opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }
-  ): Promise<ScrapeResult>;
 }
 
 /**

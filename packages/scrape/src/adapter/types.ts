@@ -37,7 +37,10 @@ export interface ScrapeContext {
   log(message: string): void;
 }
 
-/** Per-run knobs an adapter may consult. */
+/**
+ * Per-run knobs an adapter may consult.
+ * @experimental Part of the `SiteAdapter` seam.
+ */
 export interface AdapterRunOptions {
   /** Only fetch what is new since `cursor`, where the site supports it. */
   incremental?: boolean;
@@ -45,11 +48,20 @@ export interface AdapterRunOptions {
   cursor?: string;
   /** Search terms, for adapters whose site is query-driven. */
   queries?: string[];
-  /** Proxy URL, passed through to the HTTP client. */
+  /** Proxy URL; adapters pass it to their per-request HTTP options. */
   proxy?: string;
   /** Per-site fetch overrides — headers, delay, User-Agent, robots opt-out. */
   fetch?: FetchOptions;
 }
+
+/**
+ * A source's readable result, independently of its item count.
+ * `empty` requires positive evidence; unreadable responses are `not_run`,
+ * readable but unrecognized responses are `unparseable`. Partial rows are `ok`
+ * with diagnostics. The adapter derives this from the pages it attempted.
+ * @experimental Part of the `SiteAdapter` seam.
+ */
+export type AdapterStatus = "ok" | "empty" | "unparseable" | "not_run";
 
 /**
  * What one adapter produced.
@@ -58,6 +70,8 @@ export interface AdapterRunOptions {
  */
 export interface AdapterResult<T> {
   items: T[];
+  /** Evidence-derived outcome; no items alone is not evidence of emptiness. */
+  status: AdapterStatus;
   /** Marker to hand back next run. Omit when the site has no ordering. */
   cursor?: string;
   /** Non-fatal problems. An adapter reports; it does not decide to abort. */
@@ -81,9 +95,13 @@ export interface SiteAdapter<T> {
   scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;
 }
 
-/** Convenience for adapters that only ever report success. */
+/** Nonempty success; zero items without empty-state evidence reports a parse failure. */
 export function ok<T>(items: T[], cursor?: string): AdapterResult<T> {
-  return { items, cursor, errors: [] };
+  return {
+    items, cursor,
+    status: items.length > 0 ? "ok" : "unparseable",
+    errors: items.length > 0 ? [] : ["No items without confirmed-empty evidence"],
+  };
 }
 
 /** Convenience for the "caught an exception, return what we have" path. */
@@ -91,6 +109,7 @@ export function partial<T>(items: T[], error: unknown, cursor?: string): Adapter
   return {
     items,
     cursor,
+    status: items.length > 0 ? "ok" : "not_run",
     errors: [error instanceof Error ? error.message : String(error)],
   };
 }

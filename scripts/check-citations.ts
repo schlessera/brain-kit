@@ -442,6 +442,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/cron/run-job.ts#L108",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/index.ts#L44",
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/7a7bd9caff1453abaceddc98826b652f2ca955cb/packages/module-jobs/src/types.ts#L147",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/chat-page.tsx#L142",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/settings/pi-accounts.tsx#L71",

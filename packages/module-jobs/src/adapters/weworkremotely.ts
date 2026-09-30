@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const RSS_URL = "https://weworkremotely.com/remote-jobs.rss";
 
@@ -8,23 +9,22 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
   readonly name = "We Work Remotely";
   readonly tier = 1 as const;
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
-      if (opts.verbose) console.log("[weworkremotely] Fetching RSS feed...");
+      this.ctx.log("[weworkremotely] Fetching RSS feed...");
 
-      const page = await this.http.getPage(RSS_URL, {
+      const page = await this.http.getPage(RSS_URL, this.fetchOptions(opts, {
         headers: { Accept: "application/rss+xml, application/xml, text/xml" },
-        proxy: opts.proxy,
-      });
+      }));
 
       const items = this.parseRssItems(page.body);
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
       // only tracks the newest publication date for run metadata.
-      let newestDate = opts.incremental && opts.lastCursor ? opts.lastCursor : "";
+      let newestDate = opts.incremental && opts.cursor ? opts.cursor : "";
 
       for (const item of items) {
         const pubDate = item.pubDate ? new Date(item.pubDate).toISOString() : undefined;
@@ -99,7 +99,7 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
         from: page.url,
       });
 
-      if (opts.verbose) console.log(`[weworkremotely] Found ${jobs.length} jobs`);
+      this.ctx.log(`[weworkremotely] Found ${jobs.length} jobs`);
       return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {
       pages.unreachable(RSS_URL, err);

@@ -136,7 +136,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
       client: new ScrapeClient(), browser: { browserUrl },
       adapters: [{ id: "both", name: "Fixture", needsBrowser: true, needsProxy: false, async scrape(ctx) {
         await ctx.http.getText(url("/http"));
-        return { items: [await ctx.browser!.load({ url: url("/browser"), extract: body })], errors: [] };
+        return { items: [await ctx.browser!.load({ url: url("/browser"), extract: body })], errors: [], status: "ok" as const };
       } }],
     });
     expect(outcomes[0].errors).toEqual([]);

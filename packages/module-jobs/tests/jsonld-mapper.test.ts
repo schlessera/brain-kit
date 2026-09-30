@@ -430,7 +430,7 @@ describe("malformed JSON", () => {
       readonly name = "Structured-data board";
       readonly tier = 2 as const;
 
-      async scrape() {
+      protected async scrapePages() {
         const url = "https://example.test/jobs";
         const html = await this.http.getText(url);
         const { jobs, errors } = jobsFromJsonLd(html, { source: this.source });
@@ -460,10 +460,10 @@ describe("malformed JSON", () => {
     }
 
     const serving = (body: string) =>
-      new JsonLdBoard().bind({ http: new StubClient(body), log: () => {} }).scrape();
+      new JsonLdBoard().scrape({ http: new StubClient(body), log: () => {} }, {});
 
     const broken = await serving(truncated);
-    expect(broken.jobs).toEqual([]);
+    expect(broken.items).toEqual([]);
     // Reported, named, and returned -- not thrown.
     expect(broken.errors[0]).toContain("JSON-LD script 1");
     // And the page it could not read off is reported as one, so the board
@@ -476,6 +476,6 @@ describe("malformed JSON", () => {
     const whole = await serving(fixture("jsonld", "dice-detail.html"));
     expect(whole.errors).toEqual([]);
     expect(whole.status).toBe("ok");
-    expect(whole.jobs).toHaveLength(1);
+    expect(whole.items).toHaveLength(1);
   });
 });

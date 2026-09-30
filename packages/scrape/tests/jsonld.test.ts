@@ -20,7 +20,9 @@ import {
 
 /**
  * The pattern this replaces, verbatim from
- * `module-jobs/src/adapters/remotelyde.ts:53` before it was deleted. Kept so
+ * the capture-era matcher (
+ * https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/remotelyde.ts#L53
+ * ) before it was deleted. Kept so
  * the tolerance claim is measured against the thing that was intolerant,
  * rather than asserted.
  */

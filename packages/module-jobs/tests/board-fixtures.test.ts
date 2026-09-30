@@ -197,7 +197,7 @@ async function scrapeAgainst(
   answer: StubAnswer | ((url: string) => StubAnswer)
 ) {
   const { ctx, requests } = contextServing(answer);
-  const result = await adapter.bind(ctx).scrape({ incremental: false });
+  const result = await adapter.scrape(ctx, { incremental: false });
   return { ...result, requests };
 }
 
@@ -223,8 +223,8 @@ describe("remotelyde against its captured listing", () => {
 
     const result = await scrapeAgainst(new RemotelyDeAdapter(), html);
 
-    expect(result.jobs).toHaveLength(1);
-    const [job] = result.jobs;
+    expect(result.items).toHaveLength(1);
+    const [job] = result.items;
     expect(job.url).toBe(
       "https://www.remotely.de/job/rws-trainai-audio-transcription-german-germany"
     );
@@ -237,7 +237,7 @@ describe("remotelyde against its captured listing", () => {
     expect(job.description).toContain("Audio Transcriber");
     // And nothing at all came from the chrome: not one stored row is a
     // /remote-jobs/<slug> category page.
-    expect(result.jobs.filter((row) => row.url?.includes("/remote-jobs/"))).toEqual([]);
+    expect(result.items.filter((row) => row.url?.includes("/remote-jobs/"))).toEqual([]);
     expect(result.errors).toEqual([]);
   });
 
@@ -249,11 +249,11 @@ describe("remotelyde against its captured listing", () => {
 
     // Most cards are this layout, and it puts the company in the meta line
     // rather than beside the logo: "<company> \u00b7 <location>".
-    expect(result.jobs.map((job) => [job.company, job.location])).toEqual([
+    expect(result.items.map((job) => [job.company, job.location])).toEqual([
       ["Grafana Labs", "Spanien +4 weitere"],
       ["Do Good Ventures", "Weltweit"],
     ]);
-    for (const job of result.jobs) {
+    for (const job of result.items) {
       expect(job.title).toBeTruthy();
       expect(job.company).not.toBe("Unknown");
       expect(job.url).toStartWith("https://www.remotely.de/job/");
@@ -270,7 +270,7 @@ describe("remotelyde against its captured listing", () => {
       url.endsWith("/remote-jobs") ? html : ""
     );
 
-    expect(result.jobs.map((job) => job.company)).toEqual(["Grafana Labs"]);
+    expect(result.items.map((job) => job.company)).toEqual(["Grafana Labs"]);
     expect(result.errors).toEqual(["remotely.de page 1: 1 card(s) carried no company"]);
   });
 
@@ -286,7 +286,7 @@ describe("remotelyde against its captured listing", () => {
       url.endsWith("/remote-jobs") ? html : ""
     );
 
-    expect(result.jobs.map((job) => job.company)).toEqual(["Grafana Labs"]);
+    expect(result.items.map((job) => job.company)).toEqual(["Grafana Labs"]);
     expect(result.errors).toEqual(["remotely.de page 1: 1 card(s) carried no company"]);
   });
 
@@ -308,7 +308,7 @@ describe("remotelyde against its captured listing", () => {
       "https://www.remotely.de/remote-jobs/seite/3",
     ]);
     expect(new Set(result.requests).size).toBe(result.requests.length);
-    expect(result.jobs).toHaveLength(3);
+    expect(result.items).toHaveLength(3);
   });
 
   test("the JSON-LD the bare-tag regex could not see is extracted now (#34)", () => {
@@ -375,10 +375,10 @@ describe("simplyhired against its captured card", () => {
       fixture("simplyhired", "listing-card.html")
     );
 
-    expect(result.jobs).toHaveLength(1);
-    expect(result.jobs[0].title).toBe("FDE Backend Platform Engineer - USA");
-    expect(result.jobs[0].company).toBe("Inviso");
-    expect(result.jobs[0].description).toBeUndefined();
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].title).toBe("FDE Backend Platform Engineer - USA");
+    expect(result.items[0].company).toBe("Inviso");
+    expect(result.items[0].description).toBeUndefined();
     expect(fixture("simplyhired", "listing-card.html")).not.toContain("Snippet");
   });
 });
@@ -418,8 +418,8 @@ describe("jobgether against the JSON endpoint its robots.txt allows", () => {
     );
 
     expect(result.errors).toEqual([]);
-    expect(result.jobs).toHaveLength(3);
-    for (const job of result.jobs) {
+    expect(result.items).toHaveLength(3);
+    for (const job of result.items) {
       expect(job.title).toBeTruthy();
       expect(job.company).toBeTruthy();
       expect(job.company).not.toBe("Unknown");
@@ -427,12 +427,12 @@ describe("jobgether against the JSON endpoint its robots.txt allows", () => {
       // postedAt is already ISO on this endpoint.
       expect(job.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
-    expect(result.jobs[0].company).toBe("Grafana Labs");
-    expect(result.jobs[0].salary_min).toBe(186240);
-    expect(result.jobs[0].salary_currency).toBe("EUR");
-    expect(result.jobs[0].job_type).toBe("full_time");
+    expect(result.items[0].company).toBe("Grafana Labs");
+    expect(result.items[0].salary_min).toBe(186240);
+    expect(result.items[0].salary_currency).toBe("EUR");
+    expect(result.items[0].job_type).toBe("full_time");
     // The wire carries "Samsara " with a trailing space.
-    expect(result.jobs[2].company).toBe("Samsara");
+    expect(result.items[2].company).toBe("Samsara");
   });
 
   test("an offer with no company is dropped, and the field is named (#35)", async () => {
@@ -440,7 +440,7 @@ describe("jobgether against the JSON endpoint its robots.txt allows", () => {
     delete data.jobs[0].company;
     const result = await scrapeAgainst(new JobgetherAdapter(), JSON.stringify(data));
 
-    expect(result.jobs).toHaveLength(2);
+    expect(result.items).toHaveLength(2);
     expect(result.errors).toEqual(["Jobgether: 1 offer(s) carried no company"]);
   });
 });
@@ -473,9 +473,9 @@ describe("remotive's robots.txt", () => {
           fetcher: async () => ({ status: 200, body: fixture("remotive", "robots.txt") }),
         }),
       });
-      const result = await new RemotiveAdapter().bind({ http, log: () => {} }).scrape({ incremental: false });
+      const result = await new RemotiveAdapter().scrape({ http, log: () => {} }, { incremental: false });
 
-      expect(result.jobs).toEqual([]);
+      expect(result.items).toEqual([]);
       expect(result.status).toBe("not_run");
       expect(result.errors).toHaveLength(5);
       for (const error of result.errors) expect(error).toContain("robots.txt disallows");
@@ -659,7 +659,7 @@ describe("dice's rendered card", () => {
   test("a stored row carries an absolute url and source_url (#129)", async () => {
     const { ctx, requests } = browserContextServing(fixture("dice", "rendered-card.html"));
 
-    const result = await new DiceAdapter().bind(ctx).scrape({
+    const result = await new DiceAdapter().scrape(ctx, {
       incremental: false,
       queries: ["software engineer"],
     });
@@ -668,8 +668,8 @@ describe("dice's rendered card", () => {
       "https://www.dice.com/jobs?q=software%20engineer&filters.isRemote=true",
     ]);
     expect(result.errors).toEqual([]);
-    expect(result.jobs).toHaveLength(1);
-    const job = result.jobs[0];
+    expect(result.items).toHaveLength(1);
+    const job = result.items[0];
     // The two fields every consumer treats as a link. All 102 rows of the #33
     // run carried "/job-detail/<guid>" in both.
     expect(job.url).toBe(CARD_URL);
@@ -698,11 +698,11 @@ describe("dice's rendered card", () => {
 
   async function repairedRow(): Promise<RawJob> {
     const { ctx } = browserContextServing(fixture("dice", "rendered-card.html"));
-    const result = await new DiceAdapter().bind(ctx).scrape({
+    const result = await new DiceAdapter().scrape(ctx, {
       incremental: false,
       queries: ["software engineer"],
     });
-    return result.jobs[0];
+    return result.items[0];
   }
 
   test("re-scraping updates the row already stored — it does not add a second (#129)", async () => {
@@ -805,7 +805,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
   };
 
   test("simplyhired", async () => {
-    const { jobs } = await scrapeAgainst(new SimplyHiredAdapter(["backend engineer"]), fixture("simplyhired", "listing-card.html"));
+    const { items: jobs } = await scrapeAgainst(new SimplyHiredAdapter(["backend engineer"]), fixture("simplyhired", "listing-card.html"));
     const { stats, requests, stored } = await enrichAndStore(jobs, "simplyhired", detail("simplyhired-detail.html"), "www.simplyhired.com");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
     expect(requests).toHaveLength(jobs.length);
@@ -813,7 +813,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
   });
 
   test("remotelyde, row cards (no teaser)", async () => {
-    const { jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing-row-cards.html"));
+    const { items: jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing-row-cards.html"));
     expect(jobs.every((row) => !row.description)).toBe(true);
     const { stats, stored } = await enrichAndStore(jobs, "remotelyde", detail("remotelyde-detail.html"), "www.remotely.de");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
@@ -824,7 +824,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
     // The featured layout carries a five-line teaser. That is a description
     // the listing gave, so the row is not fetched: enrichment fills what is
     // missing and never replaces what a listing said.
-    const { jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing.html"));
+    const { items: jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing.html"));
     const { stats, requests, stored } = await enrichAndStore(jobs, "remotelyde", null, "www.remotely.de");
     expect(requests).toEqual([]);
     expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
@@ -832,7 +832,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
   });
 
   test("jobgether", async () => {
-    const { jobs } = await scrapeAgainst(new JobgetherAdapter(), fixture("jobgether", "api-v1-jobs.json"));
+    const { items: jobs } = await scrapeAgainst(new JobgetherAdapter(), fixture("jobgether", "api-v1-jobs.json"));
     const { stats, stored } = await enrichAndStore(jobs, "jobgether", detail("jobgether-offer.html"), "jobgether.com");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
     expectAllDescribed(stored);
@@ -840,7 +840,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
 
   test("dice", async () => {
     const { ctx } = browserContextServing(fixture("dice", "rendered-card.html"));
-    const { jobs } = await new DiceAdapter().bind(ctx).scrape({ incremental: false, queries: ["software engineer"] });
+    const { items: jobs } = await new DiceAdapter().scrape(ctx, { incremental: false, queries: ["software engineer"] });
     const { stats, stored } = await enrichAndStore(jobs, "dice", detail("dice-detail.html"), "www.dice.com");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
     expectAllDescribed(stored);
@@ -848,7 +848,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
 
   test("nodesk", async () => {
     const { ctx } = browserContextServing(fixture("nodesk", "rendered-card.html"));
-    const { jobs } = await new NodeskAdapter().bind(ctx).scrape({ incremental: false });
+    const { items: jobs } = await new NodeskAdapter().scrape(ctx, { incremental: false });
     const { stats, stored } = await enrichAndStore(jobs, "nodesk", detail("nodesk-detail.html"), "nodesk.co");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
     expectAllDescribed(stored);
@@ -858,7 +858,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
     const { ctx } = browserContextServing(
       fixture("builtin", "rendered-card.html") + fixture("builtin", "listing-jsonld.html")
     );
-    const { jobs } = await new BuiltInAdapter().bind(ctx).scrape({ incremental: false });
+    const { items: jobs } = await new BuiltInAdapter().scrape(ctx, { incremental: false });
     const { stats, requests, stored } = await enrichAndStore(jobs, "builtin", null, "builtin.com");
     expect(requests).toEqual([]);
     expect(stats).toMatchObject({ enriched: 0, failed: 0, truncated: 0 });
