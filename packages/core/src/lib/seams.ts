@@ -186,18 +186,6 @@ export interface Reranker {
   preview?<C extends RerankCandidate>(req: Omit<RerankRequest<C>, "signal">): unknown;
 }
 
-/**
- * Turns a self-contained HTML document into page bytes. Implemented by
- * `@schlessera/brain-render-puppeteer` (headless Chrome, network-denied by
- * default); absent when that optional package is not installed, in which case
- * `brain render` still writes HTML and says what to install for PDF/PNG.
- */
-export interface DocumentRenderer {
-  renderPdf(opts: { html: string; width?: number }): Promise<Buffer>;
-  renderPng(opts: { html: string; width?: number }): Promise<Buffer>;
-  shutdown(): Promise<void>;
-}
-
 /** A skill as discovered from a skills/ directory. */
 export interface SkillManifest {
   /** Directory name == skill name. */

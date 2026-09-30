@@ -1,5 +1,19 @@
 import { resolveEnv } from "../../config/env.js";
-import type { DocumentRenderer } from "../../lib/seams.js";
+
+/**
+ * Core's internal adapter for the optional Puppeteer package. Turns a
+ * self-contained HTML document into page bytes; absent when that package is
+ * not installed, in which case `brain render` still writes HTML and says what
+ * to install for PDF/PNG. This is not a public extension seam or provider
+ * injection contract; the Puppeteer package owns its public renderer API.
+ *
+ * @internal
+ */
+export interface DocumentRenderer {
+  renderPdf(opts: { html: string; width?: number }): Promise<Buffer>;
+  renderPng(opts: { html: string; width?: number }): Promise<Buffer>;
+  shutdown(): Promise<void>;
+}
 
 /** Thrown when PDF/PNG was asked for but the optional renderer is absent. */
 export class RendererUnavailableError extends Error {}
