@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 # A superseded PR push keeps its obsolete run burning runners to the end
 # without this. Main is never cancelled: every push to main must keep its
