@@ -1,7 +1,6 @@
 name: Task
 description: One unit of work — the size a single agent session or sitting can finish.
 title: "<area>: <what changes, in the imperative>"
-labels: ["agent-ready"]
 body:
   - type: markdown
     attributes:
@@ -12,6 +11,10 @@ body:
         Fill every section. The body is the brief a coding agent works from —
         an agent cannot ask you what you meant, and a task that omits its
         acceptance criteria gets an implementation nobody can check.
+
+        Readiness is established during triage. Add agent-ready when an agent
+        can take the next step unattended. If that step requires a human, use
+        needs: human and state the exact action and evidence that completes it.
 
   - type: textarea
     id: context
@@ -65,7 +68,10 @@ body:
     id: verification
     attributes:
       label: Verification
-      description: The exact commands that prove it, and anything that must be checked by hand.
+      description: >-
+        The exact commands that prove it, and any required human action with its
+        completion evidence. A human step left after implementation keeps the
+        issue open for a needs: human handoff; its PR uses Refs, not Closes.
       value: |
         ```sh
         bun run test

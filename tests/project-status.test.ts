@@ -22,7 +22,7 @@ describe("statusFor", () => {
   });
 
   test("a `needs:` label takes it out of Ready, whatever else it carries", () => {
-    for (const need of ["needs: decision", "needs: design", "needs: repro", "needs: use-case"]) {
+    for (const need of ["needs: decision", "needs: design", "needs: repro", "needs: human", "needs: use-case"]) {
       expect(statusFor(labelled("agent-ready", need), false)).toBe("Backlog");
     }
   });

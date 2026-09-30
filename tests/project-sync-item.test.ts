@@ -78,6 +78,13 @@ describe("syncItem", () => {
     expect(writes).toEqual(["item-46 f-status=opt-Backlog"]);
   });
 
+  test("a human handoff moves a Ready item to Backlog even with stale agent-ready", async () => {
+    const { writes, result } = run(["agent-ready", "needs: human"], { current: { Status: "Ready" } });
+    const counts = await result;
+    expect(writes).toEqual(["item-46 f-status=opt-Backlog"]);
+    expect(counts).toEqual({ added: 0, edited: 1 });
+  });
+
   test("a Status a person set is never overwritten", async () => {
     for (const status of ["In progress", "Done"]) {
       const { writes, result } = run(["agent-ready"], { current: { Status: status } });

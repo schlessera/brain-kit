@@ -89,7 +89,7 @@ Four namespaces and a flat meta set. The full list with descriptions is
   wanted but unscheduled, `p3` someday. **No priority label means unsorted**,
   which is an honest state.
 - **`needs:`** — what blocks it when the blocker is not another issue:
-  `decision`, `design`, `repro`, `use-case`.
+  `decision`, `design`, `repro`, `human`, `use-case`.
 - **Meta** — `epic`, `agent-ready`, `blocked`, `contract`, `breaking`,
   `security`, `upstream: …`, plus GitHub's triage set.
 
@@ -97,7 +97,7 @@ Four namespaces and a flat meta set. The full list with descriptions is
 the project board's Status field. A label and a board column tracking the same
 fact drift inside a week, and then neither can be trusted.
 
-Two labels carry weight beyond their description:
+Three labels carry weight beyond their description:
 
 - **`contract`** means the change touches the machine surface in
   [integration-contract.md](../integration-contract.md). That implies a
@@ -108,6 +108,21 @@ Two labels carry weight beyond their description:
 - **`agent-ready`** means a coding agent can take the issue unattended: context
   with real file paths, an explicit out-of-scope section, and acceptance
   criteria somebody else could check. See below.
+- **`needs: human`** means the next required action can only be performed by a
+  human: approving an account login, supplying a credential or granting access,
+  interactive publishing, or a verification explicitly reserved for the
+  maintainer. State the exact action and what evidence completes it in the
+  issue body. Remove `agent-ready` when applying it; the two are mutually
+  exclusive. A ruling uses `needs: decision`, and a missing reproduction uses
+  `needs: repro`. Neither a browser check nor a keyed measurement alone implies
+  `needs: human`: an authorized agent with the required access can run those.
+
+Finish independent agent work before handing an issue over for a human action.
+If that action is a prerequisite, apply `needs: human` immediately. When it is
+completed, record the result, remove the label, and either restore `agent-ready`
+if implementation remains and nothing else blocks it, or close the issue if
+all acceptance criteria and verification are met. A planned human check at the
+end does not block coding that can proceed now.
 
 ## Milestones
 
@@ -139,6 +154,18 @@ to happen.
 | Size | XS/S/M/L — a rough estimate of one sitting versus several |
 | Start / Target | Two dates, for the roadmap view only. Intent, never a commitment — an item with neither does not appear there, which is the right default |
 
+Track assignments live in `scripts/sync-project.ts`: each epic names its
+roadmap theme, and its sub-issues inherit that theme using their own repository
+identity, including across the public repositories. Standalone issues can have
+a track without an epic. Keep the mapping current when adding an epic; editing
+only the board is not enough to change a track already managed by sync.
+
+An issue belongs to an epic when its deliverable advances that epic's outcome
+or directly verifies it. A shared package, a prerequisite, or discovery during
+the epic's work alone is not enough. Check scope and exclusions before linking;
+an issue has only one parent, so use references for other relationships. Leave
+work standalone when no existing epic owns its full scope.
+
 `Ready` is the one that matters: it means the issue has been read, it is not
 blocked, and it can be picked up now. An agent picking work should filter
 `Status: Ready` and take the top item by priority.
@@ -158,6 +185,11 @@ leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`:
 - Once a day, and on `gh workflow run project-sync`, it runs the full sweep.
   That covers the two template repositories, whose events do not reach this
   workflow, and anything an event run missed.
+
+Every `needs:` label, including `needs: human`, prevents a derived `Ready`
+status, even if `agent-ready` was left on by mistake. A human handoff does not
+add a board column; move an item out of a manually set `In progress` state when
+work pauses, because sync preserves that state.
 
 An event run costs a few GraphQL points. The full sweep costs about 520 of the
 account's 5,000 per hour, so it is not run per event. A label change reaches
@@ -200,12 +232,20 @@ sit in the Ready view as traps.
 2. **Triage.** `type:`, `area:`, a priority if it is sorted, and a milestone if
    it is committed. Add it to the board.
 3. **Ready.** Context is complete and nothing blocks it. Add `agent-ready` if a
-   stranger could implement it from the body alone.
+   stranger could implement it from the body alone. Task templates do not add
+   it automatically; triage establishes readiness.
 4. **In progress.** Assign yourself, move the card. One issue at a time per
    branch: `<type>/<issue-number>-<slug>`.
-5. **In review.** Open the PR with `Closes #<n>` in the body. The PR template's
-   checklist is the merge bar.
-6. **Done.** The PR merging closes the issue. An epic closes when its last
+5. **In review.** Open the PR with `Closes #<n>` in the body when merging meets
+   every acceptance criterion and verification step. If a required human step
+   will remain, use `Refs #<n>` instead and name the step under "Anything left
+   open". The PR template's checklist is the merge bar.
+6. **Human handoff, when needed.** Once independent agent work is complete,
+   update the body with the remaining action and its completion evidence,
+   replace `agent-ready` with `needs: human`, and leave the issue open. Keep
+   deployment details and credentials out of public evidence.
+7. **Done.** The PR merging normally closes the issue. After a human handoff,
+   close it only when the required result is recorded. An epic closes when its last
    sub-issue does *and* its definition of done is met — those are not the same
    thing.
 

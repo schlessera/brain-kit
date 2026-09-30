@@ -3,6 +3,10 @@ Title: conventional commit form — feat(ui-server): …, fix(core): …, docs: 
 A change to the machine surface is prefixed CONTRACT: instead.
 -->
 
+<!-- Use Closes only when merging completes all acceptance criteria and
+     required verification. If a human action remains, use Refs # instead,
+     name the action below, and hand the issue over with needs: human after
+     independent agent work is complete. -->
 Closes #
 
 ## What changed
@@ -41,4 +45,5 @@ bun run lint
 ## Anything left open
 
 <!-- Known gaps, follow-up issues to file, decisions deferred. Say "nothing"
-     rather than deleting the section. -->
+     rather than deleting the section. A required human action needs the
+     exact next step and completion evidence; keep its issue open. -->

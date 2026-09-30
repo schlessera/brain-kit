@@ -58,15 +58,26 @@ export const REPOS = [
 const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
   // Getting the thing into somebody else's hands: the two templates, and the
   // documentation that has to stop pointing at a private installation.
-  Distribution: [{ epics: [26, 70], also: [69], repo: "schlessera/brain-kit" }],
-  Hardening: [{ epics: [], also: [38], repo: "schlessera/brain-kit" }],
-  Reliability: [{ epics: [], also: [30, 31, 52, 53, 65, 66], repo: "schlessera/brain-kit" }],
-  "Design system": [{ epics: [39], also: [46, 47, 48], repo: "schlessera/brain-kit" }],
-  "Answer quality": [{ epics: [], also: [49, 50], repo: "schlessera/brain-kit" }],
-  Modules: [{ epics: [32], also: [59, 60], repo: "schlessera/brain-kit" }],
+  Distribution: [
+    { epics: [26, 70], also: [69], repo: "schlessera/brain-kit" },
+    { epics: [], also: [1, 2, 3], repo: "schlessera/brain-template" },
+  ],
+  Hardening: [{ epics: [], also: [38, 152, 251, 282], repo: "schlessera/brain-kit" }],
+  Reliability: [{
+    epics: [89, 191, 366, 367, 577, 578],
+    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591],
+    repo: "schlessera/brain-kit",
+  }],
+  "Design system": [{
+    epics: [39],
+    also: [46, 47, 48, 88, 93, 541, 543, 584, 585],
+    repo: "schlessera/brain-kit",
+  }],
+  "Answer quality": [{ epics: [363, 364, 365], also: [50], repo: "schlessera/brain-kit" }],
+  Modules: [{ epics: [32, 524], also: [59, 60, 525, 526, 527, 528], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
-  Voice: [{ epics: [54], also: [], repo: "schlessera/brain-kit" }],
-  "Contract and 1.0": [{ epics: [56], also: [57, 58, 61, 62], repo: "schlessera/brain-kit" }],
+  Voice: [{ epics: [54], also: [91], repo: "schlessera/brain-kit" }],
+  "Contract and 1.0": [{ epics: [56], also: [57, 62], repo: "schlessera/brain-kit" }],
 };
 
 const SIZES = ["XS", "S", "M", "L"];
@@ -265,10 +276,14 @@ async function openIssues(): Promise<Issue[]> {
 }
 
 /** Which sub-issues each epic owns, so a track seeds through the hierarchy. */
-async function subIssueNumbers(repo: string, parent: number): Promise<number[]> {
+async function subIssueRefs(repo: string, parent: number): Promise<string[]> {
   try {
-    const raw = await gh(["api", `repos/${repo}/issues/${parent}/sub_issues`, "--jq", ".[].number"]);
-    return raw.split("\n").filter(Boolean).map(Number);
+    const raw = await gh(["api", "--paginate", `repos/${repo}/issues/${parent}/sub_issues`, "--jq", ".[].html_url"]);
+    return raw.split("\n").flatMap((url) => {
+      const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(url);
+      const childRepo = match && boardRepo(match[1]!);
+      return childRepo ? [`${childRepo}#${match![2]}`] : [];
+    });
   } catch {
     return [];
   }
@@ -653,8 +668,8 @@ async function buildMembership(): Promise<Map<string, Set<string>>> {
     for (const group of groups) {
       for (const epic of group.epics) {
         members.add(`${group.repo}#${epic}`);
-        for (const sub of await subIssueNumbers(group.repo, epic)) {
-          members.add(`${group.repo}#${sub}`);
+        for (const sub of await subIssueRefs(group.repo, epic)) {
+          members.add(sub);
         }
       }
       for (const number of group.also) members.add(`${group.repo}#${number}`);

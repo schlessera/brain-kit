@@ -115,7 +115,15 @@ share a task — split the task or merge the epics.
 
 Attach every issue filed from an epic's work, not only the ones planned up
 front. "Part of #39" in prose does not put it in the epic's progress count or
-on its track; the API call does.
+on its track; the API call does. Check the epic's outcome, scope and exclusions:
+discovery during its work or a shared dependency alone does not establish
+membership. Use references for supporting work whose full scope is elsewhere.
+
+Tracks are mapped in `scripts/sync-project.ts`. Add new epics there and keep
+standalone assignments consistent; child references preserve their repository,
+so template tasks inherit from a brain-kit epic without colliding with local
+issue numbers. Sync handles inheritance for the configured epics. An issue can
+have a track while remaining standalone.
 
 List what is attached:
 
@@ -163,11 +171,13 @@ token that has `project` and `read:org`.
 
 A `needs:` label says what is blocking the work. `needs: design` is the one
 that is useless on its own — see "Issues that need design" below for what has
-to be posted with it.
+to be posted with it. `needs: human` also requires the exact next action and
+completion evidence in the body — see "Handing work to a human" below.
 
 A milestone is a release. Attach one only when the work is committed to that
-release — so not while a `needs:` label is on it; an undecided issue is not a
-commitment. Rule first, then schedule:
+release; an unresolved design or decision is not a commitment. A decided issue
+waiting on human verification may retain its release commitment. Rule first,
+then schedule:
 
 ```sh
 gh issue edit 42 --repo schlessera/brain-kit --milestone "0.37.0"
@@ -232,6 +242,11 @@ gh issue list --repo schlessera/brain-kit \
   --json number,title,labels,milestone
 ```
 
+The label query is a candidate list, not proof that work is pickable. Exclude
+issues with `blocked` or any `needs:` label, and epics. The board's `Ready`
+view applies those checks. If `agent-ready` and `needs: human` coexist, remove
+`agent-ready`; do not attempt the human action.
+
 Then, before writing code — this is the part that is skipped and should not be:
 
 1. Read the issue, its epic, and every link in both.
@@ -244,6 +259,34 @@ Then, before writing code — this is the part that is skipped and should not be
    the tree before the change.
 
 Branch as `<type>/<issue-number>-<slug>`, e.g. `feat/42-session-principal`.
+
+## Handing work to a human
+
+Use `needs: human` when the next required action can only be performed by a
+human: account login approval, supplying a credential or granting access,
+interactive publishing, or verification explicitly reserved for the maintainer.
+Use `needs: decision` for a ruling, and `needs: repro` for a missing reproduction.
+A browser check or keyed measurement is not automatically human work: an
+authorized agent with the required access can perform it.
+
+Finish independent agent work first. A human prerequisite blocks immediately;
+a planned human check after implementation does not block coding now. At handoff:
+
+1. Fold the current state into the body: what is complete, the exact human
+   action remaining, and the evidence needed to finish. Add a dated correction.
+   Public evidence contains no credentials or deployment details.
+2. Add `needs: human` and remove `agent-ready` in the same edit. Remove an old
+   `needs: repro` only if no reproduction is missing; retain other real blockers.
+   The label belongs in `scripts/labels.ts` and is synced from there, never
+   created by hand.
+3. Keep the issue open. A PR that leaves this action uses `Refs #N`, not a
+   closing keyword, and names it under "Anything left open". If the board item
+   was manually `In progress`, move it to `Backlog`; sync preserves `In progress`
+   and `Done`, while derived statuses already respect every `needs:` label.
+4. When the action is completed, record the result and remove `needs: human`.
+   Restore `agent-ready` only if agent work remains, its criteria are complete,
+   and nothing else blocks it. If all criteria and verification are met, close
+   with the completion evidence instead.
 
 ## Keeping an issue true
 
@@ -302,7 +345,9 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
-The PR closes the issue; do not close it by hand.
+The PR normally closes the issue; do not close it by hand before merging. If
+required human verification remains, follow "Handing work to a human" instead:
+use `Refs #N` and close only after the required result is recorded.
 
 ```sh
 gh pr create --repo schlessera/brain-kit --fill --body-file /tmp/pr-body.md

@@ -17,6 +17,7 @@ interface FakeIssue {
   pr?: boolean;
   /** For a pull request: whether a closed one merged. */
   merged?: boolean;
+  parent?: { repo: string; number: number };
 }
 interface FakeItem {
   id: string;
@@ -31,7 +32,7 @@ const option = (name: string) => ({ id: `opt-${name}`, name });
 const FIELDS = [
   { id: "f-status", name: "Status", options: ["Backlog", "Ready", "In progress", "In review", "Done"].map(option) },
   { id: "f-priority", name: "Priority", options: ["P0", "P1", "P2", "P3"].map(option) },
-  { id: "f-track", name: "Track", options: [option("Design system")] },
+  { id: "f-track", name: "Track", options: ["Distribution", "Hardening", "Reliability", "Design system", "Answer quality", "Modules", "Async collaboration", "Voice", "Contract and 1.0"].map(option) },
   { id: "f-size", name: "Size", options: ["XS", "S", "M", "L"].map(option) },
   { id: "f-start", name: "Start" },
   { id: "f-target", name: "Target" },
@@ -147,6 +148,14 @@ class FakeGitHub {
     }
     if (a === "api" && b === "--paginate") {
       const path = args[2]!;
+      const sub = /^repos\/(.+)\/issues\/(\d+)\/sub_issues$/.exec(path);
+      if (sub) {
+        need("--jq", ".[].html_url");
+        return this.issues
+          .filter((i) => i.parent?.repo === sub[1] && i.parent.number === Number(sub[2]))
+          .map((i) => url(i.repo, i.number))
+          .join("\n");
+      }
       const blocked = /^repos\/(.+)\/issues\?state=open&labels=blocked/.exec(path);
       if (blocked) {
         need("--jq", DEPENDANTS_JQ);
@@ -161,7 +170,10 @@ class FakeGitHub {
     }
     if (a === "api" && b) {
       const sub = /^repos\/(.+)\/issues\/(\d+)\/sub_issues$/.exec(b);
-      if (sub) return "";
+      if (sub) return this.issues
+        .filter((i) => i.parent?.repo === sub[1] && i.parent.number === Number(sub[2]))
+        .map((i) => String(i.number))
+        .join("\n");
       const pull = /^repos\/(.+)\/pulls\/(\d+)$/.exec(b);
       if (pull) need("--jq", PR_BODY_JQ);
       if (pull) return this.prs.find((p) => p.repo === pull[1] && p.number === Number(pull[2]))?.body ?? "";
@@ -201,6 +213,31 @@ async function run(fake: FakeGitHub, argv: string[]) {
 }
 
 describe("the full sweep", () => {
+  test("a hosting-template child inherits Distribution without assigning its number in brain-kit", async () => {
+    const hosting = "schlessera/brain-hosting-template";
+    const fake = new FakeGitHub(
+      [
+        { repo: KIT, number: 70, labels: ["epic"] },
+        { repo: hosting, number: 6, parent: { repo: KIT, number: 70 } },
+        { repo: KIT, number: 6 },
+      ],
+      [
+        { id: "epic", url: url(KIT, 70), Status: "Backlog" },
+        { id: "child", url: url(hosting, 6), Status: "Backlog" },
+        { id: "unrelated", url: url(KIT, 6), Status: "Backlog" },
+      ],
+    );
+    expect(fake.issues.filter((i) => i.parent).length).toBe(1);
+    const { code } = await run(fake, ["--apply"]);
+    expect(code).toBe(0);
+    expect(fake.items.find((i) => i.id === "child")!.Track).toBe("Distribution");
+    expect(fake.items.find((i) => i.id === "unrelated")!.Track).toBeUndefined();
+    expect(fake.writes).toContain(`set ${url(hosting, 6)} Track=Distribution`);
+    expect(fake.calls).toContainEqual([
+      "api", "--paginate", `repos/${KIT}/issues/70/sub_issues`, "--jq", ".[].html_url",
+    ]);
+  });
+
   test("never writes over a Status a person set, and still writes a derived one", async () => {
     const fake = new FakeGitHub(
       [

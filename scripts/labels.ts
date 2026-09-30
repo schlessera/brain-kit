@@ -144,6 +144,7 @@ export const NEEDS_LABELS: LabelSpec[] = [
   needs("decision", "Blocked on a maintainer or designer ruling, not on code."),
   needs("design", "Blocked on a design drop or a visual answer."),
   needs("repro", "Blocked on a reproduction."),
+  needs("human", "Waiting on an action only a human can perform. State the required action in the issue."),
   needs("use-case", "Deliberately parked until something real drives it."),
 ];
 
