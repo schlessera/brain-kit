@@ -1651,3 +1651,32 @@ Missing backend configuration still uses the shipped defaults, and explicit
 preserving the valid patterns, their matching order and effects. The server's
 existing malformed-JSON and structural-entry fallback retains its semantics.
 The rationale is recorded in [confirm-patterns.md](decisions/confirm-patterns.md).
+
+## Nullable asset enrichment
+
+**Approved pre-1.0 breaking API change (#411):** `Enrichment.describeAsset`
+from `@schlessera/brain` now returns `Promise<string | null>` rather than
+`Promise<string>`. `createEnrichment` returns `null` when its completion
+provider lacks vision (without calling `complete`) or returns empty/whitespace
+text for an image or PDF. Non-empty output is trimmed and accepted even if it
+equals the title. Errors still reject; `CompletionProvider.complete` and
+`Enrichment.generateChunkContext` retain their string return types.
+
+Callers handle `null` before persisting, caching or embedding a description.
+Custom implementations return `null` for no description and non-empty strings
+for success; always-successful implementations may retain `Promise<string>`.
+The shipped `@schlessera/brain/testing` completion contract suite now asserts
+`null` and zero completion calls for no vision, and `null` for empty output.
+[Caller migration guidance](extending/completions.md#migrating-asset-enrichment)
+includes an example.
+
+The indexer leaves undescribed assets on their document/chunk/FTS placeholders,
+keeps them findable by title, and queues neither description cache entries nor
+embeddings for them. A later `--embeddings` run retries unchanged assets. A
+`null` report says only that no description was returned, without attributing
+a cause. Existing cached strings are preserved, including title-equal strings;
+this change prevents new fallback entries and does not identify old ones.
+Use [`--forget-cache <path>` then `--embeddings`](concepts.md#sidecar-caches)
+to regenerate a known bad entry; forgetting resets sidecar and database state
+for all assets sharing its bytes. Rebuilding only `brain.db` can reuse the old
+sidecar and is insufficient.

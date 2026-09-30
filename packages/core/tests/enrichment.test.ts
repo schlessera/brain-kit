@@ -29,15 +29,28 @@ function mockProvider(
 }
 
 describe("createEnrichment.describeAsset", () => {
-  test("degrades to the title when the provider has no vision", async () => {
-    const rec: Recorder = { calls: [] };
-    const enrich = createEnrichment(mockProvider({ vision: false, reply: "should not run" }, rec));
-
-    const out = await enrich.describeAsset(new Uint8Array([1, 2, 3]), "image/png", "My Diagram");
-
-    expect(out).toBe("My Diagram");
-    expect(rec.calls.length).toBe(0); // no completion call at all
-  });
+  for (const mimeType of ["image/png", "application/pdf"]) {
+    test(`returns null without a completion call when ${mimeType} has no vision`, async () => {
+      const rec: Recorder = { calls: [] };
+      const enrich = createEnrichment(mockProvider({ vision: false, reply: "should not run" }, rec));
+      expect(await enrich.describeAsset(new Uint8Array([1, 2, 3]), mimeType, "My Diagram")).toBeNull();
+      expect(rec.calls).toEqual([]);
+    });
+    for (const reply of ["", " \n\t "]) {
+      test(`returns null for ${mimeType} with ${reply ? "whitespace" : "empty"} output`, async () => {
+        const rec: Recorder = { calls: [] };
+        const enrich = createEnrichment(mockProvider({ vision: true, reply }, rec));
+        expect(await enrich.describeAsset(new Uint8Array([1]), mimeType, "Diagram")).toBeNull();
+        expect(rec.calls.length).toBe(1);
+      });
+    }
+    test(`accepts a real ${mimeType} description that equals the title`, async () => {
+      const rec: Recorder = { calls: [] };
+      const enrich = createEnrichment(mockProvider({ vision: true, reply: "  Diagram  " }, rec));
+      expect(await enrich.describeAsset(new Uint8Array([1]), mimeType, "Diagram")).toBe("Diagram");
+      expect(rec.calls.length).toBe(1);
+    });
+  }
 
   test("passes the image part and returns the trimmed description", async () => {
     const rec: Recorder = { calls: [] };
@@ -56,18 +69,9 @@ describe("createEnrichment.describeAsset", () => {
     const rec: Recorder = { calls: [] };
     const enrich = createEnrichment(mockProvider({ vision: true, reply: "A report." }, rec));
 
-    await enrich.describeAsset(new Uint8Array([9]), "application/pdf", "Q3");
+    expect(await enrich.describeAsset(new Uint8Array([9]), "application/pdf", "Q3")).toBe("A report.");
 
     expect(rec.calls[0].parts).toEqual([{ kind: "pdf", data: new Uint8Array([9]) }]);
-  });
-
-  test("falls back to the title when the model returns nothing", async () => {
-    const rec: Recorder = { calls: [] };
-    const enrich = createEnrichment(mockProvider({ vision: true, reply: "   " }, rec));
-
-    const out = await enrich.describeAsset(new Uint8Array([1]), "image/png", "Fallback Title");
-
-    expect(out).toBe("Fallback Title");
   });
 });
 

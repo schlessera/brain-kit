@@ -283,8 +283,12 @@ async function describeAssets(
       const result = results[j];
       for (const task of batch[j]) {
         if (result.status === "fulfilled") {
-          done.push([task, result.value]);
-          run.report(`  Described: ${task.asset.path}`);
+          if (result.value === null) {
+            run.report(`  Left undescribed: ${task.asset.path} — no description returned; retry on the next embeddings run`);
+          } else {
+            done.push([task, result.value]);
+            run.report(`  Described: ${task.asset.path}`);
+          }
         } else {
           run.warn(
             `  SKIP description: ${task.asset.path} — ${(result.reason as Error)?.message || result.reason}`
@@ -326,8 +330,8 @@ export async function indexAssets(
 /**
  * Queue on-disk assets whose chunk has no vector but which this run did not
  * flag as changed — left behind by a run whose embed call hit a rate limit, or
- * that ran without a working provider. Reuses the description already stored
- * on the chunk, so nothing gets re-described (the expensive half).
+ * that ran without a working provider. Reuses a finished description already
+ * stored on the chunk; placeholders wait for the next description attempt.
  */
 export function queueAssetsMissingVectors(
   run: IndexRun,
@@ -342,6 +346,7 @@ export function queueAssetsMissingVectors(
        FROM documents d
        JOIN chunks c ON c.document_id = d.id AND c.chunk_index = 0
        WHERE d.asset_type != 'markdown'
+         AND c.content NOT LIKE '[Image:%' AND c.content NOT LIKE '[PDF:%'
          AND c.id NOT IN (SELECT chunk_id FROM vec_chunks)
        ORDER BY d.id`
     )

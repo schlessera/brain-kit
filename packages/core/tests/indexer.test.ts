@@ -22,7 +22,7 @@ import { collectStats } from "../src/lib/stats";
 import { gitIgnoredMatcher } from "../src/lib/git-ignore";
 import { CHUNKER_VERSION } from "../src/lib/chunker";
 import type { EmbeddingProvider } from "../src/lib/seams";
-import type { Enrichment } from "../src/lib/enrichment";
+import { createEnrichment, type Enrichment } from "../src/lib/enrichment";
 // sqlite-vec is optional in some environments — vector-dependent tests skip
 // gracefully when the extension cannot load. One probe, in vec-fixture.ts.
 import { vecAvailable } from "./vec-fixture";
@@ -490,6 +490,209 @@ describe("embedding provider change (mismatch requires --force)", () => {
 });
 
 describe("asset cache non-poisoning", () => {
+  for (const failure of ["no vision", "empty reply", "whitespace reply"] as const) {
+    for (const [extension, mimeType, bytes, kind] of [
+      ["png", "image/png", FAKE_PNG, "Image"],
+      ["pdf", "application/pdf", Buffer.from("%PDF-1.4\n%%EOF\n"), "PDF"],
+    ] as const) {
+      test.if(vecAvailable)(`${failure} keeps the ${kind} placeholder and retries unchanged bytes`, async () => {
+        const path = `assets/harbour.${extension}`;
+        const root = makeCorpus({ [path]: bytes });
+        const embedded: string[] = [];
+        const { embedImage: _image, embedPdf: _pdf, ...base } = makeProvider();
+        const provider: EmbeddingProvider = {
+          ...base,
+          async embed(texts) { embedded.push(...texts); return base.embed(texts); },
+        };
+        let completed = 0;
+        const enrichment = createEnrichment({
+          id: "fake:completions",
+          capabilities: { vision: failure !== "no vision" },
+          async complete() { completed++; return failure === "empty reply" ? "" : " \n\t "; },
+        });
+        const reports: string[] = [];
+        const log = console.log;
+        console.log = (...args: unknown[]) => reports.push(args.join(" "));
+        let first: IndexStats;
+        try {
+          first = await runIndex(root, { embeddings: true, quiet: false, provider, enrichment });
+        } finally {
+          console.log = log;
+        }
+        const db1 = await openRead(root);
+        let asset: { id: number; content: string; stat_fingerprint: string; content_hash: string };
+        try {
+          asset = db1.prepare("SELECT id, content, stat_fingerprint, content_hash FROM documents WHERE path = ?")
+            .get(path) as typeof asset;
+          // First assertion: the old title fallback must fail on stored content.
+          expect(asset.content).toBe(`[${kind}: ${path}]`);
+          expect(db1.prepare("SELECT content FROM chunks WHERE document_id = ?").get(asset.id))
+            .toEqual({ content: asset.content });
+          expect(db1.prepare("SELECT content FROM documents_fts WHERE rowid = ?").get(asset.id))
+            .toEqual({ content: asset.content });
+          expect(db1.prepare("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'title:harbour'").all())
+            .toEqual([{ rowid: asset.id }]);
+          expect(db1.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get()).toEqual({ n: 0 });
+        } finally { db1.close(); }
+        expect(first.assets).toBe(1);
+        expect(first.embeddings).toBe(0);
+        expect(embedded).toEqual([]);
+        expect(readAssetCache(root)).toEqual([]);
+        expect(completed).toBe(failure === "no vision" ? 0 : 1);
+        expect(reports.some((line) => line.includes(path) && line.includes("undescribed"))).toBe(true);
+        expect(reports.some((line) => /no vision|lacks vision|Described:/.test(line))).toBe(false);
+
+        const description = "A lighthouse beside the harbour entrance.";
+        const retried: string[] = [];
+        const second = await runIndex(root, {
+          embeddings: true, provider,
+          enrichment: createEnrichment({
+            id: "fake:completions", capabilities: { vision: true },
+            async complete(req) { retried.push(req.parts![0].kind); return `  ${description}  `; },
+          }),
+        });
+        expect(retried).toEqual([mimeType === "application/pdf" ? "pdf" : "image"]);
+        expect(second.assets).toBe(0);
+        expect(second.embeddings).toBe(1);
+        expect(embedded).toEqual([description]);
+        const db2 = await openRead(root);
+        try {
+          expect(db2.prepare("SELECT id, content, stat_fingerprint, content_hash FROM documents WHERE path = ?").get(path))
+            .toEqual({ ...asset, content: description });
+          expect(db2.prepare("SELECT content FROM chunks WHERE document_id = ?").get(asset.id))
+            .toEqual({ content: description });
+          expect(db2.prepare("SELECT content FROM documents_fts WHERE rowid = ?").get(asset.id))
+            .toEqual({ content: description });
+          expect(db2.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get()).toEqual({ n: 1 });
+        } finally { db2.close(); }
+        expect(readAssetCache(root)).toEqual([{ k: `${asset.content_hash}:assets: harbour`, v: description }]);
+      });
+    }
+  }
+
+  test.if(vecAvailable)("mixed nulls, errors and real descriptions deduplicate by bytes without cache poisoning", async () => {
+    const absent = Buffer.concat([FAKE_PNG, Buffer.from([1])]);
+    const failed = Buffer.from("%PDF-1.4\nfailed\n%%EOF\n");
+    const described = Buffer.concat([FAKE_PNG, Buffer.from([2])]);
+    const itinerary = Buffer.from("%PDF-1.4\nitinerary\n%%EOF\n");
+    const root = makeCorpus({
+      "assets/logo.png": absent, "assets/twin.png": absent,
+      "assets/report.pdf": failed, "assets/copy.pdf": failed,
+      "assets/shore.png": described, "assets/itinerary.pdf": itinerary,
+    });
+    const called: string[] = [];
+    const keyOf = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
+    const successful = new Map([
+      [keyOf(described), "A diagram of the rocky shoreline."],
+      [keyOf(itinerary), "assets: itinerary"], // A genuine description may equal its title.
+    ]);
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    let first: IndexStats;
+    try {
+      first = await runIndex(root, {
+        embeddings: true, provider: makeProvider(),
+        enrichment: createEnrichment({
+          id: "fake:mixed", capabilities: { vision: true },
+          async complete(req) {
+            const part = req.parts![0];
+            if (part.kind === "text") throw new Error("expected binary part");
+            const key = keyOf(part.data);
+            called.push(key);
+            if (key === keyOf(failed)) throw new Error("fake describe failure");
+            return successful.get(key) ?? " \t ";
+          },
+        }),
+      });
+    } finally { console.warn = warn; }
+    expect(first.assets).toBe(6);
+    expect(first.embeddings).toBe(2);
+    expect(called.sort()).toEqual([absent, failed, described, itinerary].map(keyOf).sort());
+    expect(warnings.filter((line) => line.includes("fake describe failure")).length).toBe(2);
+    expect(readAssetCache(root).map((e) => e.v).sort()).toEqual([...successful.values()].sort());
+    const db1 = await openRead(root);
+    try {
+      for (const path of ["assets/logo.png", "assets/twin.png", "assets/report.pdf", "assets/copy.pdf"]) {
+        expect(db1.prepare("SELECT content FROM documents WHERE path = ?").get(path))
+          .toEqual({ content: `[${path.endsWith("pdf") ? "PDF" : "Image"}: ${path}]` });
+      }
+      expect(db1.prepare("SELECT content FROM documents WHERE path = 'assets/itinerary.pdf'").get())
+        .toEqual({ content: "assets: itinerary" });
+    } finally { db1.close(); }
+
+    const retried: string[] = [];
+    const second = await runIndex(root, {
+      embeddings: true, provider: makeProvider(),
+      enrichment: createEnrichment({
+        id: "fake:mixed", capabilities: { vision: true },
+        async complete(req) {
+          const part = req.parts![0];
+          if (part.kind === "text") throw new Error("expected binary part");
+          const key = keyOf(part.data);
+          retried.push(key);
+          return key === keyOf(absent) ? "A harbour logo." : "A voyage report.";
+        },
+      }),
+    });
+    expect(second.assets).toBe(0);
+    expect(second.embeddings).toBe(4);
+    expect(retried.sort()).toEqual([absent, failed].map(keyOf).sort());
+    expect(readAssetCache(root).map((e) => e.v).sort())
+      .toEqual(["A harbour logo.", "A harbour logo.", "A voyage report.", "A voyage report.", ...successful.values()].sort());
+    const db2 = await openRead(root);
+    try {
+      expect(db2.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get()).toEqual({ n: 6 });
+      expect(db2.prepare("SELECT content FROM documents WHERE path = 'assets/shore.png'").get())
+        .toEqual({ content: successful.get(keyOf(described))! });
+    } finally { db2.close(); }
+  });
+
+  test.if(vecAvailable)("historical title-only caches remain until targeted forgetting resets twins and regenerates", async () => {
+    const root = makeCorpus({
+      "assets/logo.png": FAKE_PNG, "assets/twin.png": FAKE_PNG,
+      "assets/shore.png": Buffer.concat([FAKE_PNG, Buffer.from([3])]),
+    });
+    await runIndex(root, { embeddings: true });
+    const seed = await openRead(root);
+    const rows = seed.prepare("SELECT path, content_hash, title FROM documents ORDER BY path").all() as { path: string; content_hash: string; title: string }[];
+    seed.close();
+    const historic = rows.map((r) => ({ k: `${r.content_hash}:${r.title}`, v: r.title }));
+    writeFileSync(join(root, ".asset-cache.jsonl"), historic.map((e) => JSON.stringify(e)).sort().join("\n") + "\n");
+    const before = readFileSync(join(root, ".asset-cache.jsonl"), "utf8");
+    const { enrichment, described } = countingEnrichment();
+    const first = await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment });
+    expect(first.embeddings).toBe(3);
+    expect(described).toEqual([]); // Stored strings are not classified by title equality.
+    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf8")).toBe(before);
+
+    const db = await openRead(root);
+    try {
+      expect(await forgetCachedEnrichment(db, root, "assets/logo.png")).toBe(2);
+      for (const path of ["assets/logo.png", "assets/twin.png"]) {
+        expect(db.prepare("SELECT content FROM documents WHERE path = ?").get(path))
+          .toEqual({ content: `[Image: ${path}]` });
+      }
+      expect(db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get()).toEqual({ n: 1 });
+    } finally { db.close(); }
+    const retained = historic.filter((e) => e.v === "assets: shore");
+    expect(retained.length).toBe(1);
+    expect(readAssetCache(root)).toEqual(retained);
+    const second = await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment });
+    expect(second.embeddings).toBe(2);
+    expect(described.length).toBe(1); // Twins share the regeneration call.
+    const regenerated = `Fake description of ${described[0]}`;
+    expect(readAssetCache(root).filter((e) => e.v === regenerated).length).toBe(2);
+    expect(readAssetCache(root)).toContainEqual(retained[0]);
+    const after = await openRead(root);
+    try {
+      expect(after.prepare("SELECT content FROM documents WHERE path = 'assets/logo.png'").get())
+        .toEqual({ content: regenerated });
+      expect(after.prepare("SELECT content FROM documents WHERE path = 'assets/twin.png'").get())
+        .toEqual({ content: regenerated });
+    } finally { after.close(); }
+  });
+
   test("a no-enrichment --embeddings run leaves no placeholder in .asset-cache.jsonl", async () => {
     const root = makeCorpus({
       "notes/alpha.md": md("Alpha", "alpha content"),

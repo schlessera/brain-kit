@@ -6,9 +6,8 @@
  * prompts are ported verbatim from the reference brain's embedder so index
  * output is byte-identical for the same model.
  *
- * Degradation: a provider without vision cannot see the asset, so describeAsset
- * falls back to the asset title (the same title-only fallback the reference
- * used when the model returned nothing).
+ * Degradation: describeAsset returns null when the provider cannot see the
+ * asset or answers with no text. The indexer keeps its placeholder for retry.
  */
 
 import type { CompletionProvider, ContentPart } from "./seams.js";
@@ -16,9 +15,10 @@ import type { CompletionProvider, ContentPart } from "./seams.js";
 export interface Enrichment {
   /**
    * Describe an image/PDF asset in 2-3 sentences for search indexing.
-   * Returns the title verbatim when the provider has no vision capability.
+   * Returns null when the provider has no vision capability or answers with
+   * empty/whitespace text. A non-empty description may equal the asset title.
    */
-  describeAsset(buffer: Uint8Array, mimeType: string, context: string): Promise<string>;
+  describeAsset(buffer: Uint8Array, mimeType: string, context: string): Promise<string | null>;
   /**
    * Anthropic contextual-retrieval: a short blurb situating a chunk within its
    * document, prepended before embedding. The document half of the prompt is
@@ -193,9 +193,8 @@ export function createEnrichment(provider: CompletionProvider): Enrichment {
     buffer: Uint8Array,
     mimeType: string,
     context: string
-  ): Promise<string> {
-    // Degrade to a title-only description when the provider can't see the asset.
-    if (!provider.capabilities.vision) return context;
+  ): Promise<string | null> {
+    if (!provider.capabilities.vision) return null;
 
     const part: ContentPart =
       mimeType === "application/pdf"
@@ -207,7 +206,7 @@ export function createEnrichment(provider: CompletionProvider): Enrichment {
       parts: [part],
     });
 
-    return text.trim() || context;
+    return text.trim() || null;
   }
 
   async function generateChunkContext(
