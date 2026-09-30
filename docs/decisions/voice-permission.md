@@ -483,20 +483,21 @@ to a turn — `InferenceProfile.allowedTools`
 becomes, `allowedTools: allowed`, `:129`). The voice posture is one
 named entry in that mechanism.
 
-**#51's U15 chose a different mechanism first, and it chose it for this
-record's own reason.** `docs/plans/async-collaboration.md`, under U15, specifies
-*"Tool **availability** control (`tools`), not `allowedTools` — an allowlisted
-tool is auto-allowed and never reaches `canUseTool` (`backend.ts:703-709`), so
-removing a tool from the allowlist does not remove the tool"*
-(`Tool **availability** control`, `docs/plans/async-collaboration.md:1177-1179`),
-and it names the pi implementation as the check on the Claude one: a filtered
-`ToolDefinition[]`, *"no SDK allowlist exists, therefore no auto-allow bypass
-exists to defeat"* (`pi is the easy case`, `:1189-1192`).
-That plan is epic #51's design record. It was written before #141 and #154
-measured the runtime paths described below, and
-those measurements make its reason stronger, not weaker: a tool that was never
-registered has no safe-command classifier, no built-in check and no settings
-hook to get past.
+**#51's U15 originally chose availability control for the same bypass reason.**
+The current plan still specifies *"Tool **availability** control (`tools`) or a
+measured enforced membership"*
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1171-1173`).
+The plan is #51's design record. It was written before #141 and #154 measured
+the runtime paths described below; those measurements strengthen the argument
+for removing a tool's availability rather than leaving its execution reachable.
+
+**Source audit, 2026-09-30 (#533):** the earlier plan's claim that pi containment
+was trivial is superseded. Its resource loader and inline extension gate expose
+more than the curated tool roster, so both first-party runtimes need executable
+boundary proof
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1184-1188`).
+This correction does not choose a second enforcement mechanism or weaken the
+voice/unattended membership requirement below.
 
 **So this record does not require U15 to use an allowlist, and an earlier draft
 of it did.** That requirement would have left two contradictory bindings
