@@ -28,8 +28,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:357-362`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:806`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:359-364`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:809`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:428`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
@@ -415,7 +415,7 @@ into them.
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
 - **Billing is classified, not observed.** An ambient profile is `subscription`
   only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
-  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:725-729`, applied at
+  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:728-732`, applied at
   `const ambientBilling`, `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
   `Billing mode decision`, `cost-tracking.md:93`). Nothing reads what the CLI actually used.
   Since then #253 made turns clear the API key, so the backend stopped consulting

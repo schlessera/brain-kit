@@ -1457,3 +1457,19 @@ the field and value and directs the author to `exclude.dirs`. To exclude a
 whole directory, replace `files: ["drafts/"]` with `dirs: ["drafts"]`.
 Valid exact-file, directory and segment exclusions keep their semantics;
 CLI JSON shapes are unchanged.
+
+## Backend confirmation-pattern initialization
+
+**Pre-1.0 breaking tightening (#251):** `compileConfirmPatterns` and both
+first-party backend constructors reject a nonempty `confirmBashPatterns` list
+if no regex compiles, before turn or tool activity. The server's
+`BRAIN_UI_CONFIRM_BASH` regex list follows the same initialization rule. The
+error names both configuration fields, preserves invalid-source diagnostics,
+and directs the caller to repair the list or intentionally use `[]`; exact
+error prose is not a machine schema.
+
+Missing backend configuration still uses the shipped defaults, and explicit
+`[]` still disables confirmation. Mixed lists report and skip invalid entries,
+preserving the valid patterns, their matching order and effects. The server's
+existing malformed-JSON and structural-entry fallback retains its semantics.
+The rationale is recorded in [confirm-patterns.md](decisions/confirm-patterns.md).

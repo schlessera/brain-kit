@@ -157,6 +157,42 @@ describe("a deployment's own patterns", () => {
     expect(invalid.map(([source]) => source)).toEqual(["(unclosed"]);
     expect(compiled).toHaveLength(1);
     expect(compiled[0]!.test("ok")).toBe(true);
+    expect(
+      decideToolPermission({
+        toolName: "bash",
+        shellToolName: "bash",
+        input: { command: "ok" },
+        allowedTools: new Set(["bash"]),
+        confirmPatterns: compiled,
+      })
+    ).toEqual({ kind: "command", reason: "fine" });
+    expect(compiled.some((pattern) => pattern.test("git push --force"))).toBe(false);
+  });
+
+  test("a nonempty all-invalid list throws with each invalid source and repair guidance", () => {
+    const invalid: Array<[string, string]> = [];
+    let failure: Error | undefined;
+    expect(() => {
+      try {
+        compileConfirmPatterns(["(", { pattern: "[", effect: "never shown" }], (source, message) =>
+          invalid.push([source, message])
+        );
+      } catch (error) {
+        failure = error as Error;
+        throw error;
+      }
+    }).toThrow(/confirmBashPatterns.*BRAIN_UI_CONFIRM_BASH.*no valid.*repair.*\[\]/i);
+    expect(invalid.map(([source]) => source)).toEqual(["(", "["]);
+    for (const [source, message] of invalid) {
+      expect(message.length).toBeGreaterThan(0);
+      expect(failure!.message).toContain(`${JSON.stringify(source)}: ${message}`);
+    }
+  });
+
+  test("an explicit empty list still disables confirmation", () => {
+    const invalid: string[] = [];
+    expect(compileConfirmPatterns([], (source) => invalid.push(source))).toEqual([]);
+    expect(invalid).toEqual([]);
   });
 
   test("an entry with no pattern string is skipped and reported rather than matching everything", () => {
@@ -164,10 +200,27 @@ describe("a deployment's own patterns", () => {
     // command: a malformed entry must fail to "never matches", not "always".
     const invalid: string[] = [];
     const compiled = compileConfirmPatterns(
-      [{ effect: "no pattern" } as never, { pattern: 42, effect: "not a string" } as never],
+      [
+        { effect: "no pattern" } as never,
+        { pattern: 42, effect: "not a string" } as never,
+        String.raw`\bok\b`,
+      ],
       (source) => invalid.push(source)
     );
-    expect(compiled).toEqual([]);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]!.test("ok")).toBe(true);
+    expect(compiled[0]!.test("git status")).toBe(false);
     expect(invalid).toHaveLength(2);
+  });
+
+  test("a nonempty list of malformed objects also throws after reporting them", () => {
+    const invalid: string[] = [];
+    expect(() =>
+      compileConfirmPatterns(
+        [{ effect: "no pattern" } as never, { pattern: 42 } as never],
+        (source) => invalid.push(source)
+      )
+    ).toThrow(/no valid/i);
+    expect(invalid).toEqual(["undefined", "42"]);
   });
 });

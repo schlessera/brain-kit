@@ -83,6 +83,8 @@ export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly ConfirmPattern[] = [
 
 /**
  * Compile pattern sources, skipping (and reporting) any that will not parse.
+ * A nonempty list with no valid patterns throws; only an explicit empty list
+ * disables confirmation. Mixed lists keep their valid patterns and effects.
  * Both forms are accepted; an entry whose pattern is not a string is reported
  * too, because `new RegExp(undefined)` would match every command.
  */
@@ -91,10 +93,15 @@ export function compileConfirmPatterns(
   onInvalid: (source: string, message: string) => void
 ): CompiledConfirmPattern[] {
   const compiled: CompiledConfirmPattern[] = [];
+  const invalid: string[] = [];
+  const reportInvalid = (source: string, message: string) => {
+    invalid.push(`${JSON.stringify(source)}: ${message}`);
+    onInvalid(source, message);
+  };
   for (const entry of sources) {
     const source = typeof entry === "string" ? entry : entry?.pattern;
     if (typeof source !== "string") {
-      onInvalid(String(source), "a confirm pattern must be a regex source string");
+      reportInvalid(String(source), "a confirm pattern must be a regex source string");
       continue;
     }
     const effect =
@@ -105,10 +112,17 @@ export function compileConfirmPatterns(
       const re = new RegExp(source, "i");
       compiled.push(effect === undefined ? re : Object.assign(re, { effect }));
     } catch (e) {
-      // A bad pattern must not take the backend down: the safe direction to
-      // fail is "this one never matches", reported loudly.
-      onInvalid(source, e instanceof Error ? e.message : String(e));
+      // A mixed list can still use its valid entries. Reject an entirely
+      // invalid list below instead of silently disabling confirmation.
+      reportInvalid(source, e instanceof Error ? e.message : String(e));
     }
+  }
+  if (sources.length > 0 && compiled.length === 0) {
+    throw new Error(
+      "confirmBashPatterns / BRAIN_UI_CONFIRM_BASH contains no valid confirmation patterns; " +
+      "repair the invalid entries or explicitly set [] to disable confirmation. " +
+      invalid.join("; ")
+    );
   }
   return compiled;
 }

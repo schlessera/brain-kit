@@ -116,7 +116,8 @@ export interface CreatePiBackendOptions {
    * shared DEFAULT_CONFIRM_BASH_PATTERNS. An EMPTY array disables the
    * confirmation entirely — honoured as given, like the Claude backend.
    * Entries are bare regex sources or `{ pattern, effect }`; the effect is
-   * what the approval card shows.
+   * what the approval card shows. A nonempty list with no valid regex throws
+   * during construction; mixed lists report and skip invalid entries.
    */
   confirmBashPatterns?: readonly ConfirmPatternSource[];
   /**

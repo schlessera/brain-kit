@@ -303,7 +303,7 @@ description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
 `permission-hooks.ts:179-189`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
-(`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-58`)
+(`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-59`)
 lets a deployment supply its own patterns, which have no phrase when given as
 bare regex sources (the `{ pattern, effect }` form carries one). Both fall
 back to the same payload-free
