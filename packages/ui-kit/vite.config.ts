@@ -9,5 +9,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // Cross-workspace browser tests must share the renderer's React instance.
   resolve: { dedupe: ["react", "react-dom"] },
-  optimizeDeps: { include: ["react", "react-dom", "react-dom/client", "zustand", "zustand/vanilla", "zod", "lucide-react", "mermaid"] },
+  optimizeDeps: {
+    // The transcript integration story imports these through ui-react. Bundle
+    // them before the browser tests start so discovery cannot reload a play.
+    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge"],
+  },
 });

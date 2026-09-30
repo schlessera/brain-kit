@@ -1,5 +1,6 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { CSSProperties } from "react";
 
+import { AskOtherField } from "../internal/AskOtherField.js";
 import { useRoving } from "../internal/roving.js";
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
@@ -221,38 +222,6 @@ export function AskUserCard(p: AskUserCardProps) {
   // No colour: the question inherits ink from the screen, as the source does.
   const questionStyle: CSSProperties = { font: `400 13px/1.55 ${font.body}`, margin: "0 0 10px" };
   const optionsWrap: CSSProperties = { display: "flex", flexDirection: "column", gap: 7 };
-  // The field is a well like the answer row, so the two read as the same
-  // slot at different moments of the exchange. Its ring is `.bk-field`'s.
-  const otherField: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 8,
-    background: token("inset-well-bg"),
-    border: `1px solid ${color.edge}`,
-    borderRadius: 11,
-    padding: "10px 12px",
-  };
-  const otherInput: CSSProperties = {
-    flex: 1,
-    minWidth: 0,
-    display: "block",
-    width: "100%",
-    margin: 0,
-    padding: 0,
-    border: 0,
-    background: "none",
-    font: `400 12.5px/1.4 ${font.body}`,
-    color: color.ink,
-  };
-  const otherHint: CSSProperties = {
-    flex: "none",
-    border: `1px solid ${color.edge}`,
-    borderRadius: 5,
-    padding: "2px 6px",
-    font: `500 9.5px/1.4 ${font.mono}`,
-    color: color.inkMute,
-  };
   const answerRow: CSSProperties = {
     display: "flex",
     alignItems: "flex-start",
@@ -291,12 +260,6 @@ export function AskUserCard(p: AskUserCardProps) {
     overflowWrap: "anywhere",
   };
   const actions: CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 };
-
-  function onOtherKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    p.onOtherSubmit?.(event.currentTarget.value);
-  }
 
   return (
     <div style={box}>
@@ -343,17 +306,7 @@ export function AskUserCard(p: AskUserCardProps) {
         </div>
       ) : null}
       {otherOpen ? (
-        <div style={otherField} className="bk-field">
-          <input
-            className="bk-ask-other"
-            style={otherInput}
-            type="text"
-            aria-label="Your own answer"
-            placeholder={p.otherPlaceholder ?? "Type where it should go…"}
-            onKeyDown={onOtherKeyDown}
-          />
-          <span style={otherHint} aria-hidden="true">⏎</span>
-        </div>
+        <AskOtherField placeholder={p.otherPlaceholder} onSubmit={p.onOtherSubmit} />
       ) : null}
       {answers.map((text, i) => (
         <div key={`${text}-${i}`} style={i ? answerRow : { ...answerRow, marginTop: 0 }}>

@@ -105,6 +105,7 @@ export { TraceSteps, type TraceStep, type TraceStepsProps } from "./evidence/Tra
 export { ActionCard, type ActionCardProps } from "./decisions/ActionCard.js";
 export { ApprovalCard, type ApprovalCardProps } from "./decisions/ApprovalCard.js";
 export { AskUserCard, type AskUserCardProps, type AskUserOption, type AskUserState } from "./decisions/AskUserCard.js";
+export { AskUserGroupCard, type AskUserGroupCardProps, type AskUserGroupQuestion } from "./decisions/AskUserGroupCard.js";
 export {
   AskUserListCard,
   ASK_LIST_COLLAPSE_AT,
