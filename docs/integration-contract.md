@@ -984,6 +984,20 @@ reclassify previously recorded history from today's environment (#293).
 
 ## ui-server HTTP routes
 
+The [supported HTTP specification and complete inventory](http-api.md) are part
+of this contract. They deliberately select routes for independent clients and
+integrations, preserve existing promises and SDK dependencies, and explicitly
+exclude internal UI transport from independent raw-HTTP compatibility guarantees.
+Support is separate from public accessibility: authenticated APIs can be
+supported, while a UI-only probe can be internal. Authentication, inputs,
+outputs, errors and specified behavior on supported rows follow the versioning
+rules at the top of this document. The [selection decision](decisions/http-api-boundary.md)
+records #343 Q6; no route redesign or immediate 1.0 freeze is implied.
+
+The detailed stats promises below remain binding. The specification calls out
+observed implementation/client gaps with linked tasks; an implementation gap
+does not revoke a documented guarantee.
+
 ### Corpus stats history (`GET /api/brain/stats/history`, additive in 0.40.0)
 
 Passes `brain stats --history --json` through untouched, behind the auth
