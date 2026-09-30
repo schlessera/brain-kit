@@ -15,7 +15,7 @@ import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { StatsAnswer } from "../../src/components/chat/stats/stats-answer.js";
 import { composeStatsAnswer } from "../../src/components/chat/stats/compose-stats.js";
 import { CLIENT_RELEASE } from "../../src/components/chat/stats/software.js";
-import { corpusStats, runtimeStats, statsHistory } from "../stats-fixtures.js";
+import { actionableTrends, corpusStats, runtimeStats, statsHistory } from "../stats-fixtures.js";
 
 afterEach(cleanup);
 afterAll(unregisterStatsAnswerDom);
@@ -50,6 +50,17 @@ const sections = (container: HTMLElement) =>
   [...container.querySelectorAll("[data-stats-section]")].map((el) => el.getAttribute("data-stats-section"));
 
 describe("/stats", () => {
+  test("the real command and message bubble render core comparisons with one health callout", async () => {
+    const trends = actionableTrends();
+    const root = rootWith({ brainStats: async () => corpusStats({ trends }), activityStats: async () => runtimeStats({ window: { ...runtimeStats().window, failures: 0 } }) });
+    try {
+      const { container } = await answer(root);
+      expect(container.querySelectorAll('[data-stats-section="callout"]')).toHaveLength(1);
+      for (const v of trends.verdicts) expect(container.textContent).toContain(v.message);
+      expect(container.textContent).toContain("2026-09-17–2026-09-23");
+      expect(container.textContent).toContain("Recorded orphans");
+    } finally { root.dispose(); }
+  });
   test("answers with tiles, bars and receipts, and no markdown bullets", async () => {
     const root = rootWith({
       brainStats: async () => corpusStats(),

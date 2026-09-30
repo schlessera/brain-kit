@@ -143,3 +143,16 @@ export function statsHistory(n: number): CorpusStatsHistory {
     },
   };
 }
+import { historySeries, parseHistory } from "../../core/src/lib/stats-history.js";
+import { evaluateStatsTrends } from "../../core/src/lib/stats-trends.js";
+
+/** Actual core results over a synthetic history, not a second UI classifier. */
+export function actionableTrends() {
+  const rows = Array.from({ length: 14 }, (_, i) => {
+    const date = new Date(Date.UTC(2026, 8, 17 + i)).toISOString().slice(0, 10);
+    return { date, at: `${date}T12:00:00.000Z`, version: "0.40.0", links: 100, brokenLinks: i < 7 ? 0 : 10,
+      health: { embeddingCoverage: i < 7 ? 1 : 0.7, brokenLinkRate: i < 7 ? 0 : 0.1, orphans: i < 7 ? 10 : 15 } };
+  });
+  return evaluateStatsTrends(historySeries(parseHistory(rows.map(r => JSON.stringify(r)).join("\n"))),
+    { coverageFloor: 0.9, brokenLinkCeiling: 0.05 }, new Date("2026-09-30T12:00:00Z"));
+}

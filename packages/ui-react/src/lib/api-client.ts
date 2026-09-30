@@ -43,6 +43,8 @@ import type {
  * A figure that could not be measured is `null`, never `0`.
  */
 export interface CorpusStats {
+  /** Verdicts computed by core from recorded observations, never classified here. */
+  trends?: CorpusStatsTrends;
   documents: number;
   byType: Record<string, number>;
   byStatus: Record<string, number>;
@@ -55,7 +57,7 @@ export interface CorpusStats {
   embeddings: number | null;
   health: {
     brokenLinkRate: number | null;
-    /** `null` when the brain neither embeds nor holds vectors, has no chunks, or the count failed. */
+    /** `null` when the brain neither embeds nor holds vectors, has no eligible chunks, or the count failed. */
     embeddingCoverage: number | null;
     stale: number;
     orphans: number;
@@ -81,6 +83,7 @@ export interface CorpusStats {
  * fields the PWA draws are typed; the rest pass through.
  */
 export interface CorpusStatsHistory {
+  trends?: CorpusStatsTrends;
   dates: string[];
   documents: (number | null)[];
   health: {
@@ -90,6 +93,33 @@ export interface CorpusStatsHistory {
     orphans: (number | null)[];
     untagged: (number | null)[];
   };
+}
+
+/** Mirrors the additive core trend contract; the UI has no dependency on core. */
+export interface CorpusStatsTrends {
+  evaluatedAt: string;
+  verdicts: CorpusStatsTrend[];
+}
+export interface CorpusStatsTrend {
+  metric: "embeddingCoverage" | "brokenLinks" | "orphans";
+  state: "warning" | "measured-no-warning" | "insufficient" | "stale" | "incomparable";
+  baseline: CorpusTrendWindow;
+  recent: CorpusTrendWindow;
+  latestAt: string | null;
+  change: number | null;
+  countChange: number | null;
+  relativeChange: number | null;
+  rule: { minimumSamples: number; maximumAgeHours: number; minimumChange: number; minimumCountChange: number | null; minimumRelativeChange: number | null; currentThreshold: number | null };
+  message: string;
+}
+export interface CorpusTrendWindow {
+  start: string;
+  end: string;
+  dates: string[];
+  samples: number;
+  median: number | null;
+  countMedian: number | null;
+  versions: string[];
 }
 
 /**

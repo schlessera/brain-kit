@@ -1,7 +1,7 @@
 import { softwareDetails, type SoftwareInput } from "./software.js";
 import type { BarListRow, ReceiptRow, StatTile, Tone } from "@schlessera/brain-ui-kit";
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
-import type { CorpusStats, CorpusStatsHistory } from "../../../lib/api-client.js";
+import type { CorpusStats, CorpusStatsHistory, CorpusStatsTrend, CorpusStatsTrends } from "../../../lib/api-client.js";
 
 /**
  * The /stats answer as data (#97): the two channels in, the kit blocks out,
@@ -120,11 +120,12 @@ export function composeStatsAnswer({ corpus, runtime, software, history }: Stats
       out.push(breakdown("By relevance", c.byRelevance, c.documents, ["level", "levels"]));
     }
     out.push(corpusReceipt(c));
+    out.push(...comparisonReceipts(c.trends));
   }
 
   // The history is its own request and fails alone, silently: without it the
   // answer is what it was before there was any history to draw.
-  if (history?.ok) out.push(...trends(history.value));
+  if (history?.ok) out.push(...trends(history.value, c?.trends));
 
   if (r && !neverRan(r)) {
     if (r.window.runs > 0) out.push(windowReceipt(r));
@@ -143,11 +144,17 @@ type Rung = Extract<StatsSection, { kind: "callout" }>;
 /**
  * Every rung that fires, most urgent first. Only one is drawn; the others
  * are counted on its chip and stay visible as their toned tile or row.
- * Stale, orphan and untagged counts have no threshold, so they never fire.
- * The verdicts compare the unrounded values; only the display rounds.
+ * Current stale, orphan and untagged counts have no threshold. Recorded
+ * orphan movement can add a rung only through the supplied core verdict.
+ * Current-value verdicts compare unrounded values; only the display rounds.
  */
 function corpusRungs(c: CorpusStats): Rung[] {
   const out: Rung[] = [];
+  const current = new Set<string>();
+  const evidence = (metric: string) => {
+    const v = c.trends?.verdicts.find(v => v.metric === metric);
+    return v && (v.state === "warning" || v.state === "measured-no-warning") ? ` ${v.message}` : "";
+  };
   const { embeddingCoverage: coverage, brokenLinkRate: rate, thresholds } = c.health;
   if (coverage !== null && coverage < thresholds.coverageFloor) {
     const shown = judgedPair(coverage, thresholds.coverageFloor);
@@ -156,8 +163,9 @@ function corpusRungs(c: CorpusStats): Rung[] {
       tone: "red",
       variant: "boxed",
       title: `Only ${shown.ratio} of eligible chunks have a vector, under the ${shown.threshold} floor.`,
-      body: "Meaning-based search cannot reach the text in the rest. Run `brain index --embeddings`.",
+      body: "Meaning-based search cannot reach the text in the rest. Run `brain index --embeddings`." + evidence("embeddingCoverage"),
     });
+    current.add("embeddingCoverage");
   }
   if (rate !== null && rate > thresholds.brokenLinkCeiling) {
     const shown = judgedPair(rate, thresholds.brokenLinkCeiling);
@@ -166,10 +174,35 @@ function corpusRungs(c: CorpusStats): Rung[] {
       tone: "gold",
       variant: "boxed",
       title: `${plural(c.brokenLinks, "link points", "links point")} at notes that don't exist.`,
-      body: `That is ${shown.ratio} of all links, over the ${shown.threshold} ceiling. \`brain validate\` lists each one with the file it is in.`,
+      body: `That is ${shown.ratio} of all links, over the ${shown.threshold} ceiling. \`brain validate\` lists each one with the file it is in.` + evidence("brokenLinks"),
     });
+    current.add("brokenLinks");
+  }
+  for (const v of c.trends?.verdicts ?? []) {
+    if (v.state !== "warning" || current.has(v.metric)) continue;
+    out.push({ kind: "callout", tone: "gold", variant: "boxed", title: `Recorded ${trendName(v)} changed enough to check.`, body: v.message });
   }
   return out;
+}
+
+function trendName(v: CorpusStatsTrend): string {
+  return v.metric === "embeddingCoverage" ? "embedding coverage" : v.metric === "brokenLinks" ? "broken links" : "orphans";
+}
+
+/** Complete comparisons stay visible even below the one-notice callout ladder. */
+function comparisonReceipts(trends: CorpusStatsTrends | undefined): StatsSection[] {
+  return (trends?.verdicts ?? []).filter(v => v.state === "warning" || v.state === "measured-no-warning").map(v => ({
+    kind: "receipt", title: `Recorded ${trendName(v)}`,
+    rows: [
+      { k: "baseline", v: `${v.baseline.start}–${v.baseline.end}` },
+      { k: "days", v: String(v.baseline.samples) },
+      { k: "median", v: String(v.baseline.median) },
+      { k: "recent", v: `${v.recent.start}–${v.recent.end}` },
+      { k: "days", v: String(v.recent.samples) },
+      { k: "median", v: String(v.recent.median) },
+    ],
+    footnote: v.message, footTone: v.state === "warning" ? "gold" : "neutral",
+  }));
 }
 
 function runtimeRungs(r: ActivityRuntimeStats): Rung[] {
@@ -284,7 +317,7 @@ function breakdown(
  * drawn as 0. Fewer than two points is not a trend, and draws nothing: no
  * empty chart, no placeholder.
  */
-function trends(h: CorpusStatsHistory): StatsSection[] {
+function trends(h: CorpusStatsHistory, current?: CorpusStatsTrends): StatsSection[] {
   const ratio = (r: number) => `${(r * 100).toFixed(1)}%`;
   const figures: [string, (number | null)[] | undefined, (n: number) => string][] = [
     ["documents", h.documents, count],
@@ -296,6 +329,12 @@ function trends(h: CorpusStatsHistory): StatsSection[] {
   const out: StatsSection[] = [];
   for (const [label, series, format] of figures) {
     if (!Array.isArray(series) || !Array.isArray(h.dates)) continue;
+    const metric = label === "embedding coverage" ? "embeddingCoverage" : label === "broken-link rate" ? "brokenLinks" : label === "orphans" ? "orphans" : null;
+    const verdict = (h.trends ?? current)?.verdicts.find(v => v.metric === metric);
+    if (verdict?.state === "incomparable" && h.dates.length >= 2) {
+      out.push({ kind: "receipt", title: `Recorded ${label}`, rows: [{ k: "comparison", v: "incomparable" }], footnote: verdict.message, footTone: "neutral" });
+      continue;
+    }
     const points = h.dates
       .map((date, i) => ({ date, value: series[i] }))
       .filter((p): p is { date: string; value: number } => typeof p.value === "number" && Number.isFinite(p.value))

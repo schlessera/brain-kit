@@ -12,7 +12,8 @@
  * breakdowns in both modes, so `stats --json` and `stats --all --json` are
  * byte-identical.
  */
-import { collectStats, type BrainStats } from "../../lib/stats.js";
+import { collectStats, resolveStatsThresholds, type BrainStats } from "../../lib/stats.js";
+import { evaluateStatsTrends, readStatsTrends, type StatsTrends } from "../../lib/stats-trends.js";
 import {
   DAILY_DAYS,
   historySeries,
@@ -57,6 +58,12 @@ this host could not read (sqlite-vec did not load).
 
 A figure that cannot be measured is reported as \`n/a\` (\`null\` in --json),
 never as 0, and carries no verdict.
+
+Recorded trends compare two non-overlapping seven-day UTC windows ending
+today, with at least three valid daily observations each and a recording no
+older than 48 hours. Core reports comparison evidence and explicit insufficient,
+stale or incomparable states; missing history is never a healthy trend. The
+initial warning rules are uncalibrated. See docs/cli.md for the rules.
 
 --json: unaffected by --all — it always carries the full, uncapped breakdowns.
 
@@ -308,12 +315,17 @@ function healthSection(stats: BrainStats, stale: StaleThresholds): string[] {
   return [
     "Health",
     "",
-    healthLine("Broken links", broken),
-    healthLine("Embedding coverage", coverage),
+    healthLine("Broken links", broken + trendEvidence(stats, "brokenLinks")),
+    healthLine("Embedding coverage", coverage + trendEvidence(stats, "embeddingCoverage")),
     healthLine("Stale", `${health.stale} — past their type's staleDays (${windows})`),
-    healthLine("Orphans", `${health.orphans} — no wiki-link in either direction`),
+    healthLine("Orphans", `${health.orphans} — no wiki-link in either direction` + trendEvidence(stats, "orphans")),
     healthLine("Untagged", `${health.untagged} — no tags (archived excluded)`),
   ];
+}
+
+function trendEvidence(stats: BrainStats, metric: string): string {
+  const v = stats.trends?.verdicts.find(v => v.metric === metric);
+  return v ? `\n    Trend: ${v.message}` : "";
 }
 
 /** The inventory row for a vector table this host could not count. */
@@ -354,7 +366,8 @@ export function formatStats(stats: BrainStats, opts: StatsRenderOptions): string
   // here that is unknown rather than empty.
   if (stats.documents === 0) {
     const empty = "Brain Statistics\n\n  No documents indexed. Add markdown under the brain root, then run `brain index`.";
-    return stats.embeddings === null ? `${empty}\n${UNKNOWN_EMBEDDINGS}` : empty;
+    const warnings = stats.trends?.verdicts.filter(v => v.state === "warning").map(v => `\n  Trend: ${v.message}`).join("") ?? "";
+    return (stats.embeddings === null ? `${empty}\n${UNKNOWN_EMBEDDINGS}` : empty) + warnings;
   }
 
   return [
@@ -367,16 +380,19 @@ export function formatStats(stats: BrainStats, opts: StatsRenderOptions): string
 }
 
 /** Every figure `brain stats` reports, for this CLI context. */
-async function collectFor(cli: CliContext): Promise<BrainStats> {
+async function collectFor(cli: CliContext, now = new Date()): Promise<BrainStats> {
   const db = openReadonlyDb(cli.brain);
   try {
-    return await collectStats(db, {
+    const stats = await collectStats(db, {
       root: cli.brain.root,
       dbPath: cli.brain.dbPath,
       taxonomy: cli.brain.taxonomy,
       config: cli.brain.config,
       embeddingsConfigured: cli.embeddings !== undefined || cli.brain.config?.embeddings !== undefined,
+      now,
     });
+    stats.trends = readStatsTrends(cli.brain.root, stats.health.thresholds, now);
+    return stats;
   } finally {
     db.close();
   }
@@ -391,8 +407,9 @@ export function recordStats(cli: CliContext, stats: BrainStats, now = new Date()
 }
 
 /** Collect today's figures and record them: the `brain maintain` step. */
-export async function collectAndRecordStats(cli: CliContext, now = new Date()): Promise<RecordResult> {
-  return recordStats(cli, await collectFor(cli), now);
+export async function collectAndRecordStats(cli: CliContext, now = new Date()): Promise<RecordResult & { trends: StatsTrends }> {
+  const stats = await collectFor(cli, now);
+  return { ...recordStats(cli, stats, now), trends: stats.trends! };
 }
 
 /** How a recording reads in a report line. */
@@ -427,7 +444,9 @@ export function formatHistory(history: StatsHistory): string {
   const line = (r: string[]) =>
     `  ${r.map((v, c) => (c === 0 ? v.padEnd(widths[c]) : v.padStart(widths[c]))).join("  ")}`.trimEnd();
   const span = n === 1 ? history.dates[0] : `${history.dates[0]} – ${history.dates[n - 1]}`;
-  return [`Stats history (${plural(n, "snapshot")}, ${span})`, "", line(header), ...rows.map(line)].join("\n");
+  return [`Stats history (${plural(n, "snapshot")}, ${span})`, "", line(header), ...rows.map(line),
+    ...(history.trends?.verdicts.map(v => `\n  Trend: ${v.message}`) ?? []),
+  ].join("\n");
 }
 
 export const statsCommand: CoreCommand = {
@@ -442,7 +461,9 @@ export const statsCommand: CoreCommand = {
       if (since !== undefined && (typeof since !== "string" || !isIsoDate(since))) {
         throw new UsageError("--since takes a date as YYYY-MM-DD");
       }
-      const history = historySeries(readHistory(cli.brain.root), since as string | undefined);
+      const snapshots = readHistory(cli.brain.root);
+      const history = historySeries(snapshots, since as string | undefined);
+      history.trends = evaluateStatsTrends(historySeries(snapshots), resolveStatsThresholds(cli.brain.config));
       emit(cli.json, history, () => console.log(formatHistory(history)));
       return;
     }

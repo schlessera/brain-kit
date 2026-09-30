@@ -22,6 +22,7 @@ import { join, resolve } from "path";
 
 import { writeFileSafely } from "./safe-path.js";
 import type { BrainStats } from "./stats.js";
+import type { StatsTrends } from "./stats-trends.js";
 
 export const STATS_HISTORY_FILE = ".stats-history.jsonl";
 
@@ -84,6 +85,8 @@ type Series = (number | null)[];
  * breakdown at all reads `null` for every key.
  */
 export interface StatsHistory {
+  /** CLI-owned comparison over the full history, independent of --since. */
+  trends?: StatsTrends;
   dates: string[];
   /** When each snapshot was recorded; null for a line without one. */
   recordedAt: (string | null)[];

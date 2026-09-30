@@ -19,6 +19,7 @@ import { embeddingEligibilitySql } from "./embedding-policy.js";
 import { gitIgnoredMatcher, isAssetPath } from "./git-ignore.js";
 import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
+import type { StatsTrends } from "./stats-trends.js";
 
 export interface StatsThresholds {
   coverageFloor: number;
@@ -26,6 +27,8 @@ export interface StatsThresholds {
 }
 
 export interface BrainStats {
+  /** CLI enrichment from recorded history; collection itself measures now. */
+  trends?: StatsTrends;
   documents: number;
   byType: Record<string, number>;
   byStatus: Record<string, number>;
