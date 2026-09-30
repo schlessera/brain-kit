@@ -53,9 +53,10 @@ const DEFAULT_DOCS: Record<string, string> = {
 export async function makeIndexedBrain(
   docs: Record<string, string> = DEFAULT_DOCS
 ): Promise<TempBrain> {
-  // Force keyless: no embedding provider is resolved, so search is FTS-only.
+  // Keep indexing and later searches keyless, including an enabled reranker.
   delete process.env.GEMINI_API_KEY;
   delete process.env.GOOGLE_API_KEY;
+  delete process.env.TYPESAFE_API_KEY;
 
   const root = mkdtempSync(join(tmpdir(), "pi-backend-brain-"));
   for (const [rel, content] of Object.entries(docs)) {
