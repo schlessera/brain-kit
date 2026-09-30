@@ -345,10 +345,11 @@ describe("add", () => {
 });
 
 describe("sync", () => {
-  // Bare `brain sync` runs the whole sync, prints its report as text, and
-  // hands the agent only what the rules left — here a file nothing could
-  // classify. A stub runner stands in so nothing real is launched.
-  test("prints the report, then the agent's text, never JSON", async () => {
+  // Bare `brain sync` runs the whole sync and hands the agent only what the
+  // rules left — here a file nothing could classify. Human mode prints the
+  // report, then the agent's text; machine mode one `{ run, agent }` result
+  // (#290). A stub runner stands in so nothing real is launched.
+  test("human mode: the report, then the agent's text; machine mode: one result", async () => {
     const brain = makeTempBrain({ empty: true });
     const remote = mkdtempSync(join(tmpdir(), "brain-contract-remote-"));
     const git = (...args: string[]) => {
@@ -380,14 +381,29 @@ export default defineConfig({
       git("push", "-q", "origin", "main");
       writeFileSync(join(brain, "survey.xyz"), "owl survey grid\n");
 
-      for (const flags of [[], ["--json"], ["--human"]]) {
-        // An output flag is not a verb: the same text, whatever mode it asks for.
+      // An output flag is not a verb: `--human` is the text…
+      const human = await runCli(brain, ["sync", "--human"]);
+      expect(human.code).toBe(0);
+      expect(human.stdout).toStartWith("brain sync: complete\n");
+      expect(human.stdout).toContain("  unknown: survey.xyz\n");
+      expect(human.stdout).toEndWith("\nstub agent ran /sync\n");
+      expect(() => JSON.parse(human.stdout)).toThrow();
+
+      // …and `--json`, or a stdout that is not a terminal, the one result.
+      for (const flags of [[], ["--json"]]) {
         const { stdout, code } = await runCli(brain, ["sync", ...flags]);
         expect(code).toBe(0);
-        expect(stdout).toStartWith("brain sync: complete\n");
-        expect(stdout).toContain("  unknown: survey.xyz\n");
-        expect(stdout).toEndWith("\nstub agent ran /sync\n");
-        expect(() => JSON.parse(stdout)).toThrow();
+        const body = JSON.parse(stdout);
+        expect(body.run.status).toBe("complete");
+        expect(body.run.report).toContain("  unknown: survey.xyz");
+        // The stub reports no runtime: invoked, and nothing claimed for it.
+        expect(body.agent).toEqual({
+          invoked: true,
+          runner: "stub",
+          outcome: "success",
+          runtime: null,
+          text: "stub agent ran /sync",
+        });
       }
 
       const unknown = await runCli(brain, ["sync", "--not-a-flag"]);
