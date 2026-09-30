@@ -636,7 +636,8 @@ browser enforcement. No session-wide browser override is provided.
 Sessions own a robots cache and limiter by default; optional `robots` and
 `rateLimiter` inputs share the run's objects. `ScrapeClient` exposes readonly
 `robots`, `rateLimiter` and `userAgent` for this purpose. `runAdapters` and
-the jobs runner share these objects between HTTP and browser activity.
+the jobs runner share these objects when constructing the browser. A supplied
+preconstructed BrowserSession retains the policy state chosen by its caller.
 `RateLimiter.acquire(host, delayMs?, signal?)` and an injected clock's
 `sleep(ms, signal?)` accept cancellation without granting a request or
 letting another waiter overtake a preceding acquisition.

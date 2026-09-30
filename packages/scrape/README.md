@@ -100,8 +100,10 @@ HTTP client's `respectRobots` option affect HTTP only.
 `BrowserSessionOptions.robots` and `.rateLimiter` accept the run's owned cache
 and limiter. Omitted, each session creates its own. `ScrapeClient` exposes its
 readonly `robots`, `rateLimiter` and `userAgent` so a preconstructed client can
-share them too. Both `runAdapters` and the jobs runner wire this sharing;
-custom browser options can supply their own objects deliberately.
+share them too. `runAdapters` shares them when it constructs the browser,
+as does the jobs runner. Custom browser options can supply their own objects
+deliberately; a supplied, preconstructed `BrowserSession` retains its own
+state, so its caller wires sharing when constructing it.
 
 ```ts
 import { ScrapeClient, createBrowserSession } from "@schlessera/brain-scrape";

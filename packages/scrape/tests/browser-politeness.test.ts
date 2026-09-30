@@ -39,7 +39,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
       if (parsed.pathname === "/navigate") return new Response('<script>setTimeout(() => location.assign("/denied"), 50)</script>start', { headers: { "content-type": "text/html" } });
       if (parsed.pathname === "/assets") return new Response('<script src="/denied-script"></script><iframe src="/denied-frame"></iframe><img src="/denied-image"><div id="ready">ready</div>', { headers: { "content-type": "text/html" } });
       if (parsed.pathname === "/denied-script") return new Response('fetch("/denied-api")', { headers: { "content-type": "application/javascript" } });
-      return new Response("fixture", { headers: { "content-type": "text/html" } });
+      return new Response("fixture", { headers: { "content-type": "text/html", ...(parsed.pathname === "/denied" ? { "cache-control": "max-age=3600" } : {}) } });
     }
     first = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: serve });
     second = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: serve });
@@ -93,6 +93,7 @@ describe.skipIf(!executablePath)("browser main-frame politeness (real Chrome, lo
     hits = [];
     const error = await s.load({ url: url("/denied"), extract: body }).catch((err) => err);
     expect(requested("/denied")).toHaveLength(0);
+    expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("robots.txt disallows");
   });
 
