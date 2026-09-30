@@ -39,10 +39,7 @@ import {
   type PricingRoute,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import {
-  resolveAmbientBillingMode,
-  resolveStandalonePricingConfig,
-} from "../config/env.js";
+import { resolveStandalonePricingConfig } from "../config/env.js";
 import { createModelPricing, type PricingRates } from "../pricing/model-pricing.js";
 import type { PrincipalKind } from "../db/principals.js";
 import { ACTIVITY_SQL } from "./sql.js";
@@ -517,29 +514,18 @@ export function createActivityStore(
         (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
 
-    // Billing rides the root span when the recorder knew it at run start
-    // (session runs, U3). A root without the attr classifies from THIS
-    // process's env ONLY for non-session origins: for cron rollups the
-    // executing process is the wrapper itself — exactly the credential set
-    // the job's agent authenticated under — so classification and reality
-    // move together. A SESSION root without the attr (a custom backend the
-    // registry could not classify, or a failed profile resolution) stays
-    // unknown instead: this process's ambient credentials say nothing about
-    // whichever backend ran the turn, and a wrong subscription-$0 would
-    // freeze forever where unknown stays honestly unpriced.
+    // Only a valid root-span attribute establishes this run's billing.
+    // Server credentials and runtime identity cannot prove what a child
+    // used. Missing/invalid evidence stays unknown for every run origin.
     const attrBilling = root.attrs["brain.billing_mode"];
-    const billingMode: BillingMode | null = isBillingMode(attrBilling)
-      ? attrBilling
-      : root.origin === "session"
-        ? null
-        : resolveAmbientBillingMode();
+    const billingMode: BillingMode | null = isBillingMode(attrBilling) ? attrBilling : null;
 
     // List-price math runs regardless of billing mode: it gap-fills a
     // missing backend cost_usd (pi without snapshots, cron) AND provides the
     // api-billed effective number. resolve() is synchronous by contract —
     // nothing here may await inside the write transaction.
     // The route the run's inference actually took, recorded on the root span
-    // at run start from its resolved profile. Unlike billing there is NO
+    // at run start from its resolved profile. As with billing there is NO
     // ambient fallback: this process's environment says nothing about which
     // endpoint some other backend's turn went out on, and a wrong route would
     // freeze the wrong catalog's rate into the rollup. Absent means pricing
@@ -558,8 +544,8 @@ export function createActivityStore(
     // missing. The estimate flag qualifies the effective number, so it is
     // NULL exactly when that is, and 0 for a subscription $0 (exact, not
     // estimated).
-    // An unclassified run (billingMode null — session root without the
-    // attr) prices as unknown: no subscription-zero, no api pricing.
+    // An unclassified run (missing/invalid billing attr) prices as unknown:
+    // no subscription-zero, no api pricing.
     const effectiveCostUsd =
       billingMode === null ? null : billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
     const pricingEstimate =

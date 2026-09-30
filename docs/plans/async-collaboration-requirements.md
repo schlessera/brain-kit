@@ -150,7 +150,7 @@ Stated before the requirements because five of them derive from it.
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
   (`packages/ui-server/migrations/007_activity.sql:58-66`,
-  `packages/ui-server/src/activity/store.ts:324-338`), and deriving scope through a join on a
+  `packages/ui-server/src/activity/store.ts:321-335`), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
   per-thread order.
 - R2. What is reused from activity is the **cursor algorithm and the snapshot-then-delta
@@ -342,7 +342,7 @@ Stated before the requirements because five of them derive from it.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
   `rollupRun` runs in `finish()` (`activity/recorder.ts:270-290`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
-  costs are excluded from the sum (`activity/store.ts:153-168`) so the query **fails open**.
+  costs are excluded from the sum (`activity/store.ts:150-165`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
   rollup, and a defined rule for unknown cost (blocks, or consumes a conservative reserve).
 - R42. **Two budgets: non-subscription effective spend (default $5/day) and autonomous turns

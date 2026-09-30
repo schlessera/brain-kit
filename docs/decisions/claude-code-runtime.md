@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:359-364`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:809`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:357-362`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:792`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:428`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:238-241`)
@@ -449,17 +449,18 @@ into them.
   whole (`sdkOptions.env = childEnv`, `sdk-options.ts:168`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:108-114`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:115-117`).
-- **Billing is classified, not observed.** An ambient profile is `subscription`
-  only when the OAuth token is set and `ANTHROPIC_API_KEY` is not
-  (`resolveAmbientBillingMode`, `packages/ui-server/src/config/env.ts:728-732`, applied at
-  `const ambientBilling`, `packages/ui-backend-claude/src/module.ts:226-234`; the rule is
-  `Billing mode decision`, `cost-tracking.md:93`). Nothing reads what the CLI actually used.
-  Since then #253 made turns clear the API key, so the backend stopped consulting
-  the classification, and #289 removed the server's unread `ambientBilling`
-  config field. The function's one remaining reader is the activity store's
-  rollup for a non-session run with no recorded billing mode
-  (`: resolveAmbientBillingMode();`, `packages/ui-server/src/activity/store.ts:535`).
-  That rule is stale for Claude runs, and what replaces it is #293.
+- **Billing originally relied on ambient credential classification.** The
+  server assumed API credentials won over OAuth. #253 made credential-free
+  turns clear the API key and enforce subscription auth, so the backend
+  stopped consulting that classification; #289 removed the server's unread
+  `ambientBilling` config field. #293 removes the last environment fallback
+  from non-session rollups and deletes its resolver. Missing/invalid recorded
+  billing now stays unknown for every origin; server credentials and an
+  observed runtime version cannot establish a child's billing. The recorded
+  root-span attribute is the source of truth
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:520-521`);
+  [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
+  records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the
   Agent SDK" (`name: "ANTHROPIC_API_KEY"`, `packages/ui-backend-claude/src/config/env.ts:84-88`,
   `function authHeaders`, `packages/ui-backend-claude/src/model-discovery.ts:86-104`). A 401 there

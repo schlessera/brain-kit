@@ -884,6 +884,16 @@ out-of-pocket cost ($0 for subscription-billed runs); `null` means unknown,
 never zero — aggregate scopes sum only known values and carry the excluded
 count as `unpricedRuns`.
 
+New billing computations use only a valid `brain.billing_mode`
+(`subscription` | `api`) recorded on the run's root span. Missing or invalid
+billing stays unknown for every origin, including cron: `billingMode`,
+`effectiveCostUsd` and `pricingEstimate` are `null`, regardless of server
+credentials or runtime identity. Available backend-reported or computed
+list-price `costUsd` is retained. Non-null historical costs and billing remain
+frozen at their first write; later valid evidence may fill unknown slots only
+when it agrees with an already frozen classification. Re-rollups do not
+reclassify previously recorded history from today's environment (#293).
+
 ## ui-server HTTP routes
 
 ### Corpus stats history (`GET /api/brain/stats/history`, additive in 0.40.0)

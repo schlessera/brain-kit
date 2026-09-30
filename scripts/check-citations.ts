@@ -502,8 +502,6 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the module-level registration latch this audit found was since removed",
   "docs/decisions/design-kit.md|packages/ui-backend-claude/src/ask-user-tool.ts:107":
     "records the call as it was before D44; it now passes alwaysLoad",
-  "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/module.ts:226-234":
-    "the ambient-credential billing classification, replaced by #253: a credential-free profile is always subscription",
   "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/model-discovery.ts:86-104":
     "model discovery preferring the API key; #253 made it prefer the subscription token",
   "docs/decisions/claude-code-runtime.md|packages/core/src/providers/agents/cli-runners.ts:37-43":

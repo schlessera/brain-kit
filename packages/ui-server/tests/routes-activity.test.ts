@@ -350,6 +350,50 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
     db.close();
   });
 
+  test("unknown cron billing retains list cost and counts as unpriced through REST and query_activity", async () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db, { pricing: rates });
+    try {
+      store.startSpan({ spanId: "cron-root", runId: "cron-unknown", name: "cron sync", kind: "cron", origin: "cron", jobName: "sync" });
+      store.startSpan({ spanId: "cron-child", runId: "cron-unknown", parentSpanId: "cron-root", name: "invoke_agent", kind: "turn", origin: "cron" });
+      store.endSpan("cron-child", { outcome: "success", usage: { model: "claude-sonnet-4-6", inputTokens: 100_000 } });
+      store.endSpan("cron-root", { outcome: "success" });
+      store.rollupRun("cron-unknown");
+      expect(store.getSpan("cron-child")!.usage.inputTokens).toBe(100_000);
+
+      const app = createActivityRoutes({ db, store });
+      const detail = await (await request(app, "/activity/runs/cron-unknown")).json();
+      expect("billingMode" in detail.rollup).toBe(false);
+      expect(detail.rollup.effectiveCostUsd).toBeNull();
+      expect("pricingEstimate" in detail.rollup).toBe(false);
+      expect(detail.rollup.costUsd).toBeCloseTo(0.3, 10);
+
+      const aggregate = await (await request(app, "/activity/rollups?days=7")).json();
+      for (const group of [aggregate.days[0], aggregate.jobs[0]]) {
+        expect(group.runs).toBe(1);
+        expect(group.costUsd).toBeCloseTo(0.3, 10);
+        expect(group.effectiveCostUsd).toBe(0); // sum of knowns is empty
+        expect(group.unpricedRuns).toBe(1); // the run is unknown, never free
+      }
+      const run = runActivityQuery(db, store, { scope: "run", runId: "cron-unknown" }) as any;
+      expect(run.billingMode).toBeNull();
+      expect(run.effectiveCostUsd).toBeNull();
+      expect(run.pricingEstimate).toBeNull();
+      expect(run.costUsd).toBeCloseTo(0.3, 10);
+      const recent = runActivityQuery(db, store, { scope: "recent" }) as any;
+      expect(recent.finished).toHaveLength(1);
+      expect(recent.finished[0].billingMode).toBeNull();
+      expect(recent.finished[0].effectiveCostUsd).toBeNull();
+      const summary = runActivityQuery(db, store, { scope: "rollups" }) as any;
+      expect(summary.runs).toBe(1);
+      expect(summary.costUsd).toBeCloseTo(0.3, 10);
+      expect(summary.effectiveCostUsd).toBe(0);
+      expect(summary.unpricedRuns).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
   test("a window entirely pre-feature (all NULL) sums to 0 with unpricedRuns = run count", async () => {
     const { db, store } = seededPriced();
     // Pre-feature rows: migration 010 backfills nothing, so simulate by

@@ -437,7 +437,8 @@ describe("activity store: effective cost (migration 010)", () => {
     store: ActivityStore,
     runId: string,
     opts: {
-      billing?: "subscription" | "api";
+      billing?: unknown;
+      runtime?: string;
       perModel?: PerModel;
       costUsd?: number;
       /** Verbatim `brain.pricing_route` attr — a bad value is a real case. */
@@ -452,9 +453,10 @@ describe("activity store: effective cost (migration 010)", () => {
       origin: "session",
       sessionId: "sess-1",
       attrs: {
-        ...(opts.billing
+        ...(opts.billing !== undefined
           ? { "brain.billing_mode": opts.billing, "brain.profile_id": "default" }
           : {}),
+        ...(opts.runtime ? { "brain.runtime.name": opts.runtime } : {}),
         ...(opts.route !== undefined ? { "brain.pricing_route": opts.route } : {}),
       },
     });
@@ -837,28 +839,22 @@ describe("activity store: effective cost (migration 010)", () => {
     expect(r.billing_mode).toBe("api");
   });
 
-  test("a NULL effective slot is never filled under a flipped classification", () => {
-    // First rollup: api credentials, unpriceable child → effective NULL
-    // frozen under billing "api".
+  test("a NULL effective slot is never filled under a flipped recorded classification", () => {
     const { db, store } = pricedStore({});
-    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: "key" }, () => {
-      cronRun(store, "cron-1", [{ model: "mystery", inputTokens: 500 }]);
-    });
-    let r = rollupOf(db, "cron-1");
-    expect(r.billing_mode).toBe("api");
-    expect(r.effective_cost_usd).toBeNull();
-
-    // The credential set flips to subscription before a sweep-style
-    // re-rollup: the $0 computed under "subscription" must NOT land on the
-    // api-classified row (a cross-classified price), and the frozen
-    // classification must not change either.
-    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: undefined }, () => {
+    try {
+      store.startSpan({ spanId: "cron-1-root", runId: "cron-1", name: "cron sync", kind: "cron", origin: "cron", attrs: { "brain.billing_mode": "api" } });
       store.rollupRun("cron-1");
-    });
-    r = rollupOf(db, "cron-1");
-    expect(r.billing_mode).toBe("api");
-    expect(r.effective_cost_usd).toBeNull();
-    expect(r.pricing_estimate).toBeNull();
+      const first = rollupOf(db, "cron-1");
+      expect(first.billing_mode).toBe("api");
+      expect(first.effective_cost_usd).toBeNull();
+      // New valid evidence contradicts the frozen classification. It cannot
+      // fill an API row's unknown effective cost with a subscription zero.
+      expect(store.patchSpan("cron-1-root", { attrs: { "brain.billing_mode": "subscription" } })).toBe(true);
+      store.rollupRun("cron-1");
+      expect(rollupOf(db, "cron-1")).toEqual(first);
+    } finally {
+      db.close();
+    }
   });
 
   test("a non-finite priced sum rolls up NULL — Infinity can never freeze", () => {
@@ -933,7 +929,8 @@ describe("activity store: effective cost (migration 010)", () => {
   function cronRun(
     store: ActivityStore,
     runId: string,
-    children: Array<{ model?: string; inputTokens?: number; outputTokens?: number }>
+    children: Array<{ model?: string; inputTokens?: number; outputTokens?: number }>,
+    opts: { billing?: unknown; runtime?: string; costUsd?: number } = {}
   ) {
     store.startSpan({
       spanId: `${runId}-root`,
@@ -942,6 +939,10 @@ describe("activity store: effective cost (migration 010)", () => {
       kind: "cron",
       origin: "cron",
       jobName: "sync",
+      attrs: {
+        ...(opts.billing !== undefined ? { "brain.billing_mode": opts.billing } : {}),
+        ...(opts.runtime ? { "brain.runtime.name": opts.runtime } : {}),
+      },
     });
     children.forEach((child, i) => {
       const spanId = `${runId}-child-${i}`;
@@ -962,34 +963,150 @@ describe("activity store: effective cost (migration 010)", () => {
           : {}),
       });
     });
-    store.endSpan(`${runId}-root`, { outcome: "success" });
+    store.endSpan(`${runId}-root`, {
+      outcome: "success",
+      ...(opts.costUsd !== undefined ? { usage: { costUsd: opts.costUsd } } : {}),
+    });
     store.rollupRun(runId);
   }
 
-  test("cron runs classify from the executing process env and price summed children", () => {
-    const { db, store } = pricedStore({ m: { input: 1e-6, output: 2e-6 } });
+  const credentialCases = [
+    { label: "OAuth only", oauth: "fixture-oauth", key: undefined },
+    { label: "API key only", oauth: undefined, key: "fixture-key" },
+    { label: "both credentials", oauth: "fixture-oauth", key: "fixture-key" },
+    { label: "neither credential", oauth: undefined, key: undefined },
+  ];
 
-    // Subscription credentials in THIS process (the wrapper's own env for
-    // real cron rollups): free regardless of tokens.
-    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: undefined }, () => {
-      cronRun(store, "cron-sub", [{ model: "m", inputTokens: 1_000 }]);
-    });
-    const sub = rollupOf(db, "cron-sub");
-    expect(sub.billing_mode).toBe("subscription");
-    expect(sub.effective_cost_usd).toBe(0);
+  for (const credentials of credentialCases) {
+    for (const origin of ["cron", "session"] as const) {
+      for (const billing of [undefined, "unsupported-billing"] as const) {
+        test(`${origin} missing/invalid recorded billing stays unknown with ${credentials.label} (${billing ?? "missing"})`, () => {
+          const { db, store } = pricedStore({ m: { input: 1e-6, output: 2e-6 } });
+          try {
+            withEnv({ CLAUDE_CODE_OAUTH_TOKEN: credentials.oauth, ANTHROPIC_API_KEY: credentials.key }, () => {
+              for (const runtime of ["claude", "pi", "other-runner"]) {
+                const runId = `${origin}-${runtime}`;
+                if (origin === "cron") {
+                  cronRun(store, runId, [
+                    { model: "m", inputTokens: 1_000, outputTokens: 100 },
+                    { model: "m", inputTokens: 2_000 },
+                  ], { billing, runtime });
+                } else {
+                  sessionRun(store, runId, {
+                    billing, runtime, perModel: { m: { inputTokens: 3_000, outputTokens: 100 } },
+                  });
+                }
+                const r = rollupOf(db, runId);
+                // Assert the classification first: the old fallback fails here,
+                // rather than letting a different pricing error mask it.
+                expect(r.billing_mode).toBeNull();
+                expect(r.effective_cost_usd).toBeNull();
+                expect(r.pricing_estimate).toBeNull();
+                expect(r.cost_usd).toBeCloseTo(0.0032, 12);
+                const snapshot = store.snapshotRun(runId)!;
+                const tokenSpans = snapshot.spans.filter(span => (span.usage.inputTokens ?? 0) > 0);
+                if (origin === "cron") expect(tokenSpans).toHaveLength(2);
+                else expect(snapshot.spans[0]!.attrs["gen_ai.usage.per_model"]).toEqual({ m: { inputTokens: 3_000, outputTokens: 100 } });
 
-    // API key wins over the OAuth token (the Agent SDK's own precedence):
-    // children priced, grouped by model and summed.
-    withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "tok", ANTHROPIC_API_KEY: "key" }, () => {
-      cronRun(store, "cron-api", [
-        { model: "m", inputTokens: 1_000, outputTokens: 100 },
-        { model: "m", inputTokens: 2_000 },
-      ]);
+                // Changing server credentials before a later sweep proves no
+                // classification can be invented after the initial rollup.
+                withEnv({ CLAUDE_CODE_OAUTH_TOKEN: "different-oauth", ANTHROPIC_API_KEY: undefined }, () => store.rollupRun(runId));
+                expect(rollupOf(db, runId)).toEqual(r);
+              }
+            });
+          } finally {
+            db.close();
+          }
+        });
+      }
+    }
+
+    test(`explicit cron/session billing preserves subscription zero and API pricing with ${credentials.label}`, () => {
+      const { db, store } = pricedStore({ m: { input: 1e-6, output: 2e-6, estimate: true } });
+      try {
+        withEnv({ CLAUDE_CODE_OAUTH_TOKEN: credentials.oauth, ANTHROPIC_API_KEY: credentials.key }, () => {
+          for (const billing of ["subscription", "api"] as const) {
+            cronRun(store, billing, [
+              { model: "m", inputTokens: 1_000, outputTokens: 100 },
+              { model: "m", inputTokens: 2_000 },
+            ], { billing });
+            const r = rollupOf(db, billing);
+            expect(r.billing_mode).toBe(billing);
+            expect(r.effective_cost_usd).toBeCloseTo(billing === "api" ? 0.0032 : 0, 12);
+            expect(r.pricing_estimate).toBe(billing === "api" ? 1 : 0);
+            expect(r.cost_usd).toBeCloseTo(0.0032, 12);
+            expect(store.snapshotRun(billing)!.spans.filter(span => (span.usage.inputTokens ?? 0) > 0)).toHaveLength(2);
+            sessionRun(store, `session-${billing}`, { billing, perModel: { m: { inputTokens: 3_000, outputTokens: 100 } } });
+            const session = rollupOf(db, `session-${billing}`);
+            expect(session.billing_mode).toBe(billing);
+            expect(session.effective_cost_usd).toBeCloseTo(billing === "api" ? 0.0032 : 0, 12);
+            expect(session.pricing_estimate).toBe(billing === "api" ? 1 : 0);
+          }
+        });
+      } finally {
+        db.close();
+      }
     });
-    const api = rollupOf(db, "cron-api");
-    expect(api.billing_mode).toBe("api");
-    expect(api.effective_cost_usd).toBeCloseTo(3_000 * 1e-6 + 100 * 2e-6, 12);
-    expect(api.cost_usd).toBeCloseTo(3_000 * 1e-6 + 100 * 2e-6, 12); // gap-filled
+  }
+
+  test("unknown cron billing preserves backend-reported list cost", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6 } });
+    try {
+      cronRun(store, "backend-list", [{ model: "m", inputTokens: 1_000 }], { costUsd: 1.23 });
+      const r = rollupOf(db, "backend-list");
+      expect(r.billing_mode).toBeNull();
+      expect(r.effective_cost_usd).toBeNull();
+      expect(r.pricing_estimate).toBeNull();
+      expect(r.cost_usd).toBe(1.23);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("legacy non-null cron billing and cost stay frozen without recorded billing", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6 } });
+    try {
+      for (const billing of ["subscription", "api"] as const) {
+        cronRun(store, billing, [{ model: "m", inputTokens: 1_000 }]);
+        // Seed the rollup that the pre-fix ambient fallback would have left.
+        db.query("UPDATE activity_run_rollups SET billing_mode = ?, effective_cost_usd = ?, pricing_estimate = ? WHERE run_id = ?")
+          .run(billing, billing === "api" ? 0.25 : 0, billing === "api" ? 1 : 0, billing);
+        const frozen = rollupOf(db, billing);
+        for (const credentials of credentialCases) {
+          withEnv({ CLAUDE_CODE_OAUTH_TOKEN: credentials.oauth, ANTHROPIC_API_KEY: credentials.key }, () => store.rollupRun(billing));
+          expect(rollupOf(db, billing)).toEqual(frozen);
+        }
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("unknown cron slots accept later recorded billing while list cost stays frozen", () => {
+    const { db, store } = pricedStore({ m: { input: 1e-6, estimate: true } });
+    try {
+      for (const billing of ["subscription", "api"] as const) {
+        store.startSpan({ spanId: `${billing}-root`, runId: billing, name: "cron sync", kind: "cron", origin: "cron" });
+        store.startSpan({ spanId: `${billing}-child`, runId: billing, parentSpanId: `${billing}-root`, name: "invoke_agent", kind: "turn", origin: "cron" });
+        store.endSpan(`${billing}-child`, { outcome: "success", usage: { model: "m", inputTokens: 1_000 } });
+        store.rollupRun(billing);
+        const unknown = rollupOf(db, billing);
+        expect(unknown.billing_mode).toBeNull();
+        expect(unknown.effective_cost_usd).toBeNull();
+        expect(unknown.pricing_estimate).toBeNull();
+        expect(unknown.cost_usd).toBeCloseTo(0.001, 12);
+        expect(store.patchSpan(`${billing}-root`, { attrs: { "brain.billing_mode": billing } })).toBe(true);
+        store.endSpan(`${billing}-root`, { outcome: "success" });
+        store.rollupRun(billing);
+        const filled = rollupOf(db, billing);
+        expect(filled.billing_mode).toBe(billing);
+        expect(filled.effective_cost_usd).toBeCloseTo(billing === "api" ? 0.001 : 0, 12);
+        expect(filled.pricing_estimate).toBe(billing === "api" ? 1 : 0);
+        expect(filled.cost_usd).toBe(unknown.cost_usd);
+      }
+    } finally {
+      db.close();
+    }
   });
 
   test("a cron run with an unpriceable child rolls up NULL (whole-run unknown)", () => {
@@ -999,11 +1116,11 @@ describe("activity store: effective cost (migration 010)", () => {
       cronRun(store, "cron-mixed", [
         { model: "m", inputTokens: 1_000 },
         { model: "mystery", inputTokens: 500 },
-      ]);
+      ], { billing: "api" });
       // Tokens with no model at all are equally unpriceable.
-      cronRun(store, "cron-modelless", [{ inputTokens: 500 }]);
+      cronRun(store, "cron-modelless", [{ inputTokens: 500 }], { billing: "api" });
       // No child usage anywhere: unknown, not free.
-      cronRun(store, "cron-silent", [{}]);
+      cronRun(store, "cron-silent", [{}], { billing: "api" });
     });
     for (const runId of ["cron-mixed", "cron-modelless", "cron-silent"]) {
       const r = rollupOf(db, runId);
@@ -1039,9 +1156,8 @@ describe("activity store: effective cost (migration 010)", () => {
   });
 
   test("a session root without a billing attr stays UNKNOWN — never env-classified", () => {
-    // The ambient fallback is cron-only: this process's credentials say
-    // nothing about whichever custom backend ran a session turn, and a wrong
-    // subscription-$0 would freeze forever where unknown stays honest.
+    // Server credentials cannot establish the billing of a session or cron
+    // run. Unknown remains honest instead of freezing a guessed price.
     const db = createUiDb(":memory:");
     const store = createActivityStore(db, {
       pricing: {

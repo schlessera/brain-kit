@@ -127,7 +127,7 @@ Unit numbers are stable identifiers, not build order. Build order:
 ### Relevant Code and Patterns
 
 - **Change-cursor + snapshot-then-delta**: `packages/ui-server/migrations/007_activity.sql:58-66`,
-  `packages/ui-server/src/activity/store.ts:324-338`. The algorithm is the reusable part; the
+  `packages/ui-server/src/activity/store.ts:321-335`. The algorithm is the reusable part; the
   scope column lives on the change row deliberately.
 - **Stream module is NOT reusable as-is**: `packages/ui-server/src/activity/stream.ts:156-310`
   binds to activity-specific store methods and frame types.
@@ -148,7 +148,7 @@ Unit numbers are stable identifiers, not build order. Build order:
 - **Environment merging**: `ui-backend-claude/src/config/env.ts:79-91, 119-125` — profile
   overrides merge the full host environment.
 - **Rollup timing**: `activity/recorder.ts:270-290` (`rollupRun` inside `finish()`);
-  unpriced runs excluded from sums at `activity/store.ts:153-168`.
+  unpriced runs excluded from sums at `activity/store.ts:150-165`.
 - **Notification intents**: `migrations/007_activity.sql:95-114` (kind CHECK, `run_id`
   required), `activity/notify.ts:90-126` (drop-later-same-tag, no count),
   `activity/push-sender.ts:122-145` (one push per pending row).
@@ -686,7 +686,7 @@ recovered tick after killing the interval
 - Two counters: non-subscription effective spend (default $5/day) and autonomous turns/day,
   both against the configured local-day boundary
 - Query filters autonomous origins and preserves `unpricedRuns` rather than dropping them —
-  the fail-open shape at `activity/store.ts:153-168` is the bug being avoided
+  the fail-open shape at `activity/store.ts:150-165` is the bug being avoided
 - **Unknown cost settles at a pessimistic rate, and files an Action.** A run whose effective
   cost resolves NULL is charged a configured worst-case rate against the counter, so the
   budget errs toward stopping early rather than overspending. It simultaneously raises an
@@ -700,7 +700,7 @@ recovered tick after killing the interval
 - Every model-bearing operation reserves, including T1 batches (R40)
 
 **Patterns to follow:** the frozen-at-first-computation discipline of effective cost
-(`activity/store.ts:446-570`); env descriptor array for the new configuration values
+(`activity/store.ts:443-556`); env descriptor array for the new configuration values
 
 **Test scenarios:**
 - Covers AE11: two claims that would each fit but jointly exceed the cap — the second is
