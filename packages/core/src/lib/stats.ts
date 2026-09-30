@@ -134,15 +134,13 @@ function tableCounts(db: Database): Record<string, number> {
  * sidecars is the index, which is disposable and counted separately.
  *
  * Excluded directories are pruned BEFORE descending rather than filtered
- * afterwards. Testing `dir + "/"` gives `isExcludedPath` the same answer it
- * would give for every file inside, because its `dirs` and `segments` rules
- * both match on that trailing slash — and that holds only because
- * `buildTaxonomy` normalises every `exclude.dirs` entry to `drafts`, never
- * `drafts/` or `./drafts`. Before it did, `dirs: ["drafts/"]` pruned here
- * (`"drafts/" === dir`) while every file inside passed the per-file test, and
- * this figure left out files the index held (#139). A `files` entry is an
- * exact file path and is not normalised; one written with a trailing slash
- * would split the two the same way. Pruning does two things a post-filter
+ * afterwards. `isExcludedDirectory` applies only `dirs` and `segments`, with
+ * a trailing slash so root and nested directory segments both match. Exact
+ * `files` entries never prune a directory, even when a programmatic caller
+ * bypasses config validation (#224). `buildTaxonomy` normalises every
+ * `exclude.dirs` entry to `drafts`, never `drafts/` or `./drafts`, so the
+ * directory walk and the indexer's per-file checks agree (#139).
+ * Pruning does two things a post-filter
  * cannot: `node_modules` is never walked, and a `workspaces/` the user cannot
  * read cannot raise EACCES from inside a directory nobody asked about.
  *
@@ -186,7 +184,7 @@ function corpusSize(
       if (entry.isSymbolicLink()) continue;
 
       if (entry.isDirectory()) {
-        if (taxonomy.isExcludedPath(`${path}/`)) continue;
+        if (taxonomy.isExcludedDirectory(path)) continue;
         if (!walk(path)) complete = false;
         continue;
       }

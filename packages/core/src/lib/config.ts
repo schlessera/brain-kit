@@ -241,7 +241,9 @@ export type TaxonomyConfig = z.infer<typeof taxonomyConfigSchema>;
 const excludeConfigSchema = z
   .object({
     dirs: z.array(z.string()).optional(),
-    files: z.array(z.string()).optional(),
+    files: z.array(z.string().refine((path) => !path.endsWith("/"), {
+      error: (issue) => `exact file exclusion ${JSON.stringify(issue.input)} must not end in /; use exclude.dirs for a directory`,
+    })).optional(),
     segments: z.array(z.string()).optional(),
   })
   .strict();
