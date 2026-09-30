@@ -36,6 +36,9 @@
  *   bun scripts/measure-show-block.ts --always-load   # tools in the prompt
  *   bun scripts/measure-show-block.ts --tokens        # the schema arithmetic
  *   bun scripts/measure-show-block.ts --both-arms     # loaded AND deferred, one run
+ *   bun scripts/measure-show-block.ts --suggestions --reps 3 --out suggestions.json --md suggestions.md
+ *   bun scripts/measure-show-block.ts --suggestions --schema-cost # keyless estimates
+ *   bun scripts/measure-show-block.ts --suggestions --tokens      # counted API cost
  *   bun scripts/measure-show-block.ts --schema-forms  # #336: the schema written three ways
  *
  * `--both-arms` re-checks D44's CLI half on whatever runtime is installed
@@ -113,6 +116,12 @@ import {
   type LiveCredential,
   type SchemaArm,
 } from "./show-block-schema-forms.ts";
+import {
+  SUGGESTION_ARMS, SUGGESTION_PROMPTS, observeSuggestions, suggestionDescription,
+  suggestionReport, suggestionSchemaCost, type SuggestionArm, type SuggestionTurn,
+} from "./measure-suggestions.ts";
+import { listedTool } from "./show-block-schema-forms.ts";
+import type { JsonObject } from "./attribute-show-block-schema.ts";
 import { kvRunColumns, kvRunRows, type KvRunColumns } from "./measure-kv-runs.ts";
 
 /**
@@ -264,12 +273,13 @@ const PROMPTS: readonly {
   },
 ];
 
-type ArmName = "brief" | "no-brief" | SchemaArm;
+type ArmName = "brief" | "no-brief" | SchemaArm | SuggestionArm;
+const SUGGESTIONS = process.argv.includes("--suggestions");
 
 /** `--schema-forms` (#336): the arms are schema forms, not brief/no-brief. */
 const SCHEMA_FORMS = process.argv.includes("--schema-forms");
 
-const ARMS: readonly ArmName[] = SCHEMA_FORMS ? SCHEMA_ARM_NAMES : ["brief", "no-brief"];
+const ARMS: readonly ArmName[] = SUGGESTIONS ? SUGGESTION_ARMS : SCHEMA_FORMS ? SCHEMA_ARM_NAMES : ["brief", "no-brief"];
 
 function isSchemaArm(arm: ArmName): arm is SchemaArm {
   return arm in SCHEMA_ARMS;
@@ -345,6 +355,7 @@ interface TurnResult {
   /** The credential the CLI said it used, as its `init` reported it. */
   apiKeySource?: string;
   error?: string;
+  suggestionTurn?: SuggestionTurn;
 }
 
 /**
@@ -365,7 +376,14 @@ interface TurnResult {
  * than silently measuring something else under the same command. Pass
  * `--always-load` for the configuration that ships today.
  */
-const ALWAYS_LOAD = process.argv.includes("--always-load") || SCHEMA_FORMS;
+const ALWAYS_LOAD = process.argv.includes("--always-load") || SCHEMA_FORMS || SUGGESTIONS;
+
+function measurementTool(arm: ArmName) {
+  if (isSchemaArm(arm)) return showBlockToolIn(arm);
+  const tool = createShowBlockTool();
+  if (arm === "rule" || arm === "no-rule") tool.description = suggestionDescription(arm);
+  return tool;
+}
 
 function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: boolean): Options {
   return {
@@ -430,7 +448,7 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
       "brain-ui": createSdkMcpServer({
         name: "brain-ui",
         version: "0.1.0",
-        tools: [isSchemaArm(arm) ? showBlockToolIn(arm) : createShowBlockTool()],
+        tools: [measurementTool(arm)],
         ...(alwaysLoad ? { alwaysLoad: true } : {}),
       }),
     },
@@ -468,6 +486,8 @@ async function runTurn(
   const deadline = setTimeout(() => abortController.abort(), TURN_BUDGET_MS);
   const kinds: string[] = [];
   const otherTools = new Set<string>();
+  const suggestions: SuggestionTurn["suggestions"] = [];
+  let succeeded = false;
   let rejectedCalls = 0;
   // One entry per contiguous assistant text run, which is how `ui-server`'s
   // collector numbers parts — joining them first would let two structures on
@@ -512,11 +532,16 @@ async function runTurn(
             continue;
           }
           const parsed = inputSchema.safeParse(part.input);
-          if (parsed.success) kinds.push(parsed.data.block.kind);
+          if (parsed.success) {
+            kinds.push(parsed.data.block.kind);
+            const observation = observeSuggestions(part.input, prompt.text);
+            if (observation) suggestions.push(observation);
+          }
           else rejectedCalls += 1;
         }
       }
       if (message.type === "result") {
+        succeeded = message.subtype === "success";
         costUsd = message.total_cost_usd;
         // `usage` is the main agent loop only — subagent and auxiliary calls
         // are excluded — which is the right scope here: the bridge server's
@@ -567,6 +592,11 @@ async function runTurn(
     ...(claudeCode ? { claudeCode } : {}),
     ...(apiKeySource ? { apiKeySource } : {}),
     ...(error ? { error } : {}),
+    ...(arm === "rule" || arm === "no-rule" ? { suggestionTurn: {
+      arm, prompt: prompt.text,
+      group: SUGGESTION_PROMPTS.find((entry) => entry.id === prompt.id)!.group,
+      answerParts: textParts, suggestions, completed: succeeded && !error,
+    } } : {}),
   };
 }
 
@@ -1019,6 +1049,13 @@ function report(
 }
 
 async function main(): Promise<void> {
+  if (SUGGESTIONS && (SCHEMA_FORMS || process.argv.includes("--both-arms"))) {
+    throw new Error("--suggestions holds the schema, brief and loaded configuration fixed; omit --schema-forms/--both-arms.");
+  }
+  if (SUGGESTIONS && process.argv.includes("--schema-cost")) {
+    console.log(JSON.stringify(suggestionSchemaCost((await listedTool(createShowBlockTool())).inputSchema as JsonObject), null, 2));
+    return;
+  }
   const credential = liveCredential();
   if (!credential) {
     console.error(
@@ -1029,6 +1066,24 @@ async function main(): Promise<void> {
   if (SCHEMA_FORMS && process.argv.includes("--both-arms")) {
     console.error(`${basename(import.meta.path)}: --schema-forms runs the loaded configuration only; drop --both-arms.`);
     process.exit(1);
+  }
+  if (SUGGESTIONS && process.argv.includes("--tokens")) {
+    const tool = await listedTool(createShowBlockTool());
+    const withVariant = tool.inputSchema as JsonObject;
+    const withoutVariant = structuredClone(withVariant);
+    const block = (withoutVariant.properties as JsonObject).block as JsonObject;
+    block.oneOf = (block.oneOf as JsonObject[]).filter((variant) =>
+      ((variant.properties as JsonObject).kind as JsonObject).const !== "suggestions");
+    const count = (description: string, input_schema: JsonObject) => countTokens(credential, {
+      tools: [{ name: BLOCK_TOOL, description, input_schema }],
+    });
+    const full = await count(suggestionDescription("rule"), withVariant);
+    const noRule = await count(suggestionDescription("no-rule"), withVariant);
+    const noVariant = await count(suggestionDescription("no-rule"), withoutVariant);
+    console.log(JSON.stringify({ model: MODEL, credential: credential.source,
+      descriptionTokensPerRoundTrip: full - noRule, variantTokensPerRoundTrip: noRule - noVariant,
+      ...suggestionSchemaCost(withVariant) }, null, 2));
+    return;
   }
   // `--tokens` answers #148's arithmetic half. It runs no live turn, so it
   // costs a handful of `count_tokens` calls rather than dollars.
@@ -1076,7 +1131,13 @@ async function main(): Promise<void> {
   const only = arg("only", "");
   const out = arg("out", "");
   const md = arg("md", "");
-  const prompts = only ? PROMPTS.filter((p) => only.split(",").includes(p.id)) : PROMPTS;
+  const promptSet = SUGGESTIONS ? SUGGESTION_PROMPTS.map((prompt) => ({
+    id: prompt.id, invites: "suggestions", classifiable: false, text: prompt.text,
+  })) : PROMPTS;
+  const prompts = only ? promptSet.filter((p) => only.split(",").includes(p.id)) : promptSet;
+  if (!prompts.length || !Number.isInteger(reps) || reps < 1 || !Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error("Select at least one prompt and positive integer --reps/--concurrency.");
+  }
 
   // Listing every form before any turn also runs the flat arm's drift check,
   // so a baseline that no longer matches production refuses to start.
@@ -1112,6 +1173,15 @@ async function main(): Promise<void> {
   });
 
   if (out) await Bun.write(out, JSON.stringify(runs, null, 2));
+  if (SUGGESTIONS) {
+    const sdk = JSON.parse(readFileSync(join(dirname(SDK_ENTRY), "package.json"), "utf8")).version;
+    const text = `Bun ${Bun.version}; Claude Agent SDK ${sdk}; model ${MODEL}; credential ${credential.source}\n` +
+      `Claude Code versions: ${[...new Set(runs.map((run) => run.claudeCode ?? "not reported"))].join(", ")}\n\n` +
+      suggestionReport(runs.map((run) => run.suggestionTurn!));
+    if (md) await Bun.write(md, text);
+    console.log(text);
+    return;
+  }
   const cost = await briefCost(credential).catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err);
     return null;

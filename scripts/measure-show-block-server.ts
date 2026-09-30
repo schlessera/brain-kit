@@ -18,6 +18,7 @@
 //
 //   bun scripts/measure-show-block-server.ts --brain <dir> --out runs.json \
 //     [--backend pi|claude] [--model claude-sonnet-5] [--prompts 0,1,2,3] [--runs 6]
+//   bun scripts/measure-show-block-server.ts --suggestions --brain <dir> --backend pi --runs 3 --out suggestions.json
 //   bun scripts/measure-show-block-server.ts --report runs.json [more.json …]
 //
 // Point `--brain` at a copy of a brain OUTSIDE any checkout of this repo.
@@ -41,7 +42,11 @@
 // disabled and `--report` prints only the deterministic candidate yield,
 // which is the half that depends on the backend.
 
-import { posix, resolve } from "node:path";
+import { posix, resolve, join, dirname } from "node:path";
+
+import type { Database } from "bun:sqlite";
+import { readFileSync } from "node:fs";
+import { SUGGESTION_ARMS, SUGGESTION_PROMPTS, observeSuggestions, suggestionReport, type SuggestionTurn, type SuggestionArm } from "./measure-suggestions.ts";
 
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -149,6 +154,8 @@ interface RunRecord {
   escapedBrain: boolean;
   /** The turn reached a successful `result`. Others are excluded from rates. */
   completed: boolean;
+  suggestionTurn?: SuggestionTurn;
+  observedVersions?: Record<string, string>;
 }
 
 /**
@@ -310,6 +317,7 @@ interface RunFile {
   /** Set on runs recorded after 2026-09-22; absent on older files. */
   environment?: Record<string, boolean>;
   records: RunRecord[];
+  versions?: Record<string, string>;
 }
 
 function flag(name: string): string | undefined {
@@ -356,8 +364,13 @@ async function measure(): Promise<void> {
   // The Claude backend exposes the tool MCP-prefixed, so the name matched in
   // the stream is computed rather than spelled.
   const blockTool = visibleToolName(SHOW_BLOCK_TOOL_NAME, backend);
-  const indexes = (flag("prompts") ?? PROMPTS.map((_, i) => i).join(",")).split(",").map(Number);
-  const runs = Number(flag("runs") ?? "1");
+  const suggestions = process.argv.includes("--suggestions");
+  const prompts: readonly string[] = suggestions ? SUGGESTION_PROMPTS.map((prompt) => prompt.text) : PROMPTS;
+  const indexes = (flag("prompts") ?? prompts.map((_, i) => i).join(",")).split(",").map(Number);
+  const runs = Number(flag("runs") ?? (suggestions ? "3" : "1"));
+  if (!Number.isInteger(runs) || runs < 1 || indexes.some((index) => !Number.isInteger(index) || !prompts[index])) {
+    throw new Error("Select valid --prompts indexes and a positive integer --runs.");
+  }
 
   const dbPath = `${brainPath}/.measure-ui.db`;
   const config = resolveServerConfig({
@@ -405,7 +418,7 @@ async function measure(): Promise<void> {
   const save = () =>
     Bun.write(
       outPath,
-      JSON.stringify({ backend, model: `${vendor}/${model}`, environment, records }, null, 2)
+      JSON.stringify({ backend, model: `${vendor}/${model}`, environment, versions: runtimeVersions(), records }, null, 2)
     );
 
   try {
@@ -413,7 +426,8 @@ async function measure(): Promise<void> {
       for (let runIndex = 0; runIndex < runs; runIndex++) {
         console.error(`[measure] prompt ${promptIndex} run ${runIndex + 1}/${runs}`);
         observability.logs.clear();
-        const record = await runOnce(url, profile, brainPath, blockTool, promptIndex, runIndex);
+        const record = await runOnce(url, profile, brainPath, blockTool, promptIndex, runIndex, prompts[promptIndex]);
+        record.observedVersions = observedRuntimeVersions(app.db, record.result?.sessionId);
         // One turn is one session here and the log was cleared before it, so
         // the pass's record for this turn is the only one present — but the
         // pass is fire-and-forget, so it can still be in flight. When a key
@@ -458,13 +472,15 @@ async function measure(): Promise<void> {
   }
 }
 
-async function runOnce(
+export async function runOnce(
   url: string,
   profile: string,
   brainPath: string,
   blockTool: string,
   promptIndex: number,
-  runIndex: number
+  runIndex: number,
+  prompt: string = PROMPTS[promptIndex],
+  arm: SuggestionArm | undefined = process.env.BRAIN_MEASURE_SUGGESTIONS_ARM as SuggestionArm | undefined
 ): Promise<RunRecord> {
   const frames: ServerMessage[] = [];
   const protocolErrors: string[] = [];
@@ -490,7 +506,7 @@ async function runOnce(
   const started = Date.now();
   client.send({
     type: "chat_message",
-    text: PROMPTS[promptIndex],
+    text: prompt,
     providerId: profile,
     draftId: `measure-${promptIndex}-${runIndex}-${started}`,
   });
@@ -544,9 +560,19 @@ async function runOnce(
       .map((f) => [f.toolUseId, f])
   );
 
+  const escapedBrain = escapesBrain(
+    frames.filter((frame): frame is Extract<ServerMessage, { type: "tool_use_complete" }> =>
+      frame.type === "tool_use_complete" && frame.toolName !== blockTool).map((call) => call.input), brainPath);
+  const suggestionTurn: SuggestionTurn | undefined = arm === "rule" || arm === "no-rule" ? {
+    arm, prompt, group: SUGGESTION_PROMPTS[promptIndex].group, answerParts: textParts,
+    suggestions: toolCalls.filter((call) => call.toolName === blockTool && resultByToolUse.get(call.toolUseId)?.isError === false)
+      .flatMap((call) => { const observation = observeSuggestions(call.input, prompt); return observation ? [observation] : []; }),
+    completed: result?.outcome === "success" && result?.isError === false && !escapedBrain,
+  } : undefined;
   return {
+    ...(suggestionTurn ? { suggestionTurn } : {}),
     promptIndex,
-    prompt: PROMPTS[promptIndex],
+    prompt,
     runIndex,
     showBlockCalls: toolCalls
       .filter((c) => c.toolName === blockTool)
@@ -575,15 +601,7 @@ async function runOnce(
     // Except the block tool's own: it touches no file, and its payload is
     // prose, where a lone `/` would read as the root and drop exactly the
     // turns that drew a block.
-    escapedBrain: escapesBrain(
-      frames
-        .filter(
-          (f): f is Extract<ServerMessage, { type: "tool_use_complete" }> =>
-            f.type === "tool_use_complete" && f.toolName !== blockTool
-        )
-        .map((c) => c.input),
-      brainPath
-    ),
+    escapedBrain,
     completed: result?.outcome === "success" && result?.isError === false,
   };
 }
@@ -636,11 +654,13 @@ async function classifyRecorded(paths: string[]): Promise<void> {
 
 async function report(paths: string[]): Promise<void> {
   const records: RunRecord[] = [];
+  const versions: Record<string, string>[] = [];
   let backend = "";
   let model = "";
   const environments: Array<{ path: string; environment: Record<string, boolean> }> = [];
   for (const path of paths) {
     const parsed = (await Bun.file(path).json()) as RunFile;
+    if (parsed.versions) versions.push(parsed.versions);
     if (parsed.environment) environments.push({ path, environment: parsed.environment });
     if (backend && (parsed.backend !== backend || parsed.model !== model)) {
       throw new Error(
@@ -653,6 +673,13 @@ async function report(paths: string[]): Promise<void> {
     records.push(...parsed.records);
   }
 
+  if (records.some((record) => record.suggestionTurn)) {
+    if (records.some((record) => !record.suggestionTurn)) throw new Error("Do not pool legacy block runs with suggestions runs.");
+    console.log(`backend: ${backend}\nmodel: ${model}\nversions: ${JSON.stringify(versions)}\nenvironments: ${JSON.stringify(environments.map((entry) => entry.environment))}\n`);
+    console.log(`observed runtime versions: ${JSON.stringify(records.map((record) => record.observedVersions ?? { runtime: "not recorded" }))}\n`);
+    console.log(suggestionReport(records.map((record) => record.suggestionTurn!)));
+    return;
+  }
   // A turn that did not complete produced no answer, and a turn whose shell
   // left the brain answered about something else: neither is a turn that
   // declined to call the tool, so both are reported and excluded from the rate.
@@ -835,15 +862,86 @@ async function report(paths: string[]): Promise<void> {
   }
 }
 
+/** Versions the backend actually reported, without its credential/account fields. */
+export function observedRuntimeVersions(db: Database, sessionId: unknown): Record<string, string> {
+  if (typeof sessionId !== "string") return { runtime: "not reported" };
+  const row = db.query("SELECT attrs FROM activity_spans WHERE session_id = ? AND parent_span_id IS NULL ORDER BY started_at DESC LIMIT 1").get(sessionId) as { attrs: string | null } | null;
+  const attrs = row?.attrs ? JSON.parse(row.attrs) as Record<string, unknown> : {};
+  const versions: Record<string, string> = {};
+  for (const kind of ["runtime", "sdk"]) {
+    const name = attrs[`brain.${kind}.name`];
+    const version = attrs[`brain.${kind}.version`];
+    if (typeof name === "string" && typeof version === "string") versions[name] = version;
+  }
+  return Object.keys(versions).length ? versions : { runtime: "not reported" };
+}
+
+/** Installed packages, rather than a version remembered by the operator. */
+function runtimeVersions(): Record<string, string> {
+  const versions: Record<string, string> = { bun: Bun.version };
+  for (const name of ["@anthropic-ai/claude-agent-sdk", "@earendil-works/pi-coding-agent"]) {
+    let dir = dirname(Bun.resolveSync(name, import.meta.dir));
+    for (;;) {
+      const manifest = join(dir, "package.json");
+      try {
+        const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+        if (pkg.name === name) { versions[name] = pkg.version; break; }
+      } catch { /* walk to the package root */ }
+      const parent = dirname(dir);
+      if (parent === dir) throw new Error(`Could not find ${name}'s installed version.`);
+      dir = parent;
+    }
+  }
+  return versions;
+}
+
+/** Each description arm runs in a fresh process, before either backend loads. */
+async function measureSuggestionArms(): Promise<void> {
+  const out = flag("out");
+  if (!flag("brain") || !out) throw new Error("--brain and --out are required");
+  const files: RunFile[] = [];
+  for (const arm of SUGGESTION_ARMS) {
+    const armOut = `${out}.${arm}.json`;
+    const args = process.argv.slice(2);
+    args[args.indexOf("--out") + 1] = armOut;
+    const child = Bun.spawn([process.execPath, "--preload", join(import.meta.dir, "measure-suggestions-preload.ts"), import.meta.path, ...args], {
+      env: { ...process.env, BRAIN_MEASURE_SUGGESTIONS_ARM: arm }, stdout: "inherit", stderr: "inherit",
+    });
+    if (await child.exited !== 0) throw new Error(`Suggestions arm ${arm} failed; partial records remain in ${armOut}.`);
+    files.push(await Bun.file(armOut).json() as RunFile);
+  }
+  await Bun.write(out, JSON.stringify({ ...files[0], records: files.flatMap((file) => file.records) }, null, 2));
+}
+
+/** Keyless audit of the tool definitions/handlers that both backends load. */
+async function inspectSuggestions(): Promise<void> {
+  const { createShowBlockTool } = await import("../packages/ui-backend-claude/src/show-block-tool.ts");
+  const { createPiBridgeTools } = await import("../packages/ui-backend-pi/src/bridge-tools.ts");
+  const { createTurnContext } = await import("../packages/ui-backend-pi/src/turn-context.ts");
+  const { listedTool } = await import("./show-block-schema-forms.ts");
+  const claude = createShowBlockTool();
+  const pi = createPiBridgeTools({ brainPath: "/tmp/fictional-brain", turn: createTurnContext() }).find((tool) => tool.name === "show_block")!;
+  const input = { block: { kind: "suggestions" as const, items: [{ label: "Plan the bookshelf step" }] } };
+  console.log(JSON.stringify({
+    claude: await listedTool(claude),
+    pi: { description: pi.description, inputSchema: pi.parameters },
+    claudeResult: await claude.handler(input, {}), piResult: await pi.execute("inspect", input, undefined, undefined, {} as Parameters<typeof pi.execute>[4]),
+  }));
+}
+
 // Guarded, so `tests/measure-show-block-gate.test.ts` can import the counting
 // rules without booting a server and spending money.
 if (import.meta.main) {
   const reportIndex = process.argv.indexOf("--report");
   const classifyIndex = process.argv.indexOf("--classify");
-  if (reportIndex > 0) {
+  if (process.argv.includes("--inspect-suggestions")) {
+    await inspectSuggestions();
+  } else if (reportIndex > 0) {
     await report(process.argv.slice(reportIndex + 1));
   } else if (classifyIndex > 0) {
     await classifyRecorded(process.argv.slice(classifyIndex + 1));
+  } else if (process.argv.includes("--suggestions") && !process.env.BRAIN_MEASURE_SUGGESTIONS_ARM) {
+    await measureSuggestionArms();
   } else {
     await measure();
   }
