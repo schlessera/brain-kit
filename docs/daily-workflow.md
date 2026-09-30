@@ -63,7 +63,7 @@ disposable scratch files; inspect its report for failed steps. The
 
 A private remote gives you an off-machine copy. Configure and verify it before
 syncing; the [backup guide](hosting/README.md#backups) explains what needs to be
-kept. Run sync in a brain whose `origin` and branch are already configured:
+kept. Run sync from the `main` branch of a brain whose `origin` is configured:
 
 ```sh
 brain sync --human
