@@ -37,16 +37,16 @@ jobs:
         run: bun scripts/env-docs.ts --check
 
   test:
-    # Two shards of the suite, each in one process. The suite is wall-clock
-    # bound, not CPU bound (about 105s serial on a CI runner and on a
-    # 32-core machine alike), so shards across jobs pay off where a bigger
-    # runner would not. Bun's own `--parallel` workers would too, but they
-    # imply `--isolate` and 16 tests do not survive that yet.
+    # Three shards in one process apiece, balanced using measured file costs.
+    # Discover current tests before assigning them: the cost table is never
+    # an allowlist. New files receive a small default weight.
+    # Bun's --parallel workers imply --isolate; the existing suite does not
+    # survive that mode, so keep one process per shard.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -80,7 +80,7 @@ jobs:
         # `brain` subprocess per assertion, which tips over bun's 5s default
         # under full-suite parallelism), and a duplicated command here would
         # drift from what developers actually run.
-        run: bun run test --shard=${{ matrix.shard }}/2
+        run: bun run test --balanced-shard=${{ matrix.shard }}/3
         env:
           # Belt and braces: tests must never reach for real providers.
           GEMINI_API_KEY: ""

@@ -49,10 +49,21 @@ Use `bun run test`, not bare `bun test`: the script supplies `--timeout 30000`,
 and the CLI onboarding tests spawn a real `brain` process per assertion, which
 does not fit the 5s default — bare `bun test` fakes timeout failures.
 Paths narrow the run (`bun run test packages/ui-server tests/foo.test.ts`), and
-flags pass through (`bun run test --shard=1/2`, `bun run test -t "name"`); with
+flags pass through (`bun run test --shard=1/3`, `bun run test -t "name"`); with
 no path it runs `packages` and `tests`. A `--timeout` of your own overrides the
 script's, because the last one wins. A flag whose value is optional
 (`--changed`) takes it only as `--changed=<ref>`.
+
+CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
+(then `2/3` and `3/3`), each in one Bun process. This option uses the default
+`packages`/`tests` roots and cannot combine with paths, `--cwd` or native
+`--shard`. `scripts/test-shards.ts` discovers test files at runtime and places
+the slowest first into the lightest shard, using the measured seconds in
+`scripts/test-shard-costs.json`. The table supplies weights for slow files,
+not suite membership: new tests are included automatically with a small default
+weight. Refresh the weights when suite changes make the actual CI timings
+uneven; #629 records the profiling commands, timings and coverage evidence.
+The browser/visual job keeps its separate two-shard layout.
 
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run

@@ -30,13 +30,16 @@ async function run(args: string[], env: Record<string, string> = {}) {
     if (existsSync(script)) {
       mkdirSync(join(dir, "scripts"));
       cpSync(script, join(dir, "scripts/test.ts"));
+      for (const helper of ["test-shards.ts", "test-shard-costs.json"]) {
+        cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
+      }
     }
     for (const where of FIXTURES) {
       mkdirSync(join(dir, where), { recursive: true });
       writeFileSync(
         join(dir, where, "x.test.ts"),
         `import { expect, test } from "bun:test";\n` +
-          `test("case-${where.replace("/", "-")}", () => {\n` +
+        `test("case-${where.replace("/", "-")}${where === "other" ? " --balanced-shard=1/3" : ""}", () => {\n` +
           // Split so a failure's printed source excerpt cannot match the marker.
           `  console.log("R" + "AN ${where}");\n` +
           `  expect(${where === "other" ? "process.env.FAIL_OTHER" : "undefined"}).toBeUndefined();\n` +
@@ -76,14 +79,19 @@ describe("root test script, run for real", () => {
   });
 
   test("flags alone keep the default roots, and reach bun test", async () => {
-    // Two shards split the default set between them: disjoint, and together
-    // all of it. A dropped --shard would run everything in both.
-    const first = await ran(["--shard=1/2"]);
-    const second = await ran(["--shard=2/2"]);
-    expect(first.length).toBeGreaterThan(0);
-    expect(second.length).toBeGreaterThan(0);
-    expect(first.filter((f) => second.includes(f))).toEqual([]);
-    expect([...first, ...second].sort()).toEqual(DEFAULT_SET);
+    // The old two-way and current three-way CI layouts must both partition
+    // real test execution. A dropped --shard runs everything in every shard.
+    for (const [flag, total] of [["--shard", 2], ["--shard", 3], ["--balanced-shard", 3]] as const) {
+      const shards: string[][] = [];
+      for (let shard = 1; shard <= total; shard++) {
+        const files = await ran([`${flag}=${shard}/${total}`]);
+        expect(files.length).toBeGreaterThan(0);
+        shards.push(files);
+      }
+      const files = shards.flat();
+      expect(new Set(files).size).toBe(files.length);
+      expect(files.sort()).toEqual(DEFAULT_SET);
+    }
     // A flag's separate value is not a path, and the filter applies.
     expect(await ran(["-t", "case-tests"])).toEqual(["tests"]);
   });
@@ -92,10 +100,31 @@ describe("root test script, run for real", () => {
     expect(await ran(["-t", "case-packages-b", "packages"])).toEqual(["packages/b"]);
   });
 
+  test("a name pattern resembling the balanced option stays a Bun flag value", async () => {
+    expect(await ran(["-t", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
+    expect(await ran(["--test-name-pattern", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
+  });
+
   test("a failing test fails the command", async () => {
     const result = await run(["other"], { FAIL_OTHER: "1" });
     expect(result.ran).toEqual(["other"]);
     expect(result.code).not.toBe(0);
+  });
+
+  test("balanced sharding rejects a path or a second shard selector", async () => {
+    for (const args of [
+      ["--balanced-shard=1/3", "packages"],
+      ["--balanced-shard=1/3", "--shard=1/3"],
+      ["--balanced-shard=1/3", "--balanced-shard=2/3"],
+      ["--balanced-shard=1/3", "--cwd=other"],
+      ["--balanced-shard=0/3"],
+      ["--balanced-shard"],
+    ]) {
+      const result = await run(args);
+      expect(result.code).not.toBe(0);
+      expect(result.ran).toEqual([]);
+      expect(result.output).toContain("--balanced-shard");
+    }
   });
 });
 
@@ -174,7 +203,7 @@ describe("testArgv", () => {
       ["--install", "fallback"],
       ["--origin", "http://localhost"],
       ["--cron-title", "nightly"],
-      ["--shard=1/2"],
+      ["--shard=1/3"],
       ["-t=name"],
       ["--bail"],
       ["--"],
