@@ -726,3 +726,19 @@ installations.
 
 Billing is not inferred from any of this: a runtime name or an absent agent
 says nothing about what a sync cost. That policy is #293's.
+
+## 2026-09-30 — Keep the range; compose package and host requirements (#210)
+
+The maintainer's 2026-09-28 ruling retains the SDK range. This supersedes the
+unresolved exact-pin question in "What this costs", "The server knows the
+version" and "Where the work goes" above. A host can require stricter SDK or
+runtime minimums, but cannot weaken a package requirement or escape its upper
+bound. The host need not have a semantic version: dependencies still point
+host → public packages → dependencies/runtimes.
+
+[runtime-requirements.md](runtime-requirements.md) specifies the declarations,
+composition, actual loaded/executed identities, overrides, unknown versions,
+diagnostics and evidence for initial requirements. Compatibility and measured
+pair status remain separate. The lockfile/rebuild update model, immutable
+executables, permission checks, keyless measurement guard and per-turn
+provenance remain binding. This specification changes no runtime behavior.
