@@ -19,7 +19,7 @@ import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
 import { useChatCommands } from "./use-chat-commands.js";
-import { Button } from "@schlessera/brain-ui-kit";
+import { Icon } from "@schlessera/brain-ui-kit";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -272,17 +272,33 @@ export function ChatPage() {
         onClose={() => setFilePanelOpen(false)}
       />
 
-      {/* New chat is the Chat header's primary action (D37): a tab is a place
-          and starting a chat is an act, so it is neither a rail row nor a bar
-          slot. It only appears once there is a conversation to leave. */}
-      {hasMessages && (
-        <div className="flex shrink-0 items-center justify-end px-4 pt-2 md:px-6">
-          <Button label="New chat" icon="compose" tone="ghost" size="sm" block={false} onClick={clearMessages} />
-        </div>
-      )}
+      {/* Message area. A size container, so the transcript can tell whether
+          its reading column clears the New chat disc (below). */}
+      <div className="@container relative flex-1 overflow-hidden">
+        {/* New chat is the Chat header's primary action (D37): a tab is a
+            place and starting a chat is an act, so it is neither a rail row
+            nor a bar slot. It only appears once there is a conversation to
+            leave. Drawn over the transcript rather than in a row above it, so
+            the transcript keeps that height (#93), and first in the area so
+            Tab reaches it before the messages.
 
-      {/* Message area */}
-      <div className="relative flex-1 overflow-hidden">
+            The disc is the scroll-to-bottom disc's paint, mirrored to the top
+            right. The button around it is the 44px target: it reaches 12px
+            left and 6px up and down, and not right, so it never sits over a
+            classic scrollbar. */}
+        {hasMessages && (
+          <button
+            type="button"
+            onClick={clearMessages}
+            aria-label="New chat"
+            title="New chat"
+            className="group absolute right-4 top-2.5 z-10 flex h-11 w-11 items-center justify-end outline-none"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface shadow-md text-muted-foreground transition-all duration-150 group-hover:text-foreground group-focus-visible:ring-2 group-focus-visible:ring-primary/50">
+              <Icon icon="compose" size={16} />
+            </span>
+          </button>
+        )}
         {messages.length === 0 ? (
           <div className="h-full overflow-y-auto">
             <div className="px-4 pt-3 md:px-6">
@@ -291,7 +307,11 @@ export function ChatPage() {
             <WelcomeState onAction={runCommand} />
           </div>
         ) : (
-          <div ref={scrollRef} className="h-full overflow-y-auto px-4 md:px-6">
+          // The top padding keeps the resting first message's text below the
+          // New chat target (54px down; a message pads its own 16px). From
+          // 880px the 768px column is centred clear of the target's 60px, so
+          // the padding goes. It scrolls away with the content either way.
+          <div ref={scrollRef} className="h-full overflow-y-auto px-4 pt-10 md:px-6 @min-[880px]:pt-0">
             {/* Tagged so the client-environment probe reports the width text
                 actually renders into, not the whole window. */}
             <div

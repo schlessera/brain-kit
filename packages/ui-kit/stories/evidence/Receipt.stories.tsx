@@ -134,3 +134,93 @@ export const NarrowHash = meta.story({
     await expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth);
   },
 });
+
+/**
+ * Keys wider than the column (#88). "capability", "signature" and "arguments"
+ * are ordinary receipt keys and all exceed the default 56px. The column is
+ * sized once, to the widest key, so every value starts at the same x and a
+ * key's glyphs never reach the gutter. The key is drawn whole: a receipt row
+ * IS the record, so it is never cut (`docs/decisions/design-feedback.md`,
+ * "where truncation is allowed").
+ */
+const longKeyRows = [
+  { k: "tool", v: "fetch" },
+  { k: "capability", v: "network.read" },
+  { k: "signature", v: "ed25519:7b3d0c5e8a1f", tone: "teal" as const },
+  { k: "arguments", v: "url, headers" },
+  { k: "scope", v: "this run only" },
+  { k: "sha256", v: sha256, tone: "red" as const },
+];
+
+/** Each key's text ends at least the 10px gutter before its value's text
+ * begins, and every value starts at the same x. Measured on the glyphs, not
+ * the boxes: the defect was glyphs overflowing a correctly placed box. */
+async function expectKeysClear(canvasElement: HTMLElement) {
+  const values = [...canvasElement.querySelectorAll<HTMLElement>("[data-tone]")];
+  await expect(values.length).toBeGreaterThan(0);
+  const edge = (cell: Element, side: "left" | "right") => {
+    const range = document.createRange();
+    range.selectNodeContents([...cell.childNodes].find((n) => n.nodeType === Node.TEXT_NODE)!);
+    const rects = [...range.getClientRects()];
+    return side === "left" ? Math.min(...rects.map((r) => r.left)) : Math.max(...rects.map((r) => r.right));
+  };
+  for (const value of values) {
+    const key = value.previousElementSibling!;
+    await expect(edge(value, "left") - edge(key, "right")).toBeGreaterThanOrEqual(9.5);
+    await expect(key.scrollWidth).toBeLessThanOrEqual(key.clientWidth);
+  }
+  const lefts = new Set(values.map((v) => Math.round(v.getBoundingClientRect().left)));
+  await expect(lefts.size).toBe(1);
+}
+
+export const LongKeys = meta.story({
+  args: { title: "Capability you'd grant", rows: longKeyRows, keyWidth: 56 },
+  play: async ({ canvasElement }) => {
+    await expectKeysClear(canvasElement);
+    const card = canvasElement.firstElementChild!.firstElementChild as HTMLElement;
+    await expect(overflowing(card)).toEqual([]);
+  },
+});
+
+/** The same rows at the narrowest documented column. */
+export const LongKeysNarrowColumn = LongKeys.extend({ args: { keyWidth: 40 } });
+
+/** At a 320px phone: the key column costs the value column its extra width,
+ * and a long hash still wraps inside its own column. */
+export const LongKeysPhone = LongKeys.extend({
+  parameters: { stageWidth: 288 },
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+  play: async ({ canvasElement }) => {
+    await expect(window.innerWidth).toBe(320);
+    await expectKeysClear(canvasElement);
+    const doc = document.documentElement;
+    await expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth);
+  },
+});
+
+/** A key longer than the 90px cap wraps inside the column, whole, and only
+ * its own row grows. */
+export const KeyPastTheCap = meta.story({
+  args: {
+    title: "Certificate",
+    titleIcon: "trust",
+    titleTone: "purple",
+    rows: [
+      { k: "issuer", v: "Ithaca Harbour CA" },
+      { k: "subject_alt_names", v: "aeaea.example, ithaca.example" },
+      { k: "expires", v: "22 Sep 2027" },
+    ],
+    footnote: "",
+    keyWidth: 90,
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expectKeysClear(canvasElement);
+    const key = canvas.getByText("subject_alt_names");
+    await expect(key.getBoundingClientRect().width).toBeLessThanOrEqual(90);
+    const range = document.createRange();
+    range.selectNodeContents(key.firstChild!);
+    const lines = new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+    await expect(lines).toBe(2);
+    await expect(range.toString()).toBe("subject_alt_names");
+  },
+});
