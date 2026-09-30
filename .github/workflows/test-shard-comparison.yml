@@ -1,0 +1,54 @@
+name: Test shard comparison
+
+on:
+  push:
+    branches: [chore/629-three-test-shards]
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: native-${{ matrix.shard }}-${{ matrix.total }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: 1, total: 2 }
+          - { shard: 2, total: 2 }
+          - { shard: 1, total: 3 }
+          - { shard: 2, total: 3 }
+          - { shard: 3, total: 3 }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Both layouts execute the identical source revision.
+          ref: ac5741eb9fecd9b0048a85de8a39261aa1ca58c7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Chrome for the renderer runtime tests
+        run: |
+          set -euo pipefail
+          CHROME=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)
+          if [ -z "$CHROME" ]; then
+            echo "::error::No Chrome/Chromium on this runner."
+            exit 1
+          fi
+          "$CHROME" --version
+          echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
+      - name: Unit + integration tests (keyless, deterministic)
+        run: bun run test --shard=${{ matrix.shard }}/${{ matrix.total }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.shard }}-${{ matrix.total }}.xml"
+        env:
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          BRAIN_REQUIRE_CHROME: "1"
+      - name: File timings and executed tests
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.shard }}-${{ matrix.total }}
+          path: ${{ runner.temp }}/junit-${{ matrix.shard }}-${{ matrix.total }}.xml
+          if-no-files-found: error
