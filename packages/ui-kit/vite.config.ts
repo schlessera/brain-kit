@@ -7,4 +7,7 @@ import { defineConfig } from "vite";
 // `viteFinal` is needed.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Cross-workspace browser tests must share the renderer's React instance.
+  resolve: { dedupe: ["react", "react-dom"] },
+  optimizeDeps: { include: ["react", "react-dom", "react-dom/client", "zustand", "zustand/vanilla", "zod", "lucide-react", "mermaid"] },
 });

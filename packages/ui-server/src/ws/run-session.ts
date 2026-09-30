@@ -69,6 +69,8 @@ function recordPendingCancellations(
 
 type RunSessionInput = {
   authorization: AuthorizationContext;
+  replayPrompt?: string;
+  isRetry?: boolean;
   text: string;
   sessionId?: string;
   attachments: ChatImageAttachment[];
@@ -175,6 +177,7 @@ async function runRetainedSession(
     cancelled: false,
     lastResult: null,
   };
+  const firstTurnId = turn.turnId;
   clearTimeout(turn.timeoutHandle);
   coordinator.running.add(turn);
   if (turn.sessionId) coordinator.bySession.set(turn.sessionId, turn);
@@ -300,10 +303,17 @@ async function runRetainedSession(
       // replay matches once the context is stripped again.
       const drafted = draftExchanges;
       draftExchanges = [];
-      const prompt = withLocalContext(text, [
+      const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(text, [
         ...drafted,
         ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
       ]);
+      turn.retryRequest = {
+        type: "chat_message", text, attachments,
+        ...(profileId ? { providerId: profileId } : {}),
+        ...(client ? { client } : {}), ...(source ? { source } : {}),
+      };
+      turn.retryPrompt = prompt;
+      turn.isManualRetry = initial.isRetry === true && turn.turnId === firstTurnId;
       const bridge = makeBridge(
         host,
         turn,
@@ -463,6 +473,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   }
 
   // Queue it as the session's next turn; report queued immediately.
+  try { host.catalog.clearRetryRequest?.(sessionId); }
+  catch (err) { entry.releaseAuthorization(); throw err; }
   slot.queue.push(entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
@@ -501,6 +513,8 @@ export async function handleChatMessage(
     source?: MessageSource;
     draftId?: string;
     localExchanges?: LocalExchange[];
+    replayPrompt?: string;
+    isRetry?: boolean;
   }
 ): Promise<void> {
   const {
@@ -558,6 +572,8 @@ export async function handleChatMessage(
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
+      host.catalog.clearRetryRequest?.(sessionId);
+      runningTurn.retryRequest = undefined;
       runningTurn.recorder?.recordFollowUp(authorization.principalId);
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
@@ -604,10 +620,13 @@ export async function handleChatMessage(
   }
 
   if (sessionId) {
+    host.catalog.clearRetryRequest?.(sessionId);
     host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
   }
   void runSession(host, {
     authorization,
+    ...(msg.replayPrompt !== undefined ? { replayPrompt: msg.replayPrompt } : {}),
+    ...(msg.isRetry ? { isRetry: true } : {}),
     text,
     sessionId,
     attachments,

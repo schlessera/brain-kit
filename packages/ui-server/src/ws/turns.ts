@@ -81,6 +81,10 @@ export interface RunningTurn {
   /** Principal responsible for the CURRENT turn in this session slot. */
   principalId: string;
   authorization: AuthorizationContext;
+  /** Exact caller input plus the effective prompt; omitted for native injection. */
+  retryRequest?: import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage;
+  retryPrompt?: string;
+  isManualRetry?: boolean;
   /** Activity recorder for the CURRENT turn, once startup reaches the backend. */
   recorder?: TurnRecorder;
   /**

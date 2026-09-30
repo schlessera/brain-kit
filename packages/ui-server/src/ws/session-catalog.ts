@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
+  ClientChatMessage,
+  TurnFailure,
+  ServerRetryReceipt,
   LocalExchange,
   MessageSource,
   ServerResultMessage,
@@ -15,6 +18,8 @@ import {
   type LocalExchangeRecord,
 } from "./local-exchanges.js";
 
+import * as retries from "./retry-requests.js";
+
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
  * talks to this interface — swapping the store means implementing its
@@ -23,6 +28,12 @@ import {
 export interface SessionCatalog {
   /** The provider/profile a stored session is pinned to, or null. */
   getStoredProviderId(sessionId: string): string | null;
+  saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
+  clearRetryRequest?(sessionId: string): void;
+  reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string };
+  refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt;
+  retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
+  attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The backend that owns a stored session, or null for legacy/unknown rows. */
   getStoredBackendId(sessionId: string): string | null;
   /**
@@ -91,6 +102,20 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
     });
   };
   return {
+    saveRetryRequest(sessionId, turnId, principalId, request, prompt, failure) {
+      try { retries.saveRetryRequest(db(), sessionId, turnId, principalId, request, prompt, failure); return true; }
+      catch (err) { reportWriteFailure(sessionId, err); return false; }
+    },
+    // Retry reads/consumption must fail closed: unlike accounting, an
+    // unsuccessful invalidation cannot permit an obsolete prompt to run.
+    clearRetryRequest(sessionId) { retries.clearRetryRequest(db(), sessionId); },
+    reserveRetry(sessionId, turnId, requestId, principalId) { return retries.reserveRetry(db(), sessionId, turnId, requestId, principalId); },
+    refuseRetry(sessionId, requestId, principalId, message) { return retries.refuseRetry(db(), sessionId, requestId, principalId, message); },
+    retryReceipt(sessionId, requestId, principalId) { return retries.retryReceipt(db(), sessionId, requestId, principalId); },
+    attachRetryRequest(sessionId, messages) {
+      try { return retries.attachRetryRequest(db(), sessionId, messages); }
+      catch (err) { reportWriteFailure(sessionId, err); return messages; }
+    },
     getStoredProviderId(sessionId) {
       const row = db()
         .query("SELECT provider_id AS providerId FROM sessions WHERE id = ?")

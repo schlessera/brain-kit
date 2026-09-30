@@ -29,6 +29,8 @@ export interface ReceiptRow {
 }
 
 export interface ReceiptProps {
+  /** Unboxed rows inside a surface that already supplies its boundary. */
+  bare?: boolean;
   /** The uppercase mono header. Omit for a bare row list. */
   title?: string;
   titleIcon?: IconName;
@@ -81,8 +83,8 @@ export function Receipt(p: ReceiptProps) {
   const keyWidth = Math.min(KEY_MAX, Math.max(KEY_MIN, Number(p.keyWidth) || 56));
 
   const box: CSSProperties = {
-    border: `1px solid ${color.edge}`,
-    background: color.surface,
+    border: p.bare ? "none" : `1px solid ${color.edge}`,
+    background: p.bare ? "transparent" : color.surface,
     borderRadius: Number(p.radius) || 14,
     overflow: "hidden",
     boxSizing: "border-box",
@@ -112,7 +114,7 @@ export function Receipt(p: ReceiptProps) {
     display: "grid",
     gridTemplateColumns: `minmax(${keyWidth}px, max-content) minmax(0, 1fr)`,
     gap: "16px 10px",
-    padding: "8px 12px",
+    padding: p.bare ? "8px 0" : "8px 12px",
     font: `500 11px/1.5 ${font.mono}`,
   };
   const rowStyle: CSSProperties = { display: "contents" };

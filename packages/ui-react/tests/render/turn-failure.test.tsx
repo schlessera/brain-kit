@@ -88,23 +88,29 @@ describe("a failed turn is visible the moment it ends", () => {
     expect(messages().map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(assistant().isStreaming).toBe(false);
     const view = renderAssistant();
-    expect(failureText(view)).toContain(`Error: ${UNSUPPORTED}`);
+    expect(view.getByRole("region", { name: "Turn failed" })).toBeTruthy();
+    expect(failureText(view)).toContain("The provider rejected this request.");
+    expect(view.container.textContent).not.toContain("Error:");
     expect(view.container.textContent).not.toContain("Thinking");
   });
 
   test("after a reload the same turn reads the same", () => {
     send();
     failLive(FAILURE);
-    const live = failureText(renderAssistant());
+    const liveView = renderAssistant();
+    expect(liveView.getAllByRole("alert")).toHaveLength(1);
+    const live = liveView.getByRole("region", { name: "Turn failed" }).textContent!.replace("Turn failed. The provider rejected this request.", "");
     cleanup();
 
     replay([
       { role: "user", content: "Test", toolCalls: [] },
-      { role: "assistant", content: "", toolCalls: [], parts: [], failure: { ...FAILURE, errorClass: "unknown" } },
+      { role: "assistant", content: "", toolCalls: [], parts: [], failure: FAILURE },
     ]);
     expect(messages()).toHaveLength(2);
-    const replayed = failureText(renderAssistant());
-    expect(live).toContain(UNSUPPORTED);
+    const replayView = renderAssistant();
+    expect(replayView.queryAllByRole("alert")).toHaveLength(0);
+    const replayed = failureText(replayView);
+    expect(live).toContain("The provider rejected this request.");
     expect(replayed).toBe(live);
   });
 
@@ -124,7 +130,7 @@ describe("a failed turn is visible the moment it ends", () => {
     const view = renderAssistant();
     const text = view.container.textContent ?? "";
     expect(text).toContain("Here is the start");
-    expect(text.indexOf("Here is the start")).toBeLessThan(text.indexOf("Error: API Error: Repeated 529"));
+    expect(text.indexOf("Here is the start")).toBeLessThan(text.indexOf("The provider failed to complete this request."));
   });
 
   test("a diagnostic error and the terminal failure show once", () => {
@@ -158,7 +164,7 @@ describe("a failed turn is visible the moment it ends", () => {
           ).container.textContent ?? ""
       )
       .join("\n");
-    expect(drawn.split("Error:").length - 1).toBe(1);
+    expect(drawn.split("provider exploded").length - 1).toBe(1);
     expect(drawn).toContain("Partial");
   });
 
@@ -197,7 +203,10 @@ describe("an auth failure says what to do, per the #254 split", () => {
     test(`${action}: its own instruction, live and replayed, and no other`, () => {
       send();
       failLive({ errorClass, message: "Failed to authenticate.", authAction: action });
-      const live = failureText(renderAssistant());
+      const liveView = renderAssistant();
+      const live = failureText(liveView);
+      const instruction = liveView.getByText(SUBSCRIPTION_AUTH_INSTRUCTIONS[action], { exact: true });
+      expect(instruction).toBeTruthy();
       expect(live).toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS[action].slice(0, 60));
       for (const [other] of cases) {
         if (other !== action) expect(live).not.toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS[other].slice(0, 60));
@@ -212,7 +221,9 @@ describe("an auth failure says what to do, per the #254 split", () => {
           failure: { errorClass, message: "Failed to authenticate.", authAction: action },
         },
       ]);
-      expect(failureText(renderAssistant())).toBe(live);
+      const replayView = renderAssistant();
+      expect(replayView.getByText(SUBSCRIPTION_AUTH_INSTRUCTIONS[action], { exact: true })).toBeTruthy();
+      expect(replayView.queryAllByRole("alert")).toHaveLength(0);
     });
   }
 });
@@ -231,7 +242,7 @@ describe("a retry is visible while the turn is alive", () => {
     failLive({ errorClass: "rate_limit", status: 429, message: "API Error: 429 rate limited" });
     view = renderAssistant();
     expect(view.container.textContent).not.toContain("Retrying");
-    expect(failureText(view)).toContain("Error: API Error: 429 rate limited");
+    expect(failureText(view)).toContain("The provider rate limited this request.");
   });
 
   test("an answer after the retry clears it", () => {

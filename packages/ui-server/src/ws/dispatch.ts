@@ -101,6 +101,52 @@ export async function handleClientMessage(
       break;
     }
 
+    case "retry_status": {
+      try {
+        host.sendMessage(ws, catalog.retryReceipt?.(msg.sessionId, msg.requestId, connection.authorization.principalId)
+          ?? { type: "retry_receipt", sessionId: msg.sessionId, requestId: msg.requestId, state: "unknown" });
+      } catch {
+        host.sendMessage(ws, { type: "retry_receipt", sessionId: msg.sessionId, requestId: msg.requestId, state: "unknown" });
+      }
+      return;
+    }
+
+    case "retry_turn": {
+      const refuse = (message: string) => {
+        const receipt = { type: "retry_receipt" as const, sessionId: msg.sessionId, requestId: msg.requestId, state: "refused" as const, message };
+        try { host.sendMessage(ws, catalog.refuseRetry?.(msg.sessionId, msg.requestId, connection.authorization.principalId, message) ?? receipt); }
+        catch { host.sendMessage(ws, receipt); }
+      };
+      try {
+        // Replay a receipt even while its turn runs. A repeated request id
+        // cannot become a queued follow-up, including after reconnect.
+        const prior = catalog.retryReceipt?.(msg.sessionId, msg.requestId, connection.authorization.principalId);
+        if (prior && prior.state !== "unknown") { host.sendMessage(ws, prior); return; }
+        if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId)) {
+          refuse("This session is busy. Wait for the current turn to finish."); return;
+        }
+        if (coordinator.running.size + coordinator.startingSessions >= host.maxConcurrentSessions()) {
+          refuse("The server is busy. Wait for a turn to finish and try again."); return;
+        }
+        const reserved = catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId);
+        if (!reserved) { refuse("This server cannot retain the original request for Retry."); return; }
+        host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
+          text: reserved.request.text, attachmentCount: reserved.request.attachments?.length ?? 0,
+          source: reserved.request.source ?? "typed",
+        } : {}) });
+        if (reserved.request) {
+          await handleChatMessage(host, ws, {
+            ...reserved.request, authorization: connection.authorization,
+            attachments: reserved.request.attachments ?? [], replayPrompt: reserved.prompt, isRetry: true,
+          });
+        }
+      } catch {
+        // A failed database write must not execute an unacknowledged retry.
+        refuse("The server could not confirm this retry. Check delivery before trying again.");
+      }
+      return;
+    }
+
     case "local_exchange": {
       // A command the client answered itself (#582). Stored against the
       // session; the next prompt handed to the backend carries its context.

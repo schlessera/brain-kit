@@ -63,6 +63,10 @@ export interface ChatMessage {
    * the terminal frame or replayed from history. Drawn after the content.
    */
   failure?: TurnFailure;
+  /** Host-retained original request available for an exact retry. */
+  retryOfTurnId?: string;
+  /** Received live in this client; absent on history replay. */
+  failureLive?: boolean;
   /** While streaming: the failed model call the runtime is retrying (#575). */
   retry?: TurnRetry;
 }
@@ -216,7 +220,17 @@ export type ChatKey = string | null;
 /** Retained transcript buffers beyond the active one (LRU-evicted). */
 const MAX_BUFFERS = 8;
 
+export interface PendingTurnRetry {
+  requestId: string;
+  failedTurnId: string;
+  state: "waiting" | "unknown" | "refused";
+  message?: string;
+}
+
 export interface ChatState {
+  turnRetries: Record<string, PendingTurnRetry>;
+  setTurnRetry(sessionId: string, retry: PendingTurnRetry | null): void;
+  setRetryHandle(key: ChatKey, retryOfTurnId: string | undefined): void;
   /** Per-session transcript buffers, keyed by server sessionId. */
   buffers: Record<string, SessionChat>;
   /** The unbound new-conversation buffer, if one is in progress. */
@@ -529,6 +543,20 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
   }
 
 
+  const RETRIES_KEY = env.storageKey("brain-turn-retries");
+  function readRetries(): Record<string, PendingTurnRetry> {
+    try {
+      const value: unknown = JSON.parse(env.storage()?.getItem(RETRIES_KEY) ?? "{}");
+      if (!value || typeof value !== "object") return {};
+      return Object.fromEntries(Object.entries(value).flatMap(([sessionId, retry]) => {
+        if (!retry || typeof retry !== "object") return [];
+        const r = retry as Partial<PendingTurnRetry>;
+        return typeof r.requestId === "string" && typeof r.failedTurnId === "string" && (r.state === "waiting" || r.state === "unknown")
+          ? [[sessionId, { requestId: r.requestId, failedTurnId: r.failedTurnId, state: "unknown" as const }]] : [];
+      }));
+    } catch { return {}; }
+  }
+
   return createStore<ChatState>((set, get) => {
     /**
      * Immutably update one buffer. Draft mutations (key null) create the draft
@@ -594,6 +622,17 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
     }
 
     return {
+      turnRetries: readRetries(),
+      setTurnRetry(sessionId, retry) {
+        const turnRetries = { ...get().turnRetries };
+        if (retry) turnRetries[sessionId] = retry;
+        else delete turnRetries[sessionId];
+        try {
+          env.storage()?.setItem(RETRIES_KEY, JSON.stringify(Object.fromEntries(Object.entries(turnRetries).filter(([, r]) => r.state !== "refused"))));
+        } catch { /* The host also consumes each failed-turn handle once. */ }
+        set({ turnRetries });
+      },
+      setRetryHandle: (key, retryOfTurnId) => mutateLastAssistant(key, last => ({ ...last, retryOfTurnId })),
       buffers: {},
       draft: null,
       pendingDraftId: null,
@@ -898,6 +937,8 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               ...withoutRetry(target),
               isStreaming: false,
               failure: target.failure && !replace ? target.failure : failure,
+              failureLive: true,
+              ...(turnId ? { turnId } : {}),
             };
             // The buffer streams while its newest message does: a follow-up
             // already running after this message keeps it streaming.

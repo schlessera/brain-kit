@@ -302,7 +302,8 @@ export class WsHost {
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
-    return spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
+    const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
+    return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;
   }
 
   /** A turn's backend call resolved: counted, and logged with its duration. */

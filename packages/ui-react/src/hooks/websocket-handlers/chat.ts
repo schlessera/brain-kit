@@ -22,6 +22,7 @@ type ChatFrame =
   | "ask_user_request"
   | "ask_user_list_request"
   | "result"
+  | "retry_receipt"
   | "message_blocks"
   | "local_exchange_result"
   | "session_history"
@@ -68,7 +69,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
     ...localAnswerFields(msg),
     // The failure that ended the turn (#575), drawn as it was live.
-    ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure } : {}),
+    ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure, retryOfTurnId: msg.retryOfTurnId } : {}),
   };
 }
 
@@ -313,8 +314,11 @@ export const chatFrameHandlers = {
         msg.failure !== undefined
       );
     }
+    if (failed) context.state.setRetryHandle(context.key, msg.retryOfTurnId);
     context.resyncIfNeeded(msg.sessionId);
   },
+  // Receipts are consumed by the connection before transcript demultiplexing.
+  retry_receipt: () => {},
   message_blocks: (msg, context) => {
     // Arrives after `result`, for the turn's own assistant message. An
     // answer never waits on it: the markdown is already on screen, and this

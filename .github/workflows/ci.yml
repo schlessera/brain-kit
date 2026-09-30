@@ -540,6 +540,8 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
+      - name: Build workspace exports used by the browser integration tests
+        run: bun run build
       - name: Stories on dark and on paper (D32), and the visual baselines
         run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
       - name: The actual and diff images, when a baseline moved

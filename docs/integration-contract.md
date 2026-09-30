@@ -1317,6 +1317,45 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   drops an unreadable `failure` or `retry` and keeps the frame, because the
   frame is a turn's terminal.
 
+### Manual retry receipts (additive in 0.40.0)
+
+```
+result.retryOfTurnId?: string
+SessionHistoryMessage.retryOfTurnId?: string
+client → { type: "retry_turn", sessionId, failedTurnId, requestId }
+client → { type: "retry_status", sessionId, requestId }
+server → { type: "retry_receipt", sessionId, requestId,
+           state: "accepted" | "refused" | "unknown", message?,
+           text?, attachmentCount?, source? }
+```
+
+A handle identifies the latest failed turn whose original request the host
+retains. It is absent when that request is unavailable, another input was
+accepted, native follow-up injection made it ambiguous, or an unclassified
+failure already received one manual retry. Historical cards cannot resend.
+The host binds eligibility to the original principal and session. It retains
+only one eligible request per session in the UI catalog, including original
+image bytes, client options and the effective prompt. The next accepted
+input removes those bytes; deleting the catalog session cascades them.
+
+Retry starts a distinct turn in the same session. Prior actions may run
+again: this is no rollback or guarantee against repeating tool effects.
+Before dispatch the host atomically consumes eligibility and persists a
+receipt. Repeating the same request id returns its receipt without executing
+again. `accepted` means accepted for dispatch, not successful execution; a
+host interruption can occur after recording it and before execution.
+`refused` means this request was not dispatched. `unknown` means the host
+cannot confirm its delivery, not that it was never sent.
+
+Only the initial acceptance carries `text`, `attachmentCount` and `source`
+for the client's new user row; receipts retain no prompt or image bytes.
+After a lost acknowledgement, clients query `retry_status` with their stored
+request id and reconcile accepted delivery through `session_resume`.
+They must not blindly resend an unconfirmed request. Receipt lookup is bound
+to the caller and session; another principal receives `unknown`.
+Unreadable optional handles are dropped while preserving the failure frame.
+Older peers ignore these additions and show the failure without Retry.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

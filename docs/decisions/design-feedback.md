@@ -1528,3 +1528,23 @@ floor. Also new in the truncation table: the card's target IS the record
 (you grant permission against that exact string) and wraps, never
 ellipsises — "a first-ever fetch to a domain cut at `…/space…` is a
 permission nobody can judge."
+
+
+## 24. Recoverable API error cards — 2026-09-30, corrected ruling (#576)
+
+The [recovered error-card design](https://github.com/schlessera/brain-kit/issues/576#issuecomment-5906135339)
+is approved with the [maintainer's corrections](https://github.com/schlessera/brain-kit/issues/576#issuecomment-5906946639).
+D51 in `design-kit.md` records the resulting behavior. The original mock's
+claims that nothing ran or was written, that recovery takes a minute, and
+that copying can never include private content are not evidence and do not
+ship. Missing receipt fields are omitted; subscription instructions still
+come verbatim from `authAction`, and generic credential failures invent no
+operator workflow.
+
+Both Copy and Report require an editable exact preview, with an allowlist
+by default and explicit optional provider inclusion. Redaction is best
+effort, followed by the reader's review. Opening a prefilled issue already
+sends its payload to GitHub, before the issue is submitted, so the sheet
+names that boundary. Retry says that prior actions may run again and uses
+retained original inputs plus a delivery receipt. All model switches remain
+deferred to #61; that omission needs no additional design approval.

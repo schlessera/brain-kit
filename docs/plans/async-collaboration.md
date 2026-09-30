@@ -36,7 +36,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:67-116`), inbound material
+promise nobody resolves — `packages/ui-server/src/ws/bridge.ts:67-126`), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -139,8 +139,8 @@ Unit numbers are stable identifiers, not build order. Build order:
 - **Auth guard reality**: `packages/ui-server/src/app.ts:288-310` guards every non-public
   `/api/*`; password mode requires a signed cookie
   (`packages/ui-server/src/middleware/auth.ts:163-173`).
-- **Permission parking and the unwind order**: `ws/bridge.ts:67-116` (parked promise, no
-  checkpoint hook), `ws/run-session.ts:104-120` (the timeout path's abort → resolve-pending
+- **Permission parking and the unwind order**: `new Promise<PermissionDecision>`, `ws/bridge.ts:175-209` (parked promise, no
+  checkpoint hook), `abortController.abort()`, `ws/run-session.ts:228-234` (the timeout path's abort → resolve-pending
   sequence), `ui-backend-claude/src/backend.ts:944-951` (lock release).
 - **Auto-allow bypasses `canUseTool`**: `ui-backend-claude/src/backend.ts:57-88, 703-709`; the
   write lock had to move to a `PreToolUse` hook for this reason. `backend.ts:209-220` records
@@ -153,10 +153,10 @@ Unit numbers are stable identifiers, not build order. Build order:
   required), `activity/notify.ts:90-126` (drop-later-same-tag, no count),
   `activity/push-sender.ts:122-145` (one push per pending row).
 - **Server-side source hardcoding precedent**: `packages/ui-server/src/share/staging.ts:367-372`.
-- **Share payload sizes**: `packages/ui-sdk/src/protocol.ts:757-763`;
+- **Share payload sizes**: `packages/ui-sdk/src/protocol.ts:792-798`;
   `packages/ui-react/src/lib/share-intake.ts:123-151` shows most shares are
   read-store-process requests.
-- **Host session cap applies only at WS session start**: `ws/run-session.ts:331-340`; path
+- **Host session cap applies only at WS session start**: `const cap = host.maxConcurrentSessions()`, `ws/run-session.ts:611-620`; path
   lock waits/denies at 30s in `ui-backend-claude/src/backend.ts:434-535`.
 
 ### Institutional Learnings
@@ -789,7 +789,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`ui-sdk/src/protocol.ts:757-763`). Budget: **40k input tokens per
+  share may carry ~200 KB (`ui-sdk/src/protocol.ts:792-798`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -871,7 +871,7 @@ AE3, AE4, AE8
 - **Escalation** is one server-side step: capture the checkpoint → create the Action with
   validated effects → transition the Queue item to `blocked` → resolve the parked permission
   as denied → abort. The order follows the timeout path at
-  `ws/run-session.ts:104-120`
+  `abortController.abort()`, `ws/run-session.ts:228-234`
 - **Resolution** is one transaction: record resolution (unique) → validate the effect against
   its schema again → apply it → transition the blocked item to `superseded` → for `enqueue`
   only, mint one follow-up with `dedup_key` from `(action_id, option_id)`
@@ -1225,7 +1225,7 @@ release gate** — no other unit's completion substitutes for it
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`run-session.ts:331-340`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions()`, `run-session.ts:611-620`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
 (`ui-backend-claude/src/backend.ts:434-535`).
 
@@ -1236,7 +1236,7 @@ Three pieces, none of which exist today:
   waiter's continued wait signals the holder. The number is a constant, not a judgement call,
   so both edges are testable
 - **A yield channel into a running autonomous turn** — the signal aborts the holder through
-  the same unwind order as the timeout path (`ws/run-session.ts:104-120`), returning its item
+  the same unwind order as the timeout path (`abortController.abort()`, `ws/run-session.ts:228-234`), returning its item
   to `ready` and releasing its reservation
 
 Below the threshold nothing yields, so the common case costs nothing. Above it, one autonomous
