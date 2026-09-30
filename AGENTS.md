@@ -160,7 +160,8 @@ on, links to or describes them.
   different cwd or replaced environment. Child test hooks and ordinary child
   exit checks reject swallowed escapes; callers must assert child exit codes.
   This covers Bun executables named `bun` or matching `process.execPath`.
-  Node transports, `node:child_process`, shell commands, arbitrary executables,
+  Bun's `node:child_process` delegates to the patched spawn path too. Node
+  transports, subprocess APIs in a Node runtime, shell commands, arbitrary executables,
   browser egress and deliberate replacement of the guard are not instrumented:
   use an explicitly offline harness for those, not a claim of sandboxing.
   Intentional measurement scripts launched outside tests retain normal

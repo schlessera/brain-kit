@@ -31,7 +31,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       const replay = request.clone();
       const response = await nativeFetch(request, { redirect: "manual" });
       const location = REDIRECTS.has(response.status) ? response.headers.get("location") : null;
-      if (mode === "manual" || !location) {
+      if (mode === "manual" || location === null) {
         if (hop) Object.defineProperty(response, "redirected", { value: true });
         return response;
       }

@@ -1,7 +1,7 @@
 /** Real isolated test/runtime processes, with native sentinels under the guard. */
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -13,6 +13,12 @@ const shellQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 async function run(scenario: string, entry: "direct" | "targeted" | "full" | "package" = "direct", packageDir = ROOT) {
   const dir = mkdtempSync(join(tmpdir(), "network-guard-"));
   try {
+    // An explicit offline harness: this alias is intentionally outside the
+    // guard's recognized Bun commands. Every test process loads sentinels
+    // before its guard. node:child_process alone is not a bypass under Bun,
+    // where it delegates to the patched Bun.spawn.
+    const probeRuntime = join(dir, "probe-runtime");
+    symlinkSync(process.execPath, probeRuntime);
     const configFile = join(packageDir, "bunfig.toml");
     const config = (existsSync(configFile) ? Bun.TOML.parse(readFileSync(configFile, "utf8")) : {}) as { test?: { preload?: string[] } };
     const configured = entry === "direct" || entry === "package" ? (config.test?.preload ?? []).map((file) => join(packageDir, file)) : [];
@@ -39,9 +45,7 @@ async function run(scenario: string, entry: "direct" | "targeted" | "full" | "pa
       const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts: { test: manifest.scripts.test } }));
     }
-    // This safe harness deliberately uses node:child_process rather than
-    // inheriting a guard ahead of the controlled native sentinels.
-    const child = spawn(process.execPath, args, { cwd: dir,
+    const child = spawn(probeRuntime, args, { cwd: dir,
       env: { PATH: process.env.PATH!, PROBE_BUN: fixtureBun, PROBE_DIR: dir }, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     child.stdout.on("data", (data) => { output += data; });
@@ -98,7 +102,10 @@ describe("offline test guard", () => {
     const dir = mkdtempSync(join(tmpdir(), "network-measurement-"));
     try {
       const script = join(dir, "measure.ts");
+      const probeRuntime = join(dir, "probe-runtime");
+      symlinkSync(process.execPath, probeRuntime);
       writeFileSync(script, `
+        if (globalThis.fetch.name === "offlineFetch") throw new Error("guard loaded outside tests");
         const calls = [];
         globalThis.fetch = async (input) => {
           const url = input instanceof Request ? input.url : String(input);
@@ -110,7 +117,7 @@ describe("offline test guard", () => {
         for (const path of ["gone", "denied"]) await client.getText("https://measurement.example.invalid/" + path, { retries: 0 }).catch(() => {});
         console.log(JSON.stringify({ calls, captures: client.captures }));
       `);
-      const child = spawn(process.execPath, [script], { cwd: ROOT, env: { PATH: process.env.PATH! }, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(probeRuntime, [script], { cwd: ROOT, env: { PATH: process.env.PATH! }, stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       let error = "";
       child.stdout.on("data", (data) => { output += data; });
@@ -126,6 +133,7 @@ describe("offline test guard", () => {
   for (const entry of ["targeted", "full"] as const) {
     test(`${entry} repository test entry point loads the guard`, async () => {
       const result = await run("partial", entry);
+      expect(result.calls.length, result.output).toBeGreaterThan(0);
       expect(result.calls.flat()).toEqual([]);
       expect(result.output).toContain("Offline test guard");
       expect(result.code).not.toBe(0);
