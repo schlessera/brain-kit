@@ -5,6 +5,7 @@ import { join } from "path";
 
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import {
+  API_FAILURE_DETAIL,
   runBackendContract,
   type BackendContractHarness,
   type TurnScript,
@@ -91,6 +92,51 @@ function piFailingSession(script: TurnScript): PiSessionLike {
   };
 }
 
+/** Emit one pi AgentSession event to every listener. */
+type Emit = (event: unknown) => void;
+
+/**
+ * A session whose prompt plays `before` through its listeners, then the
+ * script. pi reports a provider failure as events, not a throw (#575).
+ */
+function piEventSession(script: TurnScript, before: (emit: Emit) => void): PiSessionLike {
+  const base = piFakeSession(script);
+  const listeners = new Set<Emit>();
+  return {
+    ...base,
+    subscribe(listener) {
+      const unsubscribeBase = base.subscribe(listener);
+      listeners.add(listener as Emit);
+      return () => {
+        listeners.delete(listener as Emit);
+        unsubscribeBase();
+      };
+    },
+    async prompt(...args) {
+      before((event) => {
+        for (const listener of listeners) listener(event);
+      });
+      await base.prompt(...args);
+    },
+  };
+}
+
+const failedAnswer = (errorMessage: string) => ({
+  type: "message_end",
+  message: { role: "assistant", model: "m", content: [], stopReason: "error", errorMessage, usage: {} },
+});
+
+function piEventBackend(script: TurnScript, before: (emit: Emit) => void): AgentBackend {
+  return createPiBackend({
+    brainPath: tempBrain(),
+    profiles: [{ id: "sonnet", label: "Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5" }],
+    sessionFactory: {
+      newSession: async () => piEventSession(script, before),
+      openSession: async () => piEventSession(script, before),
+    },
+  });
+}
+
 const harness: BackendContractHarness = {
   name: "pi",
   scripted: (script) => piHarnessBackend(script, false),
@@ -103,6 +149,16 @@ const harness: BackendContractHarness = {
         newSession: async () => piFailingSession(script),
         openSession: async () => piFailingSession(script),
       },
+    }),
+  apiFailure: (script) =>
+    piEventBackend(script, (emit) =>
+      emit(failedAnswer(`400 {"type":"error","error":{"message":"${API_FAILURE_DETAIL}"}}`))
+    ),
+  retrying: (script) =>
+    piEventBackend(script, (emit) => {
+      emit(failedAnswer("429 rate limited"));
+      emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "429 rate limited" });
+      emit({ type: "message_end", message: { role: "assistant", model: "m", content: [], stopReason: "stop", usage: {} } });
     }),
   unknownProfileId: "no-such-profile",
 };

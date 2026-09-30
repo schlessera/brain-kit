@@ -13,7 +13,7 @@
  * helper replaces whole values.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 
 import { frontmatterLength } from "./document-parts.js";
 import { stringifyDocument } from "./frontmatter.js";
@@ -119,9 +119,7 @@ function typed(value: unknown, open: Set<object> = new Set()): unknown {
 
 function parseData(text: string): Record<string, unknown> | null {
   try {
-    // Options bypass gray-matter's cache, which shares one data object
-    // between byte-identical inputs (#142).
-    return matter(text, {}).data as Record<string, unknown>;
+    return parseFrontmatter(text).data as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -308,7 +306,7 @@ export function updateDocument(raw: string, updates: Record<string, FrontmatterV
     const length = frontmatterLength(edited);
     return edited.slice(0, length) + appendTo(edited.slice(length));
   }
-  const parsed = matter(raw, {});
+  const parsed = parseFrontmatter(raw);
   const data: Record<string, unknown> = { ...parsed.data };
   for (const [key, value] of Object.entries(updates)) {
     if (value === null) delete data[key];

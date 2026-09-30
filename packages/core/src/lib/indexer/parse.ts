@@ -17,7 +17,7 @@
  */
 import { createHash } from "crypto";
 import { readFileSync, statSync } from "fs";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../frontmatter-parse.js";
 import { resolve } from "path";
 
 import { CHUNKER_VERSION } from "../chunker.js";
@@ -64,7 +64,7 @@ export function parseMarkdownFiles(
     let data: Record<string, any>;
     let content: string;
     try {
-      const front = matter(raw);
+      const front = parseFrontmatter(raw);
       data = front.data;
       content = front.content;
     } catch {

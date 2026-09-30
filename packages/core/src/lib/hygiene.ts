@@ -17,7 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync } from "fs";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { basename, dirname, join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -411,8 +411,7 @@ function splitFrontmatter(text: string, rel: string): { frontmatter: string; bod
   if (!frontmatter) throw new HygieneLogError(`${rel}: the frontmatter is never closed with ---; fix it by hand, brain hygiene will not rewrite it`);
   let data: unknown;
   try {
-    // With options, gray-matter skips its cache, which would hand back a failed parse as a success.
-    data = matter(frontmatter, {}).data;
+    data = parseFrontmatter(frontmatter).data;
   } catch (e) {
     throw new HygieneLogError(`${rel}: the frontmatter is not valid YAML (${(e as Error).message.split("\n")[0]}); fix it by hand, brain hygiene will not rewrite it`);
   }

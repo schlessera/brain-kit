@@ -35,7 +35,7 @@ import {
   writeFileSync,
 } from "fs";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../lib/frontmatter-parse.js";
 
 /** Agent Skills standard: lowercase kebab, no traversal, bounded. */
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -103,7 +103,7 @@ export function createSkillManager(brainPath: string): SkillManager {
       return { description: "", warning: "SKILL.md is missing" };
     }
     try {
-      const data = matter(readFileSync(file, "utf-8")).data as Record<string, unknown>;
+      const data = parseFrontmatter(readFileSync(file, "utf-8")).data as Record<string, unknown>;
       const description = typeof data.description === "string" ? data.description : "";
       if (!description) return { description: "", warning: "frontmatter has no description" };
       return { description };
@@ -135,7 +135,7 @@ export function createSkillManager(brainPath: string): SkillManager {
     }
     let data: Record<string, unknown>;
     try {
-      data = matter(content).data as Record<string, unknown>;
+      data = parseFrontmatter(content).data as Record<string, unknown>;
     } catch (e) {
       throw new SkillValidationError(
         `Frontmatter does not parse: ${e instanceof Error ? e.message : String(e)}`

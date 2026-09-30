@@ -4,11 +4,17 @@ import type {
   ChatImageAttachment,
   ServerMessage,
   StartTurnRequest,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture } from "@schlessera/brain-ui-sdk/server";
 
 import { mapPiEvent } from "./event-adapter.js";
 import type { SessionPool } from "./session-pool.js";
+import {
+  createTurnFailureTracker,
+  failureFromPiError,
+  type TurnFailureTracker,
+} from "./turn-failure.js";
 import {
   createUsageAccumulator,
   snapshotCost,
@@ -55,13 +61,15 @@ export function createPiTurnRunner(
     };
     const costBefore = snapshotCost(session);
     const usage = createUsageAccumulator();
+    const failures = createTurnFailureTracker();
     let failed = false;
+    let thrown: TurnFailure | null = null;
 
     try {
       if (!req.signal.aborted) {
         req.signal.addEventListener("abort", onAbort, { once: true });
       }
-      unsubscribe = session.subscribe(makeEventHandler(emit, usage));
+      unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures));
       // session_info must precede any content frames for a new session.
       emit({
         type: "session_info",
@@ -87,6 +95,7 @@ export function createPiTurnRunner(
       failed = true;
       if (!cancelled) {
         emit({ type: "error", code: "agent_error", message: errorMessage(err) });
+        thrown = failureFromPiError(errorMessage(err));
       }
     } finally {
       unsubscribe();
@@ -115,6 +124,11 @@ export function createPiTurnRunner(
       });
       return;
     }
+    // A provider failure does not throw: prompt() resolves, and the turn's
+    // last answer is the error (#575). Its usage is already in `wireUsage`,
+    // counted once from its message_end like any other answer.
+    const failure = thrown ?? failures.failure();
+    if (failure) failed = true;
     // Parity with the claude backend, which emits idle before its terminal
     // result — the two backends must produce interchangeable frame streams.
     emit({ type: "status", status: "idle" });
@@ -127,6 +141,7 @@ export function createPiTurnRunner(
       durationMs: Date.now() - startedAt,
       numTurns: 1,
       isError: failed,
+      ...(failure ? { failure } : {}),
     });
   };
 }
@@ -143,10 +158,12 @@ function scopeFrame(msg: ServerMessage, sessionId: string): ServerMessage {
 /** Translate pi AgentSession events into wire-protocol frames. */
 function makeEventHandler(
   emit: (msg: ServerMessage) => void,
-  usage: TurnUsageAccumulator
+  usage: TurnUsageAccumulator,
+  failures: TurnFailureTracker
 ) {
   return (event: AgentSessionEvent): void => {
     usage.observe(event);
+    for (const frame of failures.observe(event)) emit(frame);
     for (const frame of mapPiEvent(event)) emit(frame);
   };
 }

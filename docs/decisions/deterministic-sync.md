@@ -119,7 +119,7 @@ back.
 Commit messages come from a template (`<Verb> <domain>: <titles>`), with the
 files in the body. An agent may rewrite them through `commit --plan` and
 `commit --plan-file`, which re-check the files against the tracked set
-(`applyCommitPlan`, `packages/core/src/lib/sync/commit.ts:274`). Stash
+(`applyCommitPlan`, `packages/core/src/lib/sync/commit.ts:273`). Stash
 entries are dropped only when the working tree already contains them, and
 popped only when they are autostashes that apply cleanly and stage no
 version a pop without `--index` would lose

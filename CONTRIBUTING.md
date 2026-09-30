@@ -132,6 +132,14 @@ needs an API key or the network.
    the changeset itself short — what was added / changed / removed, in one line
    each. The commit it links to carries the reasoning.
 
+Frontmatter is parsed only through `parseFrontmatter`, whose canonical copy is
+`packages/core/src/lib/frontmatter-parse.ts`. A package that needs to parse
+frontmatter copies that file in verbatim, the same way the `env-core.ts` files
+are shared. `tests/frontmatter-parse-sync.test.ts` holds the copies identical,
+and `scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any
+other import of gray-matter. The reason is in
+[docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
+
 The header of `tests/env-core-sync.test.ts` records why the `env-core.ts` files
 remain synchronized copies instead of moving into a shared package.
 

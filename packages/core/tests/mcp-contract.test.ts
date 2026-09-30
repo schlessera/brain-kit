@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -399,7 +399,7 @@ describe("brain_graph", () => {
       expect(endpoints.size).toBeGreaterThan(1);
       // In path order as returned, with each document's own frontmatter.
       const expected = [...endpoints].sort().map((path) => {
-        const data = matter(readFileSync(join(root, path), "utf-8"), {}).data;
+        const data = parseFrontmatter(readFileSync(join(root, path), "utf-8")).data;
         const date = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
         return { path, title: data.title, type: data.type, summary: data.summary ?? null, updated: date(data.updated) };
       });

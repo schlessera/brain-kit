@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../frontmatter-parse.js";
 
 import { estimateTokens } from "../context-assembler.js";
 import type { SkillManifest } from "../seams.js";
@@ -91,7 +91,7 @@ function lintSkill(skill: SkillManifest): LintFinding[] {
   let frontmatter: Record<string, unknown> = skill.frontmatter ?? {};
   if (existsSync(skillFile)) {
     try {
-      const parsed = matter(readFileSync(skillFile, "utf8"));
+      const parsed = parseFrontmatter(readFileSync(skillFile, "utf8"));
       body = parsed.content;
       frontmatter = parsed.data as Record<string, unknown>;
     } catch (e) {

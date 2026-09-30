@@ -8,7 +8,7 @@
  * in brain.config (or a person) decides. Nothing here writes a file.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
@@ -60,7 +60,7 @@ export function collectTaggedDocuments(root: string, taxonomy: Taxonomy): Tagged
   for (const path of getMarkdownFiles(root, taxonomy)) {
     let data: Record<string, unknown>;
     try {
-      data = matter(readFileSync(resolve(root, path), "utf-8")).data;
+      data = parseFrontmatter(readFileSync(resolve(root, path), "utf-8")).data;
     } catch {
       continue; // unreadable or invalid frontmatter: `brain validate` reports it
     }

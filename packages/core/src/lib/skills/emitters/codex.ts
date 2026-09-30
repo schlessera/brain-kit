@@ -17,7 +17,7 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../frontmatter-parse.js";
 
 import type { SkillEmitter } from "../../seams.js";
 import { INDEX_END, INDEX_START } from "./index-block.js";
@@ -85,7 +85,7 @@ function isGeneratedPrompt(text: string, name: string, description: string): boo
   if (!text.startsWith(`---\nname: ${JSON.stringify(name)}\ndescription: "`)) return false;
   let data: Record<string, unknown>;
   try {
-    data = matter(text).data as Record<string, unknown>;
+    data = parseFrontmatter(text).data as Record<string, unknown>;
   } catch {
     return false;
   }

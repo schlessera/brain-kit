@@ -52,6 +52,7 @@ import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { MarkdownContent } from "../../src/components/chat/markdown-content.js";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { READING_COLUMN_ATTR } from "../../src/lib/client-environment.js";
 import { AskUserCard } from "../../src/components/chat/ask-user-card.js";
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
 import type { ToolCall } from "../../src/stores/chat-store.js";
@@ -5412,6 +5413,95 @@ describe("approval decisions in the run detail (#113)", () => {
     } finally {
       view.unmount();
       root.dispose();
+    }
+  });
+});
+
+/* ── #93: New chat is a disc over the transcript, not a row above it ─────── */
+
+describe("New chat on the chat page (#93)", () => {
+  function mountChat(seed: boolean) {
+    globalThis.fetch = (async () =>
+      Response.json({ entries: [], providers: [], backends: {}, slugs: {}, models: [], sessions: [] })) as unknown as typeof fetch;
+    globalThis.WebSocket = PageSocket as unknown as typeof WebSocket;
+    const root = createBrainUiRoot({ storage: null });
+    const release = root.connection.connect();
+    if (seed) {
+      act(() => {
+        root.stores.chat.getState().addUserMessage(null, "What did Circe say about the strait?", "typed");
+      });
+    }
+    const view = render(<BrainUiProvider root={root}><ChatPage /></BrainUiProvider>);
+    return {
+      root,
+      view,
+      done: () => {
+        view.unmount();
+        release();
+        root.dispose();
+      },
+    };
+  }
+
+  test("it is drawn inside the message area, icon-only, and no row above the transcript remains", async () => {
+    const { view, done } = mountChat(true);
+    try {
+      await act(flushPromises);
+      // The transcript is there, so the conversation the button leaves is too.
+      expect(view.container.textContent).toContain("What did Circe say about the strait?");
+      const button = view.getByRole("button", { name: "New chat" });
+
+      // A sibling of the transcript's scroller, inside the positioned
+      // message area, anchored to its top right.
+      const scroller = view.container.querySelector(`[${READING_COLUMN_ATTR}]`)!.parentElement!;
+      const area = scroller.parentElement!;
+      expect(button.parentElement === area).toBe(true);
+      expect(area.className.split(" ")).toContain("relative");
+      const classes = button.className.split(" ");
+      expect(classes).toContain("absolute");
+      expect(classes).toContain("right-4");
+      expect(classes).toContain("top-2.5");
+      // Named by label and title; icon-only, so no visible text.
+      expect(button.getAttribute("title")).toBe("New chat");
+      expect(button.textContent).toBe("");
+      expect(button.querySelector("svg") !== null).toBe(true);
+      // A 44px target around the scroll disc's 32px paint.
+      expect(classes).toEqual(expect.arrayContaining(["h-11", "w-11"]));
+      const disc = button.firstElementChild!.className.split(" ");
+      expect(disc).toEqual(
+        expect.arrayContaining(["h-8", "w-8", "rounded-full", "border", "border-border", "bg-surface", "shadow-md", "text-muted-foreground"])
+      );
+
+      // The page column holds the message area directly after the panels:
+      // nothing in flow between them takes the transcript's height.
+      const column = area.parentElement!;
+      const inFlow = [...column.children].filter((el) => el.className.split(" ").includes("shrink-0"));
+      expect(inFlow).toEqual([]);
+    } finally {
+      done();
+    }
+  });
+
+  test("one activation starts a new chat, and with no conversation there is no button", async () => {
+    const { root, view, done } = mountChat(true);
+    try {
+      await act(flushPromises);
+      expect(activeChat(root.stores.chat.getState()).messages).toHaveLength(1);
+      fireEvent.click(view.getByRole("button", { name: "New chat" }));
+      expect(activeChat(root.stores.chat.getState()).messages).toHaveLength(0);
+      expect(view.queryByRole("button", { name: "New chat" }) === null).toBe(true);
+    } finally {
+      done();
+    }
+  });
+
+  test("a chat with no messages mounts without it", async () => {
+    const { view, done } = mountChat(false);
+    try {
+      await act(flushPromises);
+      expect(view.queryByRole("button", { name: "New chat" }) === null).toBe(true);
+    } finally {
+      done();
     }
   });
 });

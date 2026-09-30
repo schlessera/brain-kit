@@ -369,7 +369,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:174,175`, `getInitialState()`,
+`render-smoke.test.tsx:175,176`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -380,7 +380,7 @@ inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
 `details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
 `:46`), and Claude uses MCP `content` arrays via a different path
-(`const output =`, `stream-adapter.ts:145`). So "JSON payload in the output
+(`const output =`, `stream-adapter.ts:163`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
 `protocol.ts:43` states additions do not bump the rev, only semantics changes
@@ -4231,7 +4231,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:193`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:201`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.

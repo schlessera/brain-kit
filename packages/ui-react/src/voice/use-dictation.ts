@@ -131,16 +131,22 @@ export function useDictation() {
     setError,
   ]);
 
+  // Invalidate any in-flight start, cancel its session fetch, and hand back
+  // the current client for the caller to close. It reads the refs when it
+  // runs, not when the hook mounted, so it reaches a session started later.
+  const releaseCapture = useCallback((): AsrClient | null => {
+    startGenRef.current++;
+    sessionAbortRef.current?.abort();
+    sessionAbortRef.current = null;
+    const client = clientRef.current;
+    clientRef.current = null;
+    return client;
+  }, []);
+
   const stop = useCallback(
     async (commitToReview = true) => {
-      // Invalidate any in-flight start and cancel its session fetch, so a slow
-      // connect can't open the mic after the user has asked it to stop.
-      startGenRef.current++;
-      sessionAbortRef.current?.abort();
-      sessionAbortRef.current = null;
-
-      const client = clientRef.current;
-      clientRef.current = null;
+      // A slow connect must not open the mic after the user asked it to stop.
+      const client = releaseCapture();
 
       const setDraining = root.stores.voice.getState().setDraining;
       if (client) {
@@ -167,7 +173,7 @@ export function useDictation() {
       }
       resetCapture();
     },
-    [resetCapture, setMode, setConnecting, setReviewText, root]
+    [releaseCapture, resetCapture, setMode, setConnecting, setReviewText, root]
   );
 
   const cancel = useCallback(() => {
@@ -175,16 +181,10 @@ export function useDictation() {
   }, [stop]);
 
   useEffect(() => {
-    return () => {
-      // Tear down on unmount: invalidate the in-flight start, abort its fetch,
-      // and stop the client so no MediaStream survives the component.
-      startGenRef.current++;
-      sessionAbortRef.current?.abort();
-      sessionAbortRef.current = null;
-      clientRef.current?.stop();
-      clientRef.current = null;
-    };
-  }, [root]);
+    // Tear down on unmount or root change: invalidate the in-flight start,
+    // abort its fetch, and stop the client so no MediaStream survives.
+    return () => releaseCapture()?.stop();
+  }, [root, releaseCapture]);
 
   return { start, stop, cancel };
 }

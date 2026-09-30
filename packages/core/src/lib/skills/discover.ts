@@ -16,7 +16,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../frontmatter-parse.js";
 
 import type { LoadedModule } from "../module-types.js";
 import type { SkillManifest } from "../seams.js";
@@ -105,7 +105,7 @@ function readSkillsDir(
 
     let data: Record<string, unknown>;
     try {
-      data = matter(readFileSync(skillFile, "utf8")).data as Record<string, unknown>;
+      data = parseFrontmatter(readFileSync(skillFile, "utf8")).data as Record<string, unknown>;
     } catch (e) {
       warnings.push(`${skillFile}: could not parse frontmatter (${(e as Error).message}); skipped`);
       continue;

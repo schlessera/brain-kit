@@ -108,6 +108,8 @@ export "." (./src/index.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  SUBSCRIPTION_AUTH_INSTRUCTIONS
+  SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
@@ -142,9 +144,12 @@ export "." (./src/index.ts)
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
+  type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
+  type TurnFailure
+  type TurnRetry
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
@@ -152,10 +157,12 @@ export "." (./src/index.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   canonicalModelId
+  describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  subscriptionAuthAction
   sumModelUsage
 
 export "./client" (./src/client/index.ts)
@@ -351,6 +358,8 @@ export "./client" (./src/client/index.ts)
   SPAN_TOOL_NAME_PREFIX
   STATS_BLOCK_SCHEMA
   STEPS_BLOCK_SCHEMA
+  SUBSCRIPTION_AUTH_INSTRUCTIONS
+  SUBSCRIPTION_RELOGIN_PROCEDURE
   SUGGESTIONS_BLOCK_SCHEMA
   SUGGESTIONS_MAX_ITEMS
   SUGGESTION_MAX_LENGTH
@@ -393,6 +402,7 @@ export "./client" (./src/client/index.ts)
   type ShowBlockPayload
   type ShowBlockSchemaForm
   type SpeechCapabilities
+  type SubscriptionAuthAction
   type SystemStatus
   TABLE_BLOCK_SCHEMA
   THINKING_LEVELS
@@ -408,6 +418,8 @@ export "./client" (./src/client/index.ts)
   type ToolRenderer
   type ToolRendererRegistry
   type ToolSemantics
+  type TurnFailure
+  type TurnRetry
   type TurnUsage
   type UnpinnedReason
   type VoiceKeytermsResponse
@@ -426,6 +438,7 @@ export "./client" (./src/client/index.ts)
   defaultToolRendererRegistry
   defineToolComponentContract
   defineToolContract
+  describeRetry
   drawnBounds
   formatDistance
   frameEnvelope
@@ -444,6 +457,7 @@ export "./client" (./src/client/index.ts)
   resolveToolRenderer
   showBlockInputSchema
   speechUiHints
+  subscriptionAuthAction
   sumModelUsage
   toolBriefLines
   toolInputJsonSchema
@@ -556,6 +570,8 @@ export "./protocol" (./src/protocol.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  SUBSCRIPTION_AUTH_INSTRUCTIONS
+  SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskUserListRequest
@@ -590,9 +606,12 @@ export "./protocol" (./src/protocol.ts)
   type ShareStagingManifest
   type SharedFileMeta
   type SpeechCapabilities
+  type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
   type ThinkingLevel
+  type TurnFailure
+  type TurnRetry
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
@@ -600,10 +619,12 @@ export "./protocol" (./src/protocol.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   canonicalModelId
+  describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  subscriptionAuthAction
   sumModelUsage
 
 export "./push-handlers" (./src/client/push-handlers.ts)
@@ -987,6 +1008,8 @@ export "./server" (./src/server/index.ts)
   type ToolPermissionApproval
   type ToolPermissionDecisionInput
   type TranscriptStore
+  type TurnFailure
+  type TurnRetry
   type TurnUsage
   type VoiceKeytermsResponse
   type VoiceMode
@@ -1025,6 +1048,7 @@ export "./server" (./src/server/index.ts)
   defineSpeechProvider
   defineToolComponentContract
   defineToolContract
+  describeRetry
   detailFor
   detectCandidates
   execWrapperSpawnOptions
@@ -1115,6 +1139,7 @@ export "./sw-policy" (./src/client/sw-policy.ts)
   registerDefaultRoutes
 
 export "./testing" (./src/testing/index.ts)
+  API_FAILURE_DETAIL
   type BackendContractHarness
   type ContractTestPrimitives
   type TurnScript
@@ -1978,6 +2003,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         type: "error";
         code: string;
         message: string;
+        failure?: TurnFailure;
     }
   ServerHello (packages/ui-sdk/src/protocol.ts)
     export interface ServerHello {
@@ -2025,6 +2051,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         isError: boolean;
         usage?: TurnUsage;
         outcomeDetail?: string;
+        failure?: TurnFailure;
     }
   ServerSessionHistory (packages/ui-sdk/src/protocol.ts)
     export interface ServerSessionHistory extends SessionScoped {
@@ -2046,6 +2073,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         type: "status";
         status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
         detail?: string;
+        retry?: TurnRetry;
         activeSessionId?: string;
     }
   ServerTextDelta (packages/ui-sdk/src/protocol.ts)
@@ -2113,6 +2141,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         blocks?: MessageBlock[];
         source?: MessageSource;
         localAnswer?: LocalAnswer;
+        failure?: TurnFailure;
     }
   SessionScoped (packages/ui-sdk/src/protocol.ts)
     export interface SessionScoped {
@@ -2154,6 +2183,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;
     }
+  SubscriptionAuthAction (packages/ui-sdk/src/protocol.ts)
+    export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
   ThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   ToolCallView (packages/ui-sdk/src/client/renderers.ts)
@@ -2192,6 +2223,21 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         command?(tool: ToolCallView): string | null;
         writePath?(tool: ToolCallView): string | null;
         unsandboxed?(tool: ToolCallView): boolean;
+    }
+  TurnFailure (packages/ui-sdk/src/protocol.ts)
+    export interface TurnFailure {
+        errorClass: string;
+        status?: number;
+        message: string;
+        authAction?: SubscriptionAuthAction;
+    }
+  TurnRetry (packages/ui-sdk/src/protocol.ts)
+    export interface TurnRetry {
+        attempt: number;
+        maxAttempts?: number;
+        delayMs?: number;
+        errorClass?: string;
+        status?: number;
     }
   TurnUsage (packages/ui-sdk/src/protocol.ts)
     export interface TurnUsage extends ModelUsage {

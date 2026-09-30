@@ -22,7 +22,15 @@ import { motion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
-import { AttachmentCount, ThinkingBlock, ThinkingIndicator, TurnHeader, UserTurn } from "./transcript-turn.js";
+import {
+  AttachmentCount,
+  RetryIndicator,
+  ThinkingBlock,
+  ThinkingIndicator,
+  TurnHeader,
+  UserTurn,
+} from "./transcript-turn.js";
+import { failureMarkdown } from "../../lib/turn-failure.js";
 
 /**
  * One message in the transcript.
@@ -382,7 +390,20 @@ function AssistantContent({
 
       {unmatchedExchanges.map((ex) => renderExchange(ex, ex.requestId))}
 
-      {message.isStreaming && groups.length === 0 && unmatchedExchanges.length === 0 && <ThinkingIndicator />}
+      {/* The failure that ended the turn (#575), after whatever it answered
+          first, live and on replay alike. */}
+      {message.failure && (
+        <div className="chat-message-body" data-turn-failure={message.failure.errorClass}>
+          <MarkdownContent content={failureMarkdown(message.failure)} streaming={false} />
+        </div>
+      )}
+
+      {message.isStreaming && message.retry && <RetryIndicator retry={message.retry} />}
+
+      {message.isStreaming &&
+        !message.retry &&
+        groups.length === 0 &&
+        unmatchedExchanges.length === 0 && <ThinkingIndicator />}
 
       {/* One closing row per answer (D37 §8, D50): the follow-ups the model
           offered, after everything else, until the next user message. */}

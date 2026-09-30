@@ -231,8 +231,9 @@ describe("brain tags --apply", () => {
   const git = (root: string, ...args: string[]) =>
     Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
 
-  // Two byte-identical documents: gray-matter's cache hands both the same
-  // parsed object (#142), so a rewrite through parsed data migrates only one.
+  // Two byte-identical documents: gray-matter's own cache would hand both the
+  // same parsed object (#142), and a rewrite through parsed data would then
+  // migrate only one.
   const TWIN = "---\ntitle: Twin\ntype: note\ntags: [trails, hiking]\n---\n\nbody\n";
 
   test("byte-identical documents both migrate, and every other document keeps its own tags", async () => {

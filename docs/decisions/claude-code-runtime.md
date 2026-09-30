@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:127-128`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:132-133`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -93,7 +93,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:215-220`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:242-247`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -301,7 +301,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
   `.github/workflows/ci.yml:56`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:127-128`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:132-133`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
@@ -482,10 +482,12 @@ subscription authenticates.
   then an `assistant` message with `error: "authentication_failed"` and the text
   "Failed to authenticate. API Error: 401 OAuth access token is invalid.", then
   a `result` with **`subtype: "success"`** and `is_error: true`. The adapter
-  branches on `subtype` alone
-  (`if (msg.subtype === "success")`, `packages/ui-backend-claude/src/stream-adapter.ts:184-194`), so today an auth
-  failure reaches the client as a successful turn with no text. That is #191's
-  failure, and an auth failure is one of its cases.
+  branched on `subtype` alone, so an auth failure reached the client as a
+  successful turn with no text. That was #191's failure, and an auth failure is
+  one of its cases. Since #575 the adapter reads `is_error` on either subtype
+  (`msg.subtype === "success" && !msg.is_error`,
+  `packages/ui-backend-claude/src/stream-adapter.ts:202`) and ends the turn on a
+  `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
   validity.

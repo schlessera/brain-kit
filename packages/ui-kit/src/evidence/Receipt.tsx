@@ -40,7 +40,8 @@ export interface ReceiptProps {
   footnote?: string;
   footIcon?: IconName;
   footTone?: Tone;
-  /** Key column width, 40-90. */
+  /** Key column width, 40-90. The column grows to the widest key, up to 90,
+   * and a key longer than 90px wraps inside it. */
   keyWidth?: number;
   radius?: number;
 }
@@ -63,6 +64,11 @@ const TONES: Record<ValueTone, string> = {
   dim: color.inkDim,
 };
 
+/** The documented `keyWidth` range. The upper bound is also the most the
+ * column grows to fit a long key. */
+const KEY_MIN = 40;
+const KEY_MAX = 90;
+
 const FALLBACK: ReceiptRow[] = [
   { k: "tool", v: "Edit" },
   { k: "path", v: "talks/lisbon-2026.md", tone: "teal" },
@@ -72,6 +78,7 @@ export function Receipt(p: ReceiptProps) {
   const rows = p.rows || FALLBACK;
   const title = p.title ?? "Capability you'd grant";
   const footnote = p.footnote ?? "this file only · this run only · not a standing grant";
+  const keyWidth = Math.min(KEY_MAX, Math.max(KEY_MIN, Number(p.keyWidth) || 56));
 
   const box: CSSProperties = {
     border: `1px solid ${color.edge}`,
@@ -92,8 +99,29 @@ export function Receipt(p: ReceiptProps) {
     textTransform: "uppercase",
     color: color.inkMute,
   };
-  const rowStyle: CSSProperties = { display: "flex", gap: 10, padding: "8px 12px", font: `500 11px/1.5 ${font.mono}` };
-  const keyStyle: CSSProperties = { width: Number(p.keyWidth) || 56, flex: "none", color: color.inkMute };
+  // One grid for every row, so the key column is sized once (#88): as wide as
+  // the widest key, never narrower than `keyWidth` and never wider than 90. A
+  // key past 90 wraps inside the column rather than running over the gutter
+  // into its value, and is never cut: a receipt row IS the record
+  // (`docs/decisions/design-feedback.md`, "where truncation is allowed"). The
+  // value column's left edge is the same on every row. When every key fits,
+  // the track is exactly `keyWidth` and the geometry is the old flex row's,
+  // cell boxes included: its 8px block padding is the grid's padding and half
+  // of its 16px row gap.
+  const rowsGrid: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `minmax(${keyWidth}px, max-content) minmax(0, 1fr)`,
+    gap: "16px 10px",
+    padding: "8px 12px",
+    font: `500 11px/1.5 ${font.mono}`,
+  };
+  const rowStyle: CSSProperties = { display: "contents" };
+  const keyStyle: CSSProperties = {
+    maxWidth: KEY_MAX,
+    minWidth: 0,
+    overflowWrap: "anywhere",
+    color: color.inkMute,
+  };
   const diffWrap: CSSProperties = { padding: "2px 12px 10px" };
   const foot: CSSProperties = {
     display: "flex",
@@ -113,28 +141,31 @@ export function Receipt(p: ReceiptProps) {
           {title}
         </div>
       ) : null}
-      {rows.map((row, i) => {
-        const tone = row.tone || "dim";
-        const cue = VALUE_CUE[tone];
-        return (
-          <div key={`${row.k}-${i}`} style={rowStyle}>
-            <span style={keyStyle}>{row.k}</span>
-            <span
-              data-tone={tone}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                wordBreak: "break-all",
-                color: TONES[tone] || TONES.dim,
-                fontWeight: 500,
-              }}
-            >
-              {cue ? <Cue icon={cue} size={11} inline /> : null}
-              {row.v}
-            </span>
-          </div>
-        );
-      })}
+      {rows.length ? (
+        <div style={rowsGrid}>
+          {rows.map((row, i) => {
+            const tone = row.tone || "dim";
+            const cue = VALUE_CUE[tone];
+            return (
+              <div key={`${row.k}-${i}`} style={rowStyle}>
+                <span style={keyStyle}>{row.k}</span>
+                <span
+                  data-tone={tone}
+                  style={{
+                    minWidth: 0,
+                    wordBreak: "break-all",
+                    color: TONES[tone] || TONES.dim,
+                    fontWeight: 500,
+                  }}
+                >
+                  {cue ? <Cue icon={cue} size={11} inline /> : null}
+                  {row.v}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       {p.diff ? (
         <div style={diffWrap}>
           <DiffBlock text={p.diff} variant="inset" />

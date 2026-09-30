@@ -71,6 +71,8 @@ import type {
   ServerActivitySnapshot,
   ServerActivityDelta,
   ModelUsage,
+  TurnFailure,
+  TurnRetry,
   TurnUsage,
 } from "./protocol.js";
 import {
@@ -610,6 +612,26 @@ const localAnswerSchema = z.looseObject({
   answer: z.unknown(),
 }) satisfies z.ZodType<LocalAnswer>;
 
+/**
+ * A turn's provider failure (#575). Where it rides a frame it is caught to
+ * `undefined` when unreadable: the frame is a turn's terminal, and dropping
+ * it over an additive field would leave the turn hanging.
+ */
+const turnFailureSchema = z.looseObject({
+  errorClass: z.string().max(MAX_ID_CHARS),
+  status: z.number().int().optional(),
+  message: z.string(),
+  authAction: z.enum(["relogin", "check_account", "check_config"]).optional().catch(undefined),
+}) satisfies z.ZodType<TurnFailure>;
+
+const turnRetrySchema = z.looseObject({
+  attempt: z.number().int().min(1),
+  maxAttempts: z.number().int().min(1).optional(),
+  delayMs: z.number().min(0).optional(),
+  errorClass: z.string().max(MAX_ID_CHARS).optional(),
+  status: z.number().int().optional(),
+}) satisfies z.ZodType<TurnRetry>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -629,6 +651,7 @@ const historyMessageSchema = z.looseObject({
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
   localAnswer: localAnswerSchema.optional().catch(undefined),
+  failure: turnFailureSchema.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -722,12 +745,14 @@ export const serverResultSchema = z.looseObject({
   isError: z.boolean(),
   usage: turnUsageSchema.optional(),
   outcomeDetail: z.string().max(200).optional(),
+  failure: turnFailureSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
   type: z.literal("error"),
   code: z.string(),
   message: z.string(),
+  failure: turnFailureSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerError>;
 
@@ -735,6 +760,7 @@ export const serverStatusSchema = z.looseObject({
   type: z.literal("status"),
   status: z.enum(["thinking", "tool_executing", "idle", "cancelled", "queued"]),
   detail: z.string().optional(),
+  retry: turnRetrySchema.optional().catch(undefined),
   activeSessionId: z.string().max(MAX_ID_CHARS).optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerStatus>;

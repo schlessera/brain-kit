@@ -10,7 +10,7 @@ import * as fs from "fs";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
 import { openDatabase as openBrainDb } from "@schlessera/brain";
 import { openDatabase } from "../src/db";
@@ -73,7 +73,7 @@ describe("jobs scaffold", () => {
     const { code, stderr } = await brain(root, "jobs", "scaffold", String(id), "--json");
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
     const text = readFileSync(join(root, "career/opportunities/ridge-works/status.md"), "utf8");
-    const data = matter(text, {}).data;
+    const data = parseFrontmatter(text).data;
     expect(data.stage).toBe("researching");
     expect(data.tags).toEqual(["job-search"]);
     for (const section of ["Overview", "Fit Assessment", "Materials Sent", "Contacts", "Timeline", "Notes", "Full Job Description"]) {
@@ -155,7 +155,7 @@ describe("jobs pipeline refuses to guess", () => {
     ["a `...` document end", "---\ntype: index\ntitle: Pipeline\n...\n---\nNotes.\n"],
   ])("frontmatter written as %s is refused, its bytes untouched", async (_, text) => {
     // The premise: the index is valid as it stands.
-    expect(matter(text, {}).data).toMatchObject({ type: "index", title: "Pipeline" });
+    expect(parseFrontmatter(text).data).toMatchObject({ type: "index", title: "Pipeline" });
     const root = makeBrain({ [INDEX]: text });
     const { code, stderr } = await brain(root, "jobs", "pipeline");
     expect(readFileSync(join(root, INDEX), "utf8")).toBe(text);

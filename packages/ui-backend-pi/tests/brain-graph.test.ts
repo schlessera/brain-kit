@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../core/src/lib/frontmatter-parse";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { indexAll, initContext, openDatabase } from "@schlessera/brain";
@@ -56,7 +56,7 @@ async function graph(path: string, brainRoot = root): Promise<Graph> {
 
 /** What a node should say: the document's own frontmatter. */
 function expectedNode(path: string) {
-  const data = matter(readFileSync(join(root, path), "utf-8"), {}).data;
+  const data = parseFrontmatter(readFileSync(join(root, path), "utf-8")).data;
   const date = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
   return { path, title: data.title, type: data.type, summary: data.summary ?? null, updated: date(data.updated) };
 }

@@ -10,7 +10,7 @@
  * 6. anything else → `synthesize`.
  */
 
-import matter from "gray-matter";
+import { parseFrontmatter } from "../../frontmatter-parse.js";
 import { basename } from "path";
 
 import { SIDECAR_CACHES } from "../../cache-attributes.js";
@@ -38,7 +38,7 @@ function typeOf(path: string, taxonomy: Taxonomy, sides: MergeSides): string | n
     if (text === null || frontmatterLength(text) === 0) continue;
     let declared: unknown;
     try {
-      declared = matter(text, {}).data.type;
+      declared = parseFrontmatter(text).data.type;
     } catch {
       continue;
     }

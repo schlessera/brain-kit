@@ -412,6 +412,13 @@ export interface SessionHistoryMessage {
    * exchange's `prompt`.
    */
   localAnswer?: LocalAnswer;
+  /**
+   * On an `assistant` message: the provider failure that ended its turn
+   * (additive; #575), as the live `result` carried it where the transcript
+   * keeps enough to tell. Its text is not repeated in `content`, which holds
+   * whatever the turn answered before it failed.
+   */
+  failure?: TurnFailure;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -571,6 +578,125 @@ export interface ServerResultMessage {
    * taxonomy lives in the server's activity record.
    */
   outcomeDetail?: string;
+  /**
+   * The provider failure that ended the turn (additive; #575), on
+   * `outcome: "error"` only. Absent means the backend reported none — the
+   * turn failed for another reason, or the backend predates the field.
+   */
+  failure?: TurnFailure;
+}
+
+/**
+ * A provider or API failure that ended a turn (additive; #575), normalised
+ * across backends. It rides the turn's terminal frame — `result`, or the bare
+ * `error` of a turn that failed before it had a session — and the replayed
+ * assistant message the failure ended.
+ */
+export interface TurnFailure {
+  /**
+   * The failure's class, in the Claude Agent SDK's vocabulary where the
+   * backend can tell (`authentication_failed`, `rate_limit`, `overloaded`,
+   * `invalid_request`, `model_not_found`, `server_error`, …), plus
+   * `subscription_required` for a turn refused before it was sent. Free-form:
+   * a new value never breaks a client. `unknown` when the backend cannot
+   * tell, which is never a guess.
+   */
+  errorClass: string;
+  /** HTTP status the provider answered with. Absent means unknown, not "no status". */
+  status?: number;
+  /** The failure as the runtime worded it. */
+  message: string;
+  /**
+   * For a Claude subscription's auth failure: what the operator does about it
+   * (#254). Absent on every other failure, including an auth failure on a
+   * profile that bills its own API credential.
+   */
+  authAction?: SubscriptionAuthAction;
+}
+
+/**
+ * A model call that failed and will be retried (additive; #575), on a
+ * `status: thinking` frame while the turn is still running. Every field but
+ * `attempt` is present only when the runtime reported it; nothing is
+ * estimated.
+ */
+export interface TurnRetry {
+  /** Which retry this is, 1-based. */
+  attempt: number;
+  /** The most retries the runtime will make. */
+  maxAttempts?: number;
+  /** How long the runtime waits before this attempt, in milliseconds. */
+  delayMs?: number;
+  /** The failed call's class, as {@link TurnFailure.errorClass}. */
+  errorClass?: string;
+  /** The failed call's HTTP status. */
+  status?: number;
+}
+
+/**
+ * A retry in words, for `ServerStatus.detail`: "Retrying (attempt 2 of 10) in
+ * 5s after rate_limit, HTTP 429". One wording for every backend, and only the
+ * parts the runtime reported.
+ */
+export function describeRetry(retry: TurnRetry): string {
+  const attempt =
+    retry.maxAttempts !== undefined ? `attempt ${retry.attempt} of ${retry.maxAttempts}` : `attempt ${retry.attempt}`;
+  const wait = retry.delayMs !== undefined ? ` in ${formatRetryDelay(retry.delayMs)}` : "";
+  const cause = [
+    retry.errorClass !== undefined && retry.errorClass !== "unknown" ? retry.errorClass : undefined,
+    retry.status !== undefined ? `HTTP ${retry.status}` : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return `Retrying (${attempt})${wait}${cause.length ? ` after ${cause.join(", ")}` : ""}`;
+}
+
+function formatRetryDelay(ms: number): string {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  const seconds = ms / 1000;
+  return seconds < 10 ? `${Math.round(seconds * 10) / 10}s` : `${Math.round(seconds)}s`;
+}
+
+/**
+ * What an operator does about a subscription auth failure (#254): mint a new
+ * token; look at the account itself, which a new token will not fix; or fix
+ * the host's Claude configuration, which kept the turn off the subscription
+ * before anything was sent.
+ *
+ * @experimental
+ */
+export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
+
+/** @experimental How to mint and install a new subscription token. */
+export const SUBSCRIPTION_RELOGIN_PROCEDURE =
+  "Mint a new token with `claude setup-token` on a machine with a browser, put it in the host's secret store as " +
+  "CLAUDE_CODE_OAUTH_TOKEN with today's date as BRAIN_UI_CLAUDE_TOKEN_MINTED_AT, and redeploy " +
+  '(docs/hosting/README.md, "Claude subscription login").';
+
+/** @experimental The instruction an operator is given for each action. */
+export const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>> = Object.freeze({
+  relogin: `The Claude subscription token was rejected. ${SUBSCRIPTION_RELOGIN_PROCEDURE}`,
+  check_account:
+    "The Claude account itself was refused (organisation not allowed, account on hold, or billing). " +
+    "A new token will not help: check the account at claude.ai, then send a turn to confirm.",
+  check_config:
+    "Claude Code was not set to run on the subscription, so the turn was refused before anything was sent. " +
+    "Check that CLAUDE_CODE_OAUTH_TOKEN is set, and that no Claude settings on the host select another " +
+    "credential or provider (apiKeyHelper, policyHelper, a stored API key, a third-party provider). The " +
+    "refusal names which.",
+});
+
+const ACCOUNT_CLASSES: ReadonlySet<string> = new Set(["oauth_org_not_allowed", "account_on_hold", "billing_error"]);
+
+/**
+ * The action for an auth failure class: the account classes need the account
+ * looked at; `subscription_required` (the backend refused the turn before
+ * sending it) needs the configuration fixed; anything else — a rejected
+ * token — needs a new token.
+ *
+ * @experimental
+ */
+export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction {
+  if (ACCOUNT_CLASSES.has(errorClass)) return "check_account";
+  return errorClass === "subscription_required" ? "check_config" : "relogin";
 }
 
 /**
@@ -617,12 +743,24 @@ export interface ServerError extends SessionScoped {
   type: "error";
   code: string;
   message: string;
+  /**
+   * The provider failure behind it (additive; #575). Set when this bare
+   * `error` is the terminal frame of a turn that failed before it had a
+   * session, so it is the only frame that can carry it.
+   */
+  failure?: TurnFailure;
 }
 
 export interface ServerStatus extends SessionScoped {
   type: "status";
   status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
   detail?: string;
+  /**
+   * On `thinking`: a failed model call the runtime is about to retry
+   * (additive; #575). `detail` says the same in words for a client that does
+   * not read this.
+   */
+  retry?: TurnRetry;
   /** @deprecated single-session era; multi-session servers set `sessionId`. */
   activeSessionId?: string;
 }

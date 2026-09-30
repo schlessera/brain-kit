@@ -20,9 +20,16 @@ export const connectionFrameHandlers = {
     // error arriving between turns (a rejected frame, a failed resume) was
     // dropped as silently on the client as it was on the server.
     context.stores.connection.getState().reportError(msg.code, msg.message);
-    if (context.buffer()?.isStreaming) {
-      context.state.appendText(context.key, `\n\n**Error:** ${msg.message}`);
-      context.state.finishAssistantMessage(context.key);
+    // The turn's failure, drawn on its message (#575). A bare `error` that
+    // ends a turn before its session exists carries the provider failure;
+    // any other is shown as its message says.
+    if (context.buffer()?.isStreaming || msg.failure) {
+      context.state.failAssistantMessage(
+        context.key,
+        msg.failure ?? { errorClass: "unknown", message: msg.message },
+        context.frameTurnId,
+        msg.failure !== undefined
+      );
     }
   },
 } satisfies ServerMessageHandlerMap<ConnectionFrame>;

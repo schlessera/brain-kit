@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -18,7 +18,7 @@ const shipped = [...new Bun.Glob("packages/*/skills/*/SKILL.md").scanSync({ cwd:
   .map((rel) => join(ROOT, rel));
 
 const manualOnly = shipped.filter(
-  (file) => matter(readFileSync(file, "utf8")).data["disable-model-invocation"] === true
+  (file) => parseFrontmatter(readFileSync(file, "utf8")).data["disable-model-invocation"] === true
 );
 
 describe("shipped manual-only skills", () => {

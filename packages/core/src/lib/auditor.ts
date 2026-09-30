@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 import { readFileSync, existsSync } from "fs";
-import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter-parse.js";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";
@@ -353,13 +353,11 @@ function sameFact(a: string, b: string): boolean {
 /**
  * A document's frontmatter, read from disk; {} when it cannot be read. A
  * missing file states nothing; any other failure (unreadable, invalid YAML)
- * also calls `onReadFailed`, since the check could not see its input. The
- * options object keeps gray-matter from caching a failed parse as a success
- * (#142).
+ * also calls `onReadFailed`, since the check could not see its input.
  */
 function frontmatterOf(root: string, path: string, onReadFailed: () => void): Record<string, unknown> {
   try {
-    return matter(readFileSync(join(root, path), "utf8"), {}).data as Record<string, unknown>;
+    return parseFrontmatter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") onReadFailed();
     return {};
