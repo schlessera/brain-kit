@@ -66,6 +66,24 @@ export interface EmitCrontabOptions {
  */
 export const TRUSTED_JOB_NAMES: ReadonlySet<string> = new Set(["digest"]);
 
+/**
+ * The base `sync` job's command (#290): the whole sync as one result on
+ * stdout, then the reindex with its output on stderr, so stdout holds nothing
+ * but the result. `runJob` reads a result only from a `sync` job running
+ * exactly this argv ({@link isSyncJob}); the crontab line below is its shell
+ * spelling.
+ */
+export const SYNC_JOB_COMMAND: readonly string[] = ["sh", "-c", "brain sync --json && brain index >&2"];
+
+/** Whether a job is the base sync job this module emits, and no other. */
+export function isSyncJob(jobName: string, command: readonly string[]): boolean {
+  return (
+    jobName === "sync" &&
+    command.length === SYNC_JOB_COMMAND.length &&
+    command.every((arg, i) => arg === SYNC_JOB_COMMAND[i])
+  );
+}
+
 const MODULE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CRON_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CRON_SCHEDULE = /^[-0-9*,/ ]{1,100}$/;
@@ -132,7 +150,7 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     pathLine,
     "",
     "# Base jobs",
-    `0 2 * * * ${user} cd /data/brain && ${wrapper} sync -- sh -c 'brain sync && brain index' 2>&1 | logger -t brain-sync`,
+    `0 2 * * * ${user} cd /data/brain && ${wrapper} sync -- sh -c '${SYNC_JOB_COMMAND[2]}' 2>&1 | logger -t brain-sync`,
     `0 3 * * * ${user} cd /data/brain && ${wrapper} validate -- brain validate 2>&1 | logger -t brain-validate`,
     `0 7 * * * ${user} cd /data/brain && ${wrapper} maintain -- brain maintain 2>&1 | logger -t brain-maintain`,
     `30 7 * * * ${user} cd /data/brain && ${wrapper} digest -- ${digestCommand} 2>&1 | logger -t brain-digest`,

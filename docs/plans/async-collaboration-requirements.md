@@ -218,7 +218,7 @@ Stated before the requirements because five of them derive from it.
 
 ### Execution
 
-- R18. **The drain ticks in-server.** `cron/scheduler.ts:5-9` owns only manual triggers and
+- R18. **The drain ticks in-server.** `cron/scheduler.ts:8-12` owns only manual triggers and
   history, but `activity/runtime.ts:86-100` already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop poke needs a real auth answer.** Every non-public `/api/*` route is

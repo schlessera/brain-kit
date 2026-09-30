@@ -48,8 +48,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:120-185`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:202`).
+  `packages/ui-server/src/brain/client.ts:132-197`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:203`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:494-496`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -194,7 +194,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:182-187`).
+  `packages/ui-server/src/app.ts:183-188`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -225,7 +225,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:120`). The SDK's
+  `packages/ui-server/src/brain/client.ts:132`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -687,3 +687,42 @@ GitHub Actions so agents can inspect failed checks through GitHub's log
 surfaces. This supersedes the workflow location above; the keyless probe and
 its network namespace remain the same. The migration findings and verification
 are recorded in #618.
+
+## 2026-09-30 — What a sync ran is observed per run, not probed (#290)
+
+"The server knows the version" left open whether the per-run record reaches a
+documented `--json` envelope. For chat it is the root span; for `brain sync`
+it now is both. Chat's version never said what a sync ran: the core CLI
+resolves its own `claude` (`claudeCommand`), and a host can hold two
+installations.
+
+- **Observed from the session that ran.** The core Claude runner reads the
+  Claude Code session's `system`/`init` event and passes `claude_code_version`
+  to the runner's `onRuntime` callback the moment it arrives
+  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:188-195`).
+  A run that fails after `init` has already reported it. A refused run never
+  reaches `init` and reports nothing. The other built-in runners do not
+  report, and neither does anything else: no boot probe, no lockfile, no
+  ambient binary fills a gap.
+- **Unknown stays unknown.** `brain sync --json` says `runtime: null` when the
+  agent reported nothing and `version: null` when it named itself without one
+  (see [deterministic-sync.md](deterministic-sync.md), "Bare `brain sync
+  --json` prints one result").
+- **Recorded on the run it belongs to, in chat's representation.** Both
+  scheduling paths write `brain.runtime.name`/`version` on the sync run's own
+  root span, plus `brain.sync.agent` (`not-invoked`, `invoked`, or `unknown`
+  for a result that could not be read), from that run's result only
+  (`syncActivityAttrs`, `packages/ui-server/src/brain/sync-result.ts:99-116`).
+  A run that invoked no agent, or whose agent reported no version, writes no
+  version, so it cannot appear to carry an older run's.
+- **Status shows the latest run apart from the last observation.**
+  `/api/status` reads the activity store, because the cron wrapper is another
+  process (`readSyncRuntime`,
+  `packages/ui-server/src/activity/sync-runtime.ts:83-123`).
+  `runtime.sync.latest` is the latest sync run and only what it recorded.
+  `runtime.sync.lastObserved` is the last run that recorded a version, with its
+  run id and times and whether it is the latest run. Chat's
+  `runtime.lastObserved` stays beside it, and the two may differ.
+
+Billing is not inferred from any of this: a runtime name or an absent agent
+says nothing about what a sync cost. That policy is #293's.

@@ -85,6 +85,26 @@ export function createWikiLinkResolver(
   };
 }
 
+/**
+ * Why a wiki-link that resolved to nothing did not resolve, as `brain
+ * validate` and `brain audit` both word it: ambiguous when its last segment
+ * names more than one of `paths` and none is a same-directory sibling,
+ * otherwise unresolved. Built once per corpus snapshot, like the resolver.
+ */
+export function createUnresolvedLinkDescriber(paths: Iterable<string>): (link: string) => string {
+  const basenameCounts = new Map<string, number>();
+  for (const path of paths) {
+    const basename = path.replace(/\.md$/, "").split("/").pop()!;
+    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  }
+  return (link) => {
+    const candidates = basenameCounts.get(link.split("/").pop()!) ?? 0;
+    return candidates > 1
+      ? `Ambiguous wiki-link: [[${link}]] matches ${candidates} files and none is a same-directory sibling — qualify it (e.g. [[dir/${link}]])`
+      : `Unresolved wiki-link: [[${link}]]`;
+  };
+}
+
 /** Resolve one link; batch callers should build a resolver once per corpus. */
 export function resolveWikiLink(
   target: string,

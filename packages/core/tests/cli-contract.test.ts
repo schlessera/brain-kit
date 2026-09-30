@@ -146,7 +146,7 @@ describe("read", () => {
 });
 
 describe("audit", () => {
-  test("returns the { issues, errors, warnings, infos } envelope", async () => {
+  test("returns the { issues, errors, warnings, infos, mustFix, informational } envelope", async () => {
     const { stdout, code } = await runCli(root, ["audit", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
@@ -178,6 +178,55 @@ describe("audit", () => {
     expect(out.errors).toBe(count("error"));
     expect(out.warnings).toBe(count("warning"));
     expect(out.infos).toBe(count("info"));
+    // #394: must-fix and informational totals, over the same findings.
+    expect(out.mustFix).toBe(out.errors + out.warnings);
+    expect(out.informational).toBe(out.infos);
+    expect(out.warnings).toBeGreaterThan(0);
+    expect(out.infos).toBeGreaterThan(0);
+  });
+
+  test("groups the fixture's markers per document, both info, with count and examples (#394)", async () => {
+    const { stdout } = await runCli(root, ["audit", "--json"]);
+    const markers = (JSON.parse(stdout).issues as Array<{ category: string }>).filter(
+      (i) => i.category === "todo" || i.category === "verify"
+    );
+    expect(markers).toEqual([
+      // Documents in path order.
+      expect.objectContaining({
+        category: "verify",
+        path: "notes/quick-note-owl.md",
+        severity: "info",
+        count: 1,
+        examples: ["[VERIFY: confirm barred vs. spotted owl — check call recording against the field guide]"],
+      }),
+      expect.objectContaining({
+        category: "todo",
+        path: "notes/quick-note-trailhead.md",
+        severity: "info",
+        count: 1,
+        examples: ["[TODO: measure the kiosk frame opening before cutting the blank]"],
+      }),
+    ]);
+  });
+
+  test("reports the fixture's broken links as warnings, the same ones brain validate reports (#394)", async () => {
+    const audited = JSON.parse((await runCli(root, ["audit", "--json"])).stdout).issues as Array<{
+      category: string;
+      path: string;
+      severity: string;
+      message: string;
+    }>;
+    const broken = audited.filter((i) => i.category === "broken-link").map((i) => [i.path, i.severity, i.message]);
+    expect(broken).toEqual([
+      ["context/current-focus.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
+      ["notes/quick-note-owl.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
+    ]);
+    const validated = JSON.parse((await runCli(root, ["validate", "--json"])).stdout).issues as Array<{
+      file: string;
+      level: string;
+      message: string;
+    }>;
+    expect(validated.filter((i) => i.message.includes("wiki-link")).map((i) => [i.file, i.level, i.message])).toEqual(broken);
   });
   test("reports the fixture's one drifted fact, on long-bio.md (#392)", async () => {
     const { stdout } = await runCli(root, ["audit", "--json"]);
@@ -296,10 +345,11 @@ describe("add", () => {
 });
 
 describe("sync", () => {
-  // Bare `brain sync` runs the whole sync, prints its report as text, and
-  // hands the agent only what the rules left — here a file nothing could
-  // classify. A stub runner stands in so nothing real is launched.
-  test("prints the report, then the agent's text, never JSON", async () => {
+  // Bare `brain sync` runs the whole sync and hands the agent only what the
+  // rules left — here a file nothing could classify. Human mode prints the
+  // report, then the agent's text; machine mode one `{ run, agent }` result
+  // (#290). A stub runner stands in so nothing real is launched.
+  test("human mode: the report, then the agent's text; machine mode: one result", async () => {
     const brain = makeTempBrain({ empty: true });
     const remote = mkdtempSync(join(tmpdir(), "brain-contract-remote-"));
     const git = (...args: string[]) => {
@@ -331,14 +381,29 @@ export default defineConfig({
       git("push", "-q", "origin", "main");
       writeFileSync(join(brain, "survey.xyz"), "owl survey grid\n");
 
-      for (const flags of [[], ["--json"], ["--human"]]) {
-        // An output flag is not a verb: the same text, whatever mode it asks for.
+      // An output flag is not a verb: `--human` is the text…
+      const human = await runCli(brain, ["sync", "--human"]);
+      expect(human.code).toBe(0);
+      expect(human.stdout).toStartWith("brain sync: complete\n");
+      expect(human.stdout).toContain("  unknown: survey.xyz\n");
+      expect(human.stdout).toEndWith("\nstub agent ran /sync\n");
+      expect(() => JSON.parse(human.stdout)).toThrow();
+
+      // …and `--json`, or a stdout that is not a terminal, the one result.
+      for (const flags of [[], ["--json"]]) {
         const { stdout, code } = await runCli(brain, ["sync", ...flags]);
         expect(code).toBe(0);
-        expect(stdout).toStartWith("brain sync: complete\n");
-        expect(stdout).toContain("  unknown: survey.xyz\n");
-        expect(stdout).toEndWith("\nstub agent ran /sync\n");
-        expect(() => JSON.parse(stdout)).toThrow();
+        const body = JSON.parse(stdout);
+        expect(body.run.status).toBe("complete");
+        expect(body.run.report).toContain("  unknown: survey.xyz");
+        // The stub reports no runtime: invoked, and nothing claimed for it.
+        expect(body.agent).toEqual({
+          invoked: true,
+          runner: "stub",
+          outcome: "success",
+          runtime: null,
+          text: "stub agent ran /sync",
+        });
       }
 
       const unknown = await runCli(brain, ["sync", "--not-a-flag"]);

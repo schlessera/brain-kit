@@ -15,7 +15,7 @@ import { nameKeys } from "./name-key.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -375,7 +375,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 13);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 14) {
     // v14 — aliases get their own full-text column, weighted like the title,
     // instead of riding in `tags`. An FTS5 table cannot gain a column, so it
     // is recreated and filled from the documents table at once, searchable
@@ -415,6 +415,20 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     const insertKey = db.prepare("INSERT OR IGNORE INTO name_keys (key, document_id) VALUES (?, ?)");
     for (const doc of db.prepare("SELECT id, title FROM documents WHERE asset_type = 'markdown'").all() as { id: number; title: string }[]) {
       for (const key of nameKeys(doc.title, [])) insertKey.run(key, doc.id);
+    }
+
+    setSchemaVersion(db, 14);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v15 — the `verification` frontmatter declaration (#394), which `brain
+    // audit` reads. Clearing the markdown rows' content hash makes the next
+    // index run re-read every file, so the column is filled without
+    // `--force`, as v11 did for `generated_from`.
+    const columns = db.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "verification")) {
+      db.run("ALTER TABLE documents ADD COLUMN verification TEXT");
+      db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
     }
 
     setSchemaVersion(db, SCHEMA_VERSION);

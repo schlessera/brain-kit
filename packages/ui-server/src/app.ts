@@ -50,6 +50,7 @@ import {
   setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
+import { readSyncRuntime } from "./activity/sync-runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
 import {
@@ -204,7 +205,6 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
   const db = createUiDb(config.dbPath, { log: dbLog });
   prunePrincipals(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
-  const cron = createCronScheduler({ db, brain, log: observability.logger("cron") });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Model pricing for rollup-time effective cost: constructed here because
@@ -225,6 +225,12 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
     pricing,
   });
   activity.runtime.setBoot(runtimeProbes);
+  const cron = createCronScheduler({
+    db,
+    brain,
+    log: observability.logger("cron"),
+    activity: activity.store,
+  });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -429,7 +435,16 @@ export function createApp(options: CreateAppOptions = {}): BrainUiApp {
       // Undefined when the injected consumer cannot be read back (a real OTel
       // SDK exports elsewhere), in which case the field is simply absent.
       getMetrics: () => observability.metrics?.snapshot(),
-      getRuntime: () => activity.runtime.snapshot(),
+      // Chat's runtime beside what scheduled syncs ran (#290). A failed read
+      // leaves the sync half out rather than failing the status.
+      getRuntime: () => {
+        const snapshot = activity.runtime.snapshot();
+        try {
+          return { ...snapshot, sync: readSyncRuntime(db) };
+        } catch {
+          return snapshot;
+        }
+      },
       getSubscription: () => subscription.status(),
     })
   );

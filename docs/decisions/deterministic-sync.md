@@ -183,3 +183,49 @@ that shows supersedes being kept as duplicates often enough to matter. Rerun
 `scripts/measure-sync-judge.ts` against those pairs, and change a threshold
 only when precision at the new line stays at 100% there. A newer Jev model is
 the same case: re-measure before moving a line.
+
+## 2026-09-30 — Bare `brain sync --json` prints one result (#290)
+
+**Decision (maintainer, 2026-09-30, option A on #290): bare `brain sync` in
+machine mode prints one structured result for the whole workflow, and both
+scheduling paths read it.** Decision 7 left bare sync printing its text report
+in every output mode. That text could not say whether an agent ran, or which
+Claude Code it ran, so a server that wanted to record that had nowhere to read
+it from.
+
+What changes. With `--json`, or stdout not a TTY, bare sync prints
+`{ run, agent }` and nothing else on stdout (the bare branch, `if (!verb) {`,
+`packages/core/src/cli/commands/sync.ts:248-277`). `run` is `run`'s own
+envelope. `agent` says whether the agent was invoked, and if not, why
+(`not-needed`, or `no-runner` when a run needed one and none was available).
+An invoked agent carries its runner, its outcome, its final text, and the
+runtime that run reported about itself (`SyncAgent`,
+`packages/core/src/cli/commands/sync.ts:204-207`). The agent runs quietly in
+this mode: its progress and text go into the result, not beside it.
+
+What does not change: the deterministic run comes first, the handoff rules of
+decision 6, the exit codes (a failed agent still exits `2`, its error on
+stderr, and now its result on stdout too), and human mode, which still prints
+the report and then the agent's text. No run launches an agent to find out a
+version.
+
+- **Machine mode follows the CLI's convention, including a non-TTY stdout.**
+  Every other command does, and a caller reading `brain sync | …` as text is
+  the case the contract's breaking note names. The one such caller in this
+  repository, the UI's streaming sync route, now passes `--human`.
+- **The container cron wrapper reads a result only from its own sync job.**
+  It parses stdout when the job is `sync` and its argv is exactly what the
+  crontab emitter writes (`isSyncJob`,
+  `packages/ui-server/src/cron/emit.ts:79-85`), and passes every other job's
+  stdout through untouched. A new wrapper flag would have done the same, but
+  the wrapper command is deployment configuration, and a wrapper that did not
+  know the flag would have broken the nightly sync.
+  - *Rejected: the child writes the activity span sink.* Core would gain a
+    writer for one server's storage format, and the in-process scheduler,
+    which sets no sink, would still record nothing.
+- **Not invoking an agent says nothing about cost.** The sync judge and
+  enrichment call models without one, so neither the invocation state nor a
+  runtime name is a billing signal; that policy is #293's.
+
+The runtime half of this ruling, what is recorded and where it shows, is in
+[claude-code-runtime.md](claude-code-runtime.md), "What a sync ran".

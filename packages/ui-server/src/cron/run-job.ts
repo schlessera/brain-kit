@@ -8,10 +8,11 @@ import { unlinkSync } from "fs";
 import { ingestSpanSink } from "../activity/span-sink.js";
 import { createActivityStore } from "../activity/store.js";
 import { createUiDb } from "../db/client.js";
-import { resolveSystemPrincipal } from "../db/principals.js";
+import { startCronSpan } from "./activity.js";
 import { recordCronRun } from "./scheduler.js";
 import { execConfig } from "../config/env.js";
-import { TRUSTED_JOB_NAMES } from "./emit.js";
+import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
+import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import {
   execWrapperSpawnOptions,
   wrapCommand,
@@ -25,6 +26,11 @@ export const OUTPUT_TAIL_CHARS = 8_000;
 export const HEARTBEAT_MS = 30_000;
 /** Child-visible path where span-sink JSONL may be appended. */
 export const SPAN_SINK_ENV = "BRAIN_ACTIVITY_SPAN_SINK";
+/**
+ * The most stdout the `sync` job's result may hold. Past it the output is
+ * passed through as it arrives and no result is read from it.
+ */
+export const SYNC_RESULT_MAX_CHARS = 8_000_000;
 
 interface TextSink {
   write(text: string): unknown;
@@ -38,7 +44,8 @@ interface SpawnedJob {
 }
 
 interface RunRecorder {
-  finish(error: string | undefined, output: string, exitCode: number): void;
+  /** `attrs` join the root span's own on its terminal write. */
+  finish(error: string | undefined, output: string, exitCode: number, attrs?: Record<string, string>): void;
   close(): void;
 }
 
@@ -100,6 +107,28 @@ export async function teeStream(
   if (trailing) await forward(trailing);
 }
 
+/**
+ * A stdout sink that holds what the sync job prints until it has exited, so
+ * the result can be read whole. Past {@link SYNC_RESULT_MAX_CHARS} it writes
+ * everything through and `release` returns null: nothing is read from it.
+ */
+function holdStdout(sink: TextSink): TextSink & { release(): string | null } {
+  let held = "";
+  let passthrough = false;
+  return {
+    write(text: string) {
+      if (passthrough) return sink.write(text);
+      held += text;
+      if (held.length <= SYNC_RESULT_MAX_CHARS) return undefined;
+      passthrough = true;
+      const out = held;
+      held = "";
+      return sink.write(out);
+    },
+    release: () => (passthrough ? null : held),
+  };
+}
+
 /** Keep the last `cap` characters, never the head. */
 export function appendTail(current: string, text: string, cap: number): string {
   return (current + text).slice(-cap);
@@ -118,21 +147,7 @@ async function startRecord(
     const openedDb = db;
     const record = recordCronRun(db, name);
     const store = createActivityStore(db, { writer: `cron:${process.pid}` });
-    const principal = resolveSystemPrincipal(db, {
-      identity: "scheduled-jobs",
-      label: "Scheduled jobs",
-    });
-    const runId = `cron-${name}-${Date.now()}`;
-    const rootSpanId = `${runId}:root`;
-    store.startSpan({
-      spanId: rootSpanId,
-      runId,
-      name: `cron ${name}`,
-      kind: "cron",
-      origin: "cron",
-      jobName: name,
-      principalId: principal.id,
-    });
+    const { runId, rootSpanId } = startCronSpan(db, store, name);
 
     let sinkOffset = 0;
     const ingest = () => {
@@ -159,7 +174,7 @@ async function startRecord(
     }, HEARTBEAT_MS);
 
     return {
-      finish(error, output, exitCode) {
+      finish(error, output, exitCode, attrs) {
         record.finish(error);
         try {
           ingest();
@@ -174,6 +189,7 @@ async function startRecord(
             outcome: error === undefined ? "success" : "error",
             reason: error,
             attrs: {
+              ...attrs,
               "cron.command": command.join(" "),
               "cron.exit_code": exitCode,
             },
@@ -222,6 +238,12 @@ export async function runJob(
   let exitCode: number;
   let errorMessage: string | undefined;
   let outputTail = "";
+  // The base `sync` job, and only it, prints a sync result (#290): held here,
+  // read, and logged as its readable report. Any other job's stdout, and a
+  // sync line someone wrote by hand, is passed through untouched.
+  const syncJob = isSyncJob(options.jobName, options.command);
+  const held = syncJob ? holdStdout(stdout) : null;
+  let spanAttrs: Record<string, string> | undefined = syncJob ? syncActivityAttrs(null) : undefined;
 
   try {
     const spawn = dependencies.spawn ?? ((command, spawnOptions) => Bun.spawn(command, spawnOptions));
@@ -249,9 +271,11 @@ export async function runJob(
     });
 
     let stderrTail = "";
+    let stdoutTail = "";
     const outcomes = await Promise.allSettled([
-      teeStream(proc.stdout, stdout, (text) => {
-        outputTail = appendTail(outputTail, text, OUTPUT_TAIL_CHARS);
+      teeStream(proc.stdout, held ?? stdout, (text) => {
+        if (held) stdoutTail = appendTail(stdoutTail, text, OUTPUT_TAIL_CHARS);
+        else outputTail = appendTail(outputTail, text, OUTPUT_TAIL_CHARS);
       }),
       teeStream(proc.stderr, stderr, (text) => {
         stderrTail = appendTail(stderrTail, text, STDERR_TAIL_CHARS);
@@ -263,6 +287,17 @@ export async function runJob(
       if (outcome.status === "rejected") {
         writeLine(stderr, `[cron-run] output capture failed: ${messageOf(outcome.reason)}`);
       }
+    }
+    if (held) {
+      const text = held.release();
+      const result = text === null ? null : parseSyncResult(text);
+      const readable = result ? `${syncMessage(result)}\n` : text ?? "";
+      if (readable) {
+        try { await stdout.write(readable); } catch { /* Logging cannot stop the job. */ }
+      }
+      // Past the cap it was written as it came; its tail still belongs in the record.
+      outputTail = appendTail(outputTail, text === null ? stdoutTail : readable, OUTPUT_TAIL_CHARS);
+      spanAttrs = syncActivityAttrs(result);
     }
     const child = outcomes[2]!;
     if (child.status === "rejected") throw child.reason;
@@ -280,7 +315,7 @@ export async function runJob(
 
   if (recorder) {
     try {
-      recorder.finish(errorMessage, outputTail.trim(), exitCode);
+      recorder.finish(errorMessage, outputTail.trim(), exitCode, spanAttrs);
     } catch (error) {
       writeLine(stderr, `[cron-run] failed to record run outcome: ${messageOf(error)}`);
     } finally {

@@ -116,6 +116,16 @@ export interface AuditIssue {
   category: string;
   message: string;
   suggestion?: string;
+  /**
+   * On a grouped finding (`todo`, `verify`): how many markers the document
+   * carries. A `verify` finding raised by `verification: unverified` alone
+   * has 0.
+   */
+  count?: number;
+  /** On a grouped finding: the first three markers, in source order. */
+  examples?: string[];
+  /** On a `broken-link` finding: the wiki-link target as written. */
+  target?: string;
 }
 
 export interface IngestInput {

@@ -28,6 +28,8 @@ Categories below; sections with zero entries should be omitted entirely.
 
 ## VERIFY markers
 
+## Broken links
+
 ## Orphans
 
 ## Type/directory mismatches

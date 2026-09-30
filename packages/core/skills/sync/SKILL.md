@@ -41,7 +41,8 @@ brain sync run --json
 ```
 
 It prints one envelope: `{ status, reason?, steps, leftovers: { unresolved, unknown, media },
-judge, timings, report }`. Use the JSON form: bare `brain sync` prints only the text report.
+judge, timings, report }`. Use `run`, never bare `brain sync`: bare sync is the workflow that
+handed you this work, and it hands its leftovers to an agent.
 
 - `status: "complete"` (exit 0) — pushed and reindexed. If `leftovers.unknown` and
   `leftovers.media` are both empty, print `report` and stop. Otherwise go to Step 3.

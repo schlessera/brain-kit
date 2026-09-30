@@ -182,14 +182,14 @@ test("the audit step counts a module hygiene warning, the same number brain audi
   expect(code).toBe(0);
   const audited = await auditCounts(root);
   expect(audited.warnings).toBe(1);
-  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s); 1 must-fix, 0 informational");
 });
 
 test("a throwing module check is one module-hygiene warning in both commands, and neither crashes", async () => {
   const root = brainWithHygiene("throw");
   const { code, steps } = await maintain(root);
   expect(code).toBe(0);
-  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s)");
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 1 warning(s), 0 info(s); 1 must-fix, 0 informational");
 
   const audited = await auditCounts(root);
   expect(audited.warnings).toBe(1);
@@ -201,7 +201,7 @@ test("a module check throwing null or undefined does not stop the next module's 
   const root = brainWithHygiene("throw-null", "throw-undefined", "warn");
   const { code, steps } = await maintain(root);
   expect(code).toBe(0);
-  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 3 warning(s), 0 info(s)");
+  expect(steps.find((s) => s.step === "audit")?.result).toBe("0 error(s), 3 warning(s), 0 info(s); 3 must-fix, 0 informational");
 
   const audited = await auditCounts(root);
   expect(audited.issues.map((i) => i.message)).toEqual([

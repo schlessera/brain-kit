@@ -1,6 +1,6 @@
 import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import { compactVectors, indexAll, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
-import { auditWithModules } from "../../lib/auditor.js";
+import { auditTotals, auditWithModules } from "../../lib/auditor.js";
 import { runRegistry } from "../../lib/index-registry.js";
 import { pruneScratch } from "../../lib/scratch.js";
 import { tagReport } from "../../lib/tags.js";
@@ -17,7 +17,8 @@ Runs, in order: the _index.md registry tables (the same step as
 an incremental index (+embeddings when a key is configured), a
 vector-table compaction when fewer than half its slots are live (the same step
 as \`brain index --compact\`), an audit snapshot (the counts \`brain audit\`
-reports, module hygiene checks included), a stats snapshot (the day's
+reports, module hygiene checks included, with its must-fix and informational
+totals), a stats snapshot (the day's
 \`brain stats\` figures kept in .stats-history.jsonl, one per day — the same
 step as \`brain stats --record\`), a tag report (counts only;
 see \`brain tags\`), a git packing pass when the brain is a git work tree (git's
@@ -120,10 +121,12 @@ export const maintainCommand: CoreCommand = {
       } finally {
         db.close();
       }
-      const errors = issues.filter((i) => i.severity === "error").length;
-      const warnings = issues.filter((i) => i.severity === "warning").length;
-      const infos = issues.filter((i) => i.severity === "info").length;
-      report.push({ step: "audit", result: `${errors} error(s), ${warnings} warning(s), ${infos} info(s)` });
+      // The totals `brain audit --json` reports, from the same function.
+      const { errors, warnings, infos, mustFix, informational } = auditTotals(issues);
+      report.push({
+        step: "audit",
+        result: `${errors} error(s), ${warnings} warning(s), ${infos} info(s); ${mustFix} must-fix, ${informational} informational`,
+      });
     } catch (e) {
       report.push({ step: "audit", result: `FAILED — ${(e as Error).message}` });
     }

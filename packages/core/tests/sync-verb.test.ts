@@ -36,7 +36,9 @@ describe("sync verb selection", () => {
     console.log = (line: string) => lines.push(line);
     const code = await syncCommand.run(["--json"], cli).finally(() => (console.log = log));
     expect(code).toBe(1);
-    expect(lines.join("\n")).toStartWith("brain sync: failed — not on main branch");
+    const body = JSON.parse(lines.join("\n"));
+    expect(body.run.report).toStartWith("brain sync: failed — not on main branch");
+    expect(body.agent).toEqual({ invoked: false, reason: "not-needed" });
     expect(prompts).toEqual([]);
   });
 });

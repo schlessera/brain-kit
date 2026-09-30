@@ -208,7 +208,7 @@ describe("audit tag-noise", () => {
 });
 
 describe("audit todo/verify markers", () => {
-  test("reports [TODO:] as info and [VERIFY:] as warning", () => {
+  test("reports [TODO:] and [VERIFY:] as info, one finding per kind (#394)", () => {
     const db = freshDb();
     insertDoc(db, {
       path: "notes/markers.md",
@@ -223,7 +223,7 @@ describe("audit todo/verify markers", () => {
     expect(todo.length).toBe(1);
     expect(todo[0].severity).toBe("info");
     expect(verify.length).toBe(1);
-    expect(verify[0].severity).toBe("warning");
+    expect(verify[0].severity).toBe("info");
     db.close();
   });
 });

@@ -16,6 +16,18 @@ import type {
   BrainSyncResult,
   BrainAddResult,
 } from "./types.js";
+import { parseSyncResult, syncMessage, type BrainSyncOutput } from "./sync-result.js";
+
+/**
+ * A `brain sync` that exited non-zero, with its result when stdout held one:
+ * an agent that failed after its runtime reported itself keeps that report.
+ */
+export class BrainSyncError extends Error {
+  constructor(message: string, readonly result?: BrainSyncOutput) {
+    super(message);
+    this.name = "BrainSyncError";
+  }
+}
 
 /**
  * Wrapper around the brain CLI, bound to one brain repo. Constructed by
@@ -324,17 +336,22 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     },
 
     async sync() {
-      // Bare `brain sync` runs the whole sync and prints its report as text,
-      // never JSON, then the /sync agent's text when it handed anything on;
-      // the text is the whole result. Any non-zero exit is a failure here,
-      // including 3: a conflict blocked the push and no agent took it.
-      const result = await execBrain(["sync"]);
-      if (result.exitCode !== 0) {
-        throw new Error(
-          `brain sync failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`
+      // The whole sync, asked for as one result (#290): the run's report,
+      // and whether an agent ran and which runtime it reported. Any non-zero
+      // exit is a failure here, including 3: a conflict blocked the push and
+      // no agent took it. The exit code decides that, never the document: a
+      // result that cannot be read only means nothing is known about the
+      // agent, and a CLI older than the result prints its text instead.
+      const exec = await execBrain(["sync", "--json"]);
+      const result = parseSyncResult(exec.stdout) ?? undefined;
+      const message = result ? syncMessage(result) : exec.stdout.trim();
+      if (exec.exitCode !== 0) {
+        throw new BrainSyncError(
+          `brain sync failed (exit ${exec.exitCode}): ${exec.stderr.trim() || message}`,
+          result
         );
       }
-      return { message: result.stdout.trim() };
+      return { message, ...(result ? { result } : {}) };
     },
 
     async add(content, opts) {

@@ -13,20 +13,40 @@ From `@schlessera/brain` (`src/lib/seams.ts`):
 export interface AgentRunner {
   id: string;
   capabilities: { streaming: boolean; skills: boolean };
-  run(prompt: string, opts: { cwd: string; timeoutMs?: number }): Promise<string>;
+  run(
+    prompt: string,
+    opts: { cwd: string; timeoutMs?: number; onRuntime?: (runtime: AgentRuntime) => void }
+  ): Promise<string>;
   runStreaming?(
     prompt: string,
     opts: {
       cwd: string;
       onEvent: (e: { kind: "tool" | "text"; label: string }) => void;
+      onRuntime?: (runtime: AgentRuntime) => void;
     }
   ): Promise<string>;
+}
+
+export interface AgentRuntime {
+  name: string; // e.g. "claude-code"
+  version?: string;
 }
 ```
 
 `run` executes the agent against a prompt in `cwd` and returns its final text.
 `runStreaming` is optional — implement it to surface tool activity as it happens.
 `capabilities.skills` declares whether the agent discovers the brain's skills.
+
+`onRuntime` (optional, added in 0.40.0) is how a runner says what actually
+executed the run. Call it once, as soon as the agent reports its own name and
+version, and before the run can still fail, so a caller keeps the report when
+the run then throws. Report only what the run itself said: never probe a
+binary or read an installation to fill it in, and leave `version` out when the
+agent named itself without one. A runner that cannot tell simply never calls
+it, and `brain sync --json` then records the agent as invoked with an unknown
+runtime. The built-in `claude` runner reports the `claude_code_version` of
+the session's `system`/`init` event as `{ name: "claude-code", version }`;
+the other built-ins do not report.
 
 ## Built-ins
 

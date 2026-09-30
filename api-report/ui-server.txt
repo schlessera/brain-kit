@@ -19,6 +19,9 @@ export "." (./src/index.ts)
   type BackendRegistry
   type BrainClient
   BrainDbUnavailableError
+  type BrainSyncAgent
+  BrainSyncError
+  type BrainSyncOutput
   type BrainUiApp
   CONFIDENCE_BUCKETS
   CONFIDENCE_BUCKET_WIDTH
@@ -91,6 +94,7 @@ export "." (./src/index.ts)
   isWsAuthorized
   latestActivityDigest
   openBrainDb
+  parseSyncResult
   pruneShareStaging
   recordCronRun
   resolveAuthMode
@@ -101,6 +105,8 @@ export "." (./src/index.ts)
   seriesKey
   severityRank
   shareStagingRoot
+  syncActivityAttrs
+  syncMessage
   turnIdMatches
   websocket
   withBrainDb

@@ -132,7 +132,7 @@ Unit numbers are stable identifiers, not build order. Build order:
 - **Stream module is NOT reusable as-is**: `packages/ui-server/src/activity/stream.ts:156-310`
   binds to activity-specific store methods and frame types.
 - **Ticking runtime with a boot sweep** — the shape U3 copies:
-  `packages/ui-server/src/activity/runtime.ts:86-100`. Note `cron/scheduler.ts:5-9` explicitly
+  `packages/ui-server/src/activity/runtime.ts:86-100`. Note `cron/scheduler.ts:8-12` explicitly
   owns only manual triggers and history; it does not tick.
 - **Two-process SQLite posture**: WAL + `busy_timeout = 5000` already set for exactly this
   (`packages/ui-server/src/db/client.ts:25-35`); activity writes use immediate transactions.

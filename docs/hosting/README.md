@@ -34,7 +34,7 @@ stay private.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.33.0.**
 This is not an upgrade note for one release; it is a standing floor, enforced at
-`MIN_BRAIN_CLI_VERSION` (`packages/ui-server/src/brain/client.ts:68`). The server
+`MIN_BRAIN_CLI_VERSION` (`packages/ui-server/src/brain/client.ts:80`). The server
 places `--` before user-controlled CLI positionals, and a core below 0.33.0 eats
 that separator — every search then silently returns nothing, which is why the
 version is checked at startup instead.
@@ -77,6 +77,13 @@ without a coding agent, and starts the agent (the `/sync` skill) only for a
 conflict no merge strategy handles or files it could not classify. Media
 leftovers are listed in the report and never committed, since nobody is at a
 terminal to approve them. Most syncs therefore cost no agent session.
+
+A scheduled sync records whether it started the agent and, when it did, the
+Claude Code version that agent run reported, on the run in Activity.
+`/api/status` shows the latest sync's own state and the last version a sync
+observed, with the run and time it came from, under `runtime.sync` beside the
+chat runtime. The two can differ: chat and the brain CLI may run different
+Claude Code installations.
 
 The sync asks TypeSafe AI's Jev two narrow questions when `TYPESAFE_API_KEY`
 is set; the server passes the key through to the brain CLI. Without it the

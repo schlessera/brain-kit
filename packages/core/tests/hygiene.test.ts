@@ -637,6 +637,26 @@ describe("detection", () => {
     expect(failed("ENOENT at 03:00")).toBe(failed("timeout at 04:00"));
   });
 
+  test("grouped markers keep one ID per document and kind; a broken link keys on its target (#394)", () => {
+    const docs = new Map<string, AuditDoc>();
+    const id = (issue: Partial<AuditIssue>) => {
+      const full = { path: "notes/plan.md", severity: "info", ...issue } as AuditIssue;
+      return hygieneId(full.category, full.path, candidateFromAudit(full, docs).evidence);
+    };
+    const todo = (count: number, examples: string[]) =>
+      id({ category: "todo", message: `${count} TODO markers: ${examples.join(", ")}`, count, examples });
+    // A marker added or resolved is the same open entry, not a new one.
+    expect(todo(2, ["[TODO: a]", "[TODO: b]"])).toBe(todo(3, ["[TODO: c]", "[TODO: a]", "[TODO: b]"]));
+    expect(todo(2, ["[TODO: a]", "[TODO: b]"])).not.toBe(id({ category: "verify", message: "2 VERIFY markers: [VERIFY: a], [VERIFY: b]" }));
+    expect(todo(2, ["[TODO: a]", "[TODO: b]"])).not.toBe(id({ category: "todo", path: "notes/other.md", message: "1 TODO marker: [TODO: a]" }));
+
+    const broken = (target: string, message: string) => id({ category: "broken-link", severity: "warning", message, target });
+    expect(broken("plan", "Ambiguous wiki-link: [[plan]] matches 2 files and none is a same-directory sibling — qualify it (e.g. [[dir/plan]])")).toBe(
+      broken("plan", "Ambiguous wiki-link: [[plan]] matches 3 files and none is a same-directory sibling — qualify it (e.g. [[dir/plan]])")
+    );
+    expect(broken("plan", "Unresolved wiki-link: [[plan]]")).not.toBe(broken("mill", "Unresolved wiki-link: [[mill]]"));
+  });
+
   test("an excluded document's links un-orphan nothing", () => {
     const database = db([{ path: "notes/lonely.md" }, { path: "context/hygiene/open.md" }]);
     database.run("INSERT INTO links (source_id, target, target_id) VALUES (?, 'lonely', ?)", [

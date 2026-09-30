@@ -124,11 +124,14 @@ export function candidateFromAudit(issue: AuditIssue, docs: Map<string, AuditDoc
       return { ...base, evidence: issue.path };
     case "review-overdue":
     case "tag-noise":
-      // One per document (review-overdue) or per corpus (tag-noise).
-      return { ...base, evidence: "" };
     case "todo":
     case "verify":
-      return { ...base, evidence: from(/(\[(?:TODO|VERIFY):[^\]]*\])/) };
+      // One per document (review-overdue; todo and verify, which group a
+      // document's markers, so adding one keeps the ID) or per corpus (tag-noise).
+      return { ...base, evidence: "" };
+    case "broken-link":
+      // The target as written; the ambiguity count in the message can change.
+      return { ...base, evidence: issue.target ?? from(/\[\[([\s\S]*?)\]\]/) };
     case "type-mismatch":
       return { ...base, evidence: from(/^Document type "([^"]*)"/) };
     case "budget":
@@ -528,6 +531,7 @@ const SECTIONS: Array<[string, string]> = [
   ["silent-edit", "Silent edits"],
   ["todo", "TODO markers"],
   ["verify", "VERIFY markers"],
+  ["broken-link", "Broken links"],
   ["orphan", "Orphans"],
   ["type-mismatch", "Type/directory mismatches"],
 ];

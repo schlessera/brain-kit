@@ -1,5 +1,5 @@
 import type { AuditIssue } from "../../lib/types.js";
-import { auditWithModules } from "../../lib/auditor.js";
+import { auditTotals, auditWithModules } from "../../lib/auditor.js";
 import type { CoreCommand } from "../types.js";
 import { emit, openReadonlyDb, parseArgs } from "../io.js";
 
@@ -8,8 +8,11 @@ const HELP = `brain audit — staleness and quality audit
   --fix                   Ask a completion provider for fix suggestions (degrades
                           to plain issues when no API key is configured)
 
---json envelope: { "issues": AuditIssue[], "errors", "warnings", "infos" }
-(markdown documents only — assets excluded).`;
+--json envelope: { "issues": AuditIssue[], "errors", "warnings", "infos",
+"mustFix", "informational" } (markdown documents only — assets excluded).
+Each count is findings, not markers: a document's TODO markers are one
+finding, and so are its VERIFY markers. Must-fix is errors plus warnings;
+informational is infos.`;
 
 interface AuditFixResult {
   path: string;
@@ -92,11 +95,9 @@ export const auditCommand: CoreCommand = {
         return;
       }
 
-      const errors = issues.filter((i) => i.severity === "error").length;
-      const warnings = issues.filter((i) => i.severity === "warning").length;
-      const infos = issues.filter((i) => i.severity === "info").length;
+      const { errors, warnings, infos, mustFix, informational } = auditTotals(issues);
 
-      emit(cli.json, { issues, errors, warnings, infos }, () => {
+      emit(cli.json, { issues, errors, warnings, infos, mustFix, informational }, () => {
         if (issues.length === 0) {
           console.log("No issues found. The brain is healthy.");
           return;
@@ -115,6 +116,7 @@ export const auditCommand: CoreCommand = {
         byLevel("warning", "WARNINGS");
         byLevel("info", "INFO");
         console.log(`Summary: ${errors} error(s), ${warnings} warning(s), ${infos} info(s)`);
+        console.log(`         ${mustFix} must-fix (errors and warnings), ${informational} informational (infos)`);
       });
     } finally {
       db.close();
