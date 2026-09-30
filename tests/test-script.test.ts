@@ -113,6 +113,7 @@ describe("root test script, run for real", () => {
       ["--balanced-shard=1/3", "--balanced-shard=2/3"],
       ["--balanced-shard=1/3", "--cwd=other"],
       ["--balanced-shard=0/3"],
+      ["--balanced-shard"],
     ]) {
       const result = await run(args);
       expect(result.code).not.toBe(0);

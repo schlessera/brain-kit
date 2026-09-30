@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   compare:
-    name: balanced-${{ matrix.shard }}-3
+    name: balanced-wall-${{ matrix.shard }}-3
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -36,7 +36,7 @@ jobs:
           "$CHROME" --version
           echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
       - name: Unit + integration tests (keyless, deterministic)
-        run: bun run test --balanced-shard=${{ matrix.shard }}/3 --reporter=junit --reporter-outfile="$RUNNER_TEMP/balanced-${{ matrix.shard }}-3.xml"
+        run: bun run test --balanced-shard=${{ matrix.shard }}/3 --reporter=junit --reporter-outfile="$RUNNER_TEMP/balanced-wall-${{ matrix.shard }}-3.xml"
         env:
           GEMINI_API_KEY: ""
           ANTHROPIC_API_KEY: ""
@@ -45,6 +45,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: balanced-${{ matrix.shard }}-3
-          path: ${{ runner.temp }}/balanced-${{ matrix.shard }}-3.xml
+          name: balanced-wall-${{ matrix.shard }}-3
+          path: ${{ runner.temp }}/balanced-wall-${{ matrix.shard }}-3.xml
           if-no-files-found: error

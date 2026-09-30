@@ -16,20 +16,27 @@ test("measured expensive files go in different shards with deterministic ties", 
   expect(shards.flat().sort()).toEqual(files);
 });
 
-test("the coverage guard rejects omitted, duplicated, unexpected and empty assignments", () => {
+describe("partition coverage guard", () => {
   const files = ["a", "b", "c"];
-  expect(files.length).toBeGreaterThan(0);
-  for (const shards of [
-    [["a"], ["b"]],
-    [["a", "b"], ["b", "c"]],
-    [["a"], ["b"], ["unexpected"]],
-    [["a", "b", "c"], []],
-    [],
-  ]) {
-    expect(() => assertPartition(files, shards)).toThrow("exactly once");
+  const invalid: Record<string, string[][]> = {
+    omitted: [["a"], ["b"]],
+    duplicated: [["a", "b"], ["b", "c"]],
+    unexpected: [["a"], ["b"], ["unexpected"]],
+    empty: [["a", "b", "c"], []],
+    absent: [],
+  };
+  for (const [kind, shards] of Object.entries(invalid)) {
+    test(`rejects ${kind} assignments`, () => {
+      expect(files.length).toBeGreaterThan(0);
+      expect(() => assertPartition(files, shards)).toThrow("exactly once");
+    });
   }
-  expect(() => assertPartition(["a", "a", "b"], [["a"], ["b"]])).toThrow("exactly once");
-  expect(() => assertPartition(files, [["a"], ["b"], ["c"]])).not.toThrow();
+  test("rejects duplicated discovery", () => {
+    expect(() => assertPartition(["a", "a", "b"], [["a"], ["b"]])).toThrow("exactly once");
+  });
+  test("accepts complete disjoint non-empty assignments", () => {
+    expect(() => assertPartition(files, [["a"], ["b"], ["c"]])).not.toThrow();
+  });
 });
 
 test("invalid costs and impossible shard counts fail before execution", () => {

@@ -105,6 +105,7 @@ if (import.meta.main) {
   let args = process.argv.slice(2);
   let argv: string[];
   try {
+    if (args.includes("--balanced-shard")) throw new Error("Expected --balanced-shard=M/N");
     const balanced = args.filter((arg) => arg.startsWith("--balanced-shard="));
     args = args.filter((arg) => !arg.startsWith("--balanced-shard="));
     argv = testArgv(args);
