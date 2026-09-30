@@ -28,8 +28,13 @@ when changing what packages ship, dependencies, versions or publishing.
 ## Select and claim
 
 Check authentication and the repository remote; fetch `origin/main`.
-Preserve existing user work. Use an isolated branch/worktree from remote
-main when the checkout is dirty or another task is using it.
+Record the starting checkout, branch and status; inspect `git worktree list
+--porcelain` and the environment's workspace ownership. Preserve existing
+user work. A clean status does not establish exclusive use. If the checkout
+is dirty, shared with another task/session, or exclusive use is uncertain,
+implementation **must use a dedicated git worktree**. A separate branch in
+the same checkout does not isolate its files or index. Prepare the checkout
+after claiming and establishing readiness, as described below.
 
 Read **all pages** of open `agent-ready` issues, rather than trusting a stale
 board view. Exclude assignments, PR objects, epics, `blocked` and all `needs:`
@@ -115,11 +120,45 @@ selection. Human handoff removes `agent-ready` under the GitHub skill's rule.
 Preserve type, area, priority and genuine release commitments. Labels describe
 gaps; workflow status lives on the board. Then **Finish or hand off** and stop.
 
+## Prepare the issue checkout
+
+Reuse an environment-provided worktree only when it is dedicated to this
+invocation and its branch/base are appropriate for the issue. Otherwise,
+when isolation is required, create a worktree from fetched `origin/main`
+with branch `<type>/<issue-number>-<slug>`. Choose an unused absolute path
+outside the starting checkout and a unique branch; append the claim token
+to the slug/path if needed. Check existing worktrees and branches before
+creation; a collision does not authorize taking over another worker's tree.
+With `source_checkout`, `issue_branch` and `issue_worktree` set accordingly:
+
+```sh
+rtk proxy git -C "$source_checkout" worktree add \
+  -b "$issue_branch" "$issue_worktree" origin/main
+```
+
+Do not switch, stash, reset or clean the starting checkout to make room.
+Do not use `-B` or force worktree creation to override existing ownership.
+If required isolation cannot be established, document the blocker and run
+**Finish or hand off**; do not fall back to editing a shared checkout.
+A clean checkout whose exclusive use is established may instead create
+the issue branch in place from `origin/main`.
+
+Record the actual branch in the claim comment. Keep absolute paths and
+whether this invocation created the worktree in local session state only.
+Run all issue edits, installs, tests, builds, commits, rebases and pushes
+from the issue checkout. Set each tool's working directory explicitly or
+use `git -C`; a `cd` in one tool call may not persist into the next. Verify
+the checkout root and branch before mutations. Install dependencies there
+when needed; do not share mutable `node_modules` or build output with the
+starting checkout. Worktrees isolate files and indexes, but share Git refs:
+do not move/delete another worker's branch or switch/update the starting
+checkout during merge reconciliation.
+
 ## Implement the scoped issue
 
-Create `<type>/<issue-number>-<slug>` from remote main; record its branch in
-the claim comment. Implement acceptance criteria in logical, reviewable
-groups and commit those groups with conventional titles. Stage only your work.
+Use the prepared issue checkout throughout implementation and PR fixes.
+Implement acceptance criteria in logical, reviewable groups and commit those
+groups with conventional titles. Stage only your work.
 
 Follow repository failing-first/runtime/mutation expectations for fixes and
 guards. Record the actual failing assertion and restore mutations. Run
@@ -188,6 +227,15 @@ remove another worker's assignment or release a contested shared-account
 claim. Keep resumable code/PRs and links. If an API failure prevents comments,
 labels or unassignment, report the exact unfinished tracker action; do not
 claim a clean handoff. Closed issues may retain assignment as history.
+
+For a worktree created by this invocation, remove it only when no worker or
+process still uses it, its status has no uncommitted/untracked work, and
+any commits needed to resume are preserved on a branch/PR. Run
+`git -C "$source_checkout" worktree remove "$issue_worktree"` from outside
+that worktree, without force. Keep blocked/partial worktrees for resumption;
+report their local path and branch to the user, never in public tracker text.
+Leave reused/environment-managed worktrees and the starting checkout intact.
+Do not delete branches or prune other worktrees as part of this cleanup.
 
 Report the selected issue, outcome, PR/merge or blocker links, checks and any
 unfinished action. Do not claim/work another issue automatically.
