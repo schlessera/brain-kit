@@ -233,7 +233,7 @@ export async function startMcpServer(
           .enum(["none", "heuristic", "jev"])
           .optional()
           .describe(
-            "Reranking: jev (relevance judgment, then lifecycle factors), heuristic (lifecycle factors only) or none. Omit for the brain's configured default."
+            "Reranking: jev (relevance judgment; requires reranker.enabled: true), heuristic (local lifecycle factors) or none. Omit for the configured provider when enabled and available, otherwise heuristic."
           ),
         include_archived: z.boolean().default(false).describe("Include archived documents"),
         assets_only: z.boolean().default(false).describe("Only return non-markdown assets (images, PDFs)"),

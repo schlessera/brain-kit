@@ -55,8 +55,9 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     name: "BRAIN_RERANK_MODE",
     description:
       'Search reranker mode: "jev", "heuristic" or "none". Overrides the ' +
-      "configured `reranker.provider`; an explicit --rerank still wins.",
-    default: "the configured reranker (jev with its key, else heuristic)",
+      "configured `reranker.provider`; an explicit --rerank still wins. " +
+      "Cannot enable model reranking: reranker.enabled must be true.",
+    default: "the configured provider when enabled and available, else heuristic",
     required: false,
   },
   {
@@ -104,7 +105,8 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     description:
       "Default TypeSafe AI key for Jev: the built-in jev search reranker (default " +
       "name only — a config `apiKeyEnv` can point elsewhere) and the judgments " +
-      "`brain sync` asks. Absent key keeps the lifecycle (heuristic) search " +
+      "`brain sync` asks. Search also requires reranker.enabled: true. " +
+      "Absent key keeps the lifecycle (heuristic) search " +
       "ordering, and every sync judgment takes its conservative default.",
     required: false,
   },

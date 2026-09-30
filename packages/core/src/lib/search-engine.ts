@@ -35,10 +35,13 @@ export interface SearchDeps {
   taxonomy?: Taxonomy;
   /** Interactive vector budget; must finish before the UI CLI deadline. */
   queryTimeoutMs?: number;
+  /** Explicit model-reranking policy. Default false, including injected providers.
+   * `rerankSetup` forwards the persistent `reranker.enabled` setting. */
+  rerankerEnabled?: boolean;
   /**
-   * The judgment reranker `rerank: "jev"` runs before the lifecycle factors.
-   * Absent → the lifecycle factors alone. Resolve it with `selectReranker`,
-   * which applies the config, BRAIN_RERANK_MODE and key availability.
+   * The judgment reranker `rerank: "jev"` replaces the lifecycle factors.
+   * Injection alone does not activate it. Resolve policy and bounds with
+   * `rerankSetup`, or explicitly set `rerankerEnabled` for a direct call.
    */
   reranker?: Reranker;
   /**
@@ -910,9 +913,14 @@ export async function hybridSearch(
   // each one's lifecycle fields (status, relevance, updated) in its evidence.
   // The multipliers are not applied on top — on a rank-derived scale a ×0.85
   // factor moves a result about ten places, and measured after the judgment
-  // they undid it. A judgment that does not run (gated, failed, dry run)
+  // they undid it. An activated judgment that is skipped, fails or previews
   // leaves the retrieval order, which measured better than the multipliers.
-  const rerankMode: RerankMode = opts.rerank ?? envRerankMode() ?? (deps.reranker ? "jev" : "heuristic");
+  // Disabled judgment instead selects local heuristic ordering.
+  const requestedRerank: RerankMode =
+    opts.rerank ?? envRerankMode() ?? (deps.rerankerEnabled === true && deps.reranker ? "jev" : "heuristic");
+  const disabled = requestedRerank === "jev" && deps.rerankerEnabled !== true && !deps.rerankPreview;
+  const rerankMode: RerankMode = disabled ? "heuristic" : requestedRerank;
+  if (disabled) warnings.push('rerank "jev" disabled: reranker.enabled is false; results are in lifecycle order');
   if (rerankMode === "jev") {
     if (!deps.reranker) {
       warnings.push('rerank "jev" requested but no reranker is configured; results are in retrieval order');

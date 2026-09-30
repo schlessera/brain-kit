@@ -74,15 +74,20 @@ The contract suite is `runRerankerContract` in `@schlessera/brain/testing`;
 
 | Name  | What it does                                                    | Key                |
 | ----- | --------------------------------------------------------------- | ------------------ |
-| `jev` | One TypeSafe System One Choice over the candidate ids (default) | `TYPESAFE_API_KEY` |
+| `jev` | One TypeSafe System One Choice over the candidate ids (opt-in provider) | `TYPESAFE_API_KEY` |
 
-`jev` is the default even when `reranker` is omitted; without its key it stays
-dormant and search keeps the `heuristic` ordering, the same rule that keeps a
-keyless brain on full-text search. An explicit `--rerank jev` without the key
-says so in `warnings`.
+Judgment providers require `reranker.enabled: true`; omitted or false keeps
+search on local `heuristic` ordering (or `none` when selected), even with a key
+or custom provider. `jev` is the default provider once enabled. It also needs
+its key; an explicit `--rerank jev` or `BRAIN_RERANK_MODE=jev` while disabled or
+keyless falls back with a warning. Eval refuses to score that fallback.
+`--rerank-dry-run` can inspect the request while disabled or keyless and sends
+nothing. See [the config migration](../configuration.md#reranker) and the
+[activation decision](../decisions/reranker-activation.md).
 
 ```ts
 reranker: {
+  enabled: true,                    // only this setting activates judgment
   provider: "jev",                  // or "heuristic", "none", or a Reranker value
   model: "jev-1.13.0",              // pinned; jev-latest moves, and brain doctor warns on it
   apiKeyEnv: "TYPESAFE_API_KEY",
@@ -179,7 +184,7 @@ queries moved.
    import { myReranker } from "./my-reranker";
 
    export default defineConfig({
-     reranker: { provider: myReranker, exclude: ["career"] },
+     reranker: { enabled: true, provider: myReranker, exclude: ["career"] },
    });
    ```
 
@@ -187,13 +192,22 @@ queries moved.
    `runRerankerContract` in its tests.
 
 A custom value is used as-is: key handling and availability are its own
-business, and `brain search --rerank jev` still names the built-in when you
-want to compare.
+business, after the same persistent opt-in as the built-in. `brain search
+--rerank jev` still names the built-in when you want to compare.
+
+For library search, prefer `rerankSetup(config.reranker, requestedMode)` and
+spread its `rerank` into search options and its `deps` into `SearchDeps`.
+`resolveReranker` only constructs a provider; it does not activate search.
+Direct `hybridSearch` injection requires `rerankerEnabled: true` alongside
+`reranker`; passing a provider or requesting `jev` alone leaves judgment off.
+Use the loaded canonical setting for that flag when embedding a configured
+brain. A preview callback may inspect the request while off, without a call.
 
 ## Reranking a fan-out
 
 When several sources answer one query, call each with `rerank: "none"` and a
 deep limit, tag every candidate with its `source`, and rerank the union once.
+Honor the same activation setting before calling a judgment over that union.
 Per-source reranking and then fusing is not comparable: a Choice's
 probabilities normalise within one call, so a mediocre candidate from a weak
 pool outranks a good one from a strong pool. The helpers `hybridSearch` uses

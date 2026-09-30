@@ -48,15 +48,15 @@ export const COMPLETION_PROVIDERS: Record<
 };
 
 /**
- * Judgment rerankers, by name. `jev` is the default ordering and needs a
+ * Judgment rerankers, by name. `jev` is the default provider when enabled and needs a
  * key; without one, search keeps the lifecycle ordering (`heuristic`).
  * "heuristic" and "none" are accepted wherever a name is and are not
  * rerankers: they select the lifecycle factors alone, or nothing.
  */
 /**
  * Default `reranker.skipMargin`: none. The gate is a cost lever that measured
- * neutral to negative on quality (see SearchDeps.rerankSkipMargin), so every
- * search is judged unless a brain opts in.
+ * neutral to negative on quality (see SearchDeps.rerankSkipMargin). Activated
+ * search skips no judgment by vector margin unless a brain configures it.
  */
 export const DEFAULT_RERANK_SKIP_MARGIN: number | undefined = undefined;
 
@@ -160,7 +160,8 @@ export function rerankerKeyEnv(config?: RerankerSettings): string {
 
 /**
  * The configured judgment reranker, or undefined when the config selects
- * `heuristic` or `none`. A passed-in value is used as-is. No key check.
+ * `heuristic` or `none`. A passed-in value is used as-is. This constructs a
+ * provider, not activation: use `rerankSetup` for search policy and bounds.
  */
 export function resolveReranker(config?: RerankerSettings): Reranker | undefined {
   const provider = config?.provider ?? "jev";
@@ -192,6 +193,8 @@ export interface RerankerSelection {
  * - `requested` (`--rerank`, MCP `rerank`) wins, then BRAIN_RERANK_MODE when
  *   it names a mode (an invalid value is reported in `warning` and ignored),
  *   then the configured `reranker.provider` (default `jev`).
+ * - Judgment ordering requires `config.enabled === true`. Credentials and
+ *   mode selection cannot enable it. Preview constructs a request only.
  * - The built-in `jev` needs its key. Without it the configured default
  *   quietly keeps the lifecycle ordering, the rule that keeps a keyless brain
  *   working; an explicit request for `jev` gets the same ordering plus a
@@ -216,10 +219,9 @@ export function selectReranker(
     else if (envRaw) warning = `BRAIN_RERANK_MODE="${envRaw}" is not one of ${RERANK_MODES.join(", ")}; ignored`;
   }
   const explicit = name !== undefined;
+  const provider = config?.provider ?? "jev";
   if (name === undefined) {
-    const provider = config?.provider ?? "jev";
-    if (typeof provider !== "string") return { rerank: "jev", reranker: provider, warning };
-    name = provider;
+    name = typeof provider === "string" ? provider : "jev";
   }
   if (name === "none" || name === "heuristic") return { rerank: name, warning };
   if (!Object.hasOwn(RERANKERS, name)) {
@@ -230,6 +232,15 @@ export function selectReranker(
       warning: `reranker.provider "${name}" is not one of ${RERANK_MODES.join(", ")}; results are in heuristic order`,
     };
   }
+  if (config?.enabled !== true && !opts.preview) {
+    return {
+      rerank: "heuristic",
+      warning: explicit
+        ? 'rerank "jev" disabled: reranker.enabled is false; results are in lifecycle order'
+        : warning,
+    };
+  }
+  if (!explicit && typeof provider !== "string") return { rerank: "jev", reranker: provider, warning };
   // A dry run builds the request without sending it, so it needs no key.
   if (!opts.preview && !readEnvVar(rerankerKeyEnv(config))) {
     return {
@@ -252,6 +263,7 @@ export function selectReranker(
 export interface RerankSetup {
   rerank: "none" | "heuristic" | "jev";
   deps: {
+    rerankerEnabled?: boolean;
     reranker?: Reranker;
     rerankExclude?: (path: string) => boolean;
     rerankTimeoutMs?: number;
@@ -277,6 +289,7 @@ export function rerankSetup(
     warning: selection.warning,
     deps: selection.reranker
       ? {
+          rerankerEnabled: config?.enabled === true,
           reranker: selection.reranker,
           rerankExclude: buildPathMatcher(config?.exclude),
           rerankTimeoutMs: config?.timeoutMs,

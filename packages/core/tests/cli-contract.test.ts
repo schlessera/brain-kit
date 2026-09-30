@@ -718,11 +718,16 @@ describe("output mode + exit codes", () => {
   });
 
   test("--rerank jev without a key keeps the lifecycle ordering and says so", async () => {
-    const res = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--json"]);
-    expect(res.code).toBe(0);
-    const out = JSON.parse(res.stdout);
-    expect(out.results.length).toBeGreaterThan(0);
-    expect(out.warnings.some((w: string) => /rerank "jev" unavailable: TYPESAFE_API_KEY not set/.test(w))).toBe(true);
+    const enabledRoot = makeTempBrain();
+    try {
+      writeFileSync(join(enabledRoot, "brain.config.ts"), "export default { reranker: { enabled: true } };\n");
+      expect((await runCli(enabledRoot, ["index", "--json"])).code).toBe(0);
+      const res = await runCli(enabledRoot, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--json"]);
+      expect(res.code).toBe(0);
+      const out = JSON.parse(res.stdout);
+      expect(out.results.length).toBeGreaterThan(0);
+      expect(out.warnings.some((w: string) => /rerank "jev" unavailable: TYPESAFE_API_KEY not set/.test(w))).toBe(true);
+    } finally { cleanup(enabledRoot); }
   });
 
   test("--rerank-dry-run prints the jev request without a key and sends nothing", async () => {

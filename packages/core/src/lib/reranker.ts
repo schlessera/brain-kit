@@ -7,7 +7,7 @@ import type { SearchResult } from "./types.js";
  * How a search reranks: `none` keeps the retrieval order untouched,
  * `heuristic` multiplies it by the lifecycle factors below, and `jev` orders
  * the candidates by a relevance judgment (a `Reranker`, TypeSafe's Jev by
- * default) that sees each candidate's lifecycle fields as evidence. `jev`
+ * opt-in) that sees each candidate's lifecycle fields as evidence. `jev`
  * does not apply the multipliers on top: measured on a 1,133-document brain,
  * they undid the judgment (hand-set vector hit@1 0.852 → 0.444) because on a
  * rank-derived scale a ×0.85 factor moves a result about ten places.
