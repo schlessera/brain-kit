@@ -51,7 +51,7 @@ embedding-cost tradeoff.
 
 | Name     | Model / dimensions               | Key                          |
 | -------- | -------------------------------- | ---------------------------- |
-| `gemini` | `gemini-embedding-2`, 1536 dims  | `GEMINI_API_KEY` (free tier) |
+| `gemini` | `gemini-embedding-2`, 1536 dims  | `GEMINI_API_KEY` |
 
 `gemini` is the default even when `embeddings` is omitted; it stays dormant until
 a key is present, so a keyless brain simply runs full-text search.
@@ -62,7 +62,8 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
 
 ## Add your own (≤3 steps)
 
-1. **Implement `EmbeddingProvider`** — via the typed helper:
+1. **Implement `EmbeddingProvider`** — via the typed helper. This sketch
+   throws until you implement the vectorization methods:
 
    ```ts
    // my-embeddings.ts
@@ -72,8 +73,8 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
      return defineEmbeddingProvider({
        id: `mine:${opts.model}`,
        dimensions: 768,
-       async embed(texts) { /* → Float32Array[] */ },
-       async embedQuery(text) { /* → Float32Array */ },
+       async embed(texts) { throw new Error("Implement batch vectorization"); },
+       async embedQuery(text) { throw new Error("Implement query vectorization"); },
      });
    }
    ```
@@ -81,6 +82,7 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
 2. **Reference it by value** in `brain.config.ts` — it works immediately:
 
    ```ts
+   import { defineConfig } from "@schlessera/brain";
    import { myEmbeddings } from "./my-embeddings";
 
    export default defineConfig({

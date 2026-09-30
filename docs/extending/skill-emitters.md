@@ -123,8 +123,9 @@ package's.
 
 ## Add your own (≤3 steps)
 
-Emitters are small (each built-in is roughly 40 to 80 lines), and a new one is
-mostly a layout choice.
+An emitter chooses a discovery layout and owns safe updates to the files it
+generates. Block migration and preservation can require more than a simple
+file copy; follow the built-ins' contract tests.
 
 1. **Implement `SkillEmitter`:**
 

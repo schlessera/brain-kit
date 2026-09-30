@@ -10,9 +10,19 @@ see [integration-contract.md](integration-contract.md).
 claude mcp add brain -- bun node_modules/.bin/brain mcp
 ```
 
-The template ships a project-scoped `.mcp.json` with this entry, so agents that
-read project MCP config need no registration step. `/brain-init` verifies the
-registration with an in-session `brain_search` call; `brain doctor` checks it.
+Run registration from your brain repository. The template already ships a
+project-scoped `.mcp.json`, so a client that reads it needs no duplicate entry.
+Approve the server in your client's interface if required. `brain doctor`
+checks configuration; it does not prove that the current agent loaded this
+brain's tools. `/brain-init` reads `me/identity.md` through an in-session MCP
+tool and compares it with the file on disk to check the responding brain.
+The remaining live onboarding verification is tracked in
+[#26](https://github.com/schlessera/brain-kit/issues/26).
+
+For other clients, configure a stdio server with command `bun`, arguments
+`["node_modules/.bin/brain", "mcp"]` and this brain repository as its working
+directory. MCP access and [skill discovery](extending/skill-emitters.md) are
+separate setup steps.
 
 `brain mcp` starts the stdio server in-process. If the packaged bin is not
 available while developing from a source checkout, the source entry remains a

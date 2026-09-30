@@ -200,6 +200,10 @@ Scores are only comparable within one mode and one rerank setting:
 | `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 | `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 
+The following explicit activation policy is available in 0.40.0+; published
+0.39.0 does not have `reranker.enabled`. Check the installed changelog when
+comparing releases.
+
 The default is local `heuristic` ordering. Set `reranker.enabled: true` in
 the canonical config to use its judgment provider (`jev` by default, with a
 key). Credentials and mode selection cannot enable it. An explicit

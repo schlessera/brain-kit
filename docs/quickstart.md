@@ -3,11 +3,15 @@
 > **Requires Bun ≥ 1.3.5 — npm/npx will not warn you (npm ignores `engines.bun`);
 > install from https://bun.sh.**
 
-From nothing to a working, searchable brain in three shell commands and one
-conversation. This is the template path — the primary way to start.
+Start from the public template, install the CLI and build a searchable brain
+without an API key. Then optionally use an agent interview to tailor its
+structure. This is the primary way to start.
 
-You also need git, the [GitHub CLI](https://cli.github.com) (`gh`), and a coding
-agent (Claude Code, or any agent that speaks MCP).
+You also need git and the [GitHub CLI](https://cli.github.com) (`gh`) for the
+repository creation step. The interview needs a signed-in coding agent that
+can discover the emitted skills; MCP support alone does not provide slash
+commands. See [MCP](mcp.md) and [skill emitters](extending/skill-emitters.md)
+for other clients.
 
 ## 1. Create a private repo from the template
 
@@ -42,14 +46,17 @@ once, and the CLI works with no API keys and no further setup:
 
 ```sh
 brain index                            # builds brain.db from the markdown
-brain search "hello"                   # finds the example note, notes/hello-brain.md
-brain add "a thought I want to keep"   # captures a note into the inbox
+brain search "hello" --mode fts         # finds notes/hello-brain.md
+brain add "Odysseus needs timber and sailcloth for the raft." --title "Raft supplies"
 ```
 
 `brain add` indexes what it writes, so after the first capture the index keeps
 itself current; `brain index` is what you run after editing files by hand.
 
 ## 3. Run the onboarding interview
+
+This step is optional. Without an agent, continue to first capture and search,
+then edit [configuration](configuration.md) as your taxonomy grows.
 
 Open the repo in your coding agent. The bootstrap `CLAUDE.md` tells the agent
 this is an uninitialized brain and points at the first step. Run:
@@ -97,13 +104,13 @@ Capture is one command; it writes valid frontmatter and routes the note to the
 inbox:
 
 ```sh
-brain add "Reading about hybrid search — FTS plus vectors, fused by score."
+brain add "Check [[notes/raft-supplies]] before leaving Ogygia." --title "Raft inspection"
 ```
 
 Search works in plain full-text mode with no keys at all:
 
 ```sh
-brain search "hybrid search"
+brain search "Ogygia" --mode fts
 ```
 
 From inside an agent session the same capabilities are available as MCP tools
@@ -113,8 +120,11 @@ conversationally.
 ### Turn on semantic search (optional)
 
 Full-text search finds documents that share your words. Semantic search finds
-documents that share your *meaning*. To enable it, add a Gemini API key — the
-free tier is plenty for a personal corpus:
+documents that share your *meaning*. To enable the default provider, add a
+Gemini API key. Availability, quotas and cost depend on your provider account
+and corpus; indexing can also request generated chunk contexts and asset
+descriptions. Review [provider configuration](configuration.md#providers)
+before enabling it:
 
 ```sh
 # .env  (gitignored — never commit keys)
@@ -134,13 +144,15 @@ search proves itself.
 ## The degradation ladder
 
 brain-kit is built so that every capability is additive: each tier adds power
-without breaking the one below it. You are never blocked waiting for a key.
+without breaking the basic capture and keyword-search path. Features such as
+image generation require their provider credentials; they do not generate a
+keyless substitute.
 
 | Tier | You provide                          | You get                                                                                                                                             |
 | ---- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | nothing (just Bun)                   | Full-text search (auto-degrades with warnings), `brain index`, `brain validate`, `brain audit`, mechanical `brain briefing`, heuristic `brain add`, MCP tools (degraded) |
-| 1    | a signed-in coding agent             | Everything above **plus every skill** — `/brain-init`, `/brain-import`, conversational capture and review                                            |
-| 2    | + a `GEMINI_API_KEY` (free tier fine)| Semantic and hybrid search, generated asset descriptions, richer `/whatsup` skill output via `brain briefing`                                        |
+| 0    | Bun and git; no provider key         | Keyword search, `brain index`, `brain validate`, `brain audit`, mechanical `brain briefing`, heuristic `brain add`, keyless MCP operations |
+| 1    | a signed-in agent with skill discovery | Agent workflows such as `/brain-init`, `/brain-import`, conversational capture and review; individual skills can need additional tools or providers |
+| 2    | + a `GEMINI_API_KEY`                 | Semantic and hybrid search, generated chunk contexts and asset descriptions; `brain briefing` stays mechanical |
 | 3    | + a `DEEPGRAM_API_KEY` (with the chat UI)| Voice capture in the self-hosted chat UI                                                                                                            |
 
 Tier 0 is genuinely useful the moment you clone — the CLI needs only Bun. Tier 1
@@ -163,29 +175,37 @@ or before filing a bug — run the doctor:
 It runs a check battery (Bun version, git hooks, skill and bin symlinks, config
 validity, index freshness, embeddings coverage, MCP registration, dependency
 state, and **whether your git remote is public**), explains any failures in
-plain language, and applies the safe fixes one at a time with your consent until
-everything is green.
+plain language, and proposes safe fixes. Optional capabilities can legitimately
+remain disabled; read each warning rather than aiming for an all-green report.
 
 The underlying command is `brain doctor --json`; its output is also the
 artifact to paste into a bug report — the doctor doubles as the support tool.
 
 Run straight after `bun run setup`, before the first `brain index`, the `db`
 check fails with `brain.db is missing`; the `brain index` in section 2 fixes it.
-Once you have indexed, a keyless brain — Tier 0, the configuration you have the
-moment you clone — passes every check except one, and that one is expected:
+Once you have indexed, a keyless brain can still report missing optional
+credentials, for example:
 
 ```
 [warn] embeddings         GEMINI_API_KEY not set — vector search disabled (FTS still works)
 ```
 
-That is the doctor reporting the tier you are on, not a problem to fix. It turns
-into a pass when you add a key and re-index (see
-[Turn on semantic search](#turn-on-semantic-search-optional)). Any *other*
-warning is worth reading.
+That warning describes the available capability. The published 0.39.0 doctor
+can also warn about an unset reranker key; newer code requires explicit
+reranker activation instead. If `gh` cannot verify the remote's visibility,
+the privacy check asks you to verify it manually. A public remote is a failure
+that must be fixed before storing personal content. See each check's detail
+and suggested fix; warning counts depend on the installed version and setup.
+
+The keyless published-template path has been exercised through setup, capture,
+search and validation. The live interview and in-agent MCP verification are
+tracked separately in [#26](https://github.com/schlessera/brain-kit/issues/26);
+this guide does not claim that reserved verification is complete.
 
 ## See also
 
 - [concepts.md](concepts.md) — frontmatter, types, wiki-links, the inbox.
+- [daily-workflow.md](daily-workflow.md) — capture, review, maintain and sync.
 - [configuration.md](configuration.md) — grow `brain.config.ts` by hand.
 - [modules.md](modules.md) — add job-search, speaking, or finance workflows.
 - [hosting/README.md](hosting/README.md) — back up and self-host your brain.

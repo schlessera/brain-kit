@@ -1,8 +1,9 @@
 # Extending: completions
 
 The `CompletionProvider` seam is plain (non-agentic) LLM completion. Core uses it
-for enrichment (chunk contexts and asset descriptions), note processing, and
-briefings — the text-in, text-out work that does not need a full coding agent.
+for enrichment (chunk contexts and asset descriptions) and note processing —
+the text-in, text-out work that does not need a full coding agent.
+`brain briefing` itself is mechanical; `/whatsup` adds an agent's interpretation.
 
 ## The interface
 
@@ -52,7 +53,8 @@ fall back from a vision model to a text-only one if you rely on vision).
 
 ## Add your own (≤3 steps)
 
-1. **Implement `CompletionProvider`:**
+1. **Implement `CompletionProvider`.** This sketch throws until you implement
+   the provider call and return its text:
 
    ```ts
    // my-completions.ts
@@ -63,7 +65,7 @@ fall back from a vision model to a text-only one if you rely on vision).
        id: "mine:some-model",
        capabilities: { vision: false },
        async complete({ system, prompt, parts, maxTokens }) {
-         /* call your API, return the text */
+         throw new Error("Implement the provider call and return its text");
        },
      };
    }
@@ -72,6 +74,7 @@ fall back from a vision model to a text-only one if you rely on vision).
 2. **Reference it by value:**
 
    ```ts
+   import { defineConfig } from "@schlessera/brain";
    import { myCompletions } from "./my-completions";
 
    export default defineConfig({
@@ -112,8 +115,8 @@ a test: an injected `fetch`, a local stub server. The suite never needs a key.
   completion call. The indexer retains the asset's placeholder and searchable
   title, omits it from description caches and embeddings, and retries on a
   later `--embeddings` run. Empty/whitespace model output has the same result.
-- **No completion provider reachable** (missing key, network) → enrichment,
-  note-processing, and LLM briefings are skipped; mechanical features (`brain
+- **No completion provider reachable** (missing key, network) → enrichment
+  and note-processing use their degraded paths; mechanical features (`brain
   briefing`'s deadline/review scanning, heuristic classification) still run.
   This is why Tier 0 works with no keys at all.
 - **`parts` are additive.** Providers that ignore `parts` still satisfy the

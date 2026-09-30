@@ -13,7 +13,7 @@ Your knowledge lives in **markdown files under git**. The search index
 markdown and can be thrown away and rebuilt at any time:
 
 ```sh
-brain index --force   # deletes and regenerates brain.db from the markdown
+brain index --force   # rebuilds the derived index from the markdown
 ```
 
 Nothing is ever authoritative in `brain.db` that is not already in a file.
@@ -203,8 +203,11 @@ correctness (schema, unresolved links); audit is about health.
   30 days (`warning`) because current-focus notes rot fast.
 - **Index lag** — a summary layer (`_index.md`, current-focus) older than the
   details it summarizes (the Index Sync Principle, enforced).
-- **Orphans** — a document no wiki-link points to. Types marked `orphanExempt`
-  (core: `context`, `index`) are excused.
+- **Orphans** — a document with no outgoing wiki-link, no resolved incoming
+  wiki-link and no incoming plain Markdown link from an indexed document
+  (including registry links). Types marked `orphanExempt` (core: `context`,
+  `index`) and `_index.md` files are excused. An unresolved outgoing link is
+  still a broken-link finding; it does not also make its source an orphan.
 - **Type/directory mismatch** — a document whose `type` does not match where it
   lives, per the taxonomy's accepted prefixes.
 - **Propagation lag** — a derivative document older than the canonical source it

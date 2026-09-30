@@ -3,26 +3,48 @@
 A file-first personal knowledge base your coding agent operates. Markdown is the
 source of truth; the search index is disposable and rebuilt on demand.
 
-Start with the [quickstart](quickstart.md), then read [concepts](concepts.md) to
-understand the model. The rest is reference.
+## Get started
+
+- [Quickstart](quickstart.md) — create a private brain, capture a note and find
+  it without API keys; then choose whether to personalize it with an agent.
+- [Concepts](concepts.md) — learn how files, frontmatter, types and links fit
+  together, and what the disposable index does.
+- [Daily workflow](daily-workflow.md) — capture, connect and review notes,
+  refresh the index, and sync a brain you already own.
+
+These pages are the reading order for a new user. The guides below explain
+optional capabilities; the references answer a specific command or setting
+question. This Markdown index is also the navigation source for public docs.
+
+## Guides
+
+| Guide | Use it to |
+| --- | --- |
+| [Modules](modules.md) | Enable domain workflows or author a local module; follow links to each module's full reference. |
+| [Media](media.md) | Decide which assets to keep in git and how large files behave during sync. |
+| [Evaluating search](evaluating-search.md) | Build a query set and measure retrieval without mistaking an invalid set for a useful score. |
+| [Hosting](hosting/README.md) | Back up a local brain and understand the separate, not-yet-published hosting-template path. |
+| [Extending](extending/README.md) | Implement a provider at an existing experimental seam; modules and infrastructure providers are separate mechanisms. |
+
+## Reference
+
+These references follow the source in this repository. Check `brain --version`
+and the installed package's `CHANGELOG.md` when using a published release;
+versioned additions are not available in older packages. The quickstart uses
+the published template rather than a source checkout.
 
 | Doc | What's in it |
 | --- | --- |
-| [quickstart.md](quickstart.md) | Clone the template to a working brain: the `gh` one-liner, `bun install`, `/brain-init`, first capture and search, the degradation ladder, and `/brain-doctor`. |
-| [concepts.md](concepts.md) | The core model: markdown-as-truth, the frontmatter schema, document types and the taxonomy merge, `_index.md` and the Index Sync Principle, wiki-link resolution, the notes inbox, staleness/audit, and sidecar caches. |
 | [configuration.md](configuration.md) | The full `brain.config.ts` reference — every key, its type, default, and an example — plus every environment variable brain-kit reads, root resolution, and the `brain.config.json` variant. |
-| [modules.md](modules.md) | What a module is, enabling/disabling via `/brain-module`, first-party modules (jobs, speaking, travel, finance, images), local path modules, and authoring with `/new-module`. |
 | [cli.md](cli.md) | Command reference for the `brain` bin — all commands, key flags, and which `--json` shapes are contract-bound. |
-| [media.md](media.md) | Media in your brain: what belongs in git, why iteration history is the expensive part, the `MEDIA`/`LARGE` sync classes and the `media` config block, and Git LFS for large masters. |
-| [evaluating-search.md](evaluating-search.md) | `brain eval`: writing a query set for your own brain, the validity gates, and reading hit@1 against the oracle row. |
 | [mcp.md](mcp.md) | The stdio MCP server: registration, the eight `brain_*` tools, staleness warnings, and taxonomy-generated type filters. |
 | [extending/README.md](extending/README.md) | The seam meta-mechanism (typed interface → string-or-value config → optional package), the bar for promoting a community provider to a built-in, and the verbatim not-pluggable list. |
 | [extending/embeddings.md](extending/embeddings.md) | The `EmbeddingProvider` seam. |
 | [extending/completions.md](extending/completions.md) | The `CompletionProvider` seam. |
 | [extending/agent-runners.md](extending/agent-runners.md) | The `AgentRunner` seam. |
+| [extending/rerankers.md](extending/rerankers.md) | The opt-in `Reranker` seam and its evaluation evidence. |
 | [extending/skill-emitters.md](extending/skill-emitters.md) | The `SkillEmitter` seam. |
 | [extending/agent-backends.md](extending/agent-backends.md) | The `AgentBackend` seam: authoring a chat-UI agent backend — turn lifecycle, the permission bridge, and how ui-server loads backends. |
-| [hosting/README.md](hosting/README.md) | Self-host overview: what you generate and run, `/brain-host`, auth modes, the honest cost table, encryption reality, and backups. |
 | [http-api.md](http-api.md) | Complete mounted-route inventory, supported HTTP authentication/inputs/responses/errors, SDK dependencies and internal UI transport boundary. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, supported HTTP/wire behavior, `brain.db` reads, and versioning rules. |
 

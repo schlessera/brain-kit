@@ -7,7 +7,8 @@ on purpose — see [the not-pluggable list](#explicitly-not-pluggable) below.
 
 ## The meta-mechanism
 
-Every seam works the same way, and it is deliberately boring:
+The core embedding, completion, agent-runner and reranker providers use this
+convention:
 
 > **A typed interface in a core package → config accepts a built-in name
 > (string) OR a passed-in implementation (value) → optionally shared as an npm
@@ -29,7 +30,8 @@ discovery. Concretely:
    [the promotion bar](#promoting-a-community-provider-to-a-built-in).
 
 ```ts
-import { ollamaEmbeddings } from "brain-embeddings-ollama";
+import { defineConfig } from "@schlessera/brain";
+import { ollamaEmbeddings } from "brain-embeddings-ollama"; // hypothetical package
 
 export default defineConfig({
   embeddings: { provider: "gemini" },                                  // built-in
@@ -43,7 +45,12 @@ export default defineConfig({
    `defineCompletionProvider`, `defineAgentRunner`, `defineReranker`, or `defineSkillEmitter` from
    `@schlessera/brain` (identity functions that give you inference and
    excess-property checking) — or as a plain object typed as the interface.
-2. **Reference it in config** by value — it works immediately, no registration.
+2. **Wire it through the seam's entry point.** Core providers accept config
+   values; built-in skill emitters use names in `skills.emitters`, while custom
+   emitters are passed to `syncSkills` by calling code. Backends, client renderers,
+   speech and scrape adapters have their own registration or loading paths.
+   Follow the individual guide rather than assuming every seam is a
+   `brain.config.ts` provider value.
 3. **(Optional) publish** it as `brain-<kind>-<vendor>` (your own npm scope) so
    others can import it.
 
@@ -248,7 +255,7 @@ there is no vote and no score.
    redistribution, or a vendor SDK that is not itself openly licensed, keeps
    the provider in community space.
 6. **Clean under the gates.** No personal data, no raw invisible characters,
-   fixtures under the "Alex Example" persona. A provider is not given an
+  fixtures in the approved Odysseus example world. A provider is not given an
    exemption from a gate; it is rewritten until it passes.
 7. **It fits the seam as it is.** A provider that needs a new method on the
    interface, a new config key, or a new capability flag is proposing a seam

@@ -2,10 +2,15 @@
 
 Runs under Bun. Installed as the `brain` bin by `@schlessera/brain`; `brain setup`
 symlinks it into `~/.local/bin`. Output is JSON when stdout is not a TTY;
-`--json` / `--human` force either mode. Exit codes: `0` success, `1` usage
-error, `2` internal failure. The `--json` envelope shapes marked ⚖ are part of
+`--json` / `--human` force either mode. Default exit codes: `0` success, `1`
+usage error, `2` internal failure. Validation, sync and evaluation have the
+additional outcomes described below. The `--json` envelope shapes marked ⚖ are part of
 the [integration contract](integration-contract.md). `brain --version` prints
 the installed `@schlessera/brain` version.
+
+This reference follows `main`. Check your installed version and its changelog
+before using additions marked 0.40.0; those are absent from the published
+0.39.0 packages. The [quickstart](quickstart.md) uses the published template.
 
 ```
 Usage: brain <command> [args] [flags]
@@ -57,14 +62,14 @@ that cannot load, a script, a placeholder left from a skeleton, a link to `#`.
 The findings are printed and listed in `warnings`; `pages` counts the PDF's
 pages. The `generate-pdf` skill treats zero warnings as done.
 
-`chrome-headless-shell` renders in about half the time of full Chrome; point
-`PUPPETEER_EXECUTABLE_PATH` at it to use it.
+To use `chrome-headless-shell`, point `PUPPETEER_EXECUTABLE_PATH` at its
+executable. Measure rendering time on your own documents and machine.
 
 ## Search + context
 
 | Command | Does | Notes |
 |---|---|---|
-| `search "q"` ⚖ | Hybrid FTS + vector search | `{results, warnings}`; `--mode fts\|vector\|hybrid`, `--rerank none\|heuristic\|jev` (default: local heuristic; configured provider when `reranker.enabled` is true and available), `--rerank-dry-run` (print the reranker's request to stderr, send nothing), `--chunks` (each result's matching chunks), `--type/--tag/--relevance/--status/--archived/--assets/--limit`; date filters `--updated-since/--updated-before/--deadline-from/--deadline-to <YYYY-MM-DD>` (inclusive), `--sort score\|updated\|deadline`, `--upcoming` (= `--deadline-from <today> --sort deadline`); degrades to FTS with a warning when embeddings are unavailable, and to the retrieval order with a warning when the reranker does not run |
+| `search "q"` ⚖ | Hybrid FTS + vector search | `{results, warnings}`; `--mode fts\|vector\|hybrid`, `--rerank none\|heuristic\|jev` (default: local heuristic; configured provider when `reranker.enabled` is true and available), `--rerank-dry-run` (print the reranker's request to stderr, send nothing), `--chunks` (each result's matching chunks), `--type/--tag/--relevance/--status/--include-archived/--assets/--limit`; date filters `--updated-since/--updated-before/--deadline-from/--deadline-to <YYYY-MM-DD>` (inclusive), `--sort score\|updated\|deadline`, `--upcoming` (= `--deadline-from <today> --sort deadline`); degrades to FTS with a warning when embeddings are unavailable, and to the retrieval order with a warning when the reranker does not run |
 | `context "q"` ⚖ | Assemble a markdown context block for agent consumption | `--max-tokens N`; includes identity/current-focus canonicals when configured, first as their summary and lead, so a larger budget never holds fewer search hits; each search hit is placed as its snippet, then, with the budget left after every hit is placed, grown in rank order into the whole `##` section its best-matching chunk comes from, read from the file (a hit takes at most 40% of the budget; a longer section is cut at a block boundary; one with no block that fits stays a snippet); budget left after that grows identity and focus towards their whole body, and what is left after that goes to a `### Related` list of the top hits' neighbours (directory `_index.md`, then linked docs), summary lines only |
 | `eval` ⚖ | Score a retrieval query set against this brain's index: hit@k, MRR@10 and an oracle row, overall and per class | `--set <file>` (default `evals/retrieval.jsonl`), `--mode fts\|vector\|hybrid\|all` (default hybrid), `--rerank none\|heuristic\|jev` (`meta.reranker` names the judgment reranker; an explicit `jev` flag or environment request while disabled or unavailable refuses the run), `--k 1,3,10` (at most 1000), `--now <ISO date>` (when the set's header does not pin one; selectors and recency use it), `--context` with `--budgets 1000,4000,8000` (also run each query through `brain context` at each budget: answer present, budget used), `--out <file>` (inside the brain; paths resolve against the brain root), `--strict` (refuse when an indexed document quotes the set's queries; without it they are `warnings`), `--lint` (validate the set and report `paraphrase` queries that share a word with an expected document's title, without scoring or the index), `--baseline <file>` (compare per query against a stored run: lost/gained per k and class; `--max-net-loss 2`, `--must-pass <classes>`, `--allow-set-change`; exit `1` when the gate fails, `3` when not comparable), `--redact` (no query text or paths); exits `2` on a usage error (unlike other commands, so `1` is only the gate) and without a score when a validity gate fails (missing set or path, a selector that selects nothing, stale index, a degraded lane). See [evaluating-search.md](evaluating-search.md) |
 | `stats` ⚖ | Corpus counts, health figures and sizes | carries `health` (broken-link rate, embedding coverage, stale/orphan/untagged, the thresholds in force) and `size` (corpus bytes+files, `brain.db` bytes and row counts, free space); stale and orphan mean what `audit` means; an unmeasurable figure is `null`, never `0` — `embeddings` included, which is `null` when a vector table exists but could not be counted (sqlite-vec did not load) and `0` when there is no vector table; warn levels come from the [`stats` config block](configuration.md#stats). Human output prints health above the inventory and caps each breakdown at the top 5 by count plus a `+N more` remainder; `--all` prints every row. `--all` is human-only — `--json` always carries the full, uncapped breakdowns |
@@ -152,7 +157,7 @@ leaking paths.
 | `module lint <name>` | Validate a module: manifest, skills, collisions, configSchema | quality gate for `/new-module` |
 | `config check` | Validate config, print effective taxonomy summary | |
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
-| `sync` | `sync run`, then the `/sync` skill only for what needs judgment | prints `run`'s text report, never JSON, whatever the output mode; `sync run --json` is the structured form. It hands over to the agent, when one is configured, for a conflict no strategy merges, an `UNKNOWN` leftover, or `MEDIA`/`LARGE` leftovers when a terminal is attached. Without an agent runner it exits with `run`'s code; after the agent runs, `0` |
+| `sync` ⚖ | `sync run`, then the `/sync` skill only for what needs judgment | In 0.40.0+, machine mode (`--json` or non-TTY stdout) emits one `{run, agent}` result; human mode prints the report and any agent answer. Hands over to a configured runner for unresolved conflicts, `UNKNOWN` leftovers, or interactive `MEDIA`/`LARGE` leftovers. Without an invocation, preserves the run's exit code (`0` complete, `1` failed, `3` needs judgment); a successful agent invocation exits `0`, an agent failure `2`. On 0.39.0, bare sync always prints text; use `sync run --json` for the mechanical envelope |
 | `sync run` | The whole sync without an agent: reconcile stashes, `assess --fix`, `commit`, `pull`, `resolve`, `conclude`, `stash`, `push` (up to three re-pulls on a rejected push), `post-sync`, then a report | `status` `complete` (exit 0), `failed` (exit 1) or `needs-judgment` (exit 3: a conflict is left in progress, or a file holds conflict markers; nothing pushed). Media, unknown files and names that only look like secrets are listed as leftovers, never committed. `--json`: `{status, reason?, steps, leftovers: {unresolved, unknown, media}, judge, timings, report}`, where each `steps` key holds that verb's envelopes in run order |
 | `sync <verb>` | The steps on their own: `assess [--fix]`, `group`, `commit [--plan \| --plan-file <path>]`, `stash [--dry-run]`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync` | grouping is taxonomy-driven. `assess --fix` ignores artifacts and unmistakable secrets (`.env`, `.env.*`, `*.key`, `*.pem`) and holds other secret-shaped names back as `UNKNOWN`. `assess` classes a binary `MEDIA` and a file over `media.maxTrackedBytes` `LARGE`, each with its `bytes`; see [media.md](media.md). `resolve` merges each conflicted file by the strategy in [configuration.md](configuration.md#merge-strategies). `commit` leaves out, and exits 1 for, any file holding conflict markers |
 
@@ -194,6 +199,10 @@ that bound can still produce fewer documents than `--limit` requests.
 
 ## Recorded corpus trends
 
+Stats history (`--record`, `--history`, `--since`), the maintain `stats` step
+and trend verdicts are additions in 0.40.0. These flags are unavailable in
+published 0.39.0.
+
 Stats JSON includes core-owned `trends` for embedding coverage, broken links
 and orphans; `stats --history --json` and maintain's `stats` step carry the
 same evidence. Human stats attaches each comparison to its health figure;
@@ -202,7 +211,8 @@ current-value and trend evidence for the same metric in one notice.
 
 Compare seven UTC calendar days ending today with the preceding seven, using
 ordinary medians and at least three valid daily observations in each.
-Recordings must be within 48 hours; gaps and unknown values are never zero.
+The latest observation used must be within 48 hours; the earlier observations
+still supply the two comparison windows. Gaps and unknown values are never zero.
 Coverage warns for a fall of at least 0.05 below the configured floor;
 broken links require rate rise at least 0.01, paired count rise at least 3,
 and recent rate above the ceiling. Orphans require at least 5 more and a
