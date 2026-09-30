@@ -44,6 +44,7 @@ somebody already learn the hard way?*
 | [index-query-api.md](index-query-api.md) | Why supported content-index results replace direct SQL only after reader migration and real-index compatibility coverage. |
 | [document-renderer-adapter.md](document-renderer-adapter.md) | Why core's DocumentRenderer is an internal adapter for its one optional Puppeteer dependency rather than a public renderer seam, with public rendering behavior and the Puppeteer API unaffected. |
 | [renderer-budgets.md](renderer-budgets.md) | Why queue waiting, browser acquisition and rendering have separate deadlines, the cold-start measurements behind their defaults, and who owns late resources and shutdown. |
+| [travel-module.md](travel-module.md) | Why travel owns journeys, trips and places, canonical visit identity and unknown values, and the explicit lossless speaking configuration migration. |
 | [frontmatter-parsing.md](frontmatter-parsing.md) | Why every frontmatter parse goes through one cache-free helper, copied into each package that parses, with a lint gate instead of a convention. |
 
 ## Writing one

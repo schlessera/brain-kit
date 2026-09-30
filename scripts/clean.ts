@@ -12,6 +12,7 @@ const packages = [
   "module-finance",
   "module-jobs",
   "module-speaking",
+  "module-travel",
 ];
 
 for (const packageName of packages) {

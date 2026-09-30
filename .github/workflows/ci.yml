@@ -134,7 +134,8 @@ jobs:
             module-finance \
             module-images \
             module-jobs \
-            module-speaking
+            module-speaking \
+            module-travel
           do
             (cd "packages/$package" && \
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
@@ -148,6 +149,9 @@ jobs:
             fi
             if [ "$package" = module-speaking ]; then
               grep -q "^package/skills/new-submission/agents/openai\.yaml$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = module-travel ]; then
+              grep -q "^package/skills/plan-travel/SKILL\.md$" <<< "$TARBALL_CONTENTS"
             fi
             if [ "$package" = ui-server ]; then
               grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
@@ -181,6 +185,7 @@ jobs:
                 "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
                 "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
                 "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
+                "@schlessera/brain-module-travel": `file:${tarballs}/module-travel.tgz`,
               },
             }, null, 2) + "\n");
           '
@@ -201,6 +206,7 @@ jobs:
               "@schlessera/brain-module-images",
               "@schlessera/brain-module-jobs",
               "@schlessera/brain-module-speaking",
+              "@schlessera/brain-module-travel",
             ];
             for (const name of names) {
               const loaded = await import(name);
@@ -223,6 +229,41 @@ jobs:
                 throw new Error(`@schlessera/brain/testing is missing ${suite}`);
               }
             }
+          '
+          bun -e '
+            const { mkdirSync, symlinkSync } = await import("node:fs");
+            const { resolve, join } = await import("node:path");
+            const root = resolve("travel-fixture");
+            mkdirSync(root, { recursive: true });
+            symlinkSync(resolve("node_modules"), join(root, "node_modules"));
+            const speaking = "@schlessera/brain-module-speaking";
+            const travel = "@schlessera/brain-module-travel";
+            const party = [{ name: "Odysseus", requirementsDoc: "people/odysseus.md" }];
+            await Bun.write(join(root, "brain.config.json"), JSON.stringify({ modules: {
+              [speaking]: { travelParty: party }, [travel]: {},
+            } }));
+            const source = "---\ntype: trip\ntitle: Ithaca headland\ntrip_status: done\nvisits: [{id: homecoming, date: null}]\n---\n";
+            await Bun.write(join(root, "trips/headland.md"), source);
+            const bin = resolve("node_modules/.bin/brain");
+            async function run(args) {
+              const child = Bun.spawn([bin, ...args, "--json"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+              const [out, err, code] = await Promise.all([
+                new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+              ]);
+              if (code !== 0) throw new Error(`Packed travel CLI failed: ${args.join(" ")}: ${err}`);
+              return JSON.parse(out);
+            }
+            const listed = await run(["module", "list"]);
+            if (listed.enabled.find((m) => m.name === "travel")?.types.join(",") !== "travel,trip,place") {
+              throw new Error("Packed travel module did not load its taxonomy");
+            }
+            if ((await run(["module", "lint", "travel"])).errors !== 0) throw new Error("Packed travel skills failed lint");
+            if (!(await run(["travel", "validate"])).validation.valid) throw new Error("Packed travel format rejected its fixture");
+            if (!(await run(["travel", "migrate"])).migration.changed) throw new Error("Packed migration made no edit");
+            const config = await Bun.file(join(root, "brain.config.json")).json();
+            if (JSON.stringify(config.modules[travel].travelParty) !== JSON.stringify(party)) throw new Error("Packed migration lost party data");
+            if ((await run(["travel", "migrate"])).migration.changed) throw new Error("Packed migration was not idempotent");
+            if (await Bun.file(join(root, "trips/headland.md")).text() !== source) throw new Error("Packed migration rewrote content");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
@@ -252,6 +293,7 @@ jobs:
             "@schlessera/brain-module-images",
             "@schlessera/brain-module-jobs",
             "@schlessera/brain-module-speaking",
+            "@schlessera/brain-module-travel",
             "@schlessera/brain-backend-pi",
             "@schlessera/brain-ui-server",
           ];

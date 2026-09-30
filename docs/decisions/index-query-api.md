@@ -52,7 +52,7 @@ pattern is retained, with an internal read transaction covering each complete
 operation. An operation may finish on the old index snapshot; the next one must
 open the replacement. No database handle or live statement escapes a result.
 
-The current dependency table excludes a ui-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:79-82`).
+The current dependency table excludes a ui-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:80-83`).
 An optional, lazily resolved core peer is the recommendation, **not an approved
 edge change**. The decision task must settle that edge and the supported
 replacement for `HygieneContext.db` before dependent implementation. The

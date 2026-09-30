@@ -24,6 +24,7 @@ const packages = [
   "module-images",
   "module-jobs",
   "module-speaking",
+  "module-travel",
 ];
 
 const root = resolve(import.meta.dir, "..");
