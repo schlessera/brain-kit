@@ -286,6 +286,12 @@ can be announced once in its lifetime; reconnect and interrupted playback do
 not reset that receipt. Entering voice with existing pending requests queues
 each live request once. Notifications from other sessions stay visual.
 
+Route input in this order: a scoped refusal candidate, an unambiguous local
+control, a live single-question answer, then an ordinary message. A consumed
+refusal is not also a question answer or a new message. Classify the original
+recognizer input before pronunciation overrides or other text transformation;
+assistant output and reconstructed transcripts are never recognition input.
+
 Use the approved pattern effect when present, with this proposed short script:
 "I want to [effect]. The command is on screen. Voice can't approve it. Say
 brain, stop to refuse." For a tool request or a pattern without a usable effect:
@@ -405,8 +411,9 @@ The same 320px transcript with a genuine pending approval:
 ```
 
 This is the existing card, not a voice grant. Its allowed buttons still follow
-kind/rememberability; the sketch's command-like example does not offer Always
-allow. After expiry the same position reads "Expired · denied", retains the
+kind/rememberability; the sketch shows a `kind: "command"` confirmation, so
+it does not offer Always allow. A tool-kind card retains that visual control
+where the host permits it. After expiry the same position reads "Expired · denied", retains the
 receipt and has no Approve/Deny buttons. Under `noGrantSurface` this sketch is
 replaced by an already-denied tool receipt, with no refusal instruction.
 
