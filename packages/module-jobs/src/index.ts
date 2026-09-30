@@ -37,8 +37,7 @@ export type {
   Source,
   SourceStatus,
   ReviewStatus,
-  ScrapeResult,
-  ScraperAdapter,
+  JobAdapter,
 } from "./types.js";
 export { ALL_SOURCES, SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCE_STATUSES } from "./types.js";
 

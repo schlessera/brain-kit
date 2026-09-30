@@ -319,9 +319,14 @@ just as hard *for* an interface that is carrying real weight.
 
 **Corrected 2026-09-25.** `SiteAdapter` carries less weight than this says. No
 production adapter implements it: `module-jobs`' ten boards implement that
-module's own `ScraperAdapter` (`ScraperAdapter`,
-`packages/module-jobs/src/types.ts:147-170`) and do not run through
+module's own `ScraperAdapter` ([verified pre-migration declaration](https://github.com/schlessera/brain-kit/blob/7a7bd9caff1453abaceddc98826b652f2ca955cb/packages/module-jobs/src/types.ts#L147-L170)) and do not run through
 `runAdapters`. The seam is exported and documented, not yet load-bearing.
+
+**2026-09-30 — Implementation context.** The 2026-09-25 correction above
+records the pre-migration split. Under #344's adoption ruling, all ten boards
+now implement the shared seam and production calls its runner; see the
+[adoption decision](site-adapter-adoption.md). The second-implementation bar
+and the rule against speculative seams remain binding.
 
 **D14 — the test we apply from here.** Not "is this new?" but: does this
 interface exist so a *third party* can substitute an implementation? If yes it

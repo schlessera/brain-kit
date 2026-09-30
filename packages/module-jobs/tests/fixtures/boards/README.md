@@ -149,7 +149,7 @@ how often each one bites.
   anywhere in the listing markup, so every stored row has `description_text`
   NULL. The 403s are intermittent rate limiting, not a block: the same URL
   answered 200 fifteen minutes later. Fixture: `simplyhired/listing-card.html`.
-- **`jobgether`** — all five category URLs in `src/adapters/jobgether.ts:6-12`
+- **`jobgether`** — all five category URLs in [capture-era source](https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/jobgether.ts#L6-L12)
   answer HTTP 410, exactly as measured in August. The body's canonical link
   names the replacement page, and the site's own `robots.txt` explicitly allows
   a JSON endpoint carrying title, company, url, location and salary.
@@ -159,7 +159,7 @@ how often each one bites.
   Fixtures: `jobgether/response-410.html`, `jobgether/astroapi-ai-jobs.json`,
   `jobgether/api-v1-jobs.json`.
 - **`dice`** — the biggest board and the best titles, but the card link's `href`
-  is **relative**, and `src/adapters/dice.ts:47` stores it unchanged as both
+  is **relative**, and [capture-era source](https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/dice.ts#L47) stores it unchanged as both
   `source_id` and `url`, so all 102 rows carry an unresolvable URL. The company
   has a stable selector here too (`a[href^="/company-profile/"]`) while the
   adapter recovers it by scanning card text. No descriptions.
@@ -173,9 +173,9 @@ how often each one bites.
   Fixture: `dice/rendered-card.html`.
 - **`remotelyde`** — two independent defects. The JSON-LD script carries
   `id="collection-page-jsonld"`, which the bare-tag regex at
-  `src/adapters/remotelyde.ts:53` does not match; and the `ListItem`s inside it
+  [capture-era source](https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/remotelyde.ts#L53) does not match; and the `ListItem`s inside it
   carry only `@id` and `name`, so `mapJobPosting` would skip them even if the
-  regex matched. The fallback at `:102` then stores `/remote-jobs/<slug>`
+  regex matched. The [capture-era fallback](https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/remotelyde.ts#L102) then stores `/remote-jobs/<slug>`
   category chrome — real jobs are `/job/<slug>`.
   **Repaired in #35** by parsing the `/job/<slug>` cards, which carry the
   company in both of the listing's two card layouts; the JSON-LD on this page

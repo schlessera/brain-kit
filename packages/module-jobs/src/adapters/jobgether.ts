@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 /**
  * Jobgether, through the JSON surface its own robots.txt points a crawler at.
@@ -89,18 +90,17 @@ export class JobgetherAdapter extends BaseAdapter {
   /** The same misplaced `Crawl-delay: 2` applies to its offer pages (#36). */
   override readonly detailFetchOptions = { delayMs: CRAWL_DELAY_MS };
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
-      if (opts.verbose) console.log(`[jobgether] Fetching: ${API_URL}...`);
+      this.ctx.log(`[jobgether] Fetching: ${API_URL}...`);
 
       // One page per run: robots.txt wins over POST paging (docs/decisions/scraping-politeness.md).
-      const data = await this.http.getJson<JobgetherResponse>(API_URL, {
+      const data = await this.http.getJson<JobgetherResponse>(API_URL, this.fetchOptions(opts, {
         delayMs: CRAWL_DELAY_MS,
-        proxy: opts.proxy,
-      });
+      }));
 
       // An envelope carrying a `jobs` array with nothing in it is the API
       // saying it has no offers today; a body with no `jobs` array at all is
@@ -147,7 +147,7 @@ export class JobgetherAdapter extends BaseAdapter {
       }
       pages.read(API_URL, jobs.length, { declaredEmpty: envelope && offers.length === 0 });
 
-      if (opts.verbose) console.log(`[jobgether] Found ${jobs.length} jobs`);
+      this.ctx.log(`[jobgether] Found ${jobs.length} jobs`);
     } catch (err) {
       pages.unreachable(API_URL, err);
     }

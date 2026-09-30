@@ -37,12 +37,13 @@ import {
   type FetchedPage,
   type FetchOptions,
   type PageRequest,
+  type AdapterResult,
   type ScrapeContext,
 } from "@schlessera/brain-scrape";
 
 import { BaseAdapter } from "../src/adapters/base";
 import { getAdapter, runScrape } from "../src/scrape";
-import { ALL_SOURCES, SOURCE_STATUSES, type ScrapeResult, type Source } from "../src/types";
+import { ALL_SOURCES, SOURCE_STATUSES, type Source, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "reporting");
 
@@ -157,12 +158,12 @@ function serve(
   source: Source,
   body: string | ((url: string) => string),
   servedBy?: string
-): Promise<ScrapeResult> {
+): Promise<AdapterResult<RawJob>> {
   const adapter = getAdapter(source);
   const ctx: ScrapeContext = adapter.needsBrowser
     ? browserContextServing(typeof body === "function" ? body("") : body)
     : { http: new StubClient(body, servedBy), log: () => {} };
-  return adapter.bind(ctx).scrape({ incremental: false });
+  return adapter.scrape(ctx, { incremental: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +183,7 @@ class OnePageBoard extends BaseAdapter {
     super();
   }
 
-  async scrape() {
+  protected async scrapePages() {
     const url = "https://board.test/jobs";
     const pages = this.ledger();
     const page = await this.http.getPage(url);
@@ -197,7 +198,7 @@ class SilentBoard extends BaseAdapter {
   readonly name = "Silent board";
   readonly tier = 1 as const;
 
-  async scrape() {
+  protected async scrapePages() {
     await this.http.getPage("https://board.test/jobs");
     return this.makeResult([], this.ledger());
   }
@@ -221,7 +222,7 @@ class PagingBoard extends BaseAdapter {
     super();
   }
 
-  async scrape() {
+  protected async scrapePages() {
     const pages = this.ledger();
     let total = 0;
     for (const [index, rows] of this.rows.entries()) {
@@ -249,7 +250,7 @@ class MixedBoard extends BaseAdapter {
     super();
   }
 
-  async scrape() {
+  protected async scrapePages() {
     const pages = this.ledger();
     for (const [index, outcome] of this.outcomes.entries()) {
       const url = `https://board.test/category/${index + 1}`;
@@ -270,7 +271,7 @@ class UnreachableBoard extends BaseAdapter {
   readonly name = "Unreachable board";
   readonly tier = 1 as const;
 
-  async scrape() {
+  protected async scrapePages() {
     const pages = this.ledger();
     for (const url of ["https://board.test/1", "https://board.test/2"]) {
       try {
@@ -295,7 +296,7 @@ function rowsOf(n: number) {
 
 /** Run one of the boards declared above over a body. */
 const runBoard = (adapter: BaseAdapter, body = "<html><body>a page</body></html>") =>
-  adapter.bind({ http: new StubClient(body), log: () => {} }).scrape({ incremental: false });
+  adapter.scrape({ http: new StubClient(body), log: () => {} }, { incremental: false });
 
 describe("the page ledger", () => {
   test("rows are `ok`, and nothing is reported", async () => {
@@ -360,9 +361,7 @@ describe("the page ledger", () => {
   });
 
   test("a board whose every page threw is `not_run`, with each throw named", async () => {
-    const result = await new UnreachableBoard()
-      .bind({ http: new DeadClient("robots.txt disallows this path"), log: () => {} })
-      .scrape();
+    const result = await new UnreachableBoard().scrape({ http: new DeadClient("robots.txt disallows this path"), log: () => {} }, {});
 
     expect(result.status).toBe("not_run");
     expect(result.errors).toHaveLength(2);
@@ -375,12 +374,10 @@ describe("the page ledger", () => {
     // under this board's name are worse than no rows at all, so this is
     // reported whatever the count is.
     const adapter = new OnePageBoard(4);
-    const result = await adapter
-      .bind({
+    const result = await adapter.scrape({
         http: new StubClient("<html></html>", "https://another-board.test/jobs"),
         log: () => {},
-      })
-      .scrape();
+      }, {});
 
     expect(result.status).toBe("ok");
     expect(result.errors).toHaveLength(1);
@@ -391,9 +388,7 @@ describe("the page ledger", () => {
     // Every one of these boards does one of these routinely; a hop to a
     // different registrable name is the one that means something.
     for (const servedBy of ["https://www.board.test/jobs", "https://eu.board.test/jobs"]) {
-      const result = await new OnePageBoard(2)
-        .bind({ http: new StubClient("<html></html>", servedBy), log: () => {} })
-        .scrape();
+      const result = await new OnePageBoard(2).scrape({ http: new StubClient("<html></html>", servedBy), log: () => {} }, {});
       expect(result.errors).toEqual([]);
     }
   });
@@ -410,7 +405,7 @@ describe("every adapter reports a page it cannot read", () => {
   test.each([...ALL_SOURCES])("%s", async (source) => {
     const result = await serve(source, INTERSTITIAL);
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     // The whole of #37 in one assertion: zero rows off a non-empty page that
     // is not this board's can never be silence.
     expect(result.errors.length).toBeGreaterThan(0);
@@ -424,7 +419,7 @@ describe("every adapter reports a page it cannot read", () => {
     const silent: Source[] = [];
     for (const source of ALL_SOURCES) {
       const result = await serve(source, INTERSTITIAL);
-      if (result.jobs.length === 0 && result.errors.length === 0) silent.push(source);
+      if (result.items.length === 0 && result.errors.length === 0) silent.push(source);
     }
     expect(silent).toEqual([]);
   });
@@ -468,7 +463,7 @@ describe("a board that says it has no postings is believed", () => {
     test(`${source}: its own envelope, carrying nothing, is a zero`, async () => {
       const result = await serve(source, fixture(empty));
 
-      expect(result.jobs).toEqual([]);
+      expect(result.items).toEqual([]);
       expect(result.errors).toEqual([]);
       expect(result.status).toBe("empty");
     });
@@ -482,7 +477,7 @@ describe("a board that says it has no postings is believed", () => {
       expect(body.length).toBeGreaterThan(fixture(empty).length);
       const result = await serve(source, body);
 
-      expect(result.jobs).toEqual([]);
+      expect(result.items).toEqual([]);
       expect(result.status).toBe("unparseable");
       expect(result.errors.join("\n")).toContain("parsed 0 jobs");
     });
@@ -494,7 +489,7 @@ describe("a board that says it has no postings is believed", () => {
     // them is the envelope: an array, or not.
     const result = await serve("remoteok", fixture("remoteok-maintenance.json"));
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(result.status).toBe("unparseable");
   });
 
@@ -509,7 +504,7 @@ describe("a board that says it has no postings is believed", () => {
 
     const result = await serve("weworkremotely", body);
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(result.status).toBe("unparseable");
     expect(result.errors.join("\n")).toContain("parsed 0 jobs");
   });
@@ -519,7 +514,7 @@ describe("a board that says it has no postings is believed", () => {
     // would leave nothing behind and report a board with no jobs in it.
     const result = await serve("remoteok", fixture("remoteok-null-records.json"));
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(result.status).toBe("unparseable");
   });
 
@@ -533,7 +528,7 @@ describe("a board that says it has no postings is believed", () => {
       url.includes("category=data") ? broken : empty
     );
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(result.status).toBe("unparseable");
     expect(result.errors.join("\n")).toContain("category=data");
   });
@@ -554,7 +549,7 @@ describe("a board that says it has no postings is believed", () => {
     }
     const result = await serve("jobgether", JSON.stringify(captured));
 
-    expect(result.jobs).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(result.status).toBe("unparseable");
   });
 });
@@ -576,7 +571,7 @@ describe("an ordinary run raises no alarm", () => {
         : '{"jobs":[{"id":1,"title":"Staff Platform Engineer","company_name":"Example Corp"}]}'
     );
 
-    expect(result.jobs).toHaveLength(4);
+    expect(result.items).toHaveLength(4);
     expect(result.status).toBe("ok");
     expect(result.errors).toEqual([]);
   });
@@ -591,7 +586,7 @@ describe("an ordinary run raises no alarm", () => {
         : "<html><body>no cards here</body></html>"
     );
 
-    expect(result.jobs).toHaveLength(1);
+    expect(result.items).toHaveLength(1);
     expect(result.status).toBe("ok");
     expect(result.errors).toEqual([]);
   });

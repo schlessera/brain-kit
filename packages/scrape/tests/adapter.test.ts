@@ -2,7 +2,8 @@
  * The seam itself: selector-driven extraction, and the runner's promise that
  * `needsBrowser` is the only thing deciding how an adapter is served.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as browserFactory from "../src/browser/session.js";
 
 import { runAdapters } from "../src/adapter/runner.js";
 import { extractCards, type SiteSelectors } from "../src/adapter/selectors.js";
@@ -190,5 +191,65 @@ describe("runAdapters", () => {
     expect(result.items).toEqual(["one"]);
     expect(result.errors).toEqual(["stopped halfway"]);
     expect(result.cursor).toBe("cursor-9");
+  });
+});
+
+describe("explicit adapter outcomes", () => {
+  test("ok([]) cannot claim a confirmed empty source", () => {
+    const result = ok([]);
+    expect(result.status).toBe("unparseable");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(partial([], new Error("no readable response")).status).toBe("not_run");
+    expect(ok(["one"]).status).toBe("ok");
+  });
+
+  test("a run-options failure belongs to its source rather than aborting later sources", async () => {
+    const seen: string[] = [];
+    let outcomes: Awaited<ReturnType<typeof runAdapters<string>>> = [];
+    let thrown: unknown;
+    try {
+      outcomes = await runAdapters({
+        adapters: [probe("bad-options", false, seen), probe("later", false, seen)],
+        client: new ScrapeClient({ respectRobots: false }), browser: false,
+        optionsFor(adapter) {
+          if (adapter.id === "bad-options") throw new Error("fixture option failure");
+          return {};
+        },
+      });
+    } catch (error) { thrown = error; }
+    expect(thrown).toBeUndefined();
+    expect(outcomes[0]).toMatchObject({ id: "bad-options", items: [], status: "not_run", errors: ["fixture option failure"] });
+    expect(outcomes[1]).toMatchObject({ id: "later", items: ["later-item"], status: "ok" });
+    expect(seen).toEqual(["later:http"]);
+  });
+
+  for (const failOptions of [false, true]) {
+    test(`owned browser closes after ${failOptions ? "a source options failure" : "success"}`, async () => {
+      const http = new ScrapeClient({ respectRobots: false });
+      const seen: string[] = [];
+      let closes = 0;
+      const browser = { async load<T>() { return undefined as T; }, async close() { closes++; } };
+      const create = spyOn(browserFactory, "createBrowserSession").mockReturnValue(browser);
+      try {
+        const outcomes = await runAdapters({
+          adapters: [probe("browser", true, seen), probe("http", false, seen)], client: http,
+          optionsFor(adapter) {
+            if (failOptions && adapter.id === "browser") throw new Error("fixture options failed");
+            return {};
+          },
+        });
+        expect(outcomes.map((outcome) => outcome.status)).toEqual(failOptions ? ["not_run", "ok"] : ["ok", "ok"]);
+        expect(closes).toBe(1);
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(create.mock.calls[0][0]).toMatchObject({ robots: http.robots, rateLimiter: http.rateLimiter, userAgent: http.userAgent });
+      } finally { create.mockRestore(); }
+    });
+  }
+
+  test("needsBrowser limits browser context to the requesting adapter", async () => {
+    const seen: string[] = [];
+    const browser = { async load<T>() { return undefined as T; }, async close() { throw new Error("caller-owned browser must stay open"); } };
+    await runAdapters({ adapters: [probe("browser", true, seen), probe("http", false, seen)], browser });
+    expect(seen).toEqual(["browser:browser", "http:http"]);
   });
 });

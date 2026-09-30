@@ -1590,12 +1590,14 @@ Older peers ignore these additions and show the failure without Retry.
 
 These ten seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
-own `@experimental` tag. So do eleven of the types they are made of:
+own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
 `SpeechSession`, `AsrClientOptions`, `AdapterResult`, `ScrapeContext`,
-`RerankCandidate`, `RerankRequest` and `Ranked`.
-Whether the other types in a seam's signature belong in the frozen set is open
-in [#343](https://github.com/schlessera/brain-kit/issues/343).
+`RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
+`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
+[#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
+public signatures, including their reachable types, for 1.0 stability; final
+package-wide export curation is tracked in #534.
 [extending/README.md](extending/README.md#the-seams) says what each one swaps.
 
 The client/server wire protocol is a machine contract rather than an
@@ -1618,6 +1620,45 @@ compatibility guarantees follow the contract-versioning rules above.
 
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
+
+### SiteAdapter conformance and migration
+
+Under the [2026-09-28 adoption ruling](https://github.com/schlessera/brain-kit/issues/344#issuecomment-5866304745),
+all ten jobs boards implement `SiteAdapter<RawJob>` and production jobs
+scraping uses the shared `runAdapters` runner. The seam remains experimental
+until 1.0; the [decision](decisions/site-adapter-adoption.md) records the
+boundary and alternatives.
+
+- `scrape(ctx, options)` returns `AdapterResult<T>` with `items`, required
+  `status`, optional opaque `cursor`, and `errors`. `AdapterStatus` is `ok`,
+  `empty`, `unparseable` or `not_run`. `ok` permits partial items with errors;
+  `empty` requires positive readable-page evidence, never only zero items.
+  Readable but unrecognized pages are `unparseable`; no readable result is
+  `not_run`. Jobs retains its existing `PageLedger` checks and diagnostic text.
+- `AdapterRunOptions` supplies `incremental`, previous `cursor`, `queries`,
+  `proxy` and per-site `fetch` overrides. Adapters forward applicable options
+  per request; one source's options never mutate the shared HTTP client. Jobs
+  preserves explicit board pacing floors; a run may request a longer delay.
+- `runAdapters` executes in selection order, supplies the shared HTTP client,
+  and supplies browser context only to adapters declaring `needsBrowser`.
+  Unavailable required transports, thrown options or adapter failures yield
+  `not_run` without aborting later sources. A browser created by the runner is
+  closed in `finally`; a caller-supplied session stays caller-owned. Constructed
+  browsers share the HTTP client's robots cache, limiter and User-Agent unless
+  their explicit browser options override them. Browser navigation retains
+  the [existing policy](#browser-scraping-navigation-policy).
+- `JobAdapter` in module-jobs extends the generic contract with source, tier,
+  detail-host allowlists and detail-fetch metadata. Jobs owns cursor/logging,
+  enrichment, scoring and database cleanup. Every selected source still has
+  the existing CLI report row and status/error/cursor semantics above.
+
+The approved pre-1.0 API break requires consumers to add `AdapterResult.status`,
+use `JobAdapter` instead of removed `ScraperAdapter`, and use generic
+`AdapterResult<RawJob>` instead of removed jobs `ScrapeResult`. Call
+`scrape(ctx, options)` instead of `bind(ctx).scrape(opts)`, pass `cursor` instead
+of `lastCursor`, read `items` instead of `jobs`, and take source identity from
+the adapter or runner outcome. `ok([])` reports diagnostic `unparseable`, not
+confirmed empty. The CLI `{ report }` envelope does not change.
 
 ### AgentBackend conformance baseline
 

@@ -4,15 +4,13 @@ import { computeFingerprint, isIdentifiableCompany, normalizeCompany, normalizeT
 import { scoreNewJobs, autoClassify, type ScoringConfig } from "./score.js";
 import {
   ScrapeClient,
-  createBrowserSession,
+  runAdapters,
   stripHtml,
-  type BrowserSession,
-  type ScrapeContext,
 } from "@schlessera/brain-scrape";
 
 import { resolveEnv as resolveScrapeEnv } from "@schlessera/brain-scrape";
 import { resolveEnv } from "./config/env.js";
-import type { RawJob, ScrapeResult, Source, SourceStatus } from "./types.js";
+import type { RawJob, Source, SourceStatus } from "./types.js";
 import { SOURCES } from "./types.js";
 import { eurRates } from "./salary.js";
 import { createEnricher, type EnrichmentConfig, type EnrichmentStats } from "./enrich.js";
@@ -28,11 +26,11 @@ import { SimplyHiredAdapter } from "./adapters/simplyhired.js";
 import { JobgetherAdapter } from "./adapters/jobgether.js";
 import { DiceAdapter } from "./adapters/dice.js";
 import { RemotelyDeAdapter } from "./adapters/remotelyde.js";
-import type { ScraperAdapter } from "./types.js";
+import type { JobAdapter } from "./types.js";
 
 // The two query-driven boards accept the user's search terms; the rest fetch
 // full feeds or fixed category pages and ignore `queries`.
-const ADAPTERS: Record<Source, (queries?: string[]) => ScraperAdapter> = {
+const ADAPTERS: Record<Source, (queries?: string[]) => JobAdapter> = {
   remoteok: () => new RemoteOKAdapter(),
   remotive: () => new RemotiveAdapter(),
   weworkremotely: () => new WeWorkRemotelyAdapter(),
@@ -45,7 +43,7 @@ const ADAPTERS: Record<Source, (queries?: string[]) => ScraperAdapter> = {
   remotelyde: () => new RemotelyDeAdapter(),
 };
 
-export function getAdapter(source: Source, queries?: string[]): ScraperAdapter {
+export function getAdapter(source: Source, queries?: string[]): JobAdapter {
   const factory = ADAPTERS[source];
   if (!factory) throw new Error(`Unknown source: ${source}`);
   return factory(queries);
@@ -105,216 +103,152 @@ export async function runScrape(opts: {
   enrichment?: Partial<EnrichmentConfig>;
 }): Promise<ScrapeReport> {
   const db = openDatabase(opts.dbPath);
-  const sources = opts.sources ?? [...SOURCES];
-  const incremental = opts.incremental !== false; // default true
+  try {
+    const sources = opts.sources ?? [...SOURCES];
+    const incremental = opts.incremental !== false; // default true
 
-  const report: ScrapeReport = {
-    sources: [],
-    dedup: { checked: 0, duplicates_found: 0 },
-    scored: 0,
-    total_new: 0,
-    total_errors: [],
-  };
+    const report: ScrapeReport = {
+      sources: [],
+      dedup: { checked: 0, duplicates_found: 0 },
+      scored: 0,
+      total_new: 0,
+      total_errors: [],
+    };
 
-  const adapters = sources.map((source) => getAdapter(source, opts.queries));
-  // Two chokepoints: the scraping base owns SCRAPE_*, this module owns the
-  // legacy CHROME_CDP_URL. SCRAPE_CHROME_URL wins when both are set.
-  const env = resolveScrapeEnv();
-  const chromeUrl = env.chromeUrl ?? resolveEnv().cdpUrl;
+    const adapters = sources.map((source) => getAdapter(source, opts.queries));
+    // Two chokepoints: the scraping base owns SCRAPE_*, this module owns the
+    // legacy CHROME_CDP_URL. SCRAPE_CHROME_URL wins when both are set.
+    const env = resolveScrapeEnv();
+    const chromeUrl = env.chromeUrl ?? resolveEnv().cdpUrl;
 
-  // One client for the whole run, so the per-host rate limiter and the
-  // robots.txt cache are shared by every board instead of each adapter
-  // pacing itself in ignorance of the others.
-  const http = new ScrapeClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
+    // One client for the whole run, so the per-host rate limiter and the
+    // robots.txt cache are shared by every board instead of each adapter
+    // pacing itself in ignorance of the others.
+    const http = new ScrapeClient({ userAgent: env.userAgent, respectRobots: env.respectRobots });
 
-  // The browser is created only if some selected board needs one, and its
-  // absence downgrades those boards rather than failing the run — a scheduled
-  // scrape on a host without Chrome should lose the browser boards, not
-  // everything.
-  //
-  // There is no try/catch here, and there used not to be a reason: this call
-  // launches nothing, so it cannot fail, and the `Browser boards unavailable`
-  // branch that used to wrap it was unreachable while reading like the thing
-  // that handled a missing Chrome (#33's re-measurement, #37). What actually
-  // reports it is `BrowserAdapter`, once per URL it could not open, which is
-  // where the board's own name and the page are still in scope.
-  let browser: BrowserSession | undefined;
-  if (adapters.some((a) => a.needsBrowser)) {
-    browser = createBrowserSession({
-      browserUrl: chromeUrl,
-      executablePath: env.chromePath,
-      noSandbox: env.noSandbox,
-      userAgent: env.userAgent,
-      robots: http.robots,
-      rateLimiter: http.rateLimiter,
-    });
-  }
-
-  // One enricher for the whole run, so the concurrency limit and the cap on
-  // detail pages hold across every board rather than per board.
-  const enricher = createEnricher(http, opts.enrichment);
-  const described = db.prepare(
-    "SELECT 1 FROM jobs WHERE source = ? AND source_id = ? AND description_text IS NOT NULL AND description_text != ''"
-  );
-  const noEnrichment: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
-
-  const ctx: ScrapeContext = {
-    http,
-    browser,
-    log: opts.verbose ? (message) => console.log(message) : () => {},
-  };
-
-  // 1. Run all adapters in parallel
-  const results = await Promise.allSettled(
-    adapters.map(async (adapter) => {
-      const source = adapter.source;
-      const start = Date.now();
-      const lastCursor = incremental ? getLastCursor(db, source) : null;
-
-      logScrapeRun(db, source, "running");
-
-      try {
-        if (adapter.needsBrowser && !browser) {
-          throw new Error("needs a browser and none is available");
-        }
-        const result = await adapter.bind(ctx).scrape({
-          incremental,
-          lastCursor: lastCursor ?? undefined,
-          queries: opts.queries,
-          proxy: opts.proxy,
-          verbose: opts.verbose,
-          dryRun: opts.dryRun,
-        });
-        return { source, adapter, result, duration_ms: Date.now() - start, lastCursor };
-      } catch (err) {
-        // The adapter threw before it could report anything, so nothing
-        // readable arrived: `not_run`, with the throw as the reason.
-        return {
-          source,
-          result: {
-            source,
-            jobs: [],
-            errors: [`${err}`],
-            cursor: undefined,
-            status: "not_run",
-          } as ScrapeResult,
-          adapter,
-          duration_ms: Date.now() - start,
-          lastCursor,
-        };
-      }
-    })
-  );
-
-  await browser?.close();
-
-  // 2. Enrich every board's undescribed rows at once, after every listing is
-  // in: the cap is dealt out across boards rather than spent by whichever
-  // finished first. A dry run writes nothing, so it fetches no detail pages
-  // for rows it would not store.
-  const fulfilled = results.flatMap((settled) => (settled.status === "fulfilled" ? [settled.value] : []));
-  const enrichments = new Map<(typeof fulfilled)[number], EnrichmentStats>();
-  if (!opts.dryRun) {
-    const stats = await enricher.enrichAll(
-      fulfilled.map(({ source, adapter, result }) => ({
-        source,
-        name: adapter.name,
-        jobs: result.jobs,
-        isDescribed: (job) => described.get(job.source, job.source_id) !== null,
-        // The run's proxy, where one was asked for, reaches the detail pages
-        // the same way it reaches the listing.
-        fetchOptions: { ...(opts.proxy ? { proxy: opts.proxy } : {}), ...adapter.detailFetchOptions },
-        detailHosts: adapter.detailHosts,
-      }))
+    // One enricher for the whole run, so the concurrency limit and the cap on
+    // detail pages hold across every board rather than per board.
+    const enricher = createEnricher(http, opts.enrichment);
+    const described = db.prepare(
+      "SELECT 1 FROM jobs WHERE source = ? AND source_id = ? AND description_text IS NOT NULL AND description_text != ''"
     );
-    fulfilled.forEach((value, index) => enrichments.set(value, stats[index]));
-  }
+    const noEnrichment: EnrichmentStats = { enriched: 0, failed: 0, truncated: 0, errors: [] };
 
-  // 3. Ingest results
-  for (const [index, settled] of results.entries()) {
-    if (settled.status === "rejected") {
-      // A board whose entry is missing from `sources` reads as one that was
-      // never selected. It was: it was selected and it did not come back, so
-      // it is reported as `not_run` rather than dropped.
-      const source = sources[index];
-      report.total_errors.push(`Adapter failed: ${settled.reason}`);
+    const lastCursors = new Map<string, string | null>();
+    // The shared runner owns adapter execution, transport admission and browser
+    // cleanup. Jobs retains cursor persistence, enrichment and scoring below.
+    const outcomes = await runAdapters<RawJob>({
+      adapters,
+      client: http,
+      browser: {
+        browserUrl: chromeUrl,
+        executablePath: env.chromePath,
+        noSandbox: env.noSandbox,
+      },
+      verbose: opts.verbose,
+      optionsFor(adapter) {
+        // Every adapter here came from the jobs registry: id is its Source.
+        const source = adapter.id as Source;
+        const cursor = incremental ? getLastCursor(db, source) : null;
+        lastCursors.set(adapter.id, cursor);
+        logScrapeRun(db, source, "running");
+        return { incremental, cursor: cursor ?? undefined, queries: opts.queries, proxy: opts.proxy };
+      },
+    });
+    const results = outcomes.map((result, index) => ({
+      source: adapters[index].source,
+      adapter: adapters[index],
+      result,
+      duration_ms: result.durationMs,
+      lastCursor: lastCursors.get(result.id),
+    }));
+
+    // 2. Enrich every board's undescribed rows at once, after every listing is
+    // in: the cap is dealt out across boards rather than spent by whichever
+    // finished first. A dry run writes nothing, so it fetches no detail pages
+    // for rows it would not store.
+
+    const enrichments = new Map<(typeof results)[number], EnrichmentStats>();
+    if (!opts.dryRun) {
+      const stats = await enricher.enrichAll(
+        results.map(({ source, adapter, result }) => ({
+          source,
+          name: adapter.name,
+          jobs: result.items,
+          isDescribed: (job) => described.get(job.source, job.source_id) !== null,
+          // The run's proxy, where one was asked for, reaches the detail pages
+          // the same way it reaches the listing.
+          fetchOptions: { ...(opts.proxy ? { proxy: opts.proxy } : {}), ...adapter.detailFetchOptions },
+          detailHosts: adapter.detailHosts,
+        }))
+      );
+      results.forEach((value, index) => enrichments.set(value, stats[index]));
+    }
+
+    // 3. Ingest results
+    for (const value of results) {
+      const { source, result, duration_ms, lastCursor } = value;
+      const enrichment = enrichments.get(value) ?? noEnrichment;
+      // Enrichment findings are about the rows, not about whether the listing
+      // could be read: they are reported alongside the board's errors but do
+      // not hold back its cursor or its status (see `PageLedger.note`).
+      const errors = [...result.errors, ...enrichment.errors];
+      const ingestStats = opts.dryRun
+        ? { new: result.items.length, updated: 0 }
+        : ingestJobs(db, result.items, opts.verbose, opts.rates);
+
+      // Log completed run
+      if (!opts.dryRun) {
+        // Only persist an advanced cursor when the adapter completed with ZERO
+        // errors. A partially-failed run keeps the previous cursor so the failed
+        // window is re-fetched next run — re-fetching is cheap and the upsert
+        // handles repeats.
+        const cursorToPersist =
+          result.errors.length === 0 ? result.cursor : lastCursor ?? undefined;
+        // A run that could not read the board is `failed` in the run log even
+        // when it threw nothing — which is the point of #37. A recognised empty
+        // listing is `completed`, so `getLastCursor` still advances past it.
+        const runStatus =
+          result.status === "ok" || result.status === "empty" ? "completed" : "failed";
+        logScrapeRun(db, source, runStatus, {
+          jobs_found: result.items.length,
+          jobs_new: ingestStats.new,
+          jobs_updated: ingestStats.updated,
+          error: errors.length > 0 ? errors.join("; ") : undefined,
+          cursor: cursorToPersist,
+        });
+      }
+
       report.sources.push({
         source,
-        status: "not_run",
-        jobs_found: 0,
-        jobs_new: 0,
-        jobs_updated: 0,
-        jobs_enriched: 0,
-        enrichment_failed: 0,
-        enrichment_truncated: 0,
-        errors: [`Adapter failed: ${settled.reason}`],
-        duration_ms: 0,
-      });
-      continue;
-    }
-
-    const { source, result, duration_ms, lastCursor } = settled.value;
-    const enrichment = enrichments.get(settled.value) ?? noEnrichment;
-    // Enrichment findings are about the rows, not about whether the listing
-    // could be read: they are reported alongside the board's errors but do
-    // not hold back its cursor or its status (see `PageLedger.note`).
-    const errors = [...result.errors, ...enrichment.errors];
-    const ingestStats = opts.dryRun
-      ? { new: result.jobs.length, updated: 0 }
-      : ingestJobs(db, result.jobs, opts.verbose, opts.rates);
-
-    // Log completed run
-    if (!opts.dryRun) {
-      // Only persist an advanced cursor when the adapter completed with ZERO
-      // errors. A partially-failed run keeps the previous cursor so the failed
-      // window is re-fetched next run — re-fetching is cheap and the upsert
-      // handles repeats.
-      const cursorToPersist =
-        result.errors.length === 0 ? result.cursor : lastCursor ?? undefined;
-      // A run that could not read the board is `failed` in the run log even
-      // when it threw nothing — which is the point of #37. A recognised empty
-      // listing is `completed`, so `getLastCursor` still advances past it.
-      const runStatus =
-        result.status === "ok" || result.status === "empty" ? "completed" : "failed";
-      logScrapeRun(db, source, runStatus, {
-        jobs_found: result.jobs.length,
+        status: result.status,
+        jobs_found: result.items.length,
         jobs_new: ingestStats.new,
         jobs_updated: ingestStats.updated,
-        error: errors.length > 0 ? errors.join("; ") : undefined,
-        cursor: cursorToPersist,
+        jobs_enriched: enrichment.enriched,
+        enrichment_failed: enrichment.failed,
+        enrichment_truncated: enrichment.truncated,
+        errors,
+        duration_ms,
       });
+
+      report.total_new += ingestStats.new;
+      report.total_errors.push(...errors);
     }
 
-    report.sources.push({
-      source,
-      status: result.status,
-      jobs_found: result.jobs.length,
-      jobs_new: ingestStats.new,
-      jobs_updated: ingestStats.updated,
-      jobs_enriched: enrichment.enriched,
-      enrichment_failed: enrichment.failed,
-      enrichment_truncated: enrichment.truncated,
-      errors,
-      duration_ms,
-    });
+    if (!opts.dryRun) {
+      // 4. Dedup pass
+      report.dedup = runDedup(db, opts.verbose);
 
-    report.total_new += ingestStats.new;
-    report.total_errors.push(...errors);
-  }
-
-  if (!opts.dryRun) {
-    // 4. Dedup pass
-    report.dedup = runDedup(db, opts.verbose);
-
-    // 5. Score new jobs + auto-classify (only when criteria are available)
-    if (opts.scoringConfig) {
-      report.scored = scoreNewJobs(db, opts.scoringConfig, opts.verbose);
-      autoClassify(db, opts.scoringConfig);
+      // 5. Score new jobs + auto-classify (only when criteria are available)
+      if (opts.scoringConfig) {
+        report.scored = scoreNewJobs(db, opts.scoringConfig, opts.verbose);
+        autoClassify(db, opts.scoringConfig);
+      }
     }
-  }
 
-  db.close();
-  return report;
+    return report;
+  } finally { db.close(); }
 }
 
 export interface IngestStats {

@@ -20,7 +20,8 @@
 import type { ScrapeContext } from "@schlessera/brain-scrape";
 
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 /** What a page function yields. Deliberately loose — pages are messy. */
 export interface BrowserJobRecord {
@@ -48,7 +49,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
   override needsBrowser = true;
 
   /** Pages to visit this run. Query-driven boards build these from `queries`. */
-  protected abstract urls(opts: ScrapeOptions & { queries?: string[] }): string[];
+  protected abstract urls(opts: AdapterRunOptions): string[];
   /** Awaited before extraction — covers slow loads and challenge pages. */
   protected abstract readonly readySelector: string;
   /** Runs inside the page. Must close over nothing. */
@@ -61,7 +62,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
     return ctx.browser;
   }
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string; queries?: string[] }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const jobs: RawJob[] = [];
     const seen = new Set<string>();
@@ -69,7 +70,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
 
     for (const url of this.urls(opts)) {
       try {
-        if (opts.verbose) console.log(`[${this.source}] Opening: ${url}`);
+        this.ctx.log(`[${this.source}] Opening: ${url}`);
         const records = await browser.load<BrowserJobRecord[]>({
           url,
           waitForSelector: this.readySelector,
@@ -104,7 +105,7 @@ export abstract class BrowserAdapter extends BaseAdapter {
           seen.add(id);
           jobs.push(this.toRawJob(record, id));
         }
-        if (opts.verbose) console.log(`[${this.source}] ${records.length} jobs from ${url}`);
+        this.ctx.log(`[${this.source}] ${records.length} jobs from ${url}`);
       } catch (err) {
         pages.unreachable(url, err);
       }

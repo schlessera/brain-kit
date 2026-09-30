@@ -100,8 +100,8 @@ HTTP client's `respectRobots` option affect HTTP only.
 `BrowserSessionOptions.robots` and `.rateLimiter` accept the run's owned cache
 and limiter. Omitted, each session creates its own. `ScrapeClient` exposes its
 readonly `robots`, `rateLimiter` and `userAgent` so a preconstructed client can
-share them too. `runAdapters` shares them when it constructs the browser,
-as does the jobs runner. Custom browser options can supply their own objects
+share them too. `runAdapters` shares them when it constructs the browser;
+production jobs scraping uses this same runner. Custom browser options can supply their own objects
 deliberately; a supplied, preconstructed `BrowserSession` retains its own
 state, so its caller wires sharing when constructing it.
 
@@ -146,11 +146,45 @@ Generated from `packages/scrape/src/config/env.ts` by `bun run env-docs`. Edit t
 
 ## Adapters
 
-`SiteAdapter` is the only way in. `needsBrowser` is what decides whether an
-adapter is handed an HTTP client or a browser session — not a convention, not a
-second code path. `runAdapters` creates the browser only if some selected
-adapter wants one, and an adapter that needs a browser on a host without Chrome
-reports that in its own result while the rest of the run completes.
+`SiteAdapter<T>` and `runAdapters` are the shared path for all ten production
+job boards. `scrape(ctx, options)` returns `{ items, status, cursor?, errors }`;
+the runner adds `id` and `durationMs`. The context always carries the run's
+polite HTTP client; only an adapter declaring `needsBrowser` gets its browser.
+The runner constructs one browser only when selected adapters need one, closes
+only a session it constructed, and leaves a supplied session owned by its
+caller. A missing browser/proxy, thrown adapter or run-options failure reports
+`not_run` for that source while later sources still execute. An unavailable
+lazy Chrome launch is reported by the board's attempted pages.
+
+The four `AdapterStatus` values are `ok`, `empty`, `unparseable` and `not_run`.
+`ok` may carry partial rows and diagnostics. `empty` requires positive evidence
+from readable pages; an empty item array is not that evidence. A readable page
+without recognized items or an empty marker is `unparseable`; no readable
+response is `not_run`. `ok([])` therefore returns a diagnostic `unparseable`,
+while `partial([], error)` returns `not_run`. An adapter that verifies its
+site's actual empty envelope returns `{ items: [], status: "empty", errors: [] }`.
+
+`optionsFor` supplies the previous opaque `cursor`, `incremental`, `queries`,
+`proxy` and per-site `fetch` options. Adapters forward these to their requests;
+`fetch` is not applied to the shared client globally. Boards execute in
+selection order, and jobs boards retain their explicit minimum delays when a
+per-run fetch override asks for less. The runner uses its existing sequential
+execution. The jobs module keeps
+source/tier metadata, its evidence ledger, persistence, fair enrichment limits
+and scoring; none of those types enter this package.
+
+### Pre-1.0 migration
+
+This is the approved #344/#545 seam evolution, still experimental until 1.0.
+Third-party `AdapterResult` implementations must add an evidence-derived
+`status`. Callers of jobs `getAdapter` receive a `JobAdapter` extending
+`SiteAdapter<RawJob>`: replace `bind(ctx).scrape(opts)` with
+`scrape(ctx, options)`, `lastCursor` with `cursor`, and result `jobs` with
+`items`. Replace the removed jobs `ScraperAdapter`/`ScrapeResult` imports with
+`JobAdapter` and generic `AdapterResult<RawJob>`; source identity is the adapter's
+`id`/`source`, or the runner outcome's `id`. The jobs CLI `{ report }` shape,
+source statuses and cursor/error rules remain unchanged. See the
+[decision](../../docs/decisions/site-adapter-adoption.md).
 
 For sites whose markup is genuinely declarative, `SiteSelectors` + `extractCards`
 express the whole extraction as data, so a broken selector is a config edit

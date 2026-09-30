@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const API_URL = "https://www.workingnomads.com/api/exposed_jobs/";
 
@@ -19,16 +20,14 @@ export class WorkingNomadsAdapter extends BaseAdapter {
   readonly name = "Working Nomads";
   readonly tier = 1 as const;
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const jobs: RawJob[] = [];
 
     try {
-      if (opts.verbose) console.log("[workingnomads] Fetching API...");
+      this.ctx.log("[workingnomads] Fetching API...");
 
-      const data = await this.http.getJson<WorkingNomadsJob[]>(API_URL, {
-        proxy: opts.proxy,
-      });
+      const data = await this.http.getJson<WorkingNomadsJob[]>(API_URL, this.fetchOptions(opts));
 
       if (!Array.isArray(data)) {
         pages.note("Working Nomads API returned non-array response");
@@ -39,7 +38,7 @@ export class WorkingNomadsAdapter extends BaseAdapter {
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
       // only tracks the newest publication date for run metadata.
-      let newestDate = opts.incremental && opts.lastCursor ? opts.lastCursor : "";
+      let newestDate = opts.incremental && opts.cursor ? opts.cursor : "";
 
       for (const entry of data) {
         if (!entry.title || !entry.company_name) continue;
@@ -83,7 +82,7 @@ export class WorkingNomadsAdapter extends BaseAdapter {
       // they report drift rather than emptiness.
       pages.read(API_URL, jobs.length, { declaredEmpty: data.length === 0 });
 
-      if (opts.verbose) console.log(`[workingnomads] Found ${jobs.length} jobs`);
+      this.ctx.log(`[workingnomads] Found ${jobs.length} jobs`);
       return this.makeResult(jobs, pages, newestDate || undefined);
     } catch (err) {
       pages.unreachable(API_URL, err);

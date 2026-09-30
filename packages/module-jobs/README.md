@@ -167,6 +167,12 @@ optional peer `puppeteer-core` and have a Chrome or Chromium on the host; set
 (or the legacy `CHROME_CDP_URL`) to attach to an instance you already run. With
 no usable browser, those boards report it and every other board still lands.
 
+All ten boards implement `SiteAdapter<RawJob>` and production uses the shared
+`runAdapters` runner in selection order. `JobAdapter` composes source, tier and
+detail-page metadata onto that lifecycle. Enrichment and persistence stay here;
+there is no separate bind/runner path. For embedding migrations, see
+[the adapter guide](../scrape/README.md#pre-10-migration).
+
 Scraping goes through the shared client, so every board obeys `robots.txt`,
 honours `Crawl-delay`, and identifies itself honestly. See
 [@schlessera/brain-scrape](../scrape/README.md).

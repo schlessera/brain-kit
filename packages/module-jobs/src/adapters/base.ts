@@ -4,13 +4,13 @@
  * Everything generic about scraping — the HTTP client, robots.txt, per-host
  * pacing, retries, HTML stripping, RSS parsing, the headless browser — now
  * lives in `@schlessera/brain-scrape`. What is left here is the part that is
- * actually about jobs: the `RawJob` shape, the `ScrapeResult` envelope, and
+ * actually about jobs: the `RawJob` shape, the per-board metadata, and
  * the `PageLedger` that decides whether a board's zero is a zero or a
  * failure.
  *
- * `bind()` is how an adapter receives its context. It is called by the runner
- * before `scrape()`, so an adapter never constructs a client and two adapters
- * never end up with two rate limiters for the same host.
+ * The shared runner supplies context through `scrape(ctx, options)`. This
+ * concrete base gives board parsers that context for one call; boards do not
+ * construct clients or expose a second bind lifecycle.
  */
 import {
   hostOf,
@@ -18,9 +18,11 @@ import {
   stripHtml,
   type FetchOptions,
   type ScrapeContext,
+  type AdapterRunOptions,
+  type AdapterResult,
 } from "@schlessera/brain-scrape";
 
-import type { RawJob, ScrapeResult, ScraperAdapter, Source, SourceStatus } from "../types.js";
+import type { RawJob, JobAdapter, Source, SourceStatus } from "../types.js";
 
 /** What one page an adapter attempted turned out to be. */
 export type PageReading = "parsed" | "empty" | "unrecognised" | "failed";
@@ -174,36 +176,49 @@ export class PageLedger {
   }
 }
 
-export abstract class BaseAdapter implements ScraperAdapter {
+export abstract class BaseAdapter implements JobAdapter {
   abstract readonly source: Source;
   abstract readonly name: string;
   abstract readonly tier: 1 | 2 | 3;
   needsBrowser = false;
   needsProxy = false;
-  /** See `ScraperAdapter.detailFetchOptions`. Declared only: a board sets it. */
+  /** See `JobAdapter.detailFetchOptions`. Declared only: a board sets it. */
   declare readonly detailFetchOptions?: FetchOptions;
-  /** See `ScraperAdapter.detailHosts`. Declared only: a board sets it. */
+  /** See `JobAdapter.detailHosts`. Declared only: a board sets it. */
   declare readonly detailHosts?: readonly string[];
 
-  /** Set by `bind()`; reading it before then is a runner bug, not a site bug. */
-  protected ctx!: ScrapeContext;
+  /** Shared identity; job-domain source names remain unchanged. */
+  get id(): Source { return this.source; }
 
-  bind(ctx: ScrapeContext): this {
-    this.ctx = ctx;
-    return this;
+  private context?: ScrapeContext;
+
+  /** Available only during the shared scrape call. */
+  protected get ctx(): ScrapeContext {
+    if (!this.context) throw new Error(`${this.name} adapter is outside a scrape call`);
+    return this.context;
+  }
+
+  async scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<RawJob>> {
+    if (this.context) throw new Error(`${this.name} adapter is already running`);
+    this.context = ctx;
+    try { return await this.scrapePages(options); }
+    finally { this.context = undefined; }
+  }
+
+  /** Honor per-run fetch inputs while keeping board pacing as a floor. */
+  protected fetchOptions(options: AdapterRunOptions, board: FetchOptions = {}): FetchOptions {
+    return {
+      ...board, ...options.fetch,
+      headers: { ...board.headers, ...options.fetch?.headers },
+      ...(board.delayMs === undefined ? {} : { delayMs: Math.max(board.delayMs, options.fetch?.delayMs ?? 0) }),
+      proxy: options.proxy ?? options.fetch?.proxy ?? board.proxy,
+    };
   }
 
   /** The polite HTTP client for this run. */
-  protected get http() {
-    if (!this.ctx) {
-      throw new Error(`${this.name} adapter was run without bind(ctx)`);
-    }
-    return this.ctx.http;
-  }
+  protected get http() { return this.ctx.http; }
 
-  abstract scrape(
-    opts: import("../types.js").ScrapeOptions & { lastCursor?: string }
-  ): Promise<ScrapeResult>;
+  protected abstract scrapePages(options: AdapterRunOptions): Promise<AdapterResult<RawJob>>;
 
   protected stripHtml(html: string): string {
     return stripHtml(html);
@@ -225,10 +240,9 @@ export abstract class BaseAdapter implements ScraperAdapter {
    * page readings gets `not_run`, which is the honest answer for one that
    * never fetched anything and a loud one for a board that forgot to report.
    */
-  protected makeResult(jobs: RawJob[], pages: PageLedger, cursor?: string): ScrapeResult {
+  protected makeResult(jobs: RawJob[], pages: PageLedger, cursor?: string): AdapterResult<RawJob> {
     return {
-      source: this.source,
-      jobs,
+      items: jobs,
       errors: pages.errors,
       cursor,
       status: pages.status(jobs.length),

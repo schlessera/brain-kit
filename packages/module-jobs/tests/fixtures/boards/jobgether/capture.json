@@ -41,7 +41,7 @@
       "full_response_bytes": 940153,
       "full_response_sha256": "e90624f95820c1de8b79e0d2fcbaa1f9778d278f50e4d08409623684ef665452",
       "http_status": 410,
-      "note": "Every one of the five category URLs at src/adapters/jobgether.ts:6-12 answers HTTP 410 Gone. The body is the site's search page, whose canonical link names the replacement.",
+      "note": "Every one of the five category URLs at https://github.com/schlessera/brain-kit/blob/ba98283cb5fcce90cd7e1bf83cba60672fef48c7/packages/module-jobs/src/adapters/jobgether.ts#L6-L12 answers HTTP 410 Gone. The body is the site's search page, whose canonical link names the replacement.",
       "source": "jobgether",
       "transport": "http",
       "url": "https://jobgether.com/remote-jobs/all-locations/software-engineering",

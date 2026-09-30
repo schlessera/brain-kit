@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
-import type { RawJob, ScrapeOptions } from "../types.js";
+import type { RawJob } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
 const CATEGORIES = ["software-dev", "product", "data", "devops-sysadmin", "management-finance"];
@@ -31,23 +32,22 @@ export class RemotiveAdapter extends BaseAdapter {
   readonly name = "Remotive";
   readonly tier = 1 as const;
 
-  async scrape(opts: ScrapeOptions & { lastCursor?: string }) {
+  protected async scrapePages(opts: AdapterRunOptions) {
     const pages = this.ledger();
     const allJobs: RawJob[] = [];
     // The FULL feed is ingested every run (categories are cheap requests) so
     // the upsert refreshes last_seen_at on jobs that are still live. The
     // cursor only tracks the newest publication date for run metadata.
-    let newestDate = opts.incremental && opts.lastCursor ? opts.lastCursor : "";
+    let newestDate = opts.incremental && opts.cursor ? opts.cursor : "";
 
     for (const category of CATEGORIES) {
       const url = `${API_URL}?category=${category}&limit=100`;
       try {
-        if (opts.verbose) console.log(`[remotive] Fetching category: ${category}...`);
+        this.ctx.log(`[remotive] Fetching category: ${category}...`);
 
-        const data = await this.http.getJson<RemotiveResponse>(url, {
+        const data = await this.http.getJson<RemotiveResponse>(url, this.fetchOptions(opts, {
           delayMs: DELAY_MS,
-          proxy: opts.proxy,
-        });
+        }));
 
         // An envelope with a `jobs` array and nothing in it is this API saying
         // the category is empty. An envelope whose records no longer carry a
@@ -94,13 +94,13 @@ export class RemotiveAdapter extends BaseAdapter {
           declaredEmpty: Array.isArray(data.jobs) && jobs.length === 0,
         });
 
-        if (opts.verbose) console.log(`[remotive] ${category}: ${jobs.length} jobs`);
+        this.ctx.log(`[remotive] ${category}: ${jobs.length} jobs`);
       } catch (err) {
         pages.unreachable(url, err);
       }
     }
 
-    if (opts.verbose) console.log(`[remotive] Total: ${allJobs.length} jobs`);
+    this.ctx.log(`[remotive] Total: ${allJobs.length} jobs`);
     return this.makeResult(allJobs, pages, newestDate || undefined);
   }
 }

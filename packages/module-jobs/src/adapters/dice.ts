@@ -7,7 +7,7 @@
  * search. Real queries come from the module's `queries` config.
  */
 import { BrowserAdapter, type BrowserJobRecord } from "./browser-base.js";
-import type { ScrapeOptions } from "../types.js";
+import type { AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const DEFAULT_QUERIES = ["software engineer", "backend engineer", "platform engineer"];
 
@@ -23,7 +23,7 @@ export class DiceAdapter extends BrowserAdapter {
     super();
   }
 
-  protected urls(opts: ScrapeOptions & { queries?: string[] }): string[] {
+  protected urls(opts: AdapterRunOptions): string[] {
     const queries =
       opts.queries?.length ? opts.queries
       : this.configuredQueries?.length ? this.configuredQueries
