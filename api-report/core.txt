@@ -53,8 +53,10 @@ export "." (./src/index.ts)
   type JevRerankerConfig
   type LoadedConfig
   type LoadedModule
+  type ModuleContribution
   type ModuleCronEntry
   type ModuleManifest
+  type ModuleTool
   type OkfCheckIssue
   type OkfCheckReport
   type OkfDegradedLink
@@ -99,6 +101,7 @@ export "." (./src/index.ts)
   type StatsThresholds
   Taxonomy
   type TaxonomyConfig
+  type ToolContext
   type TypeSpec
   VALID_RELEVANCES
   VALID_STATUSES
@@ -128,6 +131,7 @@ export "." (./src/index.ts)
   defineConfig
   defineEmbeddingProvider
   defineModule
+  defineModuleTool
   defineReranker
   defineSkillEmitter
   discoverSkills

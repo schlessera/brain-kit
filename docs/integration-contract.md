@@ -770,7 +770,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:75-87`). Tool descriptions are descriptive in the
+(`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
 caps: `brain_search` `limit` at 50, `brain_list` `limit` at 100, and
 `brain_graph` `depth` at 5.
@@ -1748,6 +1748,61 @@ where `setup(validatedConfig)` returns the contribution. The contribution is
 schema-validated at load — unknown keys are load errors — and module commands
 receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
 `brain.config` itself. See [modules.md](modules.md).
+
+## Module tools
+
+`ModuleContribution.tools` declares lazy MCP definitions by local name.
+`brain mcp` imports these definitions at startup and serves them after the
+eight core tools, in module config order and then declaration order. A loader
+may resolve a `ModuleTool` directly or an object with a `default` tool export.
+Other CLI commands do not import the definitions.
+
+Core composes each name as `<module>_<local>`, at most 64 characters. Modules
+with nonempty `tools` must match `^[a-z][a-z0-9-]{0,30}$`; `brain` is reserved.
+Local names must match `^[a-z][a-z0-9_]{0,31}$`. Invalid names or non-function
+loaders fail module loading. An invalid config retains the existing degraded
+MCP behavior: only core tools load, with a config warning and writes disabled.
+Registration also checks composed names against all earlier registered names
+before registering any tool from that module.
+
+The `ModuleTool`, `ToolContext` and `defineModuleTool` exports are
+`@experimental` until 1.0. The identity helper infers `run`'s input and result
+from its schemas. A definition requires a nonempty description, strict zod 4
+object `inputSchema` and `outputSchema`, and a `run` function. Both schemas
+must be representable as JSON Schema. Annotations must explicitly state
+`readOnlyHint` and `openWorldHint`; `destructiveHint` is also required when
+`readOnlyHint` is false. An optional title and `idempotentHint` are supported.
+Annotations are client hints, never permission grants.
+
+If any import, definition or collision check fails, that module contributes
+zero tools. Core and other modules continue serving. The failure appears on
+stderr and in the `warnings` of core tools that return warnings.
+
+The SDK validates input against the full strict schema before calling
+`run(input, { root, config, taxonomy, signal })`. `config` is the owning
+module's validated block; `signal` aborts when the client cancels the request.
+Resolved results appear in `structuredContent` and in the first text block
+as compact JSON. The SDK validates them against `outputSchema`. Input or
+output validation failures return `isError: true`; thrown operations return
+`{ isError: true, content: [{ type: "text", text: "Error: <message>" }] }`.
+A tool states and applies its own result cap; core adds no generic truncation.
+
+The tool set is fixed for the process lifetime. The server sends no
+`notifications/tools/list_changed`, although the SDK advertises
+`tools.listChanged`. Config edits take effect in the next process; they do
+not revoke existing handles, cancel calls or roll back completed effects.
+Calling a name this process did not register returns `isError: true` with
+`MCP error -32602: Tool <name> not found`.
+
+Namespacing prevents collisions and does not exclude a tool from compatibility
+policy. Each module owns its documented tool names, schemas and behavior.
+First-party tools enter this contract when shipped and follow the project's
+versioning rules; third-party modules document the same policy in their own
+packages. Adding a supported tool is a minor change. Removing or breaking one
+requires a maintainer ruling for first-party tools and a breaking release
+under the applicable package's policy. A tool and its CLI subcommand call the
+same deterministic operation. See the
+[module-tool decision](decisions/module-mcp-tools.md) for the full specification.
 
 ## Guarantees consumers may rely on
 
