@@ -11,7 +11,7 @@
  * back onto the assistant tool call they belong to.
  */
 
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   AssistantMessage,
@@ -28,6 +28,8 @@ import type {
   MessagePart,
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/server";
+
+import { failureFromPiError } from "./turn-failure.js";
 
 /** List the pi sessions rooted at this brain repo, newest activity first. */
 export async function listPiSessions(
@@ -65,11 +67,39 @@ export async function getPiHistory(
   const sm = SessionManager.open(info.path, sessionDir);
   // getBranch() returns the active path root → leaf (chronological order).
   const branch = sm.getBranch();
+  const omitted = retriedAttempts(branch);
   const messages: AgentMessage[] = [];
   for (const entry of branch) {
-    if (entry.type === "message") messages.push(entry.message);
+    if (entry.type === "message" && !omitted.has(entry.id)) messages.push(entry.message);
   }
   return normalizeMessages(messages);
+}
+
+/**
+ * The failed answers pi retried. pi keeps a failed attempt in the transcript
+ * and omits it from the model's context with a `context_edit` whose
+ * replacement is null (`_omitRecoveryAttempt`, pi-coding-agent 0.87.1). The
+ * user saw the turn go on, so the replay does not show a failure for it.
+ * Only a failed answer is skipped: nothing else this edit reaches is hidden.
+ */
+export function retriedAttempts(branch: ReadonlyArray<SessionEntry>): Set<string> {
+  const edited = new Set<string>();
+  for (const entry of branch) {
+    if (entry.type === "context_edit" && entry.replacement === null) edited.add(entry.targetId);
+  }
+  const omitted = new Set<string>();
+  for (const entry of branch) {
+    if (
+      entry.type === "message" &&
+      edited.has(entry.id) &&
+      "role" in entry.message &&
+      entry.message.role === "assistant" &&
+      entry.message.stopReason === "error"
+    ) {
+      omitted.add(entry.id);
+    }
+  }
+  return omitted;
 }
 
 /** Exported for unit tests: pure AgentMessage[] → SessionHistoryMessage[]. */
@@ -160,6 +190,9 @@ function normalizeAssistant(
     ...(thinking ? { thinking } : {}),
     toolCalls,
     parts,
+    // The provider failure that ended the turn, as the live result reported
+    // it (#575); the partial answer before it stays in `content`.
+    ...(msg.stopReason === "error" ? { failure: failureFromPiError(msg.errorMessage) } : {}),
   };
 }
 

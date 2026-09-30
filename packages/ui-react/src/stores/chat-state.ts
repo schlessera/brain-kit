@@ -7,6 +7,8 @@ import type {
   AskUserQuestion,
   AskUserAnnotation,
   AskUserListSpec,
+  TurnFailure,
+  TurnRetry,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../components/chat/stats/compose-stats.js";
@@ -56,6 +58,13 @@ export interface ChatMessage {
   statsAnswer?: StatsSection[];
   /** On an assistant message answered by the client itself: the exchange and whether it is kept. */
   localExchange?: LocalExchangeState;
+  /**
+   * The failure that ended this assistant message's turn (#575), live from
+   * the terminal frame or replayed from history. Drawn after the content.
+   */
+  failure?: TurnFailure;
+  /** While streaming: the failed model call the runtime is retrying (#575). */
+  retry?: TurnRetry;
 }
 
 /**
@@ -308,6 +317,22 @@ export interface ChatState {
   clearAskUser: (key: ChatKey) => void;
   finishAssistantMessage: (key: ChatKey) => void;
   /**
+   * End a turn on `failure` (#575): the turn's assistant message — the one
+   * carrying `turnId`, else the last assistant message when no other turn
+   * owns it — records it and stops streaming. A turn that never opened a
+   * message gets one, so a failure is never left without a row. A message
+   * that already records a failure keeps the first unless `replace` is set:
+   * one failure is shown once, and the terminal frame's is the fullest.
+   */
+  failAssistantMessage: (
+    key: ChatKey,
+    failure: TurnFailure,
+    turnId?: string,
+    replace?: boolean
+  ) => void;
+  /** Show (or with null, clear) the retry the streaming turn is waiting on. */
+  setRetry: (key: ChatKey, retry: TurnRetry | null) => void;
+  /**
    * Attach classified blocks (D42) to the assistant message of `turnId`, or,
    * when the turn is unknown, to the last assistant message only if it has
    * finished — never to a newer message still streaming.
@@ -412,6 +437,13 @@ function appendPart(
     return [...parts.slice(0, -1), { kind, text: last.text + text }];
   }
   return [...parts, { kind, text }];
+}
+
+/** The message with no retry notice: the turn moved on, or ended. */
+function withoutRetry(message: ChatMessage): ChatMessage {
+  if (!message.retry) return message;
+  const { retry: _retry, ...rest } = message;
+  return rest;
 }
 
 /** Free object URLs held by live message previews before dropping them. */
@@ -621,7 +653,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       appendText: (key, text) =>
         mutateLastAssistant(key, (last) => ({
-          ...last,
+          ...withoutRetry(last),
           content: last.content + text,
           parts: appendPart(last.parts, "text", text),
         })),
@@ -657,7 +689,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       appendThinking: (key, text) =>
         mutateLastAssistant(key, (last) => ({
-          ...last,
+          ...withoutRetry(last),
           thinking: (last.thinking || "") + text,
           parts: appendPart(last.parts, "thinking", text),
         })),
@@ -827,9 +859,59 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       finishAssistantMessage: (key) =>
         mutateLastAssistant(
           key,
-          (last) => ({ ...last, isStreaming: false }),
+          (last) => ({ ...withoutRetry(last), isStreaming: false }),
           () => ({ isStreaming: false })
         ),
+
+      failAssistantMessage: (key, failure, turnId, replace = false) =>
+        mutateBuffer(
+          key,
+          (chat) => {
+            const msgs = [...chat.messages];
+            let index = -1;
+            if (turnId) {
+              index = msgs.findLastIndex((m) => m.role === "assistant" && m.turnId === turnId);
+            }
+            if (index === -1) {
+              // The composer opens the turn's message before the turn has an
+              // id, and a failure with no deltas never stamps one — so the
+              // last assistant message, unless another turn owns it.
+              const last = msgs.findLastIndex((m) => m.role === "assistant");
+              const owner = last === -1 ? undefined : msgs[last].turnId;
+              if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
+            }
+            if (index === -1) {
+              msgs.push({
+                id: nextId(),
+                role: "assistant",
+                content: "",
+                toolCalls: [],
+                parts: [],
+                isStreaming: false,
+                timestamp: Date.now(),
+                ...(turnId ? { turnId } : {}),
+              });
+              index = msgs.length - 1;
+            }
+            const target = msgs[index];
+            msgs[index] = {
+              ...withoutRetry(target),
+              isStreaming: false,
+              failure: target.failure && !replace ? target.failure : failure,
+            };
+            // The buffer streams while its newest message does: a follow-up
+            // already running after this message keeps it streaming.
+            const streaming = msgs.some((m) => m.role === "assistant" && m.isStreaming);
+            return { messages: msgs, isStreaming: streaming };
+          },
+          true
+        ),
+
+      setRetry: (key, retry) =>
+        mutateLastAssistant(key, (last) => {
+          if (!last.isStreaming) return last;
+          return retry ? { ...last, retry } : withoutRetry(last);
+        }),
 
       setMessageBlocks: (key, blocks, turnId) =>
         mutateBuffer(key, (chat) => {

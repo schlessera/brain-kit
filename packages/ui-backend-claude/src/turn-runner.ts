@@ -4,11 +4,13 @@ import type {
   BackendActivityEvent,
   ServerMessage,
   StartTurnRequest,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import {
   assertTurnPosture,
   BackendBusyError,
   BackendRequestError,
+  subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -75,7 +77,9 @@ export function createClaudeTurnRunner(options: {
     if (req.signal.aborted) abortController.abort();
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
-    const adapter = new StreamAdapter(req.bridge.activity);
+    const adapter = new StreamAdapter(req.bridge.activity, {
+      subscriptionAuth: profile.billing !== "api",
+    });
     const reportActivity = (event: BackendActivityEvent): void => {
       try {
         req.bridge.activity?.(event);
@@ -149,7 +153,7 @@ export function createClaudeTurnRunner(options: {
      * released. It outranks the abort it causes: the turn failed, it was not
      * cancelled.
      */
-    let refused: { code: string; message: string } | null = null;
+    let refused: { code: string; message: string; failure?: TurnFailure } | null = null;
     /**
      * The gate decided not to release the prompt, for whatever reason. Once
      * set, nothing the stream says afterwards can turn the turn into a success.
@@ -179,7 +183,10 @@ export function createClaudeTurnRunner(options: {
         );
         return;
       }
-      if (refused) emit({ type: "error", ...refused });
+      // The failure rides the terminal frame only, so a client never reports
+      // it twice: here that is the result, not the diagnostic error.
+      const failure = refused?.failure ?? adapter.pendingFailure() ?? undefined;
+      if (refused) emit({ type: "error", code: refused.code, message: refused.message });
       // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
       // "no completed turns" for a turn that never finished.
       emit({
@@ -189,6 +196,7 @@ export function createClaudeTurnRunner(options: {
         durationMs: Date.now() - startedAt,
         numTurns: 0,
         isError: outcome === "error",
+        ...(outcome === "error" && failure ? { failure } : {}),
       });
     };
 
@@ -221,7 +229,16 @@ export function createClaudeTurnRunner(options: {
               return false;
             };
             const refuse = (reason: string): false => {
-              refused = { code: "CLAUDE_AUTH", message: subscriptionRefusalMessage(reason) };
+              const message = subscriptionRefusalMessage(reason);
+              refused = {
+                code: "CLAUDE_AUTH",
+                message,
+                failure: {
+                  errorClass: "subscription_required",
+                  message,
+                  authAction: subscriptionAuthAction("subscription_required"),
+                },
+              };
               reportActivity({ kind: "auth_failure", errorClass: "subscription_required", message: reason });
               options.log("warn", "subscription check refused the turn", {
                 "profile.id": profile.id,

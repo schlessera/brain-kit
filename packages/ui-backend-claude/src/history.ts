@@ -6,7 +6,10 @@ import type {
   ChatSession,
   MessagePart,
   SessionHistoryMessage,
+  TurnFailure,
 } from "@schlessera/brain-ui-sdk";
+import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
+import { statusFromText } from "./stream-adapter.js";
 
 /**
  * Session list + transcript reader backed by the Claude Agent SDK's native
@@ -143,6 +146,19 @@ export async function buildSessionHistory(
     }
 
     if (entry.type === "assistant" && Array.isArray(content)) {
+      // The runtime's own API-error message: the failure that ended the
+      // turn, not something the model said. It lands on the assistant
+      // message it ended, after any partial answer, as the live frame did.
+      const failure = apiErrorFailure((entry as any).message, content);
+      if (failure) {
+        const last = messages[messages.length - 1];
+        if (last?.role === "assistant") {
+          last.failure = failure;
+        } else {
+          messages.push({ role: "assistant", content: "", toolCalls: [], parts: [], failure });
+        }
+        continue;
+      }
       let text = "";
       let thinking = "";
       const toolCalls: Array<{
@@ -214,4 +230,62 @@ export async function buildSessionHistory(
   }
 
   return messages;
+}
+
+/**
+ * The model name Claude Code gives the messages it writes itself, API errors
+ * among them (`W3t` in the 2.1.x CLI). The SDK's transcript reader drops the
+ * entry's `isApiErrorMessage` and `error` fields, so this and the text are all
+ * a replay has to recognise one by.
+ */
+const SYNTHETIC_MODEL = "<synthetic>";
+
+/**
+ * How Claude Code words the API errors it writes into a transcript: its
+ * "API Error" prefix (also mid-text, after "Failed to authenticate."), and the
+ * login and billing texts it writes without one. A synthetic message that
+ * matches none of them — "No response requested.", a fallback notice — is
+ * not a failure and replays as text.
+ */
+const API_ERROR_TEXTS: ReadonlyArray<{ pattern: RegExp; errorClass: string }> = [
+  { pattern: /^Not logged in\b/, errorClass: "authentication_failed" },
+  { pattern: /^Failed to authenticate\b/, errorClass: "authentication_failed" },
+  { pattern: /^Invalid API key\b/, errorClass: "authentication_failed" },
+  { pattern: /^Credit balance is too low\b/, errorClass: "billing_error" },
+  { pattern: /^API Error\b/, errorClass: "unknown" },
+];
+
+/** What Claude Code writes when a request is aborted: a cancellation. */
+const ABORTED_TEXT = /^API Error: Request was aborted\.?$/;
+
+/**
+ * The failure a replayed synthetic API-error message records, or null for
+ * any other message. The class is read from the text only where the text
+ * names it; everything else is `unknown`, and the status is only the one the
+ * text states.
+ */
+export function apiErrorFailure(message: unknown, content: unknown[]): TurnFailure | null {
+  if ((message as { model?: unknown } | null)?.model !== SYNTHETIC_MODEL) return null;
+  const blocks = content as Array<{ type?: unknown; text?: unknown }>;
+  if (!blocks.every((block) => block.type === "text")) return null;
+  const text = blocks
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .join("")
+    .trim();
+  // A turn the user cancelled is written the same way, and is not a failure.
+  if (ABORTED_TEXT.test(text)) return null;
+  const known = API_ERROR_TEXTS.find(({ pattern }) => pattern.test(text));
+  if (!known) return null;
+  const status = statusFromText(text);
+  // Only the subscription's own wording earns its instruction: an API key
+  // rejected on its own profile is not the subscription's to fix.
+  const subscription = /\bOAuth\b|\/login\b/.test(text);
+  return {
+    errorClass: known.errorClass,
+    ...(status !== undefined ? { status } : {}),
+    message: text,
+    ...(subscription && known.errorClass === "authentication_failed"
+      ? { authAction: subscriptionAuthAction(known.errorClass) }
+      : {}),
+  };
 }

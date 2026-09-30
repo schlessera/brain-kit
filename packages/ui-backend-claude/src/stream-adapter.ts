@@ -2,7 +2,10 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   BackendActivityEvent,
   ServerMessage,
+  TurnFailure,
+  TurnRetry,
 } from "@schlessera/brain-ui-sdk/server";
+import { describeRetry, subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult } from "./usage.js";
 
@@ -25,8 +28,17 @@ import { usageFromResult } from "./usage.js";
 export class StreamAdapter {
   /** ID of the top-level tool_use block currently being streamed */
   private currentToolUseId: string = "";
+  /**
+   * The top-level API error the runtime reported as an assistant message
+   * (#575). It carries the class; the turn's `result` carries the status and
+   * decides whether the turn failed.
+   */
+  private apiError: TurnFailure | null = null;
 
-  constructor(private readonly onActivity?: (event: BackendActivityEvent) => void) {}
+  constructor(
+    private readonly onActivity?: (event: BackendActivityEvent) => void,
+    private readonly options: StreamAdapterOptions = {}
+  ) {}
 
   private report(event: BackendActivityEvent) {
     try {
@@ -91,12 +103,18 @@ export class StreamAdapter {
         // client sees for it is #191's. Only the top-level turn's: a subagent
         // that failed is the parent's to handle, and a parent that completes
         // anyway did not fail.
-        if (!parentToolUseId && msg.error && AUTH_ERROR_CLASSES.has(msg.error)) {
+        if (!parentToolUseId && msg.error) {
           const text = msg.message.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("")
             .trim();
-          this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
+          if (AUTH_ERROR_CLASSES.has(msg.error)) {
+            this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
+          }
+          // The runtime's API-error message: its text arrives here and never
+          // as deltas, so it is kept for the terminal frame rather than
+          // streamed as if the model had said it (#575).
+          this.apiError = this.failure(msg.error, text || msg.error, statusFromText(text));
         }
         for (const block of msg.message.content) {
           if (block.type === "tool_use") {
@@ -181,7 +199,7 @@ export class StreamAdapter {
         // not apply here. `modelUsage` is preferred per SDK guidance: it
         // covers subagents and sidechains, which `usage` excludes.
         const usage = usageFromResult(msg);
-        if (msg.subtype === "success") {
+        if (msg.subtype === "success" && !msg.is_error) {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
@@ -193,6 +211,14 @@ export class StreamAdapter {
             ...(usage ? { usage } : {}),
           });
         } else {
+          // `success` with `is_error` is how the runtime ends a turn on an
+          // API error: the error text is the `result`, the status rides
+          // beside it (#191). An error subtype carries a failure only when
+          // the runtime reported an API error first.
+          const failure =
+            msg.subtype === "success"
+              ? this.resultFailure(msg.result, msg.api_error_status)
+              : this.apiError;
           messages.push({
             type: "result",
             sessionId: msg.session_id,
@@ -200,7 +226,8 @@ export class StreamAdapter {
             durationMs: msg.duration_ms ?? 0,
             numTurns: msg.num_turns ?? 0,
             isError: true,
-            outcomeDetail: errorDetail(msg.subtype),
+            outcomeDetail: msg.subtype === "success" ? "api_error" : errorDetail(msg.subtype),
+            ...(failure ? { failure } : {}),
             // Real accounting is available on error results too — a failed
             // turn still spent tokens, and hiding that would under-report.
             // Absent stays absent: 0 would claim "free".
@@ -218,6 +245,17 @@ export class StreamAdapter {
             status: "thinking",
             detail: "Session initialized",
           });
+        } else if (msg.subtype === "api_retry") {
+          // A failed call the runtime is backing off from: without this, a
+          // turn waiting out a rate limit looks exactly like a hung one.
+          const retry: TurnRetry = {
+            attempt: msg.attempt,
+            maxAttempts: msg.max_retries,
+            delayMs: msg.retry_delay_ms,
+            errorClass: msg.error,
+            ...(typeof msg.error_status === "number" ? { status: msg.error_status } : {}),
+          };
+          messages.push({ type: "status", status: "thinking", detail: describeRetry(retry), retry });
         } else if (msg.subtype === "task_started" && msg.tool_use_id) {
           // Remember task->tool linkage for updates that only carry task_id.
           if (msg.task_id) this.taskTools.set(msg.task_id, msg.tool_use_id);
@@ -283,6 +321,55 @@ export class StreamAdapter {
 
   /** task_id -> spawning Agent tool_use_id, learned from task_started. */
   private taskTools = new Map<string, string>();
+
+  /**
+   * The API error the runtime reported before its stream ended, for a turn
+   * whose terminal frame the runner has to build itself (no `result` came).
+   */
+  pendingFailure(): TurnFailure | null {
+    return this.apiError;
+  }
+
+  /**
+   * The failure a `success` result with `is_error` reports: the class from
+   * the API-error message that preceded it, when one did; the status from
+   * the result, which is the only place the runtime states it.
+   */
+  private resultFailure(text: string | undefined, apiStatus: number | null | undefined): TurnFailure {
+    const status = typeof apiStatus === "number" ? apiStatus : this.apiError?.status;
+    const message = this.apiError?.message ?? (text?.trim() || "The model call failed.");
+    return this.failure(this.apiError?.errorClass ?? "unknown", message, status);
+  }
+
+  private failure(errorClass: string, message: string, status: number | undefined): TurnFailure {
+    return {
+      errorClass,
+      ...(status !== undefined ? { status } : {}),
+      message,
+      // Only a subscription turn's auth failure gets the #254 instruction: a
+      // profile billing its own key failed on that key, not the subscription.
+      ...(this.options.subscriptionAuth && AUTH_ERROR_CLASSES.has(errorClass)
+        ? { authAction: subscriptionAuthAction(errorClass) }
+        : {}),
+    };
+  }
+}
+
+export interface StreamAdapterOptions {
+  /**
+   * The turn runs on the Claude subscription, so an auth failure carries the
+   * subscription's `authAction` (#254).
+   */
+  subscriptionAuth?: boolean;
+}
+
+/**
+ * The HTTP status an API-error text states, as the runtime words it: "API
+ * Error: 400 …". Nothing else is read as a status.
+ */
+export function statusFromText(text: string): number | undefined {
+  const match = /\bAPI Error: ([1-5]\d\d)\b/.exec(text);
+  return match ? Number(match[1]) : undefined;
 }
 
 function isSubagentStatus(

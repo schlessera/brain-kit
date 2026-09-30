@@ -96,6 +96,13 @@ describe("the subscription gate", () => {
     expect(failures).toHaveLength(1);
     expect(frames.at(-1)).toBe(failures[0]!);
     expect(frames.some((f) => f.type === "result" && f.outcome === "success")).toBe(false);
+    // With no session, the bare error is the terminal frame, so it carries
+    // the failure and the configuration instruction (#575, #254).
+    const terminal = frames.at(-1);
+    expect(terminal?.type === "error" && terminal.failure).toMatchObject({
+      errorClass: "subscription_required",
+      authAction: "check_config",
+    });
   });
 
   test("a resumed session is gated too, and its refusal still ends the turn", async () => {
@@ -105,6 +112,12 @@ describe("the subscription gate", () => {
     expect(d.released).toEqual([]);
     expect(frames.filter((f) => f.type === "error" && f.code === "CLAUDE_AUTH")).toHaveLength(1);
     expect(frames.at(-1)).toMatchObject({ type: "result", outcome: "error", sessionId: "existing-session" });
+    // The result is the terminal frame here: it carries the failure, and the
+    // diagnostic error before it does not, so it is reported once (#575).
+    expect(frames.at(-1)).toMatchObject({
+      failure: { errorClass: "subscription_required", authAction: "check_config" },
+    });
+    expect(frames.filter((f) => (f as { failure?: unknown }).failure !== undefined)).toHaveLength(1);
   });
 
   test("a cancellation during the handshake is a cancelled turn, even if the stream then reports success", async () => {

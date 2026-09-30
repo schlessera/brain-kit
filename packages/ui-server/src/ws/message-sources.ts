@@ -14,7 +14,7 @@
  * client-environment paths: Claude replays the text block verbatim and puts
  * the environment in the system prompt, and pi's history reader strips the
  * image notes pi appends to the stored text (`stripImageNotes`,
- * `packages/ui-backend-pi/src/history.ts:185-187`). It is not for a pi `/skill:` or
+ * `packages/ui-backend-pi/src/history.ts:218-220`). It is not for a pi `/skill:` or
  * prompt-template command, which pi stores expanded: that message matches
  * no row and replays as `typed`. Its row is orphaned, and because every
  * message with the same text expands the same way, the orphan can only
