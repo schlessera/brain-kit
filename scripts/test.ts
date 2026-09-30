@@ -105,9 +105,27 @@ if (import.meta.main) {
   let args = process.argv.slice(2);
   let argv: string[];
   try {
-    if (args.includes("--balanced-shard")) throw new Error("Expected --balanced-shard=M/N");
-    const balanced = args.filter((arg) => arg.startsWith("--balanced-shard="));
-    args = args.filter((arg) => !arg.startsWith("--balanced-shard="));
+    const balanced: string[] = [];
+    const forwarded: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "--") {
+        forwarded.push(...args.slice(i));
+        break;
+      }
+      if (arg === "--balanced-shard") throw new Error("Expected --balanced-shard=M/N");
+      if (arg.startsWith("--balanced-shard=")) {
+        balanced.push(arg);
+        continue;
+      }
+      forwarded.push(arg);
+      // A Bun flag's value can itself look like our option (e.g. -t PATTERN).
+      if (arg.startsWith("--") ? !arg.includes("=") && VALUE_FLAGS.has(arg) :
+          arg.startsWith("-") && shortTakesNext(arg)) {
+        if (i + 1 < args.length) forwarded.push(args[++i]!);
+      }
+    }
+    args = forwarded;
     argv = testArgv(args);
     if (balanced.length) {
       if (balanced.length !== 1 || argv.length === args.length ||

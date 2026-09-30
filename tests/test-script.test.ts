@@ -39,7 +39,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
       writeFileSync(
         join(dir, where, "x.test.ts"),
         `import { expect, test } from "bun:test";\n` +
-          `test("case-${where.replace("/", "-")}", () => {\n` +
+        `test("case-${where.replace("/", "-")}${where === "other" ? " --balanced-shard=1/3" : ""}", () => {\n` +
           // Split so a failure's printed source excerpt cannot match the marker.
           `  console.log("R" + "AN ${where}");\n` +
           `  expect(${where === "other" ? "process.env.FAIL_OTHER" : "undefined"}).toBeUndefined();\n` +
@@ -98,6 +98,11 @@ describe("root test script, run for real", () => {
 
   test("flags pass through alongside a path", async () => {
     expect(await ran(["-t", "case-packages-b", "packages"])).toEqual(["packages/b"]);
+  });
+
+  test("a name pattern resembling the balanced option stays a Bun flag value", async () => {
+    expect(await ran(["-t", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
+    expect(await ran(["--test-name-pattern", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
   });
 
   test("a failing test fails the command", async () => {
