@@ -29,6 +29,25 @@ mean it).
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources or `{ pattern, effect }` entries; matching Bash commands raise a confirmation card. `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `writeLock` | fresh per-instance lock | Serializes mutating tool executions across all sessions of this backend. Inject a shared one to coordinate with other in-process writers. |
 
+## Reasoning effort
+
+The built-in profile uses Claude Opus 5.5 at `medium`. Profiles can specify
+`thinkingLevel` as their default; `StartTurnRequest.thinkingLevel` overrides it
+for one turn. Resumed turns re-read the current profile default, so an override
+does not remain attached to the session. The resolved level reaches the Claude
+Agent SDK as `Options.effort`.
+
+The backend advertises `supportedThinkingLevels` when it knows the model's
+capabilities, from discovery or conservative known-model data. An unknown proxy
+model can declare that list in its profile. Unsupported choices resolve to the
+nearest lower supported level, or its lowest choice; `off`/`minimal` map to
+Claude's `low`. Requested options are not confirmation: the Stop hook reports
+the runtime's actual effort after managed settings clamp it.
+
+The host module reads saved per-profile overrides through `thinkingOverrides`
+and accepts `config.defaultThinkingLevel` beside `defaultModel`. The shipped
+server exposes that default as `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL`.
+
 ## Model discovery
 
 `createModelSource({ brainPath })` keeps a roster of the models the current

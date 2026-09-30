@@ -1,4 +1,6 @@
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk/server";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
@@ -29,6 +31,7 @@ export function resolveModelSpec(
 ): ModelSpec | undefined {
   const profiles = configuredProfiles(options);
   if (profileId) {
+    if (profileId === "default" && !profiles?.length && options.model) return parseModelString(options.model);
     const p = profiles?.find((x) => x.id === profileId);
     if (p) return { vendor: p.vendor, model: p.model, thinkingLevel: p.thinkingLevel };
     // Ad-hoc "vendor/modelId" profile ids are accepted (config-driven UIs may
@@ -88,26 +91,26 @@ export function listPiProfiles(options: CreatePiBackendOptions): ProviderInfo[] 
       // any level to "off" there, and advertising an effort knob for them
       // would be a lie. An unknown model (declared typo — fails loudly at
       // session time) gets no knob either.
-      let reasoning = false;
+      let model: Model<any> | undefined;
       try {
-        reasoning =
-          p.vendor !== undefined &&
-          (getBuiltinModel(p.vendor as never, p.model as never) as Model<any> | undefined)
-            ?.reasoning === true;
+        model = p.vendor !== undefined ? getBuiltinModel(p.vendor as never, p.model as never) as Model<any> | undefined : undefined;
       } catch {
-        reasoning = false;
+        model = undefined;
       }
       return {
         id: p.id,
         label: p.label,
         vendor: p.vendor,
-        ...(reasoning ? { thinkingLevel: p.thinkingLevel ?? "medium" } : {}),
+        ...(model?.reasoning ? {
+          thinkingLevel: resolveThinkingLevel(p.thinkingLevel ?? "medium", getSupportedThinkingLevels(model)),
+          supportedThinkingLevels: getSupportedThinkingLevels(model),
+        } : {}),
       };
     });
   }
   if (options.model) {
     const spec = parseModelString(options.model);
-    return [{ id: "default", label: options.model, vendor: spec.vendor }];
+    return listPiProfiles({ ...options, profiles: [{ ...spec, id: "default", label: options.model }] });
   }
   return [];
 }

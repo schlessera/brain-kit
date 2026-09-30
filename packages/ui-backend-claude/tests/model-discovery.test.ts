@@ -32,7 +32,7 @@ afterEach(() => {
 
 /** A fetch double that answers the list endpoint and per-alias lookups. */
 function stubFetch(options: {
-  models: Array<{ id: string; display_name?: string; max_input_tokens?: number }>;
+  models: Array<{ id: string; display_name?: string; max_input_tokens?: number; capabilities?: unknown }>;
   /** Aliases that resolve; every other alias 404s. */
   validAliases?: string[];
   calls?: string[];
@@ -124,6 +124,21 @@ describe("discoverAnthropicModels", () => {
       },
     ]);
     expect(aliasChecks["claude-haiku-4-5"]).toBe(true);
+  });
+
+  test("discovered effort capabilities expose only supported native levels, including an explicit empty set", async () => {
+    process.env.ANTHROPIC_API_KEY = "k";
+    const { models } = await discoverAnthropicModels({ fetchImpl: stubFetch({ models: [
+      { id: "claude-limited", capabilities: { effort: { low: { supported: true }, medium: { supported: false }, high: { supported: true }, max: { supported: false } } } },
+      { id: "claude-no-effort", capabilities: { effort: null } },
+      { id: "claude-legacy" },
+      { id: "claude-malformed", capabilities: "invalid" },
+    ] }) });
+    expect(models).toHaveLength(4);
+    expect(models.find((model) => model.id === "claude-limited")?.supportedThinkingLevels).toEqual(["low", "high"]);
+    expect(models.find((model) => model.id === "claude-no-effort")?.supportedThinkingLevels).toEqual([]);
+    expect(models.find((model) => model.id === "claude-legacy")?.supportedThinkingLevels).toBeUndefined();
+    expect(models.find((model) => model.id === "claude-malformed")?.supportedThinkingLevels).toBeUndefined();
   });
 
   test("keeps the dated id when the alias does not resolve", async () => {

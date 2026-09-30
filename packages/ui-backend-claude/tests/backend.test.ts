@@ -298,7 +298,7 @@ describe("createClaudeBackend identity + profiles", () => {
   test("listProfiles returns the built-in claude profile by default", () => {
     const backend = createClaudeBackend({ brainPath: "/brain" });
     expect(backend.listProfiles()).toEqual([
-      { id: "claude", label: "Claude", vendor: "anthropic" },
+      { id: "claude", label: "Claude", vendor: "anthropic", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
     ]);
   });
 

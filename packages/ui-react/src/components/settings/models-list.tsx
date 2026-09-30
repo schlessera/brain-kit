@@ -1,7 +1,6 @@
 import { Button, Callout, Chip, Placeholder } from "@schlessera/brain-ui-kit";
 import { Eye, EyeOff, X } from "lucide-react";
 import {
-  THINKING_LEVELS,
   type BillingMode,
   type ModelCatalogEntry,
   type ModelCatalogResponse,
@@ -48,6 +47,10 @@ export function ModelsCatalogView(p: ModelsCatalogViewProps) {
         <p className="mt-1 text-xs text-muted-foreground">
           The list is read from the provider and refreshes on its own. Hide the
           ones you never pick — running sessions are unaffected.
+        </p>
+
+        <p className="mt-2 text-xs text-muted-foreground">
+          Effort set here is the default for every new message; the model picker can change it for one message.
         </p>
 
         {catalog && <DefaultModelSelect catalog={catalog} onChange={p.onDefault} />}
@@ -222,8 +225,8 @@ function ModelRow({
 }) {
   const Icon = entry.hidden ? EyeOff : Eye;
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3">
-      <div className="min-w-0 flex-1">
+    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3">
+      <div className="min-w-[min(100%,12rem)] flex-1">
         <div className="flex items-center gap-2">
           <p className={entry.hidden ? "truncate text-sm text-muted-foreground" : "truncate text-sm text-foreground"}>{entry.label}</p>
           {entry.hidden && <Chip label="hidden" variant="kv" tone="neutral" />}
@@ -234,18 +237,21 @@ function ModelRow({
           {entry.source === "declared" ? " · configured" : ""}
         </p>
       </div>
-      {/* Reasoning effort — only for profiles that take one (the gpt models).
+      {/* Reasoning effort — only for profiles that take one.
           Same tri-state pattern as billing: Default shows what it resolves
           to, an explicit pick is stored as an override. */}
-      {entry.thinkingLevel && (
+      {(entry.thinkingLevel !== undefined || entry.thinkingOverride !== undefined) && (
         <select
           value={entry.thinkingOverride ?? "auto"}
           onChange={(e) => onThinking(e.target.value as ThinkingLevel | "auto")}
           aria-label={`Reasoning effort for ${entry.label}`}
-          className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+          className="h-11 sm:h-8 max-w-full shrink-0 rounded-lg border border-border-subtle bg-surface px-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
         >
-          <option value="auto">{!entry.thinkingOverride ? `Default (${entry.thinkingLevel})` : "Default"}</option>
-          {THINKING_LEVELS.map((level) => (
+          <option value="auto">{!entry.thinkingOverride && entry.thinkingLevel ? `Default (${entry.thinkingLevel})` : "Default"}</option>
+          {entry.thinkingOverride && !entry.supportedThinkingLevels?.includes(entry.thinkingOverride) && (
+            <option value={entry.thinkingOverride}>{entry.thinkingOverride}{entry.thinkingLevel === entry.thinkingOverride ? "" : entry.thinkingLevel ? ` (runs as ${entry.thinkingLevel})` : " (uses model default)"}</option>
+          )}
+          {(entry.supportedThinkingLevels ?? []).map((level) => (
             <option key={level} value={level}>
               {level}
             </option>
@@ -260,7 +266,7 @@ function ModelRow({
         value={entry.billingOverride ?? "auto"}
         onChange={(e) => onBilling(e.target.value as BillingMode | "auto")}
         aria-label={`Billing for ${entry.label}`}
-        className="h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+        className="h-11 sm:h-8 shrink-0 rounded-lg border border-border-subtle bg-surface px-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
       >
         <option value="auto">
           {!entry.billingOverride && entry.billingMode ? `Auto (${billingLabel(entry.billingMode).toLowerCase()})` : "Auto"}

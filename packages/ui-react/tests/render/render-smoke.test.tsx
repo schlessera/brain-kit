@@ -4918,12 +4918,167 @@ describe("chat views", () => {
   });
 });
 
+describe("one-message composer effort", () => {
+  async function mounted(ack = true) {
+    const providers = [
+      { id: "claude", label: "Claude", thinkingLevel: "low", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "smaller", label: "Smaller", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high"] },
+      { id: "plain", label: "Plain" },
+    ];
+    const root = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers }) });
+    await root.stores.provider.getState().loadProviders();
+    root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: ack });
+    const sent: Array<import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage> = [];
+    const view = render(<BrainUiProvider root={root}><Composer send={(msg) => { if (msg.type === "chat_message") sent.push(msg); return true; }} /></BrainUiProvider>);
+    await act(async () => { await Promise.resolve(); });
+    const choose = (level: string) => {
+      fireEvent.click(view.getByRole("button", { name: /^Model —/ }));
+      fireEvent.click(view.getByRole("radio", { name: level }));
+    };
+    const field = () => view.getByRole("textbox") as HTMLTextAreaElement;
+    const type = (text: string) => { field().focus(); changeControlledInput(field(), text); };
+    const send = () => { field().focus(); fireEvent.keyDown(field(), { key: "Enter" }); };
+    return { root, view, sent, choose, field, type, send, done() { view.unmount(); root.dispose(); } };
+  }
+
+  test("refusal keeps draft and effort; start acknowledgement consumes them and the next message omits the override", async () => {
+    const h = await mounted();
+    try {
+      h.choose("max"); h.type("first"); h.send();
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0].thinkingLevel).toBe("max");
+      expect(h.view.getByRole("button", { name: "Model — Claude · effort max for the next message" })).toBeTruthy();
+      expect(h.field().value).toBe("first");
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "SESSION_LIMIT", message: "Try again", requestId: h.sent[0].requestId }));
+      expect(h.field().value).toBe("first");
+      expect(h.view.getByText("· max")).toBeTruthy();
+      h.send();
+      expect(h.sent).toHaveLength(2);
+      expect(h.sent[1].thinkingLevel).toBe("max");
+      act(() => h.root.connection.handleServerMessage({ type: "session_info", sessionId: "effort-ui", isNew: true, providerId: "claude", requestId: h.sent[1].requestId, draftId: h.sent[1].draftId }));
+      expect(h.field().value).toBe("");
+      expect(h.view.queryByText("· max")).toBeNull();
+      h.type("second"); h.send();
+      expect(h.sent).toHaveLength(3);
+      expect(h.sent[2].thinkingLevel).toBeUndefined();
+      expect(h.sent[2].requestId).toBeDefined();
+    } finally { h.done(); }
+  });
+
+  test("an interrupted acknowledgement releases the wait without resending or consuming the draft effort", async () => {
+    const h = await mounted();
+    try {
+      h.choose("high"); h.type("unconfirmed"); h.send();
+      act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
+      expect(h.sent).toHaveLength(1);
+      expect(h.field().value).toBe("unconfirmed");
+      expect(h.view.getByText("· high")).toBeTruthy();
+      expect(h.view.getByText("Send was not confirmed. Check the conversation before sending again.")).toBeTruthy();
+      act(() => h.root.stores.connection.getState().setWsStatus("connected"));
+      expect(h.sent).toHaveLength(1);
+      h.send();
+      expect(h.sent).toHaveLength(2);
+      expect(h.sent[1].thinkingLevel).toBe("high");
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "RATE_LIMITED", message: "Slow down" }));
+      expect(h.field().value).toBe("unconfirmed");
+      h.send();
+      expect(h.sent).toHaveLength(3);
+      expect(h.sent[2].thinkingLevel).toBe("high");
+    } finally { h.done(); }
+  });
+
+  test("a refused queued override preserves the current reply and draft", async () => {
+    const h = await mounted();
+    try {
+      act(() => {
+        const chat = h.root.stores.chat.getState();
+        chat.setActiveSession("effort-ui");
+        chat.startAssistantMessage("effort-ui", "running-turn");
+        chat.setRunState("effort-ui", "streaming");
+        h.root.stores.provider.getState().setPinned("claude");
+      });
+      h.choose("high"); h.type("queued"); h.send();
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0].thinkingLevel).toBe("high");
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "SESSION_QUEUE_FULL", message: "Queue full", sessionId: "effort-ui", requestId: h.sent[0].requestId }));
+      expect(h.field().value).toBe("queued");
+      expect(h.view.getByText("· high")).toBeTruthy();
+      const state = h.root.stores.chat.getState();
+      expect(state.buffers["effort-ui"].isStreaming).toBe(true);
+      expect(state.buffers["effort-ui"].messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+      expect(state.runStates["effort-ui"]).toBe("streaming");
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "agent_error", message: "Failed run", sessionId: "effort-ui", turnId: "running-turn", requestId: "running-request" }));
+      expect(h.root.stores.chat.getState().buffers["effort-ui"].isStreaming).toBe(false);
+      expect(h.root.stores.chat.getState().runStates["effort-ui"]).toBeUndefined();
+    } finally { h.done(); }
+  });
+
+  test("queue acknowledgement consumes the sent override and preserves a newly chosen effort and edited draft", async () => {
+    const h = await mounted();
+    try {
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      h.choose("high"); h.type("queued"); h.send();
+      expect(h.sent).toHaveLength(1);
+      h.choose("max"); h.type("another message");
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[0].requestId }));
+      expect(h.field().value).toBe("another message");
+      expect(h.view.getByText("· max")).toBeTruthy();
+      h.send();
+      expect(h.sent[1].thinkingLevel).toBe("max");
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[1].requestId }));
+      expect(h.field().value).toBe("");
+      expect(h.view.queryByText("· max")).toBeNull();
+    } finally { h.done(); }
+  });
+
+  test("a new conversation acknowledgement preserves effort chosen for the edited next draft", async () => {
+    const h = await mounted();
+    try {
+      h.choose("high"); h.type("first"); h.send();
+      expect(h.sent).toHaveLength(1);
+      h.choose("max"); h.type("another message");
+      act(() => h.root.connection.handleServerMessage({ type: "session_info", sessionId: "effort-ui", isNew: true, providerId: "claude", requestId: h.sent[0].requestId, draftId: h.sent[0].draftId }));
+      expect(h.root.stores.chat.getState().activeSessionId).toBe("effort-ui");
+      expect(h.field().value).toBe("another message");
+      expect(h.view.getByText("· max")).toBeTruthy();
+      h.send();
+      expect(h.sent[1].thinkingLevel).toBe("max");
+    } finally { h.done(); }
+  });
+
+  test("model changes downgrade visibly; an effort-less model drops the override; older hosts retain their send behavior", async () => {
+    const h = await mounted();
+    try {
+      h.choose("max");
+      fireEvent.click(h.view.getByRole("button", { name: /^Model —/ }));
+      fireEvent.click(h.view.getByRole("radio", { name: "Smaller" }));
+      expect(h.view.getByText("· high")).toBeTruthy();
+      expect(h.view.getByText("Effort changed from max to high for this model")).toBeTruthy();
+      expect(h.view.getByRole("button", { name: "Model — Smaller · effort high for the next message (max not supported)" })).toBeTruthy();
+      fireEvent.click(h.view.getByRole("radio", { name: "Claude" }));
+      expect((h.view.getByRole("radio", { name: "high" }) as HTMLInputElement).checked).toBe(true);
+      expect((h.view.getByRole("radio", { name: "max" }) as HTMLInputElement).checked).toBe(false);
+      fireEvent.click(h.view.getByRole("radio", { name: "Plain" }));
+      expect(h.view.queryByText("Effort · next message")).toBeNull();
+      expect(h.view.getByText("This model has no effort setting; the next message uses its default")).toBeTruthy();
+    } finally { h.done(); }
+    const old = await mounted(false);
+    try {
+      old.type("legacy"); old.send();
+      expect(old.sent[0].requestId).toBeUndefined();
+      expect(old.sent[0].thinkingLevel).toBeUndefined();
+      expect(old.field().value).toBe("");
+    } finally { old.done(); }
+  });
+});
+
 describe("ComposerView", () => {
   const refs = { frameRef: { current: null }, providerMenuRef: { current: null } };
   const handlers = () => ({
     onChange: mock((_v: string) => {}), onSend: mock(() => {}), onStop: mock(() => {}), onMic: mock(() => {}), onPasteFiles: mock((_f: File[]) => {}),
     onAttachToggle: mock(() => {}), onPickLibrary: mock(() => {}), onPickCamera: mock(() => {}), onRecall: mock(() => {}), onEscape: mock(() => {}),
     onRemoveAttachment: mock((_i: number) => {}), onDismissErrors: mock(() => {}), onProviderToggle: mock(() => {}), onProviderSelect: mock((_id: string) => {}),
+    onProviderDismiss: mock(() => {}), onEffortSelect: mock((_level: string | null) => {}),
   });
   const base = { placeholder: "Ask", state: "ready" as const, paletteOpen: false, palette: null, attachMenuOpen: false, attachments: [], attachErrors: [], provider: null, ...refs };
 
@@ -4933,6 +5088,7 @@ describe("ComposerView", () => {
     fireEvent.click(view.getByRole("button", { name: "Send" }));
     expect(h.onSend).toHaveBeenCalledTimes(1);
     const field = view.getByLabelText("Ask") as HTMLTextAreaElement;
+    field.focus();
     changeControlledInput(field, "hello there");
     expect(h.onChange).toHaveBeenCalledWith("hello there");
     // esc dismisses the slash palette; the kit's own esc only stops a stream.
@@ -4949,7 +5105,7 @@ describe("ComposerView", () => {
     // The provider chip lives in the kit's hint line; the list is the frame's.
     fireEvent.click(view.getByRole("button", { name: "Model — Fast model" }));
     expect(h.onProviderToggle).toHaveBeenCalledTimes(1);
-    fireEvent.click(view.getByRole("menuitem", { name: "Careful model" }));
+    fireEvent.click(view.getByRole("radio", { name: "Careful model" }));
     expect(h.onProviderSelect).toHaveBeenCalledWith("b");
     view.unmount();
 
@@ -5139,6 +5295,29 @@ describe("settings views", () => {
 });
 
 describe("ModelsCatalogView", () => {
+  test("effort choices come from capabilities; unsupported saved levels stay visible and can be cleared", () => {
+    const onThinking = mock(() => {});
+    const catalog = { models: [
+      { id: "limited", label: "Limited", hidden: false, thinkingLevel: "high", thinkingOverride: "max", supportedThinkingLevels: ["low", "high"] },
+      { id: "removed", label: "Removed support", hidden: false, thinkingOverride: "high", supportedThinkingLevels: [] },
+      { id: "unknown", label: "Unknown support", hidden: false, thinkingLevel: "low" },
+    ], refreshedAt: null, stale: false, discovery: { enabled: true } } as NonNullable<Parameters<typeof ModelsCatalogView>[0]["catalog"]>;
+    const view = render(<ModelsCatalogView catalog={catalog} loading={false} refreshing={false} error={null} sections={null} onThinking={onThinking} onToggleHidden={() => {}} onBilling={() => {}} onDefault={() => {}} onCustomModels={() => {}} onRefresh={() => {}} />);
+    try {
+      const limited = view.getByLabelText("Reasoning effort for Limited") as HTMLSelectElement;
+      expect([...limited.options].map((option) => option.value)).toEqual(["auto", "max", "low", "high"]);
+      expect(limited.selectedOptions[0].textContent).toBe("max (runs as high)");
+      const removed = view.getByLabelText("Reasoning effort for Removed support") as HTMLSelectElement;
+      expect([...removed.options].map((option) => option.value)).toEqual(["auto", "high"]);
+      expect(removed.selectedOptions[0].textContent).toBe("high (uses model default)");
+      fireEvent.change(removed, { target: { value: "auto" } });
+      expect(onThinking).toHaveBeenCalledWith(catalog.models[1], "auto");
+      const unknown = view.getByLabelText("Reasoning effort for Unknown support") as HTMLSelectElement;
+      expect([...unknown.options].map((option) => option.value)).toEqual(["auto"]);
+      expect(view.getByText("Effort set here is the default for every new message; the model picker can change it for one message.")).toBeTruthy();
+    } finally { view.unmount(); }
+  });
+
   test("the roster: hidden rows say so at full contrast, selects keep their names, refresh and add are kit buttons", () => {
     const h = { onToggleHidden: mock(() => {}), onBilling: mock(() => {}), onThinking: mock(() => {}), onDefault: mock(() => {}), onCustomModels: mock((_m: string[]) => {}), onRefresh: mock(() => {}) };
     const catalog = {

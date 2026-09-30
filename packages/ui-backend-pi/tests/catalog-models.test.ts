@@ -111,9 +111,9 @@ describe("pi builtin catalog", () => {
       expect(profiles).toHaveLength(3);
       const backend = createPiBackend(options);
       expect(backend.listProfiles()).toEqual([
-        { id: "existing", label: "Existing Sol", vendor: "openai-codex", thinkingLevel: "medium" },
-        { id: "new-api", label: "Sol 6.1 API", vendor: "openai", thinkingLevel: "high" },
-        { id: "new-subscription", label: "Sol 6.1 subscription", vendor: "openai-codex", thinkingLevel: "medium" },
+        { id: "existing", label: "Existing Sol", vendor: "openai-codex", thinkingLevel: "medium", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+        { id: "new-api", label: "Sol 6.1 API", vendor: "openai", thinkingLevel: "high", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "new-subscription", label: "Sol 6.1 subscription", vendor: "openai-codex", thinkingLevel: "medium", supportedThinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ]);
       expect(toModel(resolveModelSpec(options))?.id).toBe("gpt-5.6-sol");
       expect(toModel(resolveModelSpec(options, "new-api"))?.id).toBe("gpt-6.1-sol");

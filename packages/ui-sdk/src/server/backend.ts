@@ -47,6 +47,7 @@ import type {
   ProviderInfo,
   ServerMessage,
   SessionHistoryMessage,
+  ThinkingLevel,
 } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
@@ -281,6 +282,8 @@ export interface StartTurnRequest {
    * pinned to their original profile.
    */
   profileId?: string;
+  /** One-turn effort override. Resumes re-read defaults; this does not pin effort to a session. */
+  thinkingLevel?: ThinkingLevel;
   /** Host-owned cancellation (user cancel + host timeout). */
   signal: AbortSignal;
   /**

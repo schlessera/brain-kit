@@ -57,6 +57,8 @@ describe("backend registry", () => {
         label: "Claude",
         vendor: "anthropic",
         source: "builtin",
+        thinkingLevel: "medium",
+        supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
         backendId: "claude",
         // A profile without its own credential runs on the subscription or
         // is refused before its prompt is sent (#253), so it is never "api"
@@ -307,8 +309,13 @@ describe("configured GPT-6 profiles", () => {
       });
       const providers = createProviderRoutes({ registry });
       const models = createModelRoutes({ registry, db });
-      const expected = profiles.map(({ id, label, vendor, thinkingLevel }) => ({
+      const expected = profiles.map(({ id, label, vendor, model, thinkingLevel }) => ({
         id, label, vendor, thinkingLevel, backendId: "pi",
+        supportedThinkingLevels: [
+          ...(["gpt-5.6-sol", "gpt-6-sol", "gpt-6-luna"].includes(model) ? ["off"] : []),
+          ...(vendor === "openai-codex" ? ["minimal"] : []),
+          "low", "medium", "high", "xhigh", "max",
+        ],
         billingMode: vendor === "openai-codex" ? "subscription" : "api",
         pricingRoute: "direct",
       }));
@@ -775,9 +782,9 @@ describe("per-profile thinking overrides", () => {
     expect(after.find((p) => p.id === "gpt-sol")?.thinkingLevel).toBe("low");
   });
 
-  test("claude rows carry no thinking level", async () => {
+  test("claude rows expose the built-in effort default and native supported levels", async () => {
     const registry = registryFor({ BRAIN_UI_PI_PROFILES: GPT });
     const providers = await registry.listAllProviders();
-    expect(providers.find((p) => p.id === "claude")?.thinkingLevel).toBeUndefined();
+    expect(providers.find((p) => p.id === "claude")).toMatchObject({ thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] });
   });
 });

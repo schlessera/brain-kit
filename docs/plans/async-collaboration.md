@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:116-209`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:128-221`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -134,14 +134,14 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:414`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:116-209`). Timeout unwind is
-  (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:228-234`). Durable escalation must checkpoint
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:128-221`). Timeout unwind is
+  (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:50-183`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:52-203`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-147`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:75-142`). Built-ins are disabled,
@@ -154,9 +154,9 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1191`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1223`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
-- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:611-620`) gates WS starts;
+- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`) owns tool locks.
   Neither provides autonomous waiter priority/yield.
 
@@ -802,7 +802,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1191`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1223`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -879,7 +879,7 @@ AE3, AE4, AE8
 **Approach:**
 - **Escalation** is one server-side step: capture the checkpoint → create the Action with
   validated effects → transition the Queue item to `blocked` → unwind without parking. The timeout path aborts then drains permissions at
-  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:228-234`)
+  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`)
 - **Resolution** is one transaction: record resolution (unique) → validate the effect against
   its schema again → apply it → transition the blocked item to `superseded` → for `enqueue`
   only, mint one follow-up with `dedup_key` from `(action_id, option_id)`
@@ -1129,7 +1129,7 @@ and a server-selected tool policy.
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (`StartTurnRequest` is conversation-shaped with mandatory permission postures
   but no explicit headless/persistence/origin mode —
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:273-342`))
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:274-345`))
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (generalize the hardcoded
@@ -1214,7 +1214,7 @@ full-v1 enablement; predicates and schema tests cannot substitute for it.
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:611-620`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
 (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`).
 
@@ -1225,7 +1225,7 @@ Three pieces, none of which exist today:
   waiter's continued wait signals the holder. The number is a constant, not a judgement call,
   so both edges are testable
 - **A yield channel into a running autonomous turn** — the signal aborts the holder through
-  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:228-234`), returning its item
+  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`), returning its item
   to `ready` and releasing its reservation
 
 Below the threshold nothing yields, so the common case costs nothing. Above it, one autonomous
@@ -1258,7 +1258,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:50-183`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:52-203`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, `excludeDynamicSections: true` (the SDK preset otherwise

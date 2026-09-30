@@ -26,6 +26,9 @@ export interface ConnectionError {
 
 export interface ConnectionState {
   wsStatus: WsStatus;
+  /** The current host accepts per-message effort and correlated chat acknowledgements. */
+  chatRequestAck: boolean;
+  setChatRequestAck(supported: boolean): void;
   vpnStatus: VpnStatus;
   handshakeFailures: number;
   lastCloseCode: number | null;
@@ -49,6 +52,8 @@ export interface ConnectionState {
 export function createConnectionStore() {
   return createStore<ConnectionState>((set) => ({
     wsStatus: "disconnected",
+    chatRequestAck: false,
+    setChatRequestAck: (chatRequestAck) => set({ chatRequestAck }),
     vpnStatus: "checking",
     handshakeFailures: 0,
     lastCloseCode: null,
@@ -65,6 +70,7 @@ export function createConnectionStore() {
       })),
     noteSocketOpen: () =>
       set((state) => ({
+        chatRequestAck: false,
         handshakeFailures: 0,
         // Cleared here, not on the next close: the server accepts the upgrade and
         // THEN closes with 4008 when it is at its connection cap, so the code

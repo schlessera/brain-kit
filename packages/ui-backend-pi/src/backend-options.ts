@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
   BackendBridge,
   ClientEnvironment,
@@ -17,6 +17,11 @@ import type { TurnContext } from "./turn-context.js";
  */
 export interface PiSessionLike {
   readonly sessionId: string;
+  /** Native effort surface; optional only for older injected test sessions. */
+  readonly model?: Model<any>;
+  readonly thinkingLevel?: ThinkingLevel;
+  getAvailableThinkingLevels?(): ThinkingLevel[];
+  setThinkingLevel?(level: ThinkingLevel, options?: { persist?: boolean }): void;
   subscribe(listener: (ev: AgentSessionEvent) => void): () => void;
   /**
    * `streamingBehavior` selects how a message sent WHILE the session is already
@@ -73,8 +78,8 @@ export interface PiProfile {
   /** pi model id within the vendor, e.g. "claude-sonnet-4-5". */
   model: string;
   /**
-   * Reasoning level for this profile's NEW sessions (pi clamps it to the
-   * model's capabilities). Absent = pi's default ("medium").
+   * Reasoning default re-read on every turn, including resumed sessions.
+   * Absent = pi's default ("medium"); a per-turn override does not replace it.
    */
   thinkingLevel?: ThinkingLevel;
 }

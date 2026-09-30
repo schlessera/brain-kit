@@ -16,6 +16,10 @@
 // ============================================================
 
 import { z } from "zod";
+import { isThinkingLevel } from "./protocol.js";
+import type { ThinkingLevel } from "./protocol.js";
+
+const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
 
 import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 
@@ -294,6 +298,8 @@ export const clientChatMessageSchema = z
     sessionId: id.optional(),
     providerId: id.optional(),
     draftId: id.optional(),
+    requestId: id.optional(),
+    thinkingLevel: thinkingLevelSchema.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
@@ -658,6 +664,8 @@ const historyMessageSchema = z.looseObject({
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
+  thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
+  effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
@@ -762,6 +770,7 @@ export const serverErrorSchema = z.looseObject({
   type: z.literal("error"),
   code: z.string(),
   message: z.string(),
+  requestId: id.optional(),
   failure: turnFailureSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerError>;
@@ -772,6 +781,9 @@ export const serverStatusSchema = z.looseObject({
   detail: z.string().optional(),
   retry: turnRetrySchema.optional().catch(undefined),
   activeSessionId: z.string().max(MAX_ID_CHARS).optional(),
+  requestId: id.optional(),
+  thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
+  effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerStatus>;
 
@@ -782,6 +794,9 @@ export const serverSessionInfoSchema = z.looseObject({
   providerId: z.string().max(MAX_ID_CHARS).optional(),
   backendId: z.string().max(MAX_ID_CHARS).optional(),
   draftId: z.string().max(MAX_ID_CHARS).optional(),
+  requestId: id.optional(),
+  thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
+  effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerSessionInfo>;
 
 export const serverSessionHistorySchema = z.looseObject({
@@ -927,6 +942,7 @@ export const serverLocalExchangeResultSchema = z.looseObject({
 export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_receipt"), ...sessionScoped, sessionId: id, requestId: id,
   state: z.enum(["accepted", "refused", "unknown"]), message: z.string().optional(), text: z.string().optional(),
   attachmentCount: z.number().int().min(0).optional(), source: optionalMessageSource,
+  thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerRetryReceipt>;
 
 export const serverMessageSchema = z.discriminatedUnion("type", [

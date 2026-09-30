@@ -9,6 +9,7 @@ import type {
   AskUserListSpec,
   TurnFailure,
   TurnRetry,
+  ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../components/chat/stats/compose-stats.js";
@@ -32,6 +33,9 @@ export interface ChatMessage {
   isStreaming: boolean;
   timestamp: number;
   source?: MessageSource;
+  requestId?: string;
+  thinkingLevel?: ThinkingLevel;
+  effectiveThinkingLevel?: ThinkingLevel;
   /** AskUserQuestion exchanges raised during this assistant turn. */
   askUserExchanges?: AskUserExchange[];
   /**
@@ -228,6 +232,11 @@ export interface PendingTurnRetry {
 }
 
 export interface ChatState {
+  /** Ephemeral correlated chat acknowledgements; never written to browser storage. */
+  chatReceipts: Record<string, { state: "accepted" | "refused"; sessionId?: string }>;
+  setChatReceipt(requestId: string, state: "accepted" | "refused", sessionId?: string): void;
+  clearChatReceipt(requestId: string): void;
+  setMessageEffort(key: ChatKey, requestId: string, thinkingLevel: ThinkingLevel, effectiveThinkingLevel?: ThinkingLevel): void;
   turnRetries: Record<string, PendingTurnRetry>;
   setTurnRetry(sessionId: string, retry: PendingTurnRetry | null): void;
   setRetryHandle(key: ChatKey, retryOfTurnId: string | undefined): void;
@@ -273,9 +282,10 @@ export interface ChatState {
     key: ChatKey,
     text: string,
     source?: MessageSource,
-    attachments?: MessageAttachment[]
+    attachments?: MessageAttachment[],
+    effort?: { requestId: string; thinkingLevel?: ThinkingLevel }
   ) => void;
-  startAssistantMessage: (key: ChatKey, turnId?: string) => void;
+  startAssistantMessage: (key: ChatKey, turnId?: string, requestId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;
   appendThinking: (key: ChatKey, text: string) => void;
   /** Attach the /stats answer to the assistant message being written. */
@@ -622,6 +632,21 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
     }
 
     return {
+      chatReceipts: {},
+      setChatReceipt(requestId, state, sessionId) {
+        if (get().chatReceipts[requestId]?.state === "accepted") return;
+        const entries = Object.entries(get().chatReceipts).filter(([id]) => id !== requestId).slice(-255);
+        set({ chatReceipts: Object.fromEntries([...entries, [requestId, { state, sessionId }]]) });
+      },
+      clearChatReceipt(requestId) {
+        const chatReceipts = { ...get().chatReceipts };
+        delete chatReceipts[requestId];
+        set({ chatReceipts });
+      },
+      setMessageEffort(key, requestId, thinkingLevel, effectiveThinkingLevel) {
+        mutateBuffer(key, (chat) => ({ messages: chat.messages.map((message) => message.role === "user" && message.requestId === requestId
+          ? { ...message, thinkingLevel, ...(effectiveThinkingLevel !== undefined ? { effectiveThinkingLevel } : {}) } : message) }));
+      },
       turnRetries: readRetries(),
       setTurnRetry(sessionId, retry) {
         const turnRetries = { ...get().turnRetries };
@@ -647,7 +672,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       // createIfMissing: a user-initiated send must never be dropped, even when
       // the active session's buffer hasn't been materialized yet (cold start
       // racing the history replay).
-      addUserMessage: (key, text, source, attachments) =>
+      addUserMessage: (key, text, source, attachments, effort) =>
         mutateBuffer(
           key,
           (chat) => ({
@@ -662,6 +687,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
                 isStreaming: false,
                 timestamp: Date.now(),
                 source: source ?? "typed",
+                ...effort,
                 ...(attachments && attachments.length > 0
                   ? { attachments, attachmentCount: attachments.length }
                   : {}),
@@ -671,7 +697,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           true
         ),
 
-      startAssistantMessage: (key, turnId) =>
+      startAssistantMessage: (key, turnId, requestId) =>
         mutateBuffer(key, (chat) => ({
           messages: [
             ...chat.messages,
@@ -685,6 +711,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               isStreaming: true,
               timestamp: Date.now(),
               ...(turnId ? { turnId } : {}),
+              ...(requestId ? { requestId } : {}),
             },
           ],
           isStreaming: true,

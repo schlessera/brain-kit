@@ -103,7 +103,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   });
   const runtime = createSessionRuntime({ backend: options, sessionDir, resources });
   const pool = createSessionPool(runtime);
-  const startTurn = createPiTurnRunner(pool);
+  const startTurn = createPiTurnRunner(pool, options);
 
   return {
     id: PI_BACKEND_ID,

@@ -14,6 +14,7 @@
  */
 
 import { join } from "path";
+import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 
@@ -39,6 +40,12 @@ import {
  * documents it and the resolver applies it, and they used to be two literals.
  */
 const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+
+function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
+  const value = raw?.trim() || "medium";
+  if (!isThinkingLevel(value)) throw new Error("BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL is not a thinking level.");
+  return value;
+}
 
 /**
  * The shared descriptor contract (sync-enforced copy in ./env-core.ts),
@@ -369,6 +376,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL",
+    description: "Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice.",
+    default: "medium",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_CLAUDE_PROFILES",
     description:
       "JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}).",
@@ -543,6 +556,7 @@ export interface AgentConfig {
   /** `CLAUDE_CODE_PATH`; null runs the Agent SDK's built-in binary. */
   claudeCodePath: string | null;
   defaultModel: string;
+  defaultThinkingLevel?: ThinkingLevel;
   /** Raw BRAIN_UI_CLAUDE_PROFILES JSON, parsed at boot and again by the registry. */
   profilesJson: string | null;
   /**
@@ -793,6 +807,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       confirmBashPatterns: parseConfirmBash(env.BRAIN_UI_CONFIRM_BASH),
       claudeCodePath: env.CLAUDE_CODE_PATH || null,
       defaultModel: env.BRAIN_UI_CLAUDE_DEFAULT_MODEL?.trim() || DEFAULT_CLAUDE_MODEL,
+      defaultThinkingLevel: parseDefaultThinkingLevel(env.BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL),
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
       modelDiscovery,

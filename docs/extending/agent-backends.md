@@ -49,8 +49,8 @@ export interface BackendModule {
   inactive backend.
 - `settingsHooks` declares which of the host's hidden/default/OpenRouter/
   thinking/billing readers the backend consumes. A descriptor receives only
-  those readers. Claude asks for OpenRouter models; pi asks for thinking
-  overrides; each owns its own billing classifier.
+  those readers. Claude asks for OpenRouter models; both first-party backends
+  consume thinking overrides and own their billing classifiers.
 - `modelSource` is optional. The Claude descriptor uses it for Anthropic model
   discovery; pi has no discovery source.
 - `probeRuntime` is optional and asynchronous. It checks the runtime a turn
@@ -103,7 +103,8 @@ normalizing to `SessionHistoryMessage` at read time.
 
 `startTurn(req)` receives the prompt, optional attachments, an optional
 `sessionId` (resume — requires `capabilities.resume`), an optional `profileId`
-(only honored on new sessions), a host-owned `AbortSignal`, the
+(selects the model on new sessions and resolves its effort default on resumes),
+optional `thinkingLevel` for this turn only, a host-owned `AbortSignal`, the
 `BackendBridge`, and an advisory `ClientEnvironment`. The contract, asserted
 by the cross-backend suite:
 
@@ -139,6 +140,11 @@ by the cross-backend suite:
   deployment cap); resuming a session that is already running rejects with
   `BackendBusyError`. Without it, the backend is a single-turn instance and
   the host serializes.
+- **Effort:** resolve a per-turn `thinkingLevel` ahead of the current profile
+  default on every turn, including a resume. Advertise supported levels in
+  `ProviderInfo.supportedThinkingLevels` and downgrade unsupported requests
+  to the nearest lower supported level. Report `effectiveThinkingLevel` only
+  when the runtime confirms it; option assembly alone is not confirmation.
 - **Follow-up:** with `capabilities.followUp`, `followUp()` delivers mid-turn
   user messages into the running turn (frames keep flowing through the
   original turn's bridge). Without it, the host queues the message as the

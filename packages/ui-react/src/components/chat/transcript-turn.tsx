@@ -25,12 +25,14 @@ export interface TurnHeaderProps {
   when: string;
   /** The user turn came in by voice: which kind. */
   voice?: "voice-dictate" | "voice-conversation";
+  /** Explicit effort provenance, already formatted; defaults leave this absent. */
+  effort?: string;
   tone: "user" | "brain";
 }
 
 export function TurnHeader(p: TurnHeaderProps) {
   return (
-    <div className="mb-2 flex items-center gap-3">
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
       <span
         className={cn(
           "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest",
@@ -39,6 +41,7 @@ export function TurnHeader(p: TurnHeaderProps) {
       >
         {p.who}
       </span>
+      {p.effort && <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--bk-amber-ink)]">{p.effort}</span>}
       <div className="h-px flex-1 bg-border/40" />
       {p.voice && (
         <span

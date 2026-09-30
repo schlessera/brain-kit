@@ -4,6 +4,7 @@ type ConnectionFrame = "server_hello" | "location_request" | "error";
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
+    context.stores.connection.getState().setChatRequestAck(msg.capabilities?.chatRequestAck === true);
     context.stores.activity.getState().setSupported(msg.capabilities?.activity === true);
     // A new hello means a new connection: server-side subscriptions are gone.
     context.stores.activity.getState().resetSubscriptions();
@@ -23,6 +24,13 @@ export const connectionFrameHandlers = {
     // The turn's failure, drawn on its message (#575). A bare `error` that
     // ends a turn before its session exists carries the provider failure;
     // any other is shown as its message says.
+    // A refused next-message request must not fail the reply already running.
+    if (msg.requestId && !context.frameTurnId) {
+      const pending = context.buffer()?.messages.find((message) =>
+        message.role === "assistant" && message.requestId === msg.requestId && !message.turnId && message.isStreaming
+      );
+      if (!pending) return;
+    }
     if (context.buffer()?.isStreaming || msg.failure) {
       context.state.failAssistantMessage(
         context.key,

@@ -117,6 +117,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           multiSession: true,
           askUser: true,
           askUserList: true,
+          chatRequestAck: true,
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.
@@ -267,6 +268,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
             type: "error",
             code: "INTERNAL_ERROR",
             message: "Failed to handle message",
+            ...(parsed.message.type === "chat_message" && parsed.message.requestId ? { requestId: parsed.message.requestId } : {}),
           });
         })
         .finally(() => {

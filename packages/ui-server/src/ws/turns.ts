@@ -14,6 +14,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   MessageSource,
+  ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnRecorder } from "../activity/recorder.js";
 
@@ -40,6 +41,8 @@ export interface QueuedFollowUp {
   client?: ClientEnvironment;
   /** How the user produced the message; absent means typed. */
   source?: MessageSource;
+  thinkingLevel?: ThinkingLevel;
+  requestId?: string;
   /** Queue-owned authorization lease, transferred to the runner on dequeue. */
   releaseAuthorization: () => void;
 }
@@ -78,6 +81,8 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
  * same slot (same sessionId) after the current one resolves.
  */
 export interface RunningTurn {
+  /** Chat correlation for the current turn; replaced on dequeue. */
+  requestId?: string;
   /** Principal responsible for the CURRENT turn in this session slot. */
   principalId: string;
   authorization: AuthorizationContext;
