@@ -392,6 +392,13 @@ rebuild — brain-kit requires an explicit `brain index --embeddings --force` wi
 a printed cost warning and never silently re-embeds. See
 [extending/embeddings.md](extending/embeddings.md).
 
+Markdown chunk input includes title, heading, optional context and content.
+There is no metadata-prefix setting: type, status, tags and dates use the
+existing filters, keyword retrieval and ranking paths where supported.
+See [why metadata stays outside embedding prefixes](decisions/embedding-metadata.md)
+for the reuse and cost rationale. This does not strip metadata terms already
+present in prose or context.
+
 ```ts
 embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMINI_API_KEY" }
 ```

@@ -36,6 +36,17 @@ Enrichment (chunk contexts, asset *descriptions*) is **not** here — it lives i
 `enrichment.ts` on top of a [`CompletionProvider`](completions.md). An embedding
 provider only turns text (and optionally images/PDFs) into vectors.
 
+## Markdown chunk input
+
+Core passes a chunk's title, heading, optional context and content to `embed`.
+It does not prepend type, status, tags or dates from frontmatter to every
+chunk. Those fields use search filters, keyword retrieval and ranking where
+supported, so routine edits do not change every chunk's embedding input
+solely through a metadata prefix. Terms already present in prose or context
+remain; existing context generation can use the frontmatter summary. The
+[decision](../decisions/embedding-metadata.md) records the invalidation and
+embedding-cost tradeoff.
+
 ## Built-ins
 
 | Name     | Model / dimensions               | Key                          |
