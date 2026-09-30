@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ThinkingLevel } from "@schlessera/brain-ui-sdk";
 import {
   defineBackendModule,
   type BackendModelSource,
@@ -10,6 +11,9 @@ import {
   type BackendRegistry,
 } from "../src/agent/backend";
 import { createProviderRoutes } from "../src/routes/providers";
+import { createModelRoutes } from "../src/routes/models";
+import { createUiDb } from "../src/db/client";
+import { getDefaultModelId, getThinkingOverrides, setDefaultModelId } from "../src/db/settings";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
@@ -25,7 +29,7 @@ function registryFor(
     getBillingOverrides?: () => Record<string, "subscription" | "api">;
     getDefaultModelId?: () => string | null;
     getCustomOpenRouterModels?: () => string[];
-    getThinkingOverrides?: () => Record<string, "low" | "max">;
+    getThinkingOverrides?: () => Record<string, ThinkingLevel>;
     getHiddenModelIds?: () => string[];
   } = {}
 ): BackendRegistry {
@@ -273,6 +277,68 @@ describe("pi coexistence (BRAIN_UI_PI_PROFILES)", () => {
         ]),
       }).getBackends()
     ).rejects.toThrow('invalid thinkingLevel "ultra"');
+  });
+});
+
+describe("configured GPT-6 profiles", () => {
+  test("the real pi descriptor feeds the catalog and picker without changing a stored default", async () => {
+    const profiles = [
+      { id: "existing-sol", label: "Existing Sol", vendor: "openai-codex", model: "gpt-5.6-sol", thinkingLevel: "high" },
+      ...["openai", "openai-codex"].flatMap((vendor) =>
+        ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"].map((model) => ({
+          id: `configured-${vendor}-${model}`,
+          label: `${model} (${vendor})`,
+          vendor,
+          model,
+          thinkingLevel: "xhigh",
+        }))
+      ),
+    ];
+    expect(profiles).toHaveLength(9);
+    const db = createUiDb(":memory:");
+    try {
+      setDefaultModelId(db, "existing-sol");
+      const registry = registryFor({
+        AGENT_BACKEND: "pi",
+        BRAIN_UI_PI_PROFILES: JSON.stringify(profiles),
+      }, {
+        getDefaultModelId: () => getDefaultModelId(db),
+        getThinkingOverrides: () => getThinkingOverrides(db),
+      });
+      const providers = createProviderRoutes({ registry });
+      const models = createModelRoutes({ registry, db });
+      const expected = profiles.map(({ id, label, vendor, thinkingLevel }) => ({
+        id, label, vendor, thinkingLevel, backendId: "pi",
+        billingMode: vendor === "openai-codex" ? "subscription" : "api",
+        pricingRoute: "direct",
+      }));
+      const pickerResponse = await providers.request("/providers");
+      expect(pickerResponse.status).toBe(200);
+      expect((await pickerResponse.json()).providers).toEqual(expected);
+      const catalogResponse = await models.request("/models");
+      expect(catalogResponse.status).toBe(200);
+      const catalog = await catalogResponse.json();
+      expect(catalog.models).toEqual(expected.map((row) => ({ ...row, hidden: false })));
+      expect(catalog.defaultModelId).toBe("existing-sol");
+      expect(catalog.resolvedDefaultId).toBe("existing-sol");
+      expect(catalog.discovery.enabled).toBe(false);
+      expect((await registry.getBackendForProfile("configured-openai-gpt-6.1-sol"))?.id).toBe("pi");
+
+      const changed = await models.request("/models/thinking", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ thinking: { "configured-openai-gpt-6.1-sol": "low" } }),
+      });
+      expect(changed.status).toBe(200);
+      expect(getThinkingOverrides(db)).toEqual({ "configured-openai-gpt-6.1-sol": "low" });
+      const updatedPicker = (await (await providers.request("/providers")).json()).providers;
+      expect(updatedPicker).toEqual(expected.map((row) =>
+        row.id === "configured-openai-gpt-6.1-sol" ? { ...row, thinkingLevel: "low" } : row
+      ));
+      expect(getDefaultModelId(db)).toBe("existing-sol");
+    } finally {
+      db.close();
+    }
   });
 });
 

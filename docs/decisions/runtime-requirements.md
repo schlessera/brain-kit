@@ -200,6 +200,13 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 | Additional default Claude runtime floor | None | There is no evidenced numerical incompatibility threshold in the existing record. The successful pairs are observations, not proof that the preceding release fails. A new library floor needs a feature requirement or reproducible incompatibility and its versioning review. |
 | Example host SDK/runtime floors | `0.3.283` / `2.1.283` | The installed SDK manifest and `MEASURED_RUNTIME` (`export const MEASURED_RUNTIME`, `packages/ui-backend-claude/src/measured-runtime.ts:18-25`) identify this measured pair, rechecked in commit `e1ce9600`. This is a host choosing the demonstrated baseline, not a new default package floor. |
 
+**Pi pin update, 2026-09-30 ([#708](https://github.com/schlessera/brain-kit/issues/708)):**
+The initial `0.87.1` Pi pins above are historical. The separately scoped
+catalog update moves all three to published `0.99.2` to support GPT-6.1 Sol
+on OpenAI and OpenAI Codex. Host requirements still compose with each actual
+imported dependency's exact manifest requirement; the Claude range ruling
+does not select Pi versions.
+
 The example's brain-kit `^0.39.0` range names the public release verified in
 the npm registry on 2026-09-30. It expresses a host checkout's package baseline;
 it does not assign that host a version. Future examples must use the release

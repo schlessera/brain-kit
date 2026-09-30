@@ -3,7 +3,8 @@
 The OSS-default [`AgentBackend`](../ui-sdk/src/server/backend.ts) for the
 brain-kit chat UI, purpose-built on the upstream
 [`pi`](https://github.com/earendil-works/pi) coding-agent SDK
-(`@earendil-works/pi-coding-agent`, pinned to `0.84.4`).
+(`@earendil-works/pi-coding-agent`, pinned to `0.99.2` together with
+`pi-agent-core` and `pi-ai`).
 
 It gives a knowledge-base agent a brain-repo-scoped tool surface with the same
 approval posture as the Claude backend: pi's built-in read/bash/edit/write are
@@ -25,6 +26,33 @@ const backend = createPiBackend({
 Model credentials are **not** managed here — pi resolves them from its own auth
 storage (`~/.pi/agent/auth.json`) and provider env vars, exactly as the `pi` CLI
 does.
+
+## GPT-6 profiles
+
+The pinned catalog supports `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and
+`gpt-6.1-sol` for both `openai` (API credentials) and `openai-codex`
+(subscription credentials). Models appear in the picker only when explicitly
+configured. Keep existing profile ids and ordering when adding a model; the
+first configured profile remains the backend's default for new sessions.
+
+For example, append either profile to an existing `profiles` array:
+
+```ts
+import type { PiProfile } from "@schlessera/brain-backend-pi";
+
+const additionalProfiles: PiProfile[] = [
+  { id: "sol-6-1-api", label: "GPT-6.1 Sol (API)", vendor: "openai", model: "gpt-6.1-sol", thinkingLevel: "high" },
+  { id: "sol-6-1-subscription", label: "GPT-6.1 Sol (subscription)", vendor: "openai-codex", model: "gpt-6.1-sol", thinkingLevel: "xhigh" },
+];
+```
+
+GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh` and `max`; an omitted
+level defaults to `medium`. Pi's Codex adapter also maps `minimal` to `low`.
+The resolved model retains pi's provider metadata, including Responses
+transport, reasoning support, pricing and context limits. GPT-6.1 Sol tool
+calling requires [Responses](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+A keyless catalog lookup confirms resolution; account access still depends
+on the provider's credentials and model availability.
 
 ## Options
 
