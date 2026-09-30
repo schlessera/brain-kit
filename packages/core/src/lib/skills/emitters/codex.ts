@@ -16,18 +16,15 @@
  */
 
 import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
 import { parseFrontmatter } from "../../frontmatter-parse.js";
 
 import type { SkillEmitter } from "../../seams.js";
+import { CONTRACT_END, CONTRACT_FILE, CONTRACT_START, renderContractBlock } from "./contract-block.js";
 import { INDEX_END, INDEX_START } from "./index-block.js";
 import { appendBlock, applyEdits, scanBlock, type Edit } from "./managed-block.js";
 
-export const CONTRACT_START = "<!-- brain-kit:contract:start -->";
-export const CONTRACT_END = "<!-- brain-kit:contract:end -->";
-
-/** `<core>/CONTRACT.md`, resolved from this file at packages/core/src/lib/skills/emitters/. */
-export const CONTRACT_FILE = resolve(import.meta.dir, "../../../../CONTRACT.md");
+export { CONTRACT_END, CONTRACT_FILE, CONTRACT_START, renderContractBlock } from "./contract-block.js";
 
 /**
  * A skill name as the Agent Skills specification allows it: lowercase letters,
@@ -39,18 +36,6 @@ const SKILL_NAME = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** An index row exactly as the old renderer wrote it: `- **<name>** — <description>`. */
 const INDEX_ROW = /^- \*\*(.+?)\*\* — (.*)$/;
-
-/** The full managed block, markers included: the contract body, verbatim. */
-export function renderContractBlock(contract: string): string {
-  return [
-    CONTRACT_START,
-    "<!-- Managed by `brain skills sync` from the installed @schlessera/brain CONTRACT.md — do not edit between these markers. -->",
-    "",
-    contract.replace(/^\s+|\s+$/g, ""),
-    "",
-    CONTRACT_END,
-  ].join("\n");
-}
 
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();

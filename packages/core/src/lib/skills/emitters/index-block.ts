@@ -1,7 +1,7 @@
 /**
- * Fenced, machine-managed "Skills index" block the gemini emitter keeps in
- * GEMINI.md. The codex emitter wrote the same block into AGENTS.md until it
- * switched to the contract block; its migration parses the old block itself.
+ * Legacy machine-managed "Skills index" block formerly written into GEMINI.md
+ * and AGENTS.md. Both emitters now migrate it to the installed contract block;
+ * these markers and the old renderer describe the format being migrated.
  *
  * Only the region between the markers is ever touched; everything before the
  * start marker and after the end marker is preserved byte-for-byte. The block

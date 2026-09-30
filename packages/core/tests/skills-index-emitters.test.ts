@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import {
   CONTRACT_END,
@@ -465,19 +466,149 @@ describe("syncSkills surfaces an emitter's warnings", () => {
   });
 });
 
-describe("geminiEmitter GEMINI.md index", () => {
-  const root = mkRepo();
-  const add = skill(root, "add", "Capture a note.");
-  const geminiFile = join(root, "GEMINI.md");
+describe("geminiEmitter GEMINI.md contract", () => {
+  for (const initial of [undefined, "", " \r\n\t", "# Rules\nKeep this text.", "# Rules\r\n\r\n"]) {
+    test(`embeds the installed contract with zero skills, preserving ${JSON.stringify(initial)}`, () => {
+      const root = mkRepo();
+      const file = join(root, "GEMINI.md");
+      if (initial !== undefined) writeFileSync(file, initial);
+      const res = geminiEmitter.emit([], root);
+      const text = readFileSync(file, "utf8");
+      expect(text).toContain(contractBody);
+      expect(contractBody).toContain("Markdown files are the source of truth. brain.db is a disposable index.");
+      expect(text).toBe((initial ?? "") + (initial ? (initial.endsWith("\n") ? "\n" : "\n\n") : "") + block + "\n");
+      expect(res.written).toEqual(["GEMINI.md"]);
+      expect(text.split(CONTRACT_START)).toHaveLength(2);
+      expect(text).not.toContain(INDEX_START);
+      const before = readFileSync(file);
+      const again = readOnly([file, root], () => geminiEmitter.emit([], root));
+      expect(again).toEqual({ written: [], removed: [], warnings: [] });
+      expect(readFileSync(file).equals(before)).toBe(true);
+    });
+  }
 
-  test("creates the block then is idempotent", () => {
-    const first = geminiEmitter.emit([add], root);
-    expect(first.written).toEqual(["GEMINI.md"]);
-    const bytes = readFileSync(geminiFile);
-    expect(readFileSync(geminiFile, "utf8")).toContain("- **add**");
+  const prefix = "# Rules\r\n\r\nKeep spaces.  \r\n";
+  const middle = "\r\n  User text between regions.\r\n\r\n";
+  const suffix = "\r\n\r\nLast rule, no final newline.  ";
+  const stale = `${CONTRACT_START}\nold contract\n${CONTRACT_END}`;
 
-    const second = geminiEmitter.emit([add], root);
-    expect(second.written).toEqual([]);
-    expect(readFileSync(geminiFile).equals(bytes)).toBe(true);
+  for (const arrangement of ["old", "new", "old-new", "new-old"] as const) {
+    test(`${arrangement}: migration preserves every outside byte and writes one current contract`, () => {
+      const root = mkRepo();
+      const add = skill(root, "add", "Capture a note.");
+      const index = renderIndexBlock([add]);
+      const file = join(root, "GEMINI.md");
+      const regions = {
+        old: index,
+        new: stale,
+        "old-new": index + middle + stale,
+        "new-old": stale + middle + index,
+      };
+      writeFileSync(file, prefix + regions[arrangement] + suffix);
+      const prompt = legacyPrompt(root, "add", "Capture a note.");
+      const promptBytes = readFileSync(prompt);
+      const res = geminiEmitter.emit([add], root);
+      const text = readFileSync(file, "utf8");
+      const expectedRegion = arrangement === "old-new" ? middle + block : arrangement === "new-old" ? block + middle : block;
+      expect(text.startsWith(prefix)).toBe(true);
+      expect(text.endsWith(suffix)).toBe(true);
+      expect(text).toBe(prefix + expectedRegion + suffix);
+      expect(contractBlockBody(text)).toBe(contractBody);
+      expect(text.split(CONTRACT_START)).toHaveLength(2);
+      expect(text).not.toContain(INDEX_START);
+      expect(text).not.toContain("Capture a note.");
+      expect(res.written).toEqual(["GEMINI.md"]);
+      expect(res.removed).toEqual([]);
+      expect(readFileSync(prompt).equals(promptBytes)).toBe(true);
+      expect(geminiEmitter.emit([add], root).written).toEqual([]);
+    });
+  }
+
+  const badMarkers: [string, string][] = [
+    ["orphan contract start", CONTRACT_START],
+    ["orphan contract end", CONTRACT_END],
+    ["reversed contract", `${CONTRACT_END}\n${CONTRACT_START}`],
+    ["duplicate contract", stale + "\n" + stale],
+    ["orphan index start", INDEX_START],
+    ["orphan index end", INDEX_END],
+    ["reversed index", `${INDEX_END}\n${INDEX_START}`],
+    ["duplicate index", `${INDEX_START}\n${INDEX_END}\n${INDEX_START}\n${INDEX_END}`],
+    ["crossed blocks", `${CONTRACT_START}\n${INDEX_START}\n${CONTRACT_END}\n${INDEX_END}`],
+    ["index inside contract", `${CONTRACT_START}\n${INDEX_START}\n${INDEX_END}\n${CONTRACT_END}`],
+    ["contract inside index", `${INDEX_START}\n${CONTRACT_START}\n${CONTRACT_END}\n${INDEX_END}`],
+  ];
+  for (const [name, markers] of badMarkers) {
+    test(`${name}: two attempts leave the file byte-identical and warn`, () => {
+      const root = mkRepo();
+      const file = join(root, "GEMINI.md");
+      const text = prefix + markers + suffix;
+      writeFileSync(file, text);
+      for (let run = 0; run < 2; run++) {
+        const res = geminiEmitter.emit([], root);
+        expect(readFileSync(file, "utf8")).toBe(text);
+        expect(res.written).toEqual([]);
+        expect(res.warnings?.join(" ")).toContain("GEMINI.md");
+        expect(res.warnings?.join(" ")).toContain("fix the markers by hand");
+      }
+    });
+  }
+
+  test("syncSkills reports malformed Gemini markers with the emitter prefix", () => {
+    const root = mkRepo();
+    const text = prefix + CONTRACT_START + suffix;
+    writeFileSync(join(root, "GEMINI.md"), text);
+    const res = syncSkills({ root, modules: [] }, { emitters: [geminiEmitter], coreSkillsDir: join(root, "none") });
+    expect(readFileSync(join(root, "GEMINI.md"), "utf8")).toBe(text);
+    expect(res.warnings.some(w => w.startsWith("gemini emitter: GEMINI.md has 1 start and 0 end marker(s)"))).toBe(true);
   });
+});
+
+/** An isolated installed source layout: upgrades/failures never mutate the real package. */
+function installedGemini() {
+  const root = mkRepo();
+  const pkg = join(root, "package");
+  const emitters = join(pkg, "src", "lib", "skills", "emitters");
+  cpSync(join(dirname(CONTRACT_FILE), "src", "lib", "skills", "emitters"), emitters, { recursive: true });
+  const contract = join(pkg, "CONTRACT.md");
+  writeFileSync(contract, contractBody);
+  const repo = join(root, "brain");
+  mkdirSync(repo);
+  const file = join(repo, "GEMINI.md");
+  const emit = () => {
+    const code = `import { geminiEmitter } from ${JSON.stringify(join(emitters, "gemini.ts"))}; console.log(JSON.stringify(geminiEmitter.emit([], ${JSON.stringify(repo)})));`;
+    const child = Bun.spawnSync(["bun", "-e", code], { stdout: "pipe", stderr: "pipe", timeout: 5000 });
+    if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr));
+    return JSON.parse(new TextDecoder().decode(child.stdout)) as { written: string[]; removed: string[]; warnings?: string[] };
+  };
+  return { contract, file, emit };
+}
+
+describe("Gemini installed contract refresh and read failure", () => {
+  test("a package contract upgrade replaces the generated body and preserves outside text", () => {
+    const { contract, file, emit } = installedGemini();
+    const before = "# User rules\r\nKeep this.  \r\n";
+    writeFileSync(file, before);
+    emit();
+    const upgraded = contractBody + "\n\n## Fixture upgrade\nKeep markdown authoritative.\n";
+    writeFileSync(contract, upgraded);
+    expect(emit().written).toEqual(["GEMINI.md"]);
+    const text = readFileSync(file, "utf8");
+    expect(text.startsWith(before)).toBe(true);
+    expect(contractBlockBody(text)).toBe(upgraded.trim());
+    expect(emit().written).toEqual([]);
+  });
+
+  for (const initial of [undefined, "# Rules\r\nKeep this text.  ", `${INDEX_START}\nold\n${INDEX_END}`]) {
+    test(`missing installed contract preserves ${JSON.stringify(initial)} and reports the failed read`, () => {
+      const { contract, file, emit } = installedGemini();
+      if (initial !== undefined) writeFileSync(file, initial);
+      rmSync(contract);
+      const res = emit();
+      if (initial === undefined) expect(existsSync(file)).toBe(false);
+      else expect(readFileSync(file, "utf8")).toBe(initial);
+      expect(res.written).toEqual([]);
+      expect(res.warnings?.join(" ")).toContain("installed CONTRACT.md");
+      expect(res.warnings?.join(" ")).toContain("left GEMINI.md unchanged");
+    });
+  }
 });
