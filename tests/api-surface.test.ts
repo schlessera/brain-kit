@@ -14,7 +14,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { join, relative, resolve } from "path";
 import { generateReports, seamSignatures, SEAMS, SIGNATURES_HEADING } from "../scripts/api-report";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -108,9 +108,11 @@ export class Client {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "api-report-")));
     try {
       for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text);
+      // The report prints paths relative to ROOT, including when the fixture
+      // and checkout are siblings under tmpdir(). Normalize that same path.
       return seamSignatures([{ file: join(dir, "seam.ts"), names: ["Seam"] }], dir)
         .join("\n")
-        .replaceAll(dir, "<dir>");
+        .replaceAll(relative(ROOT, dir), "<dir>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
