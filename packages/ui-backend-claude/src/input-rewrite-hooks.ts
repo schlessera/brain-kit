@@ -1,5 +1,6 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { bashCommand, rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
+import { rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
+import { bashCommand } from "@schlessera/brain-ui-sdk/internal";
 
 /**
  * What a rewrite hook is allowed to do for ONE tool.

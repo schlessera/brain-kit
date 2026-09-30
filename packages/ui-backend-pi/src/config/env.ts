@@ -22,8 +22,6 @@ export { readEnvVar } from "./env-core.js";
 import {
   EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
-  filterSubprocessEnv,
-  parseSubprocessEnvExtra,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
@@ -32,6 +30,7 @@ import {
   webSearchProvider,
   WEB_SEARCH_PROVIDERS,
 } from "@schlessera/brain-ui-sdk/server";
+import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/internal";
 
 /**
  * One environment variable this package reads.

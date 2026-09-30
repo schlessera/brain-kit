@@ -31,7 +31,7 @@ places.
 
 1. **In a voice turn, by design.** The voice posture removes `Bash` and
    `Skill` (`export const VOICE_ALLOWED_TOOLS`,
-   `packages/ui-backend-claude/src/tool-policy.ts:116-150`), for the reasons
+   `packages/ui-backend-claude/src/tool-policy.ts:113-147`), for the reasons
    in [voice-permission.md](voice-permission.md#the-voice-posture): 192 of
    192 measured approvals came from `Bash`, and a skill without `Bash` fails
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
@@ -236,7 +236,7 @@ catch them.
   `destructiveHint`.
 - **No backend allows a module tool unless it names it.** The Claude backend
   auto-allows by exact name (`export const DEFAULT_ALLOWED_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:29-80`). A module tool
+  `packages/ui-backend-claude/src/tool-policy.ts:26-77`). A module tool
   arrives as `mcp__brain__<module>_<local>`, so it raises an approval card
   in text chat and is denied in a voice turn. That is the fail-closed
   default. A brain owner can allow one through the existing profile
@@ -250,7 +250,7 @@ catch them.
 - **A mutating module tool must be serialized before any backend allows it.**
   The Claude backend's lock classification knows core's document tools by
   name (`export const MUTATING_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:164-172`). An approved
+  `packages/ui-backend-claude/src/tool-policy.ts:161-169`). An approved
   module tool that writes and reindexes would take no lock today. The rule:
   every `mcp__brain__` tool that is not on a named read-only list takes the
   brain lock.

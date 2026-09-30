@@ -30,18 +30,23 @@ const PACKAGES_DIR = join(ROOT, "packages");
 const REPORT_DIR = join(ROOT, "api-report");
 
 /**
- * The frozen set: the seams `docs/extending/README.md` documents, by package
+ * The signature-tracked set: the seams `docs/extending/README.md` documents, by package
  * directory and export subpath. Their signatures are recorded together with
  * every type declared in this repo that they reference, directly or through
- * another such type. Which other exports 1.0 freezes is not decided yet
- * (schlessera/brain-kit#343); widen this list when it is.
+ * another such type. The backend-authoring toolkit follows the Q2 inventory
+ * (docs/decisions/backend-authoring-toolkit.md). Other packages are curated
+ * separately in schlessera/brain-kit#534.
  */
 export const SEAMS: Record<string, Record<string, string[]>> = {
   core: { ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"] },
   scrape: { ".": ["SiteAdapter"] },
   "ui-sdk": {
     "./client": ["AsrClient", "ToolRenderer"],
-    "./server": ["AgentBackend", "BackendModule", "SpeechProvider"],
+    "./server": [
+      "AgentBackend", "BackendModule", "SpeechProvider",
+      "decideToolPermission", "createToolPermissionRequest", "requestToolPermission",
+      "checkEditedApproval", "compileConfirmPatterns",
+    ],
   },
 };
 

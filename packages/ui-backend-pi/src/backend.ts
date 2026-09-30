@@ -25,8 +25,8 @@ import {
   BackendRequestError,
   compileConfirmPatterns,
   createKeyedLock,
-  DEFAULT_CONFIRM_BASH_PATTERNS,
 } from "@schlessera/brain-ui-sdk/server";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
 
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { createBrainAccess } from "./brain-access.js";

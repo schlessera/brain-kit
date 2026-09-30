@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-import { SUBPROCESS_ENV } from "@schlessera/brain-ui-sdk/server";
+import { SUBPROCESS_ENV } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveCronConfig } from "../src/config/env";
 import {

@@ -52,7 +52,7 @@ existing behaviour.
 Not argued — replayed. 208 recorded agent sessions (16,480 tool calls, every
 `tool_use` in the transcripts) were run through the **actual exported policy
 functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
-(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:29`), the
+(`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:26`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
 `packages/ui-backend-claude/src/sdk-options.ts:77-93`)
@@ -81,7 +81,7 @@ their rows do not sum to the first column.
 matching a confirm pattern. **Zero** were kind `tool`. That is not an accident of
 the corpus, it is the policy: everything the model reaches for is on
 `DEFAULT_ALLOWED_TOOLS` already, and the only tool deliberately left off it is
-`mcp__brain__brain_archive` (`Deliberately absent`, `tool-policy.ts:46-47`).
+`mcp__brain__brain_archive` (`Deliberately absent`, `tool-policy.ts:43-44`).
 The "always allow" path —
 the whole grantable-tool mechanism, and the one thing the client hides for
 `command` requests — is **almost never exercised in practice**.
@@ -197,7 +197,9 @@ the corpus nor a manifest naming it can be committed. The replay harness and the
 speech-synthesis prototype were thrown away with it, which is also what issue #55
 asked for. What can be re-derived from the tree is the *policy* the replay ran
 against — `decideToolPermission`, `DEFAULT_ALLOWED_TOOLS` and
-`DEFAULT_CONFIRM_BASH_PATTERNS` are all exported and all tested — so anyone with
+`DEFAULT_CONFIRM_BASH_PATTERNS` are all tested and inspectable in source. The
+policy constants are implementation details under the
+[backend-toolkit ruling](backend-authoring-toolkit.md); anyone with
 their own transcripts can run the same measurement over their own workload and
 get a comparable number. The numbers above are evidence with a stated
 provenance, not a fixture.
@@ -233,7 +235,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | --- | --- |
 | `Bash` | 192 of 192 measured approvals came from it, and its payload is the unspeakable one (median 118 spoken seconds). Removing it removes the problem instead of narrating it. This is the whole of the cost of the voice posture, and it is deliberate. |
 | `Write`, `Edit`, `NotebookEdit` | Raw byte writes to arbitrary paths. The brain document tools cover the legitimate eyes-free write and keep frontmatter and the search index correct; these do not. |
-| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:155-156`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
+| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:152-153`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
 | `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:50-58`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
@@ -569,14 +571,14 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
   take `mayGrant` and, for a tool outside the enforced allowlist, rewrite
   without granting
-  (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:17-31`;
-  `!mayGrant`, `:70-78`; wired at their `agentHook`/`rtkHook` constructions,
+  (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:18-32`;
+  `!mayGrant`, `:71-79`; wired at their `agentHook`/`rtkHook` constructions,
   `const agentHook`, `permission-hooks.ts:340-356`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
   side effect that got dropped (`both used to grant the call`,
-  `input-rewrite-hooks.ts:7-14`).
+  `input-rewrite-hooks.ts:8-15`).
 - A remembered grant no longer answers. The host still *reads* its store — on
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
@@ -728,7 +730,7 @@ prepared to accept. Rejected because it removes the thing voice is *for*: saying
 is a write, and a read-only voice mode is a search box you talk to. The
 cost of allowing the two document writes is not a measured figure and must not
 be dressed as one: `brain_add` and `brain_update` are on `DEFAULT_ALLOWED_TOOLS`
-(`brain_add`, `tool-policy.ts:78-79`),
+(`brain_add`, `tool-policy.ts:75-76`),
 so they raise **zero** approvals by construction —
 with the single exception added by #144, a `brain_update` that sets
 `status: "archived"`, which is the archive boundary above and is denied in a

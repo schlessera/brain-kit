@@ -1,9 +1,6 @@
 import { isAbsolute, join, normalize } from "node:path";
-import {
-  BRAIN_LOCK_KEY,
-  bashCommand,
-  bashLockKey,
-} from "@schlessera/brain-ui-sdk/server";
+import { BRAIN_LOCK_KEY, bashLockKey } from "@schlessera/brain-ui-sdk/server";
+import { bashCommand } from "@schlessera/brain-ui-sdk/internal";
 
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { ASK_USER_TOOL_NAME } from "./ask-user-tool.js";

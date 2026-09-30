@@ -469,6 +469,16 @@ export "./client" (./src/client/index.ts)
   toolInputJsonSchema
   visibleToolName
 
+export "./internal" (./src/internal.ts)
+  ARCHIVING_UPDATE_REASON
+  DEFAULT_CONFIRM_BASH_PATTERNS
+  SUBPROCESS_ENV
+  type SubprocessEnvAudience
+  archivesDocument
+  bashCommand
+  filterSubprocessEnv
+  parseSubprocessEnvExtra
+
 export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
@@ -697,7 +707,6 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
-  ARCHIVING_UPDATE_REASON
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_INPUT_SCHEMA
@@ -838,7 +847,6 @@ export "./server" (./src/server/index.ts)
   type Coord
   type CreateToolPermissionRequestInput
   type CronJobStatus
-  DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
   EXEC_KILLER_ENV
   EXEC_WRAPPER_ENV
@@ -956,7 +964,6 @@ export "./server" (./src/server/index.ts)
   SPAN_TOOL_NAME_PREFIX
   STATS_BLOCK_SCHEMA
   STEPS_BLOCK_SCHEMA
-  SUBPROCESS_ENV
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   SUGGESTIONS_BLOCK_SCHEMA
@@ -1004,7 +1011,6 @@ export "./server" (./src/server/index.ts)
   type SpeechProvider
   type SpeechSession
   type StartTurnRequest
-  type SubprocessEnvAudience
   type SubscriptionAuthAction
   type SurfaceTools
   type SystemStatus
@@ -1042,11 +1048,9 @@ export "./server" (./src/server/index.ts)
   type WrappedKillOptions
   type WriteLock
   applyClassification
-  archivesDocument
   askUserListPayload
   askUserListSpec
   assertTurnPosture
-  bashCommand
   bashLockKey
   bridgeContractForToolName
   buildSystemPromptAppend
@@ -1072,7 +1076,6 @@ export "./server" (./src/server/index.ts)
   detectCandidates
   execWrapperSpawnOptions
   fetchCoastline
-  filterSubprocessEnv
   handleAskUser
   handleAskUserList
   handleGetCurrentLocation
@@ -1087,7 +1090,6 @@ export "./server" (./src/server/index.ts)
   killWrapped
   observeClassification
   parseMarkdown
-  parseSubprocessEnvExtra
   parseToolPayload
   piMaskFilename
   piReportedMaskPath
@@ -1882,6 +1884,10 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         locale?: string;
         timeZone?: string;
     }
+  CompiledConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export type CompiledConfirmPattern = RegExp & {
+        readonly effect?: string;
+    };
   ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export interface ConfirmPattern {
         pattern: string;
@@ -1889,6 +1895,20 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type ConfirmPatternSource = string | ConfirmPattern;
+  CreateToolPermissionRequestInput (packages/ui-sdk/src/server/permission-gate.ts)
+    export interface CreateToolPermissionRequestInput {
+        toolUseId: string;
+        toolName: string;
+        input: Record<string, unknown>;
+        description: string | undefined;
+        approval: ToolPermissionApproval;
+        outsideEnforcedAllowlist?: boolean;
+    }
+  EditedApprovalCheckInput (packages/ui-sdk/src/server/permission-gate.ts)
+    export interface EditedApprovalCheckInput extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
+        originalInput: unknown;
+        editedInput: unknown;
+    }
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;
@@ -1981,6 +2001,10 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         source?: "builtin" | "declared" | "discovered";
         billingMode?: BillingMode;
         pricingRoute?: PricingRoute;
+    }
+  RequestToolPermissionOptions (packages/ui-sdk/src/server/permission-gate.ts)
+    export interface RequestToolPermissionOptions {
+        noGrantSurface?: boolean;
     }
   ResolvedBackendModule (packages/ui-sdk/src/server/backend-module.ts)
     export interface ResolvedBackendModule {
@@ -2236,6 +2260,20 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         startedAt?: number;
         endedAt?: number;
     }
+  ToolPermissionApproval (packages/ui-sdk/src/server/permission-gate.ts)
+    export interface ToolPermissionApproval {
+        kind: "tool" | "command";
+        reason: string;
+    }
+  ToolPermissionDecisionInput (packages/ui-sdk/src/server/permission-gate.ts)
+    export interface ToolPermissionDecisionInput {
+        toolName: string;
+        shellToolName: string;
+        updateToolName?: string;
+        input: unknown;
+        allowedTools: ReadonlySet<string>;
+        confirmPatterns: readonly CompiledConfirmPattern[];
+    }
   ToolRenderer (packages/ui-sdk/src/client/renderers.ts)
     export interface ToolRenderer {
         match: string | ((tool: ToolCallView, backendId: string) => number);
@@ -2280,3 +2318,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export interface TurnUsage extends ModelUsage {
         perModel?: Record<string, ModelUsage>;
     }
+  checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
+    export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;
+  compileConfirmPatterns (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export function compileConfirmPatterns(sources: readonly ConfirmPatternSource[], onInvalid: (source: string, message: string) => void): CompiledConfirmPattern[];
+  createToolPermissionRequest (packages/ui-sdk/src/server/permission-gate.ts)
+    export function createToolPermissionRequest(options: CreateToolPermissionRequestInput): PermissionRequest;
+  decideToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
+    export function decideToolPermission(options: ToolPermissionDecisionInput): ToolPermissionApproval | null;
+  requestToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
+    export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;

@@ -193,7 +193,7 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 
 | Requirement | Initial value | Evidence and limit of the claim |
 | --- | --- | --- |
-| Claude backend's SDK range | Retain `^0.3.241` | It is the published declaration (`"@anthropic-ai/claude-agent-sdk"`, `packages/ui-backend-claude/package.json:43`). Registry metadata on 2026-09-30 confirms 0.3.241 exists. This is a declared compatibility bound, not proof every allowed release passed current measurements. |
+| Claude backend's SDK range | Retain `^0.3.241` | It is the published declaration (`"@anthropic-ai/claude-agent-sdk"`, `packages/ui-backend-claude/package.json:48`). Registry metadata on 2026-09-30 confirms 0.3.241 exists. This is a declared compatibility bound, not proof every allowed release passed current measurements. |
 | ui-server's content CLI floor | Retain `0.33.0` | `--` support is the reason documented immediately above `MIN_BRAIN_CLI_VERSION` (`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:82`); the boot refusal test uses 0.32.9 (`a below-minimum brain repo pin`, `packages/ui-server/tests/brain-client.test.ts:236-245`). |
 | Bun engine floor | Retain existing `>=1.3.5` declarations | Existing engine metadata and the doctor's CVE-based warning (`const MIN_BUN`, `packages/core/src/cli/commands/doctor.ts:43`; `function checkRuntime`, `packages/core/src/cli/commands/doctor.ts:80-87`). This record introduces no new doctor verdict or blanket boot gate. |
 | Pi SDK requirements | Retain existing exact `0.87.1` declarations | `packages/ui-backend-pi/package.json`; a host floor composes with each actual imported Pi dependency's existing exact requirement. The Claude range ruling does not authorize changing Pi's pins. |

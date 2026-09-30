@@ -9,7 +9,6 @@ export "." (./src/index.ts)
   type BrainToolDeps
   type CreatePiAuthOptions
   type CreatePiBackendOptions
-  DEFAULT_PI_ALLOWED_TOOLS
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
@@ -29,7 +28,6 @@ export "." (./src/index.ts)
   type PiThinkingLevel
   type RiskClass
   type SessionToolkit
-  TOOL_RISK
   type ToolLock
   type TurnContext
   approvalReason
@@ -50,5 +48,9 @@ export "." (./src/index.ts)
   resolveEnv
   toolLockFromKeyed
   toolLockFromWriteLock
+
+export "./internal" (./src/internal.ts)
+  DEFAULT_PI_ALLOWED_TOOLS
+  TOOL_RISK
 
 export "./package.json" (./package.json) [asset]

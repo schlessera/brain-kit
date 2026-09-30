@@ -2,7 +2,7 @@ import {
   parseSubprocessEnvExtra,
   SUBPROCESS_ENV,
   type SubprocessEnvAudience,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 
 /** One cron manifest entry in `brain module list --json`. */
 export interface BrainModuleListCronEntry {

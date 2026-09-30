@@ -8,7 +8,6 @@ export "." (./src/index.ts)
   type BackendLogFn
   type ClaudeBackendEnv
   type ClaudeBackendOptions
-  DEFAULT_CONFIRM_BASH_PATTERNS
   DEFAULT_PROFILES
   DYNAMIC_ENV_READS
   type DiscoverOptions
@@ -22,7 +21,6 @@ export "." (./src/index.ts)
   type ModelSource
   type ModelSourceOptions
   type ModelSourceState
-  VOICE_ALLOWED_TOOLS
   backendModule
   canonicalModelId
   createClaudeBackend
@@ -32,5 +30,9 @@ export "." (./src/index.ts)
   modelCachePath
   readEnvVar
   resolveEnv
+
+export "./internal" (./src/internal.ts)
+  DEFAULT_CONFIRM_BASH_PATTERNS
+  VOICE_ALLOWED_TOOLS
 
 export "./package.json" (./package.json) [asset]

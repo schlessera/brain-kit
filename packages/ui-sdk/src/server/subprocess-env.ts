@@ -1,7 +1,7 @@
 /**
  * Audiences that receive subprocess environment variables.
  *
- * @experimental
+ * @internal First-party implementation; no compatibility guarantee.
  */
 export type SubprocessEnvAudience = "cron" | "agent" | "brainCli";
 
@@ -31,7 +31,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * the spawn that needs them. Variables absent from this descriptor likewise
  * reach a child only through an explicit per-call addition.
  *
- * @experimental
+ * @internal First-party implementation; no compatibility guarantee.
  */
 export const SUBPROCESS_ENV = Object.freeze({
   // Process plumbing and paths.
@@ -142,7 +142,7 @@ export const SUBPROCESS_ENV = Object.freeze({
  * Empty and malformed comma-separated entries are ignored. The escape-hatch
  * variable cannot admit itself.
  *
- * @experimental
+ * @internal First-party implementation; no compatibility guarantee.
  */
 export function parseSubprocessEnvExtra(value: string | undefined): string[] {
   if (!value) return [];
@@ -165,7 +165,7 @@ export function parseSubprocessEnvExtra(value: string | undefined): string[] {
  * through implicitly, and the escape-hatch control variable is always held
  * back from the child.
  *
- * @experimental
+ * @internal First-party implementation; no compatibility guarantee.
  */
 export function filterSubprocessEnv(
   env: Readonly<Record<string, string | undefined>>,

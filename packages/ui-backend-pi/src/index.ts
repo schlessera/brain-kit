@@ -33,8 +33,6 @@ export type { BrainAccess } from "./brain-access.js";
 
 export {
   createBrainTools,
-  TOOL_RISK,
-  DEFAULT_PI_ALLOWED_TOOLS,
   toolLockFromKeyed,
   toolLockFromWriteLock,
 } from "./tools.js";

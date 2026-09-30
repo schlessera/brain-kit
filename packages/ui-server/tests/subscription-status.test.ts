@@ -13,11 +13,11 @@ import { join } from "node:path";
 import { createClaudeBackend, createModelSource } from "@schlessera/brain-backend-claude";
 import {
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  filterSubprocessEnv,
   type BackendActivityEvent,
   type BackendBridge,
   type BackendModelSource,
 } from "@schlessera/brain-ui-sdk/server";
+import { filterSubprocessEnv } from "@schlessera/brain-ui-sdk/internal";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import {

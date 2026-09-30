@@ -1680,3 +1680,59 @@ Use [`--forget-cache <path>` then `--embeddings`](concepts.md#sidecar-caches)
 to regenerate a known bad entry; forgetting resets sidecar and database state
 for all assets sharing its bytes. Rebuilding only `brain.db` can reuse the old
 sidecar and is insufficient.
+
+## Backend-authoring permission toolkit
+
+The deliberate toolkit is exported from `@schlessera/brain-ui-sdk/server`:
+
+| Operation | Public signature types / result |
+| --- | --- |
+| `decideToolPermission` | `ToolPermissionDecisionInput` → `ToolPermissionApproval | null` |
+| `createToolPermissionRequest` | `CreateToolPermissionRequestInput` → `PermissionRequest` |
+| `requestToolPermission` | `Pick<BackendBridge, "requestPermission" | "activity"> | null | undefined`, `PermissionRequest`, optional `RequestToolPermissionOptions` → `Promise<PermissionDecision>` |
+| `checkEditedApproval` | `EditedApprovalCheckInput` → refusal message `string | null` |
+| `compileConfirmPatterns` | `readonly ConfirmPatternSource[]`, invalid-source callback → `CompiledConfirmPattern[]` |
+
+These operations, their exported types and every signature-reachable bridge,
+activity and protocol type are intentional authoring surface. They remain
+experimental until 1.0, then stabilize under the existing versioning policy;
+this does not schedule or freeze 1.0 early. The API report records the complete
+signatures and reachable types. The
+[authoring guide](extending/agent-backends.md#the-public-permission-toolkit)
+shows the binding, and the
+[decision inventory](decisions/backend-authoring-toolkit.md) records the exact
+public/internal classifications under #343 Q1/Q2.
+
+Adapters decide before dispatch, honor denial and use the same snapshotted
+`updatedInput` for checking and application. Missing bridges and no-grant
+surfaces deny; no-grant surfaces never ask the host. A throwing denial-activity
+reporter cannot change the decision. Bridge rejections remain rejections for
+the adapter to translate. Edits introducing a per-use confirmation absent from
+the original input are rejected, including a changed full shell command or
+archive target; an own `__proto__` key is rejected. Allowed safe edits and
+unchanged confirmed inputs may execute.
+
+Confirmation sources accept strings and `{ pattern, effect }`, compiled
+case-insensitively in source order. Mixed lists report invalid entries and
+retain valid ones; a nonempty all-invalid list throws. `[]` is the intentional
+opt-out. Explicit tool-name matching, tool grants versus command confirmations,
+archive checks and enforced-turn posture remain promised behavior.
+
+Bundled defaults can change with documented user-visible release notes while
+preserving those guarantees. Their precise entries and wording are not frozen;
+policy formats and behavioral guarantees are not exempt from versioning.
+Subscription-auth action values, mapping and actionable instruction helpers
+remain public under the existing wire contract; instruction wording may improve.
+
+Pre-1.0 import migration: the SDK's `DEFAULT_CONFIRM_BASH_PATTERNS`,
+`ARCHIVING_UPDATE_REASON`, `archivesDocument`, `bashCommand`,
+`SubprocessEnvAudience`, `SUBPROCESS_ENV`, `filterSubprocessEnv` and
+`parseSubprocessEnvExtra` move from `/server` to `/internal`. Claude's
+`DEFAULT_CONFIRM_BASH_PATTERNS` alias and `VOICE_ALLOWED_TOOLS`, and pi's
+`DEFAULT_PI_ALLOWED_TOOLS` and `TOOL_RISK`, move from their ordinary entries to
+those packages' `/internal` entries. These explicit internal paths are for
+first-party implementation sharing at the same lockstep version, with no
+compatibility guarantee. Their existence does not define another extension
+seam or classify the other exports covered by the package-wide inventory.
+Operator environment configuration retains its documented meaning; the
+subprocess implementation table is internal.

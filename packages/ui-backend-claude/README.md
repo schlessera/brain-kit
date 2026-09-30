@@ -102,7 +102,7 @@ safe direction to fail.
 
 ### The voice posture
 
-`VOICE_ALLOWED_TOOLS` is the narrower set a spoken turn runs under: the read-only
+The internal `VOICE_ALLOWED_TOOLS` policy is the narrower set a spoken turn runs under: the read-only
 brain tools, `brain_add` and `brain_update`, `Read`/`Glob`/`Grep`,
 `WebSearch`/`WebFetch`, and the bridge tools except the mask editor. `Bash`,
 the raw file writes, `Agent`, `Skill`, `LSP` and `brain_archive` are left out.
@@ -211,3 +211,13 @@ printed. The five-second deadline starts cancellation while the child is
 running; settlement includes at most 250 ms of cleanup. Failed or unconfirmed
 cleanup is included in the refusal diagnostic. The app factory awaits this
 required check before opening its resources.
+
+## Policy import migration
+
+`DEFAULT_CONFIRM_BASH_PATTERNS` and `VOICE_ALLOWED_TOOLS` are no longer
+ordinary package exports. First-party implementation sharing uses
+`@schlessera/brain-backend-claude/internal`; that path has no compatibility
+guarantee. External backends use the SDK's supported permission operations
+and configure policies through `ConfirmPatternSource`. The
+[toolkit inventory](../../docs/decisions/backend-authoring-toolkit.md) records
+the boundary. Runtime defaults and permission behavior are unchanged.

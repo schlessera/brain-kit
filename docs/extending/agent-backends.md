@@ -263,7 +263,7 @@ A backend enforcing it must:
 
 Both shipped backends compile `confirmBashPatterns` through the SDK's
 `compileConfirmPatterns` during construction, before starting a runtime or
-executing tools. Missing configuration uses `DEFAULT_CONFIRM_BASH_PATTERNS`;
+executing tools. Missing configuration uses the first-party bundled confirmation policy;
 an explicit `[]` disables confirmation. Invalid entries are reported and
 skipped when at least one valid regex remains, preserving the valid entries'
 matching order and effects. A nonempty list with no valid regex throws an
@@ -273,6 +273,82 @@ The server passes regex sources from `BRAIN_UI_CONFIRM_BASH` through this same
 compiler. Its existing malformed-JSON and structural-entry fallback still
 uses defaults; a syntactically valid JSON list such as `["("]` fails backend
 initialization. See [the ruling](../decisions/confirm-patterns.md).
+
+## The public permission toolkit
+
+Import `decideToolPermission`, `createToolPermissionRequest`,
+`requestToolPermission`, `checkEditedApproval` and `compileConfirmPatterns`
+from `@schlessera/brain-ui-sdk/server`. Their input/output types are exported
+from the same path: `ToolPermissionDecisionInput`, `ToolPermissionApproval`,
+`CreateToolPermissionRequestInput`, `RequestToolPermissionOptions`,
+`EditedApprovalCheckInput`, `ConfirmPattern`, `ConfirmPatternSource` and
+`CompiledConfirmPattern`, alongside the bridge and permission types. The
+[inventory and ruling](../decisions/backend-authoring-toolkit.md) distinguish
+this authoring API from first-party policies.
+
+Compile the configured confirmation sources before starting your runtime.
+Decide before executing a call, ask the host when necessary, and apply only an
+allowed, checked input. A minimal binding looks like this:
+
+```ts
+import {
+  checkEditedApproval, createToolPermissionRequest, decideToolPermission,
+  requestToolPermission,
+  type BackendBridge, type PermissionDecision, type ToolPermissionDecisionInput,
+} from "@schlessera/brain-ui-sdk/server";
+
+async function authorizeCall(
+  bridge: BackendBridge | null,
+  policy: ToolPermissionDecisionInput & { input: Record<string, unknown> },
+  toolUseId: string,
+  noGrantSurface: boolean,
+  outsideEnforcedAllowlist: boolean,
+): Promise<PermissionDecision> {
+  const approval = decideToolPermission(policy);
+  if (!approval) return { behavior: "allow" };
+  const decision = await requestToolPermission(bridge, createToolPermissionRequest({
+    toolUseId, toolName: policy.toolName, input: policy.input,
+    description: approval.reason, approval, outsideEnforcedAllowlist,
+  }), { noGrantSurface });
+  if (decision.behavior === "deny") return decision;
+  if (decision.updatedInput !== undefined) {
+    const message = checkEditedApproval({
+      ...policy, originalInput: policy.input, editedInput: decision.updatedInput,
+    });
+    if (message) return { behavior: "deny", message };
+  }
+  return decision;
+}
+```
+
+The caller dispatches only after this resolves `allow`, using
+`decision.updatedInput ?? originalInput`. Use the returned snapshot for both
+checking and application; do not read the bridge's original edit again.
+A missing bridge denies. `noGrantSurface` denies both request kinds without
+asking. An edit that introduces a new destructive command or changes the
+archive target is refused; an unchanged confirmed command or a safe edit may
+pass. An own `__proto__` input key is refused. Translate bridge rejections into
+your runtime's tool error. These are behavioral guarantees, not just signatures.
+
+The adapter computes `outsideEnforcedAllowlist` from the turn's enforced
+allowlist, including when its runtime callback uses a different allowlist to
+force an approval. `assertTurnPosture(req)` validates the paired restricted-turn
+fields before starting a runtime; the adapter remains responsible for honoring
+them at every execution path. Run the published backend contract suite against
+your runtime binding.
+
+The toolkit stays experimental until 1.0. Its deliberate public operations,
+reachable types and documented behavior become stable then. Confirmation
+source formats and explicit-empty behavior are supported; bundled default
+entries may evolve with documented user-visible changes, while preserving the
+permission guarantees. No default-policy update excuses a breaking behavior.
+
+Bundled lists, command-inspection helpers and subprocess policy tables moved
+to explicitly unsupported `/internal` paths. External authors configure their
+own policy through the public formats. See the
+[migration inventory](../decisions/backend-authoring-toolkit.md#inventory) for
+the removed names and their first-party destinations. Subscription-auth
+mapping and instruction helpers remain public under the wire contract.
 
 ## The bridge
 
