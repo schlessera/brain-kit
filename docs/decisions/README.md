@@ -28,6 +28,7 @@ somebody already learn the hard way?*
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
 | [audit-markers.md](audit-markers.md) | Why `brain audit` reports TODO and VERIFY markers as one informational finding per document and kind, what `verification: unverified` means (and why there is no `verified`), why must-fix is errors plus warnings, and why broken links reuse the indexer's resolution. |
 | [document-render.md](document-render.md) | How `brain render` makes a document worth sending: one stylesheet, component classes as the contract, kinds as recipes with skeletons, full documents injected into rather than nested, a footer in CSS margin boxes, a lint on every render, a linear HTML tokenizer, and why chrome-headless-shell is opt-in. |
+| [renderer-budgets.md](renderer-budgets.md) | Why queue waiting, browser acquisition and rendering have separate deadlines, the cold-start measurements behind their defaults, and who owns late resources and shutdown. |
 | [frontmatter-parsing.md](frontmatter-parsing.md) | Why every frontmatter parse goes through one cache-free helper, copied into each package that parses, with a lint gate instead of a convention. |
 
 ## Writing one

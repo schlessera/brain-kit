@@ -11,8 +11,8 @@
  * - Network is DENIED by default: request interception allows only data: and
  *   about:blank, and (unless `allowRequest` is provided) DNS resolution is
  *   disabled outright via --host-resolver-rules. Inline everything.
- * - Every render is bounded by a wall-clock budget (browser launch and page
- *   creation included) and a concurrency cap with a bounded queue.
+ * - Queue waiting, browser acquisition and page creation/rendering each have
+ *   a wall-clock bound, with a concurrency cap and bounded queue.
  * - The browser is launched lazily and closed after an idle period; a render
  *   in flight always cancels a pending idle close.
  * - The Chromium sandbox stays ON by default. Containers that lack the
@@ -66,7 +66,15 @@ export function shouldAllowRequest(url: string): boolean {
 export interface RendererOptions {
   /** Chrome executable. Default: PUPPETEER_EXECUTABLE_PATH / BRAIN_UI_CHROME_PATH / well-known paths. */
   executablePath?: string;
-  /** Per-render wall-clock budget (ms), browser launch included. Default 30_000. */
+  /** Queue wait budget (ms). Expiry removes the waiter. Default 30_000. */
+  queueTimeoutMs?: number;
+  /** Browser acquisition budget (ms), including a shared cold launch. Default 60_000. */
+  browserTimeoutMs?: number;
+  /**
+   * Page creation, setup and PNG/PDF production budget (ms). Default 30_000.
+   * Previously included queue waiting and browser launch; those now have
+   * separate budgets. Maximum request duration is the sum of all three.
+   */
   renderTimeoutMs?: number;
   /** Max renders in flight; further calls queue (bounded). Default 2. */
   maxConcurrent?: number;
@@ -128,7 +136,14 @@ export interface Renderer {
 }
 
 export function createRenderer(options: RendererOptions = {}): Renderer {
+  const queueTimeoutMs = options.queueTimeoutMs ?? 30_000;
+  const browserTimeoutMs = options.browserTimeoutMs ?? 60_000;
   const renderTimeoutMs = options.renderTimeoutMs ?? 30_000;
+  for (const [name, value] of Object.entries({ queueTimeoutMs, browserTimeoutMs, renderTimeoutMs })) {
+    if (!Number.isInteger(value) || value <= 0 || value > 2_147_483_647) {
+      throw new Error(`${name} must be a positive integer within the timer range`);
+    }
+  }
   const idleTimeoutMs = options.idleTimeoutMs ?? 5 * 60 * 1000;
   const semaphore = new Semaphore(options.maxConcurrent ?? 2, options.maxQueue ?? 16);
   const noSandbox = options.noSandbox ?? false;
@@ -137,47 +152,96 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   const allowedHostSet = new Set(allowHosts.map((h) => h.toLowerCase()));
   let closed = false;
 
-  let browserPromise: Promise<Browser> | null = null;
+  interface BrowserLaunch {
+    promise: Promise<Browser>;
+    browser: Browser | null;
+    users: number;
+    retired: boolean;
+    closing?: Promise<void>;
+  }
+  let currentLaunch: BrowserLaunch | null = null;
+  let shutdownPromise: Promise<void> | null = null;
+  let drained: (() => void) | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let inFlight = 0;
 
-  function getBrowser(): Promise<Browser> {
-    if (!browserPromise) {
-      const executablePath = resolveChromePath(options.executablePath);
-      const launchArgs: LaunchArgs = {
-        executablePath,
-        headless: true,
-        args: [
-          ...(noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
-          // The DNS blackhole is the load-bearing layer: request interception
-          // never sees prerender, preconnect, iframes, popups, or WebSocket
-          // handshakes. It is ALWAYS installed; an allowHosts entry becomes a
-          // narrow EXCLUDE rather than switching the whole rule off.
-          `--host-resolver-rules=MAP * ~NOTFOUND${allowHosts
-            .map((h) => `, EXCLUDE ${h}`)
-            .join("")}`,
-          // A popup is a new target with its own (uninstrumented) session.
-          "--block-new-web-contents",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-        ],
-      };
-      const launched = (options.launch ?? ((a: LaunchArgs) => puppeteer.launch(a)))(launchArgs);
-      browserPromise = launched;
-      launched
-        .then((browser) => {
-          // A crashed browser (OOM is the realistic trigger) must not brick
-          // the renderer forever — drop the handle so the next render relaunches.
-          browser.once("disconnected", () => {
-            if (browserPromise === launched) browserPromise = null;
-          });
-        })
-        .catch(() => {
-          if (browserPromise === launched) browserPromise = null;
-        });
-      return launched;
+  async function withinBudget<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
-    return browserPromise;
+  }
+
+  function closeBrowser(launch: BrowserLaunch): Promise<void> {
+    if (!launch.browser) return Promise.resolve();
+    // Multiple shutdowns, stale disconnects and late launch settlement must
+    // never close a resource twice. A wedged close cannot hold up shutdown.
+    launch.closing ??= withinBudget(
+      Promise.resolve().then(() => launch.browser!.close()),
+      2_000,
+      "Browser cleanup exceeded 2000ms budget"
+    ).catch(() => {});
+    return launch.closing;
+  }
+
+  function retireBrowser(launch: BrowserLaunch): Promise<void> {
+    launch.retired = true;
+    if (currentLaunch === launch) currentLaunch = null;
+    // Pending launches close themselves on late resolution; never await one.
+    return closeBrowser(launch);
+  }
+
+  function getBrowserLaunch(): BrowserLaunch {
+    if (currentLaunch) return currentLaunch;
+    const executablePath = options.launch && options.executablePath
+      ? options.executablePath
+      : resolveChromePath(options.executablePath);
+    const launchArgs: LaunchArgs = {
+      executablePath,
+      headless: true,
+      args: [
+        ...(noSandbox ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+        // The DNS blackhole is the load-bearing layer: request interception
+        // never sees prerender, preconnect, iframes, popups, or WebSocket
+        // handshakes. It is ALWAYS installed; an allowHosts entry becomes a
+        // narrow EXCLUDE rather than switching the whole rule off.
+        `--host-resolver-rules=MAP * ~NOTFOUND${allowHosts
+          .map((h) => `, EXCLUDE ${h}`)
+          .join("")}`,
+        // A popup is a new target with its own (uninstrumented) session.
+        "--block-new-web-contents",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
+    };
+    const launch: BrowserLaunch = {
+      promise: Promise.resolve().then(() =>
+        (options.launch ?? ((a: LaunchArgs) => puppeteer.launch({ ...a, timeout: browserTimeoutMs })))(launchArgs)
+      ),
+      browser: null,
+      users: 0,
+      retired: false,
+    };
+    currentLaunch = launch;
+    launch.promise = launch.promise.then((browser) => {
+      launch.browser = browser;
+      browser.once("disconnected", () => {
+        if (currentLaunch === launch) currentLaunch = null;
+      });
+      if (launch.retired) void closeBrowser(launch);
+      return browser;
+    }, (error) => {
+      if (currentLaunch === launch) currentLaunch = null;
+      throw error;
+    });
+    return launch;
   }
 
   function scheduleIdleClose(): void {
@@ -185,18 +249,9 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
     idleTimer = null;
     // Never re-arm after shutdown, and never hold the process open.
     if (closed || inFlight > 0) return;
-    idleTimer = setTimeout(async () => {
-      const p = browserPromise;
-      browserPromise = null;
+    idleTimer = setTimeout(() => {
       idleTimer = null;
-      if (p) {
-        try {
-          const b = await p;
-          await b.close();
-        } catch {
-          // ignore
-        }
-      }
+      if (currentLaunch) void retireBrowser(currentLaunch);
     }, idleTimeoutMs);
     (idleTimer as { unref?: () => void }).unref?.();
   }
@@ -231,86 +286,81 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
 
   async function withPage<T>(
     opts: RenderOptions,
-    produce: (page: Page) => Promise<T>
+    produce: (page: Page, checkActive: () => void) => Promise<T>
   ): Promise<T> {
     if (closed) throw new Error("Renderer has been shut down");
-    // The budget starts BEFORE the queue wait: end-to-end time is what the
-    // caller experiences, and a deep queue could otherwise stall a render for
-    // minutes despite a 30s "bound".
-    const startedAt = Date.now();
-    const release = await semaphore.acquire();
-    const remaining = renderTimeoutMs - (Date.now() - startedAt);
-    if (remaining <= 0) {
+    const release = await semaphore.acquire(queueTimeoutMs);
+    // shutdown can race an immediate acquire's promise continuation.
+    if (closed) {
       release();
-      throw new Error(`Render exceeded ${renderTimeoutMs}ms budget while queued`);
+      throw new Error("Renderer has been shut down");
     }
-    // A render is now committed: cancel any pending idle close so the browser
-    // can't be torn down underneath it.
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = null;
-    }
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
     inFlight++;
+    let launch: BrowserLaunch | null = null;
     let page: Page | null = null;
-    // Set when the budget wins the race: a newPage() that resolves afterwards
-    // must close its tab itself, or every timed-out render leaks one.
     let settled = false;
+    const checkActive = () => {
+      if (settled) throw new Error("Render budget expired");
+    };
     try {
-      // The budget covers EVERYTHING — browser launch and newPage included —
-      // so a wedged launch can't hold a semaphore slot for puppeteer's own
-      // 180s protocol timeout.
-      const budget = new Promise<never>((_r, reject) => {
-        const t = setTimeout(
-          () => reject(new Error(`Render exceeded ${renderTimeoutMs}ms budget`)),
-          remaining
-        );
-        (t as { unref?: () => void }).unref?.();
-      });
-      return await Promise.race([
-        (async () => {
-          const browser = await getBrowser();
-          const opened = await browser.newPage();
-          if (settled) {
-            void opened.close().catch(() => {});
-            throw new Error("Render budget expired before the page opened");
-          }
-          page = opened;
-          await page.setJavaScriptEnabled(allowScripts);
-          await page.setRequestInterception(true);
-          page.on("request", onRequest);
-          page.setDefaultTimeout(renderTimeoutMs);
-          await page.setViewport({
-            width: clampWidth(opts.width),
-            height: 1024,
-            deviceScaleFactor: DEVICE_SCALE_FACTOR,
-          });
-          await page.setContent(opts.html, { waitUntil: "load" });
-          return produce(page);
-        })(),
-        budget,
-      ]);
+      launch = getBrowserLaunch();
+      launch.users++;
+      const browser = await withinBudget(
+        launch.promise,
+        browserTimeoutMs,
+        `Browser acquisition exceeded ${browserTimeoutMs}ms budget`
+      );
+      // Browser acquisition has finished: page creation gets the full render
+      // allowance. Every continuation checks cancellation before using a page.
+      return await withinBudget((async () => {
+        const opened = await browser.newPage();
+        if (settled) {
+          void opened.close().catch(() => {});
+          checkActive();
+        }
+        page = opened;
+        await opened.setJavaScriptEnabled(allowScripts);
+        checkActive();
+        await opened.setRequestInterception(true);
+        checkActive();
+        opened.on("request", onRequest);
+        opened.setDefaultTimeout(renderTimeoutMs);
+        await opened.setViewport({
+          width: clampWidth(opts.width), height: 1024, deviceScaleFactor: DEVICE_SCALE_FACTOR,
+        });
+        checkActive();
+        await opened.setContent(opts.html, { waitUntil: "load" });
+        checkActive();
+        return produce(opened, checkActive);
+      })(), renderTimeoutMs, `Render exceeded ${renderTimeoutMs}ms budget`);
     } finally {
       settled = true;
-      // Teardown must not hold the slot: a wedged browser can make close()
-      // hang for puppeteer's 180s protocol timeout.
+      // Page teardown is detached: a wedged close cannot retain capacity.
       const target = page as Page | null;
-      if (target) {
-        void Promise.race([
-          target.close().catch(() => {}),
-          new Promise((r) => setTimeout(r, 2_000)),
-        ]);
+      if (target) void target.close().catch(() => {});
+      if (launch) {
+        launch.users--;
+        // Last acquisition waiter timed out: detach the launch so another
+        // render can recover, and close any browser it returns later. A newer
+        // waiter on the same launch keeps it alive.
+        if (launch.users === 0 && !launch.browser) void retireBrowser(launch);
       }
       inFlight--;
-      scheduleIdleClose();
       release();
+      scheduleIdleClose();
+      if (inFlight === 0) drained?.();
     }
   }
 
   return {
     renderPng(opts: RenderOptions): Promise<Buffer> {
-      return withPage(opts, async (page) => {
+      return withPage(opts, async (page, checkActive) => {
         const bodyHandle = await page.$("body");
+        checkActive();
         const box = bodyHandle ? await bodyHandle.boundingBox() : null;
+        checkActive();
         // Clamp BOTH axes in device pixels: deviceScaleFactor 2 doubles the
         // captured bitmap, and a `width: 50000px` body would otherwise drive
         // a multi-hundred-MB allocation inside Chrome. A degenerate box (a
@@ -355,29 +405,18 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
       });
     },
 
-    async shutdown(): Promise<void> {
-      // Terminal: later renders are refused rather than silently relaunching
-      // a browser nothing owns.
-      closed = true;
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = null;
-      // Let in-flight renders finish rather than killing their browser
-      // mid-screenshot. They are already bounded by the render budget, so
-      // this waits at most that long.
-      const deadline = Date.now() + renderTimeoutMs;
-      while (inFlight > 0 && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      const p = browserPromise;
-      browserPromise = null;
-      if (p) {
-        try {
-          const b = await p;
-          await b.close();
-        } catch {
-          // ignore
-        }
-      }
+    shutdown(): Promise<void> {
+      shutdownPromise ??= (async () => {
+        closed = true;
+        semaphore.close();
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = null;
+        // Active renders drain within browserTimeoutMs + renderTimeoutMs.
+        // Queued callers are rejected immediately and can never launch.
+        if (inFlight > 0) await new Promise<void>((resolve) => { drained = resolve; });
+        if (currentLaunch) await retireBrowser(currentLaunch);
+      })();
+      return shutdownPromise;
     },
   };
 }

@@ -74,6 +74,11 @@ jobs:
           fi
           "$CHROME" --version
           echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
+      - name: Measure the first Chrome launch and render on this runner
+        # A real first launch per shard, before the test process warms Chrome.
+        # Record the phases separately; the sample is evidence, not a bound.
+        timeout-minutes: 5
+        run: bun packages/ui-render-puppeteer/tests/cold-start.ts "$PUPPETEER_EXECUTABLE_PATH"
       - name: Unit + integration tests (keyless, deterministic)
         # The root script, not a copy of its command: the script carries
         # `--timeout 30000` (the CLI contract and onboarding suites spawn a
