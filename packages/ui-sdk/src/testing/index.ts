@@ -21,8 +21,9 @@
  */
 
 import type { ProviderInfo, ServerMessage } from "../protocol.js";
-import type { AgentBackend, BackendBridge } from "../server/backend.js";
+import type { AgentBackend, BackendActivityEvent, BackendBridge, PermissionRequest, StartTurnRequest } from "../server/backend.js";
 import { BackendBusyError, BackendRequestError } from "../server/backend.js";
+import { defineBackendModule, type BackendModule, type BackendModuleContext } from "../server/backend-module.js";
 
 interface ContractMatchers {
   toBe(expected: unknown): void;
@@ -49,8 +50,30 @@ export interface TurnScript {
   textDeltas: string[];
 }
 
+/** Calls outside the configured allowlist, and an allowlisted confirmation. */
+export type PermissionScenario = "mutation" | "shortcut" | "command";
+
+/** Observations from a scripted runtime's actual tool execution path. */
+export interface PermissionProbe {
+  backend: AgentBackend;
+  toolName: string;
+  toolUseId: string;
+  /** Count runtime acquisition, even if no tool was attempted. */
+  starts(): number;
+  attempts(): number;
+  /** Observe the tool body's effect; do not infer it from permission frames. */
+  effects(): number;
+}
+
 export interface BackendContractHarness {
   name: string;
+  /**
+   * A runtime that attempts one tool through the adapter's real gate. Mutation
+   * and shortcut are off-list; shortcut models runtime auto-approval. Command
+   * is allowlisted but matches the backend's confirmation policy. An allowing
+   * host must produce an observable tool-body effect in all three scenarios.
+   */
+  permission(scenario: PermissionScenario): PermissionProbe;
   /** Backend whose next turn plays the script and completes. */
   scripted(script: TurnScript): AgentBackend;
   /** Backend whose turn hangs until the host aborts. */
@@ -72,6 +95,57 @@ export interface BackendContractHarness {
   retrying?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
+}
+
+export interface BackendModuleContractHarness {
+  name: string;
+  module: BackendModule;
+  /** A nonempty valid roster, including backend-specific required fields. */
+  validProfilesJson: string;
+  /** Ids of that roster that must survive parsing and resolution. */
+  profileIds: readonly string[];
+  /** Isolated, keyless construction context; no live turn is started. */
+  context(): Omit<BackendModuleContext, "profiles">;
+}
+
+/** Register profile parsing and descriptor resolution conformance. */
+export function runBackendModuleContract(
+  harness: BackendModuleContractHarness,
+  { describe, test, expect }: ContractTestPrimitives
+): void {
+  describe(`BackendModule contract: ${harness.name}`, () => {
+    test("a valid nonempty profile roster survives parsing and resolution", async () => {
+      const module = defineBackendModule(harness.module);
+      const parsed = module.profileSchema.parse(harness.validProfilesJson, { occupiedProfiles: [] });
+      expect(harness.profileIds.length).toBeGreaterThan(0);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      for (const id of harness.profileIds) expect(parsed.profiles.some((p) => p.id === id)).toBe(true);
+      for (const confirmBashPatterns of [null, []] as const) {
+        const resolved = await module.resolveFromEnv({ ...harness.context(), profiles: parsed.profiles, confirmBashPatterns });
+        expect(resolved.ok).toBe(true);
+        if (!resolved.ok) continue;
+        expect(resolved.value.backend.id).toBe(module.id);
+        const profiles = await resolved.value.backend.listProfiles();
+        for (const id of harness.profileIds) expect(profiles.some((p) => p.id === id)).toBe(true);
+      }
+    });
+
+    test("invalid JSON returns a typed profile failure", () => {
+      const parsed = harness.module.profileSchema.parse("{", { occupiedProfiles: [] });
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.errors.some((e) => e.code === "invalid_json")).toBe(true);
+    });
+
+    test("a profile occupied by another descriptor is rejected", () => {
+      expect(harness.profileIds.length).toBeGreaterThan(0);
+      const parsed = harness.module.profileSchema.parse(harness.validProfilesJson, {
+        occupiedProfiles: [{ id: harness.profileIds[0]!, source: "example-roster" }],
+      });
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.errors.some((e) => e.code === "duplicate_id")).toBe(true);
+    });
+  });
 }
 
 /** What a harness's `apiFailure` runtime says went wrong, in its own wording. */
@@ -111,6 +185,109 @@ export function runBackendContract(
   const { describe, expect, test } = primitives;
 
   describe(`AgentBackend contract: ${harness.name}`, () => {
+    async function permissionTurn(
+      scenario: PermissionScenario,
+      posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">,
+      allow: boolean,
+      unanswered = false
+    ) {
+      const probe = harness.permission(scenario);
+      const { frames, bridge } = makeBridge();
+      const requests: PermissionRequest[] = [];
+      const controller = new AbortController();
+      let releaseCard: (() => void) | undefined;
+      bridge.requestPermission = async (request) => {
+        requests.push(request);
+        if (unanswered) await new Promise<void>((resolve) => { releaseCard = resolve; });
+        return allow ? { behavior: "allow" } : { behavior: "deny", message: "Contract denial: keep the fixture unchanged." };
+      };
+      const deniedActivity: Extract<BackendActivityEvent, { kind: "permission_denied" }>[] = [];
+      bridge.activity = (event) => { if (event.kind === "permission_denied") deniedActivity.push(event); };
+      let rejected: unknown;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const turn = probe.backend.startTurn({ prompt: "exercise the tool", signal: controller.signal, bridge, ...posture })
+        .catch((error: unknown) => { rejected = error; });
+      try {
+        await Promise.race([
+          turn,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("restricted tool turn parked instead of settling promptly")), 2_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        controller.abort();
+        releaseCard?.();
+      }
+      // A backend may reject unsupported restrictions, but only BEFORE runtime
+      // acquisition, frames, permission requests or effects. A failed runtime
+      // after acquisition is not safe rejection.
+      if (rejected !== undefined) {
+        expect(rejected).toBeInstanceOf(BackendRequestError);
+        expect(posture.enforceAllowedTools === true || posture.noGrantSurface === true).toBe(true);
+        expect(probe.effects()).toBe(0);
+        expect(probe.starts()).toBe(0);
+        expect(probe.attempts()).toBe(0);
+        expect(requests).toHaveLength(0);
+        expect(frames).toHaveLength(0);
+      }
+      return { probe, frames, requests, deniedActivity, rejected };
+    }
+
+    test("permissions: a denied mutation does not execute and returns the denial", async () => {
+      if (!harness.permission("mutation").backend.capabilities.permissions) return;
+      const denied = await permissionTurn("mutation", {}, false);
+      expect(denied.probe.effects()).toBe(0);
+      expect(denied.probe.attempts()).toBe(1);
+      expect(denied.requests).toHaveLength(1);
+      expect(denied.frames.some((f) => f.type === "tool_result" && f.toolUseId === denied.probe.toolUseId && f.isError && f.output.includes("Contract denial"))).toBe(true);
+      const allowed = await permissionTurn("mutation", {}, true);
+      expect(allowed.probe.attempts()).toBe(1);
+      expect(allowed.probe.effects()).toBe(1);
+    });
+
+    for (const scenario of ["mutation", "shortcut", "command"] as const) {
+      test(`enforceAllowedTools: ${scenario} cannot bypass a denied decision`, async () => {
+        const turn = await permissionTurn(scenario, { enforceAllowedTools: true }, false);
+        if (turn.rejected !== undefined) return;
+        expect(turn.probe.effects()).toBe(0);
+        expect(turn.probe.attempts()).toBe(1);
+        expect(turn.requests).toHaveLength(1);
+        expect(turn.requests[0]!.toolName).toBe(turn.probe.toolName);
+        expect(turn.requests[0]!.toolUseId).toBe(turn.probe.toolUseId);
+        if (scenario === "command") expect(turn.requests[0]!.kind).toBe("command");
+        else expect(turn.requests[0]!.outsideEnforcedAllowlist).toBe(true);
+        expect(turn.frames.some((f) => f.type === "tool_result" && f.toolUseId === turn.probe.toolUseId && f.isError && f.output.includes("Contract denial"))).toBe(true);
+      });
+
+      test(`enforceAllowedTools: an approved ${scenario} reaches the tool body`, async () => {
+        const turn = await permissionTurn(scenario, { enforceAllowedTools: true }, true);
+        if (turn.rejected !== undefined) return;
+        expect(turn.probe.attempts()).toBe(1);
+        expect(turn.probe.effects()).toBe(1);
+        expect(turn.requests).toHaveLength(1);
+      });
+
+      test(`noGrantSurface: ${scenario} denies promptly without an unanswered card`, async () => {
+        const turn = await permissionTurn(scenario, { enforceAllowedTools: true, noGrantSurface: true }, false, true);
+        if (turn.rejected !== undefined) return;
+        expect(turn.probe.effects()).toBe(0);
+        expect(turn.probe.attempts()).toBe(1);
+        expect(turn.requests).toHaveLength(0);
+        expect(turn.deniedActivity).toHaveLength(1);
+        expect(turn.deniedActivity[0]!.toolUseId).toBe(turn.probe.toolUseId);
+        expect(turn.deniedActivity[0]!.requestKind).toBe(scenario === "command" ? "command" : "tool");
+        expect(turn.frames.some((f) => f.type === "tool_result" && f.toolUseId === turn.probe.toolUseId && f.isError && f.output.includes(turn.probe.toolName))).toBe(true);
+      });
+    }
+
+    for (const enforceAllowedTools of [undefined, false]) {
+      test(`noGrantSurface without enforcement (${String(enforceAllowedTools)}) rejects before runtime acquisition`, async () => {
+        const turn = await permissionTurn("mutation", { noGrantSurface: true, enforceAllowedTools }, false);
+        expect(turn.rejected).toBeInstanceOf(BackendRequestError);
+      });
+    }
+
     test("capabilities is a complete boolean set", () => {
       const backend = harness.scripted({ sessionId: "s", textDeltas: [] });
       const keys = [

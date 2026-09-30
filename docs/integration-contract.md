@@ -1524,6 +1524,37 @@ in [#343](https://github.com/schlessera/brain-kit/issues/343).
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
 
+### AgentBackend conformance baseline
+
+Every conforming `AgentBackend` must honor a requested
+`StartTurnRequest.enforceAllowedTools` or `StartTurnRequest.noGrantSurface`, or
+reject an unsupported restricted turn with `BackendRequestError` before
+runtime acquisition, protocol frames or effects. Silently ignoring either is
+nonconforming. Both inputs remain optional; absent or false retains ordinary
+turn defaults. This pre-1.0 tightening follows the
+[maintainer's ruling](https://github.com/schlessera/brain-kit/issues/341#issuecomment-5866237390)
+and [decision record](decisions/backend-conformance.md); it does not freeze all
+experimental extension interfaces.
+
+Enforcement requires a permission decision for an off-allowlist tool, including
+runtime auto-approval shortcuts. Such requests carry
+`outsideEnforcedAllowlist: true`; a denial prevents the tool body from running
+and reaches the model as a denial. `noGrantSurface` is valid only with
+`enforceAllowedTools: true`; otherwise the turn rejects before execution. In a
+valid no-grant turn, both tool grants and command confirmations are denied
+promptly without an unanswered bridge request, with a named tool error and
+`permission_denied` activity evidence.
+
+`runBackendContract` in `@schlessera/brain-ui-sdk/testing` checks this baseline
+with a required permission probe and observable tool-body effects. Both
+first-party backends demonstrate enforcement with keyless scripted runtimes,
+rather than passing solely by rejecting every restricted turn.
+`runBackendModuleContract` checks a `defineBackendModule` descriptor's nonempty
+profile parsing and resolution, confirmation-pattern defaults/disablement,
+typed invalid-JSON failures and occupied-id collisions. A backend that passed
+the earlier suite may fail these stricter cases; the testing harness's
+`permission` member is newly required.
+
 Module manifests are two-phase: `defineModule({ name, configSchema?, setup })`,
 where `setup(validatedConfig)` returns the contribution. The contribution is
 schema-validated at load — unknown keys are load errors — and module commands

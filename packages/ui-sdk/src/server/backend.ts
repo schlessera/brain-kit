@@ -61,7 +61,7 @@ export interface BackendCapabilities {
   attachments: boolean;
   /** Routes clarifying questions via bridge.askUser. */
   askUser: boolean;
-  /** result.costUsd is meaningful (0 otherwise). */
+  /** Reports known result.costUsd; unknown is null or absent, never a guessed zero. */
   costReporting: boolean;
   /** Turns on different sessions may run in parallel (busy-ness is per session). */
   concurrentSessions: boolean;
@@ -300,7 +300,7 @@ export interface StartTurnRequest {
   client?: ClientEnvironment;
   /**
    * Treat this turn's tool allowlist as a BOUNDARY rather than merely an
-   * auto-allow list. A backend that honours it must not admit a tool absent
+   * auto-allow list. Every conforming backend must not admit a tool absent
    * from the allowlist through any shortcut that skips the permission
    * decision — input-rewrite hooks that grant so their rewrite applies, a
    * host's remembered "always allow" set, or anything else it adds later.
@@ -309,17 +309,17 @@ export interface StartTurnRequest {
    * either.
    *
    * Absent or false (the default) every existing deployment behaves exactly
-   * as it always has. A backend that does not understand the field ignores
-   * it, which is why a narrower posture must also verify its backend honours
-   * it.
+   * as it always has. A conforming backend must enforce this posture or reject
+   * it with BackendRequestError before runtime execution. Silent ignoring is
+   * forbidden; the field remains an optional per-turn input.
    *
    * @experimental
    */
   enforceAllowedTools?: boolean;
   /**
    * This turn has NO surface that could grant a permission request: nobody is
-   * looking at an approval card and nothing else can answer one. A backend
-   * that honours it resolves such a request `{ behavior: "deny", message }`
+   * looking at an approval card and nothing else can answer one. A conforming
+   * backend resolves such a request `{ behavior: "deny", message }`
    * itself, naming the tool, instead of putting it to the bridge — a card
    * raised here is a card nobody can answer, and it parks until the turn
    * budget expires. A capability that needs a human surface is withheld from
@@ -333,9 +333,9 @@ export interface StartTurnRequest {
    * (`assertTurnPosture`).
    *
    * Absent or false (the default) every existing deployment behaves exactly as
-   * it always has. A backend that does not understand the field ignores it,
-   * which is why a posture with no grant surface must also verify its backend
-   * honours it.
+   * it always has. A conforming backend must enforce this posture or reject it
+   * with BackendRequestError before runtime execution. Silent ignoring is
+   * forbidden; the field remains an optional per-turn input.
    *
    * @experimental
    */
