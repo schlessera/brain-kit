@@ -314,7 +314,10 @@ never replace them.
   all mean the same directory. Before 0.37.0 only the first spelling worked; the
   other two excluded nothing. An entry that is empty once stripped (`./`, `/`) is
   ignored.
-- `files` — an exact relative path.
+- `files` — an exact relative file path. A trailing `/` is rejected during
+  configuration loading, with the offending field/value and a suggestion to
+  use `dirs`. Change `files: ["drafts/"]` to `dirs: ["drafts"]` if the whole
+  directory should be excluded. Exact file rules never prune directories.
 - `segments` — any path containing this directory segment at any depth.
 
 ```ts

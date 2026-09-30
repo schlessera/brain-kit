@@ -1442,3 +1442,18 @@ receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
 Keep one **contract test** that runs `brain search "x" --json` and
 `brain briefing` against a fixture brain and asserts the envelope shapes
 above — cheap insurance against silent breaks.
+
+## Configuration exclusions
+
+`exclude.files` contains exact relative file paths; `exclude.dirs` excludes
+directories and their descendants, and `exclude.segments` excludes matching
+directory segments at any depth. Directory pruning and output-directory
+authorization consult only directory/segment rules, never exact-file rules.
+
+**Breaking in the next minor release (approved in #224):** configuration
+loading rejects `exclude.files` entries ending in `/`, which were previously
+accepted and could make stats disagree with indexing. The error identifies
+the field and value and directs the author to `exclude.dirs`. To exclude a
+whole directory, replace `files: ["drafts/"]` with `dirs: ["drafts"]`.
+Valid exact-file, directory and segment exclusions keep their semantics;
+CLI JSON shapes are unchanged.

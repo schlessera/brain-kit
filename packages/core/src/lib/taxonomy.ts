@@ -238,6 +238,15 @@ export class Taxonomy {
   /** True when a relative path falls under an excluded dir, segment, or file. */
   isExcludedPath(path: string): boolean {
     if (this.exclude.files.includes(path)) return true;
+    return this.matchesDirectoryRules(path);
+  }
+
+  /** Directory pruning/authorization uses only dirs and segments, never exact files. */
+  isExcludedDirectory(path: string): boolean {
+    return this.matchesDirectoryRules(path.endsWith("/") ? path : `${path}/`);
+  }
+
+  private matchesDirectoryRules(path: string): boolean {
     if (this.exclude.dirs.some((dir) => path.startsWith(`${dir}/`) || path === dir)) return true;
     return this.exclude.segments.some(
       (seg) => path.includes(`/${seg}/`) || path.startsWith(`${seg}/`)

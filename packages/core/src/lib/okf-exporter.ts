@@ -147,7 +147,7 @@ function outputLocation(root: string, requested: string, taxonomy: Taxonomy): {
   if (rel.split("/").some((segment) => PROTECTED_OUTPUT_SEGMENTS.has(segment.toLowerCase()))) {
     throw new OkfExportError(`Refusing to export into a protected directory: ${rel}`);
   }
-  if (!taxonomy.isExcludedPath(rel)) {
+  if (!taxonomy.isExcludedDirectory(rel)) {
     throw new OkfExportError(
       `Output directory must be excluded from indexing: ${rel}. Add it to brain.config exclude.dirs.`
     );

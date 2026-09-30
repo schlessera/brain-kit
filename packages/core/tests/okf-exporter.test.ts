@@ -113,6 +113,13 @@ function snapshotTree(root: string): Record<string, string> {
 }
 
 describe("OKF exporter", () => {
+  test("an exact file rule cannot authorize a directory visible to indexing", async () => {
+    const root = makeBrain({ "notes/source.md": document("Source", "Nonempty source") });
+    const custom = buildTaxonomy({ user: { exclude: { files: ["published"] } } });
+    await expect(exportOkfBundle({ root, taxonomy: custom, outDir: "published" })).rejects.toThrow("must be excluded from indexing");
+    expect(snapshotTree(root)).toEqual({ "notes/source.md": Buffer.from(document("Source", "Nonempty source")).toString("base64") });
+  });
+
   test("preserves protected directories even with an exporter marker", async () => {
     for (const outDir of [".git", ".agents", "scripts", "workspaces", ".brain-ui", "node_modules", ".git/nested"]) {
       const root = makeBrain({
@@ -141,6 +148,16 @@ describe("OKF exporter", () => {
     await exportOkfBundle({ root, taxonomy: custom, outDir: "published" });
     expect(readFileSync(join(root, "published/note.md"), "utf8")).toContain("Updated body");
   });
+
+  for (const outDir of ["published", "nested/published"]) {
+    test(`a directory segment authorizes ${outDir} and keeps its output out of indexing`, async () => {
+      const root = makeBrain({ "notes/source.md": document("Source", "Nonempty source") });
+      const custom = buildTaxonomy({ user: { exclude: { segments: ["published"] } } });
+      await exportOkfBundle({ root, taxonomy: custom, outDir });
+      expect(readFileSync(join(root, outDir, "notes/source.md"), "utf8")).toContain("Nonempty source");
+      expect(getMarkdownFiles(root, custom)).toEqual(["notes/source.md"]);
+    });
+  }
 
   test("converts every wiki-link form and leaves fenced/inline code untouched", async () => {
     const root = fullFixture();
