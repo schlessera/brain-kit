@@ -53,6 +53,7 @@ the published template rather than a source checkout.
 | Doc | What's in it |
 | --- | --- |
 | [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
+| [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
