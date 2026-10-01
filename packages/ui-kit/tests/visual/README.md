@@ -23,7 +23,10 @@ baselines cover phone and desktop, in dark and paper themes.
 
 The `rank-footer-touch` project isolates a Chromium context with `hasTouch: true`.
 It verifies coarse-pointer media queries, all four corners of each 44px action
-target and native edge taps through the pending states. The default runner and
+target and native edge taps through the pending states at 240px, 320px and desktop
+container widths. It separately checks compact paint, border-free transparent
+expansion, card containment and non-overlapping targets, including Undo and
+wrapped action rows. The default runner and
 CI include this project; scoped direct invocations use `--project=visual` plus
 `--project=rank-footer-touch`. Separate contexts keep touch media queries from
 changing the fine-pointer hint cases.

@@ -29,6 +29,20 @@ function readableHint(singleKeys = true) {
   }
   return hint.getBoundingClientRect();
 }
+/** Border-free footer hairlines keep Button's existing tone-specific hover. */
+async function hoverHairline(name: string) {
+  const button = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
+  const swatch = document.createElement("span");
+  swatch.style.color = button.style.getPropertyValue("--hv-bd");
+  document.body.append(swatch);
+  try {
+    const hoverColor = getComputedStyle(swatch).color;
+    await userEvent.hover(button);
+    expect(getComputedStyle(button).boxShadow, `footer hover hairline: ${name}`)
+      .toBe(`${hoverColor} 0px 0px 0px 1px inset`);
+    await userEvent.unhover(button);
+  } finally { swatch.remove(); }
+}
 for (const theme of ["dark", "light"] as const) {
   for (const width of [320, 960]) {
     for (const singleKeys of [true, false]) {
@@ -45,6 +59,7 @@ for (const theme of ["dark", "light"] as const) {
         expect(initial).toHaveLength(5);
         expect(order()).toEqual(initial); // Actual five-choice story.
         readableHint(singleKeys); containedActions(["Dismiss", "Keep this order"]);
+        await hoverHairline("Dismiss"); await hoverHairline("Keep this order");
         await userEvent.click(page.getByRole("button", { name: "Keep this order", exact: true }));
         expect(submit).toHaveBeenCalledExactlyOnceWith({ order: initial, unchanged: true });
         submit.mockClear();

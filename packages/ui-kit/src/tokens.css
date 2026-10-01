@@ -1771,8 +1771,14 @@
    Target the hint after an Undo receipt as well as in the untouched state. */
 .bk-rank-actions > span:first-child, .bk-rank-actions > .bk-rank-keys { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .bk-rank-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-/* Touch actions reserve their own reach instead of overlapping neighbouring controls. */
-@media (any-pointer: coarse) { .bk-rank-actions .bk-control { min-height: 44px; } }
+/* D20/D34: small paint stays small. Reserve the transparent vertical reach in
+ * each action's flex item, including wrapped rows and the picked-up Cancel.
+ * Undo keeps InlineToast's own text-sized paint and expanded target. */
+.bk-rank-actions > .bk-control:hover, .bk-rank-buttons > .bk-control:hover { --hv-rank-hairline: var(--hv-bd); }
+@media (any-pointer: coarse) {
+  .bk-rank-actions > .bk-control, .bk-rank-buttons > .bk-control { position: relative; margin-block: 8px; }
+  .bk-rank-actions > .bk-control::before, .bk-rank-buttons > .bk-control::before { content: ""; position: absolute; inset: -8px 0; }
+}
 .bk-rank-keys { display: none; }
 @media (any-pointer: fine) { .bk-rank-keys { display: block; } }
 .bk-rank-instructions { margin: 0 0 8px; font: 400 11px/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-mute); }
