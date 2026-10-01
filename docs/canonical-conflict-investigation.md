@@ -79,6 +79,13 @@ correctness. No classifier decides which file is canonical, dates, permission,
 truth or a replacement operation. No thresholds are borrowed from
 [deterministic sync](decisions/deterministic-sync.md) or D42.
 
+Abstention or incomplete retrieval is not evidence that an existing conflict
+disappeared. A future adapter must retain findings through the existing
+failed-check reconciliation path rather than treating an empty candidate list
+as successful clearance. A real log control retains an existing conflict after
+an unknown answer by explicitly marking the check incomplete. This reuses
+existing reconciliation; the prototype does not ship that semantic adapter.
+
 Before emission, current file hashes, original raw hashes, exact slices and
 membership in extracted spans are rechecked. Configured authority is rechecked
 as well. Changed or invented evidence emits nothing. This is a snapshot check
@@ -119,6 +126,11 @@ the intended persisted-log assertions:
 | Same subject in both orientations | Expected no conflict log entry, received an open `conflict-profiles-record-d4e1`. |
 | Seven-day recency | Expected no conflict log entry, received an open `conflict-profiles-record-8668`. |
 | Exact/current evidence provenance | Expected no conflict log entry after the secondary fact changed, received an open `conflict-profiles-record-d4e1`. |
+
+A fourth restored mutation removed the incomplete-check marker from the test
+adapter. The retention assertion failed with one resolved finding instead of
+zero. This demonstrates the existing reconciliation integration requirement,
+not an automatic connection between the private judge and a production check.
 
 These prove finding/log guards in the fixture runtime, not safe content-replacement
 execution. There is no replacement writer to validate. Any later unattended

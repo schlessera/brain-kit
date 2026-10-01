@@ -8,8 +8,8 @@ import { reconcile, readHygieneLog, hygieneId } from "../packages/core/src/lib/h
 import { brainConfigSchema } from "../packages/core/src/lib/config";
 import { buildTaxonomy } from "../packages/core/src/lib/taxonomy";
 
-const record = (p: ReturnType<typeof prepare>, result: Awaited<ReturnType<typeof inspect>>) => {
-  const r = reconcile(p.root, [], new Map(), { now: new Date(DAY), extra: result ? [result.candidate] : [] });
+const record = (p: ReturnType<typeof prepare>, result: Awaited<ReturnType<typeof inspect>>, incomplete = false) => {
+  const r = reconcile(p.root, [], new Map(), { now: new Date(DAY), extra: result ? [result.candidate] : [], failedChecks: incomplete ? ["canonical-conflicts"] : [] });
   return { r, entries: readHygieneLog(p.root).filter(e => e.id.startsWith("conflict-")) };
 };
 
@@ -18,6 +18,22 @@ test("draft IDs are unique and held-out groups do not cross tuning", () => {
   const tuning = new Set(fixtures.filter(f => f.split === "tuning").map(f => f.group));
   expect(tuning.size).toBeGreaterThan(0); expect(fixtures.filter(f => f.split === "held-out").length).toBeGreaterThan(0);
   for (const f of fixtures.filter(f => f.split === "held-out")) expect(tuning.has(f.group)).toBe(false);
+});
+
+test("abstention retains an existing conflict through the real failed-check reconciliation path", async () => {
+  const p = prepare(fixtures[0]!);
+  try {
+    const pair = pairs(p.root, p.taxonomy, DAY)[0]!;
+    expect(record(p, await inspect(p.root, p.taxonomy, pair, DAY, async () => YES)).entries).toHaveLength(1);
+    const abstained = await inspect(p.root, p.taxonomy, pair, DAY, async () => UNKNOWN);
+    expect(abstained).toBeNull();
+    const retained = record(p, abstained, true);
+    expect(retained.r.resolved).toBe(0);
+    expect(retained.r.failedChecks).toEqual(["canonical-conflicts"]);
+    expect(retained.entries).toHaveLength(1);
+    expect(retained.entries[0]!.state).toBe("open");
+    expect(retained.r.changedFiles).toEqual([]);
+  } finally { p.close(); }
 });
 
 for (const f of fixtures) test(`${f.id}: actual extraction and fake judgments reach the existing Markdown log`, async () => {
