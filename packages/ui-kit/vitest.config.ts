@@ -52,6 +52,22 @@ export default mergeConfig(
   defineConfig({
     test: {
       projects: [
+        {
+          extends: true,
+          test: {
+            name: "ui-react-layout",
+            // Measurements of the real consumer, kept out of Bun's test glob.
+            include: ["../ui-react/tests/browser/**/*.layout.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { formViewport, formConsumerStyles },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
         storyProject("storybook", "dark"),
         storyProject("storybook-light", "light"),
         {

@@ -603,6 +603,22 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
+  ui-react-layout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Build the consumer exports and Tailwind stylesheet
+        run: bun run build
+      - name: Chat overlay geometry in the pinned offline Chromium image
+        # The shared runner starts Docker with --network=none for this project.
+        # Only the in-container Vite server is reachable; no keys are forwarded.
+        run: bun run test:layout
+
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
     # they are allowed to run in.
