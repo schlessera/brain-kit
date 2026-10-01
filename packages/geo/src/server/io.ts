@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { GeoConfig } from "../config.js";
 
-export type GeoErrorCode = "disabled" | "configuration" | "ineligible" | "capability" | "input"
+export type GeoErrorCode = "disabled" | "configuration" | "ineligible" | "capability" | "input" | "no_segment"
   | "timeout" | "network" | "http" | "admission_denied" | "admission_timeout"
   | "bad_response" | "response_limit" | "cache_unavailable";
-export interface GeoError { code: GeoErrorCode; message: string; httpStatus?: number; retryAfterMs?: number }
+export interface GeoError { code: GeoErrorCode; message: string; httpStatus?: number; retryAfterMs?: number; serviceCode?: string }
+export class GeoReplyError extends Error {
+  constructor(readonly details: GeoError) { super(details.message); }
+}
 export interface ServiceSource {
   kind: "service";
   service: "nominatim" | "osrm" | "overpass";
@@ -55,14 +58,14 @@ export class GeoTransport {
   constructor(private config: GeoConfig, private runtime: GeoRuntimeOptions = {}) {}
 
   async request<T>(service: ServiceSource["service"], endpoint: string, url: string, init: RequestInit,
-    decode: (data: unknown) => T, acceptedStatuses: number[] = []): Promise<GeoIoResult<T>> {
+    decode: (data: unknown) => T, acceptedStatuses: number[] = [], cacheContext = ""): Promise<GeoIoResult<T>> {
     const source: ServiceSource={kind:"service",service,endpoint,fromCache:false,fetchedAt:null,cacheAgeMs:null,requestSent:false};
     const failed=(error: GeoError): GeoIoResult<T>=>({value:null,source,error});
     if (!this.config.userAgent.trim() || /^(?:node|bun|undici|fetch|python-requests)(?:\/|$)/i.test(this.config.userAgent.trim())) {
       return failed({code:"configuration",message:"Configure a User-Agent identifying the application before geo requests."});
     }
     const cacheDirectory=join(this.config.cacheDir ?? globalDirectory(),"responses"), stateDirectory=this.runtime.admissionDir ?? join(globalDirectory(),"admission");
-    const key=hash(JSON.stringify([service,endpoint,url,init.method ?? "GET",String(init.body ?? ""),this.config.userAgent]));
+    const key=hash(JSON.stringify([service,endpoint,url,init.method ?? "GET",String(init.body ?? ""),this.config.userAgent,cacheContext]));
     const cachePath=join(cacheDirectory,key+".json");
     try {
       const cached=JSON.parse(await readFile(cachePath,"utf8")) as CacheEntry;
@@ -146,7 +149,10 @@ export class GeoTransport {
         const text=Buffer.concat(chunks).toString("utf8");
         let payload: unknown, value: T;
         try { payload=JSON.parse(text); value=decode(payload); }
-        catch { return failed({code:"bad_response",message:"Geo service returned malformed or unsupported data."}); }
+        catch (error) {
+          if (error instanceof GeoReplyError) return failed({...error.details,httpStatus:response.status});
+          return failed({code:"bad_response",message:"Geo service returned malformed or unsupported data."});
+        }
         const fetchedAt=Date.now();source.fetchedAt=new Date(fetchedAt).toISOString();source.cacheAgeMs=0;
         try {
           await mkdir(cacheDirectory,{recursive:true,mode:0o700});

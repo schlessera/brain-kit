@@ -132,3 +132,57 @@ Locks fail closed after a crash or failed state persistence; there is no unsafe
 lease expiry while a request might remain active. Recover an orphan only after
 its owner has exited, with the request interval/cooldown respected. Retain the
 admission state; never remove a live owner's lock or reset a denial to evade it.
+
+## Routing
+
+`geo.route(orderedPoints, "car" | "foot" | "bike")` needs 2–100 valid points.
+Configure `routing.endpoints.<mode>` with the service URL **through `/route/v1`**,
+its `profile` path token, `preparedMode`, dataset name and verification evidence.
+OSRM selects its mode when preparing a dataset; changing the URL profile token
+does not establish foot/bike capability. Mismatched configured capability refuses.
+
+```ts
+routing: {
+  endpoints: {
+    foot: {
+      url: "https://routes.example.com/foot/route/v1",
+      profile: "driving",
+      preparedMode: "foot",
+      dataset: "operator-prepared foot dataset",
+      verification: "https://routes.example.com/datasets/foot",
+    },
+  },
+  demo: { enabled: false, noncommercialLightUse: false },
+}
+```
+
+Configured routing wins. With `demo.enabled` **and** `demo.noncommercialLightUse`,
+the approved FOSSGIS preset can handle a missing configured endpoint or one genuine
+failure: timeout/network, malformed/oversized reply, upstream 408/5xx or explicitly
+disabled dataset. There are at most two attempts. Admission/denial/cooldown,
+invalid input, no segment, no route and local cache/admission failure never escape
+to another service. A public demo configured as primary requires the same eligibility
+and verified mode mapping, and cannot retry itself as fallback.
+
+The verified presets use `/routed-car/route/v1`, `/routed-foot/route/v1` and
+`/routed-bike/route/v1` at `https://routing.openstreetmap.de`, all with the `driving`
+URL token and distinct prepared datasets. Current operator source and its pinned
+router implementation establish this mapping; [the decision](../../docs/decisions/geo-operations.md)
+records the evidence. Respect [full FOSSGIS terms](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)
+and [routing information](https://routing.openstreetmap.de/about.html): noncommercial
+light use under this preset, aggregate 1 request/s, one script connection,
+identification, attribution and error-reporting links, reachable operator contact,
+no mass/high-traffic use and no service/data-update guarantee. Eligibility flags
+record informed responsibility, not permission. Replace the service with configured
+endpoints when it is unsuitable.
+
+A route retains all requested/snapped stops, leg distances/durations, unsimplified
+GeoJSON geometry and explicit unknown reasons. It is calculated planning evidence,
+not a recording. Missing estimates stay unknown; actual zero remains zero. Genuine
+`NoRoute` caches distinctly; `NoSegment`, invalid query and disabled dataset retain
+different errors/service codes and never become cached no-route. Source identifies
+the served endpoint, declared prepared dataset/profile/evidence, fetch/cache age,
+coordinate transfer and fallback/cause. `attempts` lists every endpoint and whether
+coordinates were sent on that attempt, including a primary attempt before a cached
+demo result. Changing dataset identity invalidates its cache context. No original
+points are changed or replaced by snapped ones.

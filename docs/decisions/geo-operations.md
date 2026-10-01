@@ -149,3 +149,43 @@ mutations fail actual start spacing, the independent no-overlapping-connections
 assertion, persisted cooldown, Overpass resource admission, transient-cache request
 count, identifying/eligible requests, recognized no-match, coordinate validation,
 partial status, response-byte/body-time budgets and visible transfer metadata.
+
+
+## Prepared routing and bounded fallback — 2026-10-01
+
+The [routing ruling](https://github.com/schlessera/brain-kit/issues/525#issuecomment-5928012558)
+selects configured OSRM-compatible endpoints before an explicitly enabled,
+noncommercial/light-use FOSSGIS fallback. Endpoint metadata records its prepared
+mode and verification evidence; a profile path token cannot establish capability.
+The [OSRM API](https://project-osrm.org/docs/v26.4.0/http) makes dataset preparation
+the mode boundary. The [operator's frontend](https://github.com/fossgis-routing-server/osrm-frontend/blob/master/src/leaflet_options.js)
+(blob `ef945e9eefe12eb8ed5d555a3138892e997d431f`, inspected 2026-10-01) supplies
+separate routed-car/bike/foot service paths. Its
+[pinned router implementation](https://github.com/sosm/leaflet-routing-machine/blob/fa91a9160cb5b1bc8ed00beb40f253bc68204d24/src/osrm-v1.js)
+uses the `driving` URL token for all three. Recorded responses prove the client's
+actual requested paths and result source; no live public geo query is claimed.
+
+One availability failure can use one eligible matching fallback
+(`calculateRoute`, `packages/geo/src/server/routing.ts:66-110`).
+Admission/denial, invalid input, no-route/no-segment and local storage errors cannot
+escape to another endpoint. A public demo configured as primary needs the same
+eligibility/mode mapping and cannot retry itself as fallback. Every attempted
+coordinate transfer remains visible, including primary traffic before a cached
+demo result. Dataset identity participates in cache context so a configuration
+change cannot relabel an earlier fetch.
+
+The decoder preserves full requested/snapped stop and leg evidence, nullable
+provider estimates, true zero and calculated provenance
+(`decodeRoute`, `packages/geo/src/server/routing.ts:35-60`).
+Geometry, waypoint and leg structure must fit the request. Service errors retain
+OSRM codes and never become cached no-route. Genuine no-route retains the complete
+request for text/legend evidence. Requested points are snapshotted before awaits;
+caller mutations cannot alter fallback transfer.
+
+Restored mutations failed actual configured source, an extra public request with
+demo disabled, prepared-mode/public-profile eligibility, the bike endpoint path,
+extra traffic after denial, cached dataset identity, hidden fallback/cause, zero
+estimates, self-retry, a third attempt and changed fallback coordinates. The
+zero-demo receipt removes both layered enablement checks and fails on request count;
+a prior single-check mutation changed the error but did not send a public request
+and is not offered as that proof.

@@ -2829,3 +2829,35 @@ optional HTTP/retry details. Valid provider data retains attribution and qualifi
 accuracy. No transient failure is stored as no-match. Disk caching/admission is
 shared across cooperating processes; the [geo guide](../packages/geo/README.md)
 documents local aggregation, bounds and fail-closed orphan recovery.
+
+### Shared routing results
+
+`GeoClient.route(points, mode)` accepts 2–100 ordered numeric points and a
+`RoutingMode` (`car`/`foot`/`bike`). Configured entries carry `url` through the
+route-service prefix, `profile`, `preparedMode`, `dataset` and `verification`.
+The mode must match the declared prepared dataset. Public FOSSGIS entries also
+require explicit eligible demo configuration and its verified endpoint/profile.
+Otherwise the client returns a capability/eligibility error without transfer.
+
+`RoutingResult` retains `request: {mode,points}` and `attempts` even with no route.
+Its nullable `CalculatedRoute` contains `kind: "calculated"`, unsimplified geometry,
+all requested/snapped waypoints and snap distances, ordered legs with nullable
+distance/duration, unit-bearing aggregate distance (`m`) / duration (`s`), unknown
+reasons and provider-calculation method metadata. Missing/invalid estimates remain
+null and partial; zero remains zero. Geometry/waypoint/leg shape must match the
+request. Calculated duration does not establish movement or recording.
+
+The served source adds dataset name/prepared mode/profile/verification and
+`fallback: {used,reason,primaryEndpoint}`. Cache hits retain these and original
+fetch age. Every attempt lists endpoint/cache status/request transfer and error;
+a cached demo result can follow a newly transmitted primary attempt. Cache identity
+includes prepared dataset/mode metadata. Requested points are snapshotted before
+asynchronous work and are never overwritten with provider-snapped points.
+
+Status is `ok`, `partial`, genuine `no_route`, disabled or error. `NoSegment` has
+error code `no_segment`; OSRM errors retain `serviceCode`. Invalid query/input and
+disabled/capability errors remain distinct from no-route and are never cached as
+it. The demo is off until explicitly enabled and eligible. A missing primary or
+one genuine availability failure can use one matching demo attempt; denial,
+admission/cooldown, invalid/no-segment/no-route and local storage failures cannot.
+An endpoint never retries itself as its own fallback. No geometry is fabricated.

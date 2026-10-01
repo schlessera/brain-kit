@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { geoConfigSchema, type GeoConfig, type GeoConfigInput } from "../config.js";
+import { geoConfigSchema, type GeoConfig, type GeoConfigInput, type RoutingMode } from "../config.js";
 import { routePoint } from "../track.js";
 import { GeoTransport, type GeoError, type GeoRuntimeOptions, type ServiceSource } from "./io.js";
+import { calculateRoute, type RoutingResult } from "./routing.js";
 
 export interface GeoAttribution { text: string; url: string }
 export interface GeoResult<T> {
@@ -57,6 +58,10 @@ export class GeoClient {
   constructor(config: GeoConfigInput = {}, runtime: GeoRuntimeOptions = {}) {
     this.config=geoConfigSchema.parse(config);
     this.transport=new GeoTransport(this.config,runtime);
+  }
+
+  route(points: {lat:number;lon:number}[], mode: RoutingMode): Promise<RoutingResult> {
+    return calculateRoute(this.config,this.transport,points,mode);
   }
 
   async geocode(query: string): Promise<GeoResult<GeocodeCandidate[]>> {

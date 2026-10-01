@@ -40,6 +40,7 @@ export "." (./src/index.ts)
 export "./package.json" (./package.json) [asset]
 
 export "./server" (./src/server/index.ts)
+  type CalculatedRoute
   type GeoAttribution
   GeoClient
   type GeoError
@@ -47,4 +48,5 @@ export "./server" (./src/server/index.ts)
   type GeoResult
   type GeoRuntimeOptions
   type GeocodeCandidate
+  type RoutingResult
   type ServiceSource
