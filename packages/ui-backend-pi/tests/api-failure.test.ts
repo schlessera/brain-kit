@@ -38,7 +38,7 @@ const textDelta = (delta: string) =>
 const retryStart = (attempt: number, errorMessage: string) =>
   ({ type: "auto_retry_start", attempt, maxAttempts: 3, delayMs: 2000, errorMessage }) as AgentSessionEvent;
 
-async function runTurn(events: AgentSessionEvent[]): Promise<ServerMessage[]> {
+async function runTurn(events: AgentSessionEvent[], thrown?: string): Promise<ServerMessage[]> {
   const listeners = new Set<(event: AgentSessionEvent) => void>();
   const session: PiSessionLike = {
     sessionId: "pi-575",
@@ -48,6 +48,7 @@ async function runTurn(events: AgentSessionEvent[]): Promise<ServerMessage[]> {
     },
     async prompt() {
       for (const event of events) for (const listener of listeners) listener(event);
+      if (thrown) throw new Error(thrown);
     },
     async abort() {},
     getSessionStats: () => ({ cost: 0 }),
@@ -103,9 +104,23 @@ describe("a pi provider failure ends the turn as a failure", () => {
     ]);
     const result = terminal(frames);
     expect(frames.indexOf(retries[1]!)).toBeLessThan(frames.indexOf(result));
-    expect(result.failure).toEqual({ errorClass: "rate_limit", status: 429, message: "429 rate limited" });
+    expect(result.failure).toEqual({ errorClass: "rate_limit", status: 429, message: "429 rate limited", attempts: 2 });
+    expect(result.failure?.resetsAt).toBeUndefined();
     // Three answers, each counted once.
     expect(result.usage?.inputTokens).toBe(30);
+  });
+
+  test("the terminal observation is pi's last reported attempt, not a count of events", async () => {
+    const result = terminal(await runTurn([retryStart(1, "429 rate limited"), retryStart(3, "429 rate limited"),
+      assistantEnd("error", { errorMessage: "429 rate limited" })]));
+    expect(result.failure?.attempts).toBe(3);
+    expect(result.failure?.resetsAt).toBeUndefined();
+  });
+
+  test("a runtime throw after retries retains the observed attempt count", async () => {
+    const result = terminal(await runTurn([retryStart(1, "429 rate limited"), retryStart(2, "429 rate limited")], "429 rate limited"));
+    expect(result.failure?.attempts).toBe(2);
+    expect(result.failure?.resetsAt).toBeUndefined();
   });
 
   test("a retry that then answers is a success with no failure", async () => {

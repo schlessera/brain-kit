@@ -116,6 +116,30 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     expect(replay.at(-1)?.failure).toBeUndefined();
   });
 
+  test("observed retry and reset metadata stays per failure after database reopen and later success", async () => {
+    const h = harness(id);
+    const text = "API Error: 429 Rate limited.";
+    const first: TurnFailure = { errorClass: "rate_limit", status: 429, message: text, attempts: 2,
+      ...(id === "claude" ? { resetsAt: 1_790_848_800_000 } : {}) };
+    const second: TurnFailure = { ...first, attempts: 4,
+      ...(id === "claude" ? { resetsAt: 1_790_852_400_000 } : {}) };
+    await h.send(first); await h.send(second); await h.send();
+    expect(h.frames.filter((frame) => frame.type === "result").map((frame) => frame.type === "result" && frame.failure))
+      .toEqual([first, second, undefined]);
+    const rows = getDb().query("SELECT failure_json FROM turn_failures ORDER BY rowid").all() as { failure_json: string }[];
+    expect(rows.map((row) => JSON.parse(row.failure_json))).toEqual([first, second]);
+    resetForTests(); closeDb(); useTestDb(TEST_DB); setBackendsForTests([h.backend], id);
+    const replay = await h.replay();
+    expect(replay.filter((message) => message.failure).map((message) => message.failure)).toEqual([first, second]);
+    expect(replay.at(-1)?.failure).toBeUndefined();
+    if (id === "pi") expect(replay.every((message) => message.failure?.resetsAt === undefined)).toBe(true);
+    // Losing the host observations restores the backend's unknown metadata, not a guess.
+    getDb().exec("DELETE FROM turn_failures");
+    const unrecorded = await h.replay();
+    expect(unrecorded.filter((message) => message.failure).length).toBe(2);
+    expect(unrecorded.every((message) => message.failure?.attempts === undefined && message.failure?.resetsAt === undefined)).toBe(true);
+  });
+
   test("unrecorded legacy failures are unchanged and do not shift the new assistant position", async () => {
     const h = harness(id);
     // Same text as the new failure, from a turn this host never saw.
@@ -181,6 +205,14 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     expect(testHost().prepareHistory("s1", original)).toEqual(original);
     getDb().prepare("UPDATE turn_failures SET failure_json = ?").run(JSON.stringify({ errorClass: "model_not_found", message: "Different failure." }));
     expect(testHost().prepareHistory("s1", original)).toEqual(original);
+  });
+
+  test("unreadable recorded observations are dropped without losing the replayed failure", async () => {
+    const h = harness(id);
+    const failure: TurnFailure = { errorClass: "model_not_found", message: "API Error: 400 Request refused.", attempts: 2 };
+    await h.send(failure);
+    getDb().prepare("UPDATE turn_failures SET failure_json = ?").run(JSON.stringify({ ...failure, attempts: "two", resetsAt: -1 }));
+    expect((await h.replay()).at(-1)?.failure).toEqual({ errorClass: failure.errorClass, message: failure.message });
   });
 
   test("unobserved status and auth action stay absent even when fallback infers a status", async () => {

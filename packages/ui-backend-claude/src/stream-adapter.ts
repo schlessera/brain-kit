@@ -14,7 +14,7 @@ import { usageFromResult } from "./usage.js";
  * WebSocket protocol messages, and reports activity enrichment (subagent
  * lifecycle, usage, transcript excerpts) through the optional side channel.
  *
- * Must be instantiated per-session because it tracks state across streaming
+ * Must be instantiated per-turn because it tracks state across streaming
  * events (e.g., which tool_use block is currently streaming).
  *
  * Subagent handling: messages produced inside a subagent carry
@@ -34,6 +34,9 @@ export class StreamAdapter {
    * decides whether the turn failed.
    */
   private apiError: TurnFailure | null = null;
+  private retryAttempts = 0;
+  private resetsAt: number | undefined;
+
 
   constructor(
     private readonly onActivity?: (event: BackendActivityEvent) => void,
@@ -218,7 +221,7 @@ export class StreamAdapter {
           const failure =
             msg.subtype === "success"
               ? this.resultFailure(msg.result, msg.api_error_status)
-              : this.apiError;
+              : this.pendingFailure();
           messages.push({
             type: "result",
             sessionId: msg.session_id,
@@ -246,6 +249,7 @@ export class StreamAdapter {
             detail: "Session initialized",
           });
         } else if (msg.subtype === "api_retry") {
+          if (!parentToolUseId) this.retryAttempts++;
           // A failed call the runtime is backing off from: without this, a
           // turn waiting out a rate limit looks exactly like a hung one.
           const retry: TurnRetry = {
@@ -300,6 +304,17 @@ export class StreamAdapter {
         break;
       }
 
+      case "rate_limit_event": {
+        // Claude Code 2.1.283 compares this value * 1000 with Date.now():
+        // the runtime reports seconds; the wire's timestamp is milliseconds.
+        if (!parentToolUseId && msg.rate_limit_info.status === "rejected") {
+          const seconds = msg.rate_limit_info.resetsAt;
+          this.resetsAt = typeof seconds === "number" && Number.isSafeInteger(seconds) && seconds >= 0
+            && Number.isSafeInteger(seconds * 1000) ? seconds * 1000 : undefined;
+        }
+        break;
+      }
+
       case "tool_progress" as any: {
         const tp = msg as any;
         // Subagent tool progress stays off the main status line.
@@ -327,7 +342,7 @@ export class StreamAdapter {
    * whose terminal frame the runner has to build itself (no `result` came).
    */
   pendingFailure(): TurnFailure | null {
-    return this.apiError;
+    return this.apiError ? this.observedFailure(this.apiError) : null;
   }
 
   /**
@@ -338,7 +353,14 @@ export class StreamAdapter {
   private resultFailure(text: string | undefined, apiStatus: number | null | undefined): TurnFailure {
     const status = typeof apiStatus === "number" ? apiStatus : this.apiError?.status;
     const message = this.apiError?.message ?? (text?.trim() || "The model call failed.");
-    return this.failure(this.apiError?.errorClass ?? "unknown", message, status);
+    return this.observedFailure(this.failure(this.apiError?.errorClass ?? "unknown", message, status));
+  }
+
+  private observedFailure(failure: TurnFailure): TurnFailure {
+    return { ...failure,
+      ...(this.retryAttempts > 0 ? { attempts: this.retryAttempts } : {}),
+      ...(this.resetsAt !== undefined ? { resetsAt: this.resetsAt } : {}),
+    };
   }
 
   private failure(errorClass: string, message: string, status: number | undefined): TurnFailure {

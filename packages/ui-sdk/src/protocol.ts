@@ -660,6 +660,10 @@ export interface TurnFailure {
   errorClass: string;
   /** HTTP status the provider answered with. Absent means unknown, not "no status". */
   status?: number;
+  /** Observed retries before this terminal failure; absent when none were reported. */
+  attempts?: number;
+  /** Observed subscription limit reset, in epoch milliseconds; absent means unknown. */
+  resetsAt?: number;
   /** The failure as the runtime worded it. */
   message: string;
   /**

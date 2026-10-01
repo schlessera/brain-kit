@@ -173,6 +173,13 @@ const harness: BackendContractHarness = {
       emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "429 rate limited" });
       emit({ type: "message_end", message: { role: "assistant", model: "m", content: [], stopReason: "stop", usage: {} } });
     }),
+  retriedFailure: (script) => piEventBackend(script, (emit) => {
+    for (const attempt of [1, 2]) {
+      emit(failedAnswer("429 rate limited"));
+      emit({ type: "auto_retry_start", attempt, maxAttempts: 3, delayMs: 1000, errorMessage: "429 rate limited" });
+    }
+    emit(failedAnswer("429 rate limited"));
+  }),
   unknownProfileId: "no-such-profile",
 };
 

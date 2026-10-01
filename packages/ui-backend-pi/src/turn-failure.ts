@@ -16,11 +16,12 @@ export interface TurnFailureTracker {
   /** Observe one event; returns the frames it produces (a retry's status). */
   observe(ev: AgentSessionEvent): ServerMessage[];
   /** The failure the turn ended on, or null when its last answer settled. */
-  failure(): TurnFailure | null;
+  failure(fallback?: TurnFailure): TurnFailure | null;
 }
 
 export function createTurnFailureTracker(): TurnFailureTracker {
   let current: TurnFailure | null = null;
+  let attempts: number | undefined;
   return {
     observe(ev) {
       if (ev.type === "message_end") {
@@ -34,6 +35,7 @@ export function createTurnFailureTracker(): TurnFailureTracker {
         return [];
       }
       if (ev.type === "auto_retry_start") {
+        if (Number.isSafeInteger(ev.attempt) && ev.attempt > 0) attempts = ev.attempt;
         const { status, errorClass } = classify(ev.errorMessage);
         const retry: TurnRetry = {
           attempt: ev.attempt,
@@ -46,7 +48,10 @@ export function createTurnFailureTracker(): TurnFailureTracker {
       }
       return [];
     },
-    failure: () => current,
+    failure: (fallback) => {
+      const failure = fallback ?? current;
+      return failure ? { ...failure, ...(attempts !== undefined ? { attempts } : {}) } : null;
+    },
   };
 }
 
