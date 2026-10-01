@@ -220,3 +220,10 @@ across whatever is being read.
 Pass `announce={false}` to `InlineToast` when a containing live region combines
 the receipt with other feedback. `AskUserFormCard` uses this for one announcement
 of branch reveals, hidden nodes, answers set aside and the remaining count.
+
+## Dictating composer state
+
+`Composer` accepts `state="dictating"` to preserve a read-only draft and
+make Send and Attach unavailable while capture is active. Its mic is labelled
+“Stop dictation” and still calls `onMic`; the consumer owns capture, draining
+and review. Other composer states keep their existing behavior.

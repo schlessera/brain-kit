@@ -14,6 +14,19 @@ probe and live WebSocket facts. After three consecutive handshakes fail before
 opening, it distinguishes a refused live connection from an unreachable
 server; close code 4008 is shown specifically as the server connection limit.
 
+## Dictation
+
+At widths of 900px and above, dictation opens a panel immediately above the
+composer, bounded to its width. Done or the composer's mic stops capture and
+hands the transcript to review. Conversation text remains selectable while
+recording. Done receives focus on opening; Enter or Space activates the
+focused stop control, and Escape cancels. Closing returns focus to the mic.
+
+Below 900px, dictation keeps the full-width phone sheet and its backdrop stop
+control. Both forms keep the provider disclosure, transcript scrolling and
+review flow. The composer preserves its draft and prevents typing or sending
+while capture or its final drain is active.
+
 ## React compatibility
 
 The `react` and `react-dom` peer range remains `>=18`: React 18 and the current
