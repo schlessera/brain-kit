@@ -8,7 +8,7 @@ const strictObjectSchema = z.custom<z.ZodObject>((value) => {
   if (!value || typeof value !== "object" || !("_zod" in value)) return false;
   const schema = value as z.ZodObject;
   return schema._zod?.def?.type === "object" &&
-    schema._zod.def.catchall?._zod.def.type === "never";
+    schema._zod.def.catchall?._zod?.def?.type === "never";
 }, { message: "must be a strict zod 4 object schema" });
 
 const toolDefinitionSchema = z.object({
@@ -30,25 +30,56 @@ const toolDefinitionSchema = z.object({
   }),
 }).strict();
 
+export interface ModuleToolProblem {
+  rule: "tool-load" | "tool-annotations" | "tool-schema";
+  message: string;
+}
+
+/** One validator for MCP startup and author lint, with precise diagnostic rules. */
+export async function inspectModuleTool(
+  name: string,
+  load: () => Promise<{ default: ModuleTool } | ModuleTool>,
+): Promise<{ tool?: ModuleTool; problems: ModuleToolProblem[] }> {
+  let definition: unknown;
+  try {
+    const imported = await load();
+    definition = imported && typeof imported === "object" && "default" in imported ? imported.default : imported;
+  } catch (error) {
+    return { problems: [{ rule: "tool-load", message: `module tool "${name}" could not load: ${error instanceof Error ? error.message : String(error)}` }] };
+  }
+  let parsed: ReturnType<typeof toolDefinitionSchema.safeParse>;
+  try {
+    parsed = toolDefinitionSchema.safeParse(definition);
+  } catch (error) {
+    return { problems: [{ rule: "tool-load", message: `module tool "${name}" has an invalid definition: ${error instanceof Error ? error.message : String(error)}` }] };
+  }
+  if (!parsed.success) {
+    return { problems: parsed.error.issues.map((issue) => ({
+      rule: issue.path[0] === "annotations" ? "tool-annotations"
+        : issue.path[0] === "inputSchema" || issue.path[0] === "outputSchema" ? "tool-schema" : "tool-load",
+      message: `module tool "${name}" has an invalid definition: ${issue.path.join(".") || "(root)"}: ${issue.message}`,
+    })) };
+  }
+  for (const field of ["inputSchema", "outputSchema"] as const) {
+    // tools/list performs this conversion too. Reject an unrepresentable
+    // field here, while the failure can still be isolated to its module.
+    try {
+      z.toJSONSchema(parsed.data[field], { target: "draft-7", io: "input" });
+    } catch (error) {
+      return { problems: [{ rule: "tool-schema", message: `module tool "${name}" ${field}: ${error instanceof Error ? error.message : String(error)}` }] };
+    }
+  }
+  return { tool: parsed.data, problems: [] };
+}
+
 /** Resolve all definitions before registration, so a bad module adds no tools. */
 export async function loadModuleTools(module: LoadedModule): Promise<Array<{ name: string; tool: ModuleTool }>> {
   const tools: Array<{ name: string; tool: ModuleTool }> = [];
   for (const [localName, load] of Object.entries(module.manifest.tools ?? {})) {
     const name = `${module.manifest.name}_${localName}`;
-    const imported = await load();
-    const definition = imported && "default" in imported ? imported.default : imported;
-    const parsed = toolDefinitionSchema.safeParse(definition);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((issue) =>
-        `${issue.path.join(".") || "(root)"}: ${issue.message}`
-      ).join("; ");
-      throw new Error(`module tool "${name}" has an invalid definition: ${issues}`);
-    }
-    // tools/list performs this conversion too. Reject an unrepresentable
-    // field here, while the failure can still be isolated to its module.
-    z.toJSONSchema(parsed.data.inputSchema, { target: "draft-7", io: "input" });
-    z.toJSONSchema(parsed.data.outputSchema, { target: "draft-7", io: "input" });
-    tools.push({ name, tool: parsed.data });
+    const inspected = await inspectModuleTool(name, load);
+    if (!inspected.tool) throw new Error(inspected.problems.map((problem) => problem.message).join("; "));
+    tools.push({ name, tool: inspected.tool });
   }
   return tools;
 }

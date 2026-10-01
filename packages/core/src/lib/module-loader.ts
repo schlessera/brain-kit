@@ -11,6 +11,7 @@ import {
 } from "./config.js";
 import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types.js";
 import { safeResolve } from "./safe-path.js";
+import { MODULE_TOOL_LOCAL_NAME, MODULE_TOOL_LOCAL_NAME_MESSAGE, ModuleToolNameError, moduleToolNameIssues } from "./module-tool-names.js";
 
 /**
  * Structural validation of a setup() return value. Functions are checked for
@@ -33,14 +34,14 @@ const contributionSchema = z
     skills: repoRelativePathSchema.optional(),
     commands: z.record(z.string(), z.custom<() => Promise<unknown>>((v) => typeof v === "function")).optional(),
     tools: z.record(
-      z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, {
-        message: "tool local name must match ^[a-z][a-z0-9_]{0,31}$ (max 32 chars)",
+      z.string().regex(MODULE_TOOL_LOCAL_NAME, {
+        message: MODULE_TOOL_LOCAL_NAME_MESSAGE,
       }),
       z.custom<() => Promise<unknown>>((v) => typeof v === "function", {
         message: "tool definition loader must be a function",
       }),
       { error: (issue) => issue.code === "invalid_key"
-        ? "tool local name must match ^[a-z][a-z0-9_]{0,31}$ (max 32 chars)"
+        ? MODULE_TOOL_LOCAL_NAME_MESSAGE
         : undefined },
     ).optional(),
     hygieneChecks: z.array(z.custom<(ctx: unknown) => unknown>((v) => typeof v === "function")).optional(),
@@ -116,21 +117,18 @@ export async function loadModules(
       );
     }
 
+    const tools = contribution?.tools;
+    if (tools && typeof tools === "object" && !Array.isArray(tools)) {
+      const nameIssues = moduleToolNameIssues(manifest.name, Object.keys(tools));
+      if (nameIssues.length > 0) throw new ModuleToolNameError(manifest.name, nameIssues);
+    }
+
     const parsed = contributionSchema.safeParse(contribution);
     if (!parsed.success) {
       const issues = parsed.error.issues
         .map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`)
         .join("\n");
       throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n${issues}`);
-    }
-
-    if (parsed.data.tools && Object.keys(parsed.data.tools).length > 0) {
-      if (manifest.name === "brain") {
-        throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n  tools: module name "brain" is reserved for core tools`);
-      }
-      if (!/^[a-z][a-z0-9-]{0,30}$/.test(manifest.name)) {
-        throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n  tools: module name must match ^[a-z][a-z0-9-]{0,30}$ (max 31 chars)`);
-      }
     }
 
     loaded.push({
