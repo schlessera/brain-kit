@@ -66,6 +66,7 @@ the published template rather than a source checkout.
 | [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
 | [mechanical-hygiene-investigation.md](mechanical-hygiene-investigation.md) | Existing hygiene capabilities, a private mechanical-repair prototype and offline runtime/write controls; actual agent savings remain unmeasured. |
+| [opportunity-lifecycle-investigation.md](opportunity-lifecycle-investigation.md) | Explicit job lifecycle events, real file/deadline controls and the remaining comparative evaluation. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
 ## See also
