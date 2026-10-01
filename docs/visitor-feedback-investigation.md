@@ -6,8 +6,10 @@ selected outbound visitor paths plus email release notifications on
 2026-10-01 and required online research before choosing a mailing service.
 The service comparison below supported the Buttondown selection. The current
 rulings select a website HTML form, a maintainer-operated project newsletter
-and email-only visitor fields. Consent, lifecycle and sending policy remain
-for the maintainer to settle. Visual screenshot/demo capture belongs to #613/#614.
+and email-only visitor fields. Consent is clear release-only wording beside
+Subscribe followed by email confirmation, without an additional checkbox.
+Retention/deletion and sending policy remain for the maintainer to settle.
+Visual screenshot/demo capture belongs to #613/#614.
 
 ## Approved visitor paths
 
@@ -16,7 +18,7 @@ source**, **Ask a question on GitHub**, **Report a bug on GitHub**, and
 **Report a security vulnerability** through the existing security policy.
 Offer **GitHub release notifications** only with its actual platform limits
 explained. Add an optional email release-signup path for visitors who do not
-use GitHub, once the remaining consent/lifecycle/sending brief is complete.
+use GitHub, once the remaining retention/deletion and sending brief is complete.
 The maintainer did not select a private contact form. No visitor analytics or
 tracking integration is approved by the release-signup choice.
 
@@ -89,23 +91,24 @@ configuration and browser behavior still need verification.
 | Option | Visitor benefit and fields | Maintenance, access and data lifecycle | Recommendation |
 | --- | --- | --- | --- |
 | Existing outbound paths | Docs/source can be read without first-party input once public. GitHub handles question/bug posting and optional notification preferences. No first-party fields. | Reuse existing moderation and templates. Explain GitHub login and public posting; keep destinations healthy. GitHub/hosting retain their own platform data. The outbound paths need no extra contact/list database. | Selected alongside release email signup. |
-| Minimal release-notification signup | Selected personal-information field: email address only; the consent interaction remains to be chosen. No name, job title or profile fields. Serves visitors who want announcements without GitHub. | Select a delivery/list owner, verified opt-in and unsubscribe/deletion handling, abuse limits, sender configuration and a publication cadence. Build accessible validation and distinguish pending confirmation from active subscription. | The workflow, Buttondown, HTML form, maintainer ownership and email-only fields are selected. Consent and lifecycle remain open. |
+| Minimal release-notification signup | Selected personal-information field: email address only, with clear release-only wording beside Subscribe followed by email confirmation; no additional checkbox. No name, job title or profile fields. Serves visitors who want announcements without GitHub. | The maintainer operates the Buttondown newsletter; settle unsubscribe/deletion handling, abuse limits, sender configuration and a publication cadence. Build accessible validation and distinguish pending confirmation from active subscription. | The workflow, Buttondown, HTML form, maintainer ownership and email-only fields are selected. Consent is selected; retention/deletion and sending policy remain open. |
 | Minimal feedback/contact form | Required message; optional reply email. No name, attachment, phone number or automatic marketing consent. Would serve visitors unable to post on GitHub. | Select a project-owned destination and response owner, moderation/rate limits, retention/deletion procedure and incident handling. Explain whether messages are private and whether a reply is possible. A form is an additional inbox, not a replacement for reproducible issue reports. | Only if a concrete non-GitHub/private-contact workflow warrants the continuing ownership cost. |
 
-Release signup is the selected collection workflow; consent and lifecycle
-details still require a ruling. A private contact form remains an unselected
-alternative. The signup implementation issue needs a named
+Release signup is the selected collection workflow; retention/deletion and
+sending policy still require a ruling. A private contact form remains an
+unselected alternative. The signup implementation issue needs a named
 service/project-owned destination and access prerequisite before coding;
 placeholders are not a working destination. The maintainer must approve
-retention and the remaining consent/sending policy before the form ships.
+retention/deletion and the remaining sending policy before the form ships.
 
-For a signup option, propose removing unconfirmed entries after **7 days**,
-retaining confirmed entries only while subscribed, stopping delivery on
-unsubscribe, and deleting the entry within **7 days** of a deletion request.
+The initial signup proposal was to remove unconfirmed entries after **7 days**,
+retain confirmed entries only while subscribed, stop delivery on unsubscribe,
+and delete the entry within **7 days** of a deletion request.
 Record consent purpose, timestamp and policy revision alongside the address.
 A provider's suppression records, backups and logs need a documented limit
 and deletion treatment before that policy can be promised. These periods are
-proposed product requirements for the maintainer ruling.
+initial proposals, not selected policy. The current Buttondown cleanup
+assessment below qualifies the available intervals and deletion semantics.
 
 For a feedback option, propose a **90-day** retention limit for the message and
 optional reply address, deletion within **7 days** of a request, and explicit
@@ -125,7 +128,8 @@ get-started path. The designed pages still require #612/#615's real-browser
 keyboard, mobile, zoom and accessibility acceptance.
 
 For a later approved signup, keep a persistent **Email address** label,
-explain the update purpose before consent, and show an actionable invalid
+place clear release-only wording beside Subscribe, add no consent checkbox,
+explain email confirmation, and show an actionable invalid
 address error. “Check your email to confirm release notifications” means an
 accepted request awaiting confirmation; “Subscription confirmed” is shown only
 after confirmation. Delivery failure keeps a retry available and never reports
@@ -145,7 +149,9 @@ The recorded workflow ruling is: provide get-started, docs/source, GitHub
 question/bug feedback and optional GitHub release notifications, together with
 email release updates for visitors who do not use GitHub. The maintainer selected Buttondown after the mailing-service comparison
 below, with website HTML presentation, maintainer ownership and email-only
-visitor fields. Consent, lifecycle and sending policy remain unresolved. A private
+visitor fields. Consent is clear release-only wording beside Subscribe
+followed by email confirmation, without a separate checkbox. Retention/deletion
+and sending policy remain unresolved. A private
 contact form and visitor analytics were not selected.
 
 After the maintainer rules, record the durable choice and why the alternatives
@@ -171,9 +177,10 @@ Use the same criteria for each candidate: a small optional email signup from
 an Astro/GitHub Pages site; confirmation before announcements; honest pending,
 confirmed and error states; unsubscribe, deletion and subscriber export;
 current costs/limits; release-to-email work; accessibility and continuing
-operating ownership. Email-only fields are selected; the consent interaction,
-behavioral-tracking settings and lifecycle periods above remain proposed
-product requirements.
+operating ownership. Email-only fields and clear release-only signup wording
+followed by email confirmation are selected. Open/click engagement tracking
+is disabled under the existing maintainer ruling; lifecycle periods above
+remain proposed product requirements.
 Subscriber metadata and service logs can contain more than the visible form
 fields. Static hosting should never expose a secret subscriber/campaign API
 key; a hosted signup link or documented public form avoids requiring a new
@@ -218,6 +225,28 @@ approve a longer period or promise an unsupported seven-day global purge.
 Choose and document the actual deletion/suppression/backup treatment with the
 provider and operating owner before publication.
 
+### Buttondown cleanup qualification — 2026-10-02
+
+The current [subscriber-cleanup guide](https://docs.buttondown.com/subscriber-cleanup)
+documents an opt-in setting: 30 days for unactivated/complained entries and
+7 days for unsubscribed/blocked entries. Cleanup normally soft-deletes records
+to protect opt-outs from old CSV imports. Hard-deletion mode is available by
+request; the operator must also update stored exports and other copies.
+The earlier seven-day unconfirmed-entry proposal does not match this documented
+managed cleanup interval, and neither policy has been selected or configured.
+
+The [older API changelog](https://docs.buttondown.com/api-changelog-2024-09-30)
+describes DELETE as permanent list deletion, while automatic cleanup expressly
+uses soft deletion. Verify the chosen account's exact cleanup/API behavior;
+a list deletion result alone does not establish erasure of every service copy.
+The [privacy policy](https://buttondown.com/legal/privacy) describes isolated
+backup retention without a fixed purge interval; the
+[DPA](https://buttondown.com/legal/data-processing-agreement) establishes no
+seven-day global-purge deadline. Publish confirmed suppression, backup and log
+treatment before launch. The next maintainer ruling is standard soft-deletion
+cleanup versus provider-enabled hard deletion at the documented intervals,
+including how verified erasure requests and project-held copies are handled.
+
 ### Release sending and website integration
 
 For each managed service, a manually reviewed release campaign is the simplest
@@ -261,9 +290,12 @@ or put a secret subscriber API key in browser code. The maintainer also
 [selected operating ownership](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5941692714)
 of the dedicated project newsletter and
 [email-only visitor fields](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5941746319).
-Consent/confirmation, retention/deletion and release-sending policy remain
-unresolved on #616. Verify the available public submission destination and
-account configuration before launch; these rulings do not establish working
+The maintainer [selected consent and confirmation](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5942150979):
+clear release-only wording beside Subscribe followed by email confirmation,
+without a separate checkbox, and open/click engagement tracking disabled.
+Retention/deletion and
+release-sending policy remain unresolved on #616. Verify the available public
+submission destination and account configuration before launch; these rulings do not establish working
 account setup or live collection.
 
 The comparison's rationale follows:
@@ -285,8 +317,8 @@ mail infrastructure. This preference order is an inference from the approved
 release-only purpose and documented capabilities, not a universal product
 ranking.
 
-The remaining choices are consent and confirmation, retention/deletion and
-release-sending policy. Provider, signup presentation, operating ownership and
-minimal fields are recorded above. The final durable record and scoped
+The remaining choices are retention/deletion and release-sending policy.
+Provider, signup presentation, operating ownership, minimal fields and
+consent/confirmation are recorded above. The final durable record and scoped
 native implementation/design child under #608 must carry those actual
 rulings; the comparison does not supply them by implication.
