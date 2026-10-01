@@ -115,7 +115,10 @@ destination text after loading in the final screen/print mode. Hidden/clipping
 styles are repaired without replacing normal block layouts. If every glyph
 cannot be drawn and hit-tested, an overlay obscures it, or PNG would crop it at
 the existing capture limit, rendering rejects. The existing render deadline
-bounds these checks. For PDF the renderer also checks the finished bytes with
+bounds these checks. Protected declarations follow source shorthand resets;
+the protection also makes painted pseudo-elements available to hit testing.
+Documents with accepted links reject if their content security policy blocks
+the protective stylesheet. For PDF the renderer also checks the finished bytes with
 its lazily loaded PDF.js dependency: every external annotation must belong to
 a tagged link with its own complete disclosure on that physical page, at least
 9 PDF points (12 CSS pixels). Custom page sizes or print scaling that crop or

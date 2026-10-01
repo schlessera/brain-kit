@@ -15,6 +15,9 @@ if (!chromePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Ch
 let renderer: Renderer;
 const observations: { labels: string[]; dnsLabels: { text: string; height: number; lineHeight: number }[]; hidden: number; clipped: number; blocks: { kind: string | undefined; height: number }[]; controls: string[] }[] = [];
 const requested: string[] = [];
+const overlayPaint: boolean[] = [];
+const sourceRepairPaint: boolean[] = [];
+const sourceRepairControlPaint: boolean[] = [];
 beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: chromePath, noSandbox: true,
   launch: async (args) => {
     const browser = await puppeteer.launch(args);
@@ -23,6 +26,35 @@ beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: ch
       const page = await newPage();
       page.on("request", (r) => requested.push(r.url()));
       const screenshot = page.screenshot.bind(page);
+      const setContent = page.setContent.bind(page);
+      page.setContent = async (html, options) => {
+        await setContent(html, options);
+        const clip = await page.evaluate(() => {
+          if (!document.querySelector(".cover")) return null;
+          const label = document.querySelector<HTMLElement>("[data-brain-link-destination]");
+          if (!label?.textContent?.trim()) throw new Error("Overlay fixture has no destination to cover");
+          const r = label.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) throw new Error("Overlay fixture has no drawn destination bounds");
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        if (!clip) return;
+        const covered = await screenshot({ clip });
+        const original = await page.evaluate(() => {
+          const cover = document.querySelector<HTMLElement>(".cover")!;
+          const original = cover.getAttribute("style");
+          cover.style.cssText += ";display:none!important";
+          return original;
+        });
+        try {
+          const uncovered = await screenshot({ clip });
+          overlayPaint.push(!Buffer.from(covered).equals(Buffer.from(uncovered)));
+        } finally {
+          await page.evaluate((original) => {
+            const cover = document.querySelector(".cover")!;
+            if (original === null) cover.removeAttribute("style"); else cover.setAttribute("style", original);
+          }, original);
+        }
+      };
       page.screenshot = (async (options: ScreenshotOptions = {}) => {
         observations.push(await page.evaluate(() => {
           const labels = [...document.querySelectorAll<HTMLElement>("[data-brain-link-destination]")];
@@ -33,6 +65,28 @@ beforeAll(() => { if (chromePath) renderer = createRenderer({ executablePath: ch
             hidden: labels.filter((el) => getComputedStyle(el).display === "none" || getComputedStyle(el).visibility !== "visible" || parseFloat(getComputedStyle(el).opacity) < 1 || parseFloat(getComputedStyle(el).fontSize) < 12).length,
             clipped: labels.filter((el) => { const r = el.getBoundingClientRect(); const b = document.body.getBoundingClientRect(); return r.left < b.left || r.right > b.right + 1 || r.bottom > b.bottom + 1; }).length };
         }));
+        if (options.encoding !== "base64" && await page.evaluate(() => !!document.querySelector(".source-reset"))) {
+          const actual = await screenshot({ ...options, encoding: "binary" });
+          const original = await page.evaluate(() => {
+            const parent = document.querySelector<HTMLElement>(".source-reset")!;
+            const original = parent.getAttribute("style");
+            parent.style.cssText += ";opacity:1!important";
+            return original;
+          });
+          try {
+            const visibleControl = await screenshot({ ...options, encoding: "binary" });
+            sourceRepairPaint.push(Buffer.from(actual).equals(Buffer.from(visibleControl)));
+            await page.evaluate(() => { document.querySelector<HTMLElement>(".source-reset")!.style.cssText += ";opacity:0!important"; });
+            const blankControl = await screenshot({ ...options, encoding: "binary" });
+            sourceRepairControlPaint.push(!Buffer.from(visibleControl).equals(Buffer.from(blankControl)));
+          } finally {
+            await page.evaluate((original) => {
+              const parent = document.querySelector(".source-reset")!;
+              if (original === null) parent.removeAttribute("style"); else parent.setAttribute("style", original);
+            }, original);
+          }
+          return actual;
+        }
         return options.encoding === "base64" ? screenshot({ ...options, encoding: "base64" }) : screenshot(options);
       }) as typeof page.screenshot;
       return page;
@@ -161,6 +215,40 @@ describe.skipIf(!chromePath)("export visibility fails closed", () => {
   test("a painted pointer-events:none overlay cannot conceal a live destination", async () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"></head><body><a href="https://ithaca.example/">Tides</a><div style="position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none"></div></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
     await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("destination is obscured");
+  });
+  test.each([
+    ["source shorthand", '<style>@layer supplied{.cover{position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none}}</style>', '<div class="cover" style="pointer-events:none;all:revert-layer!important"></div>'],
+    ["generated content", '<style>.cover::after{content:"";position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none!important}</style>', '<div class="cover"></div>'],
+    ["source layer collision", '<style>@layer brain-export-protection{.cover::after{content:"";position:fixed;inset:0;background:white;z-index:2147483647;pointer-events:none!important}}</style>', '<div class="cover"></div>'],
+  ])("%s cannot conceal the host while evading hit testing", async (_name, styles, cover) => {
+    const html = buildHtmlDocument({ content: `<!doctype html><html><head><meta name="brain-render" content="bare">${styles}</head><body><a href="https://ithaca.example/">Tides</a>${cover}</body></html>`, contentType: "html", linkPolicy: "visible-destinations" });
+    overlayPaint.length = 0;
+    let result: unknown;
+    try { result = await renderer.renderPdf({ html, linkPolicy: "visible-destinations" }); } catch (error) { result = error; }
+    expect(overlayPaint).toEqual([true]);
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toContain("destination is obscured");
+  });
+  test("an ancestor shorthand cannot undo the opacity repair in the actual PNG", async () => {
+    const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@layer supplied{.source-reset{opacity:0}}</style></head><body><div class="source-reset" style="opacity:0;all:revert-layer!important"><a href="https://ithaca.example/">Tides</a></div></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
+    observations.length = 0; sourceRepairPaint.length = 0; sourceRepairControlPaint.length = 0;
+    const png = await renderer.renderPng({ html, linkPolicy: "visible-destinations" });
+    expect(png.subarray(1, 4).toString()).toBe("PNG");
+    expect(observations).toHaveLength(1);
+    expect(observations[0].labels.join("")).toContain("ithaca.example");
+    expect(sourceRepairControlPaint).toEqual([true]);
+    expect(sourceRepairPaint).toHaveLength(1);
+    expect(sourceRepairPaint[0]).toBe(true);
+  });
+  test("a content security policy that blocks the protective stylesheet refuses export", async () => {
+    const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><meta http-equiv="Content-Security-Policy" content="style-src \'none\'"></head><body><a href="https://ithaca.example/">Tides</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
+    await expect(renderer.renderPdf({ html, linkPolicy: "visible-destinations" })).rejects.toThrow("protection stylesheet is blocked");
+  });
+  test("a document with no accepted links does not need the protective stylesheet", async () => {
+    const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><meta http-equiv="Content-Security-Policy" content="style-src \'none\'"></head><body><a href="javascript:alert(1)">Inert words</a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
+    const pdf = await readPdf(await renderer.renderPdf({ html, linkPolicy: "visible-destinations" }));
+    expect(pdf.text).toContain("Inert words");
+    expect(pdf.annotations.filter((a) => a.subtype === "Link")).toHaveLength(0);
   });
 });
 

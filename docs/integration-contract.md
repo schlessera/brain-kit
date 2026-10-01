@@ -140,7 +140,9 @@ visibility with document scripts disabled. A destination still obscured/clipped,
 or beyond the PNG capture bound, rejects rather than emitting an unchecked
 artifact. PDF checks also cover the finished annotation's own complete tagged
 disclosure, physical page bounds and a 9-point legibility floor; print clipping
-or shrinkage rejects. Existing render budgets apply. No target is fetched by this policy.
+or shrinkage rejects. Documents with accepted links also reject if a content
+security policy blocks the protective stylesheet. Existing render budgets apply.
+No target is fetched by this policy.
 The app's `POST /api/render` always enables it server-side for both formats,
 including raw/full/bare HTML; request content cannot opt out. Its injected
 `AppRenderer` implementations must honor the supplied option's final-visibility

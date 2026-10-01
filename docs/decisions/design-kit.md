@@ -3531,6 +3531,10 @@ Chrome then protects the destination in the final screen/print layout, freezes
 motion and checks every destination glyph's geometry and hit-test visibility.
 Local clipping/hidden styles are repaired; an obscuring overlay, an unresolved
 clipped glyph or a destination beyond the PNG capture cap refuses the export.
+Protected declarations follow source shorthand resets. A fresh first layer
+prevents source rules from reopening the protection layer, and painted
+pseudo-elements participate in hit testing. A document with accepted links
+refuses export if its content security policy blocks the protective stylesheet.
 The optional renderer lazily loads PDF.js to verify the finished PDF too:
 every external annotation must have its own tagged, complete destination on
 that physical page at the 9-point floor. Chrome's print scaling and page-size

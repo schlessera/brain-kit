@@ -173,8 +173,12 @@ export function applyExportLinkPolicy(html: string): string {
  * repaired locally; if any glyph still cannot be drawn, fail the export.
  */
 export async function protectExportLinkDestinations(maxCaptureHeight?: number): Promise<void> {
+  const anchors = document.querySelectorAll<HTMLAnchorElement>("a[data-brain-export-link]");
+  if (anchors.length === 0) return;
   const force = (el: HTMLElement, props: Record<string, string>) => {
-    for (const [name, value] of Object.entries(props)) el.style.setProperty(name, value, "important");
+    // Parse a complete declaration list with our values last. Updating an
+    // existing CSSOM longhand may retain its position before an `all` reset.
+    el.style.cssText += ";" + Object.entries(props).map(([name, value]) => `${name}:${value}!important`).join(";");
   };
   // Freeze the static export. Making hit testing available also catches a
   // painted overlay whose author disabled pointer events to conceal it.
@@ -184,11 +188,15 @@ export async function protectExportLinkDestinations(maxCaptureHeight?: number): 
   for (const svg of document.querySelectorAll("svg")) svg.pauseAnimations();
   await document.fonts.ready;
   const stylesheet = document.createElement("style");
+  // A caller must not reopen our first layer with a more specific rule.
+  const layer = "brain-export-" + [...crypto.getRandomValues(new Uint32Array(4))].map((n) => n.toString(16).padStart(8, "0")).join("");
+  stylesheet.style.cssText = "display:none!important";
   // First-layer !important declarations precede supplied layers/unlayered
   // rules; pseudo-content cannot be reset by an inline style attribute.
-  stylesheet.textContent = "@layer brain-export-protection{*,*::before,*::after{animation:none!important;transition:none!important}[data-brain-export-link]::before,[data-brain-export-link]::after,[data-brain-link-destination]::before,[data-brain-link-destination]::after,[data-brain-link-destination] *::before,[data-brain-link-destination] *::after{content:none!important;display:none!important}}";
+  stylesheet.textContent = `@layer ${layer}{*,*::before,*::after{animation:none!important;transition:none!important;pointer-events:auto!important}[data-brain-export-link]::before,[data-brain-export-link]::after,[data-brain-link-destination]::before,[data-brain-link-destination]::after,[data-brain-link-destination] *::before,[data-brain-link-destination] *::after{content:none!important;display:none!important}}`;
   document.head.prepend(stylesheet);
-  for (const anchor of document.querySelectorAll<HTMLAnchorElement>("a[data-brain-export-link]")) {
+  if (!stylesheet.sheet?.cssRules.length) throw new Error("Export link destination protection stylesheet is blocked");
+  for (const anchor of anchors) {
     anchor.setAttribute("role", "link");
     const destination = anchor.querySelector<HTMLElement>("[data-brain-link-destination]");
     if (!destination) throw new Error("Export link has no visible destination");
