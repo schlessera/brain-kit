@@ -4,9 +4,10 @@ Comparison for [#616](https://github.com/schlessera/brain-kit/issues/616),
 under [#608](https://github.com/schlessera/brain-kit/issues/608). The maintainer
 selected outbound visitor paths plus email release notifications on
 2026-10-01 and required online research before choosing a mailing service.
-The service comparison below supports that remaining choice. Provider,
-ownership and lifecycle recommendations are not approval to implement forms
-or collect visitor data. Visual screenshot/demo capture belongs to #613/#614.
+The service comparison below supported the Buttondown selection. The current
+rulings select a website HTML form, a maintainer-operated project newsletter
+and email-only visitor fields. Consent, lifecycle and sending policy remain
+for the maintainer to settle. Visual screenshot/demo capture belongs to #613/#614.
 
 ## Approved visitor paths
 
@@ -15,7 +16,7 @@ source**, **Ask a question on GitHub**, **Report a bug on GitHub**, and
 **Report a security vulnerability** through the existing security policy.
 Offer **GitHub release notifications** only with its actual platform limits
 explained. Add an optional email release-signup path for visitors who do not
-use GitHub, once the mailing service and its ownership/lifecycle are selected.
+use GitHub, once the remaining consent/lifecycle/sending brief is complete.
 The maintainer did not select a private contact form. No visitor analytics or
 tracking integration is approved by the release-signup choice.
 
@@ -80,22 +81,23 @@ and states that it records visitor IP addresses for security. A collection-free
 website application is therefore not a promise that the host stores no data.
 A first-party form would still need a separately selected submission/delivery
 service and owner; static page hosting alone does not supply that workflow.
-This comparison selects no such service and makes no unverified vendor claim.
+The selected Buttondown public form supplies that submission path; its actual
+configuration and browser behavior still need verification.
 
 ## Alternatives and their costs
 
 | Option | Visitor benefit and fields | Maintenance, access and data lifecycle | Recommendation |
 | --- | --- | --- | --- |
 | Existing outbound paths | Docs/source can be read without first-party input once public. GitHub handles question/bug posting and optional notification preferences. No first-party fields. | Reuse existing moderation and templates. Explain GitHub login and public posting; keep destinations healthy. GitHub/hosting retain their own platform data. The outbound paths need no extra contact/list database. | Selected alongside release email signup. |
-| Minimal release-notification signup | Proposed fields: an email address and explicit, unchecked release-notification consent; no name, job title or profile fields. Serves visitors who want announcements without GitHub. | Select a delivery/list owner, verified opt-in and unsubscribe/deletion handling, abuse limits, sender configuration and a publication cadence. Build accessible validation and distinguish pending confirmation from active subscription. | The workflow is selected. The researched comparison below precedes the provider, ownership and lifecycle rulings. |
+| Minimal release-notification signup | Selected personal-information field: email address only; the consent interaction remains to be chosen. No name, job title or profile fields. Serves visitors who want announcements without GitHub. | Select a delivery/list owner, verified opt-in and unsubscribe/deletion handling, abuse limits, sender configuration and a publication cadence. Build accessible validation and distinguish pending confirmation from active subscription. | The workflow, Buttondown, HTML form, maintainer ownership and email-only fields are selected. Consent and lifecycle remain open. |
 | Minimal feedback/contact form | Required message; optional reply email. No name, attachment, phone number or automatic marketing consent. Would serve visitors unable to post on GitHub. | Select a project-owned destination and response owner, moderation/rate limits, retention/deletion procedure and incident handling. Explain whether messages are private and whether a reply is possible. A form is an additional inbox, not a replacement for reproducible issue reports. | Only if a concrete non-GitHub/private-contact workflow warrants the continuing ownership cost. |
 
-Release signup is the selected collection workflow; its field and lifecycle
+Release signup is the selected collection workflow; consent and lifecycle
 details still require a ruling. A private contact form remains an unselected
 alternative. The signup implementation issue needs a named
 service/project-owned destination and access prerequisite before coding;
 placeholders are not a working destination. The maintainer must approve
-retention and operating ownership, not merely say “add a form.”
+retention and the remaining consent/sending policy before the form ships.
 
 For a signup option, propose removing unconfirmed entries after **7 days**,
 retaining confirmed entries only while subscribed, stopping delivery on
@@ -141,8 +143,9 @@ and announcement. No form or submission behavior is implemented here.
 
 The recorded workflow ruling is: provide get-started, docs/source, GitHub
 question/bug feedback and optional GitHub release notifications, together with
-email release updates for visitors who do not use GitHub. The mailing-service
-recommendation below remains separate from that approved workflow. A private
+email release updates for visitors who do not use GitHub. The maintainer selected Buttondown after the mailing-service comparison
+below, with website HTML presentation, maintainer ownership and email-only
+visitor fields. Consent, lifecycle and sending policy remain unresolved. A private
 contact form and visitor analytics were not selected.
 
 After the maintainer rules, record the durable choice and why the alternatives
@@ -151,8 +154,8 @@ checks, and close #616 only when its criteria are met. Outbound links can be
 implemented within those existing children. For the approved signup workflow,
 file a genuinely scoped native child under #608 containing the approved
 fields, destination/owner, consent/lifecycle rules, abuse/accessibility,
-truthful states and keyless verification. Use the research below to select the service before
-filing that implementation brief. This investigation authorizes no publication,
+truthful states and keyless verification. Carry the recorded provider/presentation/owner/field rulings and the remaining
+policy choices into that implementation brief. This investigation authorizes no publication,
 visitor data collection, message delivery, signup or paid account.
 
 ## Mailing-service research and comparison
@@ -168,8 +171,9 @@ Use the same criteria for each candidate: a small optional email signup from
 an Astro/GitHub Pages site; confirmation before announcements; honest pending,
 confirmed and error states; unsubscribe, deletion and subscriber export;
 current costs/limits; release-to-email work; accessibility and continuing
-operating ownership. Email-only fields, explicit consent, disabled behavioral
-tracking and the lifecycle periods above remain proposed product requirements.
+operating ownership. Email-only fields are selected; the consent interaction,
+behavioral-tracking settings and lifecycle periods above remain proposed
+product requirements.
 Subscriber metadata and service logs can contain more than the visible form
 fields. Static hosting should never expose a secret subscriber/campaign API
 key; a hosted signup link or documented public form avoids requiring a new
@@ -245,19 +249,32 @@ claimed here.
 
 The maintainer [selected A: Buttondown on 2026-10-01](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5940845881)
 after reviewing the researched options. This selects the service for the
-approved release-signup workflow. Destination/operating ownership, fields,
-consent and lifecycle, signup presentation and release-sending policy remain
-separate rulings on #616. Account setup and live collection are not established
-by this choice.
+approved release-signup workflow. On 2026-10-02 the maintainer selected
+**presentation B: an HTML signup form styled on the project website**,
+superseding the earlier hosted-link A choice. Use an ordinary form POST to
+Buttondown's public embed-subscribe endpoint; its
+[official guide](https://docs.buttondown.com/building-your-subscriber-base)
+requires this flow so validation and CAPTCHA/challenges can complete. The
+website owns accessible fields, validation and focus, while Buttondown handles
+the submission response. Do not promise an entirely in-page confirmation flow
+or put a secret subscriber API key in browser code. The maintainer also
+[selected operating ownership](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5941692714)
+of the dedicated project newsletter and
+[email-only visitor fields](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5941746319).
+Consent/confirmation, retention/deletion and release-sending policy remain
+unresolved on #616. Verify the available public submission destination and
+account configuration before launch; these rulings do not establish working
+account setup or live collection.
 
 The comparison's rationale follows:
 
 Recommend **A, Buttondown**, for a focused release list when a small initial
 free allowance and paid growth are acceptable. Markdown, default confirmation
 and optional tracking fit the intended workflow with fewer configuration
-exceptions. Start with a hosted signup destination and manually reviewed
-release emails; these presentation/sending choices are recommendations,
-not additional maintainer rulings.
+exceptions. The initial research recommended a hosted signup destination;
+the maintainer's later HTML form choice supersedes that presentation
+recommendation. Manually reviewed release emails remain a sending-policy
+recommendation, rather than an additional maintainer ruling.
 
 Choose **B, EmailOctopus**, when larger free capacity matters more than those
 defaults, accepting explicit confirmation and per-campaign tracking controls.
@@ -268,8 +285,8 @@ mail infrastructure. This preference order is an inference from the approved
 release-only purpose and documented capabilities, not a universal product
 ranking.
 
-The provider choice precedes the project-owned destination/operating owner,
-minimal fields, consent and confirmation, retention/deletion, signup
-presentation and release-sending policy. The final durable record and scoped
+The remaining choices are consent and confirmation, retention/deletion and
+release-sending policy. Provider, signup presentation, operating ownership and
+minimal fields are recorded above. The final durable record and scoped
 native implementation/design child under #608 must carry those actual
 rulings; the comparison does not supply them by implication.
