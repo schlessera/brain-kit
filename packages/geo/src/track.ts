@@ -219,28 +219,37 @@ export function quantizeRoute(segments: RoutePoint[][]): RoutePoint[][] {
     elevation_m: p.elevation_m === null ? null : round(p.elevation_m, 3) })));
 }
 
+/** Complete eligible samples use the same smoothing in both elevation directions. */
+function elevationChanges(segments: RoutePoint[][]): { ascent: number; descent: number } | null {
+  if (segments.some(s => s.some(p => p.elevation_m === null))) return null;
+  let ascent = 0, descent = 0;
+  for (const segment of segments) {
+    const elevations = segment.map(p => p.elevation_m!);
+    const smooth = elevations.map((n, i) => i === 0 || i === elevations.length - 1 ? n
+      : [elevations[i - 1]!, n, elevations[i + 1]!].sort((a, b) => a - b)[1]!);
+    let reference = smooth[0]!;
+    for (const n of smooth.slice(1)) if (Math.abs(n - reference) >= 3) {
+      ascent += Math.max(0, n - reference);
+      descent += Math.max(0, reference - n);
+      reference = n;
+    }
+  }
+  return { ascent, descent };
+}
+
 export function routeMetrics(segments: RoutePoint[][]): RouteMetrics {
   const points = segments.flat(), distance = segments.reduce((n, s) => n + lengthM(s), 0);
-  const elevationKnown = points.every((p) => p.elevation_m !== null);
-  let ascent = 0, duration = 0;
+  const elevation = elevationChanges(segments), elevationKnown = elevation !== null;
+  let duration = 0;
   let timeKnown = true;
   for (const segment of segments) {
-    if (elevationKnown) {
-      const elevations = segment.map((p) => p.elevation_m!);
-      const smooth = elevations.map((n, i) => i === 0 || i === elevations.length - 1 ? n
-        : [elevations[i - 1]!, n, elevations[i + 1]!].sort((a, b) => a - b)[1]!);
-      let reference = smooth[0]!;
-      for (const n of smooth.slice(1)) if (Math.abs(n - reference) >= 3) {
-        ascent += Math.max(0, n - reference); reference = n;
-      }
-    }
     if (segment.some((p) => p.time === null) || segment.some((p, i) => i > 0 && Date.parse(p.time!) < Date.parse(segment[i - 1]!.time!))) timeKnown = false;
     else duration += (Date.parse(segment[segment.length - 1]!.time!) - Date.parse(segment[0]!.time!)) / 1000;
   }
   const altitudes = points.map((p) => p.elevation_m!);
   const extrema = (maximum: boolean): number => altitudes.reduce((a, b) => maximum ? Math.max(a, b) : Math.min(a, b));
   const closed = segments.length === 1 && distanceM(points[0]!, points[points.length - 1]!) <= Math.min(30, distance * 0.05);
-  return { distance_km: round(distance / 1000, 6), ascent_m: elevationKnown && Number.isFinite(ascent) ? round(ascent, 3) : null,
+  return { distance_km: round(distance / 1000, 6), ascent_m: elevation && Number.isFinite(elevation.ascent) ? round(elevation.ascent, 3) : null,
     altitude_min_m: elevationKnown ? extrema(false) : null, altitude_max_m: elevationKnown ? extrema(true) : null,
     shape: segments.length === 1 ? closed ? "loop" : "one_way" : "unknown", recorded_duration_s: timeKnown ? round(duration, 3) : null,
     points: points.length, segments: segments.length };
@@ -256,3 +265,59 @@ export function writeGpx(segments: RoutePoint[][]): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="brain-kit">\n  <metadata><bounds minlat="${decimal(min("lat"), 9)}" minlon="${decimal(min("lon"), 9)}" maxlat="${decimal(max("lat"), 9)}" maxlon="${decimal(max("lon"), 9)}"/></metadata>\n  <trk>\n${body}\n  </trk>\n</gpx>\n`;
 }
 
+
+export interface TrackSource { kind: "file"; path: string; recordingClaim?: { text: string; verified: false } }
+export interface TrackMeasure { value: number | null; unit: "m" | "s"; scope: "usable_sections" }
+export interface TrackSummary {
+  status: ParsedTrack["status"];
+  partial: boolean;
+  source: TrackSource;
+  counts: ParsedTrack["counts"];
+  geometry: RoutePoint[][];
+  measurements: { distance: TrackMeasure; ascent: TrackMeasure; descent: TrackMeasure;
+    altitudeMin: TrackMeasure; altitudeMax: TrackMeasure; elapsed: TrackMeasure; movingTime: TrackMeasure };
+  bounds: [number, number, number, number] | null;
+  start: RoutePoint | null;
+  end: RoutePoint | null;
+  shape: RouteMetrics["shape"];
+  unknown: { field: string; reason: string }[];
+  warnings: string[];
+  method: { distance: "great_circle"; earthRadiusM: number; elevation: "three_point_median_3m_hysteresis";
+    elapsed: "segment_last_minus_first_with_pauses"; movingTime: "unavailable" };
+}
+
+/** Unit-bearing, unsimplified file evidence; source metadata is not proof of travel. */
+export function summarizeTrack(track: ParsedTrack, source: TrackSource): TrackSummary {
+  const lines = track.segments.filter(s => s.length >= 2);
+  const points = track.segments.flat();
+  const legacy = lines.length ? routeMetrics(lines) : null;
+  const unknown: TrackSummary["unknown"] = [];
+  const measure = (field: string, value: number | null, unit: TrackMeasure["unit"], reason: string): TrackMeasure => {
+    if (value === null) unknown.push({ field, reason });
+    return { value, unit, scope: "usable_sections" };
+  };
+  const temporalReason = !legacy ? "no_usable_line" : lines.some(s => s.some(p => p.time === null))
+    ? "timestamp_missing_or_invalid" : "timestamps_decrease";
+  const elevationReason = !legacy ? "no_usable_line" : "elevation_missing_or_invalid";
+  const descent = legacy ? elevationChanges(lines)?.descent ?? null : null;
+  const bounds: TrackSummary["bounds"] = points.length ? [
+    points.reduce((n,p) => Math.min(n,p.lon), Infinity), points.reduce((n,p) => Math.min(n,p.lat), Infinity),
+    points.reduce((n,p) => Math.max(n,p.lon), -Infinity), points.reduce((n,p) => Math.max(n,p.lat), -Infinity)] : null;
+  if (!points.length) for (const field of ["bounds", "start", "end"]) unknown.push({ field, reason: "no_valid_points" });
+  if (!legacy || legacy.shape === "unknown") unknown.push({ field: "shape", reason: !legacy ? "no_usable_line" : "disconnected_sections" });
+  return { status: track.status, partial: track.partial,
+    source: { ...source, ...(source.recordingClaim ? { recordingClaim: { ...source.recordingClaim } } : {}) }, counts: { ...track.counts },
+    geometry: track.segments.map(s => s.map(p => ({ ...p }))), bounds,
+    start: points[0] ? { ...points[0] } : null, end: points.at(-1) ? { ...points.at(-1)! } : null,
+    shape: legacy?.shape ?? "unknown", unknown, warnings: [...track.warnings],
+    measurements: {
+      distance: measure("distance", legacy ? lines.reduce((n,s) => n + lengthM(s), 0) : null, "m", "no_usable_line"),
+      ascent: measure("ascent", legacy?.ascent_m ?? null, "m", elevationReason),
+      descent: measure("descent", descent === null ? null : round(descent, 3), "m", elevationReason),
+      altitudeMin: measure("altitudeMin", legacy?.altitude_min_m ?? null, "m", elevationReason),
+      altitudeMax: measure("altitudeMax", legacy?.altitude_max_m ?? null, "m", elevationReason),
+      elapsed: measure("elapsed", legacy?.recorded_duration_s ?? null, "s", temporalReason),
+      movingTime: measure("movingTime", null, "s", "estimator_not_in_scope"),
+    }, method: { distance: "great_circle", earthRadiusM: EARTH_RADIUS_M,
+      elevation: "three_point_median_3m_hysteresis", elapsed: "segment_last_minus_first_with_pauses", movingTime: "unavailable" } };
+}

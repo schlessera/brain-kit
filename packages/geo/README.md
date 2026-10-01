@@ -25,3 +25,15 @@ are shared here with their existing meanings. Distances sum great-circle edges
 within continuous sections; gaps contribute nothing. Elevation requires complete
 samples, a three-point median and 3 m hysteresis. Ordered complete timestamps
 supply elapsed intervals including pauses, without inter-section gaps.
+
+## Track summaries
+
+`summarizeTrack(parseTrackGpx(source), { kind: "file", path })` reports copied
+geometry, bounds/start/end, status/counts and unit-bearing measurements with
+usable-section scope. Distance uses unsimplified great-circle edges on a
+6,371,008.8 m sphere. Ascent and descent share the same complete-data smoothing;
+elapsed includes pauses within sections and excludes gaps. Moving time stays
+unavailable. Missing or decreasing required timestamps, incomplete elevations
+and no-line inputs carry explicit unknown reasons; genuine zeros remain zero.
+File timestamps do not establish a recording claim. Optional claims stay unverified.
+The returned geometry can be changed for drawing without changing the parser input.

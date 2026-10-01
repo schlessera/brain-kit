@@ -10,13 +10,17 @@ export "." (./src/index.ts)
   type RouteGeometry
   type RouteMetrics
   type RoutePoint
+  type TrackMeasure
   type TrackOmission
+  type TrackSource
+  type TrackSummary
   distanceM
   parseGpx
   parseTrackGpx
   quantizeRoute
   routeMetrics
   routePoint
+  summarizeTrack
   trimRoute
   writeGpx
 

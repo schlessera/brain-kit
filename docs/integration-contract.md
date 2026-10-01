@@ -2744,3 +2744,19 @@ Both parsers use the same guarded XML reader. Recovery never modifies the source
 bridges gaps, changes optional unknown values or proves recording/travel from file
 metadata. [Shared ownership and recovery](decisions/geo-operations.md) explains
 why the new policy is separate from travel's strict compatibility entry point.
+
+`summarizeTrack(parsed, source)` returns the original counts/status, copied geometry,
+file source, `[west,south,east,north]` bounds, start/end, shape, warnings, `unknown`
+field/reason records and method metadata. Its `measurements` contain `distance`,
+`ascent`, `descent`, `altitudeMin`, `altitudeMax`, `elapsed` and `movingTime`, each
+with `{ value: number | null, unit: "m" | "s", scope: "usable_sections" }`.
+Distance uses unsimplified great-circle edges on a 6,371,008.8 m sphere. Sections
+with fewer than two points remain evidence but do not contribute measurements.
+Known zero remains zero. Elevation requires complete eligible section samples;
+ascent/descent share three-point-median smoothing and 3 m hysteresis. Elapsed
+sums each section's ordered, complete first/last timestamp interval, retaining
+pauses and excluding gaps; absent/invalid/decreasing timestamps remain unknown.
+Moving time is always unknown with `estimator_not_in_scope`. No-line geometry has
+unknown distance rather than a successful zero. Absent bounds/start/end and
+unknown shape carry reasons as well. An optional recording claim retains its
+text and `verified: false`; the library never infers recording from timestamps.

@@ -156,11 +156,11 @@ segment and interpolates cut boundaries. Segment gaps are never joined
 (`trimRoute`, `packages/geo/src/track.ts:189-214`).
 The writer rebuilds a whitelist GPX from retained points and new bounds;
 source metadata and ancillary geometry are never copied
-(`writeGpx`, `packages/geo/src/track.ts:250-257`).
+(`writeGpx`, `packages/geo/src/track.ts:259-266`).
 Metrics use the exact quantized points written to that file. Unknown
 elevations/timestamps remain null; smoothed ascent resets at segment gaps,
 and duration requires ordered absolute timestamps
-(`routeMetrics`, `packages/geo/src/track.ts:222-247`).
+(`routeMetrics`, `packages/geo/src/track.ts:240-256`).
 The package README specifies units, smoothing, shape and serialization
 tolerances. Original inputs and occupied output names remain untouched
 (`importRoute`, `packages/module-travel/src/route.ts:118-169`).
