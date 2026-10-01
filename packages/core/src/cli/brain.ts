@@ -222,7 +222,7 @@ async function main(): Promise<number> {
       }
     }
     console.log(help ?? entry.summary);
-    return 0;
+    return entry.helpExitCode ?? 0;
   }
 
   // An invalid config blocks commands that depend on a correct taxonomy.

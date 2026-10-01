@@ -32,6 +32,12 @@ const contributionSchema = z
       .strict()
       .optional(),
     skills: repoRelativePathSchema.optional(),
+    instructions: z.object({
+      text: z.string().min(1).refine((s) => s.trim().length > 0)
+        .refine((s) => !/<!--\s*\/?brain:(?:generated|module-instructions):/.test(s), {
+          message: "instruction text must not contain ownership markers",
+        }),
+    }).strict().optional(),
     commands: z.record(z.string(), z.custom<() => Promise<unknown>>((v) => typeof v === "function")).optional(),
     tools: z.record(
       z.string().regex(MODULE_TOOL_LOCAL_NAME, {
@@ -97,10 +103,22 @@ export async function loadModules(
     }
     seenNames.add(manifest.name);
 
-    let validated: unknown = moduleConfig ?? {};
+    // enabled belongs to core, never to a module's strict domain schema.
+    let domainConfig: unknown = moduleConfig ?? {};
+    let enabled = true;
+    if (domainConfig && typeof domainConfig === "object" && !Array.isArray(domainConfig) && Object.hasOwn(domainConfig, "enabled")) {
+      const { enabled: flag, ...domain } = domainConfig as Record<string, unknown>;
+      if (flag !== undefined) {
+        const parsedFlag = z.boolean().safeParse(flag);
+        if (!parsedFlag.success) throw new Error(`Invalid enabled flag for module "${manifest.name}": expected a boolean`);
+        enabled = parsedFlag.data;
+      }
+      domainConfig = domain;
+    }
+    let validated: unknown = domainConfig;
     if (manifest.configSchema) {
       try {
-        validated = manifest.configSchema.parse(moduleConfig ?? {});
+        validated = manifest.configSchema.parse(domainConfig);
       } catch (e) {
         throw new Error(
           `Invalid config for module "${manifest.name}" (key: ${key}): ${(e as Error).message}`
@@ -130,15 +148,24 @@ export async function loadModules(
         .join("\n");
       throw new Error(`Module "${manifest.name}" contributed an invalid manifest:\n${issues}`);
     }
+    if (parsed.data.instructions && !/^[a-z][a-z0-9-]{0,30}$/.test(manifest.name)) {
+      throw new Error(`Module "${manifest.name}" instruction owner must match ^[a-z][a-z0-9-]{0,30}$`);
+    }
 
     loaded.push({
       key,
       // Store the VALIDATED output, not the raw contribution, so any schema
       // defaults/normalization actually take effect. (Cast: zod types the
       // z.custom function fields loosely; the values pass through unchanged.)
-      manifest: { name: manifest.name, ...(parsed.data as ModuleContribution) },
+      manifest: {
+        name: manifest.name,
+        ...(manifest.canBeDormant !== undefined ? { canBeDormant: manifest.canBeDormant } : {}),
+        ...(manifest.dormancyReason !== undefined ? { dormancyReason: manifest.dormancyReason } : {}),
+        ...(parsed.data as ModuleContribution),
+      },
       dir,
       config: validated,
+      state: enabled ? "active" : "dormant",
     });
   }
 
@@ -190,6 +217,13 @@ async function importManifest(
       `Module "${key}" uses the legacy flat manifest — move its contributions into ` +
         `defineModule({ name, configSchema, setup: (config) => ({ … }) })`
     );
+  }
+  if (manifest.canBeDormant !== undefined && typeof manifest.canBeDormant !== "boolean") {
+    throw new Error(`Module "${manifest.name}" canBeDormant must be a boolean`);
+  }
+  if (manifest.dormancyReason !== undefined &&
+    (typeof manifest.dormancyReason !== "string" || !manifest.dormancyReason.trim())) {
+    throw new Error(`Module "${manifest.name}" dormancyReason must be a non-empty string`);
   }
   return { manifest, dir };
 }

@@ -765,6 +765,13 @@ Enables workflow modules. A key is either an npm package name
 value is that module's config block, validated by the module's own schema. Load
 order follows config order. See [modules.md](modules.md).
 
+An optional `enabled` boolean inside each entry defaults to `true`. Core owns
+and validates it separately from the module's domain schema. `false` keeps the
+module loaded and its config validated, retaining document types and anchors
+while parking its workflows. Use `brain module disable <name>` / `enable <name>`
+to update the flag, sync managed skills and regenerate owned instructions;
+legacy mixed instruction sections require [explicit migration](modules.md#instruction-migration).
+
 ```ts
 modules: {
   "@schlessera/brain-module-speaking": {},

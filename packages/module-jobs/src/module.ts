@@ -58,6 +58,7 @@ export default defineModule({
       types: { opportunity: { dir: config.opportunitiesDir } },
     },
     skills: "./skills",
+    instructions: { text: `## Jobs workflow\n\nKeep opportunity notes under ${config.opportunitiesDir}, with pipeline state in each status.md. Read scoring criteria from ${config.criteria}; preserve its user-owned prose and scoring frontmatter. Review the local queue with brain jobs review. Scraping uses the configured boards and their robots/terms constraints.` },
     commands: { jobs: () => import("./cli.js") },
     tools: { review: () => import("./mcp/review.js") },
     indexRules: { dirAnchors: ["status.md"] },

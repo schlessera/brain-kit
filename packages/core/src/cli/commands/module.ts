@@ -5,15 +5,21 @@ import { discoverSkills, lintSkills } from "../../lib/skills/index.js";
 import type { LintFinding } from "../../lib/skills/index.js";
 import { CORE_COMMAND_NAMES } from "../core-command-names.js";
 import type { CoreCommand, CliContext } from "../types.js";
-import { emit, UsageError } from "../io.js";
+import { emit, parseArgs, UsageError } from "../io.js";
+import { moduleContextTokens } from "../../lib/module-instructions.js";
 import { lintModuleTools } from "../../lib/module-tool-lint.js";
 import { ModuleToolNameError } from "../../lib/module-tool-names.js";
 
-const HELP = `brain module <list|lint>
+const HELP = `brain module <list|lint|enable|disable>
 
   list          Enabled modules + available @schlessera/brain-module-* packages
   lint <name>   Validate an enabled module: manifest, skills, command/type
-                collisions, MCP tools, and configSchema against the user's config block`;
+                collisions, MCP tools, and configSchema against the user's config block
+  enable <name> Reactivate a configured module and synchronize owned context
+  disable <name> Park workflows while retaining validated config and content
+
+Legacy mixed generated instruction sections require explicit migration first.
+See docs/modules.md (instruction migration).`;
 
 function pkgInfo(dir: string): { name?: string; description?: string } {
   try {
@@ -44,7 +50,9 @@ function moduleList(cli: CliContext): Record<string, unknown> {
     types: Object.keys(m.manifest.taxonomy?.types ?? {}),
     commands: Object.keys(m.manifest.commands ?? {}),
     tools: Object.keys(m.manifest.tools ?? {}).map((local) => `${m.manifest.name}_${local}`),
-    cron: m.manifest.cron ?? [],
+    cron: m.state === "dormant" ? [] : m.manifest.cron ?? [],
+    state: m.state ?? "active",
+    contextTokens: moduleContextTokens(cli.brain.root, cli.brain.modules, m),
   }));
 
   const available = declaredModulePackages(cli.brain.root)
@@ -96,7 +104,7 @@ async function moduleLint(cli: CliContext, name: string): Promise<{ findings: Li
   }
 
   // Skills: lint the module's own skills, and surface discovery warnings.
-  const { skills, warnings } = discoverSkills({ root: cli.brain.root, modules: [mod] });
+  const { skills, warnings } = discoverSkills({ root: cli.brain.root, modules: [{ ...mod, state: "active" }] });
   const moduleSkills = skills.filter((s) => s.source === "module");
   findings.push(...lintSkills(moduleSkills));
   for (const w of warnings) add("error", "skill-frontmatter", w);
@@ -118,14 +126,27 @@ export const moduleCommand: CoreCommand = {
     if (sub === "list") {
       const result = moduleList(cli);
       emit(cli.json, result, () => {
-        const enabled = result.enabled as Array<{ name: string; description: string | null }>;
+        const enabled = result.enabled as Array<{ name: string; description: string | null; state: string; contextTokens: number }>;
         const available = result.available as Array<{ key: string; description: string | null }>;
         console.log("Enabled modules:");
-        for (const m of enabled) console.log(`  ${m.name} — ${m.description ?? "(no description)"}`);
+        for (const m of enabled) console.log(`  ${m.name} — ${m.description ?? "(no description)"}${m.state === "dormant" ? " [dormant]" : ""} (${m.contextTokens} estimated context tokens when active)`);
         if (enabled.length === 0) console.log("  (none)");
         console.log("\nAvailable (declared but not enabled):");
         for (const m of available) console.log(`  ${m.key} — ${m.description ?? "(not installed)"}`);
         if (available.length === 0) console.log("  (none)");
+      });
+      return;
+    }
+
+    if (sub === "enable" || sub === "disable") {
+      const { args: pos } = parseArgs(args);
+      if (pos.length !== 2) throw new UsageError(`Usage: brain module ${sub} <name>`);
+      const { toggleModule } = await import("../../lib/module-toggle.js");
+      const result = toggleModule(cli, pos[1]!, sub === "enable");
+      emit(cli.json, result, () => {
+        console.log(`Module ${result.module}: ${result.state}${result.changed ? "" : " (unchanged)"}`);
+        if (result.context.entered.length) console.log(`Entered context: ${result.context.entered.join(", ")}`);
+        if (result.context.left.length) console.log(`Left context: ${result.context.left.join(", ")}`);
       });
       return;
     }
@@ -146,6 +167,6 @@ export const moduleCommand: CoreCommand = {
       return errors > 0 ? 1 : 0;
     }
 
-    throw new UsageError("Usage: brain module <list|lint>");
+    throw new UsageError("Usage: brain module <list|lint|enable|disable>");
   },
 };

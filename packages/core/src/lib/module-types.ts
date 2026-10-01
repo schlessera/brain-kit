@@ -127,6 +127,8 @@ export interface ModuleContribution<C = unknown> {
    * repoRelativePathSchema does not apply here.
    */
   skills?: string;
+  /** Authoritative generated context, derived from validated config by setup(). */
+  instructions?: { text: string };
   /** ONE namespaced top-level CLI word per module (e.g. `brain jobs …`). */
   commands?: Record<string, () => Promise<{ default: CommandModule<C> } | CommandModule<C>>>;
   /** Lazy MCP definitions, served as `<module-name>_<local-name>`.
@@ -147,6 +149,10 @@ export interface ModuleContribution<C = unknown> {
  */
 export interface ModuleManifest<C = unknown> {
   name: string;
+  /** Omission permits dormancy. A false value prevents CLI disable. */
+  canBeDormant?: boolean;
+  /** Explanation shown when canBeDormant is false. */
+  dormancyReason?: string;
   /** Zod schema validating the user's config block for this module. */
   configSchema?: { parse(input: unknown): C };
   setup(config: C): ModuleContribution<C>;
@@ -163,7 +169,11 @@ export function defineModule<C = unknown>(manifest: ModuleManifest<C>): ModuleMa
 }
 
 /** The contribution as stored after setup(), tagged with the module's name. */
-export type ResolvedManifest<C = unknown> = ModuleContribution<C> & { name: string };
+export type ResolvedManifest<C = unknown> = ModuleContribution<C> & {
+  name: string;
+  canBeDormant?: boolean;
+  dormancyReason?: string;
+};
 
 /**
  * A loaded module: resolved contribution + where it came from. The loader
@@ -179,4 +189,6 @@ export interface LoadedModule<C = unknown> {
   dir: string;
   /** The user's validated config block for this module. */
   config: C;
+  /** The loader always supplies state; omission in constructed contexts means active. */
+  state?: "active" | "dormant";
 }

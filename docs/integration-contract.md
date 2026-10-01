@@ -405,7 +405,8 @@ policy. The rationale and measurements are in
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | `{ run, agent }` in machine mode (`--json`, or stdout not a TTY); its text report in human mode (`--human`, or a terminal). With no verb, `sync` runs `brain sync run`. When an agent runner is configured and the run needs one (a conflict no strategy merges, an `UNKNOWN` leftover, or a `MEDIA`/`LARGE` leftover with a terminal attached), it then runs the `/sync` skill and exits `0`. Without an agent runner the exit code is `run`'s: `0` complete, `1` failed, `3` something left for judgment: a conflict no strategy merges (left in progress, nothing pushed) or a file holding conflict markers (left uncommitted, never pushed). An agent run that fails exits `2`, its error on stderr. **Machine mode** prints exactly one JSON document on stdout, whatever the agent did, and nothing else: no report, no progress, no agent text beside it. `run` is the envelope `brain sync run --json` prints (its `status` and `report` are contract; its other fields drive the `/sync` skill and are not). `agent` is `{ invoked: false, reason: "not-needed" \| "no-runner" }` — `no-runner` when the run needed an agent and none was available — or `{ invoked: true, runner: string, outcome: "success" \| "failed", runtime: { name: string, version: string \| null } \| null, text: string \| null, error?: string }`. `runtime` is what that agent run reported about itself while it ran, never probed and never taken from another run: `null` when it reported nothing (a runner that does not report, or a run that ended first), `version: null` when it named itself without a version. The built-in `claude` runner reports `{ name: "claude-code", version }` from the Claude Code session's `system`/`init` event (`claude_code_version`), the field chat records as `runtime_observed`. A failed agent run still prints the result, with `outcome: "failed"`, `text: null`, `error`, and any runtime it reported before failing. Not invoking an agent says nothing about model cost: the sync judge and enrichment can call a model without one. **Human mode** prints the report, then the agent's final text when it ran, with tool progress on stderr. **Breaking in 0.40.0 (#290):** bare `sync` printed its text report in every output mode, so a caller that read stdout as text passes `--human`, or reads `run.report` and `agent.text`. **Breaking in 0.39.0:** it used to run the agent unconditionally, print only the agent's text, and exit `1` when no agent runner was available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` is still the bare form, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`run`, `assess`, `group`, `commit`, `stash`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for the `/sync` skill to drive, are not part of this contract |
-| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }] }], "available": [{ "key", "description", "enabled": false }] }` — `key` is the module's `brain.config` key (a package name or `./path`). `types` and `commands` are the type names and CLI words it contributes. `description` comes from the module's `package.json` and is `null` when it has none. `available` lists `@schlessera/brain-module-*` packages the brain's `package.json` declares but its config does not enable; `description` is `null` there when the package is not installed. `cron` is shape-constrained (see [Guarantees](#guarantees-consumers-may-rely-on)) |
+| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
+| `brain module enable <name> --json` / `disable <name> --json` | `{ "module": string, "state": "active" \| "dormant", "changed": boolean, "context": { "entered": string[], "left": string[] } }` — Toggle a configured manifest name, preserving domain config and documents. Synchronize managed skills and owned instruction regions. Unchanged repeated commands return changed:false. Errors use the existing nonzero-exit/stderr convention. |
 | `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit). Check ids other than `instructions-weight` are not part of this contract, and `detail` is prose. `instructions-weight` (added in 0.38.0, additively) estimates the tokens always loaded into a session (`CLAUDE.md` with its in-brain `@` imports, `AGENTS.md`, model-invocable skill descriptions), and is `warn` above the optional `brain.config` key `instructions.maxTokens` (default `8000`) |
 | `brain init --check` | `{ "bun": { "version", "ok" }, "git": { "repo" }, "hooksPath": { "set", "value" }, "config": { "exists", "valid", "initialized", "path", "error"? }, "contentDirs": { "present", "missing" }, "keys": { "GEMINI_API_KEY", "ANTHROPIC_API_KEY" } }` (new in brain-kit). `bun.version` is `null` when not running under Bun. `git.repo` says whether the root is inside a git work tree. `hooksPath.value` is git's `core.hooksPath`, `null` when unset. `config.path` is `null` when there is no config, and `error` is present only when the config failed to load (`valid: false`). `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0). `contentDirs` splits the core types' directories into those that exist and those that do not. Each `keys` entry is a boolean — whether that variable is set — never the key |
@@ -2385,6 +2386,49 @@ receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
 `brain.config` itself. The explicit `brain travel migrate` source-edit job
 above is an exception: it never computes effective configuration or
 serializes evaluated TypeScript. See [modules.md](modules.md).
+
+## Module dormancy (additive, #527)
+
+Each configured module entry gains optional core-owned `enabled: boolean`.
+Omission means active. Core validates the flag and removes it before validating
+the module's domain block; dormant domain config is still validated and retained.
+`LoadedModule.state` is supplied by the loader as `"active" | "dormant"`;
+the optional authoring property preserves constructed legacy contexts, where
+omission means active. CLI, scheduler metadata, skill discovery, classifier
+hints and module hygiene all read that same loaded state. Dormant types,
+directory anchors, exclusions and content rules remain registered.
+
+`ModuleContribution.instructions?: { text: string }` is strictly validated
+authoritative context returned by `setup(validatedConfig)`. Text is nonempty
+and contains no ownership markers. Modules declaring instructions have a
+lowercase name matching `^[a-z][a-z0-9-]{0,30}$`; existing manifests without the
+field retain their naming behavior. The optional manifest
+`canBeDormant?: boolean` defaults to permitted; `false` makes CLI disable refuse
+with `dormancyReason?: string` or a default explanation. A declared reason is
+nonempty. Existing module authoring calls and required fields remain unchanged.
+
+Toggles preflight source edits and all instruction owners before writes. Legacy
+mixed generated regions require explicit migration, preserving personal prose
+outside module-owned spans. No paragraph inference, whole mixed-section deletion
+or saved-prose restoration occurs. The source-preserving writer changes only a
+literal entry's flag; an ambiguous executable target is refused rather than
+serializing its evaluated config. The same-state command can synchronize context
+after an explicitly reviewed manual flag edit. Validation/ownership failures
+leave config, managed links and instruction bytes unchanged. Filesystem or emitter
+failures are reported as failures and require retry; success is not reported for
+an incomplete context sync. See [the format and migration guide](modules.md#instruction-migration).
+
+The list estimate is the sum of characters/4 token estimates of the module's
+discoverable model-invocable skill descriptions under existing precedence and
+its contributed instruction text. It estimates hypothetical active context even
+when dormant, without attributing shared contracts, personal prose or full skill
+bodies. It counts the authoritative contribution once, rather than summing copies
+in different agent entry files. The existing `enabled`/`available` envelope and
+declared fields remain; dormant cron metadata is empty. Namespace execution exits
+1 with `module <name> is dormant — brain module enable <name>` without importing
+or executing the module command. Running sessions keep their loaded state;
+MCP registration filtering remains separately scoped in #603 and consumes this
+state. Dormancy is context control, not permission revocation.
 
 ## Module tools
 

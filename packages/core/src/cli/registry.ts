@@ -13,12 +13,15 @@ import type { BrainContext } from "../lib/context.js";
 import type { CommandModule } from "../lib/module-types.js";
 import { CORE_COMMANDS } from "./commands/index.js";
 import type { CliContext } from "./types.js";
+import { UsageError } from "./io.js";
 
 export interface RegisteredCommand {
   name: string;
   /** Eager for core commands; a placeholder for modules until describe() runs. */
   summary: string;
   helpBlock?: string;
+  /** Dormant namespace help still answers a nonzero status without importing code. */
+  helpExitCode?: number;
   source: "core" | "module";
   run(args: string[], cli: CliContext): Promise<number | void>;
   /** Module commands resolve their real summary/helpBlock lazily (imports the command). */
@@ -53,6 +56,8 @@ export function buildRegistry(brain: BrainContext): Registry {
   }
 
   for (const mod of brain.modules) {
+    const dormantMessage = mod.state === "dormant"
+      ? `module ${mod.manifest.name} is dormant — brain module enable ${mod.manifest.name}` : undefined;
     for (const [word, loader] of Object.entries(mod.manifest.commands ?? {})) {
       const existing = commands.get(word);
       if (existing) {
@@ -64,9 +69,13 @@ export function buildRegistry(brain: BrainContext): Registry {
       }
       commands.set(word, {
         name: word,
-        summary: "(module command)",
+        summary: dormantMessage ?? "(module command)",
+        ...(dormantMessage ? { helpBlock: dormantMessage, helpExitCode: 1 } : {}),
         source: "module",
         async run(args, cli) {
+          if (dormantMessage) {
+            throw new UsageError(dormantMessage);
+          }
           const cmd = await loadModuleCommand(loader as Loader);
           return cmd.run(args, {
             root: cli.brain.root,
@@ -79,6 +88,7 @@ export function buildRegistry(brain: BrainContext): Registry {
           });
         },
         async describe() {
+          if (dormantMessage) return { summary: dormantMessage };
           const cmd = await loadModuleCommand(loader as Loader);
           return { summary: cmd.summary, helpBlock: cmd.helpBlock };
         },

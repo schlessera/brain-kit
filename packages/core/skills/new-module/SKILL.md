@@ -38,7 +38,7 @@ brain config check
 
 Confirm the proposed types and directories don't collide with core or an already-enabled module.
 Resolve any clash by renaming before generating files.
-When tools are wanted, choose a module name matching `^[a-z][a-z0-9-]{0,30}$` before
+When tools or instruction contributions are wanted, choose a module name matching `^[a-z][a-z0-9-]{0,30}$` before
 scaffolding: lowercase letters/digits/hyphens, at most 31 characters, and never `brain`.
 Local tool names match `^[a-z][a-z0-9_]{0,31}$`. Core composes `<module>_<local>`.
 The CLI validates these rules; a name outside them must be settled before generating the module.
@@ -49,7 +49,7 @@ Create the module package skeleton and wire it into config:
 
 ```
 modules/<name>/
-  module.ts              defineModule({ name, configSchema?, setup: (config) => ({ taxonomy?, skills?, commands?, tools?, hygieneChecks?, cron? }) })
+  module.ts              defineModule({ name, configSchema?, setup: (config) => ({ taxonomy?, skills?, instructions?, commands?, tools?, hygieneChecks?, cron? }) })
   mcp/<local>.ts         only for an agreed tool; defineModuleTool wrapper over the shared operation
   skills/<skill>/SKILL.md one per lifecycle moment identified in step 1
   README.md              contributed types, index-sync rules, hygiene checks; MCP tools when declared
@@ -95,6 +95,14 @@ For a module with tools, scaffold a README `## MCP tools` section naming every c
 its inputs/defaults/caps and result shape, and the shared CLI operation. State which names and
 schemas the module supports and how it versions them: namespacing prevents collisions, and
 does not exclude them from compatibility policy. `brain module lint` enforces the tool checks.
+
+For domain conventions, return optional `instructions: { text }` from `setup(config)`, derived
+from validated settings. Text must be nonempty and contain no ownership markers. Core derives
+owned `module-<name>` regions and estimates their active context cost. Personal prose and the
+shared installed contract stay independently owned. Existing mixed generated sections need
+explicit migration before toggles; never infer paragraph ownership. Test disable/enable with
+content and config intact, and use the [module guide](https://github.com/schlessera/brain-kit/blob/main/docs/modules.md#instruction-contributions)
+for the owned-region format.
 
 ## CLI it relies on
 

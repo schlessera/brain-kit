@@ -28,8 +28,9 @@ export type ImagesConfig = z.infer<typeof configSchema>;
 export default defineModule({
   name: "images",
   configSchema,
-  setup: () => ({
+  setup: (config) => ({
     commands: { image: () => import("./cli.js") },
     skills: "./skills",
+    instructions: { text: `## Images workflow\n\nPlace generated assets beside the content they illustrate; use ${config.imagesDir} as the fallback directory. Use brain image --dry-run to inspect a capability-compatible model and its estimated cost before a billed generation. Honor the configured model preferences and exclusions; choose an explicit output path for the intended asset.` },
   }),
 });

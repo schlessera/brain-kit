@@ -27,7 +27,7 @@ alone leaves module conventions in the instruction files. Removing a shared
 section can also delete another module's conventions or personal prose.
 
 The existing module mechanism builds contributions from validated config
-(`ModuleContribution`, `packages/core/src/lib/module-types.ts:116-140`). The
+(`ModuleContribution`, `packages/core/src/lib/module-types.ts:116-142`). The
 generated-region helper replaces a whole named block and preserves bytes
 outside it (`replaceGeneratedRegion`,
 `packages/core/src/lib/generated-regions.ts:99-120`). Neither a shared block
