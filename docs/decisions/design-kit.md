@@ -2520,7 +2520,7 @@ claim than having reproduced it, and the two should not be confused.
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
 `packages/ui-backend-pi/src/bridge-tools.ts:261-272`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:247-250`);
+push into `tools`, `const tools: ToolDefinition[]`, `:274-277`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
