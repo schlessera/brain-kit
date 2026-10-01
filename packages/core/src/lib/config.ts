@@ -476,7 +476,7 @@ export const DEFAULT_EXCLUDE = {
   // evals: a retrieval query set measures search only if search cannot see
   // it, and a note beside the set quoting its queries would answer them.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals"],
-  files: ["CLAUDE.md", "README.md", "AGENTS.md"],
+  files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };
 
