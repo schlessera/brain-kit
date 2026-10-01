@@ -66,6 +66,11 @@ parent config. See [AGENTS.md](AGENTS.md#testing-expectations)
 for child-process coverage, safe probe harnesses and uninstrumented transports.
 Measurement scripts started outside tests keep their ordinary transports.
 
+The core CLI test harness passes the parent runtime's resolved timezone to
+its children explicitly, including when `TZ` is absent. Fixed-instant sync
+tests cover UTC and calendars on either side of it; production sync still
+uses the user's local calendar.
+
 CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
 (then `2/3` and `3/3`), each in one Bun process. This option uses the default
 `packages`/`tests` roots and cannot combine with paths, `--cwd` or native
