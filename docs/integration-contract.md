@@ -1549,7 +1549,10 @@ implemented. Missing/false means unsupported. Clients explicitly opt in with
 `inbox_subscribe { view: "queue" | "actions", threadId? }`; the matching
 `inbox_unsubscribe` ends that view/filter subscription. No `client_hello` or
 new capability declaration is required for existing chat/Activity flow.
-The current server does not advertise or dispatch this durable stream yet.
+`createApp()` implements this stream on its existing authenticated WebSocket.
+A `WsHost` without an attached inbox omits the capability and answers subscribe/
+unsubscribe with `INBOX_UNAVAILABLE`; ordinary chat and Activity negotiation
+keep their existing behavior.
 
 `inbox_snapshot` contains the view/filter, `threads`, `items`, per-thread
 `highWaterSeq`, global `cursor`, and optional `append` for chunk continuation.
@@ -1558,8 +1561,40 @@ The current server does not advertise or dispatch this durable stream yet.
 thread, `upsert_item` carries `itemId` and the item, `remove_item` carries
 `itemId`, and `remove_thread` needs no joined row. Clients discard deltas
 before a snapshot and at/below that thread's high-water mark; reconnect
-starts a fresh snapshot. Snapshot consistency, persistence and streaming
-implementation remain the server's responsibility.
+starts a fresh snapshot. The server captures rows, high waters and cursor in
+one read transaction. Every subscription owns that boundary; a later subscriber
+cannot advance the shared change scan past deltas owed to an earlier subscriber.
+A 100 ms poll while subscribed discovers writes from other database connections.
+Each pump scans at most five batches of 200 changes; later ticks continue the
+backlog. Overlapping subscriptions on one socket receive each delta once per view.
+
+Snapshots include all live threads and that view's items. A `threadId` filter
+restricts threads, items and high waters to a currently existing thread; a
+missing/deleted thread yields `INBOX_SCOPE_NOT_FOUND` rather than a global
+subscription. Thread updates and tombstones reach both views; item upserts
+reach their own view. Item tombstones carry scope without joining a deleted row.
+An item's optional `runId` is display correlation, never a client-selected
+access filter. Strict subscription schemas refuse injected run/authority fields.
+
+Snapshot chunks and deltas preserve complete records within 512,000 UTF-8
+bytes, including their envelope. The first chunk replaces a projection; subsequent
+`append: true` chunks merge rows and high-water entries at the same cursor.
+The high-water map is itself chunked. All chunks precede that subscription's
+deltas. Clients merge high-water entries from every continuation. A single
+record exceeding the limit produces `INBOX_FRAME_TOO_LARGE` and closes the
+connection with code 1009; the server preflights every snapshot chunk before
+sending its first frame. It never clips a field or silently omits a row.
+A connection permits 64 distinct view/filter subscriptions; further scopes
+receive `INBOX_SUBSCRIPTION_LIMIT`. Repeating a scope sends a fresh snapshot.
+
+Subscriptions bind to the server-owned authorization context, using the
+existing single-owner principal model. Delivery and idle polling recheck the
+durable principal for revocation/expiry; unusable principals receive no further
+operational records and close with 1008. Explicit revocation, socket close,
+unsubscribe and application close release subscriptions and authorization
+leases. With no subscribers the inbox poller stops. A dropped/throwing transport
+ends the connection (1011), allowing recovery through a fresh snapshot;
+queued backpressure remains a valid delivery.
 
 Threads carry immutable server-assigned `trustClass` (`trusted`/`untrusted`),
 `source` (`share`/`cli`), `status` (`open`/`closed`), the derived `stateMd`

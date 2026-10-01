@@ -424,6 +424,26 @@ export async function handleClientMessage(
       break;
     }
 
+    case "inbox_subscribe": {
+      if (connection.closed) break;
+      if (!host.inbox) {
+        host.sendMessage(ws, { type: "error", code: "INBOX_UNAVAILABLE", message: "Inbox subscriptions are unavailable on this host." });
+        break;
+      }
+      host.inbox.handleSubscribe(ws, msg, connection.authorization);
+      break;
+    }
+
+    case "inbox_unsubscribe": {
+      if (connection.closed) break;
+      if (!host.inbox) {
+        host.sendMessage(ws, { type: "error", code: "INBOX_UNAVAILABLE", message: "Inbox subscriptions are unavailable on this host." });
+        break;
+      }
+      host.inbox.handleUnsubscribe(ws, msg);
+      break;
+    }
+
     case "activity_subscribe": {
       // View-scoped opt-in: without a subscription this connection never
       // receives an activity frame. No turn correlation — subscriptions are
