@@ -7,10 +7,10 @@
 // in UTC, and a screenshot job in Tokyo.
 //
 // The reference date is the same one `packages/core/fixtures/corpus/` pins
-// (2026-07-12). The two fixture sets are otherwise independent (D18) and share
-// no content -- but a repo with two different "now"s is a repo where a
-// screenshot and a test disagree about what is stale, so the date is shared
-// deliberately.
+// (2026-07-12). Both representations share the Odysseus world and chronology.
+// Their shapes serve separate integration and presentation cases. The corpus
+// ruling in docs/decisions/example-corpus.md supersedes D18's no-shared-content
+// restriction; a shared clock keeps screenshots and staleness tests aligned.
 
 /** The pinned "now", as a calendar date. Inject this; never `new Date()`. */
 export const REFERENCE_DATE = "2026-07-12";

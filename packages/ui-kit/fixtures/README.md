@@ -235,7 +235,9 @@ three notification densities. Each progress `StepList` has exactly one
 4. **Tone.** Before adding a line, ask whether it would still read as serious
    with the joke removed. If the answer is no, it is parody and it does not
    belong in a screenshot.
-5. **`packages/core/fixtures/` is off limits.** D18. Zero churn there.
+5. **Core scenario invariants.** Changes to `packages/core/fixtures/` preserve
+   its engineered cases and document their semantic counterparts, following
+   [the corpus ruling](../../../docs/decisions/example-corpus.md).
 
 ## Why the kit-purity gate does not cover this directory
 
