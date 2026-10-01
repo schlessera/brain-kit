@@ -17,7 +17,7 @@ const db = createUiDb(path);
 db.query("INSERT INTO inbox_scheduler_heartbeats VALUES ('Odysseus', ?, 7)").run(Date.UTC(2026, 6, 12));
 db.close();
 async function run(command, dbPath, brainRoot, code = 0) {
-  const child = Bun.spawn([process.execPath, ${JSON.stringify(join(consumer, "node_modules/.bin/brain-ui-inbox"))}, command,
+  const child = Bun.spawn([${JSON.stringify(join(consumer, "node_modules/.bin/brain-ui-inbox"))}, command,
     "--db", dbPath, "--brain-root", brainRoot, "--file", backup, "--json"], { stdout: "pipe", stderr: "pipe" });
   const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== code || err !== "") throw new Error("Packed inbox command failed: " + out + err);

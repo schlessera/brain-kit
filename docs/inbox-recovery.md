@@ -43,8 +43,9 @@ who can rewrite the artifact and recompute its checksums.
 
 ## Empty targets and crash recovery
 
-Restore accepts an absent database file without surviving SQLite sidecars and an absent or empty share-staging
-directory. It refuses populated targets rather than merging operational state.
+Restore accepts an absent database file without surviving SQLite sidecars and
+an absent or empty share-staging directory. It refuses populated targets
+rather than merging operational state.
 Unsupported versions/schemas, invalid relations, missing claim reservations,
 broken resolution/follow-up links, inconsistent cursors, tampered images and
 missing staging fail before a new target is published.
