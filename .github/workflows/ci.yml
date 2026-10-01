@@ -177,6 +177,11 @@ jobs:
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
             TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
             grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = geo ]; then
+              grep -q "^package/assets/IBMPlexSans-Regular\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/IBMPlexSans-Medium\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/OFL\.txt$" <<< "$TARBALL_CONTENTS"
+            fi
             if [ "$package" = core ]; then
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
@@ -255,6 +260,12 @@ jobs:
             }
             const geo = await import("@schlessera/brain-geo/server");
             if (typeof geo.GeoClient !== "function") throw new Error("Packed geo server client is missing");
+            const map = await new geo.GeoClient().staticMap({
+              pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+            });
+            if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+              throw new Error(`Packed Bun static map failed: ${map.reason}`);
+            }
             const claude = await import("@schlessera/brain-backend-claude");
             if (typeof claude.createClaudeBackend !== "function") {
               throw new Error("createClaudeBackend export is missing");
@@ -349,6 +360,14 @@ jobs:
             if (!loaded || typeof loaded !== "object") {
               throw new Error(`Node failed to import ${name}`);
             }
+          }
+
+          const { GeoClient } = await import("@schlessera/brain-geo/server");
+          const map = await new GeoClient().staticMap({
+            pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+          });
+          if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+            throw new Error(`Packed Node static map failed: ${map.reason}`);
           }
 
           const bunApiPackages = [

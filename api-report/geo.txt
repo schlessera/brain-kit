@@ -76,4 +76,14 @@ export "./server" (./src/server/index.ts)
   type PointOfInterest
   type RoutingResult
   type ServiceSource
+  type StaticMapInput
+  type StaticMapLegEvidence
+  type StaticMapPin
+  type StaticMapPinEvidence
+  type StaticMapReason
+  type StaticMapResult
+  type StaticMapScale
+  type StaticMapTrack
+  type StaticMapTrackEvidence
   fetchCoastline
+  staticMap

@@ -283,3 +283,60 @@ endpoint/cache settings, and optional `admissionDir` uses the shared runtime pat
 supplied. Existing place-map geometry and its route-level permanent cache stay under
 the [map geometry decision](../../docs/decisions/map-geometry.md). OSM geometry data
 is ODbL and carries attribution; honor additional operator terms when applicable.
+
+## Static maps
+
+`geo.staticMap(input)` makes a local PNG and its vector SVG/text equivalent from
+recovered tracks, labelled coordinate pins and already-calculated routing results.
+It never calculates a route itself. Tracks include their file source; route results
+retain every requested stop and leg even when routing is unavailable. For example:
+
+```ts
+const map = await geo.staticMap({
+  title: "Harbour walk",
+  tracks: [{ track: parseTrackGpx(gpx), source: { kind: "file", path: "routes/walk.gpx" } }],
+  pins: [{ lat: 38.36, lon: 20.72, label: "Harbour" }],
+  widthPx: 768,
+  background: "none",
+});
+if (map.png) await writeFile("walk.png", map.png);
+console.log(map.text);
+```
+
+With omitted/`"auto"` background, the configured shared coastline operation fetches
+vector geometry before local rendering. Supply a concrete `CoastlineServiceResult`
+to render prefetched evidence without any request. `"none"` explicitly omits the
+background. No raster tiles, browser, remote font or external image is involved.
+Pinned resvg renders generated vectors with system fonts disabled; bundled IBM Plex
+Sans glyph outlines determine both text measurement and output. Its original
+[OFL license](assets/OFL.txt) ships with the fonts.
+
+`kind: geometry` means usable background geometry; `track_only` is a plain coordinate
+surface when background is missing, omitted or beyond the 5-degree-per-axis query
+limit. Missing/partial background remains qualified. Width is an integer 320–2,048
+px (default 1,024). Optional `[west,south,east,north]` bounds crop the drawing; every
+undrawn stop stays in the full legend with its original coordinates. Nearby numbered
+stops share a badge with an additional-stop count. Source sections keep separate
+solid paths and start/end marks; calculated routes use dashed paths. Singletons stay
+points. Drawing never changes unsimplified measurements or fills a track gap.
+
+The isotropic spherical Web Mercator projection accepts only latitudes within
+±85.0511287798066 degrees and a non-wrapping longitude extent of at most 180 degrees.
+Polar, date-line crossing or unsupported padded bounds give `kind: none`,
+`status: no_map`, `reason: unsupported_projection`, null images and complete source/
+summary/text evidence. Valid source coordinates are never clamped or rejected by
+the track parser to make a map possible. Scale is in metres at the viewport center
+latitude; distortion grows away from that latitude. Source-vertex drawing and
+great-circle measurement methods remain distinct and explicit.
+
+Inputs are bounded to 100 tracks, 1,000 explicit pins, 100 route results and 200,000
+aggregate retained track/route/stop points. Prefetched background has the same
+10,000-way/200,000-vertex budget as fetching. Invalid inputs throw before rendering.
+The complete legend includes every stop/leg, unknown estimate, omission and source,
+plus OSM attribution for used OSM evidence and applicable FOSSGIS graphics terms.
+Images are bounded to 32 million pixels, height 16,384, 16 MiB SVG and 64 MiB PNG;
+text above 200,000 characters also falls back. The result retains complete text with
+`render_budget`, `unsupported_text` (a missing bundled glyph) or `renderer_unavailable`
+instead of truncating a legend or silently substituting labels. `png`/`svg` are null
+for every `no_map` result. Native renderer and font dependencies load only on a map
+call; the geometry root remains free of server/render dependencies.

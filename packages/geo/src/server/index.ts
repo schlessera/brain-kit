@@ -6,3 +6,6 @@ export type { PoiQuery, PointOfInterest, PoiResult } from "./poi.js";
 export type { OverpassResult } from "./overpass.js";
 export { fetchCoastline } from "./coastline.js";
 export type { CoastlineServiceResult, CoastlineLayer, CoastlineLayerGeometry } from "./coastline.js";
+export { staticMap } from "./static-map.js";
+export type { StaticMapInput, StaticMapTrack, StaticMapPin, StaticMapResult, StaticMapReason,
+  StaticMapTrackEvidence, StaticMapPinEvidence, StaticMapLegEvidence, StaticMapScale } from "./static-map.js";

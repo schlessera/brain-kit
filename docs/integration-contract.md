@@ -2960,3 +2960,52 @@ using legacy public endpoints. Canonical service settings take precedence over
 legacy Overpass settings. Legacy disabled prevents requests. Existing permanent
 geometry cache keys/results and 5-degree route bounds remain unchanged.
 The server environment setting is not forwarded to child processes by default.
+
+### Local vector static maps
+
+Geo server additively exports `staticMap(input, client)` and `GeoClient.staticMap`,
+plus `StaticMapInput`, `StaticMapTrack`, `StaticMapPin`, `StaticMapResult`,
+`StaticMapReason`, `StaticMapScale` and the track/pin/leg evidence types. Input has
+optional `tracks: {track:ParsedTrack,source:TrackSource,label?}[]`,
+`pins: {lat,lon,label}[]`, already-calculated `routes: RoutingResult[]`,
+`bbox: [west,south,east,north]`, `title`, `widthPx` and
+`background: "auto" | "none" | CoastlineServiceResult`. Omitted background is auto.
+No routing request is made by a map call. A concrete prefetched background sends
+no background request; `"none"` also sends none.
+
+The result has `status: ok | partial | no_map`, `kind: geometry | track_only | none`,
+nullable `reason`, nullable `png: Uint8Array`/`svg: string`, `widthPx`, nullable
+`heightPx`/`bounds`, complete `text`, `title`, copied `tracks`/`pins`/`legs`/`routes`,
+nullable `background`, `attribution`, `warnings` and `method`. Reasons are
+`unsupported_projection`, `background_extent`, `background_unavailable`,
+`background_omitted`, `no_spatial_input`, `unsupported_text`, `render_budget` and
+`renderer_unavailable`. Every no-map outcome has null images and preserves complete
+text/source/summary evidence. Invalid or oversized input throws.
+
+Track evidence retains one-based index/label, full unsimplified `TrackSummary`, exact
+original omission indices/reasons, and visible/cropped retained-vertex counts.
+Pins retain original coordinates/label, one-based index, `drawn` and nullable reason
+`outside_viewport | no_artifact`. Every requested adjacent route pair has a leg with
+route/index/mode/from/to, `available` and nullable `distanceM`/`durationS`; genuine
+zero remains zero. Route stops not represented by explicit pins gain numbered pins.
+Missing route geometry never creates a line, and imported section gaps remain gaps.
+All stops/legs remain in the full legend, including cropped stops.
+
+The method records `spherical_web_mercator`, `source_vertices_in_mercator`, the
+85.0511287798066-degree latitude limit, `gaps: preserved`, bundled IBM Plex glyph
+outlines and nullable scale `{value,unit:m,lengthPx,latitude,
+method:mercator_at_center_latitude}`. Unsupported polar/date-line/wrapping extents
+preserve source coordinates rather than clamp them. Projectable bounds wider than
+5 degrees per axis skip background querying and produce a plain image. Missing
+background also produces a qualified plain image. Used OSM geometry/calculated
+routes retain attribution; FOSSGIS-derived graphics additionally carry the
+operator's CC BY-SA 2.0 graphics link. No browser, raster tiles, system fonts or
+external resources participate in rendering.
+
+Width is 320–2,048 integer pixels, default 1,024. Maximum inputs are 100 tracks,
+1,000 explicit pins, 100 route results and 200,000 aggregate retained geometry/stop
+points. Prefetched background is bounded to 10,000 ways/200,000 vertices. Labels
+and provenance text are bounded and reject controls. A complete image/legend above
+32 million pixels, 16,384 height, 200,000 text characters, 16 MiB SVG or 64 MiB PNG
+gives a text fallback. Unsupported glyphs and unavailable local rasterization have
+distinct reasons. No stop, leg, omission or attribution is silently truncated.

@@ -313,3 +313,53 @@ no new request after disabling. Core loads a real config into GeoClient without
 creating a database or modifying the file. Six restored mutations failed the
 intended lexical/symlink/path assertions, startup refusal, actual endpoint path
 and subprocess filtering. No public service query is claimed.
+
+## Static export and honest drawing limits — 2026-10-01
+
+The [export ruling](https://github.com/schlessera/brain-kit/issues/525#issuecomment-5927680750)
+selects fetched vectors and local PNG rasterization. The
+[display ruling](https://github.com/schlessera/brain-kit/issues/525#issuecomment-5930085980)
+separates the 5-degree background-service limit from valid source geometry.
+The concrete map operation snapshots tracks, pins and prefetched route results;
+it never requests a route. Resource limits precede cloning/awaits
+(`staticMap`, `packages/geo/src/server/static-map.ts:115-128`).
+Wide projectable extents skip the background request and produce a plain map;
+missing background does the same with an explicit reason
+(`wide`, `packages/geo/src/server/static-map.ts:192-196`).
+Unsupported polar, date-line or padded extents retain complete source/summary/text
+evidence, without clamping source coordinates to force an image.
+
+The projection uses a single isotropic Web Mercator ratio. The scale reports
+metres at center latitude rather than implying uniform ground scale
+(`mapViewport`, `packages/geo/src/server/map-svg.ts:22-38`).
+Tracks retain separate section paths and singleton points; their measurements
+remain the unsimplified great-circle result. Calculated routes are dashed and
+retain dataset/fallback/source evidence. Every requested stop and adjacent leg
+stays in the legend even if routing fails or a viewport crops the stop. Numbered
+badges combine nearby stops while the legend names each one.
+
+Bundled unmodified IBM Plex faces carry their original OFL license and pinned
+source/hash inventory. Fontkit measures the same advances that become glyph paths
+(`mapFonts`, `packages/geo/src/server/map-svg.ts:41-52`;
+`mapText`, `packages/geo/src/server/map-svg.ts:79-90`).
+resvg renders only generated vectors with system fonts disabled. Both dependencies
+load lazily on a map call; the geometry root remains browser-safe. No raster tiles,
+browser, remote fonts or external images participate. Complete source/stop/leg/
+omission/attribution text has no ellipsis. Unsupported glyphs, image/text budgets
+and native-renderer failure give distinct text fallbacks instead of a truncated
+or falsely complete image. Used OSM evidence carries ODbL attribution; applicable
+FOSSGIS terms also supply their graphics CC BY-SA 2.0 link.
+
+Real encoded-PNG tests inspect a white gap pixel, deterministic bytes and dimensions.
+Recorded vectors exercise full/partial/plain maps, missing routes, cropped stops,
+actual zero estimates, source preservation, valid polar/date-line input and accepted
+maximum geometry. Twelve restored mutations fail on that gap pixel, forbidden wide/
+polar requests, a missing last leg/cropped stop, zero becoming null, unsupported
+glyph output, missing graphics attribution, false complete/empty background,
+an accepted excessive input and an actual truncated PNG. The truncation mutation
+removes the layered text/height/SVG guards together; removing only the earlier
+guards remained protected by the later SVG budget and is not offered as proof.
+Visual inspection at 320 and 768 px covered geometry, plain and partial/cropped
+states, then confirmed the word-wrapping and endpoint-label fixes in one final pass.
+Packaged Bun/Node runtime checks render real PNGs from shipped font assets, and
+removing the packed font fails the image assertion with `renderer_unavailable`.
