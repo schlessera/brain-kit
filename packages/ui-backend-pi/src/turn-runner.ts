@@ -35,7 +35,7 @@ export function createPiTurnRunner(
     const startedAt = Date.now();
     // pi has none of the runtime shortcuts the pairing guards against, but the
     // declaration is refused here too so it means the same on both backends.
-    assertTurnPosture(req);
+    assertTurnPosture(req, !options.sessionFactory);
     // acquire() claims the session (per-session busy) and validates caller
     // input. On any throw — BackendBusyError / BackendRequestError — nothing
     // has been emitted and the promise REJECTS, per the startTurn contract.
@@ -84,7 +84,12 @@ export function createPiTurnRunner(
       }
       unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures));
       // session_info must precede any content frames for a new session.
-      emit({
+      if (req.autonomous) {
+        try {
+          req.bridge.activity?.({ kind: "autonomous_identity", runtimeSessionId: sessionId,
+            backendId: BACKEND_ID, ...(req.profileId ? { profileId: req.profileId } : {}) });
+        } catch { /* Observability must not fail the observed turn. */ }
+      } else emit({
         type: "session_info",
         sessionId,
         isNew,

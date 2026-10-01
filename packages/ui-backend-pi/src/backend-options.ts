@@ -4,6 +4,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
   BackendBridge,
+  AutonomousTurnOptions,
   ClientEnvironment,
   ConfirmPatternSource,
   WriteLock,
@@ -161,6 +162,7 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;
   caps: SessionCaps;
   turnBudgetMs?: number;

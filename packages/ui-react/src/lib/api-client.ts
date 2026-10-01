@@ -10,6 +10,7 @@ import type {
   ModelCatalogResponse,
   ThinkingLevel,
   ActivityRunSummary,
+  ActivitySpanOrigin,
   ActivityRunDetail,
   ActivityRollups,
   ActivityDigest,
@@ -655,7 +656,7 @@ export function createBrainApi(
     // --- Activity record (read side; live updates ride the WebSocket) ---
 
     activityRuns: (opts?: {
-      origin?: "session" | "cron";
+      origin?: ActivitySpanOrigin;
       job?: string;
       session?: string;
       status?: string;

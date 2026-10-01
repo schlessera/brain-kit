@@ -957,6 +957,7 @@ export "./server" (./src/server/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type AutonomousTurnOptions
   BARS_BLOCK_SCHEMA
   type BBox
   BLOCK_CONTACT_KINDS
@@ -1674,7 +1675,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   ActivitySpanKind (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
   ActivitySpanOrigin (packages/ui-sdk/src/protocol.ts)
-    export type ActivitySpanOrigin = "session" | "cron";
+    export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
   ActivityView (packages/ui-sdk/src/protocol.ts)
@@ -1794,6 +1795,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         start(): Promise<void>;
         stop(): void;
         drainAndStop(): Promise<void>;
+    }
+  AutonomousTurnOptions (packages/ui-sdk/src/server/backend.ts)
+    export interface AutonomousTurnOptions {
+        origin: "autonomous";
+        persistence: "none";
+        allowedTools: readonly string[];
+        systemPromptAppend: string;
     }
   BLOCK_SCHEMA (packages/ui-sdk/src/tool-contracts/blocks.ts)
     const BLOCK_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -2073,6 +2081,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }, z.core.$strip>], "kind">;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "autonomous_identity";
+        runtimeSessionId: string;
+        backendId: string;
+        profileId?: string;
+    } | {
         kind: "subagent_started";
         toolUseId: string;
         taskId?: string;
@@ -2122,6 +2135,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
         emit(msg: ServerMessage): void;
+        checkpointPermission?(req: PermissionRequest): void;
         requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
         askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
         askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
@@ -2136,6 +2150,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   BackendCapabilities (packages/ui-sdk/src/server/backend.ts)
     export interface BackendCapabilities {
+        autonomous?: boolean;
         resume: boolean;
         permissions: boolean;
         thinking: boolean;
@@ -2809,6 +2824,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   StartTurnRequest (packages/ui-sdk/src/server/backend.ts)
     export interface StartTurnRequest {
+        autonomous?: AutonomousTurnOptions;
         prompt: string;
         attachments?: ChatImageAttachment[];
         sessionId?: string;
@@ -2904,4 +2920,4 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   decideToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
     export function decideToolPermission(options: ToolPermissionDecisionInput): ToolPermissionApproval | null;
   requestToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
-    export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;
+    export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;

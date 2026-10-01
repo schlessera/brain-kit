@@ -18,6 +18,32 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.
 
+## Explicit autonomous backend turns (#675)
+
+The optional server-only `StartTurnRequest.autonomous` request is additive. It
+contains `{ origin: "autonomous", persistence: "none", allowedTools: string[],
+systemPromptAppend: string }` selected by server code. It requires the enforced
+no-grant posture and synchronous `BackendBridge.checkpointPermission`. It rejects
+resume, invalid mode declarations and unsupported backends before runtime work.
+`BackendCapabilities.autonomous?: boolean` advertises this specific turn support;
+it does not advertise containment or enable autonomous dispatch.
+
+Ordinary requests retain their persistence and `session_info`/terminal semantics.
+Autonomous requests save no SDK session/history and advertise no interactive
+session. Their runtime id reaches Activity via the additive
+`BackendActivityEvent` variant `autonomous_identity`, and scopes content/result
+frames internally. Exactly one terminal result ends an established runtime turn;
+pre-identity failures may end on a bare error. Principal revocation aborts work
+visibly. No client/model wire payload selects this mode or its authority.
+
+The Activity origin vocabulary adds `"autonomous"` for spans and run rollups.
+The SDK schemas accept it, and existing origin filtering selects these runs
+without including interactive or cron work. Runtime identity, usage and principal
+attribution remain recorded; unknown prices retain their existing unknown meaning.
+The synchronous synthetic bridge captures escalation data before no-grant denial
+and aborts without parking. Durable Action transitions, reservation admission,
+containment and full-system enablement remain separate gated tasks.
+
 ## Consumers
 
 | Consumer | Surfaces used |

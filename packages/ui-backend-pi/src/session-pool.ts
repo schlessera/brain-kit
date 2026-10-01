@@ -16,6 +16,8 @@ const BACKEND_ID = "pi";
 
 /** One resident session: its pi runtime, its per-session tool plumbing, liveness. */
 export interface SessionEntry {
+  /** One attempt, disposed at completion and never retained for resume/follow-up. */
+  ephemeral?: boolean;
   session: PiSessionLike;
   turnContext: TurnContext;
   /** True while a turn targeting this session is in flight (per-session busy). */
@@ -43,6 +45,7 @@ export function createSessionPool(runtime: SessionRuntime): SessionPool {
     req: StartTurnRequest
   ): Promise<{ entry: SessionEntry; isNew: boolean }> {
     const env: SessionEnv = {
+      ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
       caps: capsOf(req.bridge),
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
@@ -72,6 +75,7 @@ export function createSessionPool(runtime: SessionRuntime): SessionPool {
     }
 
     const created = await runtime.newSession(req.profileId, env);
+    if (req.autonomous) return { entry: { ...created, running: true, ephemeral: true }, isNew: true };
     const existing = sessions.get(created.session.sessionId);
     if (existing) {
       // The runtime handed back an id we already track. In production pi ids are
@@ -115,6 +119,7 @@ export function createSessionPool(runtime: SessionRuntime): SessionPool {
     acquire,
     finish(entry) {
       entry.running = false;
+      if (entry.ephemeral) { disposeSession(entry.session); return; }
       evictIdle();
     },
   };

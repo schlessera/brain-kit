@@ -14,6 +14,7 @@ describe("createPiBackend (no LLM)", () => {
       const backend = createPiBackend({ brainPath: brain.root });
       expect(backend.id).toBe("pi");
       expect(backend.capabilities).toEqual({
+        autonomous: true,
         resume: true,
         permissions: true,
         thinking: true,

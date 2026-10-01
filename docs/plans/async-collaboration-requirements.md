@@ -94,8 +94,8 @@ Stated before the requirements because five of them derive from it.
   life of the thread.** `trusted` (the user's own CLI invocation) or `untrusted` (everything
   that arrived from outside, including every v1 share). It is never present in any
   model-authored payload schema, and no model output can change it. The share manifest
-  already hardcodes its source server-side
-  (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`); this generalizes that.
+  has its source selected server-side
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`); this generalizes that.
 - **T2. Model output is data, never authority.** `state_md`, T1 classifications, and
   follow-up payloads are authored by a model that has read attacker-controllable text. They
   may describe, request, and summarize. They may not select a tool profile, widen a
@@ -246,14 +246,14 @@ Stated before the requirements because five of them derive from it.
 - R23. A boot sweep and a periodic sweep return expired leases to `ready`, mirroring the
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
-  conversation-shaped with existing `enforceAllowedTools`/`noGrantSurface` permission
-  postures but no headless/persistence/origin mode
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:287-353`); Claude creates an SDK session, emits
+  additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
+  and prompt configuration alongside the required permission postures
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:298-372`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
-  `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
-  origin, and prompt configuration; drive it with a synthetic bridge; and generalize the
-  recorder, which hardcodes `origin: "session"`
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-142`).
+  `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
+  with a synthetic checkpoint bridge and server-selected authority; the
+  recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
   starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`), and an autonomous
@@ -289,7 +289,7 @@ Stated before the requirements because five of them derive from it.
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-214`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -343,7 +343,7 @@ Stated before the requirements because five of them derive from it.
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:442`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-214`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK

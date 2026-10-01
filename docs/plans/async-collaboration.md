@@ -141,19 +141,19 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-214`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
-- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-147`) and
+- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-148`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:75-142`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
-- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:442`) settles after execution;
+- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`) and
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`) are run-bound and do not
   maintain an Actions aggregate count.
-- **Share provenance/limits:** (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`) assigns the source in server code.
+- **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1235`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`) gates WS starts;
@@ -746,7 +746,7 @@ recovered tick after killing the interval
 
 **Approach:**
 - One arrival → one thread (trust class from the source record, hardcoded server-side per the
-  (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`) precedent) + one `triage` Queue item; bytes stay in the staging
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`) precedent) + one `triage` Queue item; bytes stay in the staging
   directory
 - `dedup_key` from a content hash for shares; from an explicit key for authenticated CLI adds
 - Trust class is written by the server and is not a parameter of any request body
@@ -1127,22 +1127,22 @@ and a server-selected tool policy.
 **Dependencies:** U1, U2
 
 **Files:**
-- Modify: `packages/ui-sdk/src/server/backend.ts` (`StartTurnRequest` is conversation-shaped with mandatory permission postures
-  but no explicit headless/persistence/origin mode —
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:287-353`))
+- Modify: `packages/ui-sdk/src/server/backend.ts` (the additive `StartTurnRequest.autonomous` mode carries persistence,
+  origin, tool policy and prompt configuration —
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:298-372`))
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
-- Modify: `packages/ui-server/src/activity/recorder.ts` (generalize the hardcoded
-  `origin: "session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-142`))
+- Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected
+  origin defaults to `"session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`))
 - Test: `packages/ui-backend-claude/tests/autonomous-turn.test.ts`
 
 **Approach:** an autonomous request carrying persistence, tool policy, origin, and prompt
 configuration; a synthetic bridge that escalates instead of prompting; recorder origin widened
 to a third value so autonomous runs are distinguishable in every rollup and budget query.
 
-The request is generic. Existing `enforceAllowedTools`/`noGrantSurface` are
-mandatory permission postures, but there is no autonomous persistence/origin mode.
-The new mode is additive and explicit: ordinary turns retain their current
+The request is generic. `enforceAllowedTools`/`noGrantSurface` are mandatory
+permission postures for the explicit autonomous persistence/origin mode.
+The mode is additive: ordinary turns retain their current
 `session_info`/terminal guarantees; a backend that cannot honor the new envelope
 rejects that request safely instead of ignoring it. The installed Claude SDK
 exposes `persistSession: false`, and pi exposes `SessionManager.inMemory`.
@@ -1258,7 +1258,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-214`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, `excludeDynamicSections: true` (the SDK preset otherwise
