@@ -46,6 +46,11 @@
       "bun": "./src/queries/index.ts",
       "types": "./dist/queries/index.d.ts",
       "default": "./dist/queries/index.js"
+    },
+    "./internal": {
+      "bun": "./src/internal.ts",
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
     }
   },
   "files": [

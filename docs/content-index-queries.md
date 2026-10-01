@@ -190,7 +190,12 @@ outside this read API.
 Errors contain only code/retryability, with no native message, SQL, absolute
 input path or document content. Meta success may describe `available: false`
 with `reason: "schema"` or `"not_computed"` and genuine counts; a missing,
-incompatible or corrupt index uses the error envelope. Existing HTTP/MCP/CLI
-adapters and their degradation/error mapping remain unchanged in this addition.
+incompatible or corrupt index uses the error envelope. Core CLI/MCP and HTTP
+adapters keep their own degradation/error mapping. Pi's graph and listing use
+these results without executable config/provider initialization. They preserve
+the pi tool envelopes and map an absent graph path to an empty walk; typed
+failures become sanitized thrown tool errors, with rebuild/retry instructions
+where applicable. Search/context and writes remain on explicitly unsupported
+native-handle helpers through `@schlessera/brain/internal`.
 The [direct-SQL guarantees](integration-contract.md#braindb-direct-sql-reads)
 remain binding until the separately tracked consumer transition and retirement.

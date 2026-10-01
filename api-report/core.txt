@@ -205,6 +205,15 @@ export "." (./src/index.ts)
   writeFileSafely
   writeScratchFile
 
+export "./internal" (./src/internal.ts)
+  archiveDocument
+  assembleContext
+  hybridSearch
+  indexAll
+  ingest
+  loadVecSupport
+  openDatabase
+
 export "./package.json" (./package.json) [asset]
 
 export "./queries" (./src/queries/index.ts)

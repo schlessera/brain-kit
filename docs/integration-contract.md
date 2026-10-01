@@ -1374,6 +1374,27 @@ versioning policy. The [SQL-boundary ruling](decisions/index-query-api.md) keeps
 the direct-SQL guarantees below binding during the separate consumer migrations.
 No SQL/handle/provider interface is exposed by the query entry.
 
+The pi backend's `brain_list` and `brain_graph` use these results in process,
+without loading executable config or providers for those two reads. Their
+existing pi text/details envelopes, listing default `20`/cap `100`, graph
+default `1`/cap `4`, direction, ordering and truncation remain unchanged.
+An absent indexed graph path still returns empty `edges` and `nodes`.
+Index compatibility, WAL snapshot consistency and per-call replacement checks
+belong to core. Missing indexes retain the `brain index` instruction; incompatible
+or corrupt indexes request `brain index --force`; busy indexes request a retry;
+unavailable indexes and invalid inputs produce generic errors. Pi throws these
+sanitized errors through its existing tool executor error path, never SQLite
+diagnostics. Query input validation follows the linked API specification.
+
+`@schlessera/brain/internal` is an explicitly unsupported first-party entry,
+with no compatibility guarantee; use the same lockstep package version. Its
+`archiveDocument`, `assembleContext`, `hybridSearch`, `indexAll`, `ingest`,
+`loadVecSupport` and `openDatabase` exports serve pi's remaining search/context
+and write implementation. They may accept native handles and are not supported
+query APIs. This scoped classification adds the internal entry and migrates
+pi's imports; #534 owns removal of existing accidental ordinary exports.
+Existing direct-SQL guarantees remain binding until the explicit retirement.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:

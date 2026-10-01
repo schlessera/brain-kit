@@ -430,6 +430,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // A changed SHA, path or first line needs its own verified exception.
   ...Object.fromEntries(
     [
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/app.ts#L267",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L221",
