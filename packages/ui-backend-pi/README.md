@@ -288,9 +288,19 @@ makes `kill(2)` fail with EPERM and leaves an aborted turn running.
 TypeScript owned by the brain, evaluated in the server process, not in a child.
 No wrapper reaches it. The wrapper bounds what the agent's *tools* can do; it
 does not bound what the brain's own config can do, and anyone who can write
-that file already has the server's privileges. Closing it means routing every
-read through the CLI as a subprocess, which is a different design for this
+that file already has the server's privileges. Search, context and writes still
+initialize this config. Graph and listing instead use core's supported
+`@schlessera/brain/queries` results and do not initialize config or providers.
+Moving the remaining operations through the CLI is a different design for this
 package rather than a patch to it.
+
+Graph and listing open the current index read-only for each call, with one
+snapshot for compatibility and results. A replaced index is read on the next
+call. Incompatible or corrupt indexes request a rebuild, busy indexes request
+a retry, and native database diagnostics never reach these tool errors. Search,
+context and writes retain native handles through the explicitly unsupported
+`@schlessera/brain/internal` entry; this implementation path requires matching
+lockstep versions and is not a supported query API.
 
 ## Environment
 
