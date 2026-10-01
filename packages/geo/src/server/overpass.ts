@@ -1,6 +1,7 @@
 import type { GeoConfig } from "../config.js";
+import { z } from "zod";
 import type { GeoResult } from "./client.js";
-import { GeoTransport, type GeoError } from "./io.js";
+import { GeoReplyError, GeoTransport, type GeoError } from "./io.js";
 
 export interface OverpassResult<T> extends GeoResult<T> {
   source: (NonNullable<GeoResult<T>["source"]> & {
@@ -11,6 +12,18 @@ export interface OverpassResult<T> extends GeoResult<T> {
 
 const canFallback = (error: GeoError): boolean => ["timeout", "network", "bad_response", "response_limit"].includes(error.code)
   || error.code === "http" && (error.httpStatus === 408 || (error.httpStatus ?? 0) >= 500);
+
+/** A query remark is incomplete/refused data, never a genuine empty match. */
+export function overpassElements(raw: unknown): unknown[] {
+  const data = z.object({elements: z.array(z.unknown()), remark: z.string().optional()}).parse(raw);
+  if (data.remark?.trim()) {
+    if (/rate limit|quota|too many requests|out of memory|(?:memory|maxsize).*exceed|exceed.*(?:memory|maxsize)/i.test(data.remark)) {
+      throw new GeoReplyError({code: "admission_denied", message: "Overpass reported a resource/quota refusal; no fallback.", retryAfterMs: 60_000});
+    }
+    throw new GeoReplyError({code: /timed? out|timeout/i.test(data.remark) ? "timeout" : "bad_response", message: "Overpass reported an incomplete query response."});
+  }
+  return data.elements;
+}
 
 /** One ordered, bounded query chain; admission refusals never authorize another endpoint. */
 export async function queryOverpass<T>(config: GeoConfig, transport: GeoTransport, query: string,

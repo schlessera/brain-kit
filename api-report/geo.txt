@@ -4,12 +4,21 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  type BBox
+  type CoastlineConfig
+  type CoastlineRequest
+  type CoastlineResult
+  type Coord
   EARTH_RADIUS_M
+  type FetchLike
   type GeoConfig
   type GeoConfigInput
+  type LandOptions
   MAX_ROUTE_BYTES
+  type MapDetail
   type NearestTrackPoint
   type NormalizedTrackPoint
+  OSM_ATTRIBUTION
   type OmissionReason
   type ParsedTrack
   type RouteGeometry
@@ -23,16 +32,26 @@ export "." (./src/index.ts)
   type TrackOmission
   type TrackSource
   type TrackSummary
+  clipLine
+  closeAgainstViewport
+  closedRings
+  detailFor
   distanceM
   geoConfigSchema
   nearestTrackPoint
   normalizeTrack
   parseGpx
   parseTrackGpx
+  prepare
+  prepareLand
   quantizeRoute
   routeMetrics
   routePoint
+  signedArea
+  simplify
+  stitch
   summarizeTrack
+  toleranceMetres
   trackCoverage
   trimRoute
   writeGpx
@@ -41,6 +60,9 @@ export "./package.json" (./package.json) [asset]
 
 export "./server" (./src/server/index.ts)
   type CalculatedRoute
+  type CoastlineLayer
+  type CoastlineLayerGeometry
+  type CoastlineServiceResult
   type GeoAttribution
   GeoClient
   type GeoError
@@ -54,3 +76,4 @@ export "./server" (./src/server/index.ts)
   type PointOfInterest
   type RoutingResult
   type ServiceSource
+  fetchCoastline

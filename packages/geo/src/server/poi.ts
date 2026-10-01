@@ -3,7 +3,7 @@ import type { GeoConfig } from "../config.js";
 import { nearestTrackPoint } from "../spatial.js";
 import { distanceM, EARTH_RADIUS_M, normalizeTrack, routePoint, type ParsedTrack } from "../track.js";
 import { GeoReplyError, GeoTransport, type GeoError } from "./io.js";
-import { queryOverpass, type OverpassResult } from "./overpass.js";
+import { overpassElements, queryOverpass, type OverpassResult } from "./overpass.js";
 
 type Coordinate = {lat: number; lon: number};
 export type PoiQuery = ({near: Coordinate; alongTrack?: never} | {alongTrack: ParsedTrack; near?: never}) & {
@@ -39,14 +39,7 @@ const elementSchema = z.object({type: z.enum(["node", "way", "relation"]), id: z
 function decodePois(raw: unknown, near: Coordinate | null, track: ParsedTrack | null): {
   items: PointOfInterest[]; input: number; omitted: number; truncated: boolean;
 } {
-  const data = z.object({elements: z.array(z.unknown()), remark: z.string().optional()}).parse(raw);
-  if (data.remark?.trim()) {
-    const message = data.remark;
-    if (/rate limit|quota|too many requests|out of memory|(?:memory|maxsize).*exceed|exceed.*(?:memory|maxsize)/i.test(message)) {
-      throw new GeoReplyError({code: "admission_denied", message: "Overpass reported a resource/quota refusal; no fallback.", retryAfterMs: 60_000});
-    }
-    throw new GeoReplyError({code: /timed? out|timeout/i.test(message) ? "timeout" : "bad_response", message: "Overpass reported an incomplete query response."});
-  }
+  const data = {elements: overpassElements(raw)};
   if (data.elements.length > limits.maxResults + 1) throw new GeoReplyError({code: "response_limit", message: "Overpass exceeded the bounded element count."});
   const items: PointOfInterest[] = [], seen = new Set<string>();
   let omitted = 0;

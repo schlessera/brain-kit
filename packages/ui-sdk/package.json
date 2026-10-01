@@ -98,7 +98,8 @@
     "remark-parse": "^11.0.0",
     "semver": "^7.8.5",
     "unified": "^11.0.5",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@schlessera/brain-geo": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18"

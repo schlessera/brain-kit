@@ -2899,3 +2899,29 @@ cooldown, quota/resource denials and local storage failures cannot, even to a ca
 alternate. HTTP 504 has Overpass resource-admission meaning. JSON resource/quota
 remarks likewise refuse and persist cooldown; incomplete timeout remarks are errors,
 never genuine empty matches. Attribution accompanies usable OSM replies.
+
+### Shared background geometry and SDK adapters
+
+The geo root exports the existing SDK pure coastline helpers/types, without server
+I/O. SDK server exports retain their names/types and alias the shared implementation.
+`CoastlineConfig` additively accepts optional canonical `geo: GeoConfigInput` and
+shared runtime `admissionDir`. Required legacy enabled/url/User-Agent and optional
+timeout/fetch injection remain supported. `fetchCoastline(request, config)` retains
+the exact `CoastlineResult` keys and result-or-empty/partial failure behavior;
+`enabled:false` prevents all requests, including with a canonical config supplied.
+Legacy settings adapt to concrete shared cache/admission without wire changes.
+
+`GeoClient.coastline(CoastlineRequest)` returns `CoastlineServiceResult`, with the
+existing geometry value and per-layer `queries: {layer,result}[]`. Layers are
+`CoastlineLayer` (`coastline`, `roads`, `streets`); each result is
+`OverpassResult<CoastlineLayerGeometry>` (`lines`, input/omitted counts). Its source
+is the latest successful layer, or latest attempted layer if none succeeded; the
+complete query list is authoritative for mixed sources/cache ages/transfers/errors.
+Bounds are finite in-range ordered `[west,south,east,north]`, capped at 5 degrees
+per axis; width is >0 and ≤16,384. Existing detail/tolerance/geometry algorithms
+are preserved. Service geometry is bounded to 10,000 ways/200,000 vertices,
+including malformed entries, and shared body/time budgets. Mixed malformed data
+or failed layers with usable geometry are partial; no usable data after failure
+has null value/error. Genuine empty successful geometry has `no_match` and empty
+value. Refusal/configuration/local storage failures stop later layers. Attribution
+and every layer's endpoint/fallback/attempt evidence remain available.

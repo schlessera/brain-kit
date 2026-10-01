@@ -109,6 +109,15 @@ which has no compatibility guarantee. The
 [classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
 names every affected import. Subscription-auth helpers remain protocol API.
 
+The existing coastline geometry helpers/types and `fetchCoastline` under `./server`
+are compatibility exports from [`@schlessera/brain-geo`](../geo). The geometry
+pipeline and result-or-empty shape are preserved; service requests now share its
+disk cache and aggregate operator admission. Existing endpoint/User-Agent/timeout
+settings still work. `CoastlineConfig.geo` can supply canonical endpoint/cache
+settings, and `admissionDir` can select the shared runtime admission path.
+`enabled:false` always prevents requests. The [geo guide](../geo/README.md#coastline-land-and-roads)
+documents bounds, refusal handling, attribution and caller responsibilities.
+
 ## Backend contract tests (`./testing`)
 
 Backend packages can run the same `startTurn` assertions as the first-party

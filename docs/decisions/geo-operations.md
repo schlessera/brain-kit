@@ -197,7 +197,7 @@ A near-point query or a query along retained track sections uses the concrete
 Overpass client, with exact AND tag filters. Separate around clauses preserve
 section/omission gaps; simplifying a track for its query would change which POIs
 it can find, so oversized input refuses rather than becoming silently incomplete
-(`findPois`, `packages/geo/src/server/poi.ts:79-126`).
+(`findPois`, `packages/geo/src/server/poi.ts:72-119`).
 The 5-degree extent budget includes radius, separate from valid track-coordinate
 ranges; pole/date-line or wide-envelope refusal does not corrupt source geometry.
 Query points, sections, UTF-8 bytes, radius, server time/memory and response size
@@ -212,10 +212,10 @@ answer. Results retain that distinction, OSM identity and raw mapped tags. Missi
 opening hours remains unknown; a schedule string does not prove current opening.
 Malformed elements/duplicates have omission counts; a bounded extra sentinel
 signals partial output and possible further matches
-(`decodePois`, `packages/geo/src/server/poi.ts:39-76`).
+(`decodePois`, `packages/geo/src/server/poi.ts:39-69`).
 
 The ordered endpoint chain attempts at most three unique configured endpoints
-(`queryOverpass`, `packages/geo/src/server/overpass.ts:16-42`).
+(`queryOverpass`, `packages/geo/src/server/overpass.ts:29-55`).
 The [Overpass admission documentation](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html)
 assigns HTTP 429 to rate refusal and HTTP 504 to resource admission. Those are
 not availability failures authorizing a different quota bucket. Neither denial
@@ -231,3 +231,38 @@ budgets, refusal even with a cached alternate, persisted JSON-resource cooldown,
 partial track metadata, bounded result count and sentinel overflow, duplicate
 endpoint attempts and the no-overlapping-connections assertion across operator
 aliases. Every mutation was restored; none relies on live public queries.
+
+
+## Shared SDK geometry ownership — 2026-10-01
+
+The pure coastline pipeline now belongs to geo; SDK names remain compatibility
+exports. The clip/simplify/stitch/witnessed-land implementation moved byte-identical
+and its existing regression tests run through those aliases. No place-map fixture,
+projection, tier threshold, land fill or UI baseline was changed
+(`prepareLand`, `packages/geo/src/coastline.ts:801-851`).
+
+A new concrete coastline operation applies the same shared Overpass cache/admission
+before invoking that geometry. Each layer preserves its complete endpoint/cache/
+fallback/transfer/error evidence, so a map assembled from different replies cannot
+pretend one source describes all of them
+(`coastlineGeometry`, `packages/geo/src/server/coastline.ts:41-84`).
+Usable earlier geometry survives a genuine failed later layer and remains partial.
+Admission/configuration/storage failure stops later queries; the transport remains
+an independent refusal guard. Bounds retain the existing 5-degree background budget.
+The 10,000-way/200,000-vertex cap counts malformed structures before parsing, as
+well as the shared actual byte/time limits. No transient failure becomes a cached
+complete background. Raw ways, not simplified drawing lines, produce land.
+
+The legacy result-or-empty adapter keeps existing return keys, off behavior and
+endpoint/User-Agent/timeout/fetch injection. Additive canonical configuration/cache
+and shared admission-path options allow CLI/server callers to cooperate
+(`fetchCoastline`, `packages/geo/src/server/coastline.ts:87-96`).
+The SDK depends on geo one way; the browser-facing SDK root/client has no import of
+this server adapter. Existing route-level permanent geometry caching stays intact.
+The new response cache is disposable and does not become authoritative content.
+
+Restored mutations failed on later-layer query membership, failed/malformed-layer
+partial status, the background extent rejection, way/vertex caps (including a
+malformed structure whose guard was moved after parsing), correct served fetch age
+and the legacy disabled wrapper's actual request boolean. Recorded responses also
+assert nonempty geometry and every layer's cache transfer. No live service was used.

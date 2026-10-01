@@ -4,6 +4,8 @@ import { routePoint } from "../track.js";
 import { GeoTransport, type GeoError, type GeoRuntimeOptions, type ServiceSource } from "./io.js";
 import { calculateRoute, type RoutingResult } from "./routing.js";
 import { findPois, type PoiQuery, type PoiResult } from "./poi.js";
+import { coastlineGeometry, type CoastlineServiceResult } from "./coastline.js";
+import type { CoastlineRequest } from "../coastline.js";
 
 export interface GeoAttribution { text: string; url: string }
 export interface GeoResult<T> {
@@ -67,6 +69,10 @@ export class GeoClient {
 
   poi(query: PoiQuery): Promise<PoiResult> {
     return findPois(this.config,this.transport,query);
+  }
+
+  coastline(request: CoastlineRequest): Promise<CoastlineServiceResult> {
+    return coastlineGeometry(this.config,this.transport,request);
   }
 
   async geocode(query: string): Promise<GeoResult<GeocodeCandidate[]>> {

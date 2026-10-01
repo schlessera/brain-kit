@@ -323,8 +323,9 @@ that encloses its land.
 A polygon traversed counterclockwise also has its interior on the left. So the
 shore and the land polygon agree about direction, and closing one stops being a
 judgement: follow the shore, then keep going counterclockwise around the
-rectangle until you are back where you started. `closeAgainstViewport` in
-`packages/ui-sdk/src/server/coastline.ts` is that sentence, and the whole of it.
+rectangle until you are back where you started
+(`closeAgainstViewport`, `packages/geo/src/coastline.ts:602-695`).
+The SDK retains compatibility exports.
 
 That single rule also settles the case §2.4's attempt got wrong. A shore that
 enters and leaves through the **same edge** is a peninsula one way round and a
@@ -482,3 +483,16 @@ Nothing here needs a key or the network in a test: the render tests answer
 the route themselves, and the stories draw the committed Vathy and Troy
 geometry.
 
+
+
+## 9. Shared geo ownership — 2026-10-01 (#525)
+
+The existing pure coastline/land/road algorithms moved byte-identical into
+`@schlessera/brain-geo`; SDK server names remain compatibility exports. Static PNG
+exports and the existing place-map consumer share those algorithms without a
+UI dependency in geo. The concrete Overpass client now applies shared disk cache,
+aggregate admission, bounded replies and layer-source evidence before preparation.
+The SDK wrapper preserves its result-or-empty contract. The place-map route's
+5-degree background guard, permanent geometry cache, fixtures and projection rules
+remain as decided above; #525's imported-track drawing policy is separate and is
+recorded in [geo-operations.md](geo-operations.md).

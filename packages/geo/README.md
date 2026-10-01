@@ -232,3 +232,33 @@ or high-traffic backend. FOSSGIS aliases (including `gall.openstreetmap.de` and
 Identification, reachable operator contact, aggregate pacing/caching, attribution
 and error-reporting links remain the caller's responsibility. Configure an appropriate
 service for workloads the public operator cannot sustain.
+
+## Coastline, land and roads
+
+`geo.coastline({bbox: [west,south,east,north], widthPx, detail?})` uses the existing
+coastline simplification, clipping, stitching and witnessed land-closure pipeline.
+The pure geometry helpers/types are available from the root entry point. Bounds
+must be ordered, valid and at most 5 degrees per axis; width is >0 and ≤16,384 px.
+Automatic detail follows the existing metres-per-pixel thresholds; `coast`, `roads`
+or `streets` can be requested explicitly. Each layer uses shared Overpass cache,
+timeout and admission, including refusal semantics; no raster tiles are fetched.
+
+The `CoastlineServiceResult` value has the existing coastline/roads/streets/land,
+detail, tolerance, partial and attribution shape. Its `queries` retain each layer's
+source, fallback, transfer attempts and malformed-way counts. Mixed valid/malformed
+ways and failed layers remain partial; usable earlier geometry survives. Admission
+or configuration failure stops later layers. If every layer fails, the result has
+null value plus the actual error; a genuine empty response is `no_match` with empty
+geometry. Replies are capped at 10,000 ways / 200,000 vertices, including malformed
+entries, as well as the transport's 5 MiB limit. Land is prepared from raw ways;
+drawing simplification does not alter imported-track measurements.
+
+The SDK's existing geometry exports and `fetchCoastline` are compatibility exports
+of this implementation. `fetchCoastline(request, legacyConfig)` retains result-or-empty
+behavior and the exact existing return keys. Legacy endpoint/User-Agent/timeout
+settings adapt to canonical geo configuration; optional `geo` supplies canonical
+endpoint/cache settings, and optional `admissionDir` uses the shared runtime path.
+`enabled:false` still prevents every request even when canonical configuration is
+supplied. Existing place-map geometry and its route-level permanent cache stay under
+the [map geometry decision](../../docs/decisions/map-geometry.md). OSM geometry data
+is ODbL and carries attribution; honor additional operator terms when applicable.

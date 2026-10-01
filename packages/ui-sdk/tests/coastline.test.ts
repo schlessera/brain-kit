@@ -15,7 +15,11 @@
  * point on the land side filled, and is the point on the water side not.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   OSM_ATTRIBUTION,
@@ -41,13 +45,14 @@ const SCYLLA: Coord = [15.719, 38.2507];
 const CHARYBDIS: Coord = [15.6508, 38.2647];
 const STRAIT: BBox = [15.6, 38.2, 15.8, 38.32];
 
-const CONFIG = (fetchImpl: FetchLike): CoastlineConfig => ({
-  enabled: true,
-  url: "https://overpass.invalid/api/interpreter",
-  userAgent: "brain-kit-test/1.0",
-  timeoutMs: 1_000,
-  fetchImpl,
-});
+const roots: string[] = [];
+afterEach(async () => {for (const root of roots.splice(0)) await rm(root, {recursive: true, force: true});});
+const CONFIG = (fetchImpl: FetchLike): CoastlineConfig => {
+  const root = mkdtempSync(join(tmpdir(), "brain-sdk-geo-")); roots.push(root);
+  return {enabled: true, url: "https://overpass.invalid/api/interpreter", userAgent: "brain-kit-test/1.0", timeoutMs: 1_000, fetchImpl,
+    admissionDir: join(root, "admission"), geo: {userAgent: "brain-kit-test/1.0", timeoutMs: 1_000, cacheDir: root, minimumIntervalMs: 0,
+      overpass: {enabled: true, endpoints: ["https://overpass.invalid/api/interpreter"]}}};
+};
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
