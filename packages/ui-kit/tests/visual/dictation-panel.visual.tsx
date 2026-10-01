@@ -41,11 +41,12 @@ afterEach(async () => {
   else document.documentElement.dataset.theme = previousTheme;
   if (touchEnabled) await commands.dictationPointer(false);
   touchEnabled = false;
+  await commands.dictationMotion("no-preference");
   if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height);
   if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
 });
 
-async function mount(width = 1280, height = 800, theme = "dark") {
+async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "precompiled" | "theme" = "precompiled") {
   frameBefore = { width: innerWidth, height: innerHeight };
   outerBefore = await commands.formViewport(width, height);
   await page.viewport(width, height);
@@ -53,7 +54,7 @@ async function mount(width = 1280, height = 800, theme = "dark") {
   document.documentElement.dataset.theme = theme;
   previousOverflow = document.body.style.overflow;
   style = document.createElement("style");
-  style.textContent = await commands.formConsumerStyles();
+  style.textContent = cssEntry === "theme" ? await commands.dictationThemeStyles() : await commands.formConsumerStyles();
   document.head.append(style);
   host = document.createElement("div");
   host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px;display:flex;flex-direction:column;background:var(--bk-color-canvas);color:var(--bk-color-ink)`;
@@ -179,13 +180,8 @@ for (const theme of ["dark", "light"]) {
     expect(rect.height).toBeLessThanOrEqual(480);
     const css = getComputedStyle(panel());
     expect(css.position).toBe("fixed");
-    // The source classes are retained. The pre-change shipped stylesheet
-    // supplies no enter keyframes; preserve that actual baseline in this issue.
-    expect(panel().classList.contains("animate-in")).toBe(true);
-    expect(panel().classList.contains("slide-in-from-bottom")).toBe(true);
-    expect(panel().classList.contains("duration-200")).toBe(true);
-    expect(css.animationName).toBe("none");
-    expect(css.animationDuration).toBe("0s");
+    expect(css.animationName, "phone entrance is supplied by shipped CSS").not.toBe("none");
+    expect(css.animationDuration).toBe("0.2s");
     expect(backdrop().getBoundingClientRect().width).toBe(320);
     await userEvent.click(backdrop(), { position: { x: 12, y: 12 } });
     expect(client.drained).toBe(1);
@@ -196,6 +192,71 @@ for (const theme of ["dark", "light"]) {
     await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the phone transcript");
     expect(document.body.style.overflow).toBe(previousOverflow);
   });
+}
+
+
+// Exercise both supported CSS entry points on the real composer/ASR/review flow.
+for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["dark", "light"]) {
+  for (const preference of ["no-preference", "reduce"] as const) for (const action of ["Done", "Cancel"] as const) {
+    test(`dictation motion ${cssEntry} ${theme} ${preference} ${action}: phone entrance and controls`, async () => {
+      await commands.dictationMotion(preference);
+      const { client, listen } = await mount(320, 800, theme, cssEntry);
+      const sheet = panel();
+      const css = getComputedStyle(sheet);
+      expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(preference === "reduce");
+      if (preference === "no-preference") {
+        expect(css.animationName, "real phone entrance animation").not.toBe("none");
+        expect(css.animationDuration, "existing 200ms entrance").toBe("0.2s");
+        const entrance = sheet.getAnimations().find(animation => animation instanceof CSSAnimation && animation.animationName === css.animationName);
+        expect(entrance, "browser created the sheet's own animation").toBeDefined();
+        entrance!.pause();
+        entrance!.currentTime = 0;
+        const start = sheet.getBoundingClientRect();
+        expect(start.bottom, "starts one sheet height below rest").toBeCloseTo(800 + start.height, 1);
+        entrance!.currentTime = 100;
+        const midway = sheet.getBoundingClientRect();
+        expect(midway.bottom, "moves upward before the end").toBeLessThan(start.bottom);
+        expect(midway.bottom, "still approaching rest at 100ms").toBeGreaterThan(800);
+        if (cssEntry === "precompiled" && action === "Done") await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/motion-${theme}-midpoint.png` });
+        entrance!.currentTime = 200;
+        expect(sheet.getBoundingClientRect().bottom, "settles at the viewport bottom").toBeCloseTo(800, 1);
+        expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity, "no remaining translation at rest").toBe(true);
+        entrance!.finish();
+      } else {
+        expect(css.animationName, "reduced motion has no sheet entrance").toBe("none");
+        expect(sheet.getAnimations(), "no sheet animation is created").toHaveLength(0);
+        expect(css.transform).toBe("none");
+        expect(sheet.getBoundingClientRect().bottom).toBeCloseTo(800, 1);
+      }
+      expect(sheet.getBoundingClientRect().width).toBe(320);
+      await listen("Keep the nonempty phone voyage transcript");
+      if (cssEntry === "precompiled" && action === "Done") await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/motion-${theme}-${preference}-rest.png` });
+      if (action === "Done") {
+        await userEvent.click(done());
+        expect(client.drained).toBe(1);
+        client.finish();
+        await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the nonempty phone voyage transcript");
+      } else {
+        await userEvent.click(host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!);
+        expect(client.stopped).toBe(1);
+        expect(client.drained).toBe(0);
+        expect(ui!.stores.voice.getState().reviewText).toBe("");
+      }
+      expect(ui!.stores.voice.getState().mode).toBe("idle");
+      expect(document.body.style.overflow).toBe(previousOverflow);
+    });
+  }
+  for (const preference of ["no-preference", "reduce"] as const) {
+    test(`dictation motion ${cssEntry} ${theme} ${preference}: desktop stays stationary`, async () => {
+      await commands.dictationMotion(preference);
+      await mount(1280, 800, theme, cssEntry);
+      expect(panel().getAttribute("role")).toBe("dialog");
+      expect(getComputedStyle(panel()).animationName).toBe("none");
+      expect(getComputedStyle(panel()).transform).toBe("none");
+      expect(panel().getAnimations()).toHaveLength(0);
+      expect(backdrop()).toBeNull();
+    });
+  }
 }
 
 for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {

@@ -1,0 +1,4 @@
+/* The README's source-theme consumer path, with an explicit package scan root. */
+@import "tailwindcss" source(none);
+@import "@schlessera/brain-ui-react/theme.css";
+@source "../../../ui-react/src";
