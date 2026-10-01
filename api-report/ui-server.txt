@@ -113,3 +113,111 @@ export "." (./src/index.ts)
   writeCache
 
 export "./package.json" (./package.json) [asset]
+
+signatures (the seams in docs/extending/README.md and the types they are made of)
+  AgentConfig (packages/ui-server/src/config/env.ts)
+    export interface AgentConfig {
+        backend: string | null;
+        confirmBashPatterns: ConfirmPatternSource[] | null;
+        claudeCodePath: string | null;
+        defaultModel: string;
+        defaultThinkingLevel?: ThinkingLevel;
+        profilesJson: string | null;
+        piProfilesJson: string | null;
+        modelDiscovery: boolean;
+        modelTtlMs: number;
+    }
+  AskUserFormLimits (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormLimits {
+        maxDepth: number;
+        maxNodes: number;
+        maxOptions: number;
+    }
+  AuthConfig (packages/ui-server/src/config/env.ts)
+    export interface AuthConfig {
+        mode: AuthModeName | null;
+        invalidMode: string | null;
+        passwordHash: string | null;
+        cookieSecret: string | null;
+        trustProxy: boolean;
+        trustProxyHops: number;
+        proxyAuthHeader: string;
+        dangerouslyDisableAuth: boolean;
+        allowPassword: boolean;
+    }
+  AuthModeName (packages/ui-server/src/config/env.ts)
+    export type AuthModeName = "password" | "tailscale" | "proxy" | "none";
+  CoastlineConfig (packages/ui-server/src/config/env.ts)
+    export interface CoastlineConfig {
+        enabled: boolean;
+        url: string;
+        userAgent: string;
+        cacheDir: string;
+    }
+  ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export interface ConfirmPattern {
+        pattern: string;
+        effect: string;
+    }
+  ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
+    export type ConfirmPatternSource = string | ConfirmPattern;
+  SEVERITIES (packages/ui-server/src/observability/types.ts)
+    const SEVERITIES: readonly ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
+  ServerConfig (packages/ui-server/src/config/env.ts)
+    export interface ServerConfig {
+        askUserFormLimits?: AskUserFormLimits;
+        brainPath: string;
+        dbPath: string;
+        inbox?: {
+            pokeTokenFile: string | null;
+        };
+        host: string;
+        sourceCommit: string;
+        allowedOrigins: string[];
+        maxConcurrentSessions: number;
+        turnTimeoutMs: number | null;
+        logLevel: Severity;
+        wsRate: {
+            ratePerSecond: number;
+            burst: number;
+        };
+        wsMaxConnections: number;
+        auth: AuthConfig;
+        webauthn: WebAuthnConfig;
+        agent: AgentConfig;
+        classification: {
+            apiKey: string | null;
+        };
+        voice: VoiceConfig;
+        coastline: CoastlineConfig;
+        pricing: {
+            enabled: boolean;
+            ttlMs: number;
+        };
+        subscription: SubscriptionConfig;
+    }
+  Severity (packages/ui-server/src/observability/types.ts)
+    export type Severity = (typeof SEVERITIES)[number];
+  SubscriptionConfig (packages/ui-server/src/config/env.ts)
+    export interface SubscriptionConfig {
+        tokenSet: boolean;
+        mintedAt: string | null;
+    }
+  ThinkingLevel (packages/ui-sdk/src/protocol.ts)
+    export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  VoiceConfig (packages/ui-server/src/config/env.ts)
+    export interface VoiceConfig {
+        provider: string | null;
+        deepgramApiKey: string | null;
+        keytermLimit: number;
+        cacheDir: string;
+    }
+  WebAuthnConfig (packages/ui-server/src/config/env.ts)
+    export interface WebAuthnConfig {
+        rpName: string;
+        userName: string;
+        userId: string;
+        rpId: string | null;
+        origins: string[];
+        allowLoopbackOrigin: boolean;
+    }

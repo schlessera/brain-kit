@@ -44,6 +44,7 @@ export const SEAMS: Record<string, Record<string, string[]>> = {
   },
   scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },
   "module-jobs": { ".": ["JobAdapter"] },
+  "ui-server": { ".": ["ServerConfig"] },
   "ui-sdk": {
     "./client": ["AsrClient", "ToolRenderer"],
     "./server": [

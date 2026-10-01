@@ -50,6 +50,8 @@ import {
   setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
+import { createInboxRuntime } from "./inbox/runtime.js";
+import { createInboxPokeAuth, createInternalRoutes } from "./routes/internal.js";
 import { readSyncRuntime } from "./activity/sync-runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
@@ -201,8 +203,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
   await probeBrainCliVersion(config.brainPath, observability.logger("brain"));
+  // Provision the independently authorized runtime file before opening handles.
+  const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
+  // Recovery/heartbeat only. Production dispatch is gated by the full-v1
+  // containment, budgets, admission and system proof; no backend is wired here.
+  const inbox = createInboxRuntime(db, { log: observability.logger("inbox") });
   prunePrincipals(db, Date.now());
   const brain = createBrainClient({ brainPath: config.brainPath });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
@@ -408,6 +415,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     })
   );
   app.route("/api", passkeyPublicRoutes(authMode, passkeyCtx));
+  app.route("/api", createInternalRoutes({ auth: inboxPokeAuth, runtime: inbox }));
 
   // Auth guard for every other /api/* route. The probe below is intentionally
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
@@ -556,6 +564,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: async () => {
+      await inbox.close();
       host.close();
       subscription.close();
       await scratchPrune.close();
