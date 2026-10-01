@@ -264,6 +264,19 @@ jobs:
             if (JSON.stringify(config.modules[travel].travelParty) !== JSON.stringify(party)) throw new Error("Packed migration lost party data");
             if ((await run(["travel", "migrate"])).migration.changed) throw new Error("Packed migration was not idempotent");
             if (await Bun.file(join(root, "trips/headland.md")).text() !== source) throw new Error("Packed migration rewrote content");
+            const input = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABgAAAAMCAIAAAD3UuoiAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAGElEQVQokWP4TyXAMGoQQTAaRoTBMA4jANNsXM4dShcqAAAAAElFTkSuQmCC", "base64");
+            await Bun.write(join(root, "inputs/odysseus.png"), input);
+            const photo = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
+            const copy = photo.files[0];
+            if (photo.files.length !== 1 || photo.errors.length !== 0 || copy.output !== "photos/odysseus.jpg"
+              || copy.width !== 24 || copy.height !== 12 || copy.captured_at !== null || copy.location !== null) {
+              throw new Error("Packed photo command returned an incorrect report");
+            }
+            const jpeg = Buffer.from(await Bun.file(join(root, copy.output)).arrayBuffer());
+            if (jpeg.length !== copy.bytes || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error("Packed photo command did not encode a JPEG");
+            if (!Buffer.from(await Bun.file(join(root, "inputs/odysseus.png")).arrayBuffer()).equals(input)) throw new Error("Packed photo command changed its source");
+            const repeated = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
+            if (repeated.files[0]?.output !== "photos/odysseus-2.jpg") throw new Error("Packed photo command overwrote its first copy");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [

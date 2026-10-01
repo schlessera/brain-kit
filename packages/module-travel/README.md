@@ -122,6 +122,65 @@ canonical events. First/last are `null` when any included visit's date is
 unknown, or when there are no visits; the individual known dates remain
 available. Later registry generation consumes these records.
 
+## Photo copies
+
+```sh
+brain travel photo originals/ithaca.jpg originals/scheria.png --to trips/ithaca/photos --json
+```
+
+Source paths resolve from the brain root; an explicit absolute path may read a
+camera file elsewhere. Originals are read only and never stored by this command.
+The output directory must remain inside the brain root. Symlinked output
+directories and filenames are refused, including links whose targets are inside
+the root.
+
+Each supported raster becomes a JPEG with a maximum 1600-pixel long edge,
+preserved aspect ratio and no upscaling. EXIF orientation is applied to actual
+pixels. Transparent areas become white. The encoder converts to sRGB and uses
+mozjpeg at quality 80. The fresh copy contains no input EXIF, GPS, XMP, ICC, IPTC
+or comments; ordinary JPEG structural headers remain. Animated and multi-page
+images, vector documents and unsupported codecs are refused. Available codecs
+depend on the installed Sharp/libvips build; HEIC support is not guaranteed.
+
+Copies use the source basename with `.jpg`. An occupied name receives `-2`,
+`-3` and so on, including when the source already sits in the output directory.
+A completed temporary sibling is published with an exclusive hard link, so an
+arriving destination cannot be overwritten and readers never see partial bytes.
+The output filesystem must support hard links; errors are reported rather than
+falling back to an overwrite-prone writer. New files have mode `0600` where the
+filesystem supports it. Temporary siblings are normally removed; if cleanup
+fails after publication, the completed copy is still reported as successful and
+a hidden sibling may remain.
+
+`--json` returns `{photo: {files, errors}}`. Each success contains:
+
+| Field | Meaning |
+| --- | --- |
+| `source` | Input argument, unchanged. |
+| `output` | Brain-root-relative JPEG path, using forward slashes. |
+| `width`, `height`, `bytes` | Actual encoded dimensions and byte length. |
+| `captured_at` | Original EXIF camera time as ISO text, or `null`. |
+| `location` | Original EXIF `{lat, lon}` in decimal degrees, or `null`. |
+
+Capture time retains a written fractional second and UTC offset. Without an
+offset it stays a local time such as `2026-07-15T12:34:56`; the process timezone
+never supplies one. Missing or impossible dates remain `null`. Coordinates
+require a finite latitude/longitude pair within their normal ranges; zero is
+valid. These values are returned separately, never embedded in the copy or
+written to a sidecar.
+
+Errors contain `{source, message}`, with the original input argument and a prose
+diagnostic. Inputs are processed in argument order; a failed input does not
+prevent other copies. Exit `0` means all succeeded, `2` means one or more input
+jobs failed, and `1` means invalid arguments or an unusable output directory
+before processing (stderr diagnostic, no success envelope). `--human` shows
+paths and dimensions, with errors on stderr. Put flags before `--` when passing
+a filename that begins with a dash.
+
+Sharp and exifr load only when processing photos. Sharp ships native codec
+binaries for its supported platforms; see its [installation requirements](https://sharp.pixelplumbing.com/install/)
+and [mozjpeg options](https://sharp.pixelplumbing.com/api-output/#jpeg).
+
 ## Upgrade from speaking
 
 This release moves travel taxonomy, planning and configuration out of
@@ -164,12 +223,13 @@ never overwrites those files.
 - `brain travel migrate [--dry-run] [--json]`: `{migration: {path, changed,
   dry_run}}`. `changed` reports whether the migration has an edit; dry run
   leaves the file untouched. Refusals exit 1 with an actionable stderr message.
+- `brain travel photo <files> --to <dir> [--json]`: `{photo: {files, errors}}`;
+  see [Photo copies](#photo-copies) for fields, failure behavior and output rules.
 - The root export supplies the manifest/config schema, content schemas,
   `parseTravelDocument`, `readTravelCorpus` and `summarizePlaceVisits` with
   their corresponding types. `./module` supplies the manifest for the loader.
 
-The package provides this foundation and existing journey planning. Photo
-processing, route fetching/metrics, day-trip/place workflows and generated
-registries are the separate follow-ups [#567](https://github.com/schlessera/brain-kit/issues/567),
-[#568](https://github.com/schlessera/brain-kit/issues/568) and
+The package provides canonical content, existing journey planning and photo
+processing. Route fetching/metrics, day-trip/place workflows and generated
+registries are the separate follow-ups [#568](https://github.com/schlessera/brain-kit/issues/568) and
 [#569](https://github.com/schlessera/brain-kit/issues/569).

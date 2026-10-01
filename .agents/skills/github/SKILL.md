@@ -311,8 +311,11 @@ below exists because the tracker drifted without it.
   comment carries a marker naming the blockers, so a run that fails part way
   comments only once when it is retried. Closing an issue syncs the issues
   that name it as a blocker straight away, and the daily sweep catches the
-  rest. Runs for the same issue never overlap, which is why a manual sync is
-  a `gh workflow run`, not a terminal `--apply`. A blocker outside the
+  rest. Concurrency serializes each event target, but an issue-close run and
+  its closing PR's run can reach the same dependant concurrently. The marker
+  makes sequential retries idempotent; it does not exclude concurrent notices.
+  A manual sync is a `gh workflow run`, not a terminal `--apply`, which would
+  add another uncoordinated writer. A blocker outside the
   board's three repositories is never looked up and reads as unverifiable. The dry run lists those issues, plus every `blocked` issue it
   cannot verify. That is either a problem with the text, so fix the text. There is no
   declaration, some other line says "blocked by", or a declaration names

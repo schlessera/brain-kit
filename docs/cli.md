@@ -180,6 +180,13 @@ references and relative assets: `{validation: {valid, files, issues}}`.
 settings: `{migration: {path, changed, dry_run}}`. Refusals leave configuration
 and content unchanged; see the [travel upgrade guide](../packages/module-travel/README.md#upgrade-from-speaking).
 
+`brain travel photo <files> --to <dir> --json` creates reduced, oriented JPEG
+copies inside the brain: `{photo: {files, errors}}`. It preserves originals and
+existing outputs, strips input metadata, and reports original capture time/GPS
+separately. Exit `2` means input failures alongside any successful copies;
+argument/output-directory refusals exit `1`. See the [photo guide](../packages/module-travel/README.md#photo-copies)
+for exact fields, collision naming, supported inputs and metadata semantics.
+
 See also: [integration-contract.md](integration-contract.md) ·
 [quickstart.md](quickstart.md) · [concepts.md](concepts.md)
 

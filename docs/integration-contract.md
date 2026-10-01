@@ -100,6 +100,45 @@ visits. Domain validation uses `brain travel validate`; ordinary
 version, MCP tool, existing core envelope or database authority changes.
 The [decision](decisions/travel-module.md) explains the boundary.
 
+## Travel photo copies
+
+**Additive CLI contract (#567):** `brain travel photo <files> --to <dir> --json`
+returns `{photo: {files, errors}}`. Each file has `source: string`,
+`output: string`, `width: number`, `height: number`, `bytes: number`,
+`captured_at: string | null`, and `location: {lat: number, lon: number} | null`.
+`source` is the unchanged input argument; `output` is a root-relative path with
+forward slashes. Dimensions and byte length describe the completed JPEG.
+Each error has `{source: string, message: string}`; messages are prose.
+Both arrays preserve their inputs' relative order.
+
+Capture values come from the original EXIF before stripping. `captured_at`
+contains a real calendar date/time in ISO form, with written fractional seconds
+and offset retained. Without a written offset it remains local ISO text; no
+timezone is inferred. Missing/invalid dates are `null`. A location requires a
+finite latitude/longitude pair in −90…90 and −180…180; valid zero values survive,
+and unknown/invalid pairs are `null`. No sidecar or content record is written.
+
+Sources resolve from the brain root, or from an explicit absolute path. Their
+bytes are unchanged. Outputs stay inside the brain; symlinked output directories
+and destination entries are refused. Copies apply EXIF orientation to pixels,
+preserve aspect ratio, cap the long edge at 1600 without upscaling, flatten
+transparency on white and encode sRGB JPEG with mozjpeg quality 80. Input EXIF,
+GPS, XMP, ICC, IPTC and comments are removed. Unsupported raster codecs,
+vector documents and animated/multi-page images produce input errors.
+
+Names use the source basename with `.jpg`, then `-2.jpg`, `-3.jpg`, etc.
+Exclusive publication of completed bytes preserves every existing destination,
+including a source already in the output directory. Hard-link support is
+required. Temporary cleanup failure after publication does not misreport a
+completed copy as failed; a hidden sibling can remain.
+
+Exit `0` means all inputs succeeded. Exit `2` means input failures, with the
+same envelope containing any successful copies. Exit `1` means usage or
+output-directory refusal before processing, with stderr and no success envelope.
+`--human` displays paths/dimensions and stderr errors. `--` terminates options.
+The [photo guide](../packages/module-travel/README.md#photo-copies) documents runtime
+requirements. No schema version, MCP tool or existing envelope changes.
+
 ## Asynchronous UI startup
 
 **Approved pre-1.0 breaking API change (#286):**
@@ -226,6 +265,7 @@ policy. The rationale and measurements are in
 | `brain hygiene list [--state open\|snoozed\|resolved] --json` | `{ "entries": [{ "id", "state": "open"\|"snoozed"\|"resolved", "path", "issue", "firstSeen", "lastSeen", "until", "resolvedBy", "resolvedOn" }] }`, the log as the files hold it; a field the entry does not carry is `null` (additive in 0.38.0) |
 | `brain travel validate --json` | `{ "validation": { "valid": boolean, "files": number, "issues": [{ "file", "level": "error", "message" }] } }` — read-only canonical format, reference and asset checks. `files` counts successfully parsed travel/trip/place documents. Exit `0` when valid, `1` on domain errors. File paths are root-relative; messages are prose |
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
+| `brain travel photo <files> --to <dir> --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null }], "errors": [{ "source", "message" }] } }` — [photo contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 `SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
