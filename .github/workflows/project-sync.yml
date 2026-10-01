@@ -30,17 +30,15 @@ on:
 permissions:
   contents: read
 
-# One run at a time per target. Two runs for the same issue queue, and a newer
-# pending run replaces an older one, which is safe because each reads the
-# issue fresh. Runs for different issues may overlap: each touches only its
-# own issue. The sweep has its own group.
+# Every path can reach the same dependent: a closed issue, its closing PR,
+# another issue event, or a sweep. Serialize the whole board, including the
+# read-marker / publish-notice / remove-label sequence. Retain pending events
+# instead of replacing one target with another; GitHub queues up to 100 runs.
+# A full queue cancels excess runs, which the daily/on-demand sweep recovers.
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
 concurrency:
-  group: >-
-    project-sync-${{
-      github.event_name == 'issues' && format('issue-{0}', github.event.issue.number) ||
-      github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) ||
-      'sweep'
-    }}
+  group: project-sync-board
+  queue: max
   cancel-in-progress: false
 
 jobs:
