@@ -162,30 +162,6 @@ export function makeBridge(
       if (remembered && !req.outsideEnforcedAllowlist) {
         return Promise.resolve({ behavior: "allow" });
       }
-      if (!host.clients.hasClients()) {
-        // Not a failure — the card is parked and re-delivered on reconnect
-        // (see resendPendingInteractive) — but the wait was invisible before
-        // this line existed, and it is bounded only by the turn timeout.
-        host.log.emit({
-          severityText: "WARN",
-          body: "approval requested with no client connected; holding for reconnect",
-          attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
-        });
-      }
-      host.sendToClients(
-        withTurnScope(
-          approvalRequestFrame(req, host.toolPermissions !== null),
-          turn,
-          turnId
-        )
-      );
-      host.sendToClients(
-        withTurnScope(
-          { type: "status", status: "tool_executing", detail: `Waiting for approval: ${req.toolName}` },
-          turn,
-          turnId
-        )
-      );
       return new Promise<PermissionDecision>((resolve) => {
         if (coordinator.collidesAcrossTurns(coordinator.pendingApprovals, req.toolUseId, turn)) {
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
@@ -217,6 +193,30 @@ export function makeBridge(
           request: req,
           resolve: recorded,
         });
+        if (!host.clients.hasClients()) {
+          // Not a failure — the card is parked and re-delivered on reconnect
+          // (see resendPendingInteractive) — but the wait was invisible before
+          // this line existed, and it is bounded only by the turn timeout.
+          host.log.emit({
+            severityText: "WARN",
+            body: "approval requested with no client connected; holding for reconnect",
+            attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
+          });
+        }
+        host.sendToClients(
+          withTurnScope(
+            approvalRequestFrame(req, host.toolPermissions !== null),
+            turn,
+            turnId
+          )
+        );
+        host.sendToClients(
+          withTurnScope(
+            { type: "status", status: "tool_executing", detail: `Waiting for approval: ${req.toolName}` },
+            turn,
+            turnId
+          )
+        );
       });
     },
     ...(recorder
@@ -226,16 +226,6 @@ export function makeBridge(
       ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
       : {}),
     askUser: (requestId, questions) => {
-      host.sendToClients(
-        withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
-      );
-      host.sendToClients(
-        withTurnScope(
-          { type: "status", status: "tool_executing", detail: "Waiting for your input" },
-          turn,
-          turnId
-        )
-      );
       return new Promise<AskUserResult>((resolve, reject) => {
         if (
           coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn) ||
@@ -254,19 +244,19 @@ export function makeBridge(
           resolve,
           reject,
         });
+        host.sendToClients(
+          withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
+        );
+        host.sendToClients(
+          withTurnScope(
+            { type: "status", status: "tool_executing", detail: "Waiting for your input" },
+            turn,
+            turnId
+          )
+        );
       });
     },
     askUserList: (requestId, request) => {
-      host.sendToClients(
-        withTurnScope({ type: "ask_user_list_request", requestId, ...request }, turn, turnId)
-      );
-      host.sendToClients(
-        withTurnScope(
-          { type: "status", status: "tool_executing", detail: "Waiting for your input" },
-          turn,
-          turnId
-        )
-      );
       return new Promise<AskUserListResult>((resolve, reject) => {
         // One id space across all ask kinds: a single `ask_user_cancel`
         // dismisses any of them, so an id pending as one must not open as the other.
@@ -287,10 +277,20 @@ export function makeBridge(
           resolve,
           reject,
         });
+        host.sendToClients(
+          withTurnScope({ type: "ask_user_list_request", requestId, ...request }, turn, turnId)
+        );
+        host.sendToClients(
+          withTurnScope(
+            { type: "status", status: "tool_executing", detail: "Waiting for your input" },
+            turn,
+            turnId
+          )
+        );
       });
     },
     askUserRank: (requestId, request) => {
-      // Cancellation shares one id space across all three ask kinds.
+      // Cancellation shares one id space across all four ask kinds.
       if (coordinator.pendingAskUserRank.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId) || coordinator.pendingAskUserForm.has(requestId)) {
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
@@ -319,22 +319,22 @@ export function makeBridge(
         );
       }
       const requestId = coordinator.nextLocationRequestId();
-      host.sendToClients(
-        withTurnScope({ type: "location_request", requestId, options }, turn, turnId)
-      );
-      host.sendToClients(
-        withTurnScope(
-          { type: "status", status: "tool_executing", detail: "Requesting your location" },
-          turn,
-          turnId
-        )
-      );
       return new Promise<LocationFix>((resolve, reject) => {
         if (coordinator.collidesAcrossTurns(coordinator.pendingLocation, requestId, turn)) {
           reject(new Error("Duplicate location request id"));
           return;
         }
         coordinator.pendingLocation.set(requestId, { turn, turnId, resolve, reject });
+        host.sendToClients(
+          withTurnScope({ type: "location_request", requestId, options }, turn, turnId)
+        );
+        host.sendToClients(
+          withTurnScope(
+            { type: "status", status: "tool_executing", detail: "Requesting your location" },
+            turn,
+            turnId
+          )
+        );
       });
     },
     requestMask: (imagePath, instruction) => {
@@ -344,22 +344,22 @@ export function makeBridge(
         );
       }
       const requestId = coordinator.nextMaskRequestId();
-      host.sendToClients(
-        withTurnScope({ type: "mask_request", requestId, imagePath, instruction }, turn, turnId)
-      );
-      host.sendToClients(
-        withTurnScope(
-          { type: "status", status: "tool_executing", detail: "Waiting for you to mark the area" },
-          turn,
-          turnId
-        )
-      );
       return new Promise<Uint8Array>((resolve, reject) => {
         if (coordinator.collidesAcrossTurns(coordinator.pendingMask, requestId, turn)) {
           reject(new Error("Duplicate mask request id"));
           return;
         }
         coordinator.pendingMask.set(requestId, { turn, turnId, resolve, reject });
+        host.sendToClients(
+          withTurnScope({ type: "mask_request", requestId, imagePath, instruction }, turn, turnId)
+        );
+        host.sendToClients(
+          withTurnScope(
+            { type: "status", status: "tool_executing", detail: "Waiting for you to mark the area" },
+            turn,
+            turnId
+          )
+        );
       });
     },
   };
