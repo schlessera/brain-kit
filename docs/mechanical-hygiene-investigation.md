@@ -12,10 +12,10 @@ production command, changes no skill, and selects no adoption policy.
 | --- | --- | --- |
 | Audit, silent-edit and row-level table detection | `detectCandidates`, `packages/core/src/lib/hygiene.ts:345-369` | Reuse detection rather than parse finding messages into write instructions. |
 | Stable finding IDs | `hygieneId`, `packages/core/src/lib/hygiene.ts:97-100` | Keep category/path/evidence identity; add no parallel log. |
-| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:704-714` | Reuse the existing reconciler after repair and retain its manual-state tests. |
-| Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:286-322` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
+| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:704-913` | Reuse the existing reconciler after repair and retain its manual-state tests. |
+| Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:288-317` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
 | Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:71-99` | Still agent file edits. These are the two prototype operations. |
-| Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:27-76` | Suggestions only; this is not a mechanical repair handler. |
+| Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-67` | Suggestions only; this is not a mechanical repair handler. |
 
 Neither current hygiene detection nor validation detects the `updated < created`
 ordering itself. Validation checks the presence of the fields (`if (!data.created)`,
@@ -42,7 +42,7 @@ The normal keyless test transport guards remain active.
 
 Date repair sets both fields to the maximum of created, updated and the original
 file mtime's UTC day, only when updated precedes created. UTC follows the existing
-`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:208-211`). Separate
+`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:209-211`). Separate
 processes in UTC, Honolulu and Kiritimati produce identical expected bytes.
 Comments, quotes, body content and CRLF endings survive.
 
