@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:381-386`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:832`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:388-393`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:860`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:429`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:265-268`)
@@ -458,7 +458,7 @@ into them.
   billing now stays unknown for every origin; server credentials and an
   observed runtime version cannot establish a child's billing. The recorded
   root-span attribute is the source of truth
-  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:520-521`);
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:521-522`);
   [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
   records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the

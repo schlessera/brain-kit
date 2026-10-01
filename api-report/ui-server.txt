@@ -161,6 +161,15 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type ConfirmPatternSource = string | ConfirmPattern;
+  InboxBudgetConfig (packages/ui-server/src/inbox/budget.ts)
+    export interface InboxBudgetConfig {
+        spendUsd: number;
+        turns: number;
+        emergencySpendUsd: number;
+        emergencyTurns: number;
+        timeZone: string;
+        unpricedUsdPerToken: number;
+    }
   SEVERITIES (packages/ui-server/src/observability/types.ts)
     const SEVERITIES: readonly ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
   ServerConfig (packages/ui-server/src/config/env.ts)
@@ -170,6 +179,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         dbPath: string;
         inbox?: {
             pokeTokenFile: string | null;
+            budget?: InboxBudgetConfig;
         };
         host: string;
         sourceCommit: string;

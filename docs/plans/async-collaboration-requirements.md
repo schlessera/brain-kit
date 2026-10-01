@@ -150,7 +150,7 @@ Stated before the requirements because five of them derive from it.
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
   ((`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`),
-  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:808-842`)), and deriving scope through a join on a
+  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:810-839`)), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
   per-thread order. Append-only checkpoints, unique resolution records, scheduler
   heartbeats and budget reservations also need explicit durable storage. The four
@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:430`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:429`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -345,7 +345,7 @@ Stated before the requirements because five of them derive from it.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
   `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
-  costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) so the query **fails open**.
+  costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
   rollup, and the chosen unknown-cost rule: pessimistic reserve plus one suppressed-per-model
   Action; refuse a claim when neither price nor usage permits a conservative estimate.

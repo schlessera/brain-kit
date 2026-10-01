@@ -47,7 +47,9 @@ function fakeTimers() {
   }, clearInterval(timer: Timer) { callbacks.delete(timer); } };
 }
 function runtime(extra: Partial<Parameters<typeof createInboxRuntime>[1]> = {}) {
-  const r = createInboxRuntime(db, { now: () => now, log, timers: fakeTimers(), ...extra });
+  const r = createInboxRuntime(db, { now: () => now, log, timers: fakeTimers(),
+    budget: { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => null } },
+    operation: (item) => ({ runId: `${item.id}-${item.attempts + 1}`, principalId: "fixture", model: "fixture", billingMode: "subscription", purpose: "triage" }), ...extra });
   runtimes.push(r); return r;
 }
 async function ready(file: string) {

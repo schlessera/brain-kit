@@ -45,7 +45,9 @@ credential.
 
 The share-confirmation decision is amended narrowly: unattended triage and
 isolated staging are permitted only once the restricted profile proves it cannot
-write the knowledge base, exceed its reservation or reach unapproved egress.
+write the knowledge base, start work without budget admission or reach
+unapproved egress. The October 1 budget clarification below defines the spend
+guarantee; a reservation is not a provider-enforced invoice limit.
 Filing content and other effects outside that envelope still require the user's
 explicit bounded approval. This does not make every staged share permission
 to act on its contents.
@@ -127,9 +129,22 @@ with one FYI. Unknown API cost consumes a pessimistic reserve and raises one
 suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
-`packages/ui-server/src/activity/store.ts:176-187`) and settles only after execution
+`packages/ui-server/src/activity/store.ts:177-192`) and settles only after execution
 (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`).
 Retrospective totals alone cannot enforce admission.
+
+The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
+chooses **conservative admission reservations**. Caps gate new work against
+charged spend plus active reservations. A running operation can exceed its
+estimate; its observed overrun remains charged in full and stops subsequent
+over-cap admissions. This ruling does not require a backend/transport invoice
+ceiling in U4. Server-selected estimates cover the whole operation; every
+separately dispatched model-bearing operation consumes one turn. SDK-internal
+loops belong in that operation's estimate. Subscription work consumes turns
+and zero dollars only when its billing identity supports that classification.
+Missing receipts retain conservative charges. The [budget accounting guide](../inbox-budget.md)
+records configuration, settlement and recovery semantics. Containment and the
+complete system proof still gate production enablement.
 
 Interactive work reserves capacity. On a shared target, the chosen hybrid yields
 autonomous work only at the explicit denial-risk threshold; below it there is

@@ -45,6 +45,18 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
     expect(r.reservation.input_tokens).toBeGreaterThan(0);
     expect(r.reservation.output_tokens).toBeGreaterThan(0);
     expect(r.reservation.charged_turns).toBe(1);
+    expect(r.reservation.runtime_acquired_at).not.toBeNull();
+    expect(r.reservation.observed_cost_usd).toBeGreaterThan(0);
+    expect(r.reservation.charged_cost_usd).toBeGreaterThan(0);
+  });
+  test("an unreserved turn never reaches the actual inference transport", async () => {
+    const r = await probe(backend, "unreserved");
+    expect(r.calls).toBe(0);
+    expect(r.failure.name).toBe("BackendRequestError");
+    expect(r.failure.message).toContain("unused active budget reservation");
+    expect(r.rollup).toBeNull();
+    expect(r.sessions).toEqual([]);
+    expect(r.transcripts).toEqual([]);
   });
   test("captures permission checkpoint before denying and aborting without a parked approval", async () => {
     const r = await probe(backend, "permission");

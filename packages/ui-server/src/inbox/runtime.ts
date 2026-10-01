@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
+import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -28,6 +29,9 @@ export function createInboxRuntime(db: Database, deps: {
   timers?: Timers;
   /** Internal fixture/engine wiring, never a package extension interface. */
   dispatch?: (item: InboxQueueItem, signal: AbortSignal) => Promise<void>;
+  budget?: Omit<Parameters<typeof createInboxBudget>[1], "now">;
+  /** Server-selected bounds/billing for each concrete model-bearing operation. */
+  operation?: (item: InboxQueueItem) => InboxBudgetOperation;
 }) {
   const now = deps.now ?? Date.now;
   const timers: Timers = deps.timers ?? {
@@ -35,16 +39,19 @@ export function createInboxRuntime(db: Database, deps: {
     clearInterval: (timer) => clearInterval(timer),
   };
   const store = createInboxStore(db, { now });
+  const budget = deps.budget ? createInboxBudget(db, { ...deps.budget, now }) : undefined;
+  const dispatchEnabled = Boolean(deps.dispatch && budget && deps.operation);
   const controller = new AbortController();
   let timer: Timer | undefined;
   let closed = false;
   let active: Promise<DrainResult> | null = null;
   const result = (): DrainResult => ({
-    busy: false, claimed: 0, recovered: 0, dispatchEnabled: Boolean(deps.dispatch),
+    busy: false, claimed: 0, recovered: 0, dispatchEnabled,
   });
 
   function recoverLeases(): number {
     return db.transaction(() => {
+      reconcileInboxBudgets(db, now());
       const rows = db.query(
         "SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
       ).all(now()) as { id: string }[];
@@ -73,15 +80,13 @@ export function createInboxRuntime(db: Database, deps: {
   function claimNext(seen: Set<string>): InboxQueueItem | null {
     return db.transaction(() => {
       const at = now();
-      const candidate = store.orderedItems().find(({ item }) =>
-        item.queue === "queue" && eligible(item, at) && !seen.has(item.id)
-      )?.item;
-      if (!candidate || candidate.queue !== "queue") return null;
-      store.commit([{
-        kind: "transition", itemId: candidate.id, expectedVersion: candidate.version,
-        to: "claimed", leaseUntil: at + LEASE_MS,
-      }]);
-      return store.getItem(candidate.id) as InboxQueueItem;
+      for (const { item } of store.orderedItems()) {
+        if (item.queue !== "queue" || !eligible(item, at) || seen.has(item.id)) continue;
+        seen.add(item.id);
+        const admitted = budget!.claim(item.id, deps.operation!(item), at + LEASE_MS);
+        if (admitted) return admitted.items[0]!;
+      }
+      return null;
     }).immediate();
   }
 
@@ -97,7 +102,7 @@ export function createInboxRuntime(db: Database, deps: {
       ).get(at, at) as { count: number };
       // Empty ticks never construct a recorder or call inference. An absent
       // dispatcher also leaves ready work untouched until the full-v1 gates.
-      if (count === 0 || !deps.dispatch) return pass;
+      if (count === 0 || !dispatchEnabled) return pass;
       const seen = new Set<string>();
       // Bound each pass by its initial ready set; new arrivals wait for a tick.
       for (let i = 0; i < count && !closed; i++) {
@@ -107,7 +112,7 @@ export function createInboxRuntime(db: Database, deps: {
         pass.claimed++;
         // The immediate claim transaction has ended before any asynchronous
         // work. The engine owns completion/backoff/checkpoints and accounting.
-        await deps.dispatch(item, controller.signal);
+        await deps.dispatch!(item, controller.signal);
       }
     } catch {
       pass.failed = true;

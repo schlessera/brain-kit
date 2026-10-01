@@ -44,6 +44,25 @@ The synchronous synthetic bridge captures escalation data before no-grant denial
 and aborts without parking. Durable Action transitions, reservation admission,
 containment and full-system enablement remain separate gated tasks.
 
+## Autonomous admission configuration (additive, #678)
+
+`ServerConfig.inbox.budget?` adds `{ spendUsd: number, turns: number,
+emergencySpendUsd: number, emergencyTurns: number, timeZone: string,
+unpricedUsdPerToken: number }`. It remains optional for embedded configurations.
+`resolveServerConfig()` supplies defaults of 5 USD, 0 operations, zero emergency
+capacity, UTC and 0.01 USD per unpriced token. The six `BRAIN_UI_AUTONOMOUS_*`
+environment settings and validation are specified in [the budget guide](inbox-budget.md).
+Omission or zero turns cannot enable autonomous dispatch.
+
+The cap governs new admissions against charged spend plus active conservative
+reservations; observed overruns are retained. It is not a provider-enforced
+invoice ceiling. One separately dispatched model-bearing operation counts one
+turn. Actual billing evidence, unknown-cost charging, frozen admission days and
+crash recovery follow the [async decision](decisions/async-collaboration.md#scheduling-budgets-and-evidence).
+The reservation ledger is internal operational storage. Existing HTTP, wire,
+SDK turn-request, CLI/MCP and content-index shapes remain unchanged; full-v1
+containment and system proof still gate production dispatch.
+
 ## Consumers
 
 | Consumer | Surfaces used |

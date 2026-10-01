@@ -88,9 +88,11 @@ source or trust. The store starts no inference call.
 | Scheduler heartbeat | One record per scheduler name, with last tick and processed change cursor; the drain loop owns updates. |
 | Budget reservations | Unique operation key, item/attempt/purpose/run identity, principal/model/billing mode, admission day, normal/emergency bucket, reserved dollars/turns, observed cost and final charged dollars/turns. Budget admission owns limits, unknown-cost policy and recovery decisions. |
 
-Reservations start active and settle or release once through the store. A
-settlement cannot discard observed spend, and subscription records carry zero
-dollar reserve/charge. The admission day remains fixed even when settlement
+Reservations start active and settle or release once. A settlement cannot
+discard observed spend. Confirmed subscription records carry zero dollars;
+actual API billing evidence overrides an expected subscription classification.
+The [budget ledger](inbox-budget.md) adds admission-time pricing snapshots,
+single backend acquisition and frozen settlement in migration `024_inbox_budget.sql`. The admission day remains fixed even when settlement
 happens on another day. Missing pricing, ceilings, fallback models and Action
 creation are budget policy rather than implicit storage behavior.
 

@@ -6,6 +6,7 @@ import { createPiBackend } from "../../packages/ui-backend-pi/src/backend.js";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { createActivityStore } from "../../packages/ui-server/src/activity/store.js";
 import { createInboxStore } from "../../packages/ui-server/src/inbox/store.js";
+import { createInboxBudget } from "../../packages/ui-server/src/inbox/budget.js";
 import { createPrincipal, revokePrincipal } from "../../packages/ui-server/src/db/principals.js";
 import { runAutonomousTurn, type AutonomousEscalation } from "../../packages/ui-server/src/inbox/autonomous-turn.js";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -20,18 +21,24 @@ process.env.CLAUDE_CONFIG_DIR = configDir;
 process.env.PI_CODING_AGENT_DIR = piDir;
 process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 const db = createUiDb(join(root, "ui.sqlite"));
-const store = createActivityStore(db, { writer: "autonomous-runtime-test" });
+// Fictional rates for the loopback transport, shared by admission and rollup.
+const pricing = { resolve: () => ({ input: 0.001, output: 0.001, cacheRead: 0.001, cacheWrite: 0.001,
+  estimate: false, source: "snapshot" as const }) };
+const store = createActivityStore(db, { writer: "autonomous-runtime-test", pricing });
 const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
 const frames: ServerMessage[] = [];
 const captured: AutonomousEscalation[] = [];
 let failure: { name: string; message: string } | undefined;
 const inbox = createInboxStore(db);
-if (scenario !== "ordinary") {
+if (scenario !== "ordinary" && scenario !== "unreserved") {
   inbox.ingest({ threadId: "fixture-thread", itemId: "fixture-item", dedupKey: "fixture-dedup",
     stagingId: "fixture-staging", source: "cli", stakes: 1, expiresAt: Date.now() + 3600_000 });
-  inbox.commit([{ kind: "reserve", reservation: { id: "fixture-reservation", operationKey: "fixture-operation", itemId: "fixture-item",
-    attempt: 1, purpose: "execute", runId: "fixture-run", principalId: principal.id, model: "claude-sonnet-4-6",
-    billingMode: "api", localDay: "2026-10-01", reserveKind: "normal", reservedCostUsd: 1, reservedTurns: 1 } }]);
+  const budget = createInboxBudget(db, { config: { spendUsd: 5, turns: 1, emergencySpendUsd: 0, emergencyTurns: 0,
+    timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing });
+  const admitted = budget.claim("fixture-item", { runId: "fixture-run", principalId: principal.id, model: "claude-sonnet-4-6",
+    billingMode: "api", purpose: "execute", maximumTokens: { inputTokens: 1000, outputTokens: 1000,
+      cacheReadTokens: 0, cacheCreationTokens: 0 } }, Date.now() + 600_000);
+  if (!admitted) throw new Error("Fixture budget admission refused");
 }
 let calls = 0;
 let sent = false;
@@ -126,14 +133,12 @@ try {
       billingMode: "api", allowedTools: scenario === "question" ? [backendName === "claude" ? "mcp__brain-ui__ask_user" : "ask_user"] : [],
       systemPromptAppend: "Use the explicit fixture task.", signal: controller.signal });
     } catch (error) {
-      if (scenario !== "unsupported") throw error;
+      if (scenario !== "unsupported" && scenario !== "unreserved") throw error;
       failure = { name: (error as Error).name, message: (error as Error).message };
     }
   }
   const revocationElapsedMs = revokedAt === undefined ? undefined : Date.now() - revokedAt;
   const rollup = db.query("SELECT * FROM activity_run_rollups WHERE run_id = 'fixture-run'").get() as { cost_usd: number | null } | null;
-  if (rollup) inbox.commit([{ kind: "settle", reservationId: "fixture-reservation", status: "settled",
-    observedCostUsd: rollup.cost_usd, chargedCostUsd: rollup.cost_usd ?? 1, chargedTurns: 1 }]);
   const spans = db.query("SELECT * FROM activity_spans WHERE run_id = 'fixture-run'").all();
   const events = db.query("SELECT * FROM activity_events").all();
   const sessions = await backend.listSessions();
