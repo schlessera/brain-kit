@@ -91,6 +91,8 @@ overrides — is covered in
 
 ## Authoring MCP tools
 
+Available in 0.40.0+. Published 0.39.0 serves only the core MCP tools.
+
 Declare a tool when an existing CLI operation needs to be reachable from an
 MCP client without a shell. Keep its deterministic operation in one function
 that both the CLI subcommand and tool call. Declare each tool explicitly;
