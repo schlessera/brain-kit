@@ -367,16 +367,29 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
   })
 
   .post("/brain/add", requireJson(), async (c) => {
-    const result = await readJsonBody<{
-      content: string;
-      type?: string;
-      title?: string;
-      tags?: string[];
-    }>(c);
-    if (result instanceof Response) return result;
-    const body = result;
-    if (!body.content) {
+    let body: { content?: unknown; type?: unknown; title?: unknown; tags?: unknown };
+    try {
+      const result = await readJsonBody<typeof body>(c);
+      if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
+      body = result;
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+    if (typeof body.content !== "string" || !body.content) {
       return c.json({ error: "Field 'content' is required" }, 400);
+    }
+    if (body.type !== undefined && typeof body.type !== "string") {
+      return c.json({ error: "Field 'type' must be a string" }, 400);
+    }
+    if (body.title !== undefined && typeof body.title !== "string") {
+      return c.json({ error: "Field 'title' must be a string" }, 400);
+    }
+    if (body.tags !== undefined &&
+        (!Array.isArray(body.tags) || !body.tags.every((tag) => typeof tag === "string"))) {
+      return c.json({ error: "Field 'tags' must be an array of strings" }, 400);
     }
     try {
       const outcome = await brain.add(body.content, {

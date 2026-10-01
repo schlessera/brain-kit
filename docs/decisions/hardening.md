@@ -46,7 +46,7 @@ instead, and treat 8 as the question it was answering.
    epoch. Logout and passkey revocation bump it **and close every open
    WebSocket** (new `ClientSet.closeAll`). **The bump requires a valid
    epoch-bearing session**: logout is a public route today
-   (`/auth/logout`, `packages/ui-server/src/middleware/auth.ts:794`,
+   (`/auth/logout`, `packages/ui-server/src/middleware/auth.ts:797`,
    mounted before the guard), and a public epoch bump would let anyone log
    the owner out of everything in a loop. The epoch accessor is strict, not
    the fail-open settings getter: first initialization is distinguished from
