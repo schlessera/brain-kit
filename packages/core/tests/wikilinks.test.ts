@@ -31,6 +31,20 @@ describe("extractWikiLinks", () => {
 });
 
 describe("resolveWikiLink", () => {
+  test("self-heading links resolve only to a source present in the corpus snapshot", () => {
+    const source = "notes/anchor-test.md";
+    const resolve = createWikiLinkResolver(new Map([[source, "Anchor test"]]));
+    expect(resolve("#Section one", source)).toBe(source);
+    expect(resolve(" #Section one ", source)).toBe(source);
+    expect(resolve("#Absent heading", source)).toBe(source);
+    expect(resolve("#Section one")).toBeNull();
+    expect(resolve("#Section one", "notes/missing.md")).toBeNull();
+    expect(resolve("", source)).toBeNull();
+    expect(resolve("   ", source)).toBeNull();
+    expect(resolve("#", source)).toBeNull();
+    expect(resolve("#   ", source)).toBeNull();
+  });
+
   test("exact qualified paths beat suffixes in either insertion order", () => {
     const paths = ["archive/projects/demo.md", "projects/demo.md"];
     for (const order of [paths, paths.toReversed()]) {

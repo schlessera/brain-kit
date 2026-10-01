@@ -81,7 +81,8 @@ Rules:
 
 A directory link (`[[some/dir/]]`) resolves to its anchor file (`_index.md`
 first; modules may add anchors like `status.md`). `[[file#heading]]` links to
-the file.
+the file. `[[#heading]]` and `[[#heading|display text]]` link to the source
+document. Neither form checks whether the heading exists.
 
 ## Conventions
 
