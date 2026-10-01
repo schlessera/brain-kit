@@ -11,11 +11,14 @@
  * but different sessions are independent.
  */
 
-import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import type { AutonomousTurnOptions, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 export interface TurnContext {
   bridge: BackendBridge | null;
   signal: AbortSignal | null;
+  autonomous?: AutonomousTurnOptions;
+  /** Running/queued mutation bodies must unwind before releasing the turn. */
+  pendingMutations?: Set<Promise<unknown>>;
   /**
    * The current turn declared `enforceAllowedTools`: a tool outside the
    * allowlist is one the host must decide on its own merits, not one its

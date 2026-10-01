@@ -1,5 +1,32 @@
 # Autonomous admission budgets
 
+## Interactive capacity and yield
+
+`MAX_AUTONOMOUS_RUNS` defaults to two; positive integers select the autonomous
+pool size. Claims and conservative reservations acquire this capacity in the
+same transaction, counting a batch as one operation. Interactive WS sessions
+retain their separate capacity. Neither setting enables production dispatch.
+
+`BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` defaults to 20000 and accepts positive
+integers below the normal 30000 ms interactive lock-wait bound. Only continued
+same-target interactive contention signals an autonomous holder; short calls
+and independent keys do not yield. The server commits the checkpoint before
+abort. The backend drains its actual writer before settlement and recovery.
+Observed spend and the attempted operation remain charged; unused conservative
+reservation is released according to the existing complete-receipt rules.
+
+Completed calls are retained as append-only operational receipts, even across
+restart. A fresh attempt does not replay a runtime transcript and refuses the
+same completed effectful tool/input pair; named first-party reads may be
+repeated to inspect current state. Current authority still applies to every other
+call. The receipt comparison ignores object key order. A tool with different
+inputs is a new call, not a semantic deduplication of filesystem effects.
+Every claim consumes an attempt. Yield or expired-lease recovery makes work
+ready within its attempt limit, then leaves failed work with one dead-letter
+Action when the limit is exhausted.
+
+## Accounting
+
 The Queue budget ledger belongs to the UI operational database, alongside
 claims and leases. Markdown remains content authority and `brain.db` is not
 involved. The concrete internal budget code is not a storage-provider seam.

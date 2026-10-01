@@ -181,6 +181,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         inbox?: {
             pokeTokenFile: string | null;
             budget?: InboxBudgetConfig;
+            maxAutonomousRuns?: number;
+            yieldAfterMs?: number;
         };
         host: string;
         sourceCommit: string;

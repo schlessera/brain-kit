@@ -5,6 +5,7 @@ import {
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
+  isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
 import {
@@ -101,6 +102,14 @@ export function createPermissionWiring(options: {
   // Registered only under the declaration, so nothing moves for a turn that
   // declares nothing.
   const enforcementHook: HookCallback = async (hookInput) => {
+    if (hookInput.hook_event_name === "PreToolUse" &&
+      (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, hookInput.tool_name, hookInput.tool_input))) {
+      return { continue: true, hookSpecificOutput: {
+        hookEventName: "PreToolUse", permissionDecision: "deny",
+        permissionDecisionReason: req.signal.aborted ? "Turn cancelled before tool admission." :
+          "This call already completed before yielding; inspect its retained result instead of replaying it.",
+      } };
+    }
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
       allowed.has(hookInput.tool_name)
@@ -158,6 +167,8 @@ export function createPermissionWiring(options: {
     input,
     opts
   ) => {
+    if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
+      return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
     // The PreToolUse hook below may already hold the write lock for this tool
     // use (it fires before permission evaluation). Don't keep the lock across
     // the (possibly long) approval wait — release it now and re-acquire only
@@ -335,11 +346,27 @@ export function createPermissionWiring(options: {
     return { continue: true };
   };
 
-  const agentHook = createAgentHook({
+  // Runtime hooks see the original input in parallel. A completed receipt may
+  // contain the foreground/RTK rewrite, so restrict that final form too: a
+  // rewrite's auto-allow must not re-admit an already completed effect.
+  const restrictRewrite = (hook: HookCallback, toolName: string): HookCallback => async (...args) => {
+    const output = await hook(...args);
+    if (req.signal.aborted) return { continue: true, hookSpecificOutput: {
+      hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled during input rewrite.",
+    } };
+    if ("hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" &&
+      output.hookSpecificOutput.updatedInput !== undefined &&
+      isCompletedAutonomousToolCall(req.autonomous, toolName, output.hookSpecificOutput.updatedInput)) {
+      return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+        permissionDecisionReason: "The rewritten call already completed before yielding; no replay." } };
+    }
+    return output;
+  };
+  const agentHook = restrictRewrite(createAgentHook({
     mayGrant: !outsideEnforcedAllowlist("Agent"),
     onGrantWithheld: withheld,
-  });
-  const rtkHook = createRtkHook(childEnv, {
+  }), "Agent");
+  const rtkHook = restrictRewrite(createRtkHook(childEnv, {
     mayGrant: !outsideEnforcedAllowlist("Bash"),
     onGrantWithheld: withheld,
     // A confirmed command belongs to mutatingHook, which may apply an edit
@@ -352,7 +379,7 @@ export function createPermissionWiring(options: {
         allowedTools: commandAllowed,
         confirmPatterns,
       })?.kind === "command",
-  });
+  }), "Bash");
 
   return {
     canUseTool,

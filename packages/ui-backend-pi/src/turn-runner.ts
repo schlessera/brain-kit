@@ -49,9 +49,21 @@ export function createPiTurnRunner(
 
     // Bind this session's tool plumbing to the current turn's bridge/signal.
     turnContext.bridge = req.bridge;
-    turnContext.signal = req.signal;
+    const toolController = new AbortController();
+    if (req.signal.aborted) toolController.abort();
+    turnContext.signal = toolController.signal;
+    const pendingMutations = new Set<Promise<unknown>>();
+    turnContext.pendingMutations = pendingMutations;
     turnContext.enforceAllowedTools = req.enforceAllowedTools === true;
     turnContext.noGrantSurface = req.noGrantSurface === true;
+    let yielded = false;
+    turnContext.autonomous = req.autonomous ? { ...req.autonomous, onYield: req.autonomous.onYield ? (key) => {
+      if (yielded || req.signal.aborted) return;
+      yielded = true;
+      try { req.autonomous!.onYield!(key); }
+      catch { emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
+      finally { cancelled = true; toolController.abort(); void session.abort(); }
+    } : undefined } : undefined;
     // Everything from here on runs inside the try: a throw from subscribe() or
     // the first emit() would otherwise leave entry.running stuck true, bricking
     // this session id (later turns reject busy and eviction skips it).
@@ -61,6 +73,7 @@ export function createPiTurnRunner(
     let cancelled = req.signal.aborted;
     const onAbort = () => {
       cancelled = true;
+      toolController.abort();
       void session.abort();
     };
     const costBefore = snapshotCost(session);
@@ -120,10 +133,16 @@ export function createPiTurnRunner(
         thrown = failureFromPiError(errorMessage(err));
       }
     } finally {
+      // An SDK abort can finish prompt() before a subprocess/tool body exits.
+      // Retain session/lock ownership until our actual mutation bodies drain.
+      toolController.abort();
+      await Promise.allSettled([...pendingMutations]);
       unsubscribe();
       req.signal.removeEventListener("abort", onAbort);
       turnContext.bridge = null;
       turnContext.signal = null;
+      turnContext.autonomous = undefined;
+      turnContext.pendingMutations = undefined;
       turnContext.enforceAllowedTools = false;
       turnContext.noGrantSurface = false;
       // Now that this session is idle, drop cold sessions above the cap.

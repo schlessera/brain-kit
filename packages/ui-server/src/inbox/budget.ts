@@ -145,8 +145,12 @@ export function createInboxBudget(db: Database, deps: {
   config: InboxBudgetConfig;
   pricing: Pick<ModelPricing, "resolve">;
   now?: () => number;
+  maxAutonomousRuns?: number;
 }) {
   const config = Object.freeze({ ...deps.config }), now = deps.now ?? Date.now;
+  const maxAutonomousRuns = deps.maxAutonomousRuns ?? 2;
+  if (!Number.isSafeInteger(maxAutonomousRuns) || maxAutonomousRuns < 1)
+    throw new Error("MAX_AUTONOMOUS_RUNS must be a positive integer");
   for (const value of [config.spendUsd, config.emergencySpendUsd, config.unpricedUsdPerToken]) money(value);
   for (const value of [config.turns, config.emergencyTurns]) count(value);
   if (config.unpricedUsdPerToken === 0) throw new Error("Unpriced autonomous rate must be positive");
@@ -198,6 +202,12 @@ export function createInboxBudget(db: Database, deps: {
       if (![op.runId, op.principalId, op.model].every((s) => typeof s === "string" && s.length > 0 && s.length <= 256) ||
         !["api", "subscription"].includes(op.billingMode)) throw new Error("Invalid autonomous budget identity");
       if (reservation(db, op.runId)) throw new Error("Autonomous run already reserved");
+      // Reservation and lease admission share this immediate transaction.
+      // Count operations rather than batch items. Terminal settlement occurs
+      // after backend unwind, so an in-flight writer cannot free its slot early.
+      const { active } = db.query("SELECT COUNT(*) AS active FROM inbox_budget_reservations WHERE status = 'active'")
+        .get() as { active: number };
+      if (active >= maxAutonomousRuns) return null;
       const bounded = op.maximumTokens ? tokens(op.maximumTokens, true) : null;
       if (op.maximumTokens && !bounded) throw new Error("Invalid autonomous token bounds");
       const rates = deps.pricing.resolve(op.model, op.pricingRoute);
