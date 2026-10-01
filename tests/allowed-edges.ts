@@ -41,8 +41,10 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // existing robots/pacing/redirect client instead of a second scrape stack;
   // this concrete CLI job does not need the optional browser driver.
   "@schlessera/brain-module-travel": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"], optionalPeers: [],
+    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape", "@schlessera/brain-geo"], optionalPeers: [],
   },
+  // #525 ownership B: geo is a concrete independent library; consumers depend one way.
+  "@schlessera/brain-geo": { dependencies: [], optionalPeers: [] },
   // The template remains a dependency-free internal leaf.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   // #558 Option B: the concrete export policy belongs to the shared template;

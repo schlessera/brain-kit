@@ -156,6 +156,7 @@ jobs:
           TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           mkdir -p "$TARBALL_DIR"
           for package in \
+            geo \
             core \
             ui-sdk \
             ui-backend-claude \
@@ -207,6 +208,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain": `file:${tarballs}/core.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
@@ -228,6 +230,7 @@ jobs:
           bun add "$TARBALL_DIR"/*.tgz react react-dom
           bun -e '
             const names = [
+              "@schlessera/brain-geo",
               "@schlessera/brain",
               "@schlessera/brain-ui-sdk",
               "@schlessera/brain-backend-claude",
@@ -324,6 +327,7 @@ jobs:
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
+            "@schlessera/brain-geo",
             "@schlessera/brain-ui-sdk",
             "@schlessera/brain-ui-sdk/protocol",
             "@schlessera/brain-ui-sdk/schemas",

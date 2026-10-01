@@ -2717,3 +2717,30 @@ reuse the original staging result; source/principal provenance is server-owned,
 immutable and separated from CLI dedup keys. Queue-backed staging is exempt
 from legacy opportunistic pruning. Standalone staging retains its old lifetime.
 No production autonomous dispatch is enabled by these additive surfaces.
+
+## Shared geo library (additive, #525)
+
+`@schlessera/brain-geo` is a concrete leaf library. Its root export supplies
+`RoutePoint` (`lat`, `lon`, nullable `elevation_m` and ISO `time`), strict
+`parseGpx`, `routePoint`, great-circle `distanceM`, travel-compatible
+`routeMetrics`, `trimRoute`, `quantizeRoute` and `writeGpx`. Existing travel
+commands retain their JSON types, strict rejection, rounding and serialization.
+The [travel metric contract](../packages/module-travel/README.md#route-import)
+continues to apply; metrics/writing require nonempty valid geometry.
+
+`parseTrackGpx(source)` adds recovered file geometry. It returns `segments`,
+`warnings`, `kind` (`track` or `route`), `status` (`ok`, `partial` or `no_line`),
+`partial`, `counts` (`input`, `retained`, `omitted`, `segments`) and `omissions`.
+Each omission names its zero-based selected-source point `index`, primary
+`reason` and all `reasons`: latitude/longitude missing-or-invalid or out-of-range.
+Counts cover the selected track/route geometry, not foreign metadata or waypoints.
+Every omitted point splits the geometry. Valid isolated points stay in the
+returned sections as evidence; `no_line` means no section has two points.
+Track sections take precedence when usable, otherwise usable routes do.
+With neither, track evidence takes precedence over route evidence when present.
+Malformed/unsafe/over-limit inputs throw rather than becoming partial results.
+
+Both parsers use the same guarded XML reader. Recovery never modifies the source,
+bridges gaps, changes optional unknown values or proves recording/travel from file
+metadata. [Shared ownership and recovery](decisions/geo-operations.md) explains
+why the new policy is separate from travel's strict compatibility entry point.
