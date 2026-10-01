@@ -645,7 +645,12 @@ function cmdSearch(args: string[], jctx: JobsCtx): number {
     console.error("Usage: jobs search <query> [--limit <n>]");
     return 1;
   }
-  const limit = a.option("limit") ? Number(a.option("limit")) : 20;
+  const limit = a.flag("limit") ? Number(a.option("limit")) : 20;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    console.error("--limit must be a positive safe integer");
+    console.error("Usage: brain jobs search <query> [--limit <n>]");
+    return 1;
+  }
   const db = openDatabase(jctx.dbPath);
   const results = searchJobs(db, query, limit);
   db.close();
