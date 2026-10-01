@@ -1,3 +1,5 @@
+import { sharedFileMetaSchema } from "./track-schemas.js";
+export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 // Runtime wire-protocol schemas
 //
@@ -18,7 +20,7 @@
 // ============================================================
 
 import { z } from "zod";
-import { isThinkingLevel } from "./protocol.js";
+import { isThinkingLevel, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -313,6 +315,7 @@ export const clientChatMessageSchema = z
     requestId: id.optional(),
     thinkingLevel: thinkingLevelSchema.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
+    files: z.array(z.object({ kind: z.literal("file"), path: z.string().min(1).max(512) })).max(10).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
@@ -811,6 +814,7 @@ const historyMessageSchema = z.looseObject({
   ),
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
+  files: z.array(sharedFileMetaSchema).max(10).optional(),
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
@@ -1109,6 +1113,7 @@ export const serverLocalExchangeResultSchema = z.looseObject({
 
 export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_receipt"), ...sessionScoped, sessionId: id, requestId: id,
   state: z.enum(["accepted", "refused", "unknown"]), message: z.string().optional(), text: z.string().optional(),
+  files: z.array(sharedFileMetaSchema).max(SHARE_MAX_FILES).optional(),
   attachmentCount: z.number().int().min(0).optional(), source: optionalMessageSource,
   thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerRetryReceipt>;

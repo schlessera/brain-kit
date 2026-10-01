@@ -1,3 +1,4 @@
+import { withTrackFiles } from "../tracks/read.js";
 import type {
   BillingMode,
   ChatImageAttachment,
@@ -75,6 +76,7 @@ type RunSessionInput = {
   text: string;
   sessionId?: string;
   attachments: ChatImageAttachment[];
+  files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
   providerId?: string;
   client?: ClientEnvironment;
   source?: MessageSource;
@@ -195,6 +197,7 @@ async function runRetainedSession(
     authorization: initial.authorization,
     text: initial.text,
     attachments: initial.attachments,
+    ...(initial.files?.length ? { files: initial.files } : {}),
     ...(initial.client ? { client: initial.client } : {}),
     ...(initial.source ? { source: initial.source } : {}),
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
@@ -218,7 +221,7 @@ async function runRetainedSession(
         }
         continue;
       }
-      const { text, attachments, client, source, thinkingLevel, requestId } = next;
+      const { text, attachments, files, client, source, thinkingLevel, requestId } = next;
       turn.requestId = requestId;
       next = null;
 
@@ -303,7 +306,7 @@ async function runRetainedSession(
       // its text, which is the order replay counts identical texts in. A
       // resumed session is known now; a new one is named by session_info.
       const recordSource = (sid: string): void =>
-        host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId });
+        host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
       if (resumeId) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is
@@ -312,12 +315,13 @@ async function runRetainedSession(
       // replay matches once the context is stripped again.
       const drafted = draftExchanges;
       draftExchanges = [];
-      const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(text, [
+      const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
         ...drafted,
         ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
       ]);
       turn.retryRequest = {
         type: "chat_message", text, attachments,
+        ...(files?.length ? { files: files.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
         ...(profileId ? { providerId: profileId } : {}),
         ...(client ? { client } : {}), ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -523,6 +527,7 @@ export async function handleChatMessage(
     text: string;
     sessionId?: string;
     attachments: ChatImageAttachment[];
+  files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
     providerId?: string;
     client?: ClientEnvironment;
     source?: MessageSource;
@@ -538,6 +543,7 @@ export async function handleChatMessage(
     authorization,
     text,
     attachments,
+    files,
     sessionId,
     providerId: requestedProviderId,
     client,
@@ -575,6 +581,7 @@ export async function handleChatMessage(
         authorization,
         text,
         attachments,
+        ...(files?.length ? { files } : {}),
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -598,8 +605,8 @@ export async function handleChatMessage(
       runningTurn.recorder?.recordFollowUp(authorization.principalId);
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
-      host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed");
-      const prompt = withLocalContext(text, host.catalog.takePendingLocalExchanges?.(sessionId) ?? []);
+      host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
+      const prompt = withLocalContext(withTrackFiles(text, files), host.catalog.takePendingLocalExchanges?.(sessionId) ?? []);
       void (async () => {
         const releaseFollowUp = authorization.retain();
         try {
@@ -620,6 +627,7 @@ export async function handleChatMessage(
         authorization,
         text,
         attachments,
+        ...(files?.length ? { files } : {}),
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -654,6 +662,7 @@ export async function handleChatMessage(
     text,
     sessionId,
     attachments,
+    ...(files?.length ? { files } : {}),
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),

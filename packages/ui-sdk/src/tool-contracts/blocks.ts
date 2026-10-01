@@ -501,6 +501,13 @@ export const MAP_BLOCK_SCHEMA = mapBlock(SHIPPED_FIELDS);
 
 export type MapPlace = z.infer<typeof MAP_PLACE_SCHEMA>;
 
+/** Imported file evidence: the surface resolves the original, rather than model-restated coordinates. */
+export const TRACK_BLOCK_SCHEMA = z.object({
+  kind: z.literal("track"),
+  source: z.object({ path: z.string().min(1).max(512).describe("The staged track file path returned by attachment intake. The surface reads this file; do not restate its coordinates.") }),
+  title: z.string().max(100).optional().describe("A short title. Source provenance and measurements come from the file."),
+});
+
 // ---------------------------------------------------------------------------
 // The one block that is not part of the answer
 // ---------------------------------------------------------------------------
@@ -568,6 +575,7 @@ export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   QUOTE_BLOCK_SCHEMA,
   CONTACT_BLOCK_SCHEMA,
   MAP_BLOCK_SCHEMA,
+  TRACK_BLOCK_SCHEMA,
   LINK_BLOCK_SCHEMA,
   SUGGESTIONS_BLOCK_SCHEMA,
 ]);
@@ -587,7 +595,7 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places or a link card. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places, an imported track or a link card. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -596,6 +604,7 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "receipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).",
   "timeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.",
   "map: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.",
+  "track: a validated GPX, KML or supported GeoJSON attachment. Give only source.path from intake; the surface reads the original, calculates shared measurements and draws it without inferring recorded travel. Never restate coordinates or choose a viewport.",
   "link: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.",
   "suggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.",
   "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's address was refused, so fix the shape or the address rather than retrying it unchanged.",
@@ -641,6 +650,7 @@ export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLO
         quoteBlock(f),
         contactBlock(f),
         mapBlock(f),
+        TRACK_BLOCK_SCHEMA,
         // No tone, icon or restated field, so every form shares the one schema.
         LINK_BLOCK_SCHEMA,
         suggestionsBlock(f),
@@ -670,14 +680,14 @@ export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   payload: SHOW_BLOCK_PAYLOAD_SCHEMA,
   brief: (name) =>
     `- **Never write a markdown table; call \`${name}\` instead.** It renders
-  one block inline where you call it, and a table you would have typed is a
-  \`comparison\` (the reader is choosing between options) or a \`table\`
+  one inline block; a table you would have typed is a
+  \`comparison\` (choosing between options) or a \`table\`
   (records). Reach for it whenever a shape beats prose: \`stats\` for three
   or four headline figures; a \`trend\` for one figure over time; \`bars\`
   for shares of a whole; a \`receipt\` for what a tool or a change did;
   \`steps\` for a procedure; a \`timeline\` for what happened when; a
   \`schedule\` for what is coming; a \`quote\` when the words are the
   evidence; a \`contact\` when the answer is who; a \`map\` for several
-  places; a \`link\` for a page to open. Write the prose around the block,
+  places; a \`track\` for an imported file; a \`link\` for a page to open. Write the prose around the block,
   never its contents again.`,
 });

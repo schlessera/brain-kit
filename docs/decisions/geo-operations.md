@@ -9,6 +9,11 @@ back on a consumer would couple standalone operations to the UI/content world or
 create a cycle. A provider registry would add the seam the ruling excludes.
 Concrete endpoint configuration provides replacement without a framework.
 
+The UI server consumes the root parser directly for #526's validated track
+intake and staged reads. This is a hard dependency: validation is always present
+regardless of the optional agent backend. It neither depends on SDK transitive
+installation nor duplicates measurement logic.
+
 The library joins the existing fixed release group. It builds/publishes before
 its consumers, with source/dist exports and packed import coverage. The root
 geometry entry point contains no server I/O or rasterizer dependency; server

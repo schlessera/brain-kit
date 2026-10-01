@@ -3063,3 +3063,130 @@ failed service command/storage/local renderer is 2. Typed service input errors m
 emit their one JSON result with exit 1; parse/path/usage exceptions print only to
 stderr. `brain render` retains its existing envelope/network-denied behavior:
 callers inline the already-created local PNG as data before invoking export.
+
+### Imported track files in chat (additive)
+
+`ClientChatMessage.files?: { kind: "file"; path: string }[]` references validated
+originals in the existing share staging directory. The host resolves and reparses
+those originals before first, queued, native follow-up and retry dispatch. A client
+cannot supply trusted coordinates, measurements or a replacement source path.
+Images remain in `attachments`; at most `SHARE_MAX_FILES` (10) files and images,
+with `SHARE_MAX_TOTAL_BYTES` (50,000,000) total decoded/original bytes, may accompany
+one message. Existing image-specific limits still apply. Bad references fail as
+`ATTACHMENT_REJECTED`, before a backend runs.
+
+The paired UI transports `POST /api/track-upload` and `GET /api/tracks` are
+[internal HTTP routes](http-api.md#imported-track-ui-transport-526); their
+published socket/block behavior remains this additive contract.
+
+`POST /api/track-upload` uses the existing authenticated, same-origin multipart
+boundary, concurrency and total-body caps. It admits validated GPX, KML 2.2 and
+the supported GeoJSON subset only. `TRACK_MAX_FILE_BYTES` is 20 MiB, matching the
+shared parser; a larger track returns `413 {error:"file_too_large",limit}`.
+Ordinary JSON, PDF, CSV, unsupported formats, malformed or unsafe structures
+return `422 {error:"unsupported_track",message}`. A title/text without a track
+cannot bypass admission. A cancelled uncommitted stage is removed. Originals are
+written unchanged through the existing atomic staging path; no knowledge-base
+content is created. Existing `POST /api/share` retains generic file intake and
+never labels an unvalidated file as a track.
+
+An initial accepted retry receipt can include canonical `files` for the new
+local user row; receipt status queries still disclose no original input.
+
+`SharedFileMeta` additively carries `incomingName?`, `detected?:
+"gpx"|"kml"|"geojson"` and `summary?: TrackFileSummary`. Validated nameless,
+extensionless or generic `.bin`, `.dat`, `.tmp`, `.xml` and `.json` tracks get a
+detected format extension in their sanitized, collision-safe staged name.
+`sha256?` identifies a validated original; exact retries check the original
+before accepting and refuse changed or unavailable files. Incoming display
+name/MIME, detected format and actual staged name/path remain
+separate bounded, inert metadata. `TrackFileSummary` is the shared `TrackSummary`
+without geometry, plus input waypoint count and omitted waypoint count. Replayed
+user messages add `files?: SharedFileMeta[]`; the operational UI database retains
+this metadata, not authoritative content or original bytes. Only a byte-identical
+recorded server context is removed from replay text. User-authored lookalikes
+remain user text.
+
+`GET /api/tracks?path=<staged reference>` returns `TrackFileView`: the shared
+`ImportedTrack` plus canonical `file: SharedFileMeta`, recomputed from the original.
+Unavailable, expired or unsupported originals return `422 {error:
+"track_unavailable",message}`; a missing/overlong path returns 400. Reads enforce
+containment, regular-file/no-symlink checks and actual byte limits.
+
+A custom `SessionCatalog` must implement `peekRetry` to advertise Retry for
+file-backed requests: the server checks original bytes before consuming eligibility.
+Older catalogs retain their existing text/image-only Retry behavior.
+
+`show_block` adds `{kind:"track",source:{path:string},title?:string}`. The source
+is a staged reference only: no model-authored geometry, viewport, metric or
+provenance field. The client resolves the original through the route above.
+The classifier does not infer track blocks from prose. `TrackMap` is a
+presentation-only kit component; `MapView.fitPoints` fits a track envelope
+without extra pins, and `MapPin.marker` distinguishes start/end shapes and their
+`S/E` merge. Existing place-map behavior stays unchanged.
+
+Imports recover invalid coordinates into separate usable sections with exact
+counts/reasons. Every omission and original section boundary breaks both drawing
+and measurement. Valid zero, repeated and polar coordinates remain source
+coordinates. Optional invalid/missing elevation and timestamps remain unknown;
+elapsed includes pauses within sections and excludes gaps, with incomplete or
+non-monotonic required times unknown. Moving time remains unavailable. Elevation
+uses the shared three-point median/3 m hysteresis and complete eligible altitude
+input. Values cover `usable_sections`; recovered values say partial. Formats and
+timestamps never establish recorded travel: coordinates are file-provided.
+
+`parseImportedTrack` in `@schlessera/brain-geo` owns adapters: GPX track/route and
+waypoints; KML LineString, MultiGeometry and Point, with no NetworkLink, Model or
+polygon import; GeoJSON LineString, MultiLineString, Point/MultiPoint and their
+Feature/collection wrappers, with no alternate CRS or polygons. XML is strict,
+UTF-8/ASCII, entity/DTD-free; input is bounded to 20 MiB, 200,000 total line and
+waypoint points and 128 nesting levels. The original is never rewritten. Shared
+measurement input and displayed lines are unsimplified in this cut; all retained
+points remain drawn unless the entire projection is unsupported.
+
+The static map retains a labeled track-only line when background geography is
+unavailable or its drawn envelope exceeds either 5-degree query axis. It sends no
+oversized geography request. A Mercator/padded frame outside the supported
+latitude/longitude range gives a clear reason with the complete summary,
+waypoints and original reference, without clamping/wrapping source points. PNG/PDF
+sharing resolves file and optional geometry before composing static HTML; the
+scriptless renderer performs no network fetch. An expired original refuses track
+export rather than drawing an empty frame.
+
+A host's manifest must advertise MIME types together with extensions. Extend its
+existing generic/image entries with these track entries; use the SDK worker
+handler at the same action. The generated-host change is tracked separately in
+[brain-hosting-template#10](https://github.com/schlessera/brain-hosting-template/issues/10).
+The example is checked through `registerShareTarget` and actual multipart parsing.
+
+<!-- track-share-target-example -->
+```json
+{
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{
+        "name": "files",
+        "accept": [
+          "application/gpx+xml", ".gpx",
+          "application/vnd.google-earth.kml+xml", ".kml",
+          "application/geo+json", ".geojson",
+          "application/json", ".json"
+        ]
+      }]
+    }
+  }
+}
+```
+<!-- /track-share-target-example -->
+
+A `.json` or generic MIME/name is identified by validated contents. Ordinary JSON
+still receives no track summary. See the [GPX schema](https://www.topografix.com/GPX/1/1/),
+[KML reference](https://developers.google.com/kml/documentation/kmlreference) and
+[GeoJSON RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946) for source formats;
+the supported subset and recovery policy above govern this import contract.

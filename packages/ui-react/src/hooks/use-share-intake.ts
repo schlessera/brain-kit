@@ -10,6 +10,7 @@ import {
   readShareLaunchParams,
   type StoredShare,
 } from "@schlessera/brain-ui-sdk/share-target";
+import { useConnectionStore } from "../stores/connection-store.js";
 import { useShareStore } from "../stores/share-store.js";
 import { detectClientEnvironment } from "../lib/client-environment.js";
 import {
@@ -65,6 +66,11 @@ export function useShareIntake(): {
   dismiss: (record: StoredShare) => void;
 } {
   const root = useBrainUiRoot();
+  const canUpload = useCallback(() => root.stores.connection.getState().wsStatus === "connected" && navigator.onLine !== false, [root]);
+  const activeUpload = useRef<{ id: string; record: StoredShare; controller: AbortController } | null>(null);
+  const waiting = useRef<StoredShare | null>(null);
+  const wsStatus = useConnectionStore(state => state.wsStatus);
+  const busy = useShareStore(state => state.busy);
   const lifetime = useRef(new AbortController());
   useEffect(() => {
     const controller = new AbortController();
@@ -126,21 +132,33 @@ export function useShareIntake(): {
 
   const confirm = useCallback(
     async (record: StoredShare) => {
-      const signal = lifetime.current.signal;
+      const controller = new AbortController();
+      const owner = lifetime.current.signal;
+      if (owner.aborted) return;
+      const abort = () => controller.abort();
+      owner.addEventListener("abort", abort, { once: true });
+      const signal = controller.signal;
       const share = root.stores.share.getState();
-      if (share.busy) return;
-      if (root.stores.connection.getState().wsStatus !== "connected") {
-        setError("Not connected yet — this will work as soon as the app reconnects.");
+      if (share.busy) { owner.removeEventListener("abort", abort); return; }
+      if (!canUpload()) {
+        waiting.current = record;
+        owner.removeEventListener("abort", abort);
+        share.setPhase("paused");
+        setError("Waiting for connection. Your confirmed share will resume automatically.");
         return;
       }
 
+      waiting.current = null;
+      activeUpload.current = { id: record.id, record, controller };
+      share.setPhase("uploading");
       setBusy(true);
       setError(null);
       setNotes([]);
       try {
-        const outcome = await uploadShare(record, root.request, root.apiBase(), signal);
+        const outcome = await uploadShare(record, root.request, root.apiBase(), signal, () => { if (!signal.aborted) share.setPhase("parsing"); });
         if (signal.aborted) return;
         if (!outcome.ok) {
+          if (!canUpload()) waiting.current = record;
           setError(describeUploadError(outcome));
           return;
         }
@@ -160,6 +178,7 @@ export function useShareIntake(): {
         chat.clearMessages();
         // Ownership of the preview URLs transfers to the message here — the
         // chat store revokes them. Nothing below may revoke them again.
+        const trackFiles = outcome.result.files.filter(file => file.detected && file.summary);
         chat.addUserMessage(
           null,
           prompt,
@@ -169,13 +188,16 @@ export function useShareIntake(): {
                 previewUrl: a.previewUrl,
                 mediaType: a.attachment.mediaType,
               }))
-            : undefined
+            : undefined,
+          undefined,
+          trackFiles.length ? trackFiles : undefined
         );
         chat.startAssistantMessage(null);
 
         const sent = root.connection.send({
           type: "chat_message",
           text: prompt,
+          ...(trackFiles.length ? { files: trackFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
           ...(attachments.length
             ? { attachments: attachments.map((a) => a.attachment) }
             : {}),
@@ -190,14 +212,38 @@ export function useShareIntake(): {
         remove(record.id);
         dropShareClaim(record.id);
       } finally {
+        owner.removeEventListener("abort", abort);
+        activeUpload.current = null;
         setBusy(false);
+        if (waiting.current) root.stores.share.getState().setPhase("paused");
       }
     },
-    [remove, setBusy, setError, setNotes, root]
+    [remove, setBusy, setError, setNotes, root, canUpload]
   );
+
+  // Only a share the reader already confirmed may resume automatically.
+  useEffect(() => {
+    const connectionChanged = () => {
+      const online = root.stores.connection.getState().wsStatus === "connected" && navigator.onLine !== false;
+      const active = activeUpload.current;
+      if (!online && active) {
+        waiting.current = active.record;
+        active.controller.abort();
+        setError("Waiting for connection. Your confirmed share will resume automatically.");
+      }
+      const record = waiting.current;
+      if (online && record && !root.stores.share.getState().busy && root.stores.share.getState().queue.some(item => item.id === record.id)) void confirm(record);
+    };
+    connectionChanged();
+    window.addEventListener("online", connectionChanged);
+    window.addEventListener("offline", connectionChanged);
+    return () => { window.removeEventListener("online", connectionChanged); window.removeEventListener("offline", connectionChanged); };
+  }, [root, wsStatus, busy, confirm, setError]);
 
   const dismiss = useCallback(
     (record: StoredShare) => {
+      if (waiting.current?.id === record.id) waiting.current = null;
+      if (activeUpload.current?.id === record.id) activeUpload.current.controller.abort();
       remove(record.id);
       dropShareClaim(record.id);
       setError(null);

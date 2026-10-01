@@ -13,6 +13,7 @@ export "." (./src/index.ts)
   type FetchLike
   type GeoConfig
   type GeoConfigInput
+  type ImportedTrack
   type LandOptions
   MAX_ROUTE_BYTES
   type MapDetail
@@ -28,10 +29,12 @@ export "." (./src/index.ts)
   type RoutingMode
   type TrackCoverage
   type TrackCoverageOptions
+  type TrackFormat
   type TrackMeasure
   type TrackOmission
   type TrackSource
   type TrackSummary
+  type TrackWaypoint
   clipLine
   closeAgainstViewport
   closedRings
@@ -41,6 +44,7 @@ export "." (./src/index.ts)
   nearestTrackPoint
   normalizeTrack
   parseGpx
+  parseImportedTrack
   parseTrackGpx
   prepare
   prepareLand
