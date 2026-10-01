@@ -65,7 +65,7 @@ for (const packageName of packages) {
     const cssEntry = resolve(packageDir, "src", "styles.css");
     const cssOut = resolve(distDir, "styles.css");
     const css = Bun.spawn(
-      [bunx, "@tailwindcss/cli", "-i", cssEntry, "-o", cssOut, "--minify"],
+      [bunx, "-p", "@tailwindcss/cli", "tailwindcss", "-i", cssEntry, "-o", cssOut, "--minify"],
       { cwd: packageDir, stdout: "inherit", stderr: "inherit" }
     );
     const cssExit = await css.exited;

@@ -1,0 +1,95 @@
+{
+  "preview_stylesheet_url": "https://fonts.googleapis.com/css2?family=DM+Serif+Text:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
+  "stylesheet": {
+    "file": "scripts/captures/fonts.css",
+    "sha256": "1a6035cc96ef6b928378a04b1f81c13b52362f18fa00e087f4a5f15155482a4d"
+  },
+  "assets": [
+    {
+      "url": "https://fonts.gstatic.com/s/dmseriftext/v13/rnCw-xZa_krGokauCeNq1wWyWfGFWA.ttf",
+      "file": "fonts/0.ttf",
+      "sha256": "64c0f8e88fb59c8ac0bd566630e022b0985c20c580debd91421ef730fe3c0f3e",
+      "bytes": 68228,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/dmseriftext/v13/rnCu-xZa_krGokauCeNq1wWyafM.ttf",
+      "file": "fonts/1.ttf",
+      "sha256": "3b61a706af30ea29818e0c4795e26e7935a296001e076aa62e15be738c2b6809",
+      "bytes": 72128,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPQ.ttf",
+      "file": "fonts/2.ttf",
+      "sha256": "44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",
+      "bytes": 112172,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8-qxjPQ.ttf",
+      "file": "fonts/3.ttf",
+      "sha256": "3386a05f6ece969e4537de6be894170d20558e82f7d56c8c5d332972ef172160",
+      "bytes": 112204,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8FqtjPQ.ttf",
+      "file": "fonts/4.ttf",
+      "sha256": "df54dbfafba61d4911eb3dab9bba2d20531fb009f01d64dd42fa96ab862584d8",
+      "bytes": 112160,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU7NSg.ttf",
+      "file": "fonts/5.ttf",
+      "sha256": "076831b98043f50f829b6c91db3be4a844641f1c95bccff5c886ed87c661a852",
+      "bytes": 63336,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_m07NSg.ttf",
+      "file": "fonts/6.ttf",
+      "sha256": "b4fc14ec283d54236fd302cdb92546f98ae0ff061ca5ee23453a02bdf4628791",
+      "bytes": 63404,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_d0nNSg.ttf",
+      "file": "fonts/7.ttf",
+      "sha256": "50357df108c5d297ec4ece76aeddf49561f3794f67af077cfc2c711b7a75b439",
+      "bytes": 63412,
+      "content_type": "font/ttf"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_TknNSg.ttf",
+      "file": "fonts/8.ttf",
+      "sha256": "32971ad7976930539a11c79ce91ce84092df7f25c5be716b594601842f10a7ae",
+      "bytes": 63336,
+      "content_type": "font/ttf"
+    }
+  ],
+  "licenses": [
+    {
+      "url": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/dmseriftext/OFL.txt",
+      "file": "licenses/dmseriftext.txt",
+      "sha256": "a3e5cdd67d4571dd0a24fcc968de0efde7ae97ef752daf0906e4767619dd7231",
+      "bytes": 4605,
+      "content_type": "text/plain"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/plusjakartasans/OFL.txt",
+      "file": "licenses/plusjakartasans.txt",
+      "sha256": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99",
+      "bytes": 4402,
+      "content_type": "text/plain"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/jetbrainsmono/OFL.txt",
+      "file": "licenses/jetbrainsmono.txt",
+      "sha256": "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d",
+      "bytes": 4399,
+      "content_type": "text/plain"
+    }
+  ]
+}

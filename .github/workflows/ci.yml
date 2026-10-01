@@ -577,6 +577,32 @@ jobs:
             bun scripts/check-changeset.ts "${{ github.event.before }}"
           fi
 
+  feature-captures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Prepare pinned public fonts and original notices
+        run: bun run capture:fonts
+      - name: Real editorial sources twice, in the shared offline browser image
+        run: bun run capture:verify
+        env:
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          TYPESAFE_API_KEY: ""
+      - name: Reviewable captures, provenance and reproducibility receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: feature-captures
+          path: tmp/feature-capture-verification/
+          if-no-files-found: error
+          include-hidden-files: true
+
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
     # they are allowed to run in.

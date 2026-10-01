@@ -50,6 +50,15 @@ forgotten bump is caught by `tests/release-manifest.test.ts`.
 bunx tsc --noEmit && bun run test && bun run build
 ```
 
+## A cold build tries to download an installed CLI
+
+`bunx @tailwindcss/cli` may search for a binary named `cli`, even though the
+installed package exports `tailwindcss`, then attempt a registry download.
+Name both explicitly: `bunx -p @tailwindcss/cli tailwindcss`. Diagnose against
+the frozen install with `bunx --no-install -p @tailwindcss/cli tailwindcss --help`;
+it must work without a warm Bun cache or network. The editorial capture CI
+build exercises the actual build script with networking disabled.
+
 ## `bun run build` exits 133 with a V8 stack trace
 
 A build that dies with `error: script "build" exited with code 133` and a

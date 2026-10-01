@@ -19,7 +19,10 @@
     "typecheck": "tsc --noEmit",
     "changeset": "changeset",
     "version": "changeset version && rm -f bun.lock && bun install",
-    "release": "bun install && bun run build && bun scripts/publish.ts"
+    "release": "bun install && bun run build && bun scripts/publish.ts",
+    "captures": "bun scripts/capture.ts",
+    "capture:fonts": "bun scripts/capture.ts --prepare-fonts",
+    "capture:verify": "bun scripts/captures/verify.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
