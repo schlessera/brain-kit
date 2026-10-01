@@ -401,3 +401,15 @@ implicit routing request, lost pins, swapped coordinates, leaked image contents,
 source containment, an actual uninitialized/outside write, omitted-source budget
 and a missing large-JSON tail. The pipe-write test observes its final field before
 JSON parsing, so a parse error cannot stand in for the claimed behavioral receipt.
+
+The export runtime proof creates a real local PNG through `brain geo map`, reads
+and inlines those bytes before starting the actual `brain render` bin, and exports
+both PNG and PDF in real Chrome. Test-only launch/page observation hears the exact
+PNG SHA-256, no non-data request, an empty host allowlist and the active DNS
+blackhole. The exported PNG retains the source track's colored pixels; the PDF
+contains an image with the source's intrinsic dimensions. Original GPX and map
+bytes remain unchanged, and no index is created. Removing the shell's inline-image
+exception fails the exact-image observation with an empty received list; restoring
+it passes. Missing Chrome is a failure when CI requires it, rather than evidence
+that export worked. This uses the existing renderer contract with no production
+injection seam or network-policy change.
