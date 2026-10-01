@@ -38,9 +38,11 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-travel": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  // Leaves: no internal edges at all.
+  // The template remains a dependency-free internal leaf.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
-  "@schlessera/brain-render-puppeteer": { dependencies: [], optionalPeers: [] },
+  // #558 Option B: the concrete export policy belongs to the shared template;
+  // Chrome also verifies its destination text in the final media/layout.
+  "@schlessera/brain-render-puppeteer": { dependencies: ["@schlessera/brain-render-template"], optionalPeers: [] },
   // The SDK's `show_block` handler rejects a link block whose address the
   // kit's link policy refuses, and it calls the kit's own `classifyLink` to do
   // it, so the handler and the card that draws the link can never disagree
@@ -61,11 +63,10 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
     dependencies: ["@schlessera/brain", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
-  // The design kit is presentational and prop-driven (D13): it holds no
-  // store, does no I/O and knows nothing about the protocol, so it has no
-  // internal edges at all. An edge here would mean the kit had started
-  // reaching for state, which is the one thing it exists not to do.
-  "@schlessera/brain-ui-kit": { dependencies: [], optionalPeers: [] },
+  // #558 Option B shares the existing pure classifier through template/links,
+  // with the old kit import re-exported. This leaf has no React, state or I/O;
+  // the template never depends back on the kit (D46/D49).
+  "@schlessera/brain-ui-kit": { dependencies: ["@schlessera/brain-render-template"], optionalPeers: [] },
   // ui-react renders the design kit's components (step 2, S5 onward): a hard
   // dependency, because the app's screens are assembled from them and its
   // stylesheet imports the kit's tokens. The kit never depends back.

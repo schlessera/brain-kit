@@ -3508,6 +3508,51 @@ byte-identical to the old path. `Blocks/In print` renders every block under
 the accessibility gate in both story projects, and four print baselines cover
 it in the pinned image.
 
+**App export destinations, 2026-09-30 (#558).** The maintainer selected the
+concrete opt-in `linkPolicy: "visible-destinations"` in the shared template.
+The app's render route enables it after validating the request and passes the
+same option to its renderer for both formats. A bare/full document only opts
+out of the shell, never this policy. CLI defaults stay unchanged. The shared
+classifier lives in `render-template/links`; the kit re-exports its existing
+public imports. Neither the template nor the renderer depends on the kit or
+React. The edge table records these two hard leaf dependencies, and existing
+build/publish order already puts the template first.
+
+The final HTML is structurally parsed. SVG navigation becomes an inert figure
+plus a disclosed ordinary caption link; its drawing is preserved. Declarative
+shadow templates are flattened before classification. Embedded documents
+(`iframe`, `object`, `embed`) become honest placeholders: Chrome otherwise
+includes their independent links in PDF annotations even without JavaScript.
+Content-supplied bases, refresh navigation, form targets and SVG href-changing
+animations are removed. These rules leave the approved static block vocabulary
+and ordinary document styles intact.
+
+Chrome then protects the destination in the final screen/print layout, freezes
+motion and checks every destination glyph's geometry and hit-test visibility.
+Local clipping/hidden styles are repaired; an obscuring overlay, an unresolved
+clipped glyph or a destination beyond the PNG capture cap refuses the export.
+Protected declarations follow source shorthand resets. A fresh first layer
+prevents source rules from reopening the protection layer, and painted
+pseudo-elements participate in hit testing. A document with accepted links
+refuses export if its content security policy blocks the protective stylesheet.
+The optional renderer lazily loads PDF.js to verify the finished PDF too:
+every external annotation must have its own tagged, complete destination on
+that physical page at the 9-point floor. Chrome's print scaling and page-size
+clipping can differ from live print-media geometry. Author words occupy a
+separate paragraph tag; the final monospace code tag owns the disclosure
+(older Chrome maps it to `NonStruct`). Body text cannot substitute for it.
+The render budget still bounds this work. Scripts remain disabled for this
+policy, even if a general-purpose renderer was configured to allow them. The
+network and sandbox defaults do not change. Custom app renderer implementations
+must honor the option's final-visibility check as well as the HTML transform.
+
+`tests/export-links-runtime.test.ts` inspects real PDF annotations and text,
+plus the actual PNG capture's DOM. Its inline image proves the request observer
+is wired; no external requests occur. It covers alternate markup, fragments,
+mail, long hosts and supplied hiding/clipping CSS at 320/768 pixels. Default
+CLI byte preservation and the existing full block print/runtime suites remain
+separate checks.
+
 ## 2026-09-25 — D47: `show_block`'s schema can lose a tenth through `definitions`, not half, and nothing ships until a keyed run says the API and the model accept it
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
@@ -4082,18 +4127,18 @@ found, and what the ruling did not say:
   (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
   there is no `host` prop and no `host` field. The payload
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
-  mirrors the props. `classifyLink` (`classifyLink`, `packages/ui-kit/src/links.ts:252-311`)
+  mirrors the props. `classifyLink` (`classifyLink`, `packages/render-template/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:49`), and ui-kit now
-  builds and publishes ahead of ui-sdk. The kit's own row is unchanged. It
-  still depends on nothing internal, and D13's purity gate still holds over
-  everything under `src/`, `links.ts` included.
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:51`), and ui-kit now
+  builds and publishes ahead of ui-sdk. At that point the kit's own row was unchanged.
+  #558 later moved the pure classifier to the template's `./links` leaf and
+  added the kit-to-template edge; D13's purity gate still holds.
 - **One reading of the spec, stated.** The spec says "UTS #39 Highly
   Restrictive" and lists the allowed mixes as Han with Hiragana and Katakana,
   with Bopomofo, and with Hangul. UTS #39 includes Latin in each of those
   three sets, so a Japanese brand name with Latin letters in it is not
   refused. The implementation follows the standard
-  (`ALLOWED_MIXES`, `packages/ui-kit/src/links.ts:215-219`). Latin with any
+  (`ALLOWED_MIXES`, `packages/render-template/src/links.ts:215-219`). Latin with any
   other script (Cyrillic, Greek, …) is still refused.
 - **How "nothing is fetched" is proved, and its measured blind spot.** The
   browser test reads every request from Playwright on the Node side
@@ -4185,7 +4230,7 @@ it found, and what neither said:
   `ProseLink` (`ProseLink`, `packages/ui-react/src/components/chat/prose-link.tsx:27-57`),
   which makes the one `classifyLink` or `classifyMailto` call its `href` and
   its host both come from. The mail check sits beside `classifyLink`
-  (`classifyMailto`, `packages/ui-kit/src/links.ts:371-405`), and the
+  (`classifyMailto`, `packages/render-template/src/links.ts:371-405`), and the
   streaming hold is a pure function applied to the answer's last text part
   while it streams (`holdOpenLink`, `packages/ui-react/src/lib/stream-link-hold.ts:104-112`).
 - **The override never saw what the author sent.** mdast-util-to-hast
@@ -4228,6 +4273,26 @@ it found, and what neither said:
   clicked. Clicking an accepted link then opens a tab to its destination,
   which the same listeners see, so the harness is shown able to observe what
   the first half says never happens.
+
+**Print/export treatment, 2026-09-30 (#558).** The same pure verdict now owns
+app export hrefs and visible ASCII hosts or validated mail addresses. Relative
+repo/file targets stay inert with readable target information; safe local
+fragments retain local navigation without inventing a host. Mail queries are
+stripped. The no-referrer/rel treatment is retained. Markdown link tokens keep
+their original addresses until classification, before URI encoding can conceal
+raw controls; HTML entities are resolved structurally. Parser-located href
+attributes preserve literal/numeric NULs before HTML can replace them, and
+autolinks use the classifier's redacted display after raw refusal. Classification rules,
+including accepted percent-encoded web paths, are unchanged.
+
+Print uses the approved parenthesised, monospace destination, one wrapping DNS
+label at a time and no ellipsis, with a 12px print legibility floor. Exact plain destination text keeps the D49
+redundancy rule, while its text is still protected against supplied CSS. An
+existing suffix is rebuilt from the current verdict, so repeated processing
+does not duplicate labels and source-supplied markers cannot bypass policy.
+The renderer verifies disclosure in the final media mode and finished PDF; HTML attributes alone
+do not prove PDF safety. See the D46 addition above for alternate markup,
+isolation, failure behavior and runtime proof.
 
 ## 2026-09-28 — the `map` block: the model names places, the surface draws them (#44)
 

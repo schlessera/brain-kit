@@ -12,18 +12,34 @@ export "." (./src/index.ts)
   DOCUMENT_CLASSES
   type DocumentBlock
   type DocumentWarning
+  type ExportLinkPolicy
   OPENER_CLASSES
   type RenderContentType
   SWITCH_CLASSES
+  applyExportLinkPolicy
   buildHtmlDocument
   documentTitle
   isFullDocument
   lintDocument
+  protectExportLinkDestinations
 
 export "./kinds" (./src/kinds.ts)
   DOCUMENT_KINDS
   type DocumentKind
   readSkeleton
   resolveKind
+
+export "./links" (./src/links.ts)
+  LINK_URL_MAX
+  type LinkRefusal
+  type LinkRefusalReason
+  type LinkVerdict
+  MAILTO_ADDRESSES_MAX
+  type MailVerdict
+  classifyLink
+  classifyMailto
+  decodePunycode
+  highlyRestrictive
+  refusalSentence
 
 export "./package.json" (./package.json) [asset]

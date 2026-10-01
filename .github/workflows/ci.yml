@@ -377,6 +377,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
@@ -384,6 +385,7 @@ jobs:
             }, null, 2) + "\n");
           '
           bun add \
+            "$TARBALL_DIR/render-template.tgz" \
             "$TARBALL_DIR/ui-sdk.tgz" \
             "$TARBALL_DIR/ui-kit.tgz" \
             "$TARBALL_DIR/ui-react.tgz" \
@@ -409,6 +411,7 @@ jobs:
               }
             }
             for (const [name, tarball] of [
+              ["@schlessera/brain-render-template", "render-template"],
               ["@schlessera/brain-ui-sdk", "ui-sdk"],
               ["@schlessera/brain-ui-kit", "ui-kit"],
               ["@schlessera/brain-ui-react", "ui-react"],

@@ -63,7 +63,8 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
-    "lucide-react": "^0.460"
+    "lucide-react": "^0.460",
+    "@schlessera/brain-render-template": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18",

@@ -1,7 +1,7 @@
 {
   "name": "@schlessera/brain-render-template",
   "version": "0.39.0",
-  "description": "Shared markdown/HTML → print-ready document shell, components and document kinds for brain-kit (used by the UI's /api/render and the CLI's `brain render`)",
+  "description": "Shared markdown/HTML \u2192 print-ready document shell, components and document kinds for brain-kit (used by the UI's /api/render and the CLI's `brain render`)",
   "license": "MIT",
   "keywords": [
     "brain-kit",
@@ -35,7 +35,12 @@
       "types": "./dist/kinds.d.ts",
       "default": "./dist/kinds.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./links": {
+      "bun": "./src/links.ts",
+      "types": "./dist/links.d.ts",
+      "default": "./dist/links.js"
+    }
   },
   "files": [
     "src",

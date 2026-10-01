@@ -231,6 +231,7 @@
       "name": "@schlessera/brain-ui-kit",
       "version": "0.39.0",
       "dependencies": {
+        "@schlessera/brain-render-template": "workspace:*",
         "lucide-react": "^0.460",
       },
       "devDependencies": {
@@ -308,6 +309,8 @@
       "name": "@schlessera/brain-render-puppeteer",
       "version": "0.39.0",
       "dependencies": {
+        "@schlessera/brain-render-template": "workspace:*",
+        "pdfjs-dist": "^6.3.289",
         "puppeteer-core": "^25.0.4",
       },
       "devDependencies": {

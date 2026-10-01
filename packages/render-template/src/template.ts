@@ -1,4 +1,4 @@
-import { marked } from "marked";
+import { Marked, marked } from "marked";
 
 import {
   attribute,
@@ -12,9 +12,19 @@ import {
   textOf,
   titleElement,
 } from "./html.js";
+import { applyExportLinkPolicy, type ExportLinkPolicy } from "./link-policy.js";
 import { pageFooter, STYLES } from "./styles.js";
 
 marked.setOptions({ gfm: true, breaks: false });
+// Preserve the original link token before marked's URI encoding can hide raw
+// controls. Ordinary links resolve character references as HTML does; an
+// autolink's href is literal (marked's Tokens.Link contract).
+const exportMarkdown = new Marked({ gfm: true, breaks: false, renderer: {
+  link({ href, tokens, autolink }) {
+    const attribute = autolink ? escapeHtml(href) : href.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<a href="${attribute}"${autolink ? ' data-brain-export-autolink=""' : ""}>${this.parser.parseInline(tokens)}</a>`;
+  },
+} });
 
 /** What `content` holds — markdown to parse, or HTML to pass through. */
 export type RenderContentType = "markdown" | "html";
@@ -145,6 +155,8 @@ export interface BuildHtmlDocumentOptions {
    * page numbers alone.
    */
   runningTitle?: string | false;
+  /** App exports disclose every live destination. Omitted preserves CLI/document defaults. */
+  linkPolicy?: ExportLinkPolicy;
 }
 
 /**
@@ -156,22 +168,24 @@ export interface BuildHtmlDocumentOptions {
  *
  * The same function backs the UI's `/api/render` and the CLI's `brain render`,
  * so a page shared from the app and a PDF produced on the command line are
- * byte-identical for identical input.
+ * byte-identical for identical input when the same options are passed. The app
+ * opts into its visible-destination policy; the CLI keeps the default.
  */
 export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
   const allowHosts = opts.allowHosts ?? [];
   if (opts.contentType === "html" && isFullDocument(opts.content)) {
-    return injectShell(placeholderRemoteImages(opts.content, allowHosts, true), opts.title, opts.runningTitle);
+    const document = injectShell(placeholderRemoteImages(opts.content, allowHosts, true), opts.title, opts.runningTitle);
+    return opts.linkPolicy ? applyExportLinkPolicy(document) : document;
   }
   const rendered =
     opts.contentType === "markdown"
-      ? (marked.parse(opts.content, { async: false }) as string)
+      ? ((opts.linkPolicy ? exportMarkdown : marked).parse(opts.content, { async: false }) as string)
       : opts.content;
   const inner = placeholderRemoteImages(rendered, allowHosts, false);
   const title = opts.title ?? DEFAULT_TITLE;
   const running = opts.runningTitle === false ? undefined : (opts.runningTitle ?? title);
   const footer = pageFooter(running === DEFAULT_TITLE ? undefined : running);
-  return `<!doctype html>
+  const document = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -181,6 +195,7 @@ export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
 </head>
 <body>${inner}</body>
 </html>`;
+  return opts.linkPolicy ? applyExportLinkPolicy(document) : document;
 }
 
 /**

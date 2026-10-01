@@ -12,7 +12,8 @@ them. The rendering itself lives in
 [`@schlessera/brain-render-puppeteer`](../ui-render-puppeteer).
 
 Two callers share it, which is the point. A page shared from the app and a PDF
-produced on the command line are byte-identical for identical input:
+produced on the command line share the same shell. The app additionally enables
+the export link policy; CLI defaults are unchanged:
 
 - `@schlessera/brain-ui-server` → `POST /api/render`
 - `@schlessera/brain` → `brain render`
@@ -36,6 +37,7 @@ const warnings = lintDocument(html); // [] when nothing will render wrong
 | `contentType` | — | `"markdown"` parses; `"html"` passes through |
 | `title` | `"Shared from Brain"` | `<title>`, escaped. A complete document keeps its own |
 | `allowHosts` | `[]` | Image hosts the renderer will resolve |
+| `linkPolicy` | omitted | `"visible-destinations"` classifies final document links; the app always enables it |
 | `runningTitle` | the title | The PDF footer's title from page 2; `false` shows page numbers only. The default title is never shown |
 
 ## The document style
@@ -55,7 +57,8 @@ Content that starts with `<!doctype html>` or `<html>` (after a BOM,
 whitespace and comments) is not wrapped. The stylesheet is injected as the
 first child of its `<head>`, a `<head>` is created if there is none, and its
 own `<title>` stands. `<meta name="brain-render" content="bare">` in the head
-skips the injection entirely; remote images are still placeholdered.
+skips the shell injection; remote images are still placeholdered. It cannot
+disable an enabled link policy.
 
 ## Components
 
@@ -112,3 +115,24 @@ a broken-image box. Those are replaced with a visible placeholder instead:
 `data:` URIs are always left alone. To let specific hosts through, pass
 `allowHosts` **and** give the renderer the same list. This option only stops
 the placeholdering; it does not grant the page any access on its own.
+
+## App export links
+
+`linkPolicy: "visible-destinations"` adds the existing validated ASCII host
+beside a web link's words, or the validated address for mail. Refused links are
+inert and carry a withheld marker. Unavailable relative repo paths remain
+readable/inert; same-document fragments stay local. Content-supplied bases never
+resolve a destination. The transform also covers raw Markdown HTML, complete
+and bare documents, SVG targets and declarative shadow content; embedded
+documents become placeholders. It does not fetch targets.
+
+Pass the same `linkPolicy` to `@schlessera/brain-render-puppeteer` when producing
+PNG/PDF. It re-applies the structural policy idempotently and checks disclosure
+in the final media/layout, repairing clipping/hidden styles and rejecting an
+export whose destination still cannot be drawn. A template string alone cannot
+prove how arbitrary supplied CSS will paint. Custom app renderers must provide
+that final check. The CLI does not opt into this policy by default.
+
+`@schlessera/brain-render-template/links` exports the existing pure classifiers
+and their types/constants without Markdown, DOM, React or I/O imports. The
+UI-kit's public `./links` entry re-exports the same implementation.
