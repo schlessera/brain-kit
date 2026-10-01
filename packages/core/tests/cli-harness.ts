@@ -51,7 +51,8 @@ export function testBinHome(): string {
 
 /**
  * Env with API keys stripped → deterministic keyless (FTS-only) behaviour, and
- * XDG_BIN_HOME pointed at `testBinHome()`. A caller can pass its own.
+ * XDG_BIN_HOME pointed at `testBinHome()`. Children share the parent runtime's
+ * calendar; callers can override individual variables through `runCli`.
  */
 export function keylessEnv(root: string): Record<string, string> {
   const env: Record<string, string> = {};
@@ -60,6 +61,10 @@ export function keylessEnv(root: string): Record<string, string> {
   }
   env.BRAIN_ROOT = root;
   env.XDG_BIN_HOME = testBinHome();
+  // With TZ absent, Bun's test and ordinary runtimes can choose different
+  // defaults. Pass the calendar actually used by the parent, including an
+  // explicitly selected non-UTC calendar, rather than the machine's default.
+  env.TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
   delete env.GEMINI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.GOOGLE_API_KEY;
