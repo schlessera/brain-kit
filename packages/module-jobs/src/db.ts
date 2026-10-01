@@ -91,8 +91,8 @@ CREATE INDEX IF NOT EXISTS idx_scrape_runs_source ON scrape_runs(source);
  * by the caller — the CLI resolves it from module config (`dbPath`, default
  * `<root>/jobs.db`); tests pass `:memory:`.
  */
-export function openDatabase(path: string): Database {
-  const db = new Database(path, { create: true });
+export function openDatabase(path: string, options: { create?: boolean } = {}): Database {
+  const db = new Database(path, { readwrite: true, create: options.create ?? true });
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");

@@ -59,6 +59,7 @@ export default defineModule({
     },
     skills: "./skills",
     commands: { jobs: () => import("./cli.js") },
+    tools: { review: () => import("./mcp/review.js") },
     indexRules: { dirAnchors: ["status.md"] },
     hygieneChecks: [(ctx) => checkOpportunityStages(ctx)],
     // Follow the same configured board selection as a manual scrape. Selected

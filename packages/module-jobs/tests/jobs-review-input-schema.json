@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "default": "queued",
+      "description": "Review status, or all statuses; defaults to queued",
+      "type": "string",
+      "enum": [
+        "pending",
+        "queued",
+        "interested",
+        "starred",
+        "dismissed",
+        "archived",
+        "applied",
+        "all"
+      ]
+    },
+    "min_score": {
+      "description": "Minimum relevance score, inclusive",
+      "type": "number"
+    },
+    "limit": {
+      "default": 20,
+      "description": "Positive integer result limit; defaults to 20 and is clamped to 50",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "source": {
+      "description": "Limit the queue to one source board",
+      "type": "string",
+      "enum": [
+        "remoteok",
+        "remotive",
+        "weworkremotely",
+        "workingnomads",
+        "builtin",
+        "nodesk",
+        "simplyhired",
+        "jobgether",
+        "dice",
+        "remotelyde"
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false
+}

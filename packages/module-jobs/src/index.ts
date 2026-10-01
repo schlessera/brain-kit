@@ -25,11 +25,14 @@ export { runScrape, ingestJobs, getAdapter } from "./scrape.js";
 export type { ScrapeReport } from "./scrape.js";
 export {
   getReviewQueue,
+  projectJobSummary,
   getJobById,
   searchJobs,
   setReviewStatus,
   getStats,
 } from "./review.js";
+export type { JobSummary } from "./review.js";
+export { reviewJobs } from "./review-operation.js";
 export type {
   RawJob,
   JobRow,

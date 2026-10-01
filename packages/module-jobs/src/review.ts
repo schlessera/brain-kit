@@ -42,10 +42,10 @@ export function getReviewQueue(db: Database, opts: ReviewOptions = {}): JobRow[]
     SELECT * FROM jobs
     ${where}
     ORDER BY relevance_score DESC, published_at DESC
-    LIMIT ${limit}
+    LIMIT ?
   `;
 
-  return db.query(query).all(...params) as JobRow[];
+  return db.query(query).all(...params, limit) as JobRow[];
 }
 
 export function getJobById(db: Database, id: number): JobRow | null {
@@ -178,6 +178,32 @@ export function searchJobs(db: Database, query: string, limit = 20): JobRow[] {
 }
 
 // Formatting helpers for terminal output
+
+/** Salary bounds are annual EUR cents; salary_currency retains the source label. */
+export interface JobSummary extends Pick<JobRow,
+  "id" | "title" | "company" | "location" | "remote_type" | "salary_raw" |
+  "salary_min" | "salary_max" | "salary_currency" | "published_at" |
+  "review_status" | "relevance_score" | "url"
+> {
+  /** Retains historical board identifiers, including retired sources. */
+  source: string;
+  tags: string[];
+}
+
+/** Omit long descriptions; invalid or absent stored tags become an empty list. */
+export function projectJobSummary(job: JobRow): JobSummary {
+  let tags: unknown = [];
+  try { tags = job.tags === null ? [] : JSON.parse(job.tags); } catch { /* invalid stored JSON */ }
+  return {
+    id: job.id, title: job.title, company: job.company, location: job.location,
+    remote_type: job.remote_type, salary_raw: job.salary_raw,
+    salary_min: job.salary_min, salary_max: job.salary_max, salary_currency: job.salary_currency,
+    source: job.source, published_at: job.published_at, review_status: job.review_status,
+    relevance_score: job.relevance_score,
+    tags: Array.isArray(tags) && tags.every((tag) => typeof tag === "string") ? tags : [],
+    url: job.url,
+  };
+}
 
 export function formatJobSummary(job: JobRow, rank?: number): string {
   const lines: string[] = [];
