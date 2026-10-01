@@ -190,6 +190,7 @@ jobs:
             fi
             if [ "$package" = ui-server ]; then
               grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/bin/brain-ui-inbox.js" <<< "$TARBALL_CONTENTS"
             fi
           done
       - name: Install and smoke-test packed packages
@@ -400,6 +401,8 @@ jobs:
         run: bun scripts/check-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
       - name: Check packed pi graph and listing tool runtime
         run: bun scripts/check-pi-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed operational backup and restore commands
+        run: bun scripts/check-inbox-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
       - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
         # The repo's own typecheck resolves cross-package imports to src via
         # customConditions ["bun"], so the emitted .d.ts consumers get is

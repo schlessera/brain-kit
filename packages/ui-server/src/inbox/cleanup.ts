@@ -6,6 +6,7 @@ import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
 import { failInboxWork } from "./actions.js";
 import { safeResolve } from "../files/walker.js";
+import { assertInboxRecoveryReady } from "./recovery-gate.js";
 
 /** Recoverable compensation, never called from a SQLite transaction. Each
  * directory removal is idempotent; its durable lease is acknowledged afterwards. */
@@ -14,6 +15,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
   let active: Promise<number> | null = null, closed = false;
   function claim(id: string): InboxQueueItem | null {
     return db.transaction(() => {
+      assertInboxRecoveryReady(db);
       let item = store.getItem(id);
       if (!item || item.queue !== "queue" || item.type !== "cleanup_pending") return null;
       if (item.status === "claimed" && item.leaseUntil! <= now()) {

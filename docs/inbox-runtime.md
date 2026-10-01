@@ -7,6 +7,10 @@ Markdown remains content authority and this runtime never opens `brain.db`.
 
 ## Recovery and claims
 
+A pending [operational restore](inbox-recovery.md) refuses app boot and drain
+startup. Restore completes staging and reconciles the lost workers' reservations
+and claims atomically before allowing normal lifecycle work.
+
 Boot and each drain pass reconcile reserved cost before releasing expired
 leases into bounded retry backoff. Exhausted attempts remain `failed` and
 produce one stable dead-letter Action. A persisted `inbox-drain` scheduler
