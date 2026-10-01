@@ -1,6 +1,7 @@
 import { BottomSheet, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
 import { X } from "lucide-react";
 import { useId } from "react";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import type { ClipboardEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -44,6 +45,8 @@ export interface ComposerProvider {
 }
 
 export interface ComposerViewProps {
+  /** Capture panel, kept inside the existing bounded composer frame. */
+  dictation?: ReactNode;
   value: string;
   state: ComposerState;
   /** Overrides the state's own placeholder (a connection reason, the host's copy). */
@@ -98,7 +101,7 @@ export function ComposerView(p: ComposerViewProps) {
     p.onPasteFiles(images);
   }
 
-  const pointer = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(min-width: 900px)").matches;
+  const pointer = useMediaQuery("(min-width: 900px)");
   const attachMenu = (
     <div className="flex flex-col">
       <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
@@ -109,6 +112,7 @@ export function ComposerView(p: ComposerViewProps) {
 
   return (
     <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste}>
+      {p.dictation}
       {p.attachErrors.length > 0 && (
         <div className="mb-2 flex items-start gap-2" role="alert">
           <div className="min-w-0 flex-1">

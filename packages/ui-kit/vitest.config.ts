@@ -7,6 +7,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
 import { formViewport, formConsumerStyles } from "./tests/visual/form-browser.ts";
+import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { rankTouch } from "./tests/visual/rank-pointer.ts";
 import viteConfig from "./vite.config.ts";
 
@@ -67,7 +68,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, formViewport, formConsumerStyles },
+              commands: { startRequestLog, requestLog, rankTouch, formViewport, formConsumerStyles, dictationPointer },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

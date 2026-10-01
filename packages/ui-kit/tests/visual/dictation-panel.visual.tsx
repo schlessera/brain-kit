@@ -1,0 +1,337 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { commands, page, userEvent } from "vitest/browser";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../../ui-react/src/root.js";
+import { Composer } from "../../../ui-react/src/components/chat/composer.js";
+import type { AsrClient, AsrClientOptions } from "../../../ui-sdk/src/client/asr.js";
+
+// Real composer + useDictation. The provider is a keyless scripted ASR client;
+// its pending start/drain let the tests observe connecting and repeated stops.
+class FixtureClient implements AsrClient {
+  stopped = 0;
+  drained = 0;
+  open!: () => void;
+  finish!: () => void;
+  constructor(readonly options: AsrClientOptions) {}
+  start() { return new Promise<void>(resolve => { this.open = resolve; }); }
+  stop() { this.stopped++; }
+  drainAndStop() { this.drained++; return new Promise<void>(resolve => { this.finish = resolve; }); }
+}
+
+let renderer: Root | undefined;
+let ui: BrainUiRoot | undefined;
+let host: HTMLElement | undefined;
+let style: HTMLStyleElement | undefined;
+let previousOverflow: string | undefined;
+let previousTheme: string | undefined;
+let touchEnabled = false;
+let frameBefore: { width: number; height: number };
+let outerBefore: { width: number; height: number };
+afterEach(async () => {
+  if (renderer) flushSync(() => renderer!.unmount());
+  ui?.dispose();
+  host?.remove();
+  style?.remove();
+  renderer = undefined; ui = undefined; host = undefined; style = undefined;
+  vi.unstubAllGlobals();
+  if (previousOverflow !== undefined) document.body.style.overflow = previousOverflow;
+  if (previousTheme === undefined) delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = previousTheme;
+  if (touchEnabled) await commands.dictationPointer(false);
+  touchEnabled = false;
+  if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height);
+  if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
+});
+
+async function mount(width = 1280, height = 800, theme = "dark") {
+  frameBefore = { width: innerWidth, height: innerHeight };
+  outerBefore = await commands.formViewport(width, height);
+  await page.viewport(width, height);
+  previousTheme = document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme = theme;
+  previousOverflow = document.body.style.overflow;
+  style = document.createElement("style");
+  style.textContent = await commands.formConsumerStyles();
+  document.head.append(style);
+  host = document.createElement("div");
+  host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px;display:flex;flex-direction:column;background:var(--bk-color-canvas);color:var(--bk-color-ink)`;
+  document.body.append(host);
+  const send = vi.fn();
+  const clients: FixtureClient[] = [];
+  const request = vi.fn(async (url: string) => Response.json(url.endsWith("/voice/session") ? {
+    providerId: "fixture", url: "", expiresAt: Date.now() + 60_000,
+    capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false },
+  } : { overrides: [], providers: [], backends: {}, entries: [], slugs: {}, models: [], sessions: [] }));
+  vi.stubGlobal("fetch", request);
+  ui = createBrainUiRoot({ storage: null, request });
+  ui.stores.connection.getState().setWsStatus("connected");
+  ui.asr.register("fixture", options => { const client = new FixtureClient(options); clients.push(client); return client; });
+  renderer = createRoot(host);
+  flushSync(() => renderer!.render(<BrainUiProvider root={ui}>
+    <p data-conversation="" tabIndex={0} style={{ flex: 1 }}>Odysseus remembers the harbour crossing.</p>
+    <Composer send={send} />
+  </BrainUiProvider>));
+  const frame = host.querySelector<HTMLElement>("[data-composer]")!;
+  await userEvent.click(frame.querySelector("textarea")!);
+  await userEvent.keyboard("Keep the existing draft");
+  const mic = () => frame.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]')!;
+  await userEvent.click(mic());
+  await expect.poll(() => clients.length).toBe(1);
+  expect(ui.stores.voice.getState().connecting).toBe(true);
+  const client = clients[0];
+  return { frame, mic, client, send, request,
+    async listen(text = "Remember the harbour") {
+      client.open();
+      await expect.poll(() => ui!.stores.voice.getState().connecting).toBe(false);
+      flushSync(() => client.options.onEvent({ type: "final", text, endsTurn: false }));
+    },
+  };
+}
+
+const done = () => [...host!.querySelectorAll<HTMLButtonElement>("button")].find(el => /^(Done|Finalizing…)$/u.test(el.textContent?.trim() ?? ""))!;
+const panel = () => done().parentElement!.parentElement!;
+
+for (const theme of ["dark", "light"]) for (const [width, height] of [[1280, 800], [1920, 1080]]) {
+  test(`dictation desktop ${width} ${theme}: bounded above composer with an 8px gap`, async () => {
+    const { frame, listen } = await mount(width, height, theme);
+    await listen();
+    const rect = panel().getBoundingClientRect();
+    const anchor = frame.getBoundingClientRect();
+    expect(rect.width, "panel matches composer width").toBeCloseTo(anchor.width, 1);
+    expect(rect.width).toBeLessThanOrEqual(768);
+    expect(rect.bottom, "panel sits 8px above the composer").toBeCloseTo(anchor.top - 8, 1);
+    expect(rect.height, "no viewport-fraction floor").toBeLessThan(height * 0.4);
+    expect(rect.height).toBeLessThanOrEqual(Math.min(height * 0.6, 512));
+    const transcript = panel().querySelector<HTMLElement>("[data-dictation-transcript]")!;
+    const css = getComputedStyle(transcript);
+    const paragraph = transcript.querySelector("p")!;
+    expect(transcript.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom), "three transcript lines are reserved")
+      .toBeGreaterThanOrEqual(3 * parseFloat(getComputedStyle(paragraph).lineHeight));
+  });
+}
+
+test("dictation desktop: opening focuses Done; conversation selection and Enter elsewhere keep capture live", async () => {
+  const { client, listen } = await mount();
+  await listen();
+  expect(document.activeElement, "Done receives opening focus").toBe(done());
+  const conversation = host!.querySelector<HTMLElement>("[data-conversation]")!;
+  await userEvent.click(conversation);
+  const range = document.createRange(); range.selectNodeContents(conversation);
+  getSelection()!.removeAllRanges(); getSelection()!.addRange(range);
+  expect(getSelection()!.toString()).toBe("Odysseus remembers the harbour crossing.");
+  await userEvent.keyboard("{Enter}");
+  expect(client.drained).toBe(0); expect(client.stopped).toBe(0);
+  expect(ui!.stores.voice.getState().mode).toBe("dictate");
+});
+
+test("dictation desktop: the composer cannot type or Send past review", async () => {
+  const { frame, send, listen } = await mount();
+  await listen();
+  const field = frame.querySelector<HTMLTextAreaElement>("textarea")!;
+  expect(field.readOnly, "typing is blocked during capture").toBe(true);
+  await userEvent.click(field); await userEvent.keyboard("typed{Enter}");
+  expect(field.value).toBe("Keep the existing draft"); expect(send).not.toHaveBeenCalled();
+  const sendButton = frame.querySelector<HTMLElement>('[aria-label="Send — unavailable"]')!;
+  expect(sendButton).not.toBeNull(); expect(sendButton.getAttribute("aria-disabled")).toBe("true");
+});
+
+for (const stop of ["Done", "mic", "Enter", "Space", "mic Enter", "mic Space"] as const) {
+  test(`dictation desktop: ${stop} stops once, drains into review and restores mic focus`, async () => {
+    const { mic, client, listen } = await mount();
+    await listen("Keep the nonempty voyage transcript");
+    if (stop === "mic") await userEvent.click(mic());
+    else if (stop === "Done") await userEvent.click(done());
+    else { (stop.startsWith("mic") ? mic() : done()).focus(); await userEvent.keyboard(stop.endsWith("Enter") ? "{Enter}" : " "); }
+    expect(client.drained).toBe(1); expect(ui!.stores.voice.getState().draining).toBe(true);
+    await userEvent.click(mic());
+    expect(client.drained).toBe(1);
+    expect(ui!.stores.voice.getState().mode, "duplicate stop does not bypass drain").toBe("dictate");
+    client.finish();
+    await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the nonempty voyage transcript");
+    await expect.poll(() => document.activeElement).toBe(mic());
+    expect(ui!.stores.voice.getState().mode).toBe("idle");
+    expect(document.body.style.overflow).toBe(previousOverflow);
+  });
+}
+
+test("dictation desktop: Enter on Cancel cancels rather than committing", async () => {
+  const { client, listen } = await mount(); await listen();
+  const cancel = host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!;
+  cancel.focus(); await userEvent.keyboard("{Enter}");
+  expect(client.stopped).toBe(1); expect(client.drained).toBe(0);
+  expect(ui!.stores.voice.getState().reviewText).toBe("");
+  expect(ui!.stores.voice.getState().mode).toBe("idle");
+});
+
+const transcript = () => panel().querySelector<HTMLElement>("[data-dictation-transcript], .flex-1.overflow-y-auto")!;
+const backdrop = () => host!.querySelector<HTMLElement>(".backdrop-blur-sm")!;
+
+for (const theme of ["dark", "light"]) {
+  test(`dictation phone ${theme}: baseline sheet geometry, animation and backdrop-to-stop`, async () => {
+    const { client, listen } = await mount(320, 800, theme);
+    await listen("Keep the phone transcript");
+    await expect.poll(() => panel().getBoundingClientRect().bottom).toBeCloseTo(800, 1);
+    const rect = panel().getBoundingClientRect();
+    expect(rect.width).toBe(320);
+    expect(rect.height).toBeGreaterThanOrEqual(320);
+    expect(rect.height).toBeLessThanOrEqual(480);
+    const css = getComputedStyle(panel());
+    expect(css.position).toBe("fixed");
+    // The source classes are retained. The pre-change shipped stylesheet
+    // supplies no enter keyframes; preserve that actual baseline in this issue.
+    expect(panel().classList.contains("animate-in")).toBe(true);
+    expect(panel().classList.contains("slide-in-from-bottom")).toBe(true);
+    expect(panel().classList.contains("duration-200")).toBe(true);
+    expect(css.animationName).toBe("none");
+    expect(css.animationDuration).toBe("0s");
+    expect(backdrop().getBoundingClientRect().width).toBe(320);
+    await userEvent.click(backdrop(), { position: { x: 12, y: 12 } });
+    expect(client.drained).toBe(1);
+    await userEvent.click(backdrop(), { position: { x: 12, y: 12 } });
+    expect(client.drained).toBe(1);
+    expect(ui!.stores.voice.getState().mode).toBe("dictate");
+    client.finish();
+    await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the phone transcript");
+    expect(document.body.style.overflow).toBe(previousOverflow);
+  });
+}
+
+for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
+  test(`dictation disclosure ${width} ${theme}: unchanged browser-speech warning precedes transcript`, async () => {
+    const { listen } = await mount(width, 800, theme); await listen();
+    flushSync(() => ui!.stores.voice.getState().setProviderId("webspeech"));
+    const note = [...panel().querySelectorAll<HTMLElement>("div")].find(el => el.textContent === "via browser speech · audio goes to Google")!;
+    expect(note).not.toBeNull();
+    expect(note.compareDocumentPosition(transcript()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const css = getComputedStyle(note);
+    expect(css.fontSize).toBe("11px");
+    expect(css.textAlign).toBe("center");
+    expect(css.paddingTop).toBe("8px");
+    // Approved warning ink at its existing 90% strength, resolved by the browser.
+    const reference = document.createElement("span");
+    reference.style.color = "color-mix(in oklab, var(--bk-color-amber) 90%, transparent)";
+    panel().append(reference);
+    expect(css.color).toBe(getComputedStyle(reference).color);
+    reference.remove();
+  });
+}
+
+for (const [width, height] of [[320, 800], [1280, 600], [1920, 1080]]) {
+  test(`dictation long transcript ${width}: capped, internally scrolled to newest words`, async () => {
+    const { client, listen } = await mount(width, height);
+    await listen("Odysseus remembers the harbour. ".repeat(200));
+    expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
+    expect(panel().getBoundingClientRect().height).toBeLessThanOrEqual(width < 900 ? height * 0.6 : Math.min(height * 0.6, 512));
+    await expect.poll(() => transcript().scrollHeight - transcript().scrollTop - transcript().clientHeight).toBeLessThanOrEqual(1);
+    transcript().scrollTop = 0;
+    flushSync(() => client.options.onEvent({ type: "partial", text: "Newest words at the end" }));
+    expect(transcript().textContent).toContain("Newest words at the end");
+    await expect.poll(() => transcript().scrollHeight - transcript().scrollTop - transcript().clientHeight).toBeLessThanOrEqual(1);
+  });
+}
+
+for (const width of [320, 1280]) for (const phase of ["connecting", "listening", "draining"]) {
+  test(`dictation Escape ${width} ${phase}: existing cancellation semantics and scroll restoration`, async () => {
+    document.body.style.overflow = "auto";
+    const { client, listen, mic } = await mount(width);
+    if (phase !== "connecting") await listen();
+    expect(panel().textContent).toContain(phase === "connecting" ? "Connecting…" : "Listening");
+    expect(document.body.style.overflow).toBe("hidden");
+    if (phase === "draining") {
+      await userEvent.click(done());
+      expect(panel().textContent).toContain("Finalizing…");
+      expect(client.drained).toBe(1);
+    }
+    await userEvent.keyboard("{Escape}");
+    expect(ui!.stores.voice.getState().mode).toBe("idle");
+    expect(document.body.style.overflow).toBe("auto");
+    expect(ui!.stores.voice.getState().reviewText).toBe("");
+    if (phase !== "draining") expect(client.stopped).toBe(1);
+    if (width >= 900) expect(document.activeElement).toBe(mic());
+    // Finish the already-started promise, so no asynchronous drain escapes cleanup.
+    if (phase === "draining") { client.finish(); await expect.poll(() => ui!.stores.voice.getState().draining).toBe(false); }
+    if (phase === "connecting") { client.open(); await expect.poll(() => client.stopped).toBe(2); }
+  });
+}
+
+for (const width of [320, 1280]) {
+  test(`dictation unmount ${width}: body lock and live capture are released`, async () => {
+    document.body.style.overflow = "scroll";
+    const { client, listen } = await mount(width); await listen();
+    expect(document.body.style.overflow).toBe("hidden");
+    flushSync(() => renderer!.unmount()); renderer = undefined;
+    expect(client.stopped).toBe(1);
+    expect(document.body.style.overflow).toBe("scroll");
+  });
+}
+
+test("dictation breakpoint: a live capture moves between 899 and 900 without stopping", async () => {
+  const { frame, client, listen } = await mount(899); await listen();
+  expect(backdrop()).not.toBeNull();
+  await page.viewport(900, 800); await commands.formViewport(900, 800);
+  host!.style.width = "900px";
+  await expect.poll(() => panel().getAttribute("role")).toBe("dialog");
+  expect(backdrop()).toBeNull();
+  expect(panel().getBoundingClientRect().width).toBeCloseTo(frame.getBoundingClientRect().width, 1);
+  expect(document.activeElement).toBe(done());
+  await page.viewport(899, 800); await commands.formViewport(899, 800); host!.style.width = "899px";
+  await expect.poll(() => backdrop()).not.toBeNull();
+  expect(client.stopped).toBe(0); expect(client.drained).toBe(0);
+  expect(ui!.stores.voice.getState().mode).toBe("dictate");
+});
+
+for (const theme of ["dark", "light"]) for (const width of [320, 1280, 1920]) {
+  test(`dictation capture ${width} ${theme}: reviewable screenshot`, async () => {
+    expect(matchMedia("(any-pointer: fine)").matches).toBe(true);
+    const { listen } = await mount(width, width === 1920 ? 1080 : 800, theme);
+    await listen("Remember the harbour crossing and the names of the winds.");
+    flushSync(() => ui!.stores.voice.getState().setProviderId("webspeech"));
+    if (width >= 900) expect(panel().textContent).toContain("Enter on Done");
+    if (width === 320) await expect.poll(() => panel().getBoundingClientRect().bottom).toBeCloseTo(800, 1);
+    await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/${width}-${theme}.png` });
+  });
+}
+
+test("dictation desktop error: existing error replaces disclosure and controls still drain to review", async () => {
+  const { client, listen } = await mount(); await listen("Keep the words before the error");
+  flushSync(() => {
+    ui!.stores.voice.getState().setProviderId("webspeech");
+    client.options.onError(new Error("Fixture speech error"));
+  });
+  expect(panel().textContent).toContain("Fixture speech error");
+  expect(panel().textContent).not.toContain("audio goes to Google");
+  await userEvent.click(done()); expect(client.drained).toBe(1);
+  client.finish();
+  await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the words before the error");
+  expect(document.body.style.overflow).toBe(previousOverflow);
+});
+
+// Touch cases run last: Chromium changes its primary pointer to none when
+// touch emulation is disabled. This test page/context is disposed by Vitest.
+for (const action of ["Done", "mic", "Cancel"] as const) {
+  test(`dictation wide touch-only: ${action} has a real 44px touch target`, async () => {
+    await commands.dictationPointer(true); touchEnabled = true;
+    const { client, listen, mic } = await mount(); await listen();
+    expect(matchMedia("(any-pointer: fine)").matches).toBe(false);
+    expect(matchMedia("(pointer: coarse)").matches).toBe(true);
+    expect(panel().getAttribute("role")).toBe("dialog");
+    expect(backdrop()).toBeNull();
+    expect(panel().textContent).toContain("Tap Done or the mic to stop");
+    expect(panel().textContent).not.toContain("Enter");
+    const target = action === "Done" ? done() : action === "mic" ? mic() : host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!;
+    for (const control of [target, mic()]) {
+      expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
+      expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/wide-touch-${action}.png` });
+    const rect = target.getBoundingClientRect();
+    await commands.rankTouch("touchStart", [{ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }]);
+    await commands.rankTouch("touchEnd", []);
+    if (action !== "Cancel") {
+      await expect.poll(() => client.drained).toBe(1); client.finish();
+      await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Remember the harbour");
+    } else { await expect.poll(() => client.stopped).toBe(1); expect(client.drained).toBe(0); }
+  });
+}

@@ -357,10 +357,20 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     setAttachErrors([]);
   }
 
+  function stopDictation() {
+    // Read synchronously: another stop may arrive before React paints the
+    // disabled Done button. The driver owns the drain and review handoff.
+    if (root.stores.voice.getState().draining) return;
+    void dictation.stop(true);
+  }
+
   function handleMicTap() {
-    if (voiceMode === "dictate") {
-      void dictation.stop(true);
+    if (root.stores.voice.getState().mode === "dictate") {
+      stopDictation();
     } else {
+      setAttachMenuOpen(false);
+      setProviderMenuOpen(false);
+      setPaletteDismissed(true);
       // Defensive: blur composer so the keyboard never fights the mic sheet on Android
       frameRef.current?.querySelector("textarea")?.blur();
       // Any existing review text stays put — the new capture appends to it.
@@ -441,13 +451,6 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
 
   return (
     <>
-      {/* Dictation sheet */}
-      <DictationSheet
-        open={voiceMode === "dictate"}
-        onStop={() => dictation.stop(true)}
-        onCancel={() => dictation.cancel()}
-      />
-
       <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
@@ -475,12 +478,17 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
 
         <ComposerView
+          dictation={<DictationSheet open={voiceMode === "dictate"}
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
-          // live, offline disables it and keeps the draft.
+          // live, offline disables it and keeps the draft. Dictating keeps the
+          // draft read-only and makes the mic the explicit capture stop.
           state={
-            wsStatus === "connected"
+            voiceMode === "dictate"
+              ? "dictating"
+              : wsStatus === "connected"
               ? isStreaming
                 ? "streaming"
                 : "ready"
@@ -489,7 +497,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
                 : "offline"
           }
           placeholder={
-            wsStatus !== "connected"
+            voiceMode === "dictate" ? "Dictating…" : wsStatus !== "connected"
               ? connectionIssue === "capacity"
                 ? "Server connection limit reached"
                 : connectionIssue === "refused"
@@ -497,7 +505,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
@@ -507,7 +515,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
           attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
           attachErrors={attachErrors}
           provider={
-            showProviderPicker
+            showProviderPicker && voiceMode !== "dictate"
               ? {
                   label: displayProviderLabel,
                   locked: providerLocked,
@@ -525,11 +533,12 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
+            if (voiceMode === "dictate") return;
             setInput(value);
             setPaletteDismissed(false);
           }}
           onSend={() => {
-            if (canSend) handleSubmit();
+            if (voiceMode !== "dictate" && canSend) handleSubmit();
           }}
           onStop={handleCancel}
           onMic={handleMicTap}

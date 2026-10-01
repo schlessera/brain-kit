@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
+import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { Mic, X } from "lucide-react";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { cn } from "../../lib/utils.js";
@@ -7,11 +9,16 @@ export function DictationSheet({
   open,
   onStop,
   onCancel,
+  composerRef,
 }: {
   open: boolean;
   onStop: () => void;
   onCancel: () => void;
+  composerRef?: RefObject<HTMLDivElement | null>;
 }) {
+  const desktop = useMediaQuery("(min-width: 900px)");
+  const finePointer = useFinePointer();
+  const doneRef = useRef<HTMLButtonElement>(null);
   const partial = useVoiceStore((s) => s.partial);
   const finalText = useVoiceStore((s) => s.finalText);
   const audioLevel = useVoiceStore((s) => s.audioLevel);
@@ -40,7 +47,7 @@ export function DictationSheet({
   useEffect(() => {
     const el = transcriptRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [finalText, partial, open]);
+  }, [finalText, partial, open, desktop]);
 
   // Lock body scroll while open
   useEffect(() => {
@@ -62,29 +69,41 @@ export function DictationSheet({
     return () => document.removeEventListener("keydown", h);
   }, [open, onCancel]);
 
+  useEffect(() => {
+    if (!open || !desktop) return;
+    const composer = composerRef?.current;
+    doneRef.current?.focus();
+    return () => {
+      composer?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]')?.focus();
+    };
+  }, [open, desktop, composerRef]);
+
   if (!open) return null;
 
   return (
     <>
       {/* Backdrop — tap-to-stop is intentional: huge target. Disabled while
           draining so a stray tap doesn't double-trigger. */}
-      <div
+      {!desktop && <div
         className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
         onClick={() => { if (!draining) onStop(); }}
-      />
+      />}
 
-      {/* Sheet */}
+      {/* The desktop panel shares the content and effects with the phone sheet. */}
       <div
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-border bg-surface shadow-[0_-16px_48px_rgba(0,0,0,0.5)]",
-          "max-h-[60vh] min-h-[40vh]",
-          "animate-in slide-in-from-bottom duration-200"
+          desktop
+            ? "absolute inset-x-0 bottom-full z-50 mb-2 flex max-h-[min(60vh,32rem)] flex-col overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl transition-none"
+            : "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-border bg-surface shadow-[0_-16px_48px_rgba(0,0,0,0.5)] max-h-[60vh] min-h-[40vh] animate-in slide-in-from-bottom duration-200"
         )}
+        role={desktop ? "dialog" : undefined}
+        aria-modal={desktop ? false : undefined}
+        aria-label={desktop ? "Dictation" : undefined}
         // Don't propagate to backdrop
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
-          <div className="flex items-center gap-2">
+        <div className={desktop ? "flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5" : "flex items-center justify-between border-b border-border/50 px-5 py-3"}>
+          <div role={desktop ? "status" : undefined} className="flex items-center gap-2">
             <span className="relative inline-flex h-2 w-2">
               {/* Pulse only once capture is actually live — a "connecting" dot
                   must not imply the mic is already open. */}
@@ -102,11 +121,14 @@ export function DictationSheet({
               {statusLabel}
             </span>
           </div>
+          {desktop && <div className="ml-auto flex items-center"><Waveform level={audioLevel} compact /></div>}
           <button
+            type="button"
+            aria-label="Cancel dictation"
             onClick={onCancel}
             disabled={draining}
             title="Cancel"
-            className="rounded-lg p-2 text-muted-foreground hover:bg-surface-raised hover:text-foreground disabled:opacity-30"
+            className={cn("rounded-lg p-2 text-muted-foreground hover:bg-surface-raised hover:text-foreground disabled:opacity-30", desktop && "flex h-11 w-11 shrink-0 items-center justify-center")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -128,12 +150,12 @@ export function DictationSheet({
         )}
 
         {/* Waveform */}
-        <div className="flex items-center justify-center px-6 py-4">
+        {!desktop && <div className="flex items-center justify-center px-6 py-4">
           <Waveform level={audioLevel} />
-        </div>
+        </div>}
 
         {/* Transcript */}
-        <div ref={transcriptRef} className="flex-1 overflow-y-auto px-6 pb-6">
+        <div ref={transcriptRef} data-dictation-transcript="" className={desktop ? "min-h-[calc(4.875rem+1.5rem)] flex-1 overflow-y-auto px-5 py-3" : "flex-1 overflow-y-auto px-6 pb-6"}>
           {error ? (
             <div className="rounded-lg bg-destructive-fill/10 p-4 text-sm text-destructive">
               {error}
@@ -156,11 +178,13 @@ export function DictationSheet({
         </div>
 
         {/* Big stop button — thumb-friendly */}
-        <div className="border-t border-border/50 p-4">
+        <div className={desktop ? "shrink-0 border-t border-border/50 px-4 py-3" : "border-t border-border/50 p-4"}>
           <button
+            type="button"
+            ref={doneRef}
             onClick={onStop}
             disabled={draining}
-            className="flex h-14 w-full items-center justify-center gap-3 rounded-xl bg-primary-fill text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:opacity-60 disabled:cursor-progress"
+            className={cn("flex w-full items-center justify-center gap-3 rounded-xl bg-primary-fill text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:opacity-60 disabled:cursor-progress", desktop ? "h-11" : "h-14")}
           >
             <Mic className="h-5 w-5" />
             <span className="text-sm font-semibold uppercase tracking-wider">
@@ -170,7 +194,9 @@ export function DictationSheet({
           <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
             {draining
               ? "Waiting for the last words…"
-              : "Tap anywhere outside to stop"}
+              : desktop
+                ? finePointer ? "Enter on Done or click the mic to stop · esc to cancel" : "Tap Done or the mic to stop"
+                : "Tap anywhere outside to stop"}
           </p>
         </div>
       </div>
@@ -195,15 +221,15 @@ function providerNoteFor(
   }
 }
 
-function Waveform({ level }: { level: number }) {
+function Waveform({ level, compact = false }: { level: number; compact?: boolean }) {
   // Render 16 bars whose height is driven by current level + per-bar phase.
   const bars = 16;
   return (
-    <div className="flex h-16 items-center gap-1.5">
+    <div className={cn("flex items-center gap-1.5", compact ? "h-8" : "h-16")}>
       {Array.from({ length: bars }).map((_, i) => {
         const phase = (i / bars) * Math.PI;
         const offset = (Math.sin(phase + Date.now() / 200) + 1) / 2;
-        const h = 8 + level * 56 * (0.4 + 0.6 * offset);
+        const h = (8 + level * 56 * (0.4 + 0.6 * offset)) * (compact ? 0.5 : 1);
         return (
           <span
             key={i}

@@ -28,6 +28,7 @@ import type { ComposerVariant, Tone } from "../types.js";
  *   ready         amber send
  *   streaming     red stop; the field stays typeable (you may add to the question)
  *   reconnecting  send stays live and queues locally
+ *   dictating     draft read-only, send/attach unavailable, mic stops capture
  *   offline       send disabled — opacity .45 + `aria-disabled` + the mono
  *                 reason, per the kit's disabled rule; the draft is never discarded.
  *
@@ -90,7 +91,7 @@ export interface ComposerProps {
   placeholder?: string;
   variant?: ComposerVariant;
   /**
-   * The connection state. Drives the placeholder, the hint and the trailing
+   * The connection or capture state. Drives the placeholder, the hint and the trailing
    * control together; `ready` when omitted.
    */
   state?: ComposerState;
@@ -119,7 +120,7 @@ export interface ComposerProps {
   attach?: boolean;
   /** Controlled text. Omit for an uncontrolled field. */
   value?: string;
-  /** Makes the field editable. Without it the textarea is `readOnly`. */
+  /** Makes the field editable outside `dictating`. Without it the textarea is `readOnly`. */
   onChange?: (value: string) => void;
   /** ⏎. Without it, ⏎ inserts a newline like any other key. */
   onSend?: (value: string) => void;
@@ -127,12 +128,13 @@ export interface ComposerProps {
   onStop?: () => void;
   /** Opens the app's own capture menu (photo, camera, file). */
   onAttach?: () => void;
+  /** Opens capture, or stops it while `dictating`. */
   onMic?: () => void;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
 
-export type ComposerState = "ready" | "streaming" | "reconnecting" | "offline";
+export type ComposerState = "ready" | "streaming" | "reconnecting" | "offline" | "dictating";
 
 export interface ComposerRecall {
   label: string;
@@ -161,6 +163,7 @@ const STATE: Record<ComposerState, { ph: string; hint: string; why?: string }> =
   ready: { ph: "Ask your brain anything…", hint: "⌘K for commands · ⏎ to send · ⇧⏎ for a new line" },
   streaming: { ph: "Add to the question while it works…", hint: "esc or the stop button ends the run" },
   reconnecting: { ph: "Reconnecting to the host…", hint: "queued locally · sends when the host answers" },
+  dictating: { ph: "Dictating…", hint: "Stop to review your words" },
   offline: { ph: "The host is unreachable", hint: "", why: "needs the host · your draft is kept" },
 };
 
@@ -170,6 +173,8 @@ export function Composer(p: ComposerProps) {
   const s = STATE[st];
   const offline = st === "offline";
   const streaming = st === "streaming";
+  const dictating = st === "dictating";
+  const sendDisabled = offline || dictating;
 
   const placeholder = p.placeholder ?? s.ph;
   const hint = p.hint ?? s.hint;
@@ -180,7 +185,7 @@ export function Composer(p: ComposerProps) {
   const showMic = v === "send" || v === "plain";
   const showSend = v === "send" && !streaming;
   const showStop = v === "send" && streaming;
-  const editable = Boolean(p.onChange);
+  const editable = Boolean(p.onChange) && !dictating;
   const hintRow = Boolean(p.provider || hint || blockedWhy);
   const hintId = useId();
 
@@ -200,7 +205,7 @@ export function Composer(p: ComposerProps) {
     }
     // ⇧⏎ is a newline and reaches the textarea untouched; ⏎ alone sends, but
     // only when somebody is listening — and never into an unreachable host.
-    if (event.key !== "Enter" || event.shiftKey || !p.onSend || offline) return;
+    if (event.key !== "Enter" || event.shiftKey || !p.onSend || sendDisabled) return;
     event.preventDefault();
     p.onSend(event.currentTarget.value);
   }
@@ -259,7 +264,7 @@ export function Composer(p: ComposerProps) {
   const sendAct = Boolean(p.onSend);
   const sendStyle: CSSProperties = {
     ...disc(28, accent.amber.fill, false),
-    ...(offline ? { opacity: 0.45, cursor: "default", pointerEvents: "none" } : { cursor: sendAct ? "pointer" : "default" }),
+    ...(sendDisabled ? { opacity: 0.45, cursor: "default", pointerEvents: "none" } : { cursor: sendAct ? "pointer" : "default" }),
   };
   const send = () => p.onSend?.(p.value ?? "");
 
@@ -289,7 +294,7 @@ export function Composer(p: ComposerProps) {
       <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
         <div style={field} className="bk-field">
           {showAttach ? (
-            <IconButton icon="attach" label="Attach — photo, camera, file" haspopup="menu" onClick={p.onAttach} />
+            <IconButton icon="attach" label="Attach — photo, camera, file" haspopup="menu" onClick={dictating ? undefined : p.onAttach} />
           ) : null}
           <textarea
             className="bk-composer"
@@ -303,7 +308,7 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label="Dictate" onClick={p.onMic} /> : null}
+          {showMic ? <IconButton icon="mic" label={dictating ? "Stop dictation" : "Dictate"} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
               style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}
@@ -320,13 +325,13 @@ export function Composer(p: ComposerProps) {
           {showSend ? (
             <span
               style={sendStyle}
-              className={sendAct && !offline ? "bk-control" : undefined}
+              className={sendAct && !sendDisabled ? "bk-control" : undefined}
               role={sendAct ? "button" : undefined}
-              aria-label={sendAct ? (offline ? "Send — unavailable" : "Send") : undefined}
-              aria-disabled={sendAct && offline ? true : undefined}
-              tabIndex={sendAct ? (offline ? -1 : 0) : undefined}
-              onClick={sendAct && !offline ? send : undefined}
-              onKeyDown={sendAct && !offline ? pressable(send) : undefined}
+              aria-label={sendAct ? (sendDisabled ? "Send — unavailable" : "Send") : undefined}
+              aria-disabled={sendAct && sendDisabled ? true : undefined}
+              tabIndex={sendAct ? (sendDisabled ? -1 : 0) : undefined}
+              onClick={sendAct && !sendDisabled ? send : undefined}
+              onKeyDown={sendAct && !sendDisabled ? pressable(send) : undefined}
             >
               <Icon icon="send" size={15} color={color.onFill} />
             </span>
@@ -396,21 +401,21 @@ function pressable(act: () => void) {
 }
 
 /**
- * The paperclip and the microphone inside the field: a 28px round hit target
- * with a hover veil, which is what the design draws around each.
+ * The paperclip and the microphone inside the field: a 28px round target
+ * with a hover veil. During dictation the mic expands to a 44px stop target.
  *
  * Each gains an optional callback and D20's gating rule does the rest: with no
  * handler this renders exactly the icon the source renders, with no role, no
  * ring and no tab stop. The paperclip is a menu trigger, so it also says so.
  */
-function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; onClick?: () => void }) {
+function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; targetSize?: number; onClick?: () => void }) {
   const act = Boolean(props.onClick);
   return (
     <span
       style={
         {
-          width: 28,
-          height: 28,
+          width: props.targetSize ?? 28,
+          height: props.targetSize ?? 28,
           borderRadius: 999,
           flex: "none",
           display: "flex",
