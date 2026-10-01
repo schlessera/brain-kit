@@ -84,6 +84,22 @@ describe("inbox drain lifecycle", () => {
     expect(await r.tick()).toMatchObject({ claimed: 0, dispatchEnabled: false });
     expect(store().getItem("item-odysseus")).toMatchObject({ status: "ready", attempts: 0 });
   });
+  test("expired final attempts become failed with one dead-letter Action across repeated recovery", async () => {
+    seed();
+    const s = store();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const item = s.getItem("item-odysseus")!;
+      s.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "claimed", leaseUntil: now + 1 }]);
+      if (attempt < 3) s.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version + 1, to: "ready" }]);
+    }
+    now++;
+    const r = runtime();
+    expect(s.getItem("item-odysseus")).toMatchObject({ status: "failed", attempts: 3 });
+    expect(s.snapshot().items.filter((item) => item.queue === "actions")).toHaveLength(1);
+    await r.tick(); await r.poke();
+    expect(s.snapshot().items.filter((item) => item.queue === "actions")).toHaveLength(1);
+    expect(s.getItem("item-odysseus")).toMatchObject({ status: "failed", attempts: 3 });
+  });
 
   test("tick and poke cannot overlap, including synchronous dispatcher reentry", async () => {
     seed(); seed("penelope"); let release!: () => void; let calls = 0;

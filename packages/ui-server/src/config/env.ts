@@ -205,6 +205,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "MAX_AUTONOMOUS_RUNS",
+    description: "Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch.",
+    default: "2",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS",
+    description: "Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000.",
+    default: "20000",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_CONFIRM_BASH",
     description:
       "JSON array of regex sources, or {\"pattern\", \"effect\"} objects whose " +
@@ -622,7 +634,7 @@ export interface ServerConfig {
   brainPath: string;
   dbPath: string;
   /** Internal poke provisioning; optional for existing explicit configurations. */
-  inbox?: { pokeTokenFile: string | null; budget?: InboxBudgetConfig };
+  inbox?: { pokeTokenFile: string | null; budget?: InboxBudgetConfig; maxAutonomousRuns?: number; yieldAfterMs?: number };
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -799,6 +811,13 @@ function autonomousBudgetConfig(env: EnvRecord): InboxBudgetConfig {
   };
 }
 
+function autonomousPositiveInteger(env: EnvRecord, name: string, fallback: number, upper = Number.MAX_SAFE_INTEGER): number {
+  const raw = env[name], value = raw === undefined ? fallback : Number(raw);
+  if (raw?.trim() === "" || !Number.isSafeInteger(value) || value < 1 || value >= upper)
+    throw new Error(`${name} must be a positive integer below ${upper}.`);
+  return value;
+}
+
 /**
  * Resolve an environment into a {@link ServerConfig}. Defaults to the real
  * process environment; tests pass their own record instead of mutating it.
@@ -823,7 +842,11 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
     ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
-    inbox: { pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null, budget: autonomousBudgetConfig(env) },
+    inbox: {
+      pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null, budget: autonomousBudgetConfig(env),
+      maxAutonomousRuns: autonomousPositiveInteger(env, "MAX_AUTONOMOUS_RUNS", 2),
+      yieldAfterMs: autonomousPositiveInteger(env, "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", 20_000, 30_000),
+    },
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),

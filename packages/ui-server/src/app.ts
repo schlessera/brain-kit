@@ -248,7 +248,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Recovery/heartbeat only. Production dispatch is gated by the full-v1
   // containment, budgets, admission and system proof; no backend is wired here.
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
-    budget: config.inbox?.budget ? { config: config.inbox.budget, pricing } : undefined });
+    budget: config.inbox?.budget ? { config: config.inbox.budget, pricing,
+      maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined });
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }

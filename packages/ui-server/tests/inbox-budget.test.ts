@@ -77,6 +77,17 @@ function fixture(overrides: Partial<Parameters<typeof createInboxBudget>[1]["con
 }
 
 describe("durable budget settlement", () => {
+  test("the default autonomous pool stops a third claim before any attempt or reservation", () => {
+    const f = fixture({ spendUsd: 50 });
+    try {
+      expect(f.claim("odysseus")).not.toBeNull();
+      expect(f.claim("penelope")).not.toBeNull();
+      const rejected = f.claim("telemachus");
+      expect(rejected).toBeNull();
+      expect(f.store.getItem("telemachus")).toMatchObject({ status: "ready", attempts: 0 });
+      expect(f.row("telemachus")).toBeNull();
+    } finally { f.db.close(); }
+  });
   test("terminal Activity rollup releases unused money exactly once and freezes the receipt", () => {
     const f = fixture();
     try {
@@ -307,6 +318,16 @@ test("autonomous budget config defaults pause turns and reject unsafe numeric/ti
   for (const [name, value] of Object.entries({ BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY: "-1", BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY: "1.5",
     BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD: "Infinity", BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS: "invalid", BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN: "0", BRAIN_UI_AUTONOMOUS_TIMEZONE: "invalid" })) {
     expect(() => resolveServerConfig({ [name]: value })).toThrow(name);
+  }
+});
+
+test("autonomous capacity and yield configuration are bounded without enabling dispatch", () => {
+  expect(resolveServerConfig({}).inbox).toMatchObject({ maxAutonomousRuns: 2, yieldAfterMs: 20_000 });
+  expect(resolveServerConfig({ MAX_AUTONOMOUS_RUNS: "1", BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS: "15000" }).inbox)
+    .toMatchObject({ maxAutonomousRuns: 1, yieldAfterMs: 15_000, budget: { turns: 0 } });
+  for (const [name, values] of [["MAX_AUTONOMOUS_RUNS", ["", "0", "-1", "1.5", "Infinity"]],
+    ["BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", ["", "0", "-1", "1.5", "30000", "Infinity"]]] as const) {
+    for (const value of values) expect(() => resolveServerConfig({ [name]: value })).toThrow(name);
   }
 });
 

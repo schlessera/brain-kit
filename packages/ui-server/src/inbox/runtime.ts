@@ -3,6 +3,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
 import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
+import { recoverAutonomousItem } from "./yield.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -55,10 +56,7 @@ export function createInboxRuntime(db: Database, deps: {
       const rows = db.query(
         "SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
       ).all(now()) as { id: string }[];
-      store.commit(rows.map(({ id }) => ({
-        kind: "transition" as const, itemId: id,
-        expectedVersion: store.getItem(id)!.version, to: "ready" as const,
-      })));
+      for (const { id } of rows) recoverAutonomousItem(db, store.getItem(id) as InboxQueueItem, now());
       return rows.length;
     }).immediate();
   }

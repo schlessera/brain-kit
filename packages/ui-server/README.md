@@ -284,6 +284,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_AUTONOMOUS_TIMEZONE` | IANA timezone for autonomous admission days; each reservation keeps its admission day. Invalid values fail startup. | UTC |
 | `BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY` | Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN` | Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup. | 0.01 |
+| `BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` | Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000. | 20000 |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` | Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice. | medium |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
@@ -317,6 +318,7 @@ Every variable this package reads, and what happens when it is unset.
 | `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo git pushes and gh-based jobs. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
+| `MAX_AUTONOMOUS_RUNS` | Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch. | 2 |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
 | `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior. | (unset) |
 | `OVERPASS_URL` | Overpass endpoint the map geometry is fetched from. | https://overpass-api.de/api/interpreter |

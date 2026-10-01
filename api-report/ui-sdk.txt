@@ -1056,6 +1056,7 @@ export "./server" (./src/server/index.ts)
   type CoastlineRequest
   type CoastlineResult
   type CompiledConfirmPattern
+  type CompletedAutonomousToolCall
   type ConfirmPattern
   type ConfirmPatternSource
   type Coord
@@ -1110,6 +1111,7 @@ export "./server" (./src/server/index.ts)
   type InboxWorkPayload
   type KeyValueRunCandidate
   type KeyedLock
+  type KeyedLockAcquireOptions
   type Keyterm
   type KillableProcess
   LINK_BLOCK_SCHEMA
@@ -1331,6 +1333,7 @@ export "./server" (./src/server/index.ts)
   handleShowBlock
   hasWebSearchCredential
   isBillingMode
+  isCompletedAutonomousToolCall
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
@@ -1809,6 +1812,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         persistence: "none";
         allowedTools: readonly string[];
         systemPromptAppend: string;
+        onYield?: (key: string) => void;
+        yieldAfterMs?: number;
+        completedToolCalls?: readonly CompletedAutonomousToolCall[];
     }
   BLOCK_SCHEMA (packages/ui-sdk/src/tool-contracts/blocks.ts)
     const BLOCK_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -2328,6 +2334,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
     };
+  CompletedAutonomousToolCall (packages/ui-sdk/src/server/backend.ts)
+    export interface CompletedAutonomousToolCall {
+        toolName: string;
+        input: Record<string, unknown>;
+    }
   ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export interface ConfirmPattern {
         pattern: string;

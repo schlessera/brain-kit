@@ -7,6 +7,7 @@ export type {
   BackendCapabilities,
   StartTurnRequest,
   AutonomousTurnOptions,
+  CompletedAutonomousToolCall,
   FollowUpRequest,
   PermissionDecision,
   PermissionRequest,
@@ -23,6 +24,7 @@ export {
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
   SUBSCRIPTION_RELOGIN_PROCEDURE,
   assertTurnPosture,
+  isCompletedAutonomousToolCall,
   subscriptionAuthAction,
 } from "./backend.js";
 
@@ -61,7 +63,7 @@ export type { VersionProbeOptions, VersionProbeResult } from "./version-probe.js
 export type { WriteLock } from "./write-lock.js";
 export { createWriteLock } from "./write-lock.js";
 
-export type { KeyedLock } from "./keyed-lock.js";
+export type { KeyedLock, KeyedLockAcquireOptions } from "./keyed-lock.js";
 export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 
 export {

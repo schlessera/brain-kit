@@ -63,6 +63,41 @@ The reservation ledger is internal operational storage. Existing HTTP, wire,
 SDK turn-request, CLI/MCP and content-index shapes remain unchanged; full-v1
 containment and system proof still gate production dispatch.
 
+## Interactive priority and cooperative autonomous yield (additive, #687)
+
+`KeyedLockAcquireOptions` adds optional `priority` (`"interactive"` or
+`"autonomous"`), `signal`, `onYield(key)` and `yieldAfterMs`. Ordinary callers
+remain interactive; equal-priority waiters remain FIFO. Interactive waiters
+precede queued autonomous work. Cancellation removes a waiting acquisition;
+it never forcibly releases an executing body. `createKeyedLock()` optionally
+accepts clock/timer functions for deterministic verification.
+
+`AutonomousTurnOptions` adds optional synchronous `onYield(key)`,
+`yieldAfterMs` and `completedToolCalls` (readonly `{ toolName, input }` execution
+receipts). Both first-party backends notify once per turn after continuous
+same-key interactive contention, checkpoint before abort, then unwind their
+actual writers. Different keys do not yield. Completed receipts only restrict
+replay; they confer no capability and never bypass the current authority gate.
+`isCompletedAutonomousToolCall()` compares exact JSON calls independently of
+object property order. A fresh attempt has no runtime transcript replay.
+
+`ServerConfig.inbox` adds optional `maxAutonomousRuns` and `yieldAfterMs`.
+`MAX_AUTONOMOUS_RUNS` defaults to two and requires a positive integer;
+`BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` defaults to 20000 and requires a positive
+integer below the normal 30000 ms interactive denial bound. Interactive WS
+capacity remains separately reserved. Pool admission occurs atomically with
+budget reservation/claim and counts operations, including batches. Yield
+preserves spent turns and observed cost, releases unused conservative reserves
+after unwind, and recovers work within its existing attempt limit. Exhaustion
+leaves failed work and one durable dead-letter Action. Recovery retains
+checkpoint and completion receipts in the operational UI database.
+
+These server-only additions do not enable production dispatch or change client
+wire, CLI/MCP, content-index or frontmatter contracts. Cooperative unwind must
+finish before the interactive wait bound; a lock is never handed to another
+writer while the first body can still write. Semantically different tool inputs
+are evaluated as new calls under current authority, not deduplicated effects.
+
 ## Consumers
 
 | Consumer | Surfaces used |

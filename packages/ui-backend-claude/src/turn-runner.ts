@@ -61,12 +61,26 @@ export function createClaudeTurnRunner(options: {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
     }
 
+    const abortController = new AbortController();
+    let yielded = false;
     const turn: ActiveTurn = { pendingReleases: new Map(), ended: false };
     const turnLock = createTurnLockBinding({
       turn,
       writeLock: options.writeLock,
       lockWaitMs: options.lockWaitMs,
       log: options.log,
+      admission: {
+        signal: abortController.signal,
+        priority: req.autonomous ? "autonomous" : "interactive",
+        yieldAfterMs: req.autonomous?.yieldAfterMs,
+        onYield: req.autonomous?.onYield ? (key) => {
+          if (yielded || abortController.signal.aborted) return;
+          yielded = true;
+          try { req.autonomous!.onYield!(key); }
+          catch { req.bridge.emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
+          finally { abortController.abort(); }
+        } : undefined,
+      },
     });
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
@@ -75,7 +89,6 @@ export function createClaudeTurnRunner(options: {
 
     // The host owns cancellation. Mirror its signal onto an internal
     // AbortController that the SDK query listens to.
-    const abortController = new AbortController();
     const onHostAbort = () => abortController.abort();
     if (req.signal.aborted) abortController.abort();
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
@@ -211,7 +224,7 @@ export function createClaudeTurnRunner(options: {
         req.autonomous?.allowedTools ?? profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
-        req,
+        req: { ...req, signal: abortController.signal },
         profile,
         abortController,
         allowedTools,
