@@ -15,6 +15,10 @@ infos, and `brain audit` and `brain maintain` report both totals beside the
 severity counts, computed by one function (`auditTotals`,
 `packages/core/src/lib/auditor.ts:610-615`).
 
+`brain briefing` shows that must-fix total in Upkeep even without hygiene logs.
+It uses the same current audit pipeline, including enabled modules' hygiene
+checks, and leaves informational findings out of the count.
+
 ## Why a VERIFY marker is informational
 
 A marker is the author's note that a claim has not been checked. It shows no
