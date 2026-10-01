@@ -241,7 +241,16 @@ unsubscribe and deletion access. The existence of vendor-hosted forms is not
 an accessibility certification. No live signup/browser/delivery acceptance is
 claimed here.
 
-### Recommendation and remaining ruling
+### Provider ruling and remaining choices
+
+The maintainer [selected A: Buttondown on 2026-10-01](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5940845881)
+after reviewing the researched options. This selects the service for the
+approved release-signup workflow. Destination/operating ownership, fields,
+consent and lifecycle, signup presentation and release-sending policy remain
+separate rulings on #616. Account setup and live collection are not established
+by this choice.
+
+The comparison's rationale follows:
 
 Recommend **A, Buttondown**, for a focused release list when a small initial
 free allowance and paid growth are acceptable. Markdown, default confirmation
