@@ -2896,6 +2896,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export interface TurnFailure {
         errorClass: string;
         status?: number;
+        attempts?: number;
+        resetsAt?: number;
         message: string;
         authAction?: SubscriptionAuthAction;
     }

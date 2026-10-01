@@ -784,6 +784,8 @@ const turnFailureSchema = z.looseObject({
   status: z.number().int().optional(),
   message: z.string(),
   authAction: z.enum(["relogin", "check_account", "check_config"]).optional().catch(undefined),
+  attempts: z.number().int().min(1).optional().catch(undefined),
+  resetsAt: z.number().int().min(0).optional().catch(undefined),
 }) satisfies z.ZodType<TurnFailure>;
 
 const turnRetrySchema = z.looseObject({

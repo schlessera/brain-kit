@@ -1919,7 +1919,7 @@ for every backend (#575). A turn that is retrying a failed call says that
 while it runs.
 
 ```
-TurnFailure = { errorClass, status?, message, authAction? }
+TurnFailure = { errorClass, status?, message, authAction?, attempts?, resetsAt? }
 TurnRetry   = { attempt, maxAttempts?, delayMs?, errorClass?, status? }
 
 result.failure?: TurnFailure                  // on outcome: "error" only
@@ -1941,6 +1941,16 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   `SUBSCRIPTION_AUTH_INSTRUCTIONS` for the wording (exported from
   `@schlessera/brain-ui-sdk/protocol`, and still from `/server`). A profile
   that bills its own API credential never gets one.
+- **`attempts`** is a positive integer of observed retries before the terminal
+  failure, not a guessed total including an initial call. Claude counts the
+  turn's `api_retry` observations; pi keeps the last `auto_retry_start.attempt`
+  it reports. No retry observation means the field is absent, including on
+  unrecorded legacy history. A later successful turn carries no failure.
+- **`resetsAt`** is an observed limit reset in epoch milliseconds (a nonnegative
+  safe integer). Claude reads it only from a rejected `rate_limit_event` in
+  that turn and converts the runtime's epoch seconds to milliseconds. It never
+  derives a reset from retry delays. pi reports no reset time, so omits it.
+  Absent means unknown; a reported past reset remains the observed timestamp.
 - **One failure is reported once.** It rides the turn's terminal frame, and
   no other frame of the turn carries it. A diagnostic `error` sent before the
   `result` does not carry it. A consumer that shows both the diagnostic and the
@@ -1960,7 +1970,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   observed after the turn settles; it is not a text hash or host turn count.
   An ordered transcript-prefix digest and exact fallback failure text guard
   the position against changed transcripts. Identical failure texts at separate
-  positions keep their own class, status, message and `authAction`. Reconnect
+  positions keep their own class, status, message, `authAction`, observed
+  `attempts` and `resetsAt`. Reconnect
   history waits for the in-flight write; metadata survives host restart.
   A turn with no new stored assistant, or a read/write failure, retains the
   backend fallback rather than relabeling an older answer. Sessions without
@@ -1971,7 +1982,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
 - **Tolerance.** A client that does not know these fields behaves exactly as
   before. A client that validates with `@schlessera/brain-ui-sdk/schemas`
   drops an unreadable `failure` or `retry` and keeps the frame, because the
-  frame is a turn's terminal.
+  frame is a turn's terminal. An unreadable `attempts` or `resetsAt` is dropped
+  independently while keeping the rest of the failure and its frame.
 
 ### Manual retry receipts (additive in 0.40.0)
 

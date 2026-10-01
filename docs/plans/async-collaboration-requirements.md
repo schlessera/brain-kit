@@ -336,7 +336,7 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1235`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1239`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,

@@ -149,7 +149,7 @@ export function createPiTurnRunner(
     // A provider failure does not throw: prompt() resolves, and the turn's
     // last answer is the error (#575). Its usage is already in `wireUsage`,
     // counted once from its message_end like any other answer.
-    const failure = thrown ?? failures.failure();
+    const failure = failures.failure(thrown ?? undefined);
     if (failure) failed = true;
     // Parity with the claude backend, which emits idle before its terminal
     // result — the two backends must produce interchangeable frame streams.

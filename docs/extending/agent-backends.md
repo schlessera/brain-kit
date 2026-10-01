@@ -106,8 +106,11 @@ the ordered transcript prefix and the backend's failure text. This accommodates
 Claude's merged assistant steps and pi's separate steps without counting host
 turns as messages. Replay joins the record before adding local exchanges. An
 unreadable or changed transcript, or a failed turn with no new stored assistant,
-keeps the backend-derived failure. No additional backend method or wire field
-is required; see [Turn failures](../integration-contract.md#turn-failures-additive-in-0400).
+keeps the backend-derived failure. The host also preserves observed terminal
+`attempts` and `resetsAt`; unknown values stay absent. `attempts` means reported
+retries (Claude's per-turn retry observations or pi's last reported attempt),
+not an estimate including the first call. Reset timestamps use epoch milliseconds.
+No additional backend method or separate wire field is required; see [Turn failures](../integration-contract.md#turn-failures-additive-in-0400).
 
 ## Turn lifecycle
 
@@ -544,6 +547,9 @@ server never interprets an npm specifier from configuration.
   `BackendContractHarness` backed by your own fake runtime and inject your test
   runner's `{ describe, test, expect }`; the same assertions used by both
   first-party backends then run in your package.
+- Supply `retriedFailure` for runtimes that expose retries followed by a terminal
+  failure: the shared suite verifies two live retry observations and the terminal
+  failure's `attempts: 2`. Both first-party adapters exercise this case.
 - The harness's required `permission(scenario)` drives the adapter's actual
   tool path and observes runtime starts, attempts and tool-body effects for
   off-list mutation, runtime-shortcut and allowlisted confirmation scenarios.

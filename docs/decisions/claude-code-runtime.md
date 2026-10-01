@@ -106,7 +106,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:242-247`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:245-250`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -379,7 +379,7 @@ until re-measured.
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:621-631` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:228-241` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:231-244` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2690-2713` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:775,793`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
@@ -531,7 +531,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:202`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:205`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not

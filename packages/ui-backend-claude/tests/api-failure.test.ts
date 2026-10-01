@@ -109,8 +109,69 @@ describe("a failed model call ends the turn as a failure", () => {
       status: 401,
       message: INVALID_TOKEN_TEXT,
       authAction: "relogin",
+      attempts: 2,
     });
     expect(failureFrames(frames)).toHaveLength(1);
+  });
+
+  test("a rejected subscription limit keeps its reported reset as epoch milliseconds", async () => {
+    const seconds = 1_790_848_800;
+    const event = { type: "rate_limit_event", session_id: SESSION,
+      rate_limit_info: { status: "rejected", resetsAt: seconds } } as unknown as SDKMessage;
+    const result = terminal(await runTurn([event, ...assistantErrorOnly]));
+    expect(result.failure?.resetsAt).toBe(seconds * 1000);
+    expect(result.failure?.attempts).toBeUndefined();
+  });
+
+  test("a rejected reset and retries remain on the SDK result when observed after the assistant error", async () => {
+    const adapter = new StreamAdapter();
+    adapter.adapt(invalidOAuthToken[3]!);
+    adapter.adapt(invalidOAuthToken[1]!);
+    adapter.adapt(invalidOAuthToken[1]!); // Count reported retries, even when numbering restarts.
+    adapter.adapt({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1_790_848_800 } } as SDKMessage);
+    const result = terminal(adapter.adapt(invalidOAuthToken.at(-1)!));
+    expect(result.failure?.attempts).toBe(2);
+    expect(result.failure?.resetsAt).toBe(1_790_848_800_000);
+  });
+
+  test("a resumed backend does not carry observations into its next turn", async () => {
+    const brainPath = mkdtempSync(join(tmpdir(), "retry-observations-")); temps.push(brainPath);
+    const sequences = [[{ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1_790_848_800 } },
+      ...invalidOAuthToken], notLoggedIn, answered];
+    const queryFn = (() => (async function* () { yield* sequences.shift()!; })()) as unknown as typeof query;
+    const backend = createClaudeBackend({ brainPath, queryFn });
+    const failures = [];
+    for (let i = 0; i < 3; i++) {
+      const frames: ServerMessage[] = [];
+      await backend.startTurn({ prompt: "Test", ...(i ? { sessionId: SESSION } : {}), signal: new AbortController().signal,
+        bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
+      failures.push(terminal(frames).failure);
+    }
+    expect(failures[0]?.attempts).toBe(2);
+    expect(failures[0]?.resetsAt).toBe(1_790_848_800_000);
+    expect(failures[1]?.message).toBe(NOT_LOGGED_IN_TEXT);
+    expect(failures[1]?.attempts).toBeUndefined();
+    expect(failures[1]?.resetsAt).toBeUndefined();
+    expect(failures[2]).toBeUndefined();
+  });
+
+  test("allowed or unreadable reset observations never invent a cooldown", async () => {
+    for (const info of [{ status: "allowed", resetsAt: 1_790_848_800 },
+      { status: "allowed_warning", resetsAt: 1_790_848_800 }, { status: "rejected" },
+      { status: "rejected", resetsAt: "1790848800" }, { status: "rejected", resetsAt: -1 },
+      { status: "rejected", resetsAt: Number.MAX_SAFE_INTEGER }]) {
+      const event = { type: "rate_limit_event", session_id: SESSION, rate_limit_info: info } as unknown as SDKMessage;
+      const result = terminal(await runTurn([event, ...assistantErrorOnly]));
+      expect(result.failure?.message).toBe("API Error: 429 Rate limited.");
+      expect(result.failure?.resetsAt).toBeUndefined();
+    }
+  });
+
+  test("retry observations survive a truncated stream and are absent on a later turn", async () => {
+    const result = terminal(await runTurn([...invalidOAuthToken.slice(0, -1)]));
+    expect(result.failure?.attempts).toBe(2);
+    expect(terminal(await runTurn(notLoggedIn)).failure?.attempts).toBeUndefined();
+    expect(terminal(await runTurn(answered)).failure).toBeUndefined();
   });
 
   test("no credential at all: no status is invented", async () => {
