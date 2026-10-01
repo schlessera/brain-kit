@@ -297,6 +297,7 @@ export function Composer(p: ComposerProps) {
             <IconButton icon="attach" label="Attach — photo, camera, file" haspopup="menu" onClick={dictating ? undefined : p.onAttach} />
           ) : null}
           <textarea
+            data-composer=""
             className="bk-composer"
             style={input}
             rows={rows}
