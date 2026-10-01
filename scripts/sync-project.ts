@@ -8,8 +8,9 @@
 // `--apply` is what `.github/workflows/project-sync.yml` runs: `--issue` or
 // `--pr` per event (a few GraphQL points), and the full sweep daily (about
 // 520 of the account's 5,000 points per hour, measured 2026-09-24). Run
-// `--apply` from a terminal only when that workflow is not running: two
-// overlapping applies can post the same unblock notice twice.
+// `--apply` through the workflow only: its shared concurrency group serializes
+// all event and sweep paths. A terminal apply bypasses that group and can
+// post a duplicate unblock notice.
 //
 // The project spans the three public repositories that make up the
 // open-source project: `brain-kit`, `brain-template` and
@@ -487,10 +488,12 @@ function shortRef(ref: string, repo: string): string {
  * the next run retries — and finds the marker, so it removes the label
  * without commenting again. Either order without the marker loses one of the
  * two: removing first strands an issue with no comment if the comment fails,
- * commenting first posts it twice if the removal fails. Runs are assumed not
- * to overlap. The in-memory labels are updated in both modes (after the
- * writes, when applying), so the same run derives the issue's Status from
- * what it now carries, and a dry run reports the Status `--apply` would set.
+ * commenting first posts it twice if the removal fails. The project-sync
+ * workflow serializes all apply paths in one concurrency group; the marker
+ * makes retries safe within that group, but is not a concurrent write lock.
+ * Terminal applies bypass serialization. The in-memory labels are updated in
+ * both modes (after the writes, when applying), so the same run derives Status
+ * from what it now carries, and a dry run reports the Status `--apply` would set.
  */
 export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],

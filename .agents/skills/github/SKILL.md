@@ -311,9 +311,12 @@ below exists because the tracker drifted without it.
   comment carries a marker naming the blockers, so a run that fails part way
   comments only once when it is retried. Closing an issue syncs the issues
   that name it as a blocker straight away, and the daily sweep catches the
-  rest. Concurrency serializes each event target, but an issue-close run and
-  its closing PR's run can reach the same dependant concurrently. The marker
-  makes sequential retries idempotent; it does not exclude concurrent notices.
+  rest. One workflow concurrency group serializes all issue, PR and sweep paths,
+  including events that reach the same dependant through different targets.
+  `queue: max` retains up to 100 pending runs; the daily or on-demand sweep
+  recovers changes from excess runs cancelled when the queue is full. The
+  marker makes retries idempotent within that serialization; it is not a
+  concurrent write lock, and terminal applies bypass the workflow group.
   A manual sync is a `gh workflow run`, not a terminal `--apply`, which would
   add another uncoordinated writer. A blocker outside the
   board's three repositories is never looked up and reads as unverifiable. The dry run lists those issues, plus every `blocked` issue it
