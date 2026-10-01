@@ -1,0 +1,22 @@
+---
+import { getCollection, render } from 'astro:content';
+import { base, routes, sourceUrl } from '../../model.mjs';
+export async function getStaticPaths() {
+  const entries = await getCollection('docs');
+  return entries.map(entry => ({ params: { page: routes[entry.id] }, props: { entry } }));
+}
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const title = entry.body.match(/^#\s+(.+)$/m)?.[1] || entry.id;
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /><title>{title} — content model experiment</title></head>
+  <body>
+    <a href="#content">Skip to content</a>
+    <nav aria-label="Experiment"><a href={`${base}docs/`}>Documentation</a> · <a href={`${base}experiment/nested/links/`}>Link and image sample</a></nav>
+    <p>This is a local content-model experiment.</p>
+    <main id="content"><Content /></main>
+    <footer><a data-source href={sourceUrl(entry.id)}>View Markdown source</a></footer>
+  </body>
+</html>
