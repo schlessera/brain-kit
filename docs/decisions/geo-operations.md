@@ -189,3 +189,45 @@ estimates, self-retry, a third attempt and changed fallback coordinates. The
 zero-demo receipt removes both layered enablement checks and fails on request count;
 a prior single-check mutation changed the error but did not send a public request
 and is not offered as that proof.
+
+
+## Bounded POIs and Overpass refusal semantics — 2026-10-01
+
+A near-point query or a query along retained track sections uses the concrete
+Overpass client, with exact AND tag filters. Separate around clauses preserve
+section/omission gaps; simplifying a track for its query would change which POIs
+it can find, so oversized input refuses rather than becoming silently incomplete
+(`findPois`, `packages/geo/src/server/poi.ts:79-126`).
+The 5-degree extent budget includes radius, separate from valid track-coordinate
+ranges; pole/date-line or wide-envelope refusal does not corrupt source geometry.
+Query points, sections, UTF-8 bytes, radius, server time/memory and response size
+are bounded and documented.
+
+The [operator's around documentation](https://dev.overpass-api.de/overpass-doc/en/full_data/polygon.html)
+provides point/polyline selection. The [data-format documentation](https://dev.overpass-api.de/overpass-doc/en/targets/formats.html)
+distinguishes node coordinates from the representative centers returned for ways
+and relations. A representative center can lie outside the selected radius;
+reporting its distance as an entrance/full-object distance would overstate the
+answer. Results retain that distinction, OSM identity and raw mapped tags. Missing
+opening hours remains unknown; a schedule string does not prove current opening.
+Malformed elements/duplicates have omission counts; a bounded extra sentinel
+signals partial output and possible further matches
+(`decodePois`, `packages/geo/src/server/poi.ts:39-76`).
+
+The ordered endpoint chain attempts at most three unique configured endpoints
+(`queryOverpass`, `packages/geo/src/server/overpass.ts:16-42`).
+The [Overpass admission documentation](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html)
+assigns HTTP 429 to rate refusal and HTTP 504 to resource admission. Those are
+not availability failures authorizing a different quota bucket. Neither denial
+nor local admission/cache failure reaches another endpoint, even when it has a
+cached answer. Genuine network/timeout/bad-response/upstream failures can fall
+through. JSON query-timeout remarks remain errors rather than cached empty matches;
+resource/quota remarks stop fallback and persist cooldown. Official individual
+server aliases also share the FOSSGIS script connection/pacing group.
+
+Recorded-response mutations fail the intended assertions for gap-separated clauses,
+unknown opening hours, escaped values, radius-expanded extent/point/section/query
+budgets, refusal even with a cached alternate, persisted JSON-resource cooldown,
+partial track metadata, bounded result count and sentinel overflow, duplicate
+endpoint attempts and the no-overlapping-connections assertion across operator
+aliases. Every mutation was restored; none relies on live public queries.

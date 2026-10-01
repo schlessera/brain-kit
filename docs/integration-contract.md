@@ -2861,3 +2861,41 @@ it. The demo is off until explicitly enabled and eligible. A missing primary or
 one genuine availability failure can use one matching demo attempt; denial,
 admission/cooldown, invalid/no-segment/no-route and local storage failures cannot.
 An endpoint never retries itself as its own fallback. No geometry is fabricated.
+
+### Shared Overpass POI results
+
+`GeoClient.poi(PoiQuery)` accepts exactly one of `near: {lat,lon}` or
+`alongTrack: ParsedTrack`, `radiusM` (1–5,000) and 1–10 AND tag filters. Values
+are exact strings or `true` for tag presence, never arbitrary QL/regex. Track
+queries retain section gaps, including isolated points, and refuse beyond 2,000
+points, 100 nonempty sections, 64 KiB UTF-8 QL or a radius-expanded 5-degree extent
+on either axis/pole crossing. Wide/date-line track envelopes are spatial-budget
+errors; valid source coordinates are unchanged. No track simplification occurs.
+
+`PoiResult` extends `OverpassResult<PointOfInterest[]>` with query parameters/counts,
+nullable recovered-track metadata (`partial`, original counts/omissions), response
+counts, `truncated` and method/limit metadata. Status is `ok`, `partial`, genuine
+`no_match`, disabled or error. A POI retains OSM identity, nullable name, point,
+`position: node | bounding_box_center`, tags, `openingHours: {value,interpreted:false}`,
+representative-point distance (`m`) to the query point/retained track and unknown
+reasons. Missing/empty opening-hours text is null/`not_mapped`; there is no current
+open/closed interpretation. Selection uses Overpass around geometry. A way/relation
+center is a representative bounding-box center and may lie outside the radius;
+its distance is not the distance to its entrance/full geometry. Distance uses the
+shared sphere/minor arcs, never an invented gap. Empty/undefined track distance
+stays null with a reason.
+
+Responses contain at most 1,000 usable results. A 1,001st sentinel marks a partial
+capped answer with one counted omission and warns that more may exist. More than
+1,001 elements is `response_limit`; invalid/duplicate elements are counted omissions,
+and wholly malformed nonempty responses fail rather than cache as no-match.
+Opening-hours absence alone does not mean malformed data.
+
+`OverpassResult<T>` retains all endpoint/cache/transfer/error attempts and source
+fallback `{used,reason,primaryEndpoint}`. Ordered endpoint configuration is capped
+at three, duplicates are attempted once, and a cached fallback remains visible
+after a primary attempt. Genuine availability failures can fall through; admission,
+cooldown, quota/resource denials and local storage failures cannot, even to a cached
+alternate. HTTP 504 has Overpass resource-admission meaning. JSON resource/quota
+remarks likewise refuse and persist cooldown; incomplete timeout remarks are errors,
+never genuine empty matches. Attribution accompanies usable OSM replies.

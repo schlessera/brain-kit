@@ -3,6 +3,7 @@ import { geoConfigSchema, type GeoConfig, type GeoConfigInput, type RoutingMode 
 import { routePoint } from "../track.js";
 import { GeoTransport, type GeoError, type GeoRuntimeOptions, type ServiceSource } from "./io.js";
 import { calculateRoute, type RoutingResult } from "./routing.js";
+import { findPois, type PoiQuery, type PoiResult } from "./poi.js";
 
 export interface GeoAttribution { text: string; url: string }
 export interface GeoResult<T> {
@@ -62,6 +63,10 @@ export class GeoClient {
 
   route(points: {lat:number;lon:number}[], mode: RoutingMode): Promise<RoutingResult> {
     return calculateRoute(this.config,this.transport,points,mode);
+  }
+
+  poi(query: PoiQuery): Promise<PoiResult> {
+    return findPois(this.config,this.transport,query);
   }
 
   async geocode(query: string): Promise<GeoResult<GeocodeCandidate[]>> {

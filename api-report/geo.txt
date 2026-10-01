@@ -48,5 +48,9 @@ export "./server" (./src/server/index.ts)
   type GeoResult
   type GeoRuntimeOptions
   type GeocodeCandidate
+  type OverpassResult
+  type PoiQuery
+  type PoiResult
+  type PointOfInterest
   type RoutingResult
   type ServiceSource

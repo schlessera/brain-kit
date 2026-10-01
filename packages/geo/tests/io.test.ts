@@ -90,13 +90,13 @@ describe("shared geo request admission and cache",()=>{
       starts.push(Date.now());active++;peak=Math.max(peak,active);
       await Bun.sleep(30);active--;return Response.json({places:["Ithaca"]});
     });
-    const endpoints=["https://routing.openstreetmap.de/routed-foot/route/v1","https://overpass-api.de/api/interpreter","https://lz4.overpass-api.de/api/interpreter"];
+    const endpoints=["https://routing.openstreetmap.de/routed-foot/route/v1","https://overpass-api.de/api/interpreter","https://lz4.overpass-api.de/api/interpreter",
+      "https://gall.openstreetmap.de/api/interpreter","https://lambert.openstreetmap.de/api/interpreter"];
     const results=await Promise.all(endpoints.map((url,i)=>io.request(i===0 ? "osrm" : "overpass",url,url,{},decode)));
     expect(results.every(r=>r.error===null)).toBe(true);
-    expect(starts).toHaveLength(3);
+    expect(starts).toHaveLength(5);
     expect(peak).toBe(1);
-    expect(starts[1]!-starts[0]!).toBeGreaterThanOrEqual(1_000);
-    expect(starts[2]!-starts[1]!).toBeGreaterThanOrEqual(1_000);
+    for(let i=1;i<starts.length;i++) expect(starts[i]!-starts[i-1]!).toBeGreaterThanOrEqual(1_000);
   });
 
   test("an orphaned lock fails closed within the admission budget without removing another owner",async()=>{

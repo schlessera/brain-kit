@@ -186,3 +186,49 @@ coordinate transfer and fallback/cause. `attempts` lists every endpoint and whet
 coordinates were sent on that attempt, including a primary attempt before a cached
 demo result. Changing dataset identity invalidates its cache context. No original
 points are changed or replaced by snapped ones.
+
+## POIs
+
+`geo.poi({near: {lat,lon}, tags, radiusM})` or
+`geo.poi({alongTrack: parsedTrack, tags, radiusM})` queries the ordered configured
+`overpass.endpoints` when `overpass.enabled` is true. There is no implicit public
+endpoint. All 1–10 tag filters must match: a string is an exact value and `true`
+requires presence. Values are escaped; no user-supplied QL or regex runs. For
+example, `{amenity: "cafe"}` finds cafés and `{amenity: "parking"}` finds car parks.
+
+Radius is 1–5,000 m. Track queries retain at most 2,000 points / 100 nonempty
+sections without simplification, with each section queried independently; retained
+singletons remain spatial evidence. The radius-expanded extent must fit 5 degrees
+on each axis without crossing a pole; wide/date-line-crossing track envelopes are
+refused with a spatial-budget explanation, without invalidating the source.
+UTF-8 QL is capped at 64 KiB, declares at most the configured timeout and 32 MiB
+server memory, and requests only tags plus node coordinates/way or relation centers.
+The shared transport bounds the actual timeout/body to the configured budget/5 MiB.
+
+At most 1,000 results are returned. An extra sentinel indicates a partial capped
+answer and that more matches may exist; larger replies fail distinctly. Invalid
+elements and duplicate identities have exact omission counts; wholly malformed
+nonempty replies fail. A genuine empty answer caches as `no_match`. Results keep
+OSM identity, tags, nullable name, representative position, distance in metres and
+raw nullable opening-hours text. **Current open/closed status is unknown.** A
+way/relation's bounding-box center may lie outside the requested radius; selection
+uses the object's geometry, while the reported distance uses its representative
+point and the documented shared sphere. It is not an entrance or accuracy claim.
+
+Recovered tracks remain partial with their exact counts/omissions. Distances and
+queries cover retained geometry, preserving gaps. Source/fallback/cause, fetch age
+and every attempt's geometry transfer remain visible on fresh and cached answers.
+Duplicate endpoints are attempted once, with at most three configured attempts.
+Only genuine timeout/network/bad-response/oversized replies and upstream 408/5xx
+permit fallback. HTTP 401/403/429 and Overpass 504 are admission refusals; resource
+or quota remarks in JSON also stop fallback and persist cooldown. No denial escapes
+to another endpoint, including an endpoint with a previously cached answer.
+
+Read the [Overpass commons/admission rules](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html)
+and [FOSSGIS full service terms](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)
+before choosing a public endpoint. Those services are shared resources, not a bulk
+or high-traffic backend. FOSSGIS aliases (including `gall.openstreetmap.de` and
+`lambert.openstreetmap.de`) share routing/Overpass admission and one script connection.
+Identification, reachable operator contact, aggregate pacing/caching, attribution
+and error-reporting links remain the caller's responsibility. Configure an appropriate
+service for workloads the public operator cannot sustain.

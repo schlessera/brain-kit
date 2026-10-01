@@ -47,7 +47,7 @@ async function untilAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
 function group(endpoint: string): {key: string; floorMs: number} {
   const host=new URL(endpoint).hostname.toLowerCase();
   if (host==="nominatim.openstreetmap.org") return {key:"public-nominatim",floorMs:1_000};
-  if (host==="routing.openstreetmap.de" || host==="overpass-api.de" || host.endsWith(".overpass-api.de")) {
+  if (["routing.openstreetmap.de","overpass-api.de","gall.openstreetmap.de","lambert.openstreetmap.de"].includes(host) || host.endsWith(".overpass-api.de")) {
     return {key:"fossgis-services",floorMs:1_000};
   }
   return {key:new URL(endpoint).origin,floorMs:0};
@@ -150,7 +150,14 @@ export class GeoTransport {
         let payload: unknown, value: T;
         try { payload=JSON.parse(text); value=decode(payload); }
         catch (error) {
-          if (error instanceof GeoReplyError) return failed({...error.details,httpStatus:response.status});
+          if (error instanceof GeoReplyError) {
+            if (error.details.code==="admission_denied") {
+              state.blockedUntil=Date.now()+Math.max(1_000,error.details.retryAfterMs ?? 60_000);
+              try { await this.writeAtomic(statePath,state); }
+              catch { release=false; }
+            }
+            return failed({...error.details,httpStatus:response.status});
+          }
           return failed({code:"bad_response",message:"Geo service returned malformed or unsupported data."});
         }
         const fetchedAt=Date.now();source.fetchedAt=new Date(fetchedAt).toISOString();source.cacheAgeMs=0;
