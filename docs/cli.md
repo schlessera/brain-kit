@@ -65,6 +65,65 @@ pages. The `generate-pdf` skill treats zero warnings as done.
 To use `chrome-headless-shell`, point `PUPPETEER_EXECUTABLE_PATH` at its
 executable. Measure rendering time on your own documents and machine.
 
+### Geo operations
+
+`brain geo` shares the concrete geo implementation used by SDK/travel consumers.
+It needs no index. All coordinate arguments are **latitude,longitude**; map bounds
+are **west,south,east,north**. Services use [canonical geo config](configuration.md#geo)
+and remain off until configured. Public eligibility is explicit; review the
+[Nominatim policy](https://operations.osmfoundation.org/policies/nominatim/) and
+[FOSSGIS full terms](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)
+before choosing those services. Configured endpoints can replace them without code
+changes. The [geo reference](../packages/geo/README.md) details aggregate admission,
+cache age/coordinate transfer, dataset capability, fallback and query budgets.
+
+| Command | Result and options |
+|---|---|
+| `geo geocode "Harbour, Ithaca"` ⚖ | Qualified forward candidates; ambiguity and unknown accuracy remain visible. `--reverse 38.36,20.72` selects reverse lookup instead of a query. |
+| `geo route 38.36,20.72 38.37,20.73 --mode foot` ⚖ | Ordered 2–100 stops; explicit `car`, `foot` or `bike` mode. Declared verified prepared dataset, actual service/transfer/fallback, all legs and nullable provider estimates. |
+| `geo poi --near 38.36,20.72 --radius-m 100 --tag amenity=cafe` ⚖ | Near a point, or `--along routes/walk.gpx`; exactly one. Radius 1–5,000 m. Repeat `--tag` for exact AND filters; a bare key means presence. Opening-hours strings remain uninterpreted; absence is unknown. |
+| `geo track routes/walk.gpx` ⚖ | Recovered GPX summary with exact omissions and usable-section measurements. `--near lat,lon` and/or `--compare other.gpx` require `--tolerance-m`. Comparison optionally accepts `--sample-spacing-m`, reports coverage of the first track relative to the second, and retains both sources/counts. |
+| `geo map routes/walk.gpx --no-background --out assets/walk.png` ⚖ | Local vector PNG plus complete source/text evidence. Repeat `--pin lat,lon,label` for stops; labels can contain commas after the coordinates. Optional repeated `--point lat,lon` plus required `--mode` resolves calculated routing first. `--bbox`, `--title`, `--width` (320–2,048, default 1,024); background uses configured vector geometry unless explicitly omitted. |
+
+GPX parsing retains valid zero/polar/repeated coordinates, splits at invalid points
+and preserves original gaps/files. Measurements use unsimplified usable sections:
+great-circle distance, complete-data three-point-median/3 m ascent/descent, elapsed
+time including pauses within sections and excluding gaps. Missing/decreasing times
+and incomplete elevations are unknown; moving time stays unavailable. Files do not
+prove travel. Nearest distance uses great-circle segment interiors; coverage is
+directional and reports its tolerance, sampling method and uncertainty bounds.
+
+Maps preserve every stop/leg in the full legend, including missing routes and
+cropped stops. Wide (>5 degrees per axis) or unavailable backgrounds yield a
+qualified plain map. Unsupported polar/date-line projection, missing glyphs or
+image budgets retain full text/summary/source with a null artifact. Valid source
+coordinates are never clamped. Used OSM evidence has visible attribution; pure
+imported-track maps make no OSM-background claim. The geo reference describes
+projection, scale, font licenses and bounded image/input sizes.
+
+Files/output stay inside the brain through symlink checks. Map output requires an
+initialized brain and explicit PNG `--out`; an existing regular file at the chosen
+path is replaced. Scratch destinations follow the usual ignored/genuine-directory
+rules and are pruned after writing. Read-only geo commands do not create `brain.db`.
+
+Machine output is one JSON document. Geocode/reverse/route/POI preserve the complete
+shared service result and add `operation` (plus query/coordinate request for
+geocoding and nullable `sourceFile` for along-track POIs). Track adds `operation`,
+`omissions`, nullable `nearest` and nullable `comparison` to its full summary. Map
+adds `operation` and `artifact: {path,format:"png",bytes} | null` to full map evidence,
+omitting binary PNG/SVG contents. The exact types are in the
+[integration contract](integration-contract.md#geo-cli-envelopes).
+`--human` prints source, unknowns, partial status, every transfer attempt and
+applicable attribution. Exit 0 means a valid result or documented text/plain-map
+fallback; exit 1 is usage/input failure; exit 2 is a failed service command, storage
+or local-renderer failure. Genuine no-match/no-route is a successful empty result.
+
+Resolve/fetch before document export. Inline the already-created local PNG as a
+`data:image/png;base64,...` image in the document, then run `brain render` without
+`--allow-host`. The renderer keeps its existing network-denied policy; geo service
+lookups belong to the earlier map operation. Retain the map's full text record
+when its artifact is null.
+
 ## Search + context
 
 | Command | Does | Notes |

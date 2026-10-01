@@ -269,6 +269,16 @@ brain repository.
 Every variable this package reads, and what happens when it is unset.
 `createApp()` configuration wins over the environment where both exist.
 
+Map geometry uses the shared concrete geo client. `BRAIN_GEO_CONFIG_JSON` accepts
+the [canonical configuration](../../docs/configuration.md#geo), overriding legacy
+Overpass service settings; malformed input refuses startup. Relative response-cache
+paths resolve from `BRAIN_PATH`. An explicit `config.coastline.geo` also supplies
+canonical settings. `BRAIN_UI_COASTLINE=false` remains the request privacy switch,
+and `COASTLINE_CACHE_DIR` still controls the separate permanent geometry cache.
+An unset canonical configuration retains the legacy Overpass settings and default
+timeout. Caching reduces traffic but does not establish eligibility or permission
+under the [service terms](../geo/README.md#configuration).
+
 <!-- env:begin -->
 
 | Variable | What it controls | Unset |
@@ -277,6 +287,7 @@ Every variable this package reads, and what happens when it is unset.
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
 | `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
+| `BRAIN_GEO_CONFIG_JSON` | Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup. | — |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
 | `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |

@@ -19,11 +19,12 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Fifteen packages version in lockstep under `@schlessera/brain-*`. The travel module
+Sixteen packages version in lockstep under `@schlessera/brain-*`. The travel module
 joins the next release; existing published packages remain independently consumable:
 
 | Package | What it is |
 | --- | --- |
+| `brain-geo` | Shared geo services, track measurements and static maps |
 | `brain` | Core: CLI, MCP server, hybrid search, indexer, config/taxonomy, skills |
 | `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` | First-party content modules |
 | `brain-ui-sdk` | Chat-UI wire protocol, runtime schemas, `AgentBackend`/`SpeechProvider` seams |

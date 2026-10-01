@@ -156,6 +156,7 @@ jobs:
           TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           mkdir -p "$TARBALL_DIR"
           for package in \
+            geo \
             core \
             ui-sdk \
             ui-backend-claude \
@@ -176,6 +177,11 @@ jobs:
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
             TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
             grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = geo ]; then
+              grep -q "^package/assets/IBMPlexSans-Regular\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/IBMPlexSans-Medium\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/OFL\.txt$" <<< "$TARBALL_CONTENTS"
+            fi
             if [ "$package" = core ]; then
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
@@ -207,6 +213,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain": `file:${tarballs}/core.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
@@ -228,6 +235,7 @@ jobs:
           bun add "$TARBALL_DIR"/*.tgz react react-dom
           bun -e '
             const names = [
+              "@schlessera/brain-geo",
               "@schlessera/brain",
               "@schlessera/brain-ui-sdk",
               "@schlessera/brain-backend-claude",
@@ -249,6 +257,14 @@ jobs:
               if (!loaded || typeof loaded !== "object") {
                 throw new Error(`Failed to import ${name}`);
               }
+            }
+            const geo = await import("@schlessera/brain-geo/server");
+            if (typeof geo.GeoClient !== "function") throw new Error("Packed geo server client is missing");
+            const map = await new geo.GeoClient().staticMap({
+              pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+            });
+            if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+              throw new Error(`Packed Bun static map failed: ${map.reason}`);
             }
             const claude = await import("@schlessera/brain-backend-claude");
             if (typeof claude.createClaudeBackend !== "function") {
@@ -321,9 +337,21 @@ jobs:
             }
             if (!(await Bun.file(join(root, imported.gpx)).text()).includes("<trkpt")) throw new Error("Packed route CLI wrote no geometry");
             if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed route CLI changed its source");
+            const summary = await run(["geo", "track", "recordings/odysseus.gpx"]);
+            if (summary.operation !== "track" || summary.geometry[0]?.length !== 2 || summary.counts.retained !== 2 || summary.measurements.distance.value <= 0) {
+              throw new Error("Packed geo track CLI lost its nonempty source/measurement contract");
+            }
+            const map = await run(["geo", "map", "recordings/odysseus.gpx", "--no-background", "--width", "320", "--out", "walk.png"]);
+            const png = Buffer.from(await Bun.file(join(root, "walk.png")).arrayBuffer());
+            if (map.operation !== "map" || map.kind !== "track_only" || map.artifact?.bytes !== png.length || png[0] !== 137 || png.length < 1000 || map.png !== undefined || map.svg !== undefined) {
+              throw new Error("Packed geo map CLI did not write a qualified local PNG");
+            }
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed geo CLI changed its source");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
+            "@schlessera/brain-geo",
+            "@schlessera/brain-geo/server",
             "@schlessera/brain-ui-sdk",
             "@schlessera/brain-ui-sdk/protocol",
             "@schlessera/brain-ui-sdk/schemas",
@@ -342,6 +370,14 @@ jobs:
             if (!loaded || typeof loaded !== "object") {
               throw new Error(`Node failed to import ${name}`);
             }
+          }
+
+          const { GeoClient } = await import("@schlessera/brain-geo/server");
+          const map = await new GeoClient().staticMap({
+            pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+          });
+          if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+            throw new Error(`Packed Node static map failed: ${map.reason}`);
           }
 
           const bunApiPackages = [
@@ -440,6 +476,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
@@ -448,6 +485,7 @@ jobs:
             }, null, 2) + "\n");
           '
           bun add \
+            "$TARBALL_DIR/geo.tgz" \
             "$TARBALL_DIR/render-template.tgz" \
             "$TARBALL_DIR/ui-sdk.tgz" \
             "$TARBALL_DIR/ui-kit.tgz" \
@@ -474,6 +512,7 @@ jobs:
               }
             }
             for (const [name, tarball] of [
+              ["@schlessera/brain-geo", "geo"],
               ["@schlessera/brain-render-template", "render-template"],
               ["@schlessera/brain-ui-sdk", "ui-sdk"],
               ["@schlessera/brain-ui-kit", "ui-kit"],

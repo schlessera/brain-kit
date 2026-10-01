@@ -72,7 +72,7 @@ not a claim of filesystem or network containment.
 The ordinary Claude assembly loads project settings and appends bridge tools
 (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`).
 Its environment is already filtered (`envSnapshot`,
-`packages/ui-backend-claude/src/config/env.ts:173-183`), with profile credentials
+`packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
 and configuration audience; the old plan's “full host environment” description
 is historical. Preserve subscription billing and the selected runtime identity.

@@ -83,6 +83,7 @@ function beforeTerminator(args: string[]): string[] {
 // `brain hygiene` writes only under `reconcile` without --dry-run;
 // `brain registry` rewrites index tables unless --check.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
+  geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
   hygiene: (args) => args[0] === "reconcile" && !args.includes("--dry-run"),
   registry: (args) => !args.includes("--check"),

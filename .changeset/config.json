@@ -18,7 +18,8 @@
       "@schlessera/brain-module-images",
       "@schlessera/brain-module-jobs",
       "@schlessera/brain-module-speaking",
-      "@schlessera/brain-module-travel"
+      "@schlessera/brain-module-travel",
+      "@schlessera/brain-geo"
     ]
   ],
   "linked": [],

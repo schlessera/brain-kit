@@ -154,6 +154,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         url: string;
         userAgent: string;
         cacheDir: string;
+        geo?: GeoConfigInput;
     }
   ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export interface ConfirmPattern {
@@ -162,6 +163,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type ConfirmPatternSource = string | ConfirmPattern;
+  GeoConfigInput (packages/geo/src/config.ts)
+    export type GeoConfigInput = z.input<typeof geoConfigSchema>;
   InboxBudgetConfig (packages/ui-server/src/inbox/budget.ts)
     export interface InboxBudgetConfig {
         spendUsd: number;
@@ -234,3 +237,62 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         origins: string[];
         allowLoopbackOrigin: boolean;
     }
+  geoConfigSchema (packages/geo/src/config.ts)
+    const geoConfigSchema: z.ZodObject<{
+        userAgent: z.ZodDefault<z.ZodString>;
+        cacheDir: z.ZodOptional<z.ZodString>;
+        timeoutMs: z.ZodDefault<z.ZodNumber>;
+        admissionWaitMs: z.ZodDefault<z.ZodNumber>;
+        minimumIntervalMs: z.ZodDefault<z.ZodNumber>;
+        cacheTtlMs: z.ZodDefault<z.ZodNumber>;
+        geocoding: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            url: z.ZodOptional<z.ZodString>;
+            publicServiceEligible: z.ZodDefault<z.ZodBoolean>;
+        }, z.core.$strict>>;
+        routing: z.ZodDefault<z.ZodObject<{
+            endpoints: z.ZodDefault<z.ZodObject<{
+                car: z.ZodOptional<z.ZodObject<{
+                    url: z.ZodString;
+                    profile: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        car: "car";
+                        foot: "foot";
+                        bike: "bike";
+                    }>;
+                    dataset: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+                foot: z.ZodOptional<z.ZodObject<{
+                    url: z.ZodString;
+                    profile: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        car: "car";
+                        foot: "foot";
+                        bike: "bike";
+                    }>;
+                    dataset: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+                bike: z.ZodOptional<z.ZodObject<{
+                    url: z.ZodString;
+                    profile: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        car: "car";
+                        foot: "foot";
+                        bike: "bike";
+                    }>;
+                    dataset: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            demo: z.ZodDefault<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                noncommercialLightUse: z.ZodDefault<z.ZodBoolean>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        overpass: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            endpoints: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;

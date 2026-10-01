@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { z } from "zod";
+import { geoConfigSchema } from "@schlessera/brain-geo";
 
 import { resolveEnv } from "../config/env.js";
 
@@ -278,6 +279,8 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     taxonomy: taxonomyConfigSchema.optional(),
+    /** Concrete OSM operations; absent leaves every new service disabled. */
+    geo: geoConfigSchema.extend({ cacheDir: repoRelativePathSchema.optional() }).optional(),
     exclude: excludeConfigSchema.optional(),
     embeddings: z
       .object({
@@ -450,7 +453,7 @@ export const brainConfigSchema = z
   })
   .strict();
 
-export type BrainConfig = z.infer<typeof brainConfigSchema>;
+export type BrainConfig = z.input<typeof brainConfigSchema>;
 
 /** Typed authoring helper for brain.config.ts. Validation happens at load. */
 export function defineConfig(config: BrainConfig): BrainConfig {

@@ -22,6 +22,7 @@ import { maintainCommand } from "./maintain.js";
 import { registryCommand } from "./registry.js";
 import { statsCommand } from "./stats.js";
 import { graphCommand } from "./graph.js";
+import { geoCommand } from "./geo.js";
 import { renderCommand } from "./render.js";
 import { scratchCommand } from "./scratch.js";
 import { syncCommand } from "./sync.js";
@@ -56,6 +57,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   registry: registryCommand,
   stats: statsCommand,
   graph: graphCommand,
+  geo: geoCommand,
   render: renderCommand,
   scratch: scratchCommand,
   sync: syncCommand,

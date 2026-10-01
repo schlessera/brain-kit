@@ -5,6 +5,7 @@ import { assertPublishPins } from "./check-publish-pins.js";
 import { publishTemplate } from "./publish-template.js";
 
 const packages = [
+  "geo",
   // Ahead of core and ui-server, both of which depend on it: publishing a
   // dependent before its dependency leaves the dependent uninstallable in the
   // window between the two `bun publish` calls.

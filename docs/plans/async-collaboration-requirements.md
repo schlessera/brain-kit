@@ -282,7 +282,7 @@ Stated before the requirements because five of them derive from it.
   move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
-  credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`)),
+  credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`)),
   `strictMcpConfig`, fail-closed filesystem and network permission rules, and containment
   testing of each real runtime boundary against symlinks, shell indirection, `/proc`, Unix sockets,
   and DNS. Predicate-only tests do not establish containment — the same lesson

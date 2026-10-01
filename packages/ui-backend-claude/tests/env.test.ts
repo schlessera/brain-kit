@@ -63,6 +63,7 @@ describe("config/env resolveEnv", () => {
     expect(env.reverseGeocodeEnabled).toBe(true);
     expect(env.nominatimUrl).toBe("https://nominatim.openstreetmap.org");
     expect(env.nominatimUserAgent).toBe("brain-kit-ui/1.0");
+    expect(env.nominatimPublicServiceEligible).toBe(false);
   });
 
   test("reverse geocoding disables on the shared falsy token set, case-insensitively", () => {
@@ -99,6 +100,7 @@ describe("config/env descriptor", () => {
         "BRAIN_UI_REVERSE_GEOCODE",
         "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
         "CLAUDE_CODE_OAUTH_TOKEN",
+        "NOMINATIM_PUBLIC_SERVICE_ELIGIBLE",
         "NOMINATIM_URL",
         "NOMINATIM_USER_AGENT",
       ].sort()

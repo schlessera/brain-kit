@@ -2717,3 +2717,339 @@ reuse the original staging result; source/principal provenance is server-owned,
 immutable and separated from CLI dedup keys. Queue-backed staging is exempt
 from legacy opportunistic pruning. Standalone staging retains its old lifetime.
 No production autonomous dispatch is enabled by these additive surfaces.
+
+## Shared geo library (additive, #525)
+
+`@schlessera/brain-geo` is a concrete leaf library. Its root export supplies
+`RoutePoint` (`lat`, `lon`, nullable `elevation_m` and ISO `time`), strict
+`parseGpx`, `routePoint`, great-circle `distanceM`, travel-compatible
+`routeMetrics`, `trimRoute`, `quantizeRoute` and `writeGpx`. Existing travel
+commands retain their JSON types, strict rejection, rounding and serialization.
+The [travel metric contract](../packages/module-travel/README.md#route-import)
+continues to apply; metrics/writing require nonempty valid geometry.
+
+`parseTrackGpx(source)` adds recovered file geometry. It returns `segments`,
+`warnings`, `kind` (`track` or `route`), `status` (`ok`, `partial` or `no_line`),
+`partial`, `counts` (`input`, `retained`, `omitted`, `segments`) and `omissions`.
+Each omission names its zero-based selected-source point `index`, primary
+`reason` and all `reasons`: latitude/longitude missing-or-invalid or out-of-range.
+Counts cover the selected track/route geometry, not foreign metadata or waypoints.
+Every omitted point splits the geometry. Valid isolated points stay in the
+returned sections as evidence; `no_line` means no section has two points.
+Track sections take precedence when usable, otherwise usable routes do.
+With neither, track evidence takes precedence over route evidence when present.
+Malformed/unsafe/over-limit inputs throw rather than becoming partial results.
+
+Both parsers use the same guarded XML reader. Recovery never modifies the source,
+bridges gaps, changes optional unknown values or proves recording/travel from file
+metadata. [Shared ownership and recovery](decisions/geo-operations.md) explains
+why the new policy is separate from travel's strict compatibility entry point.
+
+`summarizeTrack(parsed, source)` returns the original counts/status, copied geometry,
+file source, `[west,south,east,north]` bounds, start/end, shape, warnings, `unknown`
+field/reason records and method metadata. Its `measurements` contain `distance`,
+`ascent`, `descent`, `altitudeMin`, `altitudeMax`, `elapsed` and `movingTime`, each
+with `{ value: number | null, unit: "m" | "s", scope: "usable_sections" }`.
+Distance uses unsimplified great-circle edges on a 6,371,008.8 m sphere. Sections
+with fewer than two points remain evidence but do not contribute measurements.
+Known zero remains zero. Elevation requires complete eligible section samples;
+ascent/descent share three-point-median smoothing and 3 m hysteresis. Elapsed
+sums each section's ordered, complete first/last timestamp interval, retaining
+pauses and excluding gaps; absent/invalid/decreasing timestamps remain unknown.
+Moving time is always unknown with `estimator_not_in_scope`. No-line geometry has
+unknown distance rather than a successful zero. Absent bounds/start/end and
+unknown shape carry reasons as well. An optional recording claim retains its
+text and `verified: false`; the library never infers recording from timestamps.
+
+`normalizeTrack(sections, kind?)` accepts arrays of normalized point objects with
+numeric `lat`/`lon`, optional `elevation_m`/`time` and a default `"track"` kind.
+It returns the same `ParsedTrack` recovery/count/omission contract as GPX.
+Malformed structure rejects; invalid coordinates omit/split, never coerce or
+clamp. At most 200,000 points (including omissions) and 200,000 sections are
+accepted. Missing/invalid metadata is unknown; caller input remains unchanged.
+`EARTH_RADIUS_M` is the 6,371,008.8 m sphere used by all distance methods.
+
+`nearestTrackPoint(track, query, toleranceM)` returns status/partial/counts,
+`distance: {value: number | null, unit: "m"}`, closest `point: {lat,lon} | null`,
+`location: {section,index,fraction} | null`, nullable `withinTolerance`, unknown
+reasons and method metadata with `"great_circle_segment"`, radius, tolerance and
+`"retained_geometry"` scope. Minor arcs include interiors; gaps remain absent.
+Retained singletons and repeated points are valid spatial evidence. Empty geometry
+and ambiguous antipodal edges yield unknown; invalid queries/tolerances reject.
+
+`trackCoverage(A, B, {toleranceM, sampleSpacingM?})` returns status/partial, counts
+for both inputs, direction `"A_relative_to_B"`, nullable ratio/covered metres,
+usable metres of A, nullable `{minimumRatio,maximumRatio}` bounds, unknown reasons
+and method parameters. Its `"arc_length_midpoints"` estimate measures only A's
+usable sections within tolerance of B's usable sections. Bounds use distance's
+1-Lipschitz property to expose uncertainty. The default spacing is
+`max(0.1,min(5,toleranceM/4))` metres; explicit spacing is >0 and ≤1,000 m.
+Tolerances are finite, nonnegative and at most Earth's half-circumference.
+100,000 samples / 5,000,000 comparisons bound analysis. Zero usable length in A,
+no usable line in B, ambiguous antipodal geometry and analysis-limit exhaustion
+return null ratio/covered length/bounds with reasons. Partial inputs remain partial;
+no gaps are filled and no denominator is invented. All helpers require validated
+`ParsedTrack` inputs from the shared parser/normalizer.
+
+### Shared geo configuration and server geocoding
+
+The root `geoConfigSchema`, `GeoConfig` and `GeoConfigInput` describe concrete
+configuration. All services are disabled/unconfigured by default; `userAgent`
+defaults empty. Endpoints must be credential-free HTTP(S) URLs without query or
+fragment. Geocoding has `enabled`, optional `url` and `publicServiceEligible`;
+the public Nominatim endpoint requires the latter explicit responsibility flag.
+Routing configuration holds per-mode prepared datasets and an off-by-default
+eligible demo flag; Overpass holds an enabled flag and at most three endpoints.
+Optional `cacheDir`, `cacheTtlMs` (0–30 days, default one day), `timeoutMs` and
+`admissionWaitMs` (100 ms–60 s, defaults 5 s) and `minimumIntervalMs` (0–60 s,
+default 1 s) configure the shared concrete clients. Public operator floors cannot
+be lowered by configuration. No provider registry is added.
+
+`@schlessera/brain-geo/server` exports `GeoClient`, result/candidate/attribution,
+error/source and runtime-option types. `new GeoClient(config?, runtime?)` validates
+configuration. Runtime options accept `fetchImpl` and shared `admissionDir`; they
+default to real fetch and the user's global geo admission directory. The root
+geometry/configuration entry point imports no server I/O.
+
+`geocode(query)` and `reverse(lat,lon)` return `GeoResult<GeocodeCandidate[]>` with
+`status`, nullable `value`/`source`/`error`, `warnings`, `attribution` and candidate
+`counts`. Success is `ok`, multiple matches `ambiguous`, usable mixed replies
+`partial`, and genuine empty matches `no_match`; disabled and failure statuses are
+distinct. A candidate has display/summary/address, numeric point, nullable bounds
+and OSM identity, unknown accuracy and its reason. Inputs validate before dispatch.
+No-match is recognized from an empty search or the exact Nominatim reverse error;
+an unrelated 404 is never fabricated as no-match.
+
+Source reports service/endpoint, `fromCache`, nullable `fetchedAt`/`cacheAgeMs`,
+`requestSent` and `transfer: {data,sent}`. Cache hits preserve fetch age and indicate
+no new transfer. Errors distinguish `disabled`, `configuration`, `ineligible`,
+`capability`, `input`, `timeout`, `network`, `http`, `admission_denied`,
+`admission_timeout`, `bad_response`, `response_limit` and `cache_unavailable`, with
+optional HTTP/retry details. Valid provider data retains attribution and qualified
+accuracy. No transient failure is stored as no-match. Disk caching/admission is
+shared across cooperating processes; the [geo guide](../packages/geo/README.md)
+documents local aggregation, bounds and fail-closed orphan recovery.
+
+### Shared routing results
+
+`GeoClient.route(points, mode)` accepts 2–100 ordered numeric points and a
+`RoutingMode` (`car`/`foot`/`bike`). Configured entries carry `url` through the
+route-service prefix, `profile`, `preparedMode`, `dataset` and `verification`.
+The mode must match the declared prepared dataset. Public FOSSGIS entries also
+require explicit eligible demo configuration and its verified endpoint/profile.
+Otherwise the client returns a capability/eligibility error without transfer.
+
+`RoutingResult` retains `request: {mode,points}` and `attempts` even with no route.
+Its nullable `CalculatedRoute` contains `kind: "calculated"`, unsimplified geometry,
+all requested/snapped waypoints and snap distances, ordered legs with nullable
+distance/duration, unit-bearing aggregate distance (`m`) / duration (`s`), unknown
+reasons and provider-calculation method metadata. Missing/invalid estimates remain
+null and partial; zero remains zero. Geometry/waypoint/leg shape must match the
+request. Calculated duration does not establish movement or recording.
+
+The served source adds dataset name/prepared mode/profile/verification and
+`fallback: {used,reason,primaryEndpoint}`. Cache hits retain these and original
+fetch age. Every attempt lists endpoint/cache status/request transfer and error;
+a cached demo result can follow a newly transmitted primary attempt. Cache identity
+includes prepared dataset/mode metadata. Requested points are snapshotted before
+asynchronous work and are never overwritten with provider-snapped points.
+
+Status is `ok`, `partial`, genuine `no_route`, disabled or error. `NoSegment` has
+error code `no_segment`; OSRM errors retain `serviceCode`. Invalid query/input and
+disabled/capability errors remain distinct from no-route and are never cached as
+it. The demo is off until explicitly enabled and eligible. A missing primary or
+one genuine availability failure can use one matching demo attempt; denial,
+admission/cooldown, invalid/no-segment/no-route and local storage failures cannot.
+An endpoint never retries itself as its own fallback. No geometry is fabricated.
+
+### Shared Overpass POI results
+
+`GeoClient.poi(PoiQuery)` accepts exactly one of `near: {lat,lon}` or
+`alongTrack: ParsedTrack`, `radiusM` (1–5,000) and 1–10 AND tag filters. Values
+are exact strings or `true` for tag presence, never arbitrary QL/regex. Track
+queries retain section gaps, including isolated points, and refuse beyond 2,000
+points, 100 nonempty sections, 64 KiB UTF-8 QL or a radius-expanded 5-degree extent
+on either axis/pole crossing. Wide/date-line track envelopes are spatial-budget
+errors; valid source coordinates are unchanged. No track simplification occurs.
+
+`PoiResult` extends `OverpassResult<PointOfInterest[]>` with query parameters/counts,
+nullable recovered-track metadata (`partial`, original counts/omissions), response
+counts, `truncated` and method/limit metadata. Status is `ok`, `partial`, genuine
+`no_match`, disabled or error. A POI retains OSM identity, nullable name, point,
+`position: node | bounding_box_center`, tags, `openingHours: {value,interpreted:false}`,
+representative-point distance (`m`) to the query point/retained track and unknown
+reasons. Missing/empty opening-hours text is null/`not_mapped`; there is no current
+open/closed interpretation. Selection uses Overpass around geometry. A way/relation
+center is a representative bounding-box center and may lie outside the radius;
+its distance is not the distance to its entrance/full geometry. Distance uses the
+shared sphere/minor arcs, never an invented gap. Empty/undefined track distance
+stays null with a reason.
+
+Responses contain at most 1,000 usable results. A 1,001st sentinel marks a partial
+capped answer with one counted omission and warns that more may exist. More than
+1,001 elements is `response_limit`; invalid/duplicate elements are counted omissions,
+and wholly malformed nonempty responses fail rather than cache as no-match.
+Opening-hours absence alone does not mean malformed data.
+
+`OverpassResult<T>` retains all endpoint/cache/transfer/error attempts and source
+fallback `{used,reason,primaryEndpoint}`. Ordered endpoint configuration is capped
+at three, duplicates are attempted once, and a cached fallback remains visible
+after a primary attempt. Genuine availability failures can fall through; admission,
+cooldown, quota/resource denials and local storage failures cannot, even to a cached
+alternate. HTTP 504 has Overpass resource-admission meaning. JSON resource/quota
+remarks likewise refuse and persist cooldown; incomplete timeout remarks are errors,
+never genuine empty matches. Attribution accompanies usable OSM replies.
+
+### Shared background geometry and SDK adapters
+
+The geo root exports the existing SDK pure coastline helpers/types, without server
+I/O. SDK server exports retain their names/types and alias the shared implementation.
+`CoastlineConfig` additively accepts optional canonical `geo: GeoConfigInput` and
+shared runtime `admissionDir`. Required legacy enabled/url/User-Agent and optional
+timeout/fetch injection remain supported. `fetchCoastline(request, config)` retains
+the exact `CoastlineResult` keys and result-or-empty/partial failure behavior;
+`enabled:false` prevents all requests, including with a canonical config supplied.
+Legacy settings adapt to concrete shared cache/admission without wire changes.
+
+`GeoClient.coastline(CoastlineRequest)` returns `CoastlineServiceResult`, with the
+existing geometry value and per-layer `queries: {layer,result}[]`. Layers are
+`CoastlineLayer` (`coastline`, `roads`, `streets`); each result is
+`OverpassResult<CoastlineLayerGeometry>` (`lines`, input/omitted counts). Its source
+is the latest successful layer, or latest attempted layer if none succeeded; the
+complete query list is authoritative for mixed sources/cache ages/transfers/errors.
+Bounds are finite in-range ordered `[west,south,east,north]`, capped at 5 degrees
+per axis; width is >0 and ≤16,384. Existing detail/tolerance/geometry algorithms
+are preserved. Service geometry is bounded to 10,000 ways/200,000 vertices,
+including malformed entries, and shared body/time budgets. Mixed malformed data
+or failed layers with usable geometry are partial; no usable data after failure
+has null value/error. Genuine empty successful geometry has `no_match` and empty
+value. Refusal/configuration/local storage failures stop later layers. Attribution
+and every layer's endpoint/fallback/attempt evidence remain available.
+
+`reverseGeocode(coords, ReverseGeocodeConfig)` retains exactly
+`{displayName,summary,address} | null`. Required legacy enabled/url/User-Agent
+settings remain; additive optional `publicServiceEligible`, canonical `geo`,
+`fetchImpl` and shared `admissionDir` select the concrete client/runtime.
+Canonical service/cache configuration wins; legacy `enabled:false` still prevents
+requests. Public Nominatim requires explicit informed eligibility, which is never
+inferred from enabled and grants no permission beyond the public-service policy.
+An ineligible public request is an existing nullable failure path, preserving raw
+coordinates in the location tool. First-party backends default
+`NOMINATIM_PUBLIC_SERVICE_ELIGIBLE` to false; only recognized truthy tokens opt in.
+Configured nonpublic endpoints remain available. Responses are validated and
+cached by endpoint/exact coordinates; transient failures are not cached as null.
+No MCP/tool/result/wire shape or protocol revision changes.
+
+### Canonical consumer configuration
+
+`brain.config.ts`/JSON optionally accepts `geo` with the shared `GeoConfigInput`
+shape and defaults. Root omission remains omission: parsing `{}` produces `{}`,
+and new services remain off. `BrainConfig` is the authoring input type so the
+new nested defaults do not require callers to write every optional field.
+`defineConfig` remains a typed identity function; load-time schema validation
+still validates the whole configuration. Core's optional geo response-cache
+directory uses `repoRelativePathSchema` and resolves inside the brain through
+`safeResolve`, including symlink containment.
+
+SDK server additively exports `GeoConfig`, `GeoConfigInput` and `geoConfigSchema`
+from the concrete geo library. UI server `CoastlineConfig.geo` is optional for
+existing explicit configurations; `BRAIN_GEO_CONFIG_JSON` supplies it from the
+environment, validated at startup. Relative response-cache paths resolve from
+`BRAIN_PATH`; invalid/empty/malformed configuration fails rather than silently
+using legacy public endpoints. Canonical service settings take precedence over
+legacy Overpass settings. Legacy disabled prevents requests. Existing permanent
+geometry cache keys/results and 5-degree route bounds remain unchanged.
+The server environment setting is not forwarded to child processes by default.
+
+### Local vector static maps
+
+Geo server additively exports `staticMap(input, client)` and `GeoClient.staticMap`,
+plus `StaticMapInput`, `StaticMapTrack`, `StaticMapPin`, `StaticMapResult`,
+`StaticMapReason`, `StaticMapScale` and the track/pin/leg evidence types. Input has
+optional `tracks: {track:ParsedTrack,source:TrackSource,label?}[]`,
+`pins: {lat,lon,label}[]`, already-calculated `routes: RoutingResult[]`,
+`bbox: [west,south,east,north]`, `title`, `widthPx` and
+`background: "auto" | "none" | CoastlineServiceResult`. Omitted background is auto.
+No routing request is made by a map call. A concrete prefetched background sends
+no background request; `"none"` also sends none.
+
+The result has `status: ok | partial | no_map`, `kind: geometry | track_only | none`,
+nullable `reason`, nullable `png: Uint8Array`/`svg: string`, `widthPx`, nullable
+`heightPx`/`bounds`, complete `text`, `title`, copied `tracks`/`pins`/`legs`/`routes`,
+nullable `background`, `attribution`, `warnings` and `method`. Reasons are
+`unsupported_projection`, `background_extent`, `background_unavailable`,
+`background_omitted`, `no_spatial_input`, `unsupported_text`, `render_budget` and
+`renderer_unavailable`. Every no-map outcome has null images and preserves complete
+text/source/summary evidence. Invalid or oversized input throws.
+
+Track evidence retains one-based index/label, full unsimplified `TrackSummary`, exact
+original omission indices/reasons, and visible/cropped retained-vertex counts.
+Pins retain original coordinates/label, one-based index, `drawn` and nullable reason
+`outside_viewport | no_artifact`. Every requested adjacent route pair has a leg with
+route/index/mode/from/to, `available` and nullable `distanceM`/`durationS`; genuine
+zero remains zero. Route stops not represented by explicit pins gain numbered pins.
+Missing route geometry never creates a line, and imported section gaps remain gaps.
+All stops/legs remain in the full legend, including cropped stops.
+
+The method records `spherical_web_mercator`, `source_vertices_in_mercator`, the
+85.0511287798066-degree latitude limit, `gaps: preserved`, bundled IBM Plex glyph
+outlines and nullable scale `{value,unit:m,lengthPx,latitude,
+method:mercator_at_center_latitude}`. Unsupported polar/date-line/wrapping extents
+preserve source coordinates rather than clamp them. Projectable bounds wider than
+5 degrees per axis skip background querying and produce a plain image. Missing
+background also produces a qualified plain image. Used OSM geometry/calculated
+routes retain attribution; FOSSGIS-derived graphics additionally carry the
+operator's CC BY-SA 2.0 graphics link. No browser, raster tiles, system fonts or
+external resources participate in rendering.
+
+Width is 320–2,048 integer pixels, default 1,024. Maximum inputs are 100 tracks,
+1,000 explicit pins, 100 route results and 200,000 aggregate source-track/route/stop
+points, including track omissions. Prefetched background is bounded to 10,000 ways/
+200,000 vertices. Labels and provenance text are bounded and reject controls. A complete image/legend above
+32 million pixels, 16,384 height, 200,000 text characters, 16 MiB SVG or 64 MiB PNG
+gives a text fallback. Unsupported glyphs and unavailable local rasterization have
+distinct reasons. No stop, leg, omission or attribution is silently truncated.
+
+### Geo CLI envelopes
+
+`brain geo` adds the five subcommands below without changing old CLI/MCP/wire/
+frontmatter contracts. Types are `GeoGeocodeOutput`, `GeoRouteOutput`,
+`GeoPoiOutput`, `GeoTrackOutput` and `GeoMapOutput` in core's geo command. Each
+machine invocation emits one JSON document; usage exceptions remain stderr-only.
+
+| Command | JSON fields |
+|---|---|
+| `geo geocode <query>` | Complete `GeoResult<GeocodeCandidate[]>` plus `operation: geocode`, `request: {query}`. |
+| `geo geocode --reverse lat,lon` | Complete same result plus `operation: reverse`, `request: {lat,lon}`. |
+| `geo route lat,lon... --mode car\|foot\|bike` | Complete `RoutingResult` plus `operation: route`. |
+| `geo poi --near lat,lon \| --along file.gpx --radius-m metres --tag key[=value]...` | Complete `PoiResult` plus `operation: poi`, nullable brain-relative `sourceFile`. |
+| `geo track file.gpx` | Complete `TrackSummary` plus `operation: track`, exact `omissions`, nullable `nearest: NearestTrackPoint` and nullable `comparison: {summary:TrackSummary,omissions,coverage:TrackCoverage}`. |
+| `geo map [file.gpx...] --out file.png` | Complete `StaticMapResult` except `png`/`svg`, plus `operation: map`, nullable `artifact: {path,format:png,bytes}`. |
+
+Coordinates are latitude,longitude in CLI arguments. Bbox order remains west,
+south,east,north. Route mode is required and ordered stops remain intact. POI
+requires exactly one spatial form, explicit radius and 1–10 exact AND filters;
+repeatable bare keys mean presence and duplicate keys refuse. Track nearest/
+comparison requires explicit `--tolerance-m`; optional `--sample-spacing-m` needs
+comparison. Counts, partial status, model, tolerance, direction and unknown reasons
+remain the shared results; originals are never rewritten.
+
+Map accepts repeatable `--pin lat,lon,label` (commas after the first two belong to
+the label), optional repeated routing `--point lat,lon` with required `--mode`,
+`--bbox`, `--title`, `--width` and `--no-background`. Routing resolves before the
+static map operation; this is explicit requested traffic rather than a hidden
+route calculation in rasterization. Output is brain-relative PNG, requires an
+initialized brain and explicit `--out`, and replaces a chosen regular file.
+Containment checks include symlinks and repeat after asynchronous resolution;
+scratch uses its existing genuine/ignored-directory write and pruning rules.
+No-map returns null artifact and does not create its destination. Complete text/
+provenance/omissions remain in the JSON while binary PNG/SVG contents are omitted.
+Aggregate map input counts omitted source points as well as retained geometry.
+
+Human mode prints source, fetch/cache age, all transfer attempts, dataset/fallback,
+unknown estimates and applicable attribution. Exit 0 covers valid/partial results,
+genuine no-match/no-route and documented map/text fallback; input/usage is 1 and a
+failed service command/storage/local renderer is 2. Typed service input errors may
+emit their one JSON result with exit 1; parse/path/usage exceptions print only to
+stderr. `brain render` retains its existing envelope/network-denied behavior:
+callers inline the already-created local PNG as data before invoking export.

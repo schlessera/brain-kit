@@ -1081,6 +1081,8 @@ export "./server" (./src/server/index.ts)
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
   GIT_LOCK_KEY
+  type GeoConfig
+  type GeoConfigInput
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
@@ -1323,6 +1325,7 @@ export "./server" (./src/server/index.ts)
   detectCandidates
   execWrapperSpawnOptions
   fetchCoastline
+  geoConfigSchema
   handleAskUser
   handleAskUserForm
   handleAskUserList

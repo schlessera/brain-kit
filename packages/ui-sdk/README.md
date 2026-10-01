@@ -109,6 +109,33 @@ which has no compatibility guarantee. The
 [classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
 names every affected import. Subscription-auth helpers remain protocol API.
 
+The existing coastline geometry helpers/types and `fetchCoastline` under `./server`
+are compatibility exports from [`@schlessera/brain-geo`](../geo). The geometry
+pipeline and result-or-empty shape are preserved; service requests now share its
+disk cache and aggregate operator admission. Existing endpoint/User-Agent/timeout
+settings still work. `CoastlineConfig.geo` can supply canonical endpoint/cache
+settings, and `admissionDir` can select the shared runtime admission path.
+`enabled:false` always prevents requests. The [geo guide](../geo/README.md#coastline-land-and-roads)
+documents bounds, refusal handling, attribution and caller responsibilities.
+
+`reverseGeocode(coords, config)` also uses the shared client and retains its
+`{displayName, summary, address} | null` result. Required `enabled`, `url` and
+`userAgent` settings remain; optional `geo` supplies canonical configuration.
+`enabled:false` always prevents requests. Public Nominatim requires explicit
+`publicServiceEligible:true` (or the canonical geocoding setting), after checking
+the [public-service policy](https://operations.osmfoundation.org/policies/nominatim/).
+This flag grants no permission: bulk/autocomplete/systematic use and generic
+LLM-platform offerings are excluded. Configure a suitable endpoint for such uses.
+Without eligibility, or after a service/validation failure, the wrapper returns
+`null` and the location bridge still returns raw coordinates. Successful responses
+share the endpoint/exact-coordinate disk cache; transient failures are not cached
+as empty locations. Reverse addresses describe a nearby mapped object and have
+unverified accuracy.
+
+`GeoConfig`, `GeoConfigInput` and `geoConfigSchema` are re-exported from `./server`
+for canonical adapter authoring/validation. They are the geo library's concrete
+configuration, with no additional provider seam.
+
 ## Backend contract tests (`./testing`)
 
 Backend packages can run the same `startTurn` assertions as the first-party
