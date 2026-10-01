@@ -86,6 +86,8 @@ export async function cycle(env: ReturnType<typeof prepare>, dryRun = false) {
   const inputs = capture(env.root, env.brain.taxonomy);
   const detection = await env.detect();
   const proposal = plan(inputs, env.brain.taxonomy, detection, TODAY);
+  const currentDocs = new Map(loadAuditDocs(env.db).map(d => [d.path, d]));
+  reconcile(env.root, detection.candidates, currentDocs, { now: NOW, dryRun: true, failedChecks: detection.failedChecks });
   const applied = apply(env.root, proposal, dryRun);
   const after = await env.detect();
   const docs = new Map(loadAuditDocs(env.db).map(d => [d.path, d]));

@@ -58,7 +58,9 @@ registry metadata refuse hand edits, including date edits on that index.
 Configured inbox paths, archived path segments, archived status, excluded paths
 and hygiene logs are ineligible. The entire input snapshot precedes detection.
 Application rechecks source bytes, mtimes, regular files and every parent path
-before any batch write, including read-only detail inputs. A stale input vetoes
+before any batch write, including read-only detail inputs. The existing reconciler
+also validates the log in dry-run mode before the first content repair; a malformed
+log cannot leave repaired content behind when reconciliation refuses it. A stale input vetoes
 the batch. Dry-run writes neither content nor logs; index refresh is still allowed,
 as in the existing CLI. A fresh second cycle produces no content, log or timestamp
 diff. Failed checks prevent prototype repair; the reconciler retains its existing
@@ -108,21 +110,23 @@ each. Counts below are initial source documents, before hygiene log creation.
 
 | Initial documents | First cycle p50 / p95 | Repeated cycle p50 / p95 |
 | --- | --- | --- |
-| 20 | 62.5 / 67.5 ms | 22.2 / 25.4 ms |
-| 1,000 | 10,797.8 / 12,140.3 ms | 1,493.3 / 2,394.1 ms |
+| 20 | 112.0 / 113.4 ms | 34.6 / 36.0 ms |
+| 1,000 | 12,081.3 / 12,603.0 ms | 2,315.0 / 2,429.7 ms |
 
-Raw first-cycle samples are 62.48, 67.49, 58.92 ms and 8,950.96, 12,140.33,
-10,797.78 ms respectively; repeated samples are 22.21, 21.98, 25.37 ms and
-1,493.26, 2,394.05, 1,485.44 ms. With three samples the nearest-rank p95 is
+Raw first-cycle samples are 112.02, 107.67, 113.42 ms and 10,061.51, 12,603.01,
+12,081.30 ms respectively; repeated samples are 34.08, 34.64, 35.98 ms and
+1,527.94, 2,429.68, 2,315.05 ms. With three samples the nearest-rank p95 is
 the maximum, not a stable tail estimate. This is local runtime evidence, not a
 deployment benchmark. There is no model cache measurement.
 
-Four restored runtime mutations establish that the tests can fail for their
+Five restored runtime mutations establish that the tests can fail for their
 claimed reason. Disabling all repair fails the date fixture at its expected
 file bytes. Removing exclusion fails the inbox fixtures at unchanged file bytes.
 Ignoring the other-column mismatch fails the multiple-column fixture at its
 unchanged index bytes. Ignoring stale preflight fails the changed-detail fixture
-at its complete before/after Markdown snapshot. Each mutated program loads and
+at its complete before/after Markdown snapshot. Removing log preflight fails the
+malformed-log case at its unchanged content bytes; this assertion also failed on
+the initial prototype before the preflight was added. Each mutated program loads and
 runs; none of these receipts relies on a missing export or earlier setup failure.
 
 ## Recommendation and prospective contract

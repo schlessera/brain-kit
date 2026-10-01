@@ -120,6 +120,20 @@ describe("mechanical hygiene offline runtime", () => {
     } finally { env.close(); }
   });
 
+  test("an unparseable existing log prevents all content repair", async () => {
+    const env = prepare(fixtures[0]);
+    try {
+      mkdirSync(join(env.root, "context/hygiene"), { recursive: true });
+      writeFileSync(join(env.root, "context/hygiene/open.md"), "---\ntype: context\ntitle: Open\n");
+      const before = readFileSync(join(env.root, "context/raft.md"), "utf8");
+      let error: unknown;
+      try { await cycle(env); } catch (failure) { error = failure; }
+      expect(readFileSync(join(env.root, "context/raft.md"), "utf8")).toBe(before);
+      expect(String(error)).toContain("frontmatter is never closed");
+      expect(readFileSync(join(env.root, "context/hygiene/open.md"), "utf8")).toBe("---\ntype: context\ntitle: Open\n");
+    } finally { env.close(); }
+  });
+
   test("manual snooze survives a mechanical repair and reconciliation", async () => {
     const env = prepare(fixtures[0]);
     try {
