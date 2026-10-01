@@ -2,9 +2,11 @@
 
 Investigation for [#611](https://github.com/schlessera/brain-kit/issues/611),
 under the [launch epic](https://github.com/schlessera/brain-kit/issues/608).
-The recommendations below require the maintainer ruling requested on that
-issue. They do not authorize publication or bind the implementation before
-that ruling. The repeatable [local experiment](../scripts/site-model-spike/README.md)
+The maintainer selected Astro static output and repository-controlled GitHub
+Pages on 2026-10-01. The binding [decision record](decisions/public-website.md)
+captures both rulings, alternatives and implementation requirements. This
+report preserves the comparison and dated measurements; it does not authorize
+publication. The repeatable [local experiment](../scripts/site-model-spike/README.md)
 provides the evidence.
 
 ## Recommendation and alternatives
@@ -137,6 +139,13 @@ this crash are retained as separate evidence; no upstream cause is established.
 The reproduction instructions identify the measured Node 22 runtime. The
 production implementation must pin and verify its own build runtime in CI.
 
+A fresh install during the decision handoff also reported that transitive
+`undici` 8.11.2 requires Node `>=22.19.0`. Its installed manifest confirms that
+requirement. The successful Node 22.18.0 runs establish the measured sample's
+behavior, not compatibility with every dependency's declared engine. Select a
+production runtime against the entire pinned dependency graph, not only
+Astro's minimum.
+
 ## Implementation and publishing boundary
 
 #612 implements the selected static site and its page design after the ruling.
@@ -185,6 +194,6 @@ A PR artifact can be downloaded and served locally for review; a public preview
 service is unnecessary. The experiment's commands are demonstrably executable;
 these production build, CI and publication commands are implementation
 requirements for #612/#615, not a claim that a publishing workflow exists now.
-If the maintainer chooses a different static host, record its destination and
-ownership prerequisites concretely before implementing it. Do not create a
+The maintainer selected this repository-controlled publishing path. Changing
+that choice requires a new concrete ownership ruling; do not create a
 publishing-provider interface for this single project site.
