@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { closeSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, readlinkSync, renameSync, rmSync, writeSync } from "fs";
+import { closeSync, fchmodSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync, readlinkSync, renameSync, rmSync, writeSync } from "fs";
 import type { Stats } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 
@@ -130,14 +130,17 @@ export function writeExclusive(tmp: string, data: string | Uint8Array, existing:
  * contained) without ever writing through a link or into an inode a hard
  * link shares: the target's own entry may not be a symlink or a directory,
  * and the bytes go to a random temporary sibling created exclusively, then
- * renamed onto the name once the directory is re-verified to be exactly
+ * published onto the name once the directory is re-verified to be exactly
  * itself (`realpath` equal, a directory, not a link put in its place). A
- * rename replaces the directory entry rather than writing through it. A
+ * replacement rename changes the entry rather than writing through it. A
  * replaced regular file keeps its mode (`writeExclusive`).
- * `replace: false` refuses an existing file (EEXIST). The one syscall between
- * the verification and the rename remains, as it does for any path-based
- * write in Node. The scratch area has its own primitive on top of the same
- * shape (`writeScratchFile`); this is for every other write of caller-given
+ * `replace: false` publishes the completed sibling with a hard link, which
+ * atomically refuses every existing destination entry (EEXIST), then removes
+ * the temporary name. It never replaces an entry arriving after the check.
+ * The directory can still change between verification and publication, as
+ * it can for any path-based write in Node. The scratch area has its own
+ * primitive on top of the same shape (`writeScratchFile`); this is for every
+ * other write of caller-given
  * output (`render --out`, `image --out`, the OKF export).
  */
 export function writeFileSafely(
@@ -169,7 +172,17 @@ export function writeFileSafely(
     if (now?.isSymbolicLink()) throw new WriteRefusedError(`${abs} is a symlink; refusing to write through it`);
     if (now?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${abs} is a directory`);
     if (now && !replace) throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
-    renameSync(tmp, abs);
+    if (replace) renameSync(tmp, abs);
+    else {
+      try { linkSync(tmp, abs); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
+        }
+        throw error;
+      }
+      rmSync(tmp, { force: true });
+    }
   } catch (error) {
     if (genuine()) rmSync(tmp, { force: true });
     throw error;

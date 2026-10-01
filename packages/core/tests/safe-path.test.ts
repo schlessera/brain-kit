@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -169,4 +169,135 @@ describe("writeFileSafely", () => {
     expect(() => writeFileSafely(join(root, "link.txt"), "x")).toThrow(WriteRefusedError);
     expect(fs.readFileSync(join(root, "target.txt"), "utf8")).toBe("keep me");
   });
+
+  test("replace:false preserves a file arriving after the final absence check and refuses publication", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.md");
+    const arriving = Buffer.from("Odysseus keeps the concurrent writer's bytes");
+    const original = fs.lstatSync;
+    let checks = 0, injected = false, error: unknown;
+    const spy = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: { throwIfNoEntry?: boolean }) => {
+      const entry = original(path, options);
+      if (String(path) === target && !entry && ++checks === 2) {
+        fs.writeFileSync(target, arriving, { mode: 0o600 });
+        injected = true;
+      }
+      return entry;
+    }) as typeof fs.lstatSync);
+    try { writeFileSafely(target, "replacement bytes", { replace: false }); }
+    catch (caught) { error = caught; }
+    finally { spy.mockRestore(); }
+    // Inspect the competing writer's real bytes before any refusal assertion.
+    expect(fs.readFileSync(target)).toEqual(arriving);
+    expect(injected).toBe(true);
+    expect(checks).toBe(2);
+    expect(error).toBeInstanceOf(WriteRefusedError);
+    expect((error as Error).message).toContain("EEXIST");
+    expect(mode(target)).toBe(0o600);
+    expect(fs.readdirSync(directory)).toEqual(["ithaca.md"]);
+  });
+
+  test("replace:false publishes complete binary bytes with the default mode and no temporary sibling", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.bin");
+    const bytes = new Uint8Array([0, 1, 127, 128, 255]);
+    writeFileSafely(target, bytes, { replace: false });
+    expect(fs.readFileSync(target)).toEqual(Buffer.from(bytes));
+    expect(mode(target)).toBe(0o666 & ~process.umask());
+    expect(fs.statSync(target).nlink).toBe(1);
+    expect(fs.readdirSync(directory)).toEqual(["ithaca.bin"]);
+  });
+
+  for (const replace of [false, true]) {
+    for (const kind of ["file", "symlink", "dangling symlink", "directory"] as const) {
+      if (replace && kind === "file") continue;
+      test(`replace:${replace} refuses an existing ${kind} without altering its entry`, () => {
+        const directory = makeRoot(), target = join(directory, "ithaca.md"), other = join(directory, "odysseus.md");
+        fs.writeFileSync(other, "Odysseus keeps these bytes");
+        if (kind === "file") fs.writeFileSync(target, "existing bytes");
+        else if (kind === "directory") fs.mkdirSync(target);
+        else fs.symlinkSync(kind === "symlink" ? other : join(directory, "absent.md"), target);
+        const before = fs.lstatSync(target);
+        let error: unknown;
+        try { writeFileSafely(target, "replacement bytes", { replace }); }
+        catch (caught) { error = caught; }
+        expect(fs.lstatSync(target).ino).toBe(before.ino);
+        expect(fs.readFileSync(other, "utf8")).toBe("Odysseus keeps these bytes");
+        if (kind === "file") expect(fs.readFileSync(target, "utf8")).toBe("existing bytes");
+        if (kind === "directory") expect(fs.readdirSync(target)).toEqual([]);
+        if (kind.includes("symlink")) expect(fs.readlinkSync(target)).toBe(kind === "symlink" ? other : join(directory, "absent.md"));
+        expect(error).toBeInstanceOf(WriteRefusedError);
+        expect(fs.readdirSync(directory).sort()).toEqual(["ithaca.md", "odysseus.md"]);
+      });
+    }
+  }
+
+  test("replace:true replaces the entry atomically without changing another hard link's bytes or mode", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.md"), other = join(directory, "odysseus.md");
+    fs.writeFileSync(other, "original bytes", { mode: 0o600 });
+    fs.chmodSync(other, 0o600);
+    fs.linkSync(other, target);
+    const before = fs.statSync(other);
+    writeFileSafely(target, "replacement bytes", { replace: true });
+    expect(fs.readFileSync(target, "utf8")).toBe("replacement bytes");
+    expect(fs.readFileSync(other, "utf8")).toBe("original bytes");
+    expect(fs.statSync(other).ino).toBe(before.ino);
+    expect(fs.statSync(target).ino).not.toBe(before.ino);
+    expect(mode(target)).toBe(0o600);
+    expect(mode(other)).toBe(0o600);
+    expect(fs.readdirSync(directory).sort()).toEqual(["ithaca.md", "odysseus.md"]);
+  });
+
+
+  for (const kind of ["symlink", "dangling symlink", "directory"] as const) {
+    test(`replace:false preserves an arriving ${kind} and cleans only its temporary sibling`, () => {
+      const directory = makeRoot(), target = join(directory, "ithaca.md"), other = join(directory, "odysseus.md");
+      fs.writeFileSync(other, "Odysseus keeps these bytes");
+      const original = fs.lstatSync;
+      let checks = 0, injected = false, error: unknown;
+      const spy = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: { throwIfNoEntry?: boolean }) => {
+        const entry = original(path, options);
+        if (String(path) === target && !entry && ++checks === 2) {
+          if (kind === "directory") fs.mkdirSync(target);
+          else fs.symlinkSync(kind === "symlink" ? other : join(directory, "absent.md"), target);
+          injected = true;
+        }
+        return entry;
+      }) as typeof fs.lstatSync);
+      try { writeFileSafely(target, "replacement bytes", { replace: false }); }
+      catch (caught) { error = caught; }
+      finally { spy.mockRestore(); }
+      expect(fs.readFileSync(other, "utf8")).toBe("Odysseus keeps these bytes");
+      if (kind === "directory") expect(fs.lstatSync(target).isDirectory()).toBe(true);
+      else expect(fs.readlinkSync(target)).toBe(kind === "symlink" ? other : join(directory, "absent.md"));
+      expect(injected).toBe(true);
+      expect(checks).toBe(2);
+      expect(error).toBeInstanceOf(WriteRefusedError);
+      expect((error as Error).message).toContain("EEXIST");
+      expect(fs.readdirSync(directory).sort()).toEqual(["ithaca.md", "odysseus.md"]);
+    });
+  }
+
+  for (const code of ["EACCES", "EPERM"]) {
+    test(`an ${code} publication failure propagates and removes only this writer's temporary sibling`, () => {
+      const directory = makeRoot(), target = join(directory, "ithaca.md");
+      const arriving = Buffer.from("Odysseus keeps the concurrent writer's bytes");
+      const failure = Object.assign(new Error(`fixture ${code}`), { code });
+      let temporary = "", error: unknown;
+      const spy = spyOn(fs, "linkSync").mockImplementation((from, to) => {
+        temporary = String(from);
+        if (String(to) !== target) throw new Error("unexpected publication target");
+        fs.writeFileSync(target, arriving);
+        throw failure;
+      });
+      try { writeFileSafely(target, "replacement bytes", { replace: false }); }
+      catch (caught) { error = caught; }
+      finally { spy.mockRestore(); }
+      expect(fs.readFileSync(target)).toEqual(arriving);
+      expect(error).toBe(failure);
+      expect(error).not.toBeInstanceOf(WriteRefusedError);
+      expect(temporary).not.toBe("");
+      expect(fs.existsSync(temporary)).toBe(false);
+      expect(fs.readdirSync(directory)).toEqual(["ithaca.md"]);
+    });
+  }
+
 });
