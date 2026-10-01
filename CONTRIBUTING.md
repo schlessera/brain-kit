@@ -85,6 +85,20 @@ with explicit overrides pointing only at test fixtures. Do not append the
 host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 `runCli` and direct children using `keylessEnv`, including `doctor --fix`.
 
+The strict CI compiler keeps the full source/test graph in one process with
+`NODE_OPTIONS=--max-old-space-size=4096` (4 GiB of V8 old space). Its log records
+Node/TypeScript versions, the effective heap limit, host/cgroup memory capacity,
+TypeScript's compiler diagnostics and the process's peak resident memory. These
+measurements distinguish a heap exhaustion from a type error and show the
+headroom available on the actual runner. They do not change compiler options,
+source coverage or product runtime memory budgets.
+
+On Linux, the matching compiler command is:
+
+```sh
+NODE_OPTIONS=--max-old-space-size=4096 /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+```
+
 CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
 (then `2/3` and `3/3`), each in one Bun process. This option uses the default
 `packages`/`tests` roots and cannot combine with paths, `--cwd` or native
