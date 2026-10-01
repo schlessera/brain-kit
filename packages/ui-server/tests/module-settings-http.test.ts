@@ -1,4 +1,9 @@
 import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
+import { SettingsFields } from "../../ui-react/src/components/settings/module-settings-fields";
+import { createModuleSettingsSession, savedDraft } from "../../ui-react/src/components/settings/module-settings-state";
 import { generateSignedCookie } from "hono/cookie";
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -152,8 +157,27 @@ test("mounted jobs migration preserves scores and prose, rolls back failed write
     expect(readFileSync(criteriaPath, "utf8")).toContain("Keep new prose.\n");
     expect(git(t.brainPath, ["show", "--pretty=", "--name-only", "HEAD"]).split("\n").sort()).toEqual(["career/criteria.md", "settings/jobs.json"]);
     expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
-    const settings = readFileSync(join(t.brainPath, "settings/jobs.json"), "utf8");
+    const settingsPath = join(t.brainPath, "settings/jobs.json");
+    // Existing source spelling can differ from the writer's canonical output.
+    writeFileSync(settingsPath, readFileSync(settingsPath, "utf8").replace("{\n", "{   \n"));
+    const settings = readFileSync(settingsPath, "utf8");
     const migratedCriteria = readFileSync(criteriaPath, "utf8");
+    // GET -> the real generic form/session -> unchanged PUT must preserve the
+    // existing JSON bytes, rather than normalize the displayed source values.
+    const formSnapshot = await (await t.fetch("/api/modules/jobs/settings")).json() as ModuleSettingsSnapshot;
+    const formStore = createModuleSettingsSession();
+    formStore.setState({ snapshot: formSnapshot, draft: formSnapshot.overrides });
+    const formHtml = renderToStaticMarkup(createElement(SettingsFields, { snapshot: formSnapshot, session: formStore.getState(), store: formStore }));
+    expect(formHtml).toContain('id="module-setting-scoring.groups.0.name"');
+    expect(formHtml).toContain('id="module-setting-scoring.groups.0.tiers.0.points"');
+    const formDraft = JSON.parse(JSON.stringify(savedDraft(formStore.getState())));
+    expect(formDraft.scoring.groups).toHaveLength(2);
+    const noOp = await t.fetch("/api/modules/jobs/settings", { ...request({ values: formDraft }, formSnapshot.revision), method: "PUT" });
+    expect(noOp.status).toBe(200);
+    expect(await noOp.json()).toMatchObject({ changed: false, commit: null });
+    expect(readFileSync(join(t.brainPath, "settings/jobs.json"), "utf8")).toBe(settings);
+    expect(readFileSync(criteriaPath, "utf8")).toBe(migratedCriteria);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
     const legacy = "Keep the author's prose.\n<!-- brain:generated:conventions -->\nMixed workflow instructions.\n<!-- /brain:generated:conventions -->\n";
     for (const file of ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]) writeFileSync(join(t.brainPath, file), legacy);
     for (const state of ["dormant", "active"]) {

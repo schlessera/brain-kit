@@ -29,8 +29,18 @@ function enter(doc: Document, id: string, value: string) {
   flushSync(() => { setter.call(input, value); input.dispatchEvent(new doc.defaultView!.Event("input", { bubbles: true })); });
 }
 
+async function settingsViewport(width: number) {
+  const frame = { width: window.innerWidth, height: window.innerHeight };
+  const browser = await commands.formViewport(width, 800);
+  await page.viewport(width, 800);
+  return async () => {
+    await page.viewport(frame.width, frame.height);
+    await commands.formViewport(browser.width - 100, browser.height - 120);
+  };
+}
+
 test("generic module fields render every leaf kind, discover new schema fields and retain complete unsupported values", async () => {
-  await page.viewport(320, 800); await commands.formViewport(320, 800);
+  const restoreViewport = await settingsViewport(320);
   const host = document.createElement("div"); host.style.width = "320px"; document.body.append(host);
   const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
   const snapshot = catalogFixture as ModuleSettingsSnapshot;
@@ -56,13 +66,12 @@ test("generic module fields render every leaf kind, discover new schema fields a
     expect(draft).toMatchObject({ title: "Return to Ithaca", count: 7, toggle: true, choices: ["navigator"], addedLater: "Edited without metadata", unsupported: snapshot.overrides.unsupported });
     expect(draft.items).toEqual([{ name: "Fleet", count: 2 }, { name: "Crew", count: 3 }, { name: "", count: 1 }]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); }
+  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); await restoreViewport(); }
 });
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
   test(`module settings: source-preserving edits and guarded navigation in ${theme} at ${width}px`, async () => {
-    await page.viewport(width, 800);
-    await commands.formViewport(width, 800);
+    const restoreViewport = await settingsViewport(width);
     const iframe = document.createElement("iframe");
     iframe.dataset.moduleSettings = "";
     iframe.style.cssText = `width:${width}px;height:800px;border:0`;
@@ -205,13 +214,14 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
       expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
     } finally {
       flushSync(() => react.unmount()); ui.dispose(); iframe.remove();
+      await restoreViewport();
     }
   });
 }
 
 
 test("jobs nested drafts preserve tiers through reorder, reject extra currency decimals and keep optional values absent", async () => {
-  await page.viewport(320, 800); await commands.formViewport(320, 800);
+  const restoreViewport = await settingsViewport(320);
   const host = document.createElement("div"); host.style.width = "320px"; document.body.append(host);
   const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
   const snapshot = structuredClone(snapshotFixture) as ModuleSettingsSnapshot;
@@ -254,11 +264,11 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(1);
     expect(Object.keys(store.getState().pendingInputs)).not.toContain("scoring.groups.1.keywords");
     expect(Object.keys(store.getState().variants)).not.toContain("scoring.groups.1");
-  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); }
+  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); await restoreViewport(); }
 });
 
 test("modules show loading, retry and empty states, and separate migration, dormancy and declared actions", async () => {
-  await page.viewport(320, 800); await commands.formViewport(320, 800);
+  const restoreViewport = await settingsViewport(320);
   const iframe = document.createElement("iframe"); iframe.dataset.moduleSettings = "";
   iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
   const doc = iframe.contentDocument!; doc.documentElement.dataset.theme = "dark"; doc.body.style.margin = "0";
@@ -344,5 +354,5 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     await expect.poll(() => host.textContent).toContain('Action finished: {"updated":3}');
     expect(operations.map((op) => op.path)).toEqual(["/api/modules/jobs/migration", "/api/modules/jobs/state", "/api/modules/jobs/state", "/api/modules/jobs/actions/rescore"]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); iframe.remove(); }
+  } finally { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); iframe.remove(); await restoreViewport(); }
 });
