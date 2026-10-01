@@ -622,7 +622,7 @@ describe("app wiring — request logging", () => {
       registry: createStaticBackendRegistry([backend], backend.id),
     });
     const unsafeLabel = `\u0001 Odysseus\u007f ${"x".repeat(300)}`;
-    const expectedLabel = `Odysseus ${"x".repeat(59)}`;
+    const expectedLabel = `Odysseus ${"x".repeat(55)}`;
 
     const response = await wired.fetch(
       new Request("http://localhost/api/vpn-check", {

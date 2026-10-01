@@ -34,7 +34,7 @@ test("the premise: the brain has no index for --lint to open", () => {
 test("a paraphrase query sharing a word with its answer's title is reported, naming the word and the path", async () => {
   const { code, out } = await lint([{ id: "q1", q: "how do I keep the star guide aligned", class: "paraphrase", expected: [PATH] }]);
   expect(code).toBe(0);
-  expect(out.warnings).toEqual([`q1: shares "star guide" with the title of ${PATH}`]);
+  expect(out.warnings).toEqual([`q1: shares "star" with the title of ${PATH}`]);
   expect(existsSync(join(root, "brain.db"))).toBe(false);
 });
 
@@ -46,8 +46,8 @@ test("the same query with the word replaced is not", async () => {
 });
 
 test("function words and letter case do not count as leakage", async () => {
-  // The title is "Barred eagle on the north loop": "on" and "the" are stopwords.
-  const { out } = await lint([{ id: "q1", q: "What did I see on the route at dusk", class: "paraphrase", expected: ["notes/quick-note-eagle.md"] }]);
+  // The title is "Eagle report from Ithaca": "from" is a stopword.
+  const { out } = await lint([{ id: "q1", q: "What did I see from the cave at dusk", class: "paraphrase", expected: ["notes/quick-note-eagle.md"] }]);
   expect(out.warnings).toEqual([]);
   const { out: cased } = await lint([{ id: "q2", q: "that EAGLE I saw", class: "paraphrase", expected: ["notes/quick-note-eagle.md"] }]);
   expect(cased.warnings).toEqual(['q2: shares "eagle" with the title of notes/quick-note-eagle.md']);
@@ -66,7 +66,7 @@ test("a malformed line exits 2 naming the line, without an index", async () => {
 });
 
 test("a candidate valid on its own is refused when linted with the set it joins (the brain-eval skill's check)", async () => {
-  const candidate = { id: "q1", q: "where is the scope guide", class: "paraphrase", expected: [PATH] };
+  const candidate = { id: "q1", q: "where is the guide", class: "paraphrase", expected: [PATH] };
   expect((await lint([candidate])).code).toBe(0);
   const { code, stderr } = await lint([{ id: "q1", q: "fine", class: "keyword", expected: [PATH] }, candidate]);
   expect(code).toBe(2);

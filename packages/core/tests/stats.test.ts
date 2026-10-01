@@ -99,7 +99,7 @@ describe("collectStats over fixtures/corpus", () => {
 
     // And their values still come from the same queries.
     expect(stats.documents).toBe(25);
-    expect(stats.tags).toBe(43);
+    expect(stats.tags).toBe(45);
     expect(stats.links).toBe(37);
     expect(stats.brokenLinks).toBe(2);
     expect(stats.chunks).toBe(25);

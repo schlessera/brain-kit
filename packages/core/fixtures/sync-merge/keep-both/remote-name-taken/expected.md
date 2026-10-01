@@ -7,7 +7,7 @@ tags: [note, voyage]
 status: active
 ---
 
-Carve the spar labels from cutoffs of the white oak.
+Carve the spar labels from cutoffs of the fir.
 
 - rout the letters
 - oil twice

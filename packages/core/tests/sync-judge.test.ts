@@ -114,7 +114,7 @@ describe("J2: decidePairs", () => {
     // Forward (A = ours) says A replaces B; reverse (A = theirs) says B replaces A: both mean ours supersedes.
     const jev = fakeJev((id) => ({ choice: id.startsWith("p0r") ? "B-replaces-A" : "A-replaces-B", confidence: 0.9 }));
     const judge = createSyncJudge({ apiKey: "k", client: jev });
-    const decided = await judge.decidePairs([pair("p", "Glue-up done.", "Glue-up planned.")]);
+    const decided = await judge.decidePairs([pair("p", "Deck lashed.", "Deck lashing planned.")]);
     expect(decided.get("p")).toEqual({ decision: "ours-supersedes", confidence: 0.9 });
     expect(judge.report().agreement).toEqual({ compared: 1, agreed: 1 });
   });

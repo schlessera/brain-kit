@@ -153,12 +153,12 @@ describe("over a real indexed brain", () => {
     root = makeTempBrain({ empty: true });
     writeFileSync(join(root, "brain.config.ts"), "export default {};\n");
     mkdirSync(join(root, "notes/deep"), { recursive: true });
-    mkdirSync(join(root, "projects/kiln"), { recursive: true });
-    writeFileSync(join(root, "notes/target.md"), doc("Target", "## Heading\n\nText.", "aliases: [Kiln Log]\n"));
-    writeFileSync(join(root, "projects/kiln/_index.md"), doc("Kiln", "The kiln project. [[notes/target]]"));
+    mkdirSync(join(root, "projects/raft"), { recursive: true });
+    writeFileSync(join(root, "notes/target.md"), doc("Target", "## Heading\n\nText.", "aliases: [Raft Log]\n"));
+    writeFileSync(join(root, "projects/raft/_index.md"), doc("Raft", "The raft project. [[notes/target]]"));
     writeFileSync(
       join(root, "notes/links.md"),
-      doc("Links", "[[target]] [[notes/target]] [[target#Heading]] [[Kiln Log]] [[kiln/]] [[target|shown]]")
+      doc("Links", "[[target]] [[notes/target]] [[target#Heading]] [[Raft Log]] [[raft/]] [[target|shown]]")
     );
     writeFileSync(join(root, "notes/broken.md"), doc("Broken", "[[target]] then [[no-such-page]] and [[gone/away#part]]"));
     writeFileSync(join(root, "notes/claims.md"), doc("Claims", "See [[target]]. [VERIFY: one] [VERIFY: two]", "verification: unverified\n"));

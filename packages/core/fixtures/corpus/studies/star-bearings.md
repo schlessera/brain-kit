@@ -26,4 +26,4 @@ Calypso's star guide for the seventeen-day passage. Case dimensions: 30 × 12 ×
 The navigation course's orientation exercise is the practical version of the
 lecture chapter. Night-sailing stars are listed in [[star-catalog]].
 
-The basename is unique; this is the target of [[star-bearings|my bearings]].
+The basename is unique; this is the target of `[[star-bearings|my bearings]]`.

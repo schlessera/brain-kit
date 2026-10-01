@@ -25,9 +25,9 @@ function resolvedContent(outcome: MergeOutcome): string {
 }
 
 describe("planMerge refuses what it must not merge", () => {
-  const base = doc("2026-05-01", "\n## Log\n\n- Saturn at dawn.\n");
-  const ours = doc("2026-05-02", "\n## Log\n\n- Saturn at dawn, seeing 3/5.\n");
-  const theirs = doc("2026-05-03", "\n## Log\n\n- Saturn at dawn; clouds by six.\n");
+  const base = doc("2026-05-01", "\n## Log\n\n- The Bear at dawn.\n");
+  const ours = doc("2026-05-02", "\n## Log\n\n- The Bear at dawn, visibility 3/5.\n");
+  const theirs = doc("2026-05-03", "\n## Log\n\n- The Bear at dawn; clouds by six.\n");
 
   test("a side with a NUL byte is binary", () => {
     const outcome = planMerge({ path: "studies/log.md", base, ours: ours + "\u0000", theirs }, "synthesize").render(new Map());
@@ -49,7 +49,7 @@ describe("planMerge refuses what it must not merge", () => {
   });
 
   test("frontmatter that is not YAML is unparseable", () => {
-    const broken = "---\ntitle: [unclosed\n---\n\n## Log\n\n- Saturn.\n";
+    const broken = "---\ntitle: [unclosed\n---\n\n## Log\n\n- The Bear.\n";
     const outcome = planMerge({ path: "studies/log.md", base, ours: broken, theirs }, "synthesize").render(new Map());
     expect(outcome.status).toBe("unresolved");
     if (outcome.status === "unresolved") expect(outcome.reason).toStartWith("unparseable: ours:");
@@ -74,19 +74,19 @@ describe("planMerge refuses what it must not merge", () => {
 });
 
 describe("judgment pairs", () => {
-  const base = doc("2026-05-01", "\n## Log\n\n- Saturn at dawn.\n");
-  const ours = doc("2026-05-02", "\n## Log\n\n- Saturn at dawn, seeing 3/5.\n");
-  const theirs = doc("2026-05-03", "\n## Log\n\n- Saturn at dawn; clouds by six.\n");
+  const base = doc("2026-05-01", "\n## Log\n\n- The Bear at dawn.\n");
+  const ours = doc("2026-05-02", "\n## Log\n\n- The Bear at dawn, visibility 3/5.\n");
+  const theirs = doc("2026-05-03", "\n## Log\n\n- The Bear at dawn; clouds by six.\n");
 
   test("a pair's id is a stable hash of path, context and both texts", () => {
     const plan = planMerge({ path: "studies/log.md", base, ours, theirs }, "synthesize");
     expect(plan.pairs).toEqual([
       {
-        id: pairId("studies/log.md", "Log", "- Saturn at dawn, seeing 3/5.", "- Saturn at dawn; clouds by six."),
+        id: pairId("studies/log.md", "Log", "- The Bear at dawn, visibility 3/5.", "- The Bear at dawn; clouds by six."),
         path: "studies/log.md",
         context: "Log",
-        ours: "- Saturn at dawn, seeing 3/5.",
-        theirs: "- Saturn at dawn; clouds by six.",
+        ours: "- The Bear at dawn, visibility 3/5.",
+        theirs: "- The Bear at dawn; clouds by six.",
       },
     ]);
     expect(planMerge({ path: "studies/log.md", base, ours, theirs }, "synthesize").pairs[0]!.id).toBe(plan.pairs[0]!.id);
@@ -100,10 +100,10 @@ describe("judgment pairs", () => {
     const body = (decision?: "same-fact" | "ours-supersedes" | "theirs-supersedes" | "distinct") =>
       resolvedContent(plan.render(new Map(decision ? [[id, decision]] : []))).split("## Log\n\n")[1];
     const undecided = body();
-    expect(body("same-fact")).toBe("- Saturn at dawn, seeing 3/5.\n");
-    expect(body("ours-supersedes")).toBe("- Saturn at dawn, seeing 3/5.\n");
-    expect(body("theirs-supersedes")).toBe("- Saturn at dawn; clouds by six.\n");
-    expect(body("distinct")).toBe("- Saturn at dawn; clouds by six.\n- Saturn at dawn, seeing 3/5.\n");
+    expect(body("same-fact")).toBe("- The Bear at dawn, visibility 3/5.\n");
+    expect(body("ours-supersedes")).toBe("- The Bear at dawn, visibility 3/5.\n");
+    expect(body("theirs-supersedes")).toBe("- The Bear at dawn; clouds by six.\n");
+    expect(body("distinct")).toBe("- The Bear at dawn; clouds by six.\n- The Bear at dawn, visibility 3/5.\n");
     expect(body()).toBe(undecided);
   });
 
@@ -112,7 +112,7 @@ describe("judgment pairs", () => {
       const outcome = planMerge(
         {
           path: "studies/log.md",
-          base: doc("2026-05-01", "\n## Log\n\n- Saturn at dawn.\n"),
+          base: doc("2026-05-01", "\n## Log\n\n- The Bear at dawn.\n"),
           ours: doc(oursUpdated, "\n## Log\n\n- OURS line.\n"),
           theirs: doc(theirsUpdated, "\n## Log\n\n- THEIRS line.\n"),
         },
@@ -251,9 +251,9 @@ describe("mergeFrontmatter", () => {
   test("OURS' key order, quoting and comments survive an edit from THEIRS", () => {
     const base = "---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-01\ntags: [eagle]\n---\n";
     const ours = "---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-02\ntags: [eagle, dusk]\n---\n";
-    const theirs = "---\nupdated: 2026-05-04\ntags: [eagle, fire-road]\ntitle: 'Eagle survey'\ncreated: 2026-04-30\n---\n";
+    const theirs = "---\nupdated: 2026-05-04\ntags: [eagle, shore]\ntitle: 'Eagle survey'\ncreated: 2026-04-30\n---\n";
     const { block, notes } = merge(base, ours, theirs);
-    expect(block).toBe("---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-04\ntags: [dusk, fire-road, eagle]\ncreated: 2026-04-30\n---\n");
+    expect(block).toBe("---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-04\ntags: [dusk, eagle, shore]\ncreated: 2026-04-30\n---\n");
     expect(notes).toEqual([
       "frontmatter `updated`: both sides changed it; kept the later (theirs)",
       "frontmatter `tags`: both sides changed them; kept the union",
@@ -295,21 +295,21 @@ describe("remotePath", () => {
 });
 
 describe("line endings", () => {
-  const base = doc("2026-07-01", "# Log\n\nSaturn low in the south.\n\nClouds after ten.\n");
-  const ours = base.replace("Saturn low in the south.", "Saturn low in the south, rings clear.");
+  const base = doc("2026-07-01", "# Log\n\nThe Bear low in the north.\n\nClouds after ten.\n");
+  const ours = base.replace("The Bear low in the north.", "The Bear low in the north, north clear.");
   const theirs = base.replace("Clouds after ten.", "Clouds after ten, then clear.");
   const toCrlf = (text: string) => text.replace(/\n/g, "\r\n");
 
   test("a CRLF side merges line by line with an LF side, and the result keeps ours' LF", () => {
     const content = resolvedContent(planMerge({ path: "studies/log.md", base, ours, theirs: toCrlf(theirs) }, "synthesize").render(new Map()));
-    expect(content).toContain("rings clear.");
+    expect(content).toContain("north clear.");
     expect(content).toContain("then clear.");
     expect(content).not.toContain("\r");
   });
 
   test("a CRLF ours keeps CRLF throughout", () => {
     const content = resolvedContent(planMerge({ path: "studies/log.md", base, ours: toCrlf(ours), theirs }, "synthesize").render(new Map()));
-    expect(content).toContain("rings clear.");
+    expect(content).toContain("north clear.");
     expect(content).toContain("then clear.");
     expect(content.replace(/\r\n/g, "")).not.toContain("\n");
   });

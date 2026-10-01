@@ -60,7 +60,7 @@ async function briefing(focus: string, opts: BriefingOptions = {}): Promise<stri
   }
 }
 
-const current = "## Now\n\n- Sand the face frame.\n- 2026-07-10 glue-up.";
+const current = "## Now\n\n- Fair the deck frame.\n- 2026-07-10 lashings.";
 
 test("a focus document past its next_review opens the briefing with an overdue warning", async () => {
   const out = await briefing(focusDoc("next_review: 2026-06-19\n", current));
@@ -76,13 +76,14 @@ test("a focus document over its configured budget names both numbers", async () 
   const out = await briefing(focusDoc("", body), {
     config: `export default { taxonomy: { canonicalPolicy: { currentFocus: { maxTokens: 100 } } } };\n`,
   });
-  const tokens = estimateTokens(`${body}\n`);
+  // focusDoc leaves a blank line after its closing delimiter.
+  const tokens = estimateTokens(`\n${body}\n`);
   expect(tokens).toBeGreaterThan(100);
   expect(out.split("\n")[0]).toBe(`> **Warning:** \`${FOCUS}\` is ~${tokens} tokens, over its 100-token budget.`);
 });
 
 test("past-dated lines are counted in one warning", async () => {
-  const out = await briefing(focusDoc("", `${current}\n- 2026-05-01 send the quote.\n- 2026-06-30 book the kiln.`));
+  const out = await briefing(focusDoc("", `${current}\n- 2026-05-01 ask Calypso for rope.\n- 2026-06-30 dry the sail.`));
   expect(out.split("\n")[0]).toBe(`> **Warning:** \`${FOCUS}\` has 2 line(s) naming a past date; \`brain audit\` lists them.`);
 });
 
@@ -98,8 +99,8 @@ test("a current, in-budget focus document with no past dates gives exactly the b
       "",
       "## Now",
       "",
-      "- Sand the face frame.",
-      "- 2026-07-10 glue-up.",
+      "- Fair the deck frame.",
+      "- 2026-07-10 lashings.",
       "",
       "## Overdue Reviews",
       "",

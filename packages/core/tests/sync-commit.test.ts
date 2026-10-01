@@ -170,7 +170,7 @@ describe("bumpUpdated", () => {
 
   test("sets `updated` on a body change and leaves every other byte as it was", () => {
     const root = repo({ "routes/ridge.md": original });
-    const edited = original.replace("Rockfall beside the cave.", "Washout at mile 3, repaired.");
+    const edited = original.replace("Rockfall beside the cave.", "Rockfall beside the cave, cleared.");
     write(root, "routes/ridge.md", edited);
 
     expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "M" }], TODAY)).toEqual({ bumped: ["routes/ridge.md"], refused: [] });
@@ -187,7 +187,7 @@ describe("bumpUpdated", () => {
 
   test("a whitespace-only body change is not a change", () => {
     const root = repo({ "routes/ridge.md": original });
-    const reflowed = original.replace("Rockfall beside the cave.", "Washout  at\r\nmile 3.  ");
+    const reflowed = original.replace("Rockfall beside the cave.", "Rockfall  beside\r\nthe cave.  ");
     write(root, "routes/ridge.md", reflowed);
     expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "M" }], TODAY).bumped).toEqual([]);
     expect(read(root, "routes/ridge.md")).toBe(reflowed);

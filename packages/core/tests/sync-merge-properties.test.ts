@@ -64,7 +64,7 @@ class Gen {
     return `n${++this.counter}`;
   }
   words(): string {
-    const vocabulary = ["oak", "route", "glue", "Saturn", "knee", "bench", "ridge", "eagle", "plane", "shift", "rota", "sleep"];
+    const vocabulary = ["fir", "route", "rope", "Bear", "knee", "spar", "ridge", "eagle", "adze", "watch", "crew", "sleep"];
     const count = 2 + this.int(5);
     return Array.from({ length: count }, () => this.pick(vocabulary)).join(" ");
   }

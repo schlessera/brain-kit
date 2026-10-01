@@ -51,7 +51,7 @@ test("a tracked file over the limit warns, naming it, beside the largest binarie
   expect(check.detail).toBe(
     "1 tracked file(s) over media.maxTrackedBytes (97.7 KB): render.png (195.3 KB); " +
       // The fixture corpus ships two small binaries of its own.
-      "largest tracked binaries: render.png (195.3 KB), photo.jpg (48.8 KB), notes.pdf (1000 B), studies/star-chart.pdf (598 B), me/avatar.png (72 B)"
+      "largest tracked binaries: render.png (195.3 KB), photo.jpg (48.8 KB), notes.pdf (1000 B), studies/star-chart.pdf (594 B), me/avatar.png (72 B)"
   );
   expect(check.fix).toContain("docs/media.md");
 });

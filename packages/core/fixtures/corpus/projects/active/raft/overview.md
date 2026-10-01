@@ -14,5 +14,5 @@ summary: "At-a-glance planning state of the Ogygia raft"
 Deck frame dimensions checked; timber has not been cut. Waiting for release and
 Calypso's tools. The plan anticipates twenty trees, a deck and a sail.
 
-The other overview.md lives under studies/navigation/. A bare [[overview]]
+The other overview.md lives under studies/navigation/. A bare `[[overview]]`
 from a sibling here resolves locally; [[plan]] has the design.

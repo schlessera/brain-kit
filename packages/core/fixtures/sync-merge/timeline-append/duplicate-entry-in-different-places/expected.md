@@ -13,12 +13,12 @@ A practice spar for the departure from Ogygia.
 
 ## Materials
 
-- white oak, 8/4
-- hide glue
+- fir, one practice spar
+- lashing rope
 
 ## Timeline
 
-- 2026-04-02: Milled the top laminations.
-- 2026-04-09: Glued up the first half of the top.
-- 2026-04-12: Bought more hide glue.
+- 2026-04-02: Shaped the spar with the adze.
+- 2026-04-09: Lashed the first half of the spar.
+- 2026-04-12: Gathered more lashing rope.
 - 2026-04-15: Oiled the base.

@@ -306,9 +306,9 @@ describe("full-text lane over fixtures/corpus", () => {
 
   test("an exact multi-word keyword query still ranks the one document holding every word first", async () => {
     const status = "projects/active/raft/status.md";
-    expect(rawMatch('"carcass" "glue-up"')).toEqual([status]);
+    expect(rawMatch('"construction" "offers"')).toEqual([status]);
 
-    const { results } = await fts("carcass glue-up");
+    const { results } = await fts("construction offers");
     expect(results.length).toBeGreaterThan(1);
     expect(results[0]!.path).toBe(status);
   });
@@ -327,19 +327,20 @@ describe("full-text lane over fixtures/corpus", () => {
   });
 
   test("a query that is one quoted phrase stays a phrase", async () => {
-    const expected = rawMatch('"face frame"');
+    const expected = rawMatch('"guide case"');
+    expect(expected.length).toBeGreaterThan(0);
     // The phrase is narrower than its words, or this proves nothing.
-    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+    expect(rawMatch('"guide" OR "case"').length).toBeGreaterThan(expected.length);
 
-    const { results } = await fts('"face frame"');
+    const { results } = await fts('"guide case"');
     expect(results.map(r => r.path).sort()).toEqual(expected);
   });
 
   test("a quoted phrase holding FTS5 doubled-quote escapes stays one phrase", async () => {
-    const query = '"face ""frame"""';
+    const query = '"guide ""case"""';
     const expected = rawMatch(query);
     expect(expected.length).toBeGreaterThan(0);
-    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+    expect(rawMatch('"guide" OR "case"').length).toBeGreaterThan(expected.length);
 
     const { results, warnings } = await fts(query);
     expect(results.map(r => r.path).sort()).toEqual(expected);

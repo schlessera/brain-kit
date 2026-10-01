@@ -194,7 +194,7 @@ describe("audit tag-noise", () => {
   test("emits one aggregate finding when singleton tags exceed 40%", () => {
     const db = freshDb();
     const id = insertDoc(db, { path: "notes/tagged.md", type: "note", updated: "2026-06-20" });
-    for (const name of ["eagles", "trailhead", "lichen"]) {
+    for (const name of ["eagles", "watercask", "lichen"]) {
       db.run("INSERT INTO tags (name) VALUES (?)", [name]);
       const tagId = (db.prepare("SELECT id FROM tags WHERE name = ?").get(name) as { id: number }).id;
       db.run("INSERT INTO document_tags (document_id, tag_id) VALUES (?, ?)", [id, tagId]);

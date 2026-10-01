@@ -112,7 +112,7 @@ describe("stale vs current", () => {
       writeSet("stale.jsonl", [{ ...BIO, expected: ["me/basics/FACTS.md"], stale: ["me/basics/short-bio.md"] }])
     );
     expect(code).toBe(0);
-    expect(out.per_query[0]).toMatchObject({ rank: 3, current_first: false });
+    expect(out.per_query[0]).toMatchObject({ rank: 4, current_first: false });
     expect(out.rows.find((r: { class: string | null }) => r.class === "stale-vs-current").current_first).toBe(0);
   });
 
