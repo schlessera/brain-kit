@@ -6,8 +6,8 @@ and its consuming host can declare requirements. The host need not have a
 version or a release process: its checked-in manifest, configuration and
 lockfile describe the requirements of that checkout.
 
-This record specifies the implementation boundaries. The configuration below
-is a design, not an API already shipped. It supplements
+This record specifies the implementation boundaries. Host/context composition
+and backend enforcement implement these declarations in #642 and #643. It supplements
 [claude-code-runtime.md](claude-code-runtime.md): compatibility requirements
 do not replace the measured-pair warning, permission probes or provenance.
 
@@ -242,7 +242,7 @@ inside the package's range in its own root manifest, with no host version:
 }
 ```
 
-The **proposed** checked-in app options additionally express the requirements
+The checked-in app options additionally express the requirements
 that resolution of those packages cannot prove:
 
 ```ts
@@ -250,7 +250,7 @@ const versionRequirements = {
   brainCli: "0.33.0", // This CLI lives in the separate content checkout.
   backends: { claude: { sdk: "0.3.283", runtime: "2.1.283" } },
 };
-// Pass versionRequirements to createApp; backend pre-prompt checks are #643.
+// Pass versionRequirements to createApp; direct factories accept their backend pair.
 ```
 
 The example deliberately makes an unknown content CLI version an error. The
@@ -264,12 +264,12 @@ reciprocal host-version negotiation is involved.
 | Existing boundary | How this design uses it |
 | --- | --- |
 | `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:106-157`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
-| `installedAgentSdkVersion` (`export function installedAgentSdkVersion`, `packages/ui-backend-claude/src/runtime-probe.ts:60-68`) | Retain importer-relative resolution; validate package name/version and the owner's manifest range. |
-| `selectedSpawn` / `probeClaudeRuntime` (`export function selectedSpawn`, `packages/ui-backend-claude/src/runtime-probe.ts:76-103`; `export async function probeClaudeRuntime`, `packages/ui-backend-claude/src/runtime-probe.ts:131-190`) | Keep SDK-selected command capture, native/JS override argv, environment, timeout and group cleanup; add strict identity validation and composed runtime floors. |
-| `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:382-427`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |
-| `BackendModuleContext` / `BackendRuntimeReport` (`export interface BackendModuleContext`, `packages/ui-sdk/src/server/backend-module.ts:96-107`; `export interface BackendRuntimeReport`, `packages/ui-sdk/src/server/backend-module.ts:114-126`) | Extend the existing construction context for optional minimums. Keep report identities and `measured` meanings; a compatibility result must never occupy `measured.matches`. |
+| `installedAgentSdkVersion` (`export function installedAgentSdkVersion`, `packages/ui-backend-claude/src/runtime-probe.ts:55-61`) | Retain importer-relative resolution; validate package name/version and the owner's manifest range. |
+| `selectedSpawn` / `probeClaudeRuntime` (`export function selectedSpawn`, `packages/ui-backend-claude/src/runtime-probe.ts:69-96`; `export async function probeClaudeRuntime`, `packages/ui-backend-claude/src/runtime-probe.ts:127-147`) | Keep SDK-selected command capture, native/JS override argv, environment, timeout and group cleanup; add strict identity validation and composed runtime floors. |
+| `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:382-429`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |
+| `BackendModuleContext` / `BackendRuntimeReport` (`export interface BackendModuleContext`, `packages/ui-sdk/src/server/backend-module.ts:96-107`; `export interface BackendRuntimeReport`, `packages/ui-sdk/src/server/backend-module.ts:114-127`) | Extend the existing construction context for optional minimums. Keep report identities and `measured` meanings; a compatibility result must never occupy `measured.matches`. |
 | `MEASURED_RUNTIME`, its guard and `scripts/measure-claude-runtime.ts` | Keep the constant, exact pair guard, keyless behavior probe and dated measurement receipts. A permitted pair can still be unmeasured. |
-| Turn `reportRuntime` / `init` (`const reportRuntime`, `packages/ui-backend-claude/src/turn-runner.ts:96-103`; `if (msg.type === "system"`, `packages/ui-backend-claude/src/turn-runner.ts:319-321`) | Preserve actual per-turn SDK/runtime observations, billing/permission guards and normal failure terminal behavior. |
+| Turn `reportRuntime` / `init` (`const reportRuntime`, `packages/ui-backend-claude/src/turn-runner.ts:99-106`; `if (msg.type === "system"`, `packages/ui-backend-claude/src/turn-runner.ts:344-360`) | Preserve actual per-turn SDK/runtime observations, billing/permission guards and normal failure terminal behavior. |
 | Index schema and graph floors | Remain reader-specific integer schema checks; do not compare them as SemVer or turn `brain.db` into authoritative state. |
 
 No new compatibility HTTP status field is required for enforcement. Keep
@@ -301,5 +301,5 @@ enforcement). Generated-host build verification and examples belong to
 under the existing hosting epic. Their verification includes keyless loaded-copy fixtures,
 native/JS overrides, below-minimum and conflicting requirements, strict invalid
 input, prereleases, default-versus-explicit unknown behavior and mutations of
-the enforcement paths. This decision-only change alters no manifest, runtime
-API, compatibility contract or numeric default.
+the enforcement paths. The implementation adds optional factory minima and Pi SDK-only reports while
+retaining the declared package ranges, numeric defaults and measured meanings.

@@ -67,7 +67,9 @@ prescribing storage for the transcripts themselves (backends own those).
 
 `BackendModule.probeRuntime?(context): Promise<BackendRuntimeReport>` is the
 optional asynchronous startup check. The host awaits it before opening app
-resources. Descriptor authors migrating from the synchronous signature use
+resources. `BackendRuntimeReport.runtime` is present for separately spawned
+executables; an in-process backend may report only its `sdk` identity. Pi uses
+that SDK-only report without inventing an executable or measurement result. Descriptor authors migrating from the synchronous signature use
 `async probeRuntime(context)` and reject to refuse startup. The shared
 `probeVersionCommand` runs a version argv with the five-second deadline,
 250 ms cleanup budget and explicit `cleanupWarnings`; it does not decide the

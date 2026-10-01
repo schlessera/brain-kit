@@ -151,7 +151,7 @@ describe("real descriptor-backed host forwarding", () => {
     writeFileSync(claude, "#!/bin/sh\necho '2.0.0 (Claude Code)'\n");
     chmodSync(claude, 0o755);
     const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", DB_PATH: f.config.dbPath, BRAIN_PATH: f.root, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: claude });
-    await expect(createApp({ config, observability: f.observability, versionRequirements: { backends: { claude: { runtime: "3.0.0" } } } })).rejects.toThrow(/claude runtime.*startup.*2\.0\.0.*host versionRequirements.backends.claude.runtime.*3\.0\.0/);
+    await expect(createApp({ config, observability: f.observability, versionRequirements: { backends: { claude: { runtime: "3.0.0" } } } })).rejects.toThrow(/backend-claude runtime.*startup.*detected "2\.0\.0".*host versionRequirements.runtime.*3\.0\.0/);
     expect(existsSync(f.config.dbPath)).toBe(false);
     expect(f.invocations()).toEqual([]);
   });

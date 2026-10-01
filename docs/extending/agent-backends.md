@@ -54,7 +54,8 @@ export interface BackendModule {
 - `modelSource` is optional. The Claude descriptor uses it for Anthropic model
   discovery; pi has no discovery source.
 - `probeRuntime` is optional and asynchronous. It checks the runtime a turn
-  would spawn, returning its `BackendRuntimeReport` or rejecting to refuse
+  would spawn, and its loaded SDK. An in-process backend can return an SDK-only
+  `BackendRuntimeReport`; it never invents an executable identity. Reject to refuse
   startup. `createApp` awaits it before opening application resources. Migrate
   synchronous descriptors to `async probeRuntime(context)`; no synchronous
   compatibility signature is retained. A host injecting its own registry
@@ -74,9 +75,13 @@ upper bounds or sharing prerelease opt-ins. The default registry verifies
 requested identities against `probeRuntime` reports before constructing a
 backend; an absent probe or SDK identity cannot silently bypass a minimum.
 `createApp` refuses explicit backend requirements with an injected registry.
-Backend factories and prompt-time enforcement are tracked in
-[#643](https://github.com/schlessera/brain-kit/issues/643); the server/context
-addition does not supply those checks for a direct factory consumer.
+Both first-party direct factories accept the same optional pair and enforce
+actual loaded SDK copies against their owning manifest constraints. Pi checks
+all three SDK dependencies, reports the primary coding-agent identity and
+refuses a separate runtime requirement. Claude additionally rechecks constrained
+executables on start/resume and holds the prompt until the bounded SDK
+handshake succeeds. Its later init observation preserves provenance and aborts
+contradictory versions. Compatibility never supplies a measured verdict.
 
 The descriptor ultimately constructs the runtime interface:
 

@@ -4,6 +4,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
   BackendBridge,
+  BackendVersionRequirements,
   AutonomousTurnOptions,
   ClientEnvironment,
   ConfirmPatternSource,
@@ -86,6 +87,8 @@ export interface PiProfile {
 }
 
 export interface CreatePiBackendOptions {
+  /** Full SemVer minimum for the primary SDK; composed with all three manifest constraints. Pi has no separate runtime identity. */
+  versionRequirements?: BackendVersionRequirements;
   /** Absolute path to the brain repository (the agent's cwd). */
   brainPath: string;
   /** Default model when no profiles are configured: "vendor/modelId" or "modelId". */

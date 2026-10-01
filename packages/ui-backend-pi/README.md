@@ -339,3 +339,22 @@ SDK's supported permission toolkit and their runtime's own policy. The
 [classification](../../docs/decisions/backend-authoring-toolkit.md) records
 these names separately from the supported input formats and turn posture.
 Runtime defaults and permission behavior are unchanged.
+
+
+## SDK requirements
+
+The factory and descriptor validate the actual imported `pi-coding-agent`,
+`pi-agent-core` and `pi-ai` copies against their declarations in this package's
+manifest. That includes nested core/AI copies used by the primary SDK; a valid
+hoisted dependency cannot vouch for them. SDK metadata is read from each
+resolved package's owning manifest and must retain its expected name and full
+SemVer version.
+
+Optional `versionRequirements: { sdk: "0.99.2" }` on `createPiBackend` or the
+module context composes a full SemVer minimum with the primary
+`@earendil-works/pi-coding-agent` constraint. It cannot weaken any package pin.
+The descriptor's asynchronous `probeRuntime` reports `{ sdk: { name, version } }`
+without executing a vendor CLI. Pi runs in process and has no separate runtime
+identity, so a requested `versionRequirements.runtime` refuses with an action
+to use an SDK requirement instead. Inactive Claude configuration does not load
+or probe the Claude backend.

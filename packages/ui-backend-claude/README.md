@@ -24,6 +24,7 @@ mean it).
 |---|---|---|
 | `brainPath` | — | Working directory for the agent — the brain repo. |
 | `claudeCodePath` | SDK discovery | Path to the native `claude` executable when it isn't on PATH. |
+| `versionRequirements` | none | Full SemVer `{ sdk?, runtime? }` minima. Compose with the owning SDK range; constrained runtime checks hold prompts on start and resume. |
 | `profiles` | `DEFAULT_PROFILES` | Selectable inference profiles; first is the default. Pass a **function** when the roster can change at runtime (see model discovery) — an array is captured once. |
 | `allowedTools` | `DEFAULT_ALLOWED_TOOLS` | Backend-wide allowlist; a profile's own `allowedTools` overrides it. |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources or `{ pattern, effect }` entries; matching Bash commands raise a confirmation card. `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
@@ -247,3 +248,33 @@ guarantee. External backends use the SDK's supported permission operations
 and configure policies through `ConfirmPatternSource`. The
 [toolkit inventory](../../docs/decisions/backend-authoring-toolkit.md) records
 the boundary. Runtime defaults and permission behavior are unchanged.
+
+
+## SDK and runtime requirements
+
+The factory and descriptor enforce the Claude SDK copy resolved from this
+backend's import site against this package's dependency range and an optional
+`versionRequirements.sdk` minimum. The loaded package must retain a readable
+manifest with the expected name and a full SemVer version. A compatible
+hoisted copy or host lockfile cannot stand in for the imported one. The owning
+manifest remains the single source for the SDK range, including its upper bound.
+
+`versionRequirements.runtime` is an optional full SemVer minimum for the
+SDK-selected Claude Code executable, including native and JavaScript
+`claudeCodePath` overrides. There is no extra numeric runtime floor by default.
+With a runtime requirement, every start and resume probes the selected command
+again through the turn's environment and exec wrapper, then withholds its
+streaming prompt until SDK initialization succeeds. The probe and handshake
+each have a five-second deadline. Cancellation withholds input and preserves
+the normal cancelled terminal frame. Subscription account/settings checks
+remain required independently of compatibility.
+
+The pre-prompt probe cannot lock an externally replaceable executable: a change
+between probe and spawn remains possible. Select immutable executable paths
+when that guarantee matters. The running CLI's `system/init` is an observation
+after input release; a missing, incompatible or contradictory version aborts
+a constrained turn through its normal error terminal. It cannot unsend input.
+
+Compatibility does not imply measurement. Supported unmeasured pairs continue
+with the existing warning and actual SDK/runtime provenance. `MEASURED_RUNTIME`
+and its keyless permission/billing probes remain separate evidence.

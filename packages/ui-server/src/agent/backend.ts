@@ -403,16 +403,18 @@ export async function probeBackendRuntimes(
     const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
     log?.emit({
       severityText: "INFO",
-      body: `${entry.id} runtime: ${report.runtime.name} ${report.runtime.version}`,
+      body: report.runtime ? `${entry.id} runtime: ${report.runtime.name} ${report.runtime.version}` : `${entry.id} SDK: ${report.sdk?.name} ${report.sdk?.version}`,
       attributes: {
         "backend.id": entry.id,
-        "runtime.version": report.runtime.version,
-        "runtime.command": report.runtime.command,
-        "runtime.host_provided": report.runtime.hostProvided,
+        ...(report.runtime ? {
+          "runtime.version": report.runtime.version,
+          "runtime.command": report.runtime.command,
+          "runtime.host_provided": report.runtime.hostProvided,
+        } : {}),
         ...(report.sdk ? { "sdk.version": report.sdk.version } : {}),
       },
     });
-    if (report.measured && !report.measured.matches) {
+    if (report.runtime && report.measured && !report.measured.matches) {
       log?.emit({
         severityText: "WARN",
         body:

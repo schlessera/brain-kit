@@ -224,8 +224,15 @@ and streaming-sync invocations. Backend minima travel through the existing
 `BackendModuleContext.versionRequirements` to probes and construction. The
 shared server SDK helper retains every owner/declaration, upper bounds, OR
 grouping and normal per-tuple prerelease opt-in. Compatibility remains separate
-from measured status and index schemas; no wire/report fields change. Backend
-factory and pre-prompt enforcement are the separately scoped #643.
+from measured status and index schemas; existing wire/report meanings hold. Backend
+factories also accept the optional pair and enforce owning SDK requirements
+on their actual imported copies (#643). Pi's boot entry adds its primary SDK
+identity without a `runtime` or `measured` field: it has no separately spawned
+executable. Existing Claude report fields retain their meanings. With a Claude
+runtime requirement, start/resume re-probe the SDK-selected executable and
+withhold input until the bounded SDK handshake completes. A contradictory
+later init version ends the turn through the existing error/result envelopes;
+compatibility adds no wire fields and changes no measured verdict.
 
 ## HTML renderer budgets
 

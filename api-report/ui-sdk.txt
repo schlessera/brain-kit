@@ -579,8 +579,10 @@ export "./internal" (./src/internal.ts)
   SUBPROCESS_ENV
   type SubprocessEnvAudience
   archivesDocument
+  assertLoadedSdk
   bashCommand
   filterSubprocessEnv
+  loadedSdkIdentity
   parseSubprocessEnvExtra
 
 export "./package.json" (./package.json) [asset]
@@ -2252,7 +2254,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   BackendRuntimeReport (packages/ui-sdk/src/server/backend-module.ts)
     export interface BackendRuntimeReport {
-        runtime: {
+        runtime?: {
             name: string;
             version: string;
             command: string;
