@@ -317,7 +317,7 @@ export async function startMcpServer(
     "brain_context",
     {
       description:
-        "Assemble a token-limited context block about a topic from the brain, including identity and current focus sections. Useful for getting a comprehensive summary for a given topic. `max_tokens` defaults to 4000, estimated at about four characters per token, and the block never exceeds it. The identity and current-focus documents come first: whole when they fit, otherwise cut at a paragraph or heading boundary with a pointer to read the full file, and left out when not even that fits. Search results follow, each a header (path, updated date, status, summary) and a one-line snippet, included whole or skipped for the next one until fewer than 20 tokens remain; a document already shown is not repeated.",
+        "Assemble a topic briefing. `max_tokens` defaults to 4000; output stays within this budget, estimated at about four characters per token. The identity and current-focus documents come first: whole when they fit, otherwise cut at a paragraph or heading boundary with a pointer to read the full file, and left out when not even that fits. Search hits follow as headers and one-line snippets, included whole or skipped for the next one until fewer than 20 tokens remain. Remaining budget expands placed hits in rank order into their matching source section or lead, capped at 40% of the total budget per hit. Longer sections are cut at whole-block boundaries with a read pointer; unavailable or unusable sections retain their snippets. Documents are not repeated.",
       inputSchema: {
         query: z.string().describe("Topic to assemble context for"),
         max_tokens: z.number().default(4000).describe("Token budget for the assembled context"),
