@@ -42,6 +42,7 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createUiDb } from "./db/client.js";
 import { createInboxStore } from "./inbox/store.js";
+import { createInboxResolver } from "./inbox/resolve.js";
 import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
@@ -248,11 +249,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Recovery/heartbeat only. Production dispatch is gated by the full-v1
   // containment, budgets, admission and system proof; no backend is wired here.
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
+    brainRoot: config.brainPath,
     budget: config.inbox?.budget ? { config: config.inbox.budget, pricing,
       maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined });
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
-  try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
+  try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const brain = createBrainClient({ brainPath: config.brainPath, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
@@ -306,7 +308,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     registry,
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
-    inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox")),
+    // Exact-operation approvals remain fail-closed until the full-v1 engine
+    // wires current server authority. Dismiss/cancel/snooze need no grant.
+    inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
+      createInboxResolver(db, { allowedOperations: () => [], timeZone: config.inbox?.budget?.timeZone })),
     classifier,
     scratchPrune: () => scratchPrune.tick(),
     ...(options.appName ? { appName: options.appName } : {}),

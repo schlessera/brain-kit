@@ -424,6 +424,17 @@ export async function handleClientMessage(
       break;
     }
 
+    case "inbox_resolve":
+    case "inbox_snooze": {
+      if (connection.closed) break;
+      if (!host.inbox?.handleDecision) {
+        host.sendMessage(ws, { type: "error", code: "INBOX_UNAVAILABLE", message: "Inbox decisions are unavailable on this host." });
+        break;
+      }
+      host.inbox.handleDecision(ws, msg, connection.authorization);
+      break;
+    }
+
     case "inbox_subscribe": {
       if (connection.closed) break;
       if (!host.inbox) {

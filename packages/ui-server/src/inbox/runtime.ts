@@ -3,7 +3,8 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
 import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
-import { recoverAutonomousItem } from "./yield.js";
+import { failInboxWork, sweepInboxLifecycle } from "./actions.js";
+import { createInboxCleanup } from "./cleanup.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -27,6 +28,7 @@ interface DrainResult {
 export function createInboxRuntime(db: Database, deps: {
   log: Logger;
   now?: () => number;
+  brainRoot?: string;
   timers?: Timers;
   /** Internal fixture/engine wiring, never a package extension interface. */
   dispatch?: (item: InboxQueueItem, signal: AbortSignal) => Promise<void>;
@@ -40,6 +42,7 @@ export function createInboxRuntime(db: Database, deps: {
     clearInterval: (timer) => clearInterval(timer),
   };
   const store = createInboxStore(db, { now });
+  const cleanup = deps.brainRoot ? createInboxCleanup(db, deps.brainRoot, { now }) : undefined;
   const budget = deps.budget ? createInboxBudget(db, { ...deps.budget, now }) : undefined;
   const dispatchEnabled = Boolean(deps.dispatch && budget && deps.operation);
   const controller = new AbortController();
@@ -56,7 +59,7 @@ export function createInboxRuntime(db: Database, deps: {
       const rows = db.query(
         "SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
       ).all(now()) as { id: string }[];
-      for (const { id } of rows) recoverAutonomousItem(db, store.getItem(id) as InboxQueueItem, now());
+      for (const { id } of rows) failInboxWork(db, id, store.getItem(id)!.version, now());
       return rows.length;
     }).immediate();
   }
@@ -71,7 +74,7 @@ export function createInboxRuntime(db: Database, deps: {
   }
 
   function eligible(item: InboxQueueItem, at: number): boolean {
-    return item.status === "ready" && item.expiresAt > at &&
+    return item.type !== "cleanup_pending" && item.status === "ready" && item.expiresAt > at &&
       (item.waitUntil === undefined || item.waitUntil <= at) && item.attempts < item.maxAttempts;
   }
 
@@ -92,11 +95,14 @@ export function createInboxRuntime(db: Database, deps: {
     const pass = result();
     if (closed) return pass;
     try {
+      await ready;
       pass.recovered = recoverLeases();
+      sweepInboxLifecycle(db, now());
+      await cleanup?.sweep();
       heartbeat();
       const at = now();
       const { count } = db.query(
-        "SELECT COUNT(*) AS count FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'ready' AND expires_at > ? AND (wait_until IS NULL OR wait_until <= ?) AND attempts < max_attempts"
+        "SELECT COUNT(*) AS count FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_pending' AND status = 'ready' AND expires_at > ? AND (wait_until IS NULL OR wait_until <= ?) AND attempts < max_attempts"
       ).get(at, at) as { count: number };
       // Empty ticks never construct a recorder or call inference. An absent
       // dispatcher also leaves ready work untouched until the full-v1 gates.
@@ -110,13 +116,20 @@ export function createInboxRuntime(db: Database, deps: {
         pass.claimed++;
         // The immediate claim transaction has ended before any asynchronous
         // work. The engine owns completion/backoff/checkpoints and accounting.
-        await deps.dispatch!(item, controller.signal);
+        try { await deps.dispatch!(item, controller.signal); }
+        catch (error) {
+          const current = store.getItem(item.id);
+          if (current?.queue === "queue" && current.status === "claimed" && current.version === item.version)
+            failInboxWork(db, item.id, item.version, now());
+          reconcileInboxBudgets(db, now());
+          throw error;
+        }
       }
     } catch {
       pass.failed = true;
-      // A failed dispatch keeps its committed lease for recovery. Do not log
-      // untrusted item text or arbitrary dispatcher exceptions.
-      deps.log.emit({ severityText: "WARN", body: "inbox drain failed; committed leases remain recoverable" });
+      // Explicit failures schedule backoff; killed workers retain recoverable
+      // leases. Do not log untrusted text or arbitrary dispatcher exceptions.
+      deps.log.emit({ severityText: "WARN", body: "inbox drain failed; retry and cleanup journals remain recoverable" });
     }
     return pass;
   }
@@ -136,9 +149,13 @@ export function createInboxRuntime(db: Database, deps: {
 
   // Boot recovery is deterministic and creates no Activity/model work.
   recoverLeases();
+  sweepInboxLifecycle(db, now());
   heartbeat();
+  const ready = cleanup?.sweep() ?? Promise.resolve(0);
+  void ready.catch(() => deps.log.emit({ severityText: "WARN", body: "inbox cleanup recovery failed; journal retained" }));
   arm();
   return {
+    ready,
     tick,
     async poke() {
       if (closed) return { ...result(), rearmed: false, closed: true };
@@ -153,6 +170,8 @@ export function createInboxRuntime(db: Database, deps: {
       controller.abort();
       if (timer !== undefined) timers.clearInterval(timer);
       await active;
+      await ready.catch(() => {});
+      await cleanup?.close();
     },
   };
 }

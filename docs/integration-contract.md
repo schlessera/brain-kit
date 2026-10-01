@@ -1710,8 +1710,9 @@ are UTC epoch milliseconds. Queue items (`triage`, `execute`,
 `scheduled | ready | claimed | done | blocked | failed | superseded | expired | dropped`.
 Actions (`approve`, `choose`, `fyi`) carry title/detail and stored options,
 and use only `pending | snoozed | resolved | dismissed | expired | dropped`.
-FYIs carry no options. The store owns guarded transitions; defining these
-vocabularies does not implement claims or resolution.
+FYIs carry no options. The store owns guarded transitions, and the concrete
+server engine composes checkpoint/Action/block and final resolution/follow-up
+transactions without an inference call.
 
 Each option carries a closed `ResolutionEffect`:
 
@@ -1745,8 +1746,31 @@ never standing grants. These four new client frame schemas are strict,
 including subscribe/unsubscribe. New server projections preserve unknown keys
 recursively for additive display compatibility; applying any displayed effect
 requires the strict v1 validator again. The actual client/server parsers cover
-all new frame kinds. These definitions enable later server work; they do not
-enable unattended execution, policy formation or session creation.
+all new frame kinds. `createApp()` now handles both decision frames on its
+authenticated WebSocket. It checks durable principal usability and raw stored
+v1 effects, and revalidates the current server-owned exact-operation envelope.
+Absent engine authority is an empty envelope, so operation-bearing approval
+fails closed. Refusal uses the existing error envelope with
+`INBOX_DECISION_REFUSED`; a host lacking a decision handler returns
+`INBOX_UNAVAILABLE`. Committed changes use the existing subscribed deltas.
+
+Final resolution is write-once per Action. Only enqueue creates one follow-up
+identified by Action/option; cancel/dismiss supersede blocked work and create
+no executable item. Matching replay returns the existing result; a different
+option or feedback cannot replace it. Snooze remains nonterminal, creates no
+resolution or model call, and preserves Action/blocked-work retention through
+resurface. Low stakes use 08:00 next weekday; higher stakes use bounded
+one-to-eight-hour backoff. Times remain UTC, using the configured inbox budget
+timezone or UTC by default. Dismissal is valid without a reason.
+
+The default cap is 60 pending/snoozed decisions, excluding non-evictable FYIs.
+Lowest-priority eviction includes the incoming candidate and atomically
+supersedes its blocked work, emits one FYI/suppression and journals staging
+compensation. Expiry, bounded retries and compensation are deterministic
+maintenance. Filesystem removal occurs after commit and is idempotent across
+restart. See [the Action engine](inbox-actions.md) for lifecycle details.
+This behavior enables no unattended dispatcher, policy formation or session
+creation; the full-v1 containment and system-proof gate remains required.
 
 ### Activity stream (rev 3, additive)
 

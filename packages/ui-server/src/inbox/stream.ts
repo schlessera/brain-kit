@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
-  ClientInboxSubscribe, ClientInboxUnsubscribe, InboxChange, InboxSnapshot,
+  ClientInboxSubscribe, ClientInboxUnsubscribe, ClientInboxResolve, ClientInboxSnooze, InboxChange, InboxSnapshot,
   InboxView, ServerMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
@@ -9,6 +9,7 @@ import type { WSContext } from "../ws/clients.js";
 import { MAX_WS_MESSAGE_BYTES } from "../ws/shrink.js";
 import type { AuthorizationContext } from "../ws/turns.js";
 import type { InboxStore, InboxStoreSnapshot } from "./store.js";
+import { createInboxResolver } from "./resolve.js";
 
 const POLL_MS = 100;
 const CHANGE_BATCH = 200;
@@ -18,6 +19,8 @@ const MAX_SUBSCRIPTIONS_PER_CONNECTION = 64;
 export interface InboxStream {
   handleSubscribe(ws: WSContext, msg: ClientInboxSubscribe, authorization: AuthorizationContext): void;
   handleUnsubscribe(ws: WSContext, msg: ClientInboxUnsubscribe): void;
+  /** Optional for existing embedded hosts supplying only the durable stream. */
+  handleDecision?(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): void;
   dropConnection(ws: WSContext): void;
   dropFor(principalId: string): void;
   pump(): void;
@@ -94,7 +97,8 @@ function snapshotFrames(snapshot: InboxStoreSnapshot, msg: ClientInboxSubscribe)
  * the transaction boundary captured with its snapshot. A later subscriber
  * must never move the scan cursor past changes still owed to an earlier one.
  */
-export function createInboxStream(store: InboxStore, db: Database, log?: Logger): InboxStream {
+export function createInboxStream(store: InboxStore, db: Database, log?: Logger,
+  resolver = createInboxResolver(db, { allowedOperations: () => [] })): InboxStream {
   const connections = new Map<unknown, Connection>();
   let cursor = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -255,6 +259,18 @@ export function createInboxStream(store: InboxStore, db: Database, log?: Logger)
     entry.subscriptions.delete(scope(msg));
     if (entry.subscriptions.size === 0) dropConnection(ws);
   }
+  function handleDecision(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): void {
+    if (closed) return;
+    const entry: Connection = connections.get(key(ws)) ?? { ws, authorization, release: () => {}, subscriptions: new Map() };
+    if (!authorized(entry)) return;
+    try {
+      if (msg.type === "inbox_resolve") resolver.resolve(authorization.principalId, msg);
+      else resolver.snooze(authorization.principalId, msg.itemId);
+      pump();
+    } catch {
+      error(entry, "INBOX_DECISION_REFUSED", "The decision could not be applied. Refresh the Action and check its current authority.");
+    }
+  }
   function dropFor(principalId: string): void {
     for (const entry of [...connections.values()]) {
       if (entry.authorization.principalId === principalId) dropConnection(entry.ws);
@@ -265,5 +281,5 @@ export function createInboxStream(store: InboxStore, db: Database, log?: Logger)
     for (const entry of [...connections.values()]) dropConnection(entry.ws);
     stopIfIdle();
   }
-  return { handleSubscribe, handleUnsubscribe, dropConnection, dropFor, pump, subscriptionCount, close };
+  return { handleSubscribe, handleUnsubscribe, handleDecision, dropConnection, dropFor, pump, subscriptionCount, close };
 }
