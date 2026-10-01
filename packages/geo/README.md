@@ -70,6 +70,27 @@ length in A, no usable line in B and antipodal ambiguity also yield reasons.
 Partial inputs retain counts and partial status. Neither input's gaps are filled;
 isolated points remain nearest-point evidence but contribute no covered line.
 
+## Configuration
+
+`GeoConfigInput` is partial authoring accepted by `GeoClient`;
+`geoConfigSchema.parse` yields the defaulted `GeoConfig`. New services are off,
+with no implicit public endpoint or eligibility. All endpoints are HTTP(S)
+without credentials, query or fragment. The application supplies `userAgent`.
+Concrete `geocoding`, per-mode `routing.endpoints`, optional `routing.demo` and
+ordered `overpass.endpoints` settings are described below with their service
+policies. Request bounds and disposable caches are described under
+[admission](#cache-and-request-admission).
+
+Core accepts the same object under `brain.config.geo`, with a repo-relative,
+symlink-contained response-cache path. An omitted block keeps `{}` empty.
+SDK compatibility wrappers accept `config.geo`; SDK server re-exports the
+schema/types. UI server accepts explicit `coastline.geo` or
+`BRAIN_GEO_CONFIG_JSON`; relative response-cache paths resolve from `BRAIN_PATH`.
+Its legacy `OVERPASS_*` settings still work when canonical configuration is unset,
+and its privacy switch remains authoritative for requests. The separate permanent
+geometry cache stays under `COASTLINE_CACHE_DIR`. See the
+[consumer configuration guide](../../docs/configuration.md#geo).
+
 ## Configured geocoding
 
 Import `GeoClient` from `@schlessera/brain-geo/server`; the root export remains

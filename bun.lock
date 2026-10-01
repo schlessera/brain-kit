@@ -26,6 +26,7 @@
       },
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
+        "@schlessera/brain-geo": "workspace:*",
         "@schlessera/brain-render-template": "workspace:*",
         "graphology": "^0.26.0",
         "graphology-communities-louvain": "^2.0.2",

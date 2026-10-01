@@ -15,7 +15,7 @@ import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/br
  * env record to the resolver — no global mutation required.
  */
 
-import { join } from "path";
+import { join, resolve } from "path";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
@@ -27,6 +27,8 @@ import {
   type ConfirmPatternSource,
   type ExecWrapperConfig,
   WEB_SEARCH_PROVIDERS,
+  geoConfigSchema,
+  type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -549,6 +551,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "$BRAIN_PATH/.brain-ui/geo",
     required: false,
   },
+  {
+    name: "BRAIN_GEO_CONFIG_JSON",
+    description: "Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup.",
+    default: null,
+    required: false,
+  },
 ] as const;
 
 // --- resolved configuration --------------------------------------------------
@@ -617,6 +625,8 @@ export interface CoastlineConfig {
   userAgent: string;
   /** Resolved geometry cache directory. */
   cacheDir: string;
+  /** Optional canonical service/response-cache settings; legacy privacy switch still wins. */
+  geo?: GeoConfigInput;
 }
 
 export interface VoiceConfig {
@@ -826,6 +836,16 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const { brainPath, enabled: pricingEnabled, ttlMs: pricingTtlMs } =
     resolveStandalonePricingConfig(env);
 
+  let geo: GeoConfigInput | undefined;
+  if (env.BRAIN_GEO_CONFIG_JSON !== undefined) {
+    try {
+      geo = geoConfigSchema.parse(JSON.parse(env.BRAIN_GEO_CONFIG_JSON));
+      if (geo.cacheDir !== undefined) geo.cacheDir = resolve(brainPath, geo.cacheDir);
+    } catch {
+      throw new Error("BRAIN_GEO_CONFIG_JSON must contain valid canonical geo JSON.");
+    }
+  }
+
   const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
   const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
 
@@ -906,6 +926,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       url: env.OVERPASS_URL || "https://overpass-api.de/api/interpreter",
       userAgent: env.OVERPASS_USER_AGENT || "brain-kit-ui/1.0",
       cacheDir: env.COASTLINE_CACHE_DIR || join(brainPath, ".brain-ui", "geo"),
+      ...(geo === undefined ? {} : { geo }),
     },
     pricing: {
       enabled: pricingEnabled,

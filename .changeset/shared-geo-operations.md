@@ -1,9 +1,11 @@
 ---
 "@schlessera/brain-geo": minor
+"@schlessera/brain": minor
 "@schlessera/brain-module-travel": patch
 "@schlessera/brain-ui-sdk": patch
-"@schlessera/brain-ui-backend-claude": patch
-"@schlessera/brain-ui-backend-pi": patch
+"@schlessera/brain-backend-claude": patch
+"@schlessera/brain-backend-pi": patch
+"@schlessera/brain-ui-server": patch
 ---
 
 Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
@@ -17,3 +19,5 @@ Add bounded Overpass POI queries near points or along retained track sections, m
 Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
 
 Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.
+
+Add canonical geo configuration to brain config and the UI server adapter, preserving legacy endpoint/privacy switches and keeping disposable response caches separate from permanent geometry caches and global operator admission.

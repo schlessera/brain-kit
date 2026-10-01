@@ -287,3 +287,29 @@ into later results. Recorded requests and the real location bridge exercise thes
 paths without public queries. Eight restored mutations failed the intended
 assertions for the disabled guard, shared-cache source, nonempty address, both
 backend eligibility defaults/forwarding and actual subprocess filtering.
+
+## Canonical consumer adapters — 2026-10-01
+
+Core accepts the concrete geo shape under an optional root block, retaining
+`{}` as an empty config and all new services off. Its authoring type is schema
+input, so new nested defaults do not force fully populated objects on callers.
+Loaded output remains assignable to that input. Core's configured response-cache
+path uses the same repo-relative schema as every configured filesystem path,
+then resolves through existing symlink containment; global admission is not
+partitioned by a per-brain cache (`resolveGeoConfig`,
+`packages/core/src/lib/geo-config.ts:6-15`).
+
+The SDK server re-exports the same configuration schema/types. UI servers accept
+optional explicit `coastline.geo` or canonical JSON at startup. This passes
+through the mounted geometry route to the shared adapter, with legacy Overpass
+service settings retained when canonical input is absent. Invalid configuration
+refuses startup, avoiding an accidental public fallback. The legacy privacy
+switch, permanent geometry cache and 5-degree place-map guard remain intact.
+Canonical response caching remains a separate disposable layer.
+
+A native local HTTP fixture verifies a nonempty mounted route, actual canonical
+endpoint/User-Agent, cached evidence after deleting only the route cache, and
+no new request after disabling. Core loads a real config into GeoClient without
+creating a database or modifying the file. Six restored mutations failed the
+intended lexical/symlink/path assertions, startup refusal, actual endpoint path
+and subprocess filtering. No public service query is claimed.

@@ -21,11 +21,11 @@ import type { CoastlineConfig } from "../config/env.js";
  * stories have something real to draw. **This route is what makes the map work
  * anywhere else**, which is the difference between a demo and a feature.
  *
- * ## The cache is not an optimisation, it is the licence to do this at all
+ * ## The permanent cache reduces repeated service requests
  *
  * Overpass is a free shared service whose usage policy is written for light
- * interactive use. Fetching per map view would be abuse; fetching once per
- * place and never again is not. **Coastlines do not move**, so there is no TTL
+ * interactive use. Caching reduces traffic; applicable operator terms and
+ * admission still govern requests. **Coastlines do not move**, so there is no TTL
  * here and that is deliberate — a cache entry has no reason to expire, and an
  * expiring one would turn a bounded number of requests into an unbounded one.
  *
@@ -160,7 +160,8 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
         try {
           const result = await fetchGeometry(
             { bbox, widthPx: px, detail },
-            { enabled: config.enabled, url: config.url, userAgent: config.userAgent },
+            { enabled: config.enabled, url: config.url, userAgent: config.userAgent,
+              ...(config.geo === undefined ? {} : { geo: config.geo }) },
           );
           // Only a result with geometry in it is worth keeping: an empty one is
           // usually an outage, and caching that forever would make a transient

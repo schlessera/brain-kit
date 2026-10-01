@@ -132,6 +132,10 @@ share the endpoint/exact-coordinate disk cache; transient failures are not cache
 as empty locations. Reverse addresses describe a nearby mapped object and have
 unverified accuracy.
 
+`GeoConfig`, `GeoConfigInput` and `geoConfigSchema` are re-exported from `./server`
+for canonical adapter authoring/validation. They are the geo library's concrete
+configuration, with no additional provider seam.
+
 ## Backend contract tests (`./testing`)
 
 Backend packages can run the same `startTurn` assertions as the first-party

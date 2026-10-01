@@ -133,6 +133,8 @@ export {
 
 export type { ReverseGeocodeConfig, ReverseGeocodeResult } from "./reverse-geocode.js";
 export { reverseGeocode } from "./reverse-geocode.js";
+export { geoConfigSchema } from "@schlessera/brain-geo";
+export type { GeoConfig, GeoConfigInput } from "@schlessera/brain-geo";
 
 export * from "./bridge-tools/index.js";
 

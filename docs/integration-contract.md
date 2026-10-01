@@ -2939,3 +2939,24 @@ coordinates in the location tool. First-party backends default
 Configured nonpublic endpoints remain available. Responses are validated and
 cached by endpoint/exact coordinates; transient failures are not cached as null.
 No MCP/tool/result/wire shape or protocol revision changes.
+
+### Canonical consumer configuration
+
+`brain.config.ts`/JSON optionally accepts `geo` with the shared `GeoConfigInput`
+shape and defaults. Root omission remains omission: parsing `{}` produces `{}`,
+and new services remain off. `BrainConfig` is the authoring input type so the
+new nested defaults do not require callers to write every optional field.
+`defineConfig` remains a typed identity function; load-time schema validation
+still validates the whole configuration. Core's optional geo response-cache
+directory uses `repoRelativePathSchema` and resolves inside the brain through
+`safeResolve`, including symlink containment.
+
+SDK server additively exports `GeoConfig`, `GeoConfigInput` and `geoConfigSchema`
+from the concrete geo library. UI server `CoastlineConfig.geo` is optional for
+existing explicit configurations; `BRAIN_GEO_CONFIG_JSON` supplies it from the
+environment, validated at startup. Relative response-cache paths resolve from
+`BRAIN_PATH`; invalid/empty/malformed configuration fails rather than silently
+using legacy public endpoints. Canonical service settings take precedence over
+legacy Overpass settings. Legacy disabled prevents requests. Existing permanent
+geometry cache keys/results and 5-degree route bounds remain unchanged.
+The server environment setting is not forwarded to child processes by default.

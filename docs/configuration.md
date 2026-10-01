@@ -369,6 +369,53 @@ Ignored **markdown is still indexed**, so gitignored local notes stay
 searchable. Outside a git work tree, or without git, nothing is left out this
 way. `brain stats` `size.corpus` follows the same rule.
 
+## `geo`
+
+Available in 0.40.0+. Core's geo commands and the standalone
+[`@schlessera/brain-geo`](../packages/geo/README.md) use one concrete configuration
+shape. This is endpoint configuration, without a provider registry. Omitting
+`geo` leaves every new service disabled and keeps an empty config as `{}`.
+`defineConfig` accepts partial authoring; validation supplies defaults when loaded.
+
+```ts
+geo: {
+  userAgent: "your-app/1.0 (https://your-app.example/contact)",
+  cacheDir: ".brain/geo",
+  geocoding: { enabled: true, url: "https://geocoder.example" },
+  overpass: { enabled: true, endpoints: ["https://overpass.example/api/interpreter"] },
+  routing: { endpoints: { foot: {
+    url: "https://routes.example/route/v1", profile: "foot",
+    preparedMode: "foot", dataset: "walking-data",
+    verification: "Operator confirms this endpoint is prepared for walking.",
+  } } },
+}
+```
+
+An identifying application/operator User-Agent is required before any service
+request. New public geocoding needs explicit informed eligibility; routing demo
+fallback is separately off until enabled and eligible. Neither flag grants
+service permission. Read the [geo policies and defaults](../packages/geo/README.md#configuration)
+before selecting an endpoint. Prepared datasets determine routing modes;
+changing a profile token cannot establish support.
+
+Core's `cacheDir` is repo-relative and must remain inside the brain, including
+through symlinks. Without it, the library uses its global disposable response
+cache. Aggregate operator admission remains global and independent of this
+response-cache directory, so separate brains/processes do not each gain their
+own public allowance. Caches are not content and never make `brain.db`
+authoritative.
+
+SDK `ReverseGeocodeConfig.geo` and `CoastlineConfig.geo` accept the same canonical
+input. UI servers accept `BRAIN_GEO_CONFIG_JSON`, or explicit `coastline.geo` in
+`ServerConfig`. JSON settings override legacy `OVERPASS_URL`/`OVERPASS_USER_AGENT`
+service settings; relative response-cache paths resolve from `BRAIN_PATH`.
+Invalid JSON/configuration refuses startup. `COASTLINE_CACHE_DIR` continues to
+control the separate permanent geometry cache, and `BRAIN_UI_COASTLINE=false`
+still prevents new requests. The library/server allow an explicit absolute
+response-cache location; core's brain config retains its repo containment rule.
+Backend location options can inject canonical SDK configuration; their existing
+Nominatim environment settings remain the legacy adapter.
+
 ## Providers
 
 Four provider seams, all following the same **dual convention**: a config value

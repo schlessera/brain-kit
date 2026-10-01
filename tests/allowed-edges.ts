@@ -24,7 +24,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // core owns the render template (the CLI's `brain render` uses it); the
   // Puppeteer renderer is heavyweight and optional, so it may never be hard.
   "@schlessera/brain": {
-    dependencies: ["@schlessera/brain-render-template"],
+    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-render-puppeteer"],
   },
   // Content modules extend core; concrete web imports also share scrape below.
