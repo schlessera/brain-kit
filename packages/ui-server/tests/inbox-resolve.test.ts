@@ -31,7 +31,7 @@ function setup() {
     const stagingId = crypto.randomUUID();
     store.ingest({ threadId: id, itemId: `work-${id}`, dedupKey: `work-${id}`, source: "share", stagingId, stakes, expiresAt: now + 30 * 86_400_000 });
     const runId = `run-${id}`;
-    budget.claim(`work-${id}`, { runId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000);
+    expect(budget.claim(`work-${id}`, { runId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000)).not.toBeNull();
     const action: InboxActionItem = { id: `action-${id}`, dedupKey: `action-${id}`, threadId: id, queue: "actions", type: "approve", status: "pending", version: 1, createdAt: now, updatedAt: now, expiresAt: now + 30 * 86_400_000,
       payload: { title: "Write Odysseus's note?", detail: "An exact proposed operation." }, options: [
         { id: "approve", label: "Write once", effect: { kind: "enqueue", payload: { instruction: "Write the note", ...(withOperation ? { operation } : {}) } } },
@@ -143,7 +143,14 @@ test("Later at 22:00 resurfaces next weekday at 08:00, retains the block and sti
 
 test("all 60 existing decisions block work: the lowest loses its block and journals compensation with one FYI", () => {
   const f = setup();
-  for (let n = 0; n < 60; n++) escalateInbox(f.db, f.seed(String(n).padStart(2, "0"), 1));
+  for (let n = 0; n < 60; n++) {
+    const input = f.seed(String(n).padStart(2, "0"), 1);
+    escalateInbox(f.db, input);
+    // A waiting decision retains work, not an active inference slot. The
+    // backend test proves terminal settlement; this fixture releases its
+    // unused reservation conservatively before the next synthetic admission.
+    expect(f.budget.settle(input.escalation.runId, "released")).toBe(true);
+  }
   const incoming = f.seed("urgent", 3); escalateInbox(f.db, incoming);
   const items = f.store.snapshot().items;
   expect(items.filter(item => item.queue === "actions" && item.type !== "fyi" && ["pending", "snoozed"].includes(item.status))).toHaveLength(60);
