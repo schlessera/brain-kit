@@ -57,7 +57,7 @@ export const isAskUserListTool = (name: string | undefined): boolean =>
  * must count them together or a list card would take a question's slot.
  */
 export const isAskExchangeTool = (name: string | undefined): boolean =>
-  isAskUserTool(name) || isAskUserListTool(name) || isAskUserRankTool(name);
+  isAskUserTool(name) || isAskUserListTool(name) || isAskUserRankTool(name) || isAskUserFormTool(name);
 
 const SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
 const PI_SHOW_BLOCK_TOOL_NAME = visibleToolName(SHOW_BLOCK_CONTRACT.name, "pi");
@@ -75,3 +75,5 @@ export const isShowBlockTool = (name: string | undefined): boolean =>
 /** A ranking exchange, under either backend spelling. */
 export const isAskUserRankTool = (name: string | undefined): boolean =>
   name === "ask_user_rank" || name === "mcp__brain-ui__ask_user_rank";
+
+export const isAskUserFormTool = (name: string | undefined): boolean => name === "ask_user_form" || name === "mcp__brain-ui__ask_user_form";

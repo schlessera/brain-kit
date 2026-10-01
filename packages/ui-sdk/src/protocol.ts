@@ -26,6 +26,7 @@
  * it; `sessionId` is optional for wire compatibility with single-session
  * servers, but multi-session servers MUST set it on every scoped frame.
  */
+import type { AskUserFormSpec } from "./tool-contracts/form.js";
 import type { Block } from "./tool-contracts/blocks.js";
 
 export interface SessionScoped {
@@ -79,6 +80,7 @@ export type ClientMessage =
   | ClientAskUserCancel
   | ClientAskUserListResponse
   | ClientAskUserRankResponse
+  | ClientAskUserFormResponse
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
@@ -373,6 +375,7 @@ export type ServerMessage =
   | ServerAskUserRequest
   | ServerAskUserListRequest
   | ServerAskUserRankRequest
+  | ServerAskUserFormRequest
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
@@ -1351,7 +1354,7 @@ export interface ClientAskUserResponse {
 
 /**
  * Client → Server. User dismissed the ask-user prompt; the agent gets an error.
- * Cancels `ask_user_list_request` and `ask_user_rank_request` too: ids are unique across all
+ * Cancels `ask_user_list_request`, `ask_user_rank_request` and `ask_user_form_request` too: ids are unique across all
  * kinds, so one dismissal frame serves any card.
  */
 export interface ClientAskUserCancel {
@@ -2298,4 +2301,17 @@ export interface InboxDelta {
   type: "inbox_delta";
   view: InboxView;
   change: InboxChange;
+}
+
+// Conditional form: flat request nodes, typed visible answers (#585).
+export type { AskUserFormLimits, AskUserFormNode, AskUserFormInput, AskUserFormSpec, AskUserFormAnswer, AskUserFormAnswers, AskUserFormPayload, AskUserFormSingleAnswer, AskUserFormMultiAnswer, AskUserFormScaleAnswer, AskUserFormRankAnswer } from "./tool-contracts/form.js";
+export interface ServerAskUserFormRequest extends SessionScoped, AskUserFormSpec {
+  type: "ask_user_form_request";
+  requestId: string;
+}
+export interface ClientAskUserFormResponse {
+  type: "ask_user_form_response";
+  requestId: string;
+  answers: import("./tool-contracts/form.js").AskUserFormAnswers;
+  turnId?: string;
 }

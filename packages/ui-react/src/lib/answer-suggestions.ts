@@ -123,7 +123,7 @@ export function visibleSuggestions(message: ChatMessage, context: SuggestionsCon
   // S1: nothing until the turn has ended.
   if (message.isStreaming || context.running) return [];
   // S3: the turn is waiting on the reader's answer.
-  if (message.askUserExchanges?.some((exchange) => !exchange.answers && !exchange.order)) return [];
+  if (message.askUserExchanges?.some((exchange) => !exchange.answers && !exchange.order && !exchange.formAnswers)) return [];
   // S4: an answer that ends in a question has already asked what is next.
   if (endsWithQuestion(message)) return [];
   // S5, S6: voice owns the composer.

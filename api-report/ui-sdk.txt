@@ -22,6 +22,17 @@ export "." (./src/index.ts)
   type ActivityView
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserFormAnswer
+  type AskUserFormAnswers
+  type AskUserFormInput
+  type AskUserFormLimits
+  type AskUserFormMultiAnswer
+  type AskUserFormNode
+  type AskUserFormPayload
+  type AskUserFormRankAnswer
+  type AskUserFormScaleAnswer
+  type AskUserFormSingleAnswer
+  type AskUserFormSpec
   type AskUserListItem
   type AskUserListOption
   type AskUserListSpec
@@ -40,6 +51,7 @@ export "." (./src/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserFormResponse
   type ClientAskUserListResponse
   type ClientAskUserRankResponse
   type ClientAskUserResponse
@@ -137,6 +149,7 @@ export "." (./src/index.ts)
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
@@ -198,6 +211,14 @@ export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
+  ASK_USER_FORM_ANSWER_SCHEMA
+  ASK_USER_FORM_CONTRACT
+  ASK_USER_FORM_DEFAULT_LIMITS
+  ASK_USER_FORM_DESCRIPTION
+  ASK_USER_FORM_INPUT_SCHEMA
+  ASK_USER_FORM_NODE_SCHEMA
+  ASK_USER_FORM_PAYLOAD_SCHEMA
+  ASK_USER_FORM_TOOL_NAME
   ASK_USER_INPUT_SCHEMA
   ASK_USER_LIST_CONTRACT
   ASK_USER_LIST_DESCRIPTION
@@ -229,6 +250,17 @@ export "./client" (./src/client/index.ts)
   type ActivityView
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserFormAnswer
+  type AskUserFormAnswers
+  type AskUserFormInput
+  type AskUserFormLimits
+  type AskUserFormMultiAnswer
+  type AskUserFormNode
+  type AskUserFormPayload
+  type AskUserFormRankAnswer
+  type AskUserFormScaleAnswer
+  type AskUserFormSingleAnswer
+  type AskUserFormSpec
   type AskUserInput
   type AskUserListInput
   type AskUserListItem
@@ -279,6 +311,7 @@ export "./client" (./src/client/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserFormResponse
   type ClientAskUserListResponse
   type ClientAskUserRankResponse
   type ClientAskUserResponse
@@ -427,6 +460,7 @@ export "./client" (./src/client/index.ts)
   SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
@@ -492,6 +526,10 @@ export "./client" (./src/client/index.ts)
   type VoiceTokenResponse
   type WebSocketClose
   type WikilinkMapResponse
+  askUserFormNodeComplete
+  askUserFormPayload
+  askUserFormSpec
+  askUserFormVisibleNodes
   bridgeContractForToolName
   canonicalModelId
   createAsrClient
@@ -518,6 +556,7 @@ export "./client" (./src/client/index.ts)
   registerToolRenderers
   resetAsrClients
   resetToolRenderers
+  resolveAskUserFormLimits
   resolveThinkingLevel
   resolveToolRenderer
   showBlockInputSchema
@@ -559,6 +598,17 @@ export "./protocol" (./src/protocol.ts)
   type ActivityView
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserFormAnswer
+  type AskUserFormAnswers
+  type AskUserFormInput
+  type AskUserFormLimits
+  type AskUserFormMultiAnswer
+  type AskUserFormNode
+  type AskUserFormPayload
+  type AskUserFormRankAnswer
+  type AskUserFormScaleAnswer
+  type AskUserFormSingleAnswer
+  type AskUserFormSpec
   type AskUserListItem
   type AskUserListOption
   type AskUserListSpec
@@ -577,6 +627,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserFormResponse
   type ClientAskUserListResponse
   type ClientAskUserRankResponse
   type ClientAskUserResponse
@@ -674,6 +725,7 @@ export "./protocol" (./src/protocol.ts)
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
@@ -744,6 +796,7 @@ export "./schemas" (./src/schemas.ts)
   clientActivitySubscribeSchema
   clientActivityUnsubscribeSchema
   clientAskUserCancelSchema
+  clientAskUserFormResponseSchema
   clientAskUserListResponseSchema
   clientAskUserRankResponseSchema
   clientAskUserResponseSchema
@@ -789,6 +842,7 @@ export "./schemas" (./src/schemas.ts)
   resolutionEffectSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
+  serverAskUserFormRequestSchema
   serverAskUserListRequestSchema
   serverAskUserRankRequestSchema
   serverAskUserRequestSchema
@@ -818,6 +872,14 @@ export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
+  ASK_USER_FORM_ANSWER_SCHEMA
+  ASK_USER_FORM_CONTRACT
+  ASK_USER_FORM_DEFAULT_LIMITS
+  ASK_USER_FORM_DESCRIPTION
+  ASK_USER_FORM_INPUT_SCHEMA
+  ASK_USER_FORM_NODE_SCHEMA
+  ASK_USER_FORM_PAYLOAD_SCHEMA
+  ASK_USER_FORM_TOOL_NAME
   ASK_USER_INPUT_SCHEMA
   ASK_USER_LIST_CONTRACT
   ASK_USER_LIST_DESCRIPTION
@@ -852,6 +914,18 @@ export "./server" (./src/server/index.ts)
   type AgentBackend
   type ApprovalChannel
   type AskUserAnnotation
+  type AskUserFormAnswer
+  type AskUserFormAnswers
+  type AskUserFormInput
+  type AskUserFormLimits
+  type AskUserFormMultiAnswer
+  type AskUserFormNode
+  type AskUserFormPayload
+  type AskUserFormRankAnswer
+  type AskUserFormResult
+  type AskUserFormScaleAnswer
+  type AskUserFormSingleAnswer
+  type AskUserFormSpec
   type AskUserInput
   type AskUserListInput
   type AskUserListItem
@@ -940,6 +1014,7 @@ export "./server" (./src/server/index.ts)
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
   type ClientAskUserCancel
+  type ClientAskUserFormResponse
   type ClientAskUserListResponse
   type ClientAskUserRankResponse
   type ClientAskUserResponse
@@ -1112,6 +1187,7 @@ export "./server" (./src/server/index.ts)
   SUGGESTION_MIN_LENGTH
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
@@ -1190,6 +1266,10 @@ export "./server" (./src/server/index.ts)
   type WrappedKillOptions
   type WriteLock
   applyClassification
+  askUserFormNodeComplete
+  askUserFormPayload
+  askUserFormSpec
+  askUserFormVisibleNodes
   askUserListPayload
   askUserListSpec
   askUserRankPayload
@@ -1221,6 +1301,7 @@ export "./server" (./src/server/index.ts)
   execWrapperSpawnOptions
   fetchCoastline
   handleAskUser
+  handleAskUserForm
   handleAskUserList
   handleAskUserRank
   handleGetCurrentLocation
@@ -1247,6 +1328,7 @@ export "./server" (./src/server/index.ts)
   readWebSearchRouting
   requestToolPermission
   resetRtkProbe
+  resolveAskUserFormLimits
   resolveInRepo
   resolveThinkingLevel
   resolveWebSearchConfigPath
@@ -1320,6 +1402,14 @@ export "./testing" (./src/testing/index.ts)
 export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
+  ASK_USER_FORM_ANSWER_SCHEMA
+  ASK_USER_FORM_CONTRACT
+  ASK_USER_FORM_DEFAULT_LIMITS
+  ASK_USER_FORM_DESCRIPTION
+  ASK_USER_FORM_INPUT_SCHEMA
+  ASK_USER_FORM_NODE_SCHEMA
+  ASK_USER_FORM_PAYLOAD_SCHEMA
+  ASK_USER_FORM_TOOL_NAME
   ASK_USER_INPUT_SCHEMA
   ASK_USER_LIST_CONTRACT
   ASK_USER_LIST_DESCRIPTION
@@ -1334,6 +1424,17 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type AskUserFormAnswer
+  type AskUserFormAnswers
+  type AskUserFormInput
+  type AskUserFormLimits
+  type AskUserFormMultiAnswer
+  type AskUserFormNode
+  type AskUserFormPayload
+  type AskUserFormRankAnswer
+  type AskUserFormScaleAnswer
+  type AskUserFormSingleAnswer
+  type AskUserFormSpec
   type AskUserInput
   type AskUserListInput
   type AskUserListPayload
@@ -1409,10 +1510,15 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ToolContract
   type ToolInput
   type ToolPayload
+  askUserFormNodeComplete
+  askUserFormPayload
+  askUserFormSpec
+  askUserFormVisibleNodes
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
   parseToolPayload
+  resolveAskUserFormLimits
   showBlockInputSchema
   toolBriefLines
   toolInputJsonSchema
@@ -1421,6 +1527,90 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
 signatures (the seams in docs/extending/README.md and the types they are made of)
   ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  ASK_USER_FORM_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/form.ts)
+    const ASK_USER_FORM_INPUT_SCHEMA: z.ZodObject<{
+        prompt: z.ZodString;
+        nodes: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            kind: z.ZodLiteral<"single">;
+            options: z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                description: z.ZodOptional<z.ZodString>;
+                preview: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            id: z.ZodString;
+            prompt: z.ZodString;
+            header: z.ZodOptional<z.ZodString>;
+            required: z.ZodOptional<z.ZodBoolean>;
+            showIf: z.ZodOptional<z.ZodObject<{
+                node: z.ZodString;
+                anyOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>, z.ZodObject<{
+            kind: z.ZodLiteral<"multi">;
+            options: z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                description: z.ZodOptional<z.ZodString>;
+                preview: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            id: z.ZodString;
+            prompt: z.ZodString;
+            header: z.ZodOptional<z.ZodString>;
+            required: z.ZodOptional<z.ZodBoolean>;
+            showIf: z.ZodOptional<z.ZodObject<{
+                node: z.ZodString;
+                anyOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>, z.ZodObject<{
+            kind: z.ZodLiteral<"scale">;
+            scale: z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                description: z.ZodOptional<z.ZodString>;
+                preview: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            items: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+                detail: z.ZodOptional<z.ZodString>;
+                link: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            notes: z.ZodOptional<z.ZodBoolean>;
+            id: z.ZodString;
+            prompt: z.ZodString;
+            header: z.ZodOptional<z.ZodString>;
+            required: z.ZodOptional<z.ZodBoolean>;
+            showIf: z.ZodOptional<z.ZodObject<{
+                node: z.ZodString;
+                anyOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>, z.ZodObject<{
+            kind: z.ZodLiteral<"rank">;
+            items: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+                detail: z.ZodOptional<z.ZodString>;
+                link: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            cutoff: z.ZodOptional<z.ZodNumber>;
+            id: z.ZodString;
+            prompt: z.ZodString;
+            header: z.ZodOptional<z.ZodString>;
+            required: z.ZodOptional<z.ZodBoolean>;
+            showIf: z.ZodOptional<z.ZodObject<{
+                node: z.ZodString;
+                anyOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>, z.ZodObject<{
+            kind: z.ZodLiteral<"text">;
+            id: z.ZodString;
+            prompt: z.ZodString;
+            header: z.ZodOptional<z.ZodString>;
+            required: z.ZodOptional<z.ZodBoolean>;
+            showIf: z.ZodOptional<z.ZodObject<{
+                node: z.ZodString;
+                anyOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>], "kind">>;
+    }, z.core.$strip>;
   ActivityQuery (packages/ui-sdk/src/server/backend.ts)
     export interface ActivityQuery {
         scope: "running" | "recent" | "run" | "rollups" | "inbox";
@@ -1490,6 +1680,45 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         preview?: string;
         notes?: string;
     }
+  AskUserFormAnswer (packages/ui-sdk/src/tool-contracts/form.ts)
+    export type AskUserFormAnswer = AskUserFormSingleAnswer | AskUserFormMultiAnswer | AskUserFormScaleAnswer | AskUserFormRankAnswer | string;
+  AskUserFormAnswers (packages/ui-sdk/src/tool-contracts/form.ts)
+    export type AskUserFormAnswers = Record<string, AskUserFormAnswer>;
+  AskUserFormInput (packages/ui-sdk/src/tool-contracts/form.ts)
+    export type AskUserFormInput = z.infer<typeof ASK_USER_FORM_INPUT_SCHEMA>;
+  AskUserFormLimits (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormLimits {
+        maxDepth: number;
+        maxNodes: number;
+        maxOptions: number;
+    }
+  AskUserFormMultiAnswer (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormMultiAnswer {
+        values: string[];
+        other?: string;
+    }
+  AskUserFormRankAnswer (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormRankAnswer {
+        order: string[];
+        unchanged: boolean;
+    }
+  AskUserFormResult (packages/ui-sdk/src/server/backend.ts)
+    export interface AskUserFormResult {
+        answers: AskUserFormAnswers;
+    }
+  AskUserFormScaleAnswer (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormScaleAnswer {
+        answers: Record<string, string>;
+        skipped: string[];
+        notes?: Record<string, string>;
+    }
+  AskUserFormSingleAnswer (packages/ui-sdk/src/tool-contracts/form.ts)
+    export interface AskUserFormSingleAnswer {
+        value: string;
+        other?: boolean;
+    }
+  AskUserFormSpec (packages/ui-sdk/src/tool-contracts/form.ts)
+    export type AskUserFormSpec = AskUserFormInput;
   AskUserListItem (packages/ui-sdk/src/protocol.ts)
     export interface AskUserListItem {
         id: string;
@@ -1883,6 +2112,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
         askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
         askUserRank?(requestId: string, request: AskUserRankSpec): Promise<AskUserRankResult>;
+        askUserForm?(requestId: string, request: AskUserFormSpec): Promise<AskUserFormResult>;
+        askUserFormLimits?: AskUserFormLimits;
         getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
         requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
         pruneScratch?(): Promise<void>;
@@ -2346,6 +2577,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         highWaterSeq: Record<string, number>;
         append?: boolean;
     }
+  ServerAskUserFormRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAskUserFormRequest extends SessionScoped, AskUserFormSpec {
+        type: "ask_user_form_request";
+        requestId: string;
+    }
   ServerAskUserListRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerAskUserListRequest extends SessionScoped, AskUserListSpec {
         type: "ask_user_list_request";
@@ -2398,7 +2634,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | InboxSnapshot | InboxDelta;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | InboxSnapshot | InboxDelta;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";

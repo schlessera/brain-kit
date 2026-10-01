@@ -38,6 +38,9 @@ import type {
   AskUserAnnotation,
   AskUserListSpec,
   AskUserRankSpec,
+  AskUserFormSpec,
+  AskUserFormLimits,
+  AskUserFormAnswers,
   AskUserQuestion,
   BillingMode,
   ChatImageAttachment,
@@ -115,6 +118,8 @@ export interface AskUserListResult {
   notes?: Record<string, string>;
 }
 
+export interface AskUserFormResult { answers: AskUserFormAnswers }
+
 export interface AskUserRankResult { order: string[]; unchanged: boolean }
 
 export interface LocationFix {
@@ -145,6 +150,9 @@ export interface BackendBridge {
   askUserList?(requestId: string, request: AskUserListSpec): Promise<AskUserListResult>;
   /** Complete id order; rejects on dismiss or cancel. */
   askUserRank?(requestId: string, request: AskUserRankSpec): Promise<AskUserRankResult>;
+  /** Conditional form, with host-owned configurable bounds. */
+  askUserForm?(requestId: string, request: AskUserFormSpec): Promise<AskUserFormResult>;
+  askUserFormLimits?: AskUserFormLimits;
   getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
   /**
    * Ask the user to paint a mask over an image. Resolves with a PNG whose

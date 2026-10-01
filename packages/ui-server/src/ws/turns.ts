@@ -6,12 +6,14 @@ import type {
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,
+  AskUserFormResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
   ApprovalChannel,
   AskUserListSpec,
   AskUserRankSpec,
+  AskUserFormSpec,
   AskUserQuestion,
   ChatImageAttachment,
   ClientEnvironment,
@@ -172,6 +174,16 @@ export interface PendingAskUserRank {
   reject: (err: Error) => void;
 }
 
+export interface PendingAskUserForm {
+  turn: RunningTurn;
+  turnId: string;
+  /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
+  requestId: string;
+  request: AskUserFormSpec;
+  resolve: (result: AskUserFormResult) => void;
+  reject: (err: Error) => void;
+}
+
 export interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
@@ -210,6 +222,7 @@ export class TurnCoordinator {
   readonly pendingAskUser = new Map<string, PendingAskUser>();
   readonly pendingAskUserList = new Map<string, PendingAskUserList>();
   readonly pendingAskUserRank = new Map<string, PendingAskUserRank>();
+  readonly pendingAskUserForm = new Map<string, PendingAskUserForm>();
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
 
@@ -356,6 +369,11 @@ export class TurnCoordinator {
       p.reject(new Error(reason));
       this.pendingAskUserRank.delete(id);
     }
+    for (const [id, p] of this.pendingAskUserForm) {
+      if (p.turn !== turn) continue;
+      p.reject(new Error(reason));
+      this.pendingAskUserForm.delete(id);
+    }
     this.drainClientBoundForTurn(turn, reason);
   }
 
@@ -425,6 +443,7 @@ export class TurnCoordinator {
     this.pendingAskUser.clear();
     this.pendingAskUserList.clear();
     this.pendingAskUserRank.clear();
+    this.pendingAskUserForm.clear();
     this.pendingLocation.clear();
     this.startingSessions = 0;
   }

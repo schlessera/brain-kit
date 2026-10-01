@@ -1,3 +1,4 @@
+import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ArrowDown, ChevronUp } from "lucide-react";
@@ -178,6 +179,11 @@ export function ChatPage() {
     send({ type: "ask_user_rank_response", requestId, order, unchanged });
   }, [root, sessionId, send]);
 
+  const handleAskUserFormSubmit = useCallback((requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) => {
+    root.stores.chat.getState().submitAskUserFormAnswers(sessionId, requestId, answers, visibleNodes);
+    send({ type: "ask_user_form_response", requestId, answers });
+  }, [root, sessionId, send]);
+
   const handleAskUserCancel = useCallback(
     (requestId: string) => {
       root.stores.chat.getState().cancelAskUser(sessionId, requestId);
@@ -349,6 +355,7 @@ export function ChatPage() {
                   onAskUserReask={handleAskUserReask}
                   onAskUserListSubmit={handleAskUserListSubmit}
                   onAskUserRankSubmit={handleAskUserRankSubmit}
+                  onAskUserFormSubmit={handleAskUserFormSubmit}
                   closing={msg === messages[messages.length - 1]}
                 />
               ))}

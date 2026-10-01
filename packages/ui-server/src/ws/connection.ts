@@ -57,6 +57,16 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
       )
     );
   }
+  for (const p of coordinator.pendingAskUserForm.values()) {
+    host.sendMessage(
+      ws,
+      withTurnScope(
+        { type: "ask_user_form_request", requestId: p.requestId, ...p.request },
+        p.turn,
+        p.turnId
+      )
+    );
+  }
 }
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
@@ -128,6 +138,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           askUser: true,
           askUserList: true,
           askUserRank: true,
+          askUserForm: true,
           chatRequestAck: true,
           location: true,
           // Advertised only when this host records activity — a client on an

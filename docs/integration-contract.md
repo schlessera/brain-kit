@@ -970,7 +970,7 @@ than their `indexed_at`.
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
-key; its tool names are equally stable. `ask_user`, `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
+key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
 in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
 connected browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
@@ -980,7 +980,7 @@ connected browser. `query_activity`
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses.
-The seven bridge tools are declared once as **tool contracts** in
+The eight bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -992,12 +992,70 @@ tool's result is meant to be rendered as a component rather than read as text:
 | Contract | Payload in `output` | Rendered as |
 |---|---|---|
 | `ask_user` | `{ questions, answers, annotations? }` | the picker's answered state |
+| `ask_user_form` (0.40.0) | `{ answers, visibleNodes }` — typed answers by visible node id; the request is not echoed | one conditional form and its visible-path answered record |
 | `ask_user_rank` (0.40.0) | `{ order, unchanged }` — every requested id exactly once; the request is not echoed | final numbered order rebuilt from input and result |
 | `ask_user_list` (0.40.0) | `{ answers, skipped, notes? }` — the request is not echoed | the list card's answered record, rebuilt from the call's input plus this |
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
+
+#### `ask_user_form` (additive in 0.40.0)
+
+- **Input:** `{ prompt, nodes }`, a flat list in display order. Every node has
+  a unique `id` (1–64 characters), `kind`, `prompt` (1–300), optional `header`
+  (up to 12) and `required` (omitted means `true`). `single` and `multi` add
+  `options[2..]{label (1–40), description? (≤120), preview? (≤4000)}`.
+  `scale` adds the list tool's `scale`, `items` and optional `notes`;
+  `rank` adds the rank tool's `items` and optional `cutoff`; `text` needs no
+  additional fields. Scale and rank retain their existing per-node item caps
+  (30 and 15); scale retains its 2–8 options. Duplicate node/item ids or
+  option labels, and invalid cutoffs, are refused before displaying a card.
+- **Conditions:** optional `showIf: { node, anyOf }` names an earlier
+  `single`/`multi` node and one or more labels offered by it. A multi parent
+  matches any selected label. An unknown/later parent, non-choice parent or
+  unoffered label is refused. A hidden ancestor hides all descendants;
+  automatic Other input never reveals a branch, even when its text matches
+  an offered label.
+- **Limits:** `AskUserFormLimits` exposes exactly `maxDepth`, `maxNodes` and
+  `maxOptions`, defaulting to 3 (root is depth 1), 12 and 8. Hosts may pass
+  `WsHostOptions.askUserFormLimits`; the server accepts
+  `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH`, `BRAIN_UI_ASK_USER_FORM_MAX_NODES` and
+  `BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS`. Set values must be positive safe
+  integers (`maxOptions` at least 2); invalid values refuse startup. Both
+  backend handlers validate using the host's limits, and the host validates
+  before emitting. Raising `maxOptions` raises the choice cap; the scale's
+  native 8-option cap remains. There is no independent aggregate-items cap.
+- **Result:** `{ answers, visibleNodes }`. `answers` contains only answered
+  visible nodes, with these values: single `{ value, other? }` (`other: true`
+  marks custom input); multi `{ values, other? }` (`other` is custom text);
+  scale `{ answers, skipped, notes? }`; rank `{ order, unchanged }`; text is
+  a trimmed string, at most 280 characters. The handler recomputes visibility,
+  drops hidden/unknown answers and normalizes each kind. Required visible
+  nodes must be complete; a required scale needs every row. An untouched rank
+  returns the input order with `unchanged: true`. Rank answers must be a
+  complete permutation, and `unchanged` is derived. `visibleNodes` follows
+  input order, including unanswered optional nodes, distinguishing skipped
+  from hidden. A supplied client `visibleNodes` is never trusted.
+- **Frames:** `server_hello.capabilities.askUserForm` advertises support.
+  Session/turn-scoped `ask_user_form_request` carries
+  `{ requestId, prompt, nodes }`; `ask_user_form_response` carries
+  `{ requestId, answers, turnId? }`. The SDK echoes the request's turn id.
+  `ask_user_cancel` dismisses it; all four ask kinds share the cancellation id
+  space. Pending forms survive a temporary disconnect and are re-delivered,
+  and reject when the turn is cancelled. Unknown additive frame/node/answer
+  fields survive wire parsing; validation and normalization still apply.
+- **Backends:** optional `BackendBridge.askUserForm(requestId, spec)` returns
+  `AskUserFormResult { answers }`; `askUserFormLimits` carries the host limits.
+  Claude registers `mcp__brain-ui__ask_user_form` with `alwaysLoad`; pi registers
+  `ask_user_form`. Both use the shared schema/handler, and withhold the card
+  from turns declaring `noGrantSurface`. All existing ask tools remain.
+- **Rendering/replay:** one outer card contains shared scale and rank rows,
+  unindented branch slots and one Submit. Hidden answers are held locally for
+  Undo/reselection, excluded from progress, submission and summary. Drafts are
+  not persisted. Input plus result rebuilds the visible answered path after
+  reload. Composer text remains an ordinary message. A dismissed exchange may
+  reopen locally and send its visible answers as a new composer message.
 
 #### `ask_user_rank` (additive in 0.40.0)
 

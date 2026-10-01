@@ -5,9 +5,10 @@ import type {
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,
+  AskUserFormResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
-import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { askUserFormSpec, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
@@ -239,7 +240,8 @@ export function makeBridge(
         if (
           coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn) ||
           coordinator.pendingAskUserList.has(requestId) ||
-          coordinator.pendingAskUserRank.has(requestId)
+          coordinator.pendingAskUserRank.has(requestId) ||
+          coordinator.pendingAskUserForm.has(requestId)
         ) {
           reject(new Error("Duplicate ask-user request id"));
           return;
@@ -271,7 +273,8 @@ export function makeBridge(
         if (
           coordinator.collidesAcrossTurns(coordinator.pendingAskUserList, requestId, turn) ||
           coordinator.pendingAskUser.has(requestId) ||
-          coordinator.pendingAskUserRank.has(requestId)
+          coordinator.pendingAskUserRank.has(requestId) ||
+          coordinator.pendingAskUserForm.has(requestId)
         ) {
           reject(new Error("Duplicate ask-user request id"));
           return;
@@ -288,12 +291,24 @@ export function makeBridge(
     },
     askUserRank: (requestId, request) => {
       // Cancellation shares one id space across all three ask kinds.
-      if (coordinator.pendingAskUserRank.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId)) {
+      if (coordinator.pendingAskUserRank.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId) || coordinator.pendingAskUserForm.has(requestId)) {
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
       return new Promise<AskUserRankResult>((resolve, reject) => {
         coordinator.pendingAskUserRank.set(requestId, { turn, turnId, requestId, request, resolve, reject });
         host.sendToClients(withTurnScope({ type: "ask_user_rank_request", requestId, ...request }, turn, turnId));
+        host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
+      });
+    },
+    askUserFormLimits: host.askUserFormLimits,
+    askUserForm: (requestId, request) => {
+      const validated = askUserFormSpec(request, host.askUserFormLimits);
+      if (coordinator.pendingAskUserForm.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId) || coordinator.pendingAskUserRank.has(requestId)) {
+        return Promise.reject(new Error("Duplicate ask-user request id"));
+      }
+      return new Promise<AskUserFormResult>((resolve, reject) => {
+        coordinator.pendingAskUserForm.set(requestId, { turn, turnId, requestId, request: validated, resolve, reject });
+        host.sendToClients(withTurnScope({ type: "ask_user_form_request", requestId, ...validated }, turn, turnId));
         host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
       });
     },

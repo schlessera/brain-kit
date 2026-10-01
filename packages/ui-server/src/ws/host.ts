@@ -1,3 +1,4 @@
+import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
@@ -61,6 +62,7 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  askUserFormLimits?: Partial<AskUserFormLimits>;
   /** Backend registry resolving profiles/sessions to agent backends. */
   registry: BackendRegistry;
   /** Session persistence seam (SQLite catalog in production). */
@@ -157,6 +159,7 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * module-level default host, so two apps coexist without sharing state.
  */
 export class WsHost {
+  readonly askUserFormLimits: AskUserFormLimits;
   readonly coordinator = new TurnCoordinator();
   readonly clients: ClientSet;
   readonly registry: BackendRegistry;
@@ -194,6 +197,7 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
+    this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
     });

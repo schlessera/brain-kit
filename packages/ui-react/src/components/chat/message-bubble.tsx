@@ -1,3 +1,5 @@
+import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
+import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState } from "react";
 import type {
@@ -57,6 +59,7 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserReask,
   onAskUserListSubmit,
   onAskUserRankSubmit,
+  onAskUserFormSubmit,
   closing = false,
 }: {
   message: ChatMessage;
@@ -70,6 +73,7 @@ export const MessageBubble = memo(function MessageBubble({
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
   /** An `ask_user_rank` answered: every item id in order. */
+  onAskUserFormSubmit?: (requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) => void;
   onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   /** An `ask_user_list` answered: answers and notes keyed by item id. */
   onAskUserListSubmit: (
@@ -125,6 +129,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserReask={onAskUserReask}
           onAskUserListSubmit={onAskUserListSubmit}
           onAskUserRankSubmit={onAskUserRankSubmit}
+          onAskUserFormSubmit={onAskUserFormSubmit}
           closing={closing}
         />
       )}
@@ -259,6 +264,7 @@ function AssistantContent({
   onAskUserReask,
   onAskUserListSubmit,
   onAskUserRankSubmit,
+  onAskUserFormSubmit,
   closing,
 }: {
   message: ChatMessage;
@@ -272,6 +278,7 @@ function AssistantContent({
   /** A dismissed question asked again answers by composer message. */
   onAskUserReask?: (text: string) => void;
   /** An `ask_user_rank` answered: every item id in order. */
+  onAskUserFormSubmit?: (requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) => void;
   onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   /** An `ask_user_list` answered: answers and notes keyed by item id. */
   onAskUserListSubmit: (
@@ -313,7 +320,9 @@ function AssistantContent({
 
   // One exchange, one card, selected by its requested answer shape.
   const renderExchange = (ex: AskUserExchange, key: string | number) =>
-    ex.rank ? (
+    ex.form ? (
+      <AskUserFormExchangeCard key={key} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+    ) : ex.rank ? (
       <AskUserRankExchangeCard key={key} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
         cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
     ) : ex.list ? (

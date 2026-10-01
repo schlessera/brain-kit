@@ -51,6 +51,7 @@ import type {
   ClientAskUserResponse,
   ClientAskUserListResponse,
   ClientAskUserRankResponse,
+  ClientAskUserFormResponse,
   ClientCancelRequest,
   ClientChatMessage,
   ClientHello,
@@ -71,6 +72,7 @@ import type {
   ServerAskUserRequest,
   ServerAskUserListRequest,
   ServerAskUserRankRequest,
+  ServerAskUserFormRequest,
   ServerError,
   ServerHello,
   ServerLocationRequest,
@@ -94,6 +96,7 @@ import {
   clientAskUserResponseSchema,
   clientAskUserListResponseSchema,
   clientAskUserRankResponseSchema,
+  clientAskUserFormResponseSchema,
   clientCancelSchema,
   clientChatMessageSchema,
   clientHelloSchema,
@@ -114,6 +117,7 @@ import {
   serverAskUserRequestSchema,
   serverAskUserListRequestSchema,
   serverAskUserRankRequestSchema,
+  serverAskUserFormRequestSchema,
   serverErrorSchema,
   serverHelloSchema,
   serverLocationRequestSchema,
@@ -137,6 +141,8 @@ import type {
 } from "./type-equality.js";
 
 
+type ClientAskUserFormResponseMatches = Assert<SchemaEqualsProtocol<typeof clientAskUserFormResponseSchema, ClientAskUserFormResponse>>;
+type ServerAskUserFormRequestMatches = Assert<SchemaEqualsProtocol<typeof serverAskUserFormRequestSchema, ServerAskUserFormRequest>>;
 type ClientAskUserRankResponseMatches = Assert<SchemaEqualsProtocol<typeof clientAskUserRankResponseSchema, ClientAskUserRankResponse>>;
 type ServerAskUserRankRequestMatches = Assert<SchemaEqualsProtocol<typeof serverAskUserRankRequestSchema, ServerAskUserRankRequest>>;
 // Client -> server: all 15 frames.
@@ -308,6 +314,7 @@ export type ProtocolSchemaAssertions = [
   ClientAskUserResponseMatches,
   ClientAskUserListResponseMatches,
   ClientAskUserRankResponseMatches,
+  ClientAskUserFormResponseMatches,
   ClientAskUserCancelMatches,
   ClientLocationResponseMatches,
   ClientLocationErrorMatches,
@@ -333,6 +340,7 @@ export type ProtocolSchemaAssertions = [
   ServerAskUserRequestMatches,
   ServerAskUserListRequestMatches,
   ServerAskUserRankRequestMatches,
+  ServerAskUserFormRequestMatches,
   ServerLocationRequestMatches,
   ServerMaskRequestMatches,
   ServerActivitySnapshotMatches,
