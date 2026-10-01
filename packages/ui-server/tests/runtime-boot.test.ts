@@ -198,3 +198,43 @@ describe("asynchronous startup resource ordering", () => {
     expect(existsSync(dbPath)).toBe(false);
   });
 });
+
+
+describe("backend-owned compatibility checks", () => {
+  test("a constrained below-floor Claude probe refuses before opening resources", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-runtime-floor-")); scratch.push(dir);
+    const brainPath = join(dir, "brain"); mkdirSync(brainPath);
+    const dbPath = join(dir, "ui.db");
+    const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: brainPath, DB_PATH: dbPath,
+      BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: fakeClaude("2.1.282 (Claude Code)") });
+    await expect(createApp({ config, versionRequirements: { backends: { claude: { runtime: "2.1.283" } } } })).rejects.toThrow(/host.*2\.1\.283/);
+    expect(existsSync(dbPath)).toBe(false);
+  });
+  test("compatible unmeasured Claude runtime preserves boot warning and provenance with minima", async () => {
+    const observability = createRecordingObservability();
+    const t = await createTestApp({ env: { CLAUDE_CODE_PATH: fakeClaude("2.1.999 (Claude Code)") }, appOptions: {
+      observability, versionRequirements: { backends: { claude: { sdk: "0.3.250", runtime: "2.1.283" } } },
+    } });
+    try {
+      const status = await (await t.fetch("/api/status")).json() as { runtime: { boot: unknown[] } };
+      expect(status.runtime.boot).toHaveLength(1);
+      expect(status.runtime.boot[0]).toMatchObject({ backendId: "claude", runtime: { version: "2.1.999" }, sdk: { version: MEASURED_RUNTIME.agentSdk }, measured: { matches: false } });
+      expect(observability.logs.find({ scope: "agent", severity: "WARN" }).some(log => String(log.body).includes("not the one its behaviour was measured against"))).toBe(true);
+    } finally { await t.teardown(); }
+  });
+  test("Pi startup and provider construction report SDK without requiring an inactive Claude executable", async () => {
+    const t = await createTestApp({ env: { AGENT_BACKEND: "pi", CLAUDE_CODE_PATH: "/missing-inactive-claude", BRAIN_UI_CLAUDE_PROFILES: "invalid inactive roster",
+      BRAIN_UI_PI_PROFILES: JSON.stringify([{ id: "pi-test", label: "Pi test", vendor: "openai", model: "gpt-6.1-sol" }]) },
+      appOptions: { versionRequirements: { backends: { pi: { sdk: "0.99.1" } } } } });
+    try {
+      const status = await (await t.fetch("/api/status")).json() as { runtime: { boot: unknown[] } };
+      expect(status.runtime.boot).toEqual([{ backendId: "pi", sdk: { name: "@earendil-works/pi-coding-agent", version: "0.99.2" } }]);
+      const providers = await t.fetch("/api/providers");
+      expect(providers.status).toBe(200);
+      const body = await providers.json() as { providers: unknown[] };
+      expect(body.providers.length).toBeGreaterThan(0);
+      const health = await (await t.fetch("/api/health")).json() as Record<string, unknown>;
+      expect(Object.keys(health).sort()).toEqual(["status", "timestamp", "uptime"]);
+    } finally { await t.teardown(); }
+  });
+});

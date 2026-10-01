@@ -3,7 +3,7 @@ import {
   listSessions as sdkListSessions,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ConfirmPatternSource, KeyedLock } from "@schlessera/brain-ui-sdk/server";
+import type { BackendVersionRequirements, ConfirmPatternSource, KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { DEFAULT_PROFILES, type InferenceProfile } from "./profiles.js";
 
@@ -19,6 +19,8 @@ export type BackendLogFn = (
 ) => void;
 
 export interface ClaudeBackendOptions {
+  /** Full SemVer minima, composed with the package's SDK range. Runtime checks precede prompt release on start and resume. */
+  versionRequirements?: BackendVersionRequirements;
   /** Working directory for the agent — the brain repo the model operates on. */
   brainPath: string;
   /**

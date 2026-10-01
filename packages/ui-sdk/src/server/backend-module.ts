@@ -112,7 +112,8 @@ export interface BackendModuleContext {
  * @experimental
  */
 export interface BackendRuntimeReport {
-  runtime: {
+  /** Absent for an in-process SDK with no separately spawned executable. */
+  runtime?: {
     name: string;
     version: string;
     /** What a turn would spawn, as the backend's SDK selected it. */
@@ -162,9 +163,8 @@ export interface BackendModule {
   settingsHooks: BackendSettingsHooks;
   modelSource?(context: BackendModuleContext): BackendModelSource | null;
   /**
-   * Probe the runtime a turn would spawn asynchronously, before app resources open. Rejects when
-   * that runtime is missing or will not start, which refuses the boot; returns
-   * what it found otherwise.
+   * Verify the actual SDK and, when applicable, spawned runtime before app resources open.
+   * Rejects missing/incompatible required identities; in-process backends may report SDK only.
    */
   probeRuntime?(context: BackendModuleContext): Promise<BackendRuntimeReport>;
 }

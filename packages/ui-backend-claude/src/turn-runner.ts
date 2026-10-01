@@ -11,13 +11,14 @@ import {
   BackendBusyError,
   BackendRequestError,
   subscriptionAuthAction,
+  VERSION_PROBE_TIMEOUT_MS,
 } from "@schlessera/brain-ui-sdk/server";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { createClaudeSdkTurn } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
-import { installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
+import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
   credentialFields,
   observedBilling,
@@ -29,6 +30,8 @@ import {
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { DEFAULT_ALLOWED_TOOLS } from "./tool-policy.js";
+import { resolveExecConfig } from "./config/env.js";
+import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 const BACKEND_ID = "claude";
@@ -159,6 +162,9 @@ export function createClaudeTurnRunner(options: {
      * set, nothing the stream says afterwards can turn the turn into a success.
      */
     let withheld = false;
+    const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements);
+    const phase = req.sessionId === undefined ? "start before prompt release" : "resume before prompt release";
+    let probedVersion: string | undefined;
     /**
      * Unified terminal frame for cancelled/failed turns. With a session
      * identity that is a `result`; WITHOUT one (an abort or failure before
@@ -213,15 +219,30 @@ export function createClaudeTurnRunner(options: {
         turnLock,
         log: options.log,
       });
-      // A subscription turn's prompt is released only once the account the
-      // CLI selected has been checked. The check lives INSIDE the prompt
-      // iterable, so it runs exactly when the SDK asks for the first message:
-      // nothing can reach the model without passing it.
+      if (runtimeRequirements.length) {
+        // Replaceable overrides are probed anew for BOTH new and resumed turns,
+        // before query() sees any user input. Capture uses the SDK's resolver.
+        const report = await probeClaudeRuntime({
+          brainPath: options.backend.brainPath,
+          ...(options.backend.claudeCodePath !== undefined ? { claudeCodePath: options.backend.claudeCodePath } : {}),
+          env: sdkTurn.options.env ?? {}, exec: resolveExecConfig(),
+          versionRequirements: options.backend.versionRequirements, phase,
+          signal: abortController.signal, log: options.log,
+        });
+        probedVersion = report.runtime.version;
+        abortController.signal.throwIfAborted();
+      }
+      let initialization: ReturnType<Query["initializationResult"]> | undefined;
+      const initialize = (cli: Query) => initialization ??= Promise.resolve().then(() => cli.initializationResult());
+      // Subscription policy and constrained runtime startup are checked INSIDE
+      // the prompt iterable, exactly when the SDK asks for the first message.
+      // The earlier version probe identifies the selected executable; this gate
+      // waits for initialization before any user input can reach the model.
       let resolveQuery!: (value: Query) => void;
       const queryHandle = new Promise<Query>((resolve) => {
         resolveQuery = resolve;
       });
-      const prompt = sdkTurn.subscriptionOnly
+      const prompt = sdkTurn.subscriptionOnly || runtimeRequirements.length > 0
         ? gatedPrompt(sdkTurn.prompt, async () => {
             const withhold = (): false => {
               withheld = true;
@@ -247,27 +268,31 @@ export function createClaudeTurnRunner(options: {
               return withhold();
             };
             const cli = await queryHandle;
-            let account;
+            let account: AccountInfo | undefined;
             let settings: CliSettingsReport | undefined;
             try {
-              account = (await cli.initializationResult()).account;
-              // Not on the public Query type; the SDK sends the CLI's own
-              // `get_settings` control request. Absent means unreadable,
-              // which refuses below.
-              const getSettings = (cli as { getSettings?: () => Promise<CliSettingsReport> }).getSettings;
-              settings = getSettings ? await getSettings.call(cli) : undefined;
+              const check = async () => {
+                account = (await initialize(cli)).account;
+                if (!sdkTurn.subscriptionOnly) return;
+                // Not on the public Query type; the SDK sends the CLI's own
+                // `get_settings` control request. Absent means unreadable,
+                // which refuses below.
+                const getSettings = (cli as { getSettings?: () => Promise<CliSettingsReport> }).getSettings;
+                settings = getSettings ? await getSettings.call(cli) : undefined;
+              };
+              if (runtimeRequirements.length) await startupDeadline(check(), abortController.signal);
+              else await check();
             } catch (error) {
               // A handshake the host cancelled is a cancelled turn, not a failed one.
               if (abortController.signal.aborted) return withhold();
               refused = {
                 code: "CLAUDE_ERROR",
-                message: `Claude Code did not complete its handshake: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
+                message: `@schlessera/brain-backend-claude runtime (claude-code) during ${phase}; requirements: ${runtimeRequirements.map(req => `${req.owner} minimum ${req.declaration}`).join("; ") || "subscription handshake"}; detected startup unknown. Claude Code did not complete its handshake: ${error instanceof Error ? error.message : String(error)}. Install/select a compatible executable that completes SDK initialization.`,
               };
               return withhold();
             }
             if (abortController.signal.aborted) return withhold();
+            if (!sdkTurn.subscriptionOnly) return true;
             const verdict = subscriptionVerdict(account);
             const conflict = verdict.ok ? settingsRefusal(settings) : null;
             if (!verdict.ok || conflict) {
@@ -285,7 +310,7 @@ export function createClaudeTurnRunner(options: {
       // answers every call from the one handshake, so this and the gate agree.
       const account = (
         typeof result.initializationResult === "function"
-          ? result.initializationResult().then((init) => init.account, () => undefined)
+          ? initialize(result).then((init) => init.account, () => undefined)
           : Promise.resolve(undefined)
       ) as Promise<AccountInfo | undefined>;
 
@@ -318,6 +343,17 @@ export function createClaudeTurnRunner(options: {
         // After session_info, so the run is opened with its session.
         if (msg.type === "system" && msg.subtype === "init") {
           reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
+          if (runtimeRequirements.length) {
+            try {
+              assertClaudeRuntime(msg.claude_code_version ?? null, runtimeRequirements, "system/init observation", "running CLI did not report its version");
+              if (msg.claude_code_version !== probedVersion) throw new Error(`@schlessera/brain-backend-claude runtime (claude-code) during system/init observation; required probed identity ${probedVersion}; detected ${msg.claude_code_version}. The executable changed after verification; select an immutable compatible executable and retry.`);
+            } catch (error) {
+              refused = { code: "CLAUDE_ERROR", message: error instanceof Error ? error.message : String(error) };
+              withheld = true;
+              abortController.abort();
+              break;
+            }
+          }
         }
         for (const serverMsg of adapter.adapt(msg)) {
           // Exactly one terminal frame per turn, whatever the stream does:
@@ -383,6 +419,26 @@ export function createClaudeTurnRunner(options: {
       activeTurns.delete(turnKey);
     }
   };
+}
+
+/** Startup settlement is bounded even if an injected/older SDK ignores abort. */
+async function startupDeadline<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`SDK startup timed out after ${VERSION_PROBE_TIMEOUT_MS / 1000} s`)), VERSION_PROBE_TIMEOUT_MS);
+        onAbort = () => reject(signal.reason ?? new Error("SDK startup cancelled"));
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /**
