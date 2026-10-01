@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { InboxActionItem, InboxOperation, InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
+import { inboxThreadAwaitingSettlement } from "./lifetime.js";
 
 const DAY = 86_400_000;
 export const INBOX_ACTION_CAP = 60;
@@ -51,6 +52,7 @@ export function insertInboxAction(db: Database, action: InboxActionItem, allowed
 
 /** Staging belongs to the thread until its last work/decision is terminal. */
 export function enqueueInboxCleanup(db: Database, threadId: string, now: number): void {
+  if (inboxThreadAwaitingSettlement(db, threadId)) return;
   const active = db.query(`SELECT 1 FROM inbox_items WHERE thread_id = ? AND deleted_at IS NULL AND
     ((queue = 'queue' AND type != 'cleanup_pending' AND status IN ('scheduled','ready','claimed','blocked','failed')) OR
      (queue = 'actions' AND type != 'fyi' AND status IN ('pending','snoozed'))) LIMIT 1`).get(threadId);

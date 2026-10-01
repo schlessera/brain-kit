@@ -7,6 +7,7 @@ import { createInboxStore } from "./store.js";
 import { failInboxWork } from "./actions.js";
 import { safeResolve } from "../files/walker.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
+import { inboxThreadAwaitingSettlement, reapInboxThreadLifetimes } from "./lifetime.js";
 
 /** Recoverable compensation, never called from a SQLite transaction. Each
  * directory removal is idempotent; its durable lease is acknowledged afterwards. */
@@ -23,6 +24,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
         item = store.getItem(id)!;
       }
       if (item.queue !== "queue" || item.status !== "ready" || item.attempts >= item.maxAttempts || (item.waitUntil ?? 0) > now()) return null;
+      if (inboxThreadAwaitingSettlement(db, item.threadId)) return null;
       // Re-raising a decision before compensation begins must protect the
       // retained staging. Admission and this check share SQLite's write lock.
       if (db.query(`SELECT 1 FROM inbox_items WHERE thread_id = ? AND deleted_at IS NULL AND
@@ -56,6 +58,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
       if (!item || item.type !== "cleanup_pending") continue;
       try {
         await remove(item.payload.stagingId);
+        reapInboxThreadLifetimes(db, item.threadId);
         // A process killed here leaves a claimed row; restart safely repeats
         // rm, which succeeds even when both directories are already absent.
         store.commit([{ kind: "transition", itemId: id, expectedVersion: item.version, to: "done" }]);

@@ -19,6 +19,15 @@ not reset attempts, grant authority or create an Activity run. Due snoozes,
 scheduled work, expiry and staging compensation use deterministic maintenance
 from [the Action engine](inbox-actions.md).
 
+An expired lease remains claimed while its backend actually runs. Each acquired
+attempt holds a kernel SQLite lock in a disposable file under the operational
+database's sibling `<database>.inbox-live/` directory. These locks span backend
+unwind without holding the operational database's write transaction. Process
+death releases ownership even when an open Activity root or old lock file
+remains, allowing conservative accounting and bounded lease recovery. Normal
+completion and staging compensation reap disposable files; operational backups
+do not copy a source worker's ownership.
+
 A pass counts due, unexpired `ready` Queue items below their attempt limit.
 An empty set creates zero model calls and zero Activity runs. Claims select
 and transition under `BEGIN IMMEDIATE`; each receives a ten-minute lease.
@@ -112,4 +121,4 @@ host's responsibility. Socket tests exercise the real mounted success path in
 all four auth modes, actual non-loopback refusals with forged forwarding
 headers, boot rotation and persisted lease recovery. Two processes exercise
 one-winner claims and heartbeat contention under the existing five-second
-SQLite busy timeout; the database transaction covers no model/filesystem work.
+SQLite busy timeout; the database transaction covers no model call or staging removal.

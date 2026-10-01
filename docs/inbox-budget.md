@@ -82,8 +82,11 @@ The reservation freezes admission day, selected pricing route/rates,
 pessimistic rate and missing-usage fallback. A terminal Activity rollup and
 its settlement commit together. Settlement records observed cost separately
 from conservative charged cost, releases the unused reservation once and
-freezes the result. Duplicate rollups cannot reprice it. A live partial rollup
-cannot release an active reservation.
+freezes the result. Duplicate rollups cannot reprice it. Neither a partial nor
+a terminal Activity rollup can release an active reservation while its backend
+is still unwinding. The actual attempt's kernel lock protects settlement across
+connections and processes; normal completion releases it inside the final
+accounting transaction after the backend returns.
 
 All four token classes contribute: input, output, cache read and cache creation.
 The root's per-model usage already includes subagents; child spans are not

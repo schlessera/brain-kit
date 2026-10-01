@@ -1,4 +1,4 @@
-/** Concrete operational accounting. No model call or I/O joins these transactions. */
+/** Concrete operational accounting. No model call or content effect joins these transactions. */
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { BillingMode, InboxQueueItem, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
@@ -6,6 +6,7 @@ import type { ModelPricing, PricingRates } from "../pricing/model-pricing.js";
 import { createInboxStore, type InboxReservation } from "./store.js";
 import { createInboxAction } from "./actions.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
+import { inboxRunIsLive } from "./lifetime.js";
 
 export interface InboxBudgetConfig {
   spendUsd: number;
@@ -281,6 +282,7 @@ export function settleInboxBudgetRun(db: Database, runId: string, status: "settl
   if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'inbox_budget_reservations'").get()) return false;
   const row = reservation(db, runId);
   if (!row || row.status !== "active") return false;
+  if (inboxRunIsLive(db, runId)) return false;
   const root = db.query("SELECT attrs, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, origin FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1").get(runId) as {
     attrs: string | null; cost_usd: number | null; origin: string;
   } | null;
