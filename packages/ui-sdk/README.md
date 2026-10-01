@@ -39,6 +39,13 @@ via `satisfies`. A compile-time equality test checks exact keys, optionality,
 and nested values in both directions so the schemas cannot drift from the
 interfaces. Hosts should never cast a client frame; binary frames are rejected.
 
+Use `parseServerMessage` for inbound server frames. It preserves valid own
+sequence-map entries in Inbox and Activity snapshots, including `__proto__`,
+without changing the map's prototype. It validates these values with the
+existing snapshot rules. Direct parsing with the exported Zod record schemas
+retains upstream Zod's behavior of dropping `__proto__`; the server-frame
+boundary restores that entry safely.
+
 Durable Queue/Actions definitions are additive: `InboxThread`, `InboxItem`,
 `InboxChange`, `InboxSnapshot`, `InboxDelta`, separate Queue/Action statuses,
 and the six-kind `ResolutionEffect`. New `inbox_resolve`, `inbox_snooze`,
