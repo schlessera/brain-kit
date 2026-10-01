@@ -145,7 +145,9 @@ by the cross-backend suite:
   set it; `durationMs`, `numTurns`, optional `costUsd` — absent means
   unknown, `0` means actually free) and only then resolve the `startTurn`
   promise. A failure before any session identity exists ends with a bare
-  `error` frame instead of a `result`.
+  `error` frame instead of a `result`. The published lifecycle suite accepts
+  omitted cost regardless of `costReporting`; a present cost must be numeric
+  and nonnegative.
 - **Abort:** the host owns the `AbortController` (user cancel + host timeout).
   On abort, stop work, emit `status: "cancelled"` then the terminal `result`
   with `outcome: "cancelled"`, and RESOLVE. Cancellation before a session
