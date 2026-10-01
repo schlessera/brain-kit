@@ -67,14 +67,14 @@ describe("stable IDs", () => {
   test.each([
     ["staleness", "context/current-focus.md", "context", STALE_ID],
     ["todo", "notes/plan.md", "[TODO: call the mill]", "todo-notes-plan-b486"],
-    ["conflict", "me/basics/short-bio.md", "park ranger", "conflict-basics-short-bio-662d"],
+    ["conflict", "me/basics/short-bio.md", "king of Ithaca", "conflict-basics-short-bio-e149"],
     ["silent-edit", "health/knee-injury.md", "health/knee-injury.md", "silent-edit-health-knee-injury-5fa7"],
   ])("%s on %s", (category, path, evidence, id) => {
     expect(hygieneId(category, path, evidence)).toBe(id);
   });
 
   test("shortpath keeps the last two segments, without the extension, as a slug", () => {
-    expect(shortPath("projects/active/bookshelf/_index.md")).toBe("bookshelf-_index");
+    expect(shortPath("projects/active/raft/_index.md")).toBe("raft-_index");
     expect(shortPath("_index.md")).toBe("_index");
     expect(shortPath("Notes/My File.v2.md")).toBe("notes-my-file-v2");
     expect(shortPath("(corpus)")).toBe("corpus");
@@ -290,7 +290,7 @@ describe("brain hygiene", () => {
     writeFileSync(join(root, ".gitignore"), "brain.db*\nnode_modules\n");
     git(root, "init", "-q");
     git(root, "add", "-A");
-    git(root, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.com", "commit", "-qm", "after the first run");
+    git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.com", "commit", "-qm", "after the first run");
     // Back-date the log, so any write at all, even of the same bytes, shows in the mtimes.
     const names = ["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"];
     const past = new Date("2020-01-01T00:00:00Z");
@@ -310,17 +310,17 @@ describe("brain hygiene", () => {
     const extra = join(root, "extra.json");
     writeFileSync(
       extra,
-      JSON.stringify([{ category: "conflict", path: "me/basics/short-bio.md", evidence: "park ranger", message: "Role differs from me/identity.md" }])
+      JSON.stringify([{ category: "conflict", path: "me/basics/short-bio.md", evidence: "king of Ithaca", message: "Role differs from me/identity.md" }])
     );
     const { out } = await reconcileCli(root, "--extra", extra);
     expect(out.detected).toContainEqual({
-      id: "conflict-basics-short-bio-662d",
+      id: "conflict-basics-short-bio-e149",
       category: "conflict",
       path: "me/basics/short-bio.md",
       message: "Role differs from me/identity.md",
     });
     const { stdout } = await runCli(root, ["hygiene", "list", "--state", "open", "--json"]);
-    const listed = JSON.parse(stdout).entries.find((e: { id: string }) => e.id === "conflict-basics-short-bio-662d");
+    const listed = JSON.parse(stdout).entries.find((e: { id: string }) => e.id === "conflict-basics-short-bio-e149");
     expect(listed).toMatchObject({ state: "open", path: "me/basics/short-bio.md", issue: "Role differs from me/identity.md" });
   });
 
@@ -713,7 +713,7 @@ describe("detection", () => {
 describe("a core check that cannot read its input", () => {
   const taxonomy = buildTaxonomy({
     user: brainConfigSchema.parse({
-      taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d{4})"] } } },
+      taxonomy: { facts: { troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (\\d{4})"] } } },
     }),
   });
 
@@ -721,8 +721,8 @@ describe("a core check that cannot read its input", () => {
     const root = tempRoot();
     const database = openDatabase(":memory:");
     const files = {
-      "me/basics/FACTS.md": ["---\ntype: identity\ntitle: Facts\nfacts: { ranger_since: 2019 }\n---\n", "Facts.\n"],
-      "me/basics/long-bio.md": ["---\ntype: identity\ntitle: Bio\n---\n", "A ranger since 2018.\n"],
+      "me/basics/FACTS.md": ["---\ntype: identity\ntitle: Facts\nfacts: { troy_fell: 2016 }\n---\n", "Facts.\n"],
+      "me/basics/long-bio.md": ["---\ntype: identity\ntitle: Bio\n---\n", "Troy fell in 2015.\n"],
     };
     for (const [path, [front, body]] of Object.entries(files)) {
       mkdirSync(join(root, path, ".."), { recursive: true });
@@ -738,7 +738,7 @@ describe("a core check that cannot read its input", () => {
     const docs = new Map<string, { updated: string }>();
     const first = await detectCandidates(database, brain, NOW);
     expect(first.failedChecks).toEqual([]);
-    expect(first.candidates.filter((c) => c.category === "fact-drift").map((c) => c.message)).toEqual(["ranger_since: found 2018, canonical 2019"]);
+    expect(first.candidates.filter((c) => c.category === "fact-drift").map((c) => c.message)).toEqual(["troy_fell: found 2015, canonical 2016"]);
     expect(reconcile(root, first.candidates, docs, { now: NOW, failedChecks: first.failedChecks })).toMatchObject({ opened: first.candidates.length });
 
     const real = fs.readFileSync;
@@ -758,6 +758,6 @@ describe("a core check that cannot read its input", () => {
     expect(second.candidates.filter((c) => c.category === "fact-drift")).toEqual([]);
     const result = reconcile(root, second.candidates, docs, { now: NOW, failedChecks: second.failedChecks });
     expect(result).toMatchObject({ resolved: 0, failedChecks: ["fact-drift"] });
-    expect(read(root, "open.md")).toContain("ranger_since: found 2018, canonical 2019");
+    expect(read(root, "open.md")).toContain("troy_fell: found 2015, canonical 2016");
   });
 });

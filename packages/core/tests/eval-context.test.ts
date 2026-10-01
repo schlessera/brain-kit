@@ -88,28 +88,29 @@ describe("brain eval --context", () => {
     expect(high.budget_used).toEqual({ median: Math.min(...used), p10: Math.min(...used), p90: Math.max(...used) });
   });
 
-  // At 280 tokens "ranger" leaves room for one hit after the pinned sections
-  // (the budget moved from 600 when #484 changed how those sections fill, from
-  // 500 when #518 placed hits before those sections grow, and from 250 when
-  // #373 held a hit's snippet to 40% of the budget: one hit now fits on both
-  // dates from 260 to 300 tokens, and 280 is inside that range).
+  // At 230 tokens "sailor" leaves room for exactly one hit on both dates.
+  // #625's shorter Odysseus prose lets both candidates fit at the former
+  // 280-token budget. Keep the one-hit premise explicit below: the date must
+  // decide which candidate survives, rather than including both answers.
   // Which one depends on recency, so the pinned now must reach the
   // assembler's search: ignoring it gives both runs the same output, and one
   // of the two dates' assertions fails whatever the wall clock says.
   test("the set's now reaches the assembler's search", async () => {
     const pair = [
-      { id: "idea", q: "ranger", class: "recency", expected: ["notes/loose-idea.md"] },
-      { id: "bio", q: "ranger", class: "recency", expected: ["me/basics/short-bio.md"] },
+      { id: "idea", q: "sailor", class: "recency", expected: ["notes/loose-idea.md"] },
+      { id: "bio", q: "sailor", class: "recency", expected: ["me/basics/short-bio.md"] },
     ];
     const run = async (now: string) => {
-      const path = join(root, "evals", `ranger-${now}.jsonl`);
+      const path = join(root, "evals", `sailor-${now}.jsonl`);
       writeFileSync(path, [{ now }, ...pair].map((l) => JSON.stringify(l)).join("\n"));
-      return (await contextRun(path, "--budgets", "280")).at;
+      return (await contextRun(path, "--budgets", "230")).at;
     };
     const early = await run("2026-07-12");
-    expect([early("idea", 280).answer_present, early("bio", 280).answer_present]).toEqual([true, false]);
     const late = await run("2028-07-12");
-    expect([late("idea", 280).answer_present, late("bio", 280).answer_present]).toEqual([false, true]);
+    expect(early("idea", 230).sections.results).toBe(1);
+    expect(late("idea", 230).sections.results).toBe(1);
+    expect([early("idea", 230).answer_present, early("bio", 230).answer_present]).toEqual([true, false]);
+    expect([late("idea", 230).answer_present, late("bio", 230).answer_present]).toEqual([false, true]);
   });
 
   test("an answer string is looked for in the text itself", async () => {

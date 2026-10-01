@@ -47,7 +47,7 @@ afterAll(() => {
   for (const dir of fixtures) rmSync(dir, { recursive: true, force: true });
 });
 
-/** A minimal valid document for the persona "Alex Example". */
+/** A minimal valid document for the persona "Odysseus". */
 function md(title: string, body: string): string {
   return [
     "---",
@@ -1760,7 +1760,7 @@ describe("assets git ignores are not indexed (#433)", () => {
       const r = Bun.spawnSync(["git", "-C", cwd, "-c", "protocol.file.allow=always", ...args], { stderr: "pipe" });
       expect(r.exitCode).toBe(0);
     };
-    const identity = ["-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false"];
+    const identity = ["-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false"];
     const sub = makeCorpus({ ".gitignore": "hidden.png\n", "README.txt": "photo archive\n" });
     git(sub, "init", "-q");
     git(sub, "add", "-A");

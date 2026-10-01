@@ -91,7 +91,7 @@ describe("an archived document that still claims primary relevance", () => {
   const brains: string[] = [];
   afterAll(() => { for (const dir of brains) cleanup(dir); });
 
-  const ADDED = "projects/archive/pine-shelf.md";
+  const ADDED = "projects/archive/practice-spar.md";
   const MESSAGE = "status: archived contradicts relevance: primary; set relevance: historical";
 
   async function validateJson(addArchivedPrimary: boolean) {
@@ -101,13 +101,13 @@ describe("an archived document that still claims primary relevance", () => {
     if (addArchivedPrimary) {
       writeFileSync(join(root, ADDED), doc({
         type: "project",
-        title: '"Pine Shelf (archived)"',
+        title: '"Practice Spar (archived)"',
         created: "2025-01-10",
         updated: "2025-03-01",
-        tags: "[project, woodworking]",
+        tags: "[project, shipbuilding]",
         status: "archived",
         relevance: "primary",
-        summary: '"A finished pine shelf"',
+        summary: '"A finished practice spar"',
       }));
     }
     const res = await runCli(root, ["validate", "--json"]);
@@ -144,7 +144,7 @@ describe("validate against taxonomy.tags", () => {
     buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: { tags } }) });
   const tagged = () =>
     makeCorpus({
-      "notes/a.md": doc({ type: "note", title: "A", tags: "[talks, hiking]" }),
+      "notes/a.md": doc({ type: "note", title: "A", tags: "[talks, sailing]" }),
     });
   // Whole issues, severity included: a vocabulary finding is a warning, and
   // an error would fail `brain validate` on an otherwise valid brain.
@@ -161,7 +161,7 @@ describe("validate against taxonomy.tags", () => {
     const issues = validate(tagged(), withTags({ vocabulary: ["talk"], aliases: { talks: "talk" } }));
     expect(tagWarnings(issues)).toEqual([
       warning('Tag "talks" is an alias in taxonomy.tags — use "talk"'),
-      warning('Tag "hiking" is not in taxonomy.tags.vocabulary'),
+      warning('Tag "sailing" is not in taxonomy.tags.vocabulary'),
     ]);
   });
 

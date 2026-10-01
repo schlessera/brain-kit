@@ -17,7 +17,7 @@ import { conclude, pendingState } from "../src/lib/sync/merge-state.js";
 import { makeTempBrain, runCli } from "./cli-harness";
 
 const CACHE = ".context-cache.jsonl";
-const NOTE = "notes/ranger-log.md";
+const NOTE = "notes/sailor-log.md";
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -36,8 +36,8 @@ function gitMayFail(cwd: string, ...args: string[]): number {
 }
 
 function identify(root: string): void {
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
 }
 
@@ -78,7 +78,7 @@ describe("pendingState and conclude", () => {
     dirs.push(root);
     git(root, "init", "-q", "-b", "main");
     identify(root);
-    write(root, NOTE, "# Ranger log\n\nTrail open.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open.\n");
     write(root, CACHE, "");
     commitAll(root, "base");
     return root;
@@ -92,14 +92,14 @@ describe("pendingState and conclude", () => {
   function diverged(): string {
     const root = repo();
     git(root, "switch", "-q", "-c", "feature");
-    write(root, NOTE, "# Ranger log\n\nTrail open, feature branch.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, feature branch.\n");
     commitAll(root, "feature edit");
     git(root, "switch", "-q", "-c", "side", "main");
-    write(root, NOTE, "# Ranger log\n\nTrail closed for rockfall.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail closed for rockfall.\n");
     commitAll(root, "side edit");
     git(root, "update-ref", "refs/remotes/origin/main", "side");
     git(root, "switch", "-q", "main");
-    write(root, NOTE, "# Ranger log\n\nTrail open, bridge repaired.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, bridge repaired.\n");
     commitAll(root, "main edit");
     return root;
   }
@@ -111,9 +111,9 @@ describe("pendingState and conclude", () => {
   /** A `git stash pop` that conflicts on `NOTE`, as after a pull moved it. */
   function stashPopConflict(): string {
     const root = repo();
-    write(root, NOTE, "# Ranger log\n\nTrail open, stashed note.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, stashed note.\n");
     git(root, "stash", "-q");
-    write(root, NOTE, "# Ranger log\n\nTrail open, committed note.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, committed note.\n");
     commitAll(root, "committed edit");
     expect(gitMayFail(root, "stash", "pop")).not.toBe(0);
     expect(unmerged(root)).toBe(NOTE);
@@ -135,7 +135,7 @@ describe("pendingState and conclude", () => {
     expect(conclude(root).outcome).toBe("unresolved");
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
 
-    write(root, NOTE, "# Ranger log\n\nTrail closed for rockfall; bridge repaired.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail closed for rockfall; bridge repaired.\n");
     git(root, "add", NOTE);
     expect(conclude(root)).toEqual({ outcome: "committed", kind: "merge" });
     expect(git(root, "rev-parse", "HEAD^1")).toBe(head);
@@ -145,13 +145,13 @@ describe("pendingState and conclude", () => {
   test("a merge commit a hook rejects is failed, with git's reason", () => {
     const root = diverged();
     gitMayFail(root, "merge", "side", "--no-edit");
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     git(root, "add", NOTE);
-    hook(root, "pre-commit", "echo 'rejected by the ranger station' >&2; exit 1");
+    hook(root, "pre-commit", "echo 'rejected by the cave on Ogygia' >&2; exit 1");
 
     const done = conclude(root);
     expect(done.outcome).toBe("failed");
-    expect(done.detail).toContain("rejected by the ranger station");
+    expect(done.detail).toContain("rejected by the cave on Ogygia");
     expect(hasRef(root, "MERGE_HEAD")).toBe(true);
   });
 
@@ -162,7 +162,7 @@ describe("pendingState and conclude", () => {
     expect(pendingState(root)).toEqual({ kind: "squash", unmerged: [NOTE] });
     const head = git(root, "rev-parse", "HEAD");
 
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     git(root, "add", NOTE);
     expect(conclude(root)).toEqual({ outcome: "committed", kind: "squash" });
     expect(git(root, "rev-parse", "HEAD^1")).toBe(head);
@@ -190,7 +190,7 @@ describe("pendingState and conclude", () => {
     expect(conclude(root).outcome).toBe("unresolved");
 
     // `git add` resolves it and erases every trace git keeps of the pop.
-    write(root, NOTE, "# Ranger log\n\nTrail open, both notes.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, both notes.\n");
     git(root, "add", NOTE);
     expect(pendingState(root)).toEqual({ kind: "stash", unmerged: [], stashPaths: [NOTE] });
 
@@ -205,7 +205,7 @@ describe("pendingState and conclude", () => {
   test("a remembered stash leftover is forgotten once HEAD moves: its paths may have been committed", () => {
     const root = stashPopConflict();
     expect(conclude(root).outcome).toBe("unresolved");
-    write(root, NOTE, "# Ranger log\n\nResolved and committed.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved and committed.\n");
     git(root, "add", NOTE);
     git(root, "commit", "-qm", "resolved by hand");
     write(root, "staged.md", "# Staged by someone else\n");
@@ -219,7 +219,7 @@ describe("pendingState and conclude", () => {
   test("a merge someone started of a branch origin/main lacks is blocked, never committed", () => {
     const root = diverged();
     expect(gitMayFail(root, "merge", "feature", "--no-edit")).not.toBe(0);
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     git(root, "add", NOTE);
     const head = git(root, "rev-parse", "HEAD");
 
@@ -234,7 +234,7 @@ describe("pendingState and conclude", () => {
   test("a squash of a branch origin/main lacks is blocked, read from the commits SQUASH_MSG names", () => {
     const root = diverged();
     expect(gitMayFail(root, "merge", "--squash", "feature")).not.toBe(0);
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     git(root, "add", NOTE);
     const head = git(root, "rev-parse", "HEAD");
     // The format `incoming` reads: a `commit <sha>` header at column 0.
@@ -250,7 +250,7 @@ describe("pendingState and conclude", () => {
   test("a sync's merge with a secret staged beside it is blocked, and the secret stays staged", () => {
     const root = diverged();
     gitMayFail(root, "merge", "side", "--no-edit");
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     write(root, ".env", "TOKEN=synthetic\n");
     git(root, "add", NOTE, ".env");
     const head = git(root, "rev-parse", "HEAD");
@@ -265,7 +265,7 @@ describe("pendingState and conclude", () => {
   test("a sync's merge with other work staged beside it is blocked: a commit would take the whole index", () => {
     const root = diverged();
     gitMayFail(root, "merge", "side", "--no-edit");
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
     write(root, "notes/private.md", "# Private\n");
     git(root, "add", NOTE, "notes/private.md");
     const head = git(root, "rev-parse", "HEAD");
@@ -279,23 +279,23 @@ describe("pendingState and conclude", () => {
   test("a sync's merge with a derived cache staged beside it is committed: post-sync owns the caches", () => {
     const root = diverged();
     gitMayFail(root, "merge", "side", "--no-edit");
-    write(root, NOTE, "# Ranger log\n\nResolved.\n");
-    write(root, CACHE, '{"k":"ranger-log","v":"local"}\n');
+    write(root, NOTE, "# Sailor log\n\nResolved.\n");
+    write(root, CACHE, '{"k":"sailor-log","v":"local"}\n');
     git(root, "add", NOTE, CACHE);
 
     const done = conclude(root);
     expect(done).toEqual({ outcome: "committed", kind: "merge" });
     expect(hasRef(root, "MERGE_HEAD")).toBe(false);
-    expect(git(root, "show", `HEAD:${CACHE}`)).toBe('{"k":"ranger-log","v":"local"}');
+    expect(git(root, "show", `HEAD:${CACHE}`)).toBe('{"k":"sailor-log","v":"local"}');
   });
 
   test("a stash leftover whose staged resolution the working file no longer has fails, and nothing is unstaged", () => {
     const root = stashPopConflict();
     expect(conclude(root).outcome).toBe("unresolved");
-    const resolution = "# Ranger log\n\nTrail open, both notes.\n";
+    const resolution = "# Sailor log\n\nTrail open, both notes.\n";
     write(root, NOTE, resolution);
     git(root, "add", NOTE);
-    write(root, NOTE, "# Ranger log\n\nEdited again, not staged.\n");
+    write(root, NOTE, "# Sailor log\n\nEdited again, not staged.\n");
 
     const done = conclude(root);
     expect(done.outcome).toBe("failed");
@@ -322,7 +322,7 @@ describe("pendingState and conclude", () => {
       "revert",
       (root) => {
         // Reverting `main edit` conflicts once a later commit rewrote its line.
-        write(root, NOTE, "# Ranger log\n\nTrail open, bridge repaired, sign replaced.\n");
+        write(root, NOTE, "# Sailor log\n\nTrail open, bridge repaired, sign replaced.\n");
         commitAll(root, "later edit");
         expect(gitMayFail(root, "revert", "--no-edit", "HEAD~1")).not.toBe(0);
       },
@@ -337,7 +337,7 @@ describe("pendingState and conclude", () => {
       expect(state.kind).toBe("blocked");
       expect(state.blocker).toBe(blocker as NonNullable<typeof state.blocker>);
 
-      write(root, NOTE, "# Ranger log\n\nResolved.\n");
+      write(root, NOTE, "# Sailor log\n\nResolved.\n");
       git(root, "add", NOTE);
       expect(conclude(root).outcome).toBe("blocked");
       expect(git(root, "rev-parse", "HEAD")).toBe(head);
@@ -412,7 +412,7 @@ describe("sync pull over state that was already pending", () => {
     git(root, "fetch", "-q", "origin", "main");
     expect(gitMayFail(root, "merge", "origin/main", "--no-edit")).not.toBe(0);
     expect(unmerged(root)).toBe(CACHE);
-    pushFromOtherClone(remote, { "notes/trail-report.md": "# Trail report\n\nNorth loop clear.\n" });
+    pushFromOtherClone(remote, { "notes/route-report.md": "# Route report\n\nNorth loop clear.\n" });
 
     const { code, body } = await pull(root);
     expect(originInHead(root)).toBe(true);
@@ -448,7 +448,7 @@ describe("sync pull over state that was already pending", () => {
 
   test("S2b: the same state plus one remote commit and nothing local fast-forwards, not merge-failed with []", async () => {
     const { root, remote } = stashPopCacheConflict();
-    pushFromOtherClone(remote, { "notes/trail-report.md": "# Trail report\n\nNorth loop clear.\n" });
+    pushFromOtherClone(remote, { "notes/route-report.md": "# Route report\n\nNorth loop clear.\n" });
 
     const { code, body } = await pull(root);
     expect(body.status).toBe("fast-forwarded");
@@ -462,12 +462,12 @@ describe("sync pull over state that was already pending", () => {
 
   test("a stash pop conflict on a note is conflicted and listed; conclude after resolving unstages it and keeps the entry", async () => {
     const { root } = brainWithRemote();
-    write(root, NOTE, "# Ranger log\n\nTrail open.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open.\n");
     commitAll(root, "log");
     git(root, "push", "-q", "origin", "main");
-    write(root, NOTE, "# Ranger log\n\nTrail open, stashed note.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, stashed note.\n");
     git(root, "stash", "-q");
-    write(root, NOTE, "# Ranger log\n\nTrail open, committed note.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, committed note.\n");
     commitAll(root, "committed edit");
     expect(gitMayFail(root, "stash", "pop")).not.toBe(0);
     const head = git(root, "rev-parse", "HEAD");
@@ -478,7 +478,7 @@ describe("sync pull over state that was already pending", () => {
     expect(pulled.body.concluded).toBe(null);
     expect(pulled.code).toBe(0);
 
-    write(root, NOTE, "# Ranger log\n\nTrail open, both notes.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open, both notes.\n");
     git(root, "add", NOTE);
     const result = await runCli(root, ["sync", "conclude", "--json"]);
     expect(JSON.parse(result.stdout)).toEqual({ outcome: "unstaged", kind: "stash" });
@@ -505,11 +505,11 @@ describe("sync pull over state that was already pending", () => {
 
   test("a rebase in progress is merge-failed with a reason, and HEAD is not moved", async () => {
     const { root, remote } = brainWithRemote();
-    write(root, NOTE, "# Ranger log\n\nTrail open.\n");
+    write(root, NOTE, "# Sailor log\n\nTrail open.\n");
     commitAll(root, "log");
     git(root, "push", "-q", "origin", "main");
-    pushFromOtherClone(remote, { [NOTE]: "# Ranger log\n\nTrail closed for rockfall.\n" });
-    write(root, NOTE, "# Ranger log\n\nTrail open, bridge repaired.\n");
+    pushFromOtherClone(remote, { [NOTE]: "# Sailor log\n\nTrail closed for rockfall.\n" });
+    write(root, NOTE, "# Sailor log\n\nTrail open, bridge repaired.\n");
     commitAll(root, "local edit");
     git(root, "fetch", "-q", "origin", "main");
     expect(gitMayFail(root, "rebase", "origin/main")).not.toBe(0);
@@ -545,7 +545,7 @@ describe("sync pull over state that was already pending", () => {
     git(root, "fetch", "-q", "origin", "main");
     expect(gitMayFail(root, "merge", "origin/main", "--no-edit")).not.toBe(0);
     expect(unmerged(root)).toBe(CACHE);
-    pushFromOtherClone(remote, { "notes/trail-report.md": "# Trail report\n\nNorth loop clear.\n" });
+    pushFromOtherClone(remote, { "notes/route-report.md": "# Route report\n\nNorth loop clear.\n" });
 
     for (let run = 0; run < 2; run++) {
       const { code, body } = await pull(root);
@@ -611,13 +611,13 @@ describe("sync pull over state that was already pending", () => {
 
   test("a squash git stopped before committing is not merged over: merge-failed with a reason, and it stays a squash", async () => {
     const { root, remote } = brainWithRemote();
-    pushFromOtherClone(remote, { "notes/trail-report.md": "# Trail report\n\nNorth loop clear.\n" });
+    pushFromOtherClone(remote, { "notes/route-report.md": "# Route report\n\nNorth loop clear.\n" });
     write(root, "notes/local.md", "# Local\n");
     commitAll(root, "local content");
     git(root, "config", "branch.main.mergeOptions", "--squash");
     git(root, "fetch", "-q", "origin", "main");
     git(root, "merge", "origin/main", "--no-edit");
-    expect(git(root, "diff", "--cached", "--name-only")).toBe("notes/trail-report.md");
+    expect(git(root, "diff", "--cached", "--name-only")).toBe("notes/route-report.md");
     const head = git(root, "rev-parse", "HEAD");
 
     const { code, body } = await pull(root);

@@ -25,7 +25,7 @@ function seeded(): { db: ReturnType<typeof createUiDb>; store: ActivityStore } {
   db.query(
     `INSERT INTO principals
        (id, kind, auth_method, label, created_at, expires_at)
-     VALUES ('principal-a', 'owner', 'password', 'Alex Example device', 1, ?)`
+     VALUES ('principal-a', 'owner', 'password', 'Odysseus device', 1, ?)`
   ).run(Number.MAX_SAFE_INTEGER);
   // A finished successful turn with usage.
   store.startSpan({
@@ -85,7 +85,7 @@ describe("activity routes", () => {
     expect(all.history[0].principalId).toBeNull();
     expect(all.history[1]).toMatchObject({
       principalId: "principal-a",
-      principalLabel: "Alex Example device",
+      principalLabel: "Odysseus device",
       principalKind: "owner",
     });
 
@@ -161,7 +161,7 @@ describe("activity routes", () => {
     expect(body.rollup.costUsd).toBe(0.5);
     expect(body.rollup).toMatchObject({
       principalId: "principal-a",
-      principalLabel: "Alex Example device",
+      principalLabel: "Odysseus device",
       principalKind: "owner",
     });
 

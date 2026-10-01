@@ -39,8 +39,8 @@ function fixture(): { root: string; remote: string } {
   const root = join(base, "brain");
   Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
   Bun.spawnSync(["git", "clone", "-q", remote, root]);
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   writeFileSync(join(root, CACHE), "");
   writeFileSync(join(root, "notes.md"), "first\n");
@@ -76,7 +76,7 @@ describe("commitDerivedCaches", () => {
     const { root, remote } = fixture();
     const other = join(dirs[0]!, "other");
     Bun.spawnSync(["git", "clone", "-q", remote, other]);
-    git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
+    git(other, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test",
       "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "remote moved on");
     git(other, "push", "-q", "origin", "main");
 
@@ -135,8 +135,8 @@ function brainWithRemote(): { root: string; remote: string } {
   const remote = join(base, "remote.git");
   Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
   git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\n");
   writeFileSync(join(root, CACHE), "");
@@ -153,7 +153,7 @@ function pushFromOtherClone(remote: string, files: Record<string, string>): void
   Bun.spawnSync(["git", "clone", "-q", remote, other]);
   for (const [file, text] of Object.entries(files)) writeFileSync(join(other, file), text);
   git(other, "add", "-A");
-  git(other, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test",
+  git(other, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test",
     "-c", "commit.gpgsign=false", "commit", "-qm", "from the other clone");
   git(other, "push", "-q", "origin", "main");
 }
@@ -488,8 +488,8 @@ describe("two clones that generated different text for one key (#408)", () => {
   function cloneBrain(remote: string): string {
     const root = join(remote, "..", "clone-b");
     Bun.spawnSync(["git", "clone", "-q", remote, root]);
-    git(root, "config", "user.name", "Alex Example");
-    git(root, "config", "user.email", "alex@example.test");
+    git(root, "config", "user.name", "Odysseus");
+    git(root, "config", "user.email", "odysseus@example.test");
     git(root, "config", "commit.gpgsign", "false");
     writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\nbrain.db*\n");
     symlinkSync(join(import.meta.dir, "..", "..", "..", "node_modules"), join(root, "node_modules"));

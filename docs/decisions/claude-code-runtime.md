@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:132-133`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:135-136`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -314,7 +314,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
   `.github/workflows/ci.yml:59`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:132-133`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
@@ -380,7 +380,7 @@ until re-measured.
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:621-631` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
 | `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:228-241` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2682-2705` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:775,793`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2690-2713` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:775,793`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
 > The [old harness](https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304-L369)

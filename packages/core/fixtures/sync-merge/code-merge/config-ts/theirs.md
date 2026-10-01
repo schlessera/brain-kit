@@ -1,1 +1,1 @@
-export default { profile: { name: "Alex Example", role: "ranger" } };
+export default { profile: { name: "Odysseus", role: "voyage" } };

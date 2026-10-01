@@ -86,9 +86,9 @@ describe("search.language", () => {
     const english = brain();
     expect((await runCli(english, ["index", "--json"])).code).toBe(0);
 
-    // "telescope" keeps both queries non-empty; "was" is the difference.
-    const withNone = await paths(none, "was telescope");
-    const withDefault = await paths(english, "was telescope");
+    // "star guide" keeps both queries non-empty; "was" is the difference.
+    const withNone = await paths(none, "was star guide");
+    const withDefault = await paths(english, "was star guide");
     expect(withDefault.length).toBeGreaterThan(0);
     expect(withNone).toContain("notes/himmel.md");
     expect(withDefault).not.toContain("notes/himmel.md");
@@ -146,15 +146,15 @@ describe("search.language", () => {
       return sql.match(/tokenize='([^']*)'/)![1];
     };
     expect(chunkTable()).toBe("porter unicode61");
-    // Porter stems "collimations" and the corpus's "collimation" alike.
-    expect((await paths(root, "collimations")).length).toBeGreaterThan(0);
+    // Porter stems "orientations" and the corpus's "orientation" alike.
+    expect((await paths(root, "orientations")).length).toBeGreaterThan(0);
 
     setLanguage(root, "none");
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
     expect(chunkTable()).toBe("unicode61 remove_diacritics 2");
     // Without a stemmer, no table matches the plural any more.
-    expect(await paths(root, "collimations")).toEqual([]);
-    expect((await paths(root, "collimation")).length).toBeGreaterThan(0);
+    expect(await paths(root, "orientations")).toEqual([]);
+    expect((await paths(root, "orientation")).length).toBeGreaterThan(0);
     const db = new Database(join(root, "brain.db"));
     db.run("INSERT INTO chunks_fts(chunks_fts, rank) VALUES ('integrity-check', 1)");
     db.close();
@@ -212,11 +212,11 @@ describe("search.language", () => {
     if (process.getuid?.() === 0) return;
     const root = brain();
     await runCli(root, ["index", "--json"]);
-    const scope = "studies/telescope-setup.md"; // aliases ["my scope", "the Dobsonian", "the lightbucket"]
-    const plan = "projects/active/bookshelf/plan.md"; // tags [project, woodworking, bookshelf, plan]
+    const scope = "studies/star-bearings.md"; // aliases ["my bearings", "the Calypso guide", "the bearingbook"]
+    const plan = "projects/active/raft/plan.md"; // tags [project, shipbuilding, raft, plan]
     const found = async () => ({
-      alias: (await paths(root, "lightbucket")).includes(scope),
-      phrase: (await paths(root, '"project woodworking"')).includes(plan),
+      alias: (await paths(root, "bearingbook")).includes(scope),
+      phrase: (await paths(root, '"project shipbuilding"')).includes(plan),
     });
     expect(await found()).toEqual({ alias: true, phrase: true }); // the premise
 

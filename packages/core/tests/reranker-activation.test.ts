@@ -148,7 +148,7 @@ function writeRecordingConfig(enabled?: boolean): string {
   writeFileSync(join(root!, "brain.config.ts"), `
     import { appendFileSync } from "fs";
     export default {
-      profile: { name: "Alex Example" },
+      profile: { name: "Odysseus" },
       reranker: {
         ${enabled === undefined ? "" : `enabled: ${enabled},`}
         provider: {

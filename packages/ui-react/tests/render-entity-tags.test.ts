@@ -31,8 +31,8 @@ describe("renderEntityTags", () => {
   });
 
   test("converts person tag", () => {
-    expect(renderEntityTags("<p>Alex Frison</p>")).toBe(
-      '<span class="entity-p">Alex Frison</span>'
+    expect(renderEntityTags("<p>Odysseus Frison</p>")).toBe(
+      '<span class="entity-p">Odysseus Frison</span>'
     );
   });
 
@@ -78,10 +78,10 @@ describe("renderEntityTags", () => {
   });
 
   test("handles nested entity inside bold markdown", () => {
-    const input = "**<p>Alex Frison</p> (<co>Syde</co>)**";
+    const input = "**<p>Odysseus Frison</p> (<co>Syde</co>)**";
     const result = renderEntityTags(input);
     expect(result).toBe(
-      '**<span class="entity-p">Alex Frison</span> (<span class="entity-co">Syde</span>)**'
+      '**<span class="entity-p">Odysseus Frison</span> (<span class="entity-co">Syde</span>)**'
     );
   });
 
@@ -127,9 +127,9 @@ describe("renderEntityTags", () => {
 
   test("handles real whatsup output line", () => {
     const input =
-      '- **<p>Alex Frison</p> (<co>Syde</co>)** — Follow up, deadline <d>April 10</d>';
+      '- **<p>Odysseus Frison</p> (<co>Syde</co>)** — Follow up, deadline <d>April 10</d>';
     const result = renderEntityTags(input);
-    expect(result).toContain('<span class="entity-p">Alex Frison</span>');
+    expect(result).toContain('<span class="entity-p">Odysseus Frison</span>');
     expect(result).toContain('<span class="entity-co">Syde</span>');
     expect(result).toContain('<span class="entity-d">April 10</span>');
     expect(result).not.toMatch(/<(?:co|p|d|st|ev|proj|f)>/);

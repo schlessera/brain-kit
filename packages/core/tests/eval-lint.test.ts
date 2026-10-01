@@ -19,7 +19,7 @@ beforeAll(() => {
 });
 afterAll(() => cleanup(root));
 
-const PATH = "studies/telescope-setup.md";
+const PATH = "studies/star-bearings.md";
 
 async function lint(lines: unknown[]) {
   writeFileSync(join(root, "evals/lint.jsonl"), lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n") + "\n");
@@ -32,9 +32,9 @@ test("the premise: the brain has no index for --lint to open", () => {
 });
 
 test("a paraphrase query sharing a word with its answer's title is reported, naming the word and the path", async () => {
-  const { code, out } = await lint([{ id: "q1", q: "how do I keep the telescope aligned", class: "paraphrase", expected: [PATH] }]);
+  const { code, out } = await lint([{ id: "q1", q: "how do I keep the star guide aligned", class: "paraphrase", expected: [PATH] }]);
   expect(code).toBe(0);
-  expect(out.warnings).toEqual([`q1: shares "telescope" with the title of ${PATH}`]);
+  expect(out.warnings).toEqual([`q1: shares "star" with the title of ${PATH}`]);
   expect(existsSync(join(root, "brain.db"))).toBe(false);
 });
 
@@ -46,15 +46,15 @@ test("the same query with the word replaced is not", async () => {
 });
 
 test("function words and letter case do not count as leakage", async () => {
-  // The title is "Barred owl on the north loop": "on" and "the" are stopwords.
-  const { out } = await lint([{ id: "q1", q: "What did I see on the trail at dusk", class: "paraphrase", expected: ["notes/quick-note-owl.md"] }]);
+  // The title is "Eagle report from Ithaca": "from" is a stopword.
+  const { out } = await lint([{ id: "q1", q: "What did I see from the cave at dusk", class: "paraphrase", expected: ["notes/quick-note-eagle.md"] }]);
   expect(out.warnings).toEqual([]);
-  const { out: cased } = await lint([{ id: "q2", q: "that OWL I saw", class: "paraphrase", expected: ["notes/quick-note-owl.md"] }]);
-  expect(cased.warnings).toEqual(['q2: shares "owl" with the title of notes/quick-note-owl.md']);
+  const { out: cased } = await lint([{ id: "q2", q: "that EAGLE I saw", class: "paraphrase", expected: ["notes/quick-note-eagle.md"] }]);
+  expect(cased.warnings).toEqual(['q2: shares "eagle" with the title of notes/quick-note-eagle.md']);
 });
 
 test("a query of another class may share title words", async () => {
-  const { out } = await lint([{ id: "q1", q: "telescope setup", class: "keyword", expected: [PATH] }]);
+  const { out } = await lint([{ id: "q1", q: "star guide setup", class: "keyword", expected: [PATH] }]);
   expect(out.warnings).toEqual([]);
 });
 
@@ -66,7 +66,7 @@ test("a malformed line exits 2 naming the line, without an index", async () => {
 });
 
 test("a candidate valid on its own is refused when linted with the set it joins (the brain-eval skill's check)", async () => {
-  const candidate = { id: "q1", q: "where is the scope guide", class: "paraphrase", expected: [PATH] };
+  const candidate = { id: "q1", q: "where is the guide", class: "paraphrase", expected: [PATH] };
   expect((await lint([candidate])).code).toBe(0);
   const { code, stderr } = await lint([{ id: "q1", q: "fine", class: "keyword", expected: [PATH] }, candidate]);
   expect(code).toBe(2);
@@ -98,7 +98,7 @@ test("the stopword check runs after stripping: th\u00e9 folds to the and is drop
 });
 
 test("--redact keeps the findings' count, not the titles, query words, paths or the parser's quote", async () => {
-  const leaky = { id: "q1", q: "how do I keep the telescope aligned", class: "paraphrase", expected: [PATH] };
+  const leaky = { id: "q1", q: "how do I keep the star guide aligned", class: "paraphrase", expected: [PATH] };
   const plain = await lint([leaky]);
   expect(plain.out.warnings.join(" ")).toContain(PATH);
   const args = ["eval", "--lint", "--set", "evals/lint.jsonl", "--redact"];
@@ -107,7 +107,7 @@ test("--redact keeps the findings' count, not the titles, query words, paths or 
   const human = await runCli(root, [...args, "--human"]);
   expect(human.code).toBe(0);
   for (const out of [json.stdout, human.stdout]) {
-    for (const leak of [PATH, "telescope", "evals/lint.jsonl"]) expect(out, leak).not.toContain(leak);
+    for (const leak of [PATH, "star guide", "evals/lint.jsonl"]) expect(out, leak).not.toContain(leak);
   }
   expect(JSON.parse(json.stdout)).toMatchObject({ meta: { set: null, queries: 1 }, warnings: ["1 warning(s) withheld by --redact"] });
 

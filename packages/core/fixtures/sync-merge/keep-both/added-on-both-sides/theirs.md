@@ -1,10 +1,10 @@
 ---
 type: note
-title: "Owl Survey"
+title: "Eagle Survey"
 created: 2026-01-08
 updated: 2026-05-05
-tags: [note, ranger]
+tags: [note, voyage]
 status: active
 ---
 
-Great horned owl on the snag by the second switchback.
+Eagle above the cave at sunset.

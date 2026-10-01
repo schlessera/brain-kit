@@ -11,6 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D50, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer. |
 | [feature-captures.md](feature-captures.md) | Why public feature assets use curated real sources, explicit crops and font/build provenance, with separate runtime evidence for behavior claims. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |

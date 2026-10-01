@@ -4,7 +4,7 @@ import { aggregate, ContaminationScanner, EvalSetError, isCalendarDate, MAX_K, p
 import type { SearchResult } from "../src/lib/types";
 
 const line = (value: object) => JSON.stringify(value);
-const query = { id: "q1", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] };
+const query = { id: "q1", q: "star guide setup", class: "exact", expected: ["studies/star-bearings.md"] };
 
 function results(...paths: string[]): SearchResult[] {
   return paths.map((path, i) => ({
@@ -112,8 +112,8 @@ describe("scoreQuery and aggregate", () => {
 
   test("the overall row covers answerable queries only; each class gets its own row", () => {
     const outcomes = [
-      scoreQuery("fts", query, results("studies/telescope-setup.md"), ks),
-      scoreQuery("fts", { ...query, id: "q2", class: "alias" }, results("x.md", "studies/telescope-setup.md"), ks),
+      scoreQuery("fts", query, results("studies/star-bearings.md"), ks),
+      scoreQuery("fts", { ...query, id: "q2", class: "alias" }, results("x.md", "studies/star-bearings.md"), ks),
       scoreQuery("fts", { ...query, id: "q3", class: "no-answer", expected: [] }, results("x.md"), ks),
     ];
     const rows = aggregate("fts", outcomes, ks);
@@ -139,14 +139,14 @@ describe("ContaminationScanner", () => {
   };
 
   test("matches whole words only, never inside a longer word", () => {
-    const short = [q("cat", "cat"), q("dog", "dog"), q("owl", "owl")];
+    const short = [q("cat", "cat"), q("dog", "dog"), q("eagle", "eagle")];
     expect(scan(short, "concatenate dogmatic owlet")).toEqual([]);
-    expect(scan(short, "A cat, a dog (and) an owl.")).toEqual([
-      "contamination: d0.md contains the text of 3 of the set's queries (cat, dog, owl)",
+    expect(scan(short, "A cat, a dog (and) an eagle.")).toEqual([
+      "contamination: d0.md contains the text of 3 of the set's queries (cat, dog, eagle)",
     ]);
-    const long = [q("scope", "how is the telescope")];
-    expect(scan(long, "Somehow is the telescoped mirror aligned")).toEqual([]);
-    expect(scan(long, "So: HOW is the\n  telescope?")).toEqual([
+    const long = [q("scope", "how is the star guide")];
+    expect(scan(long, "Somehow is the star guided mirror aligned")).toEqual([]);
+    expect(scan(long, "So: HOW is the\n  star guide?")).toEqual([
       "contamination: d0.md contains the text of 1 of the set's queries (scope)",
     ]);
   });
@@ -157,9 +157,9 @@ describe("ContaminationScanner", () => {
   });
 
   test("three queries of any length are enough; two are not", () => {
-    const set = [q("a", "knee"), q("b", "sleep"), q("c", "trail")];
+    const set = [q("a", "knee"), q("b", "sleep"), q("c", "route")];
     expect(scan(set, "knee and sleep")).toEqual([]);
-    expect(scan(set, "knee, sleep, trail")).toHaveLength(1);
+    expect(scan(set, "knee, sleep, route")).toHaveLength(1);
   });
 
   test("a query with regex characters is matched literally", () => {
@@ -266,17 +266,17 @@ describe("ContaminationScanner and a document's own answers", () => {
     scanner.scan(path, text);
     return scanner.warnings();
   };
-  const TEXT = "notes: cat, dog, owl and bat";
+  const TEXT = "notes: cat, dog, eagle and bat";
 
   test("queries a document answers are left out of its count", () => {
-    const own = [q("a", "cat", ["pets.md"]), q("b", "dog", ["pets.md"]), q("c", "owl", ["pets.md"])];
+    const own = [q("a", "cat", ["pets.md"]), q("b", "dog", ["pets.md"]), q("c", "eagle", ["pets.md"])];
     expect(scan(own, "pets.md", TEXT)).toEqual([]);
     // The same three queries quoted by a document they do not expect.
     expect(scan(own, "other.md", TEXT)).toHaveLength(1);
   });
 
   test("one own query plus two others is two: no warning; a third other query warns", () => {
-    const mixed = [q("mine", "cat", ["pets.md"]), q("x", "dog", ["x.md"]), q("y", "owl", ["y.md"])];
+    const mixed = [q("mine", "cat", ["pets.md"]), q("x", "dog", ["x.md"]), q("y", "eagle", ["y.md"])];
     expect(scan(mixed, "pets.md", TEXT)).toEqual([]);
     expect(scan([...mixed, q("z", "bat", ["z.md"])], "pets.md", TEXT)).toEqual([
       "contamination: pets.md contains the text of 3 of the set's queries (x, y, z)",
@@ -284,16 +284,16 @@ describe("ContaminationScanner and a document's own answers", () => {
   });
 
   test("a long query quoting its own answer is not contamination; quoted elsewhere it is", () => {
-    const long = [q("scope", "how is the telescope set up", ["studies/telescope-setup.md"])];
-    const text = "How is the telescope set up? Like this.";
-    expect(scan(long, "studies/telescope-setup.md", text)).toEqual([]);
+    const long = [q("scope", "how is the star guide set up", ["studies/star-bearings.md"])];
+    const text = "How is the star guide set up? Like this.";
+    expect(scan(long, "studies/star-bearings.md", text)).toEqual([]);
     expect(scan(long, "notes/eval.md", text)).toHaveLength(1);
   });
 });
 
 describe("the answer field", () => {
   test("a query may carry an answer to look for; a no-answer query may not", () => {
-    expect(parseEvalSet(line({ ...query, answer: "collimation" })).queries[0].answer).toBe("collimation");
+    expect(parseEvalSet(line({ ...query, answer: "orientation" })).queries[0].answer).toBe("orientation");
     expect(() => parseEvalSet(line({ ...query, answer: "  " }))).toThrow(/^line 1: answer: /);
     expect(() => parseEvalSet(line({ ...query, class: "no-answer", expected: [], answer: "x" }))).toThrow(/no "answer" to look for/);
   });

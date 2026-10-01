@@ -18,7 +18,7 @@ afterEach(() => {
 describe("createTranscriptStore", () => {
   test("create → append → history round-trip", () => {
     const store = createTranscriptStore(tempDir());
-    const id = store.create({ title: "Bookshelf planning" });
+    const id = store.create({ title: "Raft planning" });
 
     store.append(id, { role: "user", content: "hello", toolCalls: [] });
     store.append(

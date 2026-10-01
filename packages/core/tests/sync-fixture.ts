@@ -4,7 +4,7 @@
  *
  * A brain is the fixture corpus committed on `main` and pushed to a bare
  * remote; "another clone" is a plain git clone of that remote, standing in
- * for the brain on a second machine. Everything is Alex Example's.
+ * for the brain on a second machine. Everything is Odysseus's.
  */
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -37,8 +37,8 @@ export function gitMayFail(cwd: string, ...args: string[]): number {
 }
 
 export function identify(root: string): void {
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
 }
 
@@ -51,24 +51,24 @@ export function write(root: string, file: string, text: string): void {
 const GITIGNORE = "brain.db\nbrain.db-*\nnode_modules\n.agents/skills/\n.claude/skills/\n";
 
 /** A note both clones edit in the conflict scenarios; `notes/` merges keep-both. */
-export const FIELD_NOTE = "health/trail-fitness.md";
+export const FIELD_NOTE = "health/shore-fitness.md";
 export const FIELD_NOTE_TEXT = [
   "---",
-  "title: Trail fitness",
+  "title: Shore fitness",
   "type: health",
   "created: 2026-01-10",
   "updated: 2026-01-10",
   "---",
   "",
-  "# Trail fitness",
+  "# Shore fitness",
   "",
   "## Routine",
   "",
-  "Hike the ridge loop twice a week.",
+  "Walk the Ogygia shore twice a week.",
   "",
   "## Gear",
   "",
-  "Boots resoled in March.",
+  "Sandals repaired in March.",
   "",
 ].join("\n");
 
@@ -216,10 +216,10 @@ export async function envFor(root: string, judge: SyncJudge, today = "2026-09-28
 // ---------------------------------------------------------------------------
 
 export const CACHE = ".context-cache.jsonl";
-export const RIDGE_LINE = "Hike the ridge loop twice a week.";
-export const OURS_RIDGE = "Hike the ridge loop with the dog, twice a week.";
-export const THEIRS_RIDGE = "Hike the ridge loop at dawn, twice a week.";
-const OWL_COUNT = "---\ntitle: Owl count\ntype: note\n---\n\nThree barred owls at the east meadow.\n";
+export const RIDGE_LINE = "Walk the Ogygia shore twice a week.";
+export const OURS_RIDGE = "Walk the Ogygia shore with a staff, twice a week.";
+export const THEIRS_RIDGE = "Walk the Ogygia shore at dawn, twice a week.";
+const EAGLE_COUNT = "---\ntitle: Eagle count\ntype: note\n---\n\nThree eagles above the Ogygia shore.\n";
 
 /** A pre-push hook in `root` running `body` (git's own variables unset, so it can drive another clone). */
 export function prePushHook(root: string, body: string): void {
@@ -236,14 +236,14 @@ export const SCENARIO_SETUPS = {
 
   /** (b) Local edits only. */
   localOnly(brain: Brain): void {
-    write(brain.root, "notes/owl-count.md", OWL_COUNT);
-    write(brain.root, FIELD_NOTE, FIELD_NOTE_TEXT.replace("Boots resoled in March.", "Boots resoled in March; laces replaced."));
+    write(brain.root, "notes/eagle-count.md", EAGLE_COUNT);
+    write(brain.root, FIELD_NOTE, FIELD_NOTE_TEXT.replace("Sandals repaired in March.", "Sandals repaired in March; straps replaced."));
   },
 
   /** (c) Both clones edited, different files. */
   differentFiles(brain: Brain): void {
     commitAndPush(otherClone(brain), { "notes/elk-sighting.md": "---\ntitle: Elk sighting\ntype: note\n---\n\nA bull elk at the ford.\n" }, "theirs");
-    write(brain.root, "notes/owl-count.md", OWL_COUNT);
+    write(brain.root, "notes/eagle-count.md", EAGLE_COUNT);
   },
 
   /** (d) Both clones edited the same line of one note. */
@@ -261,7 +261,7 @@ export const SCENARIO_SETUPS = {
   /** (f) The remote moves between this clone's pull and its push. */
   pushRace(brain: Brain): void {
     const other = otherClone(brain);
-    write(brain.root, "notes/owl-count.md", OWL_COUNT);
+    write(brain.root, "notes/eagle-count.md", EAGLE_COUNT);
     const mark = join(brain.base, "raced");
     prePushHook(brain.root, `if [ ! -f "${mark}" ]; then touch "${mark}"; cd "${other}" && git commit -q --allow-empty -m raced && git push -q origin main; fi\nexit 0`);
   },

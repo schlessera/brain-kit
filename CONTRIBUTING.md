@@ -161,7 +161,7 @@ with a standard XML parser and inspect its testcase names and counts.
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.
 5. **No personal data** in fixtures or examples — the CI leakage gate will
-   reject known private strings; use the "Alex Example" persona.
+   reject known private strings; use the Odysseus world in [the corpus decision](docs/decisions/example-corpus.md).
 6. **No raw control or invisible characters** — write them as escape
    sequences. A single raw NUL byte makes grep and ripgrep classify the file
    as binary and drop it from every search; escaping leaves the runtime value

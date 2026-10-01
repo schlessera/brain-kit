@@ -1,6 +1,6 @@
 ---
 type: identity
-title: "Alex Example - Identity"
+title: "Odysseus - Identity"
 created: 2026-01-08
 updated: 2026-05-09
 tags: [identity, core]
@@ -8,13 +8,13 @@ status: active
 relevance: primary
 ---
 
-# Alex Example
+# Odysseus
 
-## Work
+## Voyage
 
-Senior park ranger at a state forest since May; runs visitor programs.
+King of Ithaca on Ogygia; revised the route plan in May.
 
-## Hobbies
+## Preparations
 
-- Woodworking: hand-tool furniture.
-- Astronomy: visual observing with a Dobsonian.
+- Shipbuilding: raft lashings.
+- Navigation: night navigation from Calypso’s instructions.

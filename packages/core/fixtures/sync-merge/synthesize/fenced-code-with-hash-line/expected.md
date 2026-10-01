@@ -5,23 +5,23 @@ created: 2026-01-08
 updated: 2026-06-03
 tags: [context, focus]
 status: active
-summary: "What Alex Example is working on this month"
+summary: "What Odysseus is working on this month"
 ---
 
 # Current Focus
 
 ## Tools
 
-Shop script for the dust collector timer:
+Phone script for the departure reminder timer:
 
 ```sh
 # run after every sanding session
 ./dust-timer --minutes 15
 ```
 
-## Astronomy
+## Navigation
 
-- Log Saturn once it clears the ridge.
+- Check the Bear once it clears the cave.
 
 ## Health
 

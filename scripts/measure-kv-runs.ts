@@ -14,7 +14,7 @@
  * (`kvRunCandidate`, `packages/ui-sdk/src/classification/detect.ts:523-557`)
  * with none of its inline-content rejection. A link, an image or inline HTML
  * in a line does not stop it counting here. Lines are read from the source,
- * so `[alex@example.com](mailto:alex@example.com)` is still a line that
+ * so `[odysseus@example.com](mailto:odysseus@example.com)` is still a line that
  * carries an address.
  *
  * `KV_LINE` is COPIED from the detector

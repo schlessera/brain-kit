@@ -25,7 +25,7 @@ afterAll(() => cleanup(root));
 
 describe("search", () => {
   test("FTS mode returns the { results, warnings } envelope", async () => {
-    const { stdout, code } = await runCli(root, ["search", "astronomy", "--mode", "fts", "--json"]);
+    const { stdout, code } = await runCli(root, ["search", "navigation", "--mode", "fts", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
     expect(Array.isArray(out.results)).toBe(true);
@@ -38,17 +38,17 @@ describe("search", () => {
   });
 
   test("a result carries the document's deadline and freshness fields", async () => {
-    const { stdout, code } = await runCli(root, ["search", "bookshelf", "--mode", "fts", "--json"]);
+    const { stdout, code } = await runCli(root, ["search", "raft", "--mode", "fts", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
-    const status = out.results.find((r: { path: string }) => r.path === "projects/active/bookshelf/status.md");
+    const status = out.results.find((r: { path: string }) => r.path === "projects/active/raft/status.md");
     expect(status).toBeDefined();
-    expect(status.deadline).toBe("2026-08-15");
+    expect(status.deadline).toBe("2026-07-29");
     expect(status.updated).toBe("2026-06-30");
   });
 
   test("--chunks adds each result's matching chunks; without it the results carry none", async () => {
-    const withChunks = JSON.parse((await runCli(root, ["search", "walnut shelves", "--mode", "fts", "--chunks", "--json"])).stdout);
+    const withChunks = JSON.parse((await runCli(root, ["search", "pine deck", "--mode", "fts", "--chunks", "--json"])).stdout);
     const first = withChunks.results[0];
     expect(first.chunks.length).toBeGreaterThan(0);
     const source = readFileSync(join(root, first.path), "utf-8");
@@ -58,7 +58,7 @@ describe("search", () => {
       // The chunk's heading is one of the file's own section headings.
       if (chunk.heading !== "(intro)") expect(source).toMatch(new RegExp(`^## ${chunk.heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
     }
-    const without = JSON.parse((await runCli(root, ["search", "walnut shelves", "--mode", "fts", "--json"])).stdout);
+    const without = JSON.parse((await runCli(root, ["search", "pine deck", "--mode", "fts", "--json"])).stdout);
     expect(without.results.map((r: { path: string }) => r.path)).toEqual(withChunks.results.map((r: { path: string }) => r.path));
     for (const r of without.results) expect(r).not.toHaveProperty("chunks");
   });
@@ -70,7 +70,7 @@ describe("search", () => {
   });
 
   test("hybrid mode without a key degrades to FTS with a warning", async () => {
-    const { stdout, code } = await runCli(root, ["search", "telescope", "--mode", "hybrid", "--json"]);
+    const { stdout, code } = await runCli(root, ["search", "star guide", "--mode", "hybrid", "--json"]);
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
     expect(Array.isArray(out.results)).toBe(true);
@@ -87,7 +87,7 @@ describe("search", () => {
     expect(code).toBe(0);
     const out = JSON.parse(stdout);
     expect(Array.isArray(out.warnings)).toBe(true);
-    expect(out.results[0]?.path).toBe("projects/active/bookshelf/status.md");
+    expect(out.results[0]?.path).toBe("projects/active/raft/status.md");
   });
 
   test("an invalid date is a usage error (exit 1) naming the flag, not an empty result", async () => {
@@ -114,25 +114,25 @@ describe("read", () => {
   });
 
   test("--section prints that section and no other", async () => {
-    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--section", "How to Work With Alex"]);
+    const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--section", "How to Work With Odysseus"]);
     expect(code).toBe(0);
-    expect(stdout.startsWith("## How to Work With Alex\n")).toBe(true);
-    expect(stdout).toContain("Prefer concrete, checklist-shaped guidance");
+    expect(stdout.startsWith("## How to Work With Odysseus\n")).toBe(true);
+    expect(stdout).toContain("Name the cost and the next action");
     expect(stdout).not.toContain("## Current Identity");
   });
 
   test("--max-tokens over the file's size prints the outline, not the body", async () => {
     const { stdout, code } = await runCli(root, ["read", "me/identity.md", "--max-tokens", "50"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(stdout).toContain("- ## Current Identity (~173 tokens)\n- ## How to Work With Odysseus (~51 tokens)\n");
     expect(stdout).toContain('--section "<heading>"');
-    expect(stdout).not.toContain("Prefer concrete");
+    expect(stdout).not.toContain("Name the cost");
   });
 
   test("an unknown --section is a usage error naming the available headings", async () => {
     const { stderr, code } = await runCli(root, ["read", "me/identity.md", "--section", "No Such Heading"]);
     expect(code).toBe(1);
-    expect(stderr).toContain('available headings: "Current Identity", "How to Work With Alex"');
+    expect(stderr).toContain('available headings: "Current Identity", "How to Work With Odysseus"');
   });
 
   test("--max-tokens must be a positive safe integer", async () => {
@@ -194,17 +194,17 @@ describe("audit", () => {
       // Documents in path order.
       expect.objectContaining({
         category: "verify",
-        path: "notes/quick-note-owl.md",
+        path: "notes/quick-note-eagle.md",
         severity: "info",
         count: 1,
-        examples: ["[VERIFY: confirm barred vs. spotted owl — check call recording against the field guide]"],
+        examples: ["[VERIFY: confirm who saw the eagle and whether the report is first-hand]"],
       }),
       expect.objectContaining({
         category: "todo",
-        path: "notes/quick-note-trailhead.md",
+        path: "notes/quick-note-water.md",
         severity: "info",
         count: 1,
-        examples: ["[TODO: measure the kiosk frame opening before cutting the blank]"],
+        examples: ["[TODO: measure the cask opening before cutting the blank]"],
       }),
     ]);
   });
@@ -219,7 +219,7 @@ describe("audit", () => {
     const broken = audited.filter((i) => i.category === "broken-link").map((i) => [i.path, i.severity, i.message]);
     expect(broken).toEqual([
       ["context/current-focus.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
-      ["notes/quick-note-owl.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
+      ["notes/quick-note-eagle.md", "warning", "Unresolved wiki-link: [[does-not-exist]]"],
     ]);
     const validated = JSON.parse((await runCli(root, ["validate", "--json"])).stdout).issues as Array<{
       file: string;
@@ -234,7 +234,7 @@ describe("audit", () => {
       (i) => i.category === "fact-drift"
     );
     expect(drift).toEqual([
-      expect.objectContaining({ path: "me/basics/long-bio.md", message: "ranger_since: found 2018, canonical 2019" }),
+      expect.objectContaining({ path: "me/basics/long-bio.md", message: "troy_fell: found 2015, canonical 2016" }),
     ]);
   });
 
@@ -289,8 +289,8 @@ describe("list", () => {
     const { stdout, code } = await runCli(root, ["list", "--type", "project", "--limit", "100", "--json"]);
     expect(code).toBe(0);
     const results = JSON.parse(stdout) as Array<{ path: string; deadline: string | null }>;
-    const status = results.find((d) => d.path === "projects/active/bookshelf/status.md");
-    expect(status?.deadline).toBe("2026-08-15");
+    const status = results.find((d) => d.path === "projects/active/raft/status.md");
+    expect(status?.deadline).toBe("2026-07-29");
     expect(results.some((d) => d.deadline === null)).toBe(true);
   });
 });
@@ -372,14 +372,14 @@ export default defineConfig({
       writeFileSync(join(brain, ".gitignore"), "node_modules\nbrain.db\nbrain.db-*\n.agents/skills/\n.claude/skills/\n");
       Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
       git("init", "-q", "-b", "main");
-      git("config", "user.name", "Alex Example");
-      git("config", "user.email", "alex@example.test");
+      git("config", "user.name", "Odysseus");
+      git("config", "user.email", "odysseus@example.test");
       git("config", "commit.gpgsign", "false");
       git("add", "-A");
       git("commit", "-qm", "fixture");
       git("remote", "add", "origin", remote);
       git("push", "-q", "origin", "main");
-      writeFileSync(join(brain, "survey.xyz"), "owl survey grid\n");
+      writeFileSync(join(brain, "survey.xyz"), "eagle survey grid\n");
 
       // An output flag is not a verb: `--human` is the text…
       const human = await runCli(brain, ["sync", "--human"]);
@@ -567,7 +567,7 @@ describe("briefing", () => {
 
 describe("context", () => {
   test("emits plain-text markdown, not JSON", async () => {
-    const { stdout, code } = await runCli(root, ["context", "astronomy", "--max-tokens", "1000"]);
+    const { stdout, code } = await runCli(root, ["context", "navigation", "--max-tokens", "1000"]);
     expect(code).toBe(0);
     expect(() => JSON.parse(stdout)).toThrow();
     expect(stdout).toContain("##");
@@ -612,8 +612,8 @@ describe("eval", () => {
       writeFileSync(
         set,
         [
-          { id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
-          { id: "none", q: "telescope", class: "no-answer", expected: [] },
+          { id: "scope", q: "star bearings orientation", class: "exact", expected: ["studies/star-bearings.md"] },
+          { id: "none", q: "star guide", class: "no-answer", expected: [] },
         ].map((q) => JSON.stringify(q)).join("\n")
       );
       const { stdout, code } = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--json"]);
@@ -721,7 +721,7 @@ describe("output mode + exit codes", () => {
   });
 
   test("an unknown rerank mode is a usage error, not a silent fallback", async () => {
-    const { code, stderr } = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "title", "--json"]);
+    const { code, stderr } = await runCli(root, ["search", "navigation", "--mode", "fts", "--rerank", "title", "--json"]);
     expect(code).toBe(1);
     expect(stderr).toMatch(/Unknown rerank mode "title"/);
   });
@@ -731,7 +731,7 @@ describe("output mode + exit codes", () => {
     try {
       writeFileSync(join(enabledRoot, "brain.config.ts"), "export default { reranker: { enabled: true } };\n");
       expect((await runCli(enabledRoot, ["index", "--json"])).code).toBe(0);
-      const res = await runCli(enabledRoot, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--json"]);
+      const res = await runCli(enabledRoot, ["search", "navigation", "--mode", "fts", "--rerank", "jev", "--json"]);
       expect(res.code).toBe(0);
       const out = JSON.parse(res.stdout);
       expect(out.results.length).toBeGreaterThan(0);
@@ -740,7 +740,7 @@ describe("output mode + exit codes", () => {
   });
 
   test("--rerank-dry-run prints the jev request without a key and sends nothing", async () => {
-    const res = await runCli(root, ["search", "astronomy", "--mode", "fts", "--rerank", "jev", "--rerank-dry-run", "--json"]);
+    const res = await runCli(root, ["search", "navigation", "--mode", "fts", "--rerank", "jev", "--rerank-dry-run", "--json"]);
     expect(res.code).toBe(0);
     const out = JSON.parse(res.stdout);
     expect(out.warnings.some((w: string) => /rerank dry run \(jev:/.test(w))).toBe(true);
@@ -754,7 +754,7 @@ describe("output mode + exit codes", () => {
     const dir = mkdtempSync(join(tmpdir(), "brain-eval-set-"));
     try {
       const set = join(dir, "retrieval.jsonl");
-      writeFileSync(set, JSON.stringify({ id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] }));
+      writeFileSync(set, JSON.stringify({ id: "scope", q: "star bearings orientation", class: "exact", expected: ["studies/star-bearings.md"] }));
       const res = await runCli(root, ["eval", "--set", set, "--mode", "fts", "--rerank", "jev", "--json"]);
       expect(res.code).toBe(2);
       expect(res.stderr).toMatch(/--rerank jev cannot run/);

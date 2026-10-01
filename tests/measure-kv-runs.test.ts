@@ -12,9 +12,9 @@ import { describe, expect, test } from "bun:test";
 
 import { countKvRuns, kvRunColumns, kvRunRows } from "../scripts/measure-kv-runs.ts";
 
-const FLATTENS = "- **Email:** alex@example.com\n- **Web:** https://example.com/alex";
-const LABELLED = "**Web:** [Alex's page](https://example.com/alex)\n**Role:** Park ranger";
-const NONE = "Name: Alex Example\nRole: Park ranger";
+const FLATTENS = "- **Email:** odysseus@example.com\n- **Web:** https://example.com/odysseus";
+const LABELLED = "**Web:** [Odysseus's page](https://example.com/odysseus)\n**Role:** King of Ithaca";
+const NONE = "Name: Odysseus\nRole: King of Ithaca";
 
 describe("the kv_run columns", () => {
   test("a run whose address flattens is written, carries an address, and is detected", () => {
@@ -52,36 +52,36 @@ describe("the kv_run columns", () => {
 
 describe("the shape count", () => {
   test("does not count prose, a single line, or a run with one prose line in it", () => {
-    expect(countKvRuns("Alex is a park ranger.\nThey like astronomy.").written).toBe(0);
-    expect(countKvRuns("**Email:** alex@example.com").written).toBe(0);
-    expect(countKvRuns("**Email:** alex@example.com\nwrite any time").written).toBe(0);
+    expect(countKvRuns("Odysseus is a king of Ithaca.\nHe studies navigation.").written).toBe(0);
+    expect(countKvRuns("**Email:** odysseus@example.com").written).toBe(0);
+    expect(countKvRuns("**Email:** odysseus@example.com\nwrite any time").written).toBe(0);
   });
 
   test("does not count an ordered list, which is steps, not a run", () => {
-    expect(countKvRuns("1. **Email:** alex@example.com\n2. **Role:** Ranger").written).toBe(0);
+    expect(countKvRuns("1. **Email:** odysseus@example.com\n2. **Role:** King of Ithaca").written).toBe(0);
   });
 
   test("does not count a run inside a fenced code block, which draws nothing", () => {
-    expect(countKvRuns("```\nName: Alex\nRole: Ranger\n```").written).toBe(0);
+    expect(countKvRuns("```\nName: Odysseus\nRole: King of Ithaca\n```").written).toBe(0);
   });
 
   test("counts a run with an image or inline HTML the detector would reject", () => {
-    expect(countKvRuns("**Photo:** ![Alex](https://example.com/a.png)\n**Role:** Ranger")).toEqual({
+    expect(countKvRuns("**Photo:** ![Odysseus](https://example.com/a.png)\n**Role:** King of Ithaca")).toEqual({
       written: 1,
       withAddress: 1,
     });
-    expect(countKvRuns("**Note:** <b>bold</b>\n**Role:** Ranger")).toEqual({ written: 1, withAddress: 0 });
+    expect(countKvRuns("**Note:** <b>bold</b>\n**Role:** King of Ithaca")).toEqual({ written: 1, withAddress: 0 });
   });
 
   test("counts GFM's www. form and a mailto link as addresses", () => {
-    expect(countKvRuns("**Web:** www.example.com\n**Role:** Ranger").withAddress).toBe(1);
-    expect(countKvRuns("**Email:** [write](mailto:alex@example.com)\n**Role:** Ranger").withAddress).toBe(1);
+    expect(countKvRuns("**Web:** www.example.com\n**Role:** King of Ithaca").withAddress).toBe(1);
+    expect(countKvRuns("**Email:** [write](mailto:odysseus@example.com)\n**Role:** King of Ithaca").withAddress).toBe(1);
   });
 
   test("counts per part, never over the join", () => {
     // Joined, the two lines become one paragraph and one run; the reader saw
     // two single lines, which are not runs.
-    expect(countKvRuns("Name: Alex", "Role: Ranger").written).toBe(0);
-    expect(countKvRuns("Name: Alex\nRole: Ranger").written).toBe(1);
+    expect(countKvRuns("Name: Odysseus", "Role: King of Ithaca").written).toBe(0);
+    expect(countKvRuns("Name: Odysseus\nRole: King of Ithaca").written).toBe(1);
   });
 });

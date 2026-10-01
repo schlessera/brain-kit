@@ -18,7 +18,7 @@ function resolveWikilinkTarget(
 
 const MAP: Record<string, string> = {
   "ai-development": "expertise/ai-development.md",
-  "alex-example": "network/people/alex-example.md",
+  "odysseus": "network/people/odysseus.md",
   readme: "README.md",
 };
 
@@ -96,8 +96,8 @@ describe("WIKILINK_RE", () => {
   });
 
   test("matches a piped wikilink", () => {
-    expect(extractWikilinks("[[alex-example|Alex]]")).toEqual([
-      { target: "alex-example", label: "Alex" },
+    expect(extractWikilinks("[[odysseus|Odysseus]]")).toEqual([
+      { target: "odysseus", label: "Odysseus" },
     ]);
   });
 

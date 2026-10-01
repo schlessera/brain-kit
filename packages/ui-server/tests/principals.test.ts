@@ -234,12 +234,12 @@ describe("principal store", () => {
   test("ambient resolution performs no write for a fresh hit", () => {
     const now = spyOn(Date, "now").mockReturnValue(BASE_NOW);
     try {
-      const first = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      const first = resolveAmbientPrincipal(db, "proxy", "odysseus", "Odysseus");
       const before = db.query("SELECT total_changes() AS count").get() as {
         count: number;
       };
 
-      const second = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      const second = resolveAmbientPrincipal(db, "proxy", "odysseus", "Odysseus");
       const after = db.query("SELECT total_changes() AS count").get() as {
         count: number;
       };
@@ -253,7 +253,7 @@ describe("principal store", () => {
       // see it: under it, ANY write statement throws.
       db.exec("PRAGMA query_only = ON");
       try {
-        const third = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+        const third = resolveAmbientPrincipal(db, "proxy", "odysseus", "Odysseus");
         expect(third.id).toBe(first.id);
       } finally {
         db.exec("PRAGMA query_only = OFF");
@@ -261,7 +261,7 @@ describe("principal store", () => {
 
       // A stale hit does write, and the timestamp advances.
       now.mockReturnValue(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
-      const fourth = resolveAmbientPrincipal(db, "proxy", "alex", "Alex Example");
+      const fourth = resolveAmbientPrincipal(db, "proxy", "odysseus", "Odysseus");
       expect(fourth.lastSeenAt).toBe(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
       const afterStale = db.query("SELECT total_changes() AS count").get() as {
         count: number;

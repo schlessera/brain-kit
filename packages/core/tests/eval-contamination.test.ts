@@ -20,7 +20,7 @@ afterEach(() => {
 // goldens' and quotes its own targets by design).
 const SET = "evals/retrieval.jsonl";
 const THREE = [
-  { id: "telescope-setup", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
+  { id: "star-bearings", q: "star guide setup", class: "exact", expected: ["studies/star-bearings.md"] },
   { id: "knee-injury", q: "knee injury", class: "exact", expected: ["health/knee-injury.md"] },
   { id: "sleep-tracking", q: "sleep tracking", class: "exact", expected: ["health/sleep-tracking.md"] },
 ];
@@ -47,7 +47,7 @@ async function evalRun(root: string, ...flags: string[]) {
   return { ...run, out: run.code === 0 ? JSON.parse(run.stdout) : undefined };
 }
 
-const QUOTING = note("Queries I test search with:\n\n- Telescope  setup\n- knee injury\n- SLEEP tracking\n");
+const QUOTING = note("Queries I test search with:\n\n- Star Guide  setup\n- knee injury\n- SLEEP tracking\n");
 
 test("the three-query set scores with no contamination warning", async () => {
   const { code, out } = await evalRun(await brainWith({}));
@@ -60,7 +60,7 @@ test("a note quoting three of the set's queries is named in warnings", async () 
   const { code, out } = await evalRun(await brainWith({ "notes/eval-notes.md": QUOTING }));
   expect(code).toBe(0);
   expect(out.warnings).toEqual([
-    "contamination: notes/eval-notes.md contains the text of 3 of the set's queries (telescope-setup, knee-injury, sleep-tracking)",
+    "contamination: notes/eval-notes.md contains the text of 3 of the set's queries (star-bearings, knee-injury, sleep-tracking)",
   ]);
 });
 
@@ -73,13 +73,13 @@ test("--strict refuses the same run with exit 2 and no score", async () => {
 
 test("one quoted query of four or more words is enough; two short ones are not", async () => {
   const set = [
-    { id: "long", q: "how is the telescope set up", class: "question", expected: ["studies/telescope-setup.md"] },
+    { id: "long", q: "how is the star guide set up", class: "question", expected: ["studies/star-bearings.md"] },
     { id: "knee", q: "knee injury", class: "exact", expected: ["health/knee-injury.md"] },
     { id: "sleep", q: "sleep tracking", class: "exact", expected: ["health/sleep-tracking.md"] },
   ];
   const root = await brainWith({
     [SET]: set.map((q) => JSON.stringify(q)).join("\n"),
-    "notes/long.md": note("Someone asked: How is the\ntelescope set up?"),
+    "notes/long.md": note("Someone asked: How is the\nstar guide set up?"),
     "notes/short.md": note("Two of them: knee injury and sleep tracking."),
   });
   const { code, out } = await evalRun(root);
@@ -119,9 +119,9 @@ test.skipIf(process.getuid?.() === 0)("an indexed note that cannot be read refus
 test("title and alias queries do not flag the document they expect", async () => {
   const root = await brainWith({
     [SET]: [
-      { id: "title", q: "Telescope Setup & Collimation", class: "exact", expected: ["studies/telescope-setup.md"] },
-      { id: "dob", q: "the Dobsonian", class: "alias", expected: ["studies/telescope-setup.md"] },
-      { id: "scope", q: "my scope", class: "alias", expected: ["studies/telescope-setup.md"] },
+      { id: "title", q: "Star Guide Setup & Orientation", class: "exact", expected: ["studies/star-bearings.md"] },
+      { id: "dob", q: "the Calypso guide", class: "alias", expected: ["studies/star-bearings.md"] },
+      { id: "scope", q: "my bearings", class: "alias", expected: ["studies/star-bearings.md"] },
     ].map((q) => JSON.stringify(q)).join("\n"),
   });
   const { code, out } = await evalRun(root);

@@ -1,14 +1,14 @@
 ---
 type: note
-title: "Trail Sign Idea"
+title: "Spar Label Idea"
 created: 2026-01-08
 updated: 2026-05-03
-tags: [note, ranger]
+tags: [note, voyage]
 status: active
 ---
 
-Carve the trail markers from offcuts of the white oak.
+Carve the spar labels from offcuts of the fir.
 
 - rout the letters
 - oil twice
-- ask the district office about sizes
+- ask the Calypso about sizes

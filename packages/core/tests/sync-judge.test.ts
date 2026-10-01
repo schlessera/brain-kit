@@ -44,8 +44,8 @@ function fakeJev(oracle: Oracle, outcomes: JevResult["outcome"][] = []): JevLike
 const file = (id: string, path: string, head: string): UnknownFile => ({ id, path, head, bytes: head.length });
 const pair = (id: string, ours: string, theirs: string): JudgmentPair => ({
   id,
-  path: "projects/active/bookshelf/status.md",
-  context: "Bookshelf > Next action",
+  path: "projects/active/raft/status.md",
+  context: "Raft > Next action",
   ours,
   theirs,
 });
@@ -87,7 +87,7 @@ describe("J1: classifyFiles", () => {
     expect([...decided.keys()]).toEqual(["long"]);
     // One NUL in otherwise plain text is still binary.
     const nul = await createSyncJudge({ apiKey: "k", client: jev }).classifyFiles([
-      file("nul", "notes/log.txt", `${"ranger log line\n".repeat(20)}\u0000`),
+      file("nul", "notes/log.txt", `${"sailor log line\n".repeat(20)}\u0000`),
     ]);
     expect(nul.size).toBe(0);
     const state = jev.requests[0]!.state as Record<string, { path: string; head: string }>;
@@ -114,7 +114,7 @@ describe("J2: decidePairs", () => {
     // Forward (A = ours) says A replaces B; reverse (A = theirs) says B replaces A: both mean ours supersedes.
     const jev = fakeJev((id) => ({ choice: id.startsWith("p0r") ? "B-replaces-A" : "A-replaces-B", confidence: 0.9 }));
     const judge = createSyncJudge({ apiKey: "k", client: jev });
-    const decided = await judge.decidePairs([pair("p", "Glue-up done.", "Glue-up planned.")]);
+    const decided = await judge.decidePairs([pair("p", "Deck lashed.", "Deck lashing planned.")]);
     expect(decided.get("p")).toEqual({ decision: "ours-supersedes", confidence: 0.9 });
     expect(judge.report().agreement).toEqual({ compared: 1, agreed: 1 });
   });

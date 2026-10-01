@@ -68,7 +68,7 @@ Two audit checks (category `jobs-stage`, info) flag a `status.md` without a
 ### Index-sync rule
 
 The module contributes the dir anchor `status.md`, so a wiki-link to an
-opportunity directory (`[[career/opportunities/acme]]`) resolves to that dir's
+opportunity directory (`[[career/opportunities/phaeacians]]`) resolves to that dir's
 `status.md`.
 
 ### Cron

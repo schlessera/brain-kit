@@ -1,1 +1,1 @@
-export default { profile: { name: "Alex Example" }, sync: { judge: "off" } };
+export default { profile: { name: "Odysseus" }, sync: { judge: "off" } };
