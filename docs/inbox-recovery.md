@@ -33,7 +33,8 @@ Required staging references and each manifest's declared file sizes must agree.
 Missing bytes or staging symlinks refuse export. A second database/staging
 comparison refuses concurrent changes during capture. Retry a refused export;
 it leaves the previous published backup intact. Atomic publication syncs a
-private temporary file before replacing the destination.
+private temporary file before replacing the destination. Directory aliases
+cannot bypass protection of the source database, its sidecars or staging.
 
 The artifact and restored files use mode `0600`; new staging directories use
 `0700`. The backup contains private content and authentication state. Keep it

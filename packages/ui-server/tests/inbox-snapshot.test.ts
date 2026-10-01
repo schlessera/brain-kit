@@ -280,6 +280,24 @@ test("missing source staging and concurrent database/staging writes never replac
   expect(statSync(output).mode & 0o777).toBe(0o600);
 });
 
+test.each(["database", "staging"])("export refuses a %s destination reached through a directory alias", async kind => {
+  const f = await world(), alias = join(directory(), "alias");
+  const parent = kind === "database" ? f.root : join(f.root, SHARE_STAGING_DIR, f.records.get("ready")!.stagingId);
+  symlinkSync(parent, alias);
+  const name = kind === "database" ? "ui.sqlite" : "harbor.png", original = readFileSync(join(parent, name));
+  await expect(writeInboxSnapshot(f.db, f.root, join(alias, name))).rejects.toThrow("inbox_snapshot_destination");
+  expect(readFileSync(join(parent, name))).toEqual(original);
+});
+
+test("export protects both a linked source entry and its physical database", async () => {
+  const f = await world(), link = join(f.root, "linked.sqlite"); symlinkSync(f.path, link);
+  const db = new Database(link, { readonly: true }); cleanup.push(() => db.close());
+  for (const target of [link, f.path])
+    await expect(writeInboxSnapshot(db, f.root, target)).rejects.toThrow("inbox_snapshot_destination");
+  expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+  expect(f.store.exportState().inbox_completed_tool_calls).toHaveLength(1);
+});
+
 test("interrupted staging holds runtime, claim and acquisition gates, then resumes exactly once", async () => {
   const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(target, "ui.sqlite");
   const original = fs.link; let interrupted = false;

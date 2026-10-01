@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
@@ -227,8 +227,14 @@ async function publish(path: string, bytes: Uint8Array, replace: boolean): Promi
   } finally { await file.close(); await rm(temporary, { force: true }); }
 }
 export async function writeInboxSnapshot(db: Database, brainRoot: string, path: string): Promise<InboxBackup> {
-  const target = resolve(path), source = resolve(db.filename), staging = await stagingRoot(brainRoot);
-  if ([source, `${source}-wal`, `${source}-shm`].includes(target) || target === staging || target.startsWith(staging + "/"))
+  // Rename addresses the final directory entry, so canonicalize its parent
+  // without following the destination's final symlink. Protect both the
+  // source entry and its physical database when the source itself is a link.
+  const requested = resolve(path), sourcePath = resolve(db.filename), staging = await stagingRoot(brainRoot);
+  const target = join(await realpath(dirname(requested)), basename(requested));
+  const sources = [join(await realpath(dirname(sourcePath)), basename(sourcePath)), await realpath(sourcePath)];
+  if (sources.flatMap(source => [source, `${source}-wal`, `${source}-shm`, `${source}-journal`]).includes(target) ||
+      target === staging || target.startsWith(staging + sep))
     throw new Error("inbox_snapshot_destination");
   const snapshot = await exportInboxSnapshot(db, brainRoot);
   await publish(target, Buffer.from(JSON.stringify(snapshot) + "\n"), true);

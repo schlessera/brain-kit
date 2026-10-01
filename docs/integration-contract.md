@@ -103,8 +103,8 @@ are evaluated as new calls under current authority, not deduplicated effects.
 The Bun-only `brain-ui-inbox` bin accepts `export` or `restore` with required
 `--db <file>`, `--brain-root <directory>`, `--file <backup.json>` and optional
 `--json`. Paths are explicit; there are no environment defaults.
-Export opens an existing migrated UI database read-only. Restore accepts a new
-database/empty staging target, or the unchanged pending target from the identical
+Export protects database/sidecar/staging destinations through aliases. Restore
+accepts a new database/empty staging target, or the unchanged pending target from the identical
 interrupted restore. It never merges a populated target or opens `brain.db`.
 
 With `--json`, stdout contains one JSON object and a newline:
