@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { CompletedAutonomousToolCall, InboxQueueItem } from "@schlessera/brain-ui-sdk/server";
 import { createInboxStore } from "./store.js";
+import { failInboxWork } from "./actions.js";
 
 const digest = (...parts: string[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 // Named first-party reads may be repeated to inspect current state. Unknown
@@ -60,20 +61,11 @@ export function recoverAutonomousItem(db: Database, item: InboxQueueItem, now = 
     const store = createInboxStore(db, { now: () => now });
     const current = store.getItem(item.id);
     if (!current || current.queue !== "queue" || current.status !== "claimed" || current.version !== item.version) return;
-    const exhausted = current.attempts >= current.maxAttempts;
-    store.commit([{ kind: "transition", itemId: current.id, expectedVersion: current.version,
-      to: exhausted ? "failed" : "ready" }]);
-    if (!exhausted) return;
-    const id = `dead-letter-${digest(current.id)}`;
-    if (db.query("SELECT 1 FROM inbox_items WHERE id = ?").get(id)) return;
-    const thread = store.getThread(current.threadId);
-    if (!thread || thread.status !== "open") return;
-    store.commit([{ kind: "item", item: { id, dedupKey: id, threadId: current.threadId,
-      queue: "actions", type: "choose", status: "pending", version: 1, createdAt: now, updatedAt: now,
-      expiresAt: now + 30 * 86_400_000, payload: { title: "Autonomous work reached its attempt limit",
-        detail: "Repeated interruption exhausted the bounded attempts. Review the retained checkpoints and completed calls before starting new work." },
-      options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }],
-    } }]);
+    if (current.attempts >= current.maxAttempts) {
+      failInboxWork(db, current.id, current.version, now);
+      return;
+    }
+    store.commit([{ kind: "transition", itemId: current.id, expectedVersion: current.version, to: "ready" }]);
   }).immediate();
 }
 

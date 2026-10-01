@@ -49,6 +49,7 @@ the published template rather than a source checkout.
 | [http-api.md](http-api.md) | Complete mounted-route inventory, supported HTTP authentication/inputs/responses/errors, SDK dependencies and internal UI transport boundary. |
 | [content-index-queries.md](content-index-queries.md) | Supported synchronous content-index results, validation, compatibility and snapshot lifetime. |
 | [inbox-storage.md](inbox-storage.md) | Internal durable Queue and Action storage, guarded transactions, checkpoints, cursor replay and recovery ownership. |
+| [inbox-actions.md](inbox-actions.md) | Atomic escalation and exactly-once decisions, deterministic snooze, cap/expiry/suppression, bounded retries and staging compensation. |
 | [inbox-budget.md](inbox-budget.md) | Autonomous spend/turn admission, conservative reservations, frozen settlement and crash recovery. |
 | [inbox-runtime.md](inbox-runtime.md) | Queue lifecycle, expired-lease recovery and the protected local HTTP poke with boot token rotation. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, supported HTTP/wire behavior, `brain.db` reads, and versioning rules. |

@@ -156,7 +156,7 @@ describe("inbox drain lifecycle", () => {
     expect(store().snapshot().items.filter((i) => i.status === "ready")).toHaveLength(1);
   });
 
-  test("dispatch runs outside SQLite transactions and failed work retains a recoverable lease", async () => {
+  test("dispatch runs outside SQLite transactions and failures release their lease with bounded backoff", async () => {
     seed(); const second = createUiDb(path);
     try {
       let wrote = false;
@@ -166,8 +166,9 @@ describe("inbox drain lifecycle", () => {
       } });
       expect((await r.tick()).claimed).toBe(1); expect(wrote).toBe(true);
       const item = store().getItem("item-odysseus")!;
-      expect(item).toMatchObject({ status: "claimed", attempts: 1, claimedAt: now });
-      expect(item.queue === "queue" && item.leaseUntil! > now).toBe(true);
+      expect(item).toMatchObject({ status: "ready", attempts: 1, waitUntil: now + 60_000 });
+      expect(item).not.toHaveProperty("leaseUntil");
+      expect((await r.tick()).claimed).toBe(0);
       await r.close(); now += 600_000;
       runtime(); expect(store().getItem(item.id)).toMatchObject({ status: "ready", attempts: 1 });
     } finally { second.close(); }

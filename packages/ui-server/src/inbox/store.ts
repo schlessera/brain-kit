@@ -67,12 +67,15 @@ export interface InboxReservation {
 }
 export type InboxMutation =
   | { kind: "item"; item: InboxItem }
+  | { kind: "retain_block"; itemId: string; expectedVersion: number; expiresAt: number }
   | {
       kind: "transition";
       itemId: string;
       expectedVersion: number;
       to: InboxQueueStatus | InboxActionStatus;
       waitUntil?: number | null;
+      /** Server-derived snooze extends retention through its resurface window. */
+      expiresAt?: number;
       leaseUntil?: number;
       runId?: string;
       blockedByItemId?: string;
@@ -172,6 +175,7 @@ const TABLES = [
   "inbox_budget_reservations",
   "inbox_intake_receipts",
   "inbox_completed_tool_calls",
+  "inbox_action_contexts",
 ] as const;
 const TERMINAL = new Set([
   "done",
@@ -583,6 +587,18 @@ export class InboxStore {
       case "item":
         this.insertItem(mutation.item);
         return;
+      case "retain_block": {
+        const row = this.itemRow(mutation.itemId), item = wireItem(row);
+        if (row.deleted_at !== null || item.queue !== "queue" || item.status !== "blocked" || item.version !== mutation.expectedVersion)
+          throw new Error("Inbox version conflict");
+        assertTime(mutation.expiresAt);
+        if (mutation.expiresAt < item.expiresAt) throw new Error("Blocked retention cannot shorten expiry");
+        const next = { ...item, version: item.version + 1, updatedAt: now, expiresAt: mutation.expiresAt };
+        this.db.query("UPDATE inbox_items SET expires_at = ?, version = ?, data_json = ? WHERE id = ?")
+          .run(next.expiresAt, next.version, JSON.stringify(next), next.id);
+        this.change(next.threadId, { kind: "upsert_item", itemId: next.id, item: next });
+        return;
+      }
       case "transition": {
         const row = this.itemRow(mutation.itemId),
           item = wireItem(row);
@@ -608,6 +624,12 @@ export class InboxStore {
             assertTime(mutation.waitUntil);
             next.waitUntil = mutation.waitUntil;
           }
+        }
+        if (mutation.expiresAt !== undefined) {
+          if (next.queue !== "actions" || next.status !== "snoozed") throw new Error("Only snooze can extend Action retention");
+          assertTime(mutation.expiresAt);
+          if (mutation.expiresAt < item.expiresAt) throw new Error("Snooze cannot shorten retention");
+          next.expiresAt = mutation.expiresAt;
         }
         if (next.queue === "queue") {
           if (mutation.blockedByItemId !== undefined) {

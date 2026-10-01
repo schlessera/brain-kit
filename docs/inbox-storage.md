@@ -84,6 +84,7 @@ source or trust. The store starts no inference call.
 | Record | Invariant and owner |
 | --- | --- |
 | Resolutions | One write-once row per Action, with principal, selected option and validated frozen v1 effect. The effect engine composes the transition and deterministic follow-up dedup key in the same transaction; storage executes no effect. |
+| Action contexts | Immutable server-selected class/evidence/suppression/source context and the canonical stored option set, retained for strict resolution and compensation. |
 | Suppressions | One record per class, with evidence boundary, expiry and re-raise condition; admission owns matching and expiry. |
 | Scheduler heartbeat | One record per scheduler name, with last tick and processed change cursor; the drain loop owns updates. |
 | Budget reservations | Unique operation key, item/attempt/purpose/run identity, principal/model/billing mode, admission day, normal/emergency bucket, reserved dollars/turns, observed cost and final charged dollars/turns. Budget admission owns limits, unknown-cost policy and recovery decisions. |
@@ -98,6 +99,9 @@ creation are budget policy rather than implicit storage behavior.
 
 `exportState()` takes one consistent read of every operational table, including
 deleted projections, checkpoints, resolutions, sequences and reservations.
+Migration `027_inbox_actions.sql` adds retained Action contexts to that export.
+The [Action engine](inbox-actions.md) composes these records with guarded
+transitions and performs filesystem compensation after database commit.
 Reopening the same UI database recovers these records. Backup and restore
 orchestration owns packaging that export with the brain files and staging;
 this method alone is not a complete backup.

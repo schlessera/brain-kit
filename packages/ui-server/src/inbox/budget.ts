@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { BillingMode, InboxQueueItem, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { ModelPricing, PricingRates } from "../pricing/model-pricing.js";
 import { createInboxStore, type InboxReservation } from "./store.js";
+import { createInboxAction } from "./actions.js";
 
 export interface InboxBudgetConfig {
   spendUsd: number;
@@ -127,11 +128,13 @@ function notice(db: Database, itemId: string, classKey: string, title: string, d
   if (!owner) return;
   const store = createInboxStore(db, { now: () => now });
   const id = `budget-${createHash("sha256").update(classKey).digest("hex")}`;
-  store.commit([{ kind: "item", item: {
+  createInboxAction(db, {
     id, threadId: owner.threadId, dedupKey: id, queue: "actions", type: action ? "choose" : "fyi",
     status: "pending", version: 1, createdAt: now, updatedAt: now, expiresAt: now + 30 * DAY_MS,
     payload: { title, detail }, options: action ? [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] : [],
-  } }, { kind: "suppress", classKey, evidenceBoundary: classKey, expiresAt: Number.MAX_SAFE_INTEGER,
+  }, [], { now, context: { classKey, evidenceBoundary: classKey, suppressionUntil: Number.MAX_SAFE_INTEGER,
+    reraiseCondition: "A different model or budget day has a different class key." } });
+  store.commit([{ kind: "suppress", classKey, evidenceBoundary: classKey, expiresAt: Number.MAX_SAFE_INTEGER,
     reraiseCondition: "A different model or budget day has a different class key." }]);
 }
 function unpricedNotice(db: Database, row: Pick<ReservationRow, "item_id" | "model">, model: string, now: number): void {
