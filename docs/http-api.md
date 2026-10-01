@@ -274,7 +274,8 @@ empty or non-string passwords become invalid credentials. Password mode only:
 other modes return 400; a passkey for the current RP disables password login
 unless recovery is configured, returning 403. Malformed JSON returns 400,
 invalid credentials 401, rate/capacity limits 429, and principal capacity 503.
-A parsed JSON null body currently reaches the common 500 (#694).
+Malformed JSON and non-object JSON (null, arrays or scalars) return 400
+`{ error: "Invalid request body" }`; object password defaults remain unchanged.
 The limiter currently counts five failed passwords per IP and 100 globally
 per minute, with bounded concurrent verification. Success returns `{ ok: true }`
 and a Secure, HttpOnly, SameSite=Strict signed session cookie at `/`, with a
@@ -308,9 +309,9 @@ options. The bounded, process-local challenge store can evict old challenges.
 | POST `/api/auth/passkey/login-options` | Public; body ignored; Origin required | WebAuthn JSON request options: challenge, RP ID, empty allowCredentials, userVerification required | 429 options-rate limit (currently 10/IP/minute); creates an authentication challenge. |
 | POST `/api/auth/passkey/login-verify` | Public; JSON `AuthenticationResponseJSON` from the browser ceremony | `{ ok: true }`, with the same owner session cookie as password login | 400 malformed JSON; 401 unknown/foreign-RP credential, expired/replayed challenge or failed verification; 429 failed-verify/in-flight limit; 503 session capacity. Verifies challenge, origin, RP and credential, updates counter/last-use; a failed attempt consumes its challenge. |
 | POST `/api/auth/passkey/register-options` | Password owner; body ignored; Origin required | WebAuthn JSON creation options | Discoverable credential and user verification required; no attestation; excludes existing RP credentials; ES256/RS256 algorithms. Creates a registration challenge. |
-| POST `/api/auth/passkey/register-verify` | Password owner; JSON `{ response: RegistrationResponseJSON, label?: string }`; Origin required | `{ ok: true, credential: PasskeySummary \| null }` | 400 missing response, malformed JSON, expired/replayed challenge, duplicate or failed registration. Label is trimmed and sliced to 64 characters; absent/non-string becomes empty. Stores only verified credential data. A JSON null body currently falls through to common 500 rather than the missing-response check. |
+| POST `/api/auth/passkey/register-verify` | Password owner; JSON `{ response: RegistrationResponseJSON, label?: string }`; Origin required | `{ ok: true, credential: PasskeySummary \| null }` | 400 missing response, malformed/non-object JSON, expired/replayed challenge, duplicate or failed registration. Label is trimmed and sliced to 64 characters; absent/non-string becomes empty. Stores only verified credential data. |
 | GET `/api/auth/passkey/list` | Password owner; no inputs | `{ credentials: PasskeySummary[] }` | All RPs, newest registration first; no credential public-key bytes. |
-| PUT `/api/auth/passkey/:id` | Password owner; JSON `{ label?: string }`; credential ID in path | `{ ok: true }` | 400 malformed JSON; 404 unknown credential. Same label normalization; omitted label clears it. JSON null currently reaches common 500. |
+| PUT `/api/auth/passkey/:id` | Password owner; JSON `{ label?: string }`; credential ID in path | `{ ok: true }` | 400 malformed/non-object JSON; 404 unknown credential. Same label normalization; omitted label clears it. |
 | DELETE `/api/auth/passkey/:id` | Password owner; body ignored; credential ID in path | `{ ok: true }` | 404 unknown credential. Revokes sessions derived from that credential and their delegated agents; deleting the last RP credential re-enables password login unless configured otherwise. |
 
 `PasskeySummary` is the SDK shape `{ id, label, rpId, createdAt, lastUsedAt,
@@ -351,7 +352,7 @@ The route does not create a second independent taxonomy or ranking policy.
 | GET `/api/brain/list` | Optional type, tag, status, relevance and Number-converted limit; limit 20 when omitted; archived excluded unless status=archived | `{ results: SearchResult[] }`, the full CLI list result | CLI/subprocess failures are 500 `{ error }`; filter strings are not HTTP enum-validated. Rows include path, title, type, status, relevance, nullable summary, updated, nullable deadline/generatedFrom, comma-separated tags (null when none), score=0 and empty snippet. No created field or tags-array conversion is added by HTTP. |
 | GET `/api/brain/stats` | No inputs | Full `brain stats --json` object | No HTTP wrapping, filtering or formatting; CLI failure 500 `{ error }`. The integration contract owns the complete corpus shape, including unknown values. |
 | GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |
-| POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; route checks content truthiness; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Invalid JSON/null/non-string fields lack uniform 400 validation today. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
+| POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; nonempty string content and declared optional field types are checked before CLI dispatch; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Malformed/non-object JSON or invalid field types return JSON 400 before CLI dispatch or content writes. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
 | POST `/api/brain/index` | JSON media type required; body ignored | `{ success: true }` | Concurrent retries coalesce per route instance. Failed index is 500 `{ error }`; no captured content is written again. |
 
 Search/list payloads are the actual CLI JSON results, not the server's narrower
@@ -608,10 +609,6 @@ The supported promises above are not removed to accommodate these observations:
 - [#691](https://github.com/schlessera/brain-kit/issues/691) owns the complete
   real-mount inventory/contract coverage matrix. Existing guard-only failures
   are not proof that a protected handler is mounted.
-- [#694](https://github.com/schlessera/brain-kit/issues/694) closes the confirmed
-  non-object JSON validation holes in login, passkey registration/rename and
-  capture. They currently produce unhandled 500s; valid requests and owner
-  checks must retain their meaning.
 - [#702](https://github.com/schlessera/brain-kit/issues/702) resolves nullable
   CLI result tags versus the public SearchResult type and inaccurate private
   list mirrors. The HTTP specification preserves actual pass-through values;

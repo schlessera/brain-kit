@@ -96,16 +96,16 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:441` | mounted **before** the guard at `authGuard(authMode`, `app.ts:455`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:796`) |
+| Auth routes | `authRoutes`, `app.ts:441` | mounted **before** the guard at `authGuard(authMode`, `app.ts:455`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
 | Passkey management | `passkeyManagementRoutes`, `app.ts:459` | mounted **after** the guard ("Mount AFTER the auth guard") |
 | WS guard | `"/ws"`, `app.ts:547-564` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
 | Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:39-50`; `slot.queue.push(entry)`, `run-session.ts:493` | queued entries re-mint `turnId` in the same slot and may come from another socket |
-| Password login | `acquirePasswordVerification(key)`, `auth.ts:737` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
+| Password login | `acquirePasswordVerification(key)`, `auth.ts:740` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
-| Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:537` | inserts a credential; calls **neither** helper |
+| Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:540` | inserts a credential; calls **neither** helper |
 | Passkey delete | `passkeys.ts:578-586` | deletes the credential, then a **global** bump |
 | Sockets | `ClientSet`, `ws/clients.ts:39` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
