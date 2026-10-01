@@ -1360,6 +1360,11 @@ outputs, errors and specified behavior on supported rows follow the versioning
 rules at the top of this document. The [selection decision](decisions/http-api-boundary.md)
 records #343 Q6; no route redesign or immediate 1.0 freeze is implied.
 
+The [runtime coverage matrix](http-api-coverage.md) maps supported operations
+to real app mounting checks and named behavior tests. Its inventory also
+accounts for internal routes, conditional static serving, HEAD dispatch and
+configured CORS preflight without promoting internal payloads to guarantees.
+
 The detailed stats promises below remain binding. The specification records remaining gaps; a gap does not revoke a guarantee.
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
