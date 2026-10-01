@@ -20,6 +20,7 @@ import {
 } from "./local-exchanges.js";
 
 import * as retries from "./retry-requests.js";
+import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -27,6 +28,9 @@ import * as retries from "./retry-requests.js";
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
+  /** Observed terminal metadata at its backend-normalized assistant position. */
+  recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+  attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
   getStoredProviderId(sessionId: string): string | null;
   saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
@@ -104,6 +108,19 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
     });
   };
   return {
+    recordTurnFailure(sessionId, backendId, record) {
+      try { saveTurnFailure(db(), sessionId, backendId, record); }
+      catch (err) { reportWriteFailure(sessionId, err); }
+    },
+    attachTurnFailures(sessionId, messages) {
+      try {
+        const row = db().query("SELECT backend_id FROM sessions WHERE id = ?").get(sessionId) as { backend_id: string | null } | null;
+        return row?.backend_id ? attachTurnFailures(db(), sessionId, row.backend_id, messages) : messages;
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+        return messages;
+      }
+    },
     saveRetryRequest(sessionId, turnId, principalId, request, prompt, failure) {
       try { retries.saveRetryRequest(db(), sessionId, turnId, principalId, request, prompt, failure); return true; }
       catch (err) { reportWriteFailure(sessionId, err); return false; }

@@ -99,6 +99,16 @@ the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
 normalizing to `SessionHistoryMessage` at read time.
 
+The UI host keeps observed terminal failure metadata separately from those
+transcripts. It reads normalized history before a resumed turn and after a
+failed turn settles, then records the terminal assistant's ordinal, guarded by
+the ordered transcript prefix and the backend's failure text. This accommodates
+Claude's merged assistant steps and pi's separate steps without counting host
+turns as messages. Replay joins the record before adding local exchanges. An
+unreadable or changed transcript, or a failed turn with no new stored assistant,
+keeps the backend-derived failure. No additional backend method or wire field
+is required; see [Turn failures](../integration-contract.md#turn-failures-additive-in-0400).
+
 ## Turn lifecycle
 
 `startTurn(req)` receives the prompt, optional attachments, an optional

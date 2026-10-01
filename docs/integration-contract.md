@@ -1951,12 +1951,20 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   not read `retry`.
 - **Replay** carries `failure` on the assistant message the failure ended,
   after any partial answer, with the failure's text removed from `content`.
-  The Claude backend recognises the runtime's own API-error message by its
-  model (`<synthetic>`) and wording, because its transcript does not keep the
-  class. So a replayed Claude failure has `errorClass: "unknown"` unless the
-  wording names an auth or billing failure, and a status only when the text
-  states one. The pi backend replays its failed answer's text, and does not
-  replay an attempt that pi retried.
+  The host retains the live terminal failure in its own UI database and joins
+  it before inserting local exchanges or classified blocks. The key is the
+  session, backend and assistant ordinal in that backend's normalized history,
+  observed after the turn settles; it is not a text hash or host turn count.
+  An ordered transcript-prefix digest and exact fallback failure text guard
+  the position against changed transcripts. Identical failure texts at separate
+  positions keep their own class, status, message and `authAction`. Reconnect
+  history waits for the in-flight write; metadata survives host restart.
+  A turn with no new stored assistant, or a read/write failure, retains the
+  backend fallback rather than relabeling an older answer. Sessions without
+  host records also retain that fallback. Claude recognizes its runtime's
+  `<synthetic>` API-error messages by wording: the fallback can be `unknown`,
+  with status/auth action only where the text supplies them. pi replays its
+  failed answer's text and omits attempts that pi retried.
 - **Tolerance.** A client that does not know these fields behaves exactly as
   before. A client that validates with `@schlessera/brain-ui-sdk/schemas`
   drops an unreadable `failure` or `retry` and keeps the frame, because the
