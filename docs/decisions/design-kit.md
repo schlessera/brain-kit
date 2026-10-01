@@ -2671,7 +2671,9 @@ nine at six, with `recommend` the one this entry's nine that it omits:
 ```sh
 bun scripts/measure-show-block.ts --always-load --reps 3 --only \
   compare-short,compare-long,trend,contact,table,steps,quote,bars
-``` It is a script and not a test: it needs
+```
+
+It is a script and not a test: it needs
 the network and a key, so CI never runs it. Re-run it before changing the brief
 again.
 
