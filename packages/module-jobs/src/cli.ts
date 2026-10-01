@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { ZodError } from "zod";
 import type { CommandContext, CommandModule, Taxonomy } from "@schlessera/brain";
 import { runRegistry, safeResolve } from "@schlessera/brain";
 
 import { openDatabase } from "./db.js";
+import { reviewJobs } from "./review-operation.js";
 import { runScrape } from "./scrape.js";
 import {
   loadScoringConfig,
@@ -26,7 +28,7 @@ import {
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
 import { ensurePipelineIndex } from "./pipeline.js";
 import { ALL_SOURCES, BROWSER_SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
-import type { ReviewStatus, Source } from "./types.js";
+import type { JobRow, ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
 
 // ---------------------------------------------------------------------------
@@ -318,13 +320,19 @@ async function cmdTriage(args: string[], jctx: JobsCtx): Promise<number> {
 function cmdReview(args: string[], jctx: JobsCtx): number {
   const a = makeArgs(args);
   const status = a.flag("all") ? "all" : (a.option("status") as ReviewStatus | undefined) ?? "queued";
-  const minScore = a.option("min-score") ? Number(a.option("min-score")) : undefined;
-  const limit = a.option("limit") ? Number(a.option("limit")) : 20;
+  const minScore = a.flag("min-score") ? Number(a.option("min-score")) : undefined;
+  const limit = a.flag("limit") ? Number(a.option("limit")) : 20;
   const source = a.option("source") as Source | undefined;
 
-  const db = openDatabase(jctx.dbPath);
-  const jobs = getReviewQueue(db, { status: status as ReviewStatus | "all", minScore, limit, source });
-  db.close();
+  let jobs: JobRow[];
+  try {
+    jobs = reviewJobs(jctx.root, jctx.config, { status, minScore, limit, source });
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    console.error(error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("\n"));
+    console.error("Usage: brain jobs review [--status <status> | --all] [--min-score <number>] [--limit <positive integer>] [--source <source>]");
+    return 1;
+  }
 
   if (jctx.json) {
     emitJson({ jobs });

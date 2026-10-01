@@ -37,7 +37,7 @@ places.
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
    reads markdown. The jobs review queue is not markdown. It lives in the
    module's own SQLite file (`const dbPath`,
-   `packages/module-jobs/src/cli.ts:55`). "Anything new in my job queue
+   `packages/module-jobs/src/cli.ts:57`). "Anything new in my job queue
    above 70?" therefore has no answer by voice. The agent can say it cannot
    help, or it can make something up.
 2. **In a client with no shell at all.** [mcp.md](../mcp.md) names desktop
@@ -63,7 +63,7 @@ hygiene checks, index rules, excludes and cron, but no tools
   tool's name. A module cannot choose its prefix.
 - **Expose every CLI subcommand automatically.** The CLI's argument parsing
   is not a schema (`function makeArgs`,
-  `packages/module-jobs/src/cli.ts:84-103`), and its human output is not a
+  `packages/module-jobs/src/cli.ts:86-105`), and its human output is not a
   result. An automatic bridge would ship interactive commands (`jobs
   triage`), mutating ones and TTY-only ones with no schema and no
   annotations. A tool is declared one at a time, deliberately.
@@ -329,30 +329,33 @@ first-party tool gets a row.
 
 **The workflow it enables.** A brain owner has enabled `module-jobs` and uses
 the hosted PWA by voice. The daily cron has already scraped and scored
-(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:67`). They
+(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:68`). They
 ask "anything new in my job queue above 70?". The voice turn calls
 `mcp__brain__jobs_review` with `{ min_score: 70 }` and reads back titles,
 companies and scores. The same call works from a desktop MCP client with no
 shell.
 
-**The operation it shares.** Today `brain jobs review --json` parses flags,
-opens the jobs database, calls `getReviewQueue`, and prints `{ jobs }`
-(`function cmdReview`, `packages/module-jobs/src/cli.ts:318-349`). The query
+**The operation it shares.** `brain jobs review --json` parses flags,
+calls the shared `reviewJobs` operation, and prints `{ jobs }`
+(`function cmdReview`, `packages/module-jobs/src/cli.ts:320-357`). The query
 is `getReviewQueue` (`export function getReviewQueue`,
-`packages/module-jobs/src/review.ts:12-49`). The implementation extracts
-one exported function that both surfaces call. It takes typed options
-(`status`, `minScore`, `limit`, `source`), validates them, opens the
+`packages/module-jobs/src/review.ts:12-49`). The exported operation
+(`export function reviewJobs`,
+`packages/module-jobs/src/review-operation.ts:19-40`) is called by both
+surfaces. It takes typed options (`status`, `minScore`, `limit`, `source`), validates them, opens the
 database, runs the query and closes the database. The CLI keeps its flags
 and its `--json` envelope exactly. Two defects in the shared path get fixed
 once, for both surfaces:
 
-- `limit` reaches SQL by interpolation (`LIMIT ${limit}`), and the CLI passes
-  `Number(...)` unchecked. The shared function requires a positive integer.
-- Opening the database creates it (`new Database(path, { create: true })`,
-  `export function openDatabase`, `packages/module-jobs/src/db.ts:94-104`).
+- The former query interpolated `limit` into SQL and the CLI passed
+  `Number(...)` unchecked. The shared function requires a positive integer;
+  the query now binds its limit as a parameter.
+- The database helper creates by default (`export function openDatabase`,
+  `packages/module-jobs/src/db.ts:94-104`).
   A read must not create `jobs.db`. The shared function returns an empty
-  queue when the file does not exist. Opening an existing database can
-  still run the module's schema migration, as it does for the CLI today.
+  queue when the file does not exist and opens with `create: false`. Opening
+  an existing database can still run the module's schema migration, as it
+  does for the CLI today.
 
 **Its shape.**
 

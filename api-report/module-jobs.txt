@@ -9,6 +9,7 @@ export "." (./src/index.ts)
   type EnvVarSpec
   type JobAdapter
   type JobRow
+  type JobSummary
   type JobsConfig
   type JobsEnv
   type LocationScoring
@@ -37,8 +38,10 @@ export "." (./src/index.ts)
   loadScoringConfig
   openDatabase
   parseScoringConfig
+  projectJobSummary
   rescoreAllJobs
   resolveEnv
+  reviewJobs
   runScrape
   scoreJob
   scoreMaxes

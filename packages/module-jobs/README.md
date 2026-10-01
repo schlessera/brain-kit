@@ -130,6 +130,42 @@ marker (or 0 if an excluded marker matches); the compensation dimension compares
 | `queries`          | `string[]` | `["software engineer", "backend engineer", "platform …"]`   | Search terms for query-driven boards.        |
 | `dbPath`           | `string?`  | `<root>/jobs.db`                                             | Jobs database location (gitignore it).       |
 
+## MCP tools
+
+Available in 0.40.0+, `jobs_review` reads the review queue through `brain mcp`.
+It calls the same validated operation as `brain jobs review --json`, using
+this module's configured `dbPath`. Missing databases yield `{ jobs: [] }`
+without creating a file. Existing databases retain the CLI's schema
+initialization/migration behavior. The tool reaches no external service.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `status` | `queued` | `pending`, `queued`, `interested`, `starred`, `dismissed`, `archived`, `applied`, or `all`. |
+| `min_score` | Unset | Inclusive minimum relevance score. |
+| `limit` | `20` | Positive integer; values above 50 are clamped to 50. |
+| `source` | Unset | One of `remoteok`, `remotive`, `weworkremotely`, `workingnomads`, `builtin`, `nodesk`, `simplyhired`, `jobgether`, `dice`, `remotelyde`. |
+
+The strict result is `{ jobs: JobSummary[] }`, ordered by descending relevance
+then publication date, excluding duplicates. Each summary contains `id`,
+`title`, `company`, `location`, `remote_type`, `salary_raw`, `salary_min`,
+`salary_max`, `salary_currency`, `source`, `published_at`, `review_status`,
+`relevance_score`, `tags`, and `url`. The location, remote type, salary fields,
+publication date and URL may be null. Tags are a string array; absent or
+invalid stored tags become `[]`. Full descriptions are omitted. Stored source
+labels include historical retired boards; the source input filter accepts
+only the current boards listed above.
+
+Salary bounds are **annual EUR cents**, including annualized hourly listings.
+`salary_currency` retains the source listing's currency label; it does not
+change the denomination of those normalized bounds. Conversion uses the
+configured rates or the documented fallback rates on ingest.
+
+`readOnlyHint: true` and `openWorldHint: false` are client hints. Backend
+permission policy remains separate. This module owns the supported name,
+schemas and behavior under the shared [integration contract](../../docs/integration-contract.md#module-tools):
+additions ship in a minor; breaking changes need the project's ruling and
+versioning procedure.
+
 ## CLI
 
 ```

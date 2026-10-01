@@ -2023,6 +2023,33 @@ under the applicable package's policy. A tool and its CLI subcommand call the
 same deterministic operation. See the
 [module-tool decision](decisions/module-mcp-tools.md) for the full specification.
 
+### First-party module tools
+
+| Tool | Owning module | Inputs | Result |
+| --- | --- | --- | --- |
+| `jobs_review` | `@schlessera/brain-module-jobs` | Optional `status` (one of `REVIEW_STATUSES` or `all`, default `queued`), `min_score` (finite number, inclusive), `limit` (positive integer, default 20, clamped to 50), `source` (one of `ALL_SOURCES`). Unknown keys and invalid values are tool errors. | `{ jobs: JobSummary[] }`, in the CLI review order: descending relevance score, then descending publication date, excluding duplicates. |
+
+`jobs_review` (0.40.0+) calls the same validated operation as
+`brain jobs review --json`; the CLI's full-row `{ jobs }` envelope and human
+output remain unchanged. The tool returns a compact projection, at most 50
+entries. Each summary has required fields `id: integer`, `title: string`,
+`company: string`, `source: string`, `review_status: ReviewStatus`,
+`relevance_score: number`, and `tags: string[]`; `location`, `remote_type`,
+`salary_raw`, `salary_currency`, `published_at`, and `url` are required
+`string | null` fields; `salary_min` and `salary_max` are required
+`number | null` fields. No full description is returned. Absent or invalid
+stored tags produce `[]`. Stored source identifiers, including retired boards,
+remain readable; the input filter accepts the current `ALL_SOURCES` only.
+Both result objects are strict.
+
+Salary bounds retain the ingested **annual EUR cents**, including hourly
+annualization; `salary_currency` retains the original listing's label and is
+not the denomination of the converted bounds. The tool uses its owning
+module's contained `dbPath`. A missing database returns `{ jobs: [] }`
+without creating it; an existing database may undergo the same schema
+initialization/migration as the CLI. Annotations are `readOnlyHint: true` and
+`openWorldHint: false`, with backend admission governed separately.
+
 ## Guarantees consumers may rely on
 
 - **Containment.** Everything the CLI writes stays inside the brain root.
