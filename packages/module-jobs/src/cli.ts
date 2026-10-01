@@ -27,7 +27,8 @@ import {
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
 import { ensurePipelineIndex } from "./pipeline.js";
-import { ALL_SOURCES, BROWSER_SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import { ALL_SOURCES, BROWSER_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import { boardNameSchema } from "./board-selection.js";
 import type { JobRow, ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
 
@@ -116,49 +117,28 @@ function emitJson(value: unknown): void {
 
 /**
  * Which boards a scrape runs: explicit positionals > `--all` > the configured
- * `boards` > the default `SOURCES`, then the browser selectors on top.
- *
- * `warnings` are printed and the run goes ahead; an `error` refuses the run.
+ * `boards` (including an intentional empty array) > the default `SOURCES`,
+ * then the browser selectors on top. Invalid names refuse the complete run.
  */
 export function selectSources(input: {
   positional: string[];
-  configured: string[];
+  configured?: string[];
   all?: boolean;
   browser?: boolean;
   browserOnly?: boolean;
 }): { sources: Source[]; warnings: string[] } | { error: string; warnings: string[] } {
   const warnings: string[] = [];
-  const known = (name: string): name is Source => (ALL_SOURCES as readonly string[]).includes(name);
-  const retired = (name: string): boolean => Object.hasOwn(RETIRED_SOURCES, name);
-  const retiredMessage = (name: string): string => `${name} was retired: ${RETIRED_SOURCES[name]}.`;
-
-  // Asked for by name, a retired board refuses the run: skipping it would
-  // bury the answer in a scrape summary.
-  const retiredRequested = input.positional.filter(retired);
-  if (retiredRequested.length > 0) {
-    return { error: retiredRequested.map(retiredMessage).join("\n"), warnings };
-  }
-
-  // Named in config, it warns and the rest runs, so a scheduled scrape does not
-  // stop over a config written before the board was retired.
-  for (const name of input.configured.filter(retired)) {
-    warnings.push(`${retiredMessage(name)} Remove it from the jobs module's \`boards\` config.`);
-  }
-
-  const requested = input.positional.filter(known);
-  if (input.positional.length > 0 && requested.length === 0) {
-    return { error: `Unknown sources: ${input.positional.join(", ")}. Valid: ${ALL_SOURCES.join(", ")}`, warnings };
-  }
-
-  const configured = input.configured.filter(known);
+  const errors = [...input.positional, ...(input.configured ?? [])].flatMap((name) => {
+    const parsed = boardNameSchema.safeParse(name);
+    return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+  });
+  if (errors.length) return { error: [...new Set(errors)].join("\n"), warnings };
   const base: Source[] =
-    requested.length > 0
-      ? requested
+    input.positional.length > 0
+      ? input.positional as Source[]
       : input.all
         ? [...ALL_SOURCES]
-        : configured.length > 0
-          ? configured
-          : [...SOURCES];
+        : (input.configured ?? [...SOURCES]) as Source[];
   const sources: Source[] = input.browserOnly
     ? [...BROWSER_SOURCES]
     : input.browser
@@ -199,7 +179,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
 
   if (!jctx.json) {
     console.log(
-      `Scraping ${sources.join(", ")}${full ? " (full)" : " (incremental)"}${dryRun ? " [DRY RUN]" : ""}...`
+      sources.length === 0 ? "no boards selected" : `Scraping ${sources.join(", ")}${full ? " (full)" : " (incremental)"}${dryRun ? " [DRY RUN]" : ""}...`
     );
   }
 
