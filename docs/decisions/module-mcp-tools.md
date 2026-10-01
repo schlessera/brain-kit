@@ -372,7 +372,7 @@ once, for both surfaces:
 | | |
 | --- | --- |
 | Annotations | `readOnlyHint: true`, `openWorldHint: false` |
-| Inputs | `status?`: one of `REVIEW_STATUSES` or `"all"`, default `"queued"` (`export const REVIEW_STATUSES`, `packages/module-jobs/src/types.ts:77-85`). `min_score?`: a number. `limit?`: an integer from 1, default 20, capped at 50. `source?`: one of `ALL_SOURCES`. |
+| Inputs | `status?`: one of `REVIEW_STATUSES` or `"all"`, default `"queued"` (`export const REVIEW_STATUSES`, `packages/module-jobs/src/types.ts:29-37`). `min_score?`: a number. `limit?`: an integer from 1, default 20, capped at 50. `source?`: one of `ALL_SOURCES`. |
 | Result | `{ jobs: JobSummary[] }`, the same rows in the same order as `brain jobs review --json` for the same filters, each projected to the fields a spoken or chat answer uses: `id`, `title`, `company`, `location`, `remote_type`, `salary_raw`, `salary_min`, `salary_max`, `salary_currency`, `source`, `published_at`, `review_status`, `relevance_score`, `tags` (parsed to `string[]`), `url`. |
 
 The projection is the one exception to "same envelope". A row carries the
