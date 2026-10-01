@@ -41,7 +41,7 @@ async function staleSection(config: string, files: Record<string, string>): Prom
   setSystemTime(NOW);
   let stdout: string;
   try {
-    stdout = generateBriefing(brain);
+    stdout = await generateBriefing(brain);
   } finally {
     setSystemTime();
   }

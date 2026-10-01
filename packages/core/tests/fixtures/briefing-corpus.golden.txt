@@ -35,6 +35,10 @@
 
 - 2026-07-29 | projects/active/raft/status.md | Raft — Status | Latest planning check and next action for leaving Ogygia
 
+## Upkeep
+
+- 7 must-fix audit finding(s) (errors and warnings; brain audit)
+
 ## Recently Active
 
 - 2026-07-05 | index | _index.md | Odysseus — Brain Index | Top-level map of Odysseus's brain — preparations for the return and where they l
