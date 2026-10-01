@@ -322,10 +322,10 @@ selects fetched vectors and local PNG rasterization. The
 separates the 5-degree background-service limit from valid source geometry.
 The concrete map operation snapshots tracks, pins and prefetched route results;
 it never requests a route. Resource limits precede cloning/awaits
-(`staticMap`, `packages/geo/src/server/static-map.ts:115-128`).
+(`staticMap`, `packages/geo/src/server/static-map.ts:115-131`).
 Wide projectable extents skip the background request and produce a plain map;
 missing background does the same with an explicit reason
-(`wide`, `packages/geo/src/server/static-map.ts:192-196`).
+(`wide`, `packages/geo/src/server/static-map.ts:195-199`).
 Unsupported polar, date-line or padded extents retain complete source/summary/text
 evidence, without clamping source coordinates to force an image.
 
@@ -363,3 +363,41 @@ Visual inspection at 320 and 768 px covered geometry, plain and partial/cropped
 states, then confirmed the word-wrapping and endpoint-label fixes in one final pass.
 Packaged Bun/Node runtime checks render real PNGs from shipped font assets, and
 removing the packed font fails the image assertion with `renderer_unavailable`.
+
+## CLI result and write boundaries — 2026-10-01
+
+Core registers `geo` as its own command word and delegates the five operations to
+the concrete shared library. Decimal latitude/longitude arguments, required routing
+mode and POI radius/filter inputs are explicit; repeatable pins/stops retain all
+values. Results preserve the shared status/source/unknown/method/attribution fields,
+with operation-specific typed wrappers documented in the integration contract.
+Track/file reads use canonical containment and preserve original bytes
+(`readTrack`, `packages/core/src/cli/commands/geo.ts:98-107`).
+Canonical root resolution keeps source/artifact paths relative through a root alias.
+
+Map output is an explicit chosen PNG path. The command resolves requested routing
+before rasterization and then repeats destination containment after those awaits.
+Scratch retains its existing ignored/genuine-directory policy. A local initialized-
+brain guard covers option-prefixed and bare-terminator forms as well as normal bin
+routing (`runMap`, `packages/core/src/cli/commands/geo.ts:207-258`).
+Source omissions count toward the aggregate map budget: many recovered inputs with
+little retained geometry must not bypass the metadata/text allocation bound.
+The full legend stays complete; exceeding the bound refuses rather than truncates.
+
+Immediate bin exit exposed truncated large JSON with synchronous console emission.
+The new geo command awaits the Writable completion callback before returning
+(`emitGeo`, `packages/core/src/cli/commands/geo.ts:135-138`).
+This keeps one complete document on stdout, including large source geometry, and
+also completes human output. It changes no earlier command's envelope or bin policy;
+the independently reproduced legacy-output occurrence is recorded in
+[#826](https://github.com/schlessera/brain-kit/issues/826).
+
+Actual bin tests exercise nonempty native local HTTP/cache geocoding, routing and
+POI payloads, recovered summaries/proximity, PNG headers/dimensions/source preservation,
+all missing/cropped legs, null-artifact fallback, typed errors and relative root aliases.
+A service-response fixture changes the destination directory before the real map
+write. Ten restored mutations fail the intended assertions for registration, an
+implicit routing request, lost pins, swapped coordinates, leaked image contents,
+source containment, an actual uninitialized/outside write, omitted-source budget
+and a missing large-JSON tail. The pipe-write test observes its final field before
+JSON parsing, so a parse error cannot stand in for the claimed behavioral receipt.

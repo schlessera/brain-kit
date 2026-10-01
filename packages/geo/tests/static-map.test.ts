@@ -225,4 +225,16 @@ describe("deterministic vector static maps", () => {
     expect(result.reason).toBe("unsupported_projection"); expect(result.tracks[0]!.summary.counts.retained).toBe(200_000);
     expect(requests).toBe(0);
   });
+
+  test("aggregate resource guards also count omitted source points before cloning or dispatch", async () => {
+    let requests = 0;
+    const { geo } = await setup(async () => { requests++; return Response.json(ways); });
+    const omitted = normalizeTrack([[{ lat: 95, lon: 0 }]]);
+    const track: ParsedTrack = { ...omitted, counts: { input: 100_001, retained: 0, omitted: 100_001, segments: 0 },
+      omissions: Array.from({ length: 100_001 }, (_, index) => ({ ...omitted.omissions[0]!, index })) };
+    expect(track.omissions).toHaveLength(track.counts.input);
+    await expect(geo.staticMap({ tracks: [{ track, source: { kind: "file", path: "first.gpx" } },
+      { track, source: { kind: "file", path: "second.gpx" } }] })).rejects.toThrow("including omissions");
+    expect(requests).toBe(0);
+  });
 });

@@ -330,7 +330,7 @@ latitude; distortion grows away from that latitude. Source-vertex drawing and
 great-circle measurement methods remain distinct and explicit.
 
 Inputs are bounded to 100 tracks, 1,000 explicit pins, 100 route results and 200,000
-aggregate retained track/route/stop points. Prefetched background has the same
+aggregate source-track/route/stop points, including track omissions. Prefetched background has the same
 10,000-way/200,000-vertex budget as fetching. Invalid inputs throw before rendering.
 The complete legend includes every stop/leg, unknown estimate, omission and source,
 plus OSM attribution for used OSM evidence and applicable FOSSGIS graphics terms.

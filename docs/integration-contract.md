@@ -3003,9 +3003,53 @@ operator's CC BY-SA 2.0 graphics link. No browser, raster tiles, system fonts or
 external resources participate in rendering.
 
 Width is 320–2,048 integer pixels, default 1,024. Maximum inputs are 100 tracks,
-1,000 explicit pins, 100 route results and 200,000 aggregate retained geometry/stop
-points. Prefetched background is bounded to 10,000 ways/200,000 vertices. Labels
-and provenance text are bounded and reject controls. A complete image/legend above
+1,000 explicit pins, 100 route results and 200,000 aggregate source-track/route/stop
+points, including track omissions. Prefetched background is bounded to 10,000 ways/
+200,000 vertices. Labels and provenance text are bounded and reject controls. A complete image/legend above
 32 million pixels, 16,384 height, 200,000 text characters, 16 MiB SVG or 64 MiB PNG
 gives a text fallback. Unsupported glyphs and unavailable local rasterization have
 distinct reasons. No stop, leg, omission or attribution is silently truncated.
+
+### Geo CLI envelopes
+
+`brain geo` adds the five subcommands below without changing old CLI/MCP/wire/
+frontmatter contracts. Types are `GeoGeocodeOutput`, `GeoRouteOutput`,
+`GeoPoiOutput`, `GeoTrackOutput` and `GeoMapOutput` in core's geo command. Each
+machine invocation emits one JSON document; usage exceptions remain stderr-only.
+
+| Command | JSON fields |
+|---|---|
+| `geo geocode <query>` | Complete `GeoResult<GeocodeCandidate[]>` plus `operation: geocode`, `request: {query}`. |
+| `geo geocode --reverse lat,lon` | Complete same result plus `operation: reverse`, `request: {lat,lon}`. |
+| `geo route lat,lon... --mode car\|foot\|bike` | Complete `RoutingResult` plus `operation: route`. |
+| `geo poi --near lat,lon \| --along file.gpx --radius-m metres --tag key[=value]...` | Complete `PoiResult` plus `operation: poi`, nullable brain-relative `sourceFile`. |
+| `geo track file.gpx` | Complete `TrackSummary` plus `operation: track`, exact `omissions`, nullable `nearest: NearestTrackPoint` and nullable `comparison: {summary:TrackSummary,omissions,coverage:TrackCoverage}`. |
+| `geo map [file.gpx...] --out file.png` | Complete `StaticMapResult` except `png`/`svg`, plus `operation: map`, nullable `artifact: {path,format:png,bytes}`. |
+
+Coordinates are latitude,longitude in CLI arguments. Bbox order remains west,
+south,east,north. Route mode is required and ordered stops remain intact. POI
+requires exactly one spatial form, explicit radius and 1–10 exact AND filters;
+repeatable bare keys mean presence and duplicate keys refuse. Track nearest/
+comparison requires explicit `--tolerance-m`; optional `--sample-spacing-m` needs
+comparison. Counts, partial status, model, tolerance, direction and unknown reasons
+remain the shared results; originals are never rewritten.
+
+Map accepts repeatable `--pin lat,lon,label` (commas after the first two belong to
+the label), optional repeated routing `--point lat,lon` with required `--mode`,
+`--bbox`, `--title`, `--width` and `--no-background`. Routing resolves before the
+static map operation; this is explicit requested traffic rather than a hidden
+route calculation in rasterization. Output is brain-relative PNG, requires an
+initialized brain and explicit `--out`, and replaces a chosen regular file.
+Containment checks include symlinks and repeat after asynchronous resolution;
+scratch uses its existing genuine/ignored-directory write and pruning rules.
+No-map returns null artifact and does not create its destination. Complete text/
+provenance/omissions remain in the JSON while binary PNG/SVG contents are omitted.
+Aggregate map input counts omitted source points as well as retained geometry.
+
+Human mode prints source, fetch/cache age, all transfer attempts, dataset/fallback,
+unknown estimates and applicable attribution. Exit 0 covers valid/partial results,
+genuine no-match/no-route and documented map/text fallback; input/usage is 1 and a
+failed service command/storage/local renderer is 2. Typed service input errors may
+emit their one JSON result with exit 1; parse/path/usage exceptions print only to
+stderr. `brain render` retains its existing envelope/network-denied behavior:
+callers inline the already-created local PNG as data before invoking export.

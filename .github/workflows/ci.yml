@@ -337,6 +337,16 @@ jobs:
             }
             if (!(await Bun.file(join(root, imported.gpx)).text()).includes("<trkpt")) throw new Error("Packed route CLI wrote no geometry");
             if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed route CLI changed its source");
+            const summary = await run(["geo", "track", "recordings/odysseus.gpx"]);
+            if (summary.operation !== "track" || summary.geometry[0]?.length !== 2 || summary.counts.retained !== 2 || summary.measurements.distance.value <= 0) {
+              throw new Error("Packed geo track CLI lost its nonempty source/measurement contract");
+            }
+            const map = await run(["geo", "map", "recordings/odysseus.gpx", "--no-background", "--width", "320", "--out", "walk.png"]);
+            const png = Buffer.from(await Bun.file(join(root, "walk.png")).arrayBuffer());
+            if (map.operation !== "map" || map.kind !== "track_only" || map.artifact?.bytes !== png.length || png[0] !== 137 || png.length < 1000 || map.png !== undefined || map.svg !== undefined) {
+              throw new Error("Packed geo map CLI did not write a qualified local PNG");
+            }
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed geo CLI changed its source");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [

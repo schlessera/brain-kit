@@ -115,12 +115,15 @@ function textEvidence(result: StaticMapResult): string {
 export async function staticMap(input: StaticMapInput, client: GeoClient): Promise<StaticMapResult> {
   // Snapshot all supplied evidence before an await; rendering never mutates original geometry or summaries.
   let requestedPoints = (input.pins?.length ?? 0);
-  for (const track of input.tracks ?? []) for (const section of track.track.segments) requestedPoints += section.length;
+  for (const track of input.tracks ?? []) {
+    requestedPoints += track.track.omissions.length;
+    for (const section of track.track.segments) requestedPoints += section.length;
+  }
   for (const route of input.routes ?? []) {
     requestedPoints += route.request.points.length;
     for (const section of route.value?.geometry ?? []) requestedPoints += section.length;
   }
-  if (requestedPoints > 200_000) throw new Error("Map input exceeds 200000 retained geometry/stop points.");
+  if (requestedPoints > 200_000) throw new Error("Map input exceeds 200000 source geometry/stop points, including omissions.");
   const snapshot = structuredClone(input);
   const tracks = snapshot.tracks ?? [], pins = snapshot.pins ?? [], routes = snapshot.routes ?? [];
   if (tracks.length > 100 || pins.length > 1_000 || routes.length > 100) throw new Error("Map input exceeds its track/stop/route resource limit.");
