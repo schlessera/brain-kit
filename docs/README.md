@@ -63,6 +63,7 @@ the published template rather than a source checkout.
 | [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [audit-capability-investigation.md](audit-capability-investigation.md) | Actual audit suggestion/handler boundaries and keyless repair-capability controls. |
+| [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
