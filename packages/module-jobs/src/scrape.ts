@@ -11,7 +11,8 @@ import {
 import { resolveEnv as resolveScrapeEnv } from "@schlessera/brain-scrape";
 import { resolveEnv } from "./config/env.js";
 import type { RawJob, Source, SourceStatus } from "./types.js";
-import { SOURCES, DISABLED_BY_DEFAULT, DEFAULT_JOB_BOARDS } from "./types.js";
+import { SOURCES } from "./types.js";
+import { boardPolicy } from "./boards.js";
 import { eurRates } from "./salary.js";
 import { createEnricher, type EnrichmentConfig, type EnrichmentStats } from "./enrich.js";
 
@@ -53,10 +54,11 @@ export function getAdapter(source: Source, queries?: string[]): JobAdapter {
 export function getAdapterOptions(): Array<{ source: string; label: string; defaultSelected: boolean; needsBrowser: boolean; usesQueries: boolean; status: "supported" | "blocked"; caveat: string | null }> {
   return Object.entries(ADAPTERS).map(([source, factory]) => {
     const adapter = factory();
-    return { source, label: adapter.name, defaultSelected: DEFAULT_JOB_BOARDS.some((s) => s === source), needsBrowser: adapter.needsBrowser ?? false,
-      usesQueries: source === "simplyhired" || source === "dice",
-      status: source === "remotive" ? "blocked" : "supported",
-      caveat: DISABLED_BY_DEFAULT[source as keyof typeof DISABLED_BY_DEFAULT] ?? null };
+    const policy = boardPolicy(source);
+    return { source, label: adapter.name, defaultSelected: policy?.defaultSelected ?? false, needsBrowser: adapter.needsBrowser ?? false,
+      usesQueries: policy?.usesQueries ?? false,
+      status: policy?.blocked ? "blocked" : "supported",
+      caveat: policy?.caveat ?? null };
   });
 }
 

@@ -131,9 +131,23 @@ marker (or 0 if an excluded marker matches); the compensation dimension compares
 | ------------------ | ---------- | ----------------------------------------------------------- | -------------------------------------------- |
 | `criteria`         | `string`   | *(required)*                                                | Path to the scoring criteria markdown file.  |
 | `opportunitiesDir` | `string`   | `career/opportunities`                                      | Where `scaffold` writes opportunity dirs.    |
-| `boards`           | `string[]` | `["remoteok"]`                                              | Boards scraped when no source is given.      |
+| `boards`           | `string[]` | `["remoteok", "weworkremotely", "workingnomads", "remotelyde"]` | Boards scraped when no source is given.      |
 | `queries`          | `string[]` | `["software engineer", "backend engineer", "platform …"]`   | Search terms for query-driven boards.        |
 | `dbPath`           | `string?`  | `<root>/jobs.db`                                             | Jobs database location (gitignore it).       |
+
+When `boards` is omitted from both brain config and `settings/jobs.json`, jobs
+selects the four curated boards above. Each board's declaration owns its default
+on/off state and any caveat; the schema, settings choices and direct
+`runScrape()` fallback derive from that policy. Browser-dependent, rate-limited
+and robots-restricted boards stay off by default.
+
+An explicit brain config selection replaces those defaults. An explicit
+`boards` array in `settings/jobs.json` replaces the brain config selection;
+JSON that omits `boards` preserves it. The CLI and settings API read the same
+validated effective settings. No existing TypeScript configuration is moved
+automatically. See the [board-default decision](../../docs/decisions/jobs-board-defaults.md)
+for the rationale and [module settings](../../docs/modules.md#editable-module-settings)
+for the shared settings workflow.
 
 ## MCP tools
 

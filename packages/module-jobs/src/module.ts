@@ -3,7 +3,7 @@ import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
 
 import { checkOpportunityStages } from "./pipeline.js";
 import { jobsSettings, scoringSourceSchema } from "./settings.js";
-import { DEFAULT_JOB_BOARDS } from "./types.js";
+import { SOURCES } from "./types.js";
 
 /**
  * Config for @schlessera/brain-module-jobs. `criteria` points at a markdown file whose
@@ -20,7 +20,7 @@ export const configSchema = z
     /** Canonical directory for opportunity docs (scaffold target). */
     opportunitiesDir: repoRelativePathSchema.default("career/opportunities"),
     /** Boards to scrape by default. */
-    boards: z.array(z.string()).default([...DEFAULT_JOB_BOARDS]),
+    boards: z.array(z.string()).default([...SOURCES]),
     /** Search terms for the query-driven boards (simplyhired, dice). */
     queries: z
       .array(z.string())

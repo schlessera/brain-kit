@@ -36,14 +36,14 @@ posting shape, source registry, tiers, persistence or scoring.
 ## One execution boundary, domain composition
 
 `JobAdapter` is a composition of the existing generic interface
-(`JobAdapter`, `packages/module-jobs/src/types.ts:137-145`), adding source, tier,
+(`JobAdapter`, `packages/module-jobs/src/types.ts:89-97`), adding source, tier,
 detail-host allowlists and detail-fetch options. It adds no lifecycle, registry
 or plugin loader. All real boards inherit the shared `scrape(ctx, options)`
 entry through their concrete jobs base; context belongs to one call and is
 released afterward. Their parser/page methods are ordinary implementation.
 
 Production calls the shared runner
-(`const outcomes = await runAdapters`, `packages/module-jobs/src/scrape.ts:151-168`).
+(`const outcomes = await runAdapters`, `packages/module-jobs/src/scrape.ts:153-170`).
 The competing bind/parallel-execution path is removed. The existing sequential
 runner executes in selection order; this migration adds no concurrency policy
 or new scheduling knob. Jobs still collects every listing before its fair,
