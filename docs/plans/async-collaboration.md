@@ -158,7 +158,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:634-644`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
-  Neither provides autonomous waiter priority/yield.
+  Shared-target priority and cooperative yield belong to the keyed lock and backend lifecycle.
 
 ### Institutional Learnings
 

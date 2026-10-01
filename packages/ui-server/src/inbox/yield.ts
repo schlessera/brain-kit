@@ -9,7 +9,7 @@ const digest = (...parts: string[]) => createHash("sha256").update(JSON.stringif
 // tools and every shell call remain conservative: a missing lock key does not
 // prove the absence of effects. This is replay restriction, never admission.
 const READS = new Set([
-  "Read", "Glob", "Grep", "LSP", "WebSearch", "WebFetch", "ToolSearch",
+  "Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch",
   "read_file", "grep", "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
   "web_search", "fetch_content", "jobs_review",
 ]);
