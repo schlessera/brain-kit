@@ -181,6 +181,11 @@ brain jobs pipeline              # give the opportunities' _index.md its registr
 brain jobs show|open|decide|search|gc …
 ```
 
+`brain jobs search <query> [--limit <n>]` defaults to 20 results. An explicit
+limit must be a positive safe integer; a missing or invalid value is refused
+with usage guidance before opening the jobs database. `--json` returns
+`{ query, results }` in full-text search order.
+
 ### Boards that need a browser
 
 `builtin`, `nodesk` and `dice` are client-rendered, so they are scraped through
