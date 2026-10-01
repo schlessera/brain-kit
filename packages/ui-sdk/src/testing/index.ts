@@ -374,8 +374,11 @@ export function runBackendContract(
       if (result?.type === "result") {
         expect(result.sessionId).toBe("sess-42");
         expect(result.outcome).toBe("success");
-        expect(typeof result.costUsd).toBe("number");
-        expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        // Omitted cost is unknown, including on a cost-reporting backend.
+        if (result.costUsd !== undefined) {
+          expect(typeof result.costUsd).toBe("number");
+          expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        }
         expect(result.isError).toBe(false);
       }
       // The terminal frame must exist by the time the promise resolved —
