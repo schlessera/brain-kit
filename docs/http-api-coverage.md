@@ -32,20 +32,20 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
-| `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P |
+| `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
 | `GET /api/auth/methods` | `mounted supported handler: GET /api/auth/methods` | P |
 | `DELETE /api/auth/passkey/:id` | `mounted supported handler: DELETE /api/auth/passkey/:id` | P, O |
-| `PUT /api/auth/passkey/:id` | `mounted supported handler: PUT /api/auth/passkey/:id` | P, O |
+| `PUT /api/auth/passkey/:id` | `mounted supported handler: PUT /api/auth/passkey/:id` | P, O, Z |
 | `GET /api/auth/passkey/list` | `mounted supported handler: GET /api/auth/passkey/list` | P, O |
 | `POST /api/auth/passkey/login-options` | `mounted supported handler: POST /api/auth/passkey/login-options` | P |
 | `POST /api/auth/passkey/login-verify` | `mounted supported handler: POST /api/auth/passkey/login-verify` | P |
 | `POST /api/auth/passkey/register-options` | `mounted supported handler: POST /api/auth/passkey/register-options` | P, O |
-| `POST /api/auth/passkey/register-verify` | `mounted supported handler: POST /api/auth/passkey/register-verify` | P, O |
+| `POST /api/auth/passkey/register-verify` | `mounted supported handler: POST /api/auth/passkey/register-verify` | P, O, Z |
 | `GET /api/auth/principals` | `mounted supported handler: GET /api/auth/principals` | D, O |
 | `POST /api/auth/principals` | `mounted supported handler: POST /api/auth/principals` | D, O |
 | `DELETE /api/auth/principals/:id` | `mounted supported handler: DELETE /api/auth/principals/:id` | D, O |
-| `POST /api/brain/add` | `mounted supported handler: POST /api/brain/add` | B, C |
+| `POST /api/brain/add` | `mounted supported handler: POST /api/brain/add` | B, C, Z |
 | `GET /api/brain/briefing` | `mounted supported handler: GET /api/brain/briefing` | B |
 | `POST /api/brain/index` | `mounted supported handler: POST /api/brain/index` | B, C |
 | `GET /api/brain/list` | `mounted supported handler: GET /api/brain/list` | B |
@@ -161,10 +161,22 @@ row's real mounting check. They do not establish mounting by themselves.
 - `rollups route sums only priced runs and counts the NULLs at every group (AE3)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups route sums only priced runs and counts the NULLs at every group (AE3)`, `packages/ui-server/tests/routes-activity.test.ts:304-324`)
 - `GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90` ([source](../packages/ui-server/tests/activity-stats.test.ts)), (`GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90`, `packages/ui-server/tests/activity-stats.test.ts:497-529`)
 
+The six named `GROUP AXIS rounds the completed multi-run sum to four decimals`
+cases cover days/jobs/sessions and costUsd/effectiveCostUsd separately
+(`rounds the completed multi-run sum`, `packages/ui-server/tests/activity-rollup-rounding.test.ts:86-96`).
+`storage, run detail and stats retain the same fixture's original precision`
+checks that rounding remains at the response boundary
+(`storage, run detail and stats retain the same fixture's original precision`,
+`packages/ui-server/tests/activity-rollup-rounding.test.ts:98-122`).
+`rounding preserves all counters and known-zero versus unknown effective costs`
+checks both nonempty priced and mixed-knownness fixtures
+(`rounding preserves all counters and known-zero versus unknown effective costs`,
+`packages/ui-server/tests/activity-rollup-rounding.test.ts:124-164`).
+
 **I — Local poke.**
 
-- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:230-249`)
-- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:308-314`)
+- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:247-266`)
+- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:325-331`)
 
 **M — Model roster and discovery.**
 
@@ -229,6 +241,34 @@ row's real mounting check. They do not establish mounting by themselves.
 
 - `real WebSocket admission rejects origin, authentication and capacity before upgrading` ([source](../packages/ui-server/tests/http-websocket-admission.test.ts)), (`real WebSocket admission rejects origin, authentication and capacity before upgrading`, `packages/ui-server/tests/http-websocket-admission.test.ts:56-87`)
 
+**Z — Object-only validation and retained defaults.**
+
+The following mounted checks each run for null, array, string, number and boolean
+JSON, using successful owner login/capture and populated credential stores:
+
+- `password login rejects NAME with a JSON client error`
+  (`password login rejects`, `packages/ui-server/tests/http-object-bodies.test.ts:114-120`).
+- `owner passkey registration rejects NAME before storing a credential`
+  (`owner passkey registration rejects`, `packages/ui-server/tests/http-object-bodies.test.ts:122-130`).
+- `owner passkey rename rejects NAME without clearing its label`
+  (`owner passkey rename rejects`, `packages/ui-server/tests/http-object-bodies.test.ts:132-138`).
+- `capture rejects NAME before CLI dispatch or content writes`
+  (`capture rejects`, `packages/ui-server/tests/http-object-bodies.test.ts:140-153`).
+
+`capture refuses %s before CLI dispatch` checks malformed JSON and invalid
+content/type/title/tags with nonempty CLI and file observations
+(`capture refuses`, `packages/ui-server/tests/http-object-bodies.test.ts:164-175`).
+`valid rename objects retain normalization and omitted-label clearing`
+preserves the management default
+(`valid rename objects retain normalization and omitted-label clearing`,
+`packages/ui-server/tests/http-object-bodies.test.ts:189-196`).
+`valid capture fields reach the actual CLI adapter unchanged` and
+`empty optional capture values retain CLI defaults` preserve valid inputs
+(`valid capture fields reach the actual CLI adapter unchanged`,
+`packages/ui-server/tests/http-object-bodies.test.ts:198-207`),
+(`empty optional capture values retain CLI defaults`,
+`packages/ui-server/tests/http-object-bodies.test.ts:209-216`).
+
 The mounted voice keyterm and pronunciation reads assert nonempty cached
 values in their individual receipt tests. Speech grant checks exercise both
 successful short-lived tokens and provider refusal through an injected HTTP
@@ -268,10 +308,10 @@ also demonstrate that the previous guard-only/HTTP-status tests can remain
 green with those handlers removed.
 
 The separate gaps recorded in the specification remain authoritative:
-[#692](https://github.com/schlessera/brain-kit/issues/692) covers four-decimal
-rollup costs, [#694](https://github.com/schlessera/brain-kit/issues/694) covers
-non-object JSON validation, [#702](https://github.com/schlessera/brain-kit/issues/702)
-covers nullable CLI tags, and [#693](https://github.com/schlessera/brain-kit/issues/693)
-covers public React health/sync helpers. A nonempty 0.5 rollup fixture proves
-that the mounted aggregate reads stored accounting; it does not prove rounding.
-This coverage does not redefine those promises or claim those repairs.
+[#702](https://github.com/schlessera/brain-kit/issues/702) covers nullable CLI
+tags, and [#693](https://github.com/schlessera/brain-kit/issues/693) covers public
+React health/sync helpers. The delivered #692 rounding and #694 object-validation
+repairs are covered by R and Z. A nonempty 0.5 rollup fixture alone proves that
+the mounted aggregate reads stored accounting; R's higher-precision fixtures
+provide the distinct rounding evidence. This coverage does not redefine those
+promises or claim implementation of the separately delivered repairs.
