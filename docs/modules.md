@@ -282,8 +282,8 @@ for canonical formats and the complete upgrade path.
 - **Config:** `travelParty`, an array of `{name, role?, requirementsDoc?}`;
   default `[]`. Existing paths and values move losslessly from speaking.
 - **Skill:** `plan-travel`, for conference-linked and personal journeys.
-- **CLI word:** `brain travel validate`, `brain travel migrate [--dry-run]`;
-  both have documented `--json` envelopes.
+- **CLI word:** `brain travel validate`, `brain travel migrate [--dry-run]`,
+  `brain travel photo <files> --to <dir>`; each has a documented `--json` envelope.
 - **Migration:** install/enable travel, preview/apply migration, restart and
   sync skills. Documents keep their paths, types, links and bytes. Conflicts
   and ambiguous TypeScript construction are reported without writes. Existing

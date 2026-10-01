@@ -83,3 +83,45 @@ migrations, reload in a fresh process, verify content bytes and repeat the job
 without another edit. Domain formats are checked by `brain travel validate`;
 core validation keeps its existing common metadata and wiki-link contract,
 without adding a validator extension seam.
+
+## Photo processing — 2026-10-01
+
+The [approved travel scope](https://github.com/schlessera/brain-kit/issues/524#issuecomment-5869656145)
+requires reduced photo copies, original capture provenance and removal of input
+metadata. `brain travel photo` performs that deterministic job; a later travel
+workflow can decide which visit receives the reported values. It stores no
+originals, albums or sidecar authority and performs no network requests.
+
+Sharp supplies real codec decoding, EXIF pixel orientation, bounded resizing
+and mozjpeg encoding. Its default fresh output strips metadata; adding metadata
+back is deliberately absent from the pipeline
+(`preparePhotos`, `packages/module-travel/src/photo.ts:107-135`).
+The native dependency loads only in the photo command. Bun 1.3.14 on Linux
+loaded Sharp 0.35.5 with bundled libvips 8.18.7 and mozjpeg, and encoded actual
+JPEG bytes. Other supported binaries follow Sharp's [installation requirements](https://sharp.pixelplumbing.com/install/);
+the command reports unavailable formats instead of promising HEIC everywhere.
+
+exifr reads the original EXIF block exposed by the decoder, independently of
+the source container. Camera time is read as written text: constructing it
+through the process timezone would invent an instant when the camera supplied
+none. Calendar validation rejects nonexistent dates, written offsets/fractions
+are retained, and valid zero coordinates survive
+(`captureTime`, `packages/module-travel/src/photo.ts:79-92`;
+`capture`, `packages/module-travel/src/photo.ts:94-105`).
+
+Completed sibling bytes are published with an exclusive hard link. A rename
+can replace a destination that arrived after an existence check; the exclusive
+operation retains that entry and tries the next numeric suffix. Directory
+identity is checked before publication, symlink destinations are refused, and
+partial writes are removed before any JPEG name appears
+(`writePhotoCopy`, `packages/module-travel/src/photo.ts:16-51`).
+This requires hard-link support. Cleanup after successful publication is
+best effort, so a cleanup error cannot turn an existing completed copy into
+a reported failure.
+
+Real CLI fixtures contain nonempty EXIF/GPS, XMP, ICC, IPTC and JPEG comments.
+An independent reader and marker scan check their removal; decoded corner
+pixels check rotation separately from the reported dimensions. A filesystem
+test injects an arriving destination and verifies its bytes remain unchanged.
+Invalid, truncated and animated inputs, repeated jobs, source/output collisions,
+and root/symlink escapes exercise the actual command and writer.

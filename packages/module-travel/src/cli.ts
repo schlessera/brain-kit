@@ -9,8 +9,9 @@ const HELP = `brain travel — journey, day-trip and place foundations
 
   travel validate              Check canonical formats, references and assets
   travel migrate [--dry-run]    Move legacy speaking travelParty without changing content
+  travel photo <files> --to <dir>  Create reduced JPEG copies without metadata
 
-Flags: --json  emit the documented validation or migration envelope`;
+Flags: --json  emit the documented envelope; --human  display photo paths and dimensions`;
 
 async function migrate(root: string, dryRun: boolean): Promise<{ path: string; changed: boolean; dry_run: boolean }> {
   // This is an explicit source migration, not a second effective-config reader.
@@ -39,10 +40,35 @@ async function migrate(root: string, dryRun: boolean): Promise<{ path: string; c
 }
 
 const command: CommandModule<TravelConfig> = {
-  summary: "Validate travel content and migrate speaking travel configuration",
+  summary: "Validate travel content, migrate travel configuration and prepare photo copies",
   helpBlock: HELP,
   async run(args: string[], ctx: CommandContext<TravelConfig>): Promise<number> {
     const sub = args[0];
+    if (sub === "photo") {
+      try {
+        const files: string[] = [];
+        let to: string | undefined;
+        for (let i = 1; i < args.length; i++) {
+          const arg = args[i];
+          if (arg === "--") { files.push(...args.slice(i + 1)); break; }
+          if (arg === "--json" || arg === "--human") continue;
+          if (arg === "--to") {
+            if (to !== undefined || !args[i + 1] || args[i + 1].startsWith("-")) throw new Error("photo requires exactly one --to directory.");
+            to = args[++i];
+          } else if (arg.startsWith("-")) throw new Error("Unknown photo argument: " + arg + ". Use -- before a filename starting with a dash.");
+          else files.push(arg);
+        }
+        if (!files.length || to === undefined) throw new Error("Usage: brain travel photo <files> --to <dir> [--json]");
+        const { preparePhotos } = await import("./photo.js");
+        const photo = await preparePhotos(ctx.root, files, to);
+        if (ctx.json) console.log(JSON.stringify({ photo }, null, 2));
+        else {
+          for (const file of photo.files) console.log(file.source + " → " + file.output + " (" + file.width + "×" + file.height + ")");
+          for (const error of photo.errors) console.error(error.source + ": " + error.message);
+        }
+        return photo.errors.length ? 2 : 0;
+      } catch (error) { console.error((error as Error).message); return 1; }
+    }
     if (sub !== "validate" && sub !== "migrate") { console.error(HELP); return 1; }
     if (args.slice(1).some((arg) => arg !== "--json" && !(sub === "migrate" && arg === "--dry-run"))) {
       console.error(`Unknown travel argument.\n${HELP}`); return 1;
