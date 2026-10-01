@@ -153,6 +153,7 @@ export interface SessionCaps {
   askUser: boolean;
   askUserList: boolean;
   askUserRank: boolean;
+  askUserForm?: boolean;
   location: boolean;
   activity: boolean;
   mask: boolean;
@@ -170,6 +171,7 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     askUser: Boolean(bridge.askUser),
     askUserList: Boolean(bridge.askUserList),
     askUserRank: Boolean(bridge.askUserRank),
+    askUserForm: Boolean(bridge.askUserForm),
     location: Boolean(bridge.getLocation),
     activity: Boolean(bridge.queryActivity),
     mask: Boolean(bridge.requestMask),

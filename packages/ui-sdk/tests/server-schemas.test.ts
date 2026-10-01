@@ -27,6 +27,7 @@ function parse(frame: unknown) {
 const SAMPLES: ServerMessage[] = [
   { type: "inbox_snapshot", view: "actions", threads: [thread], items: [actionItem], highWaterSeq: { [thread.id]: 1 }, cursor: 2 },
   { type: "inbox_delta", view: "actions", change: { kind: "upsert_item", changeId: 3, threadId: thread.id, itemId: actionItem.id, seq: 2, item: actionItem } },
+  { type: "ask_user_form_request", requestId: "r1", prompt: "Notes", nodes: [{ id: "n", kind: "text", prompt: "Why?" }] },
   { type: "ask_user_rank_request", requestId: "r1", prompt: "Which first?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }], cutoff: 1 },
   { type: "retry_receipt", sessionId: "s1", requestId: "retry-one", state: "accepted", text: "Original", attachmentCount: 2 },
   { type: "server_hello", protocolRev: 2, capabilities: { multiSession: true } },

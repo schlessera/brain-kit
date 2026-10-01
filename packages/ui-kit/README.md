@@ -43,6 +43,33 @@ Users can drag a handle, tap an item then its destination, or use the keyboard.
 Handle gestures capture the pointer while the rest of the row scrolls the
 transcript. Answered cards retain the order; dismissed cards can be asked again.
 
+## Conditional questions
+
+`AskUserFormCard` presents `single`, `multi`, `scale`, `rank` and short `text`
+nodes in one exchange. The caller supplies `question` and a flat `nodes` list;
+`showIf: { node, anyOf }` reveals a child when an earlier choice matches. Children
+occupy branch slots below the parent's whole control, without accumulating
+indentation. Breadcrumbs identify the path and shorten beyond three levels.
+The form has one sticky header and one outer action row.
+
+Changing a choice sets hidden branch answers aside locally, with an Undo
+receipt; revisiting the branch restores them. `onSubmit` receives
+`{ answers, visibleNodes }` and omits hidden answers. Nodes default to required;
+an incomplete submission flags missing required answers and focuses the first
+flagged node. Revealing a branch announces the change and keeps focus on the
+current control.
+
+Use `state="answered"` with `answers` to replay a compact summary of the visible
+paths, skipped optional questions, scale groups and ranked items. Longer
+records can expand. `state="dismissed"` accepts `lapsedNote` and `onAskAgain`,
+as the standalone cards do.
+
+`ScaleList` and `RankList` export the same controls used by the standalone
+`AskUserListCard` and `AskUserRankCard`. Their `embedded` prop defaults to
+`true`, omitting another header and action row. Both expose `onChange`;
+`ScaleList` also exposes `flagged` and `onComplete`, while `RankList` exposes
+`onMoveChange` so an outer form can guard submission during a move.
+
 ## Link policy
 
 `@schlessera/brain-ui-kit/links` exports `classifyLink`, the one decision about
@@ -75,6 +102,10 @@ scales as `@theme static`. A consumer with its OWN Tailwind theme imports
 `ui-react` does). Two things in it are easy to get wrong and are asserted by
 `tests/theme-tokens.test.ts`: the spacing scale is deliberately irregular (it is
 not a 4px grid), and three radius steps are ranges whose ends both ship.
+
+`tokens.css` also delivers the shared scale, rank and conditional-form layout
+and interaction rules. All three stylesheet entries include these rules;
+components need no separate form stylesheet.
 
 ### Themes
 
@@ -173,8 +204,12 @@ to the caller (`FileRow`'s `tree`) the stories show the wrapper it is owed.
 the effect chip into the row's `aria-label` — *"Re-index knowledge/, reindex"* —
 so the warning is not shown only to people who can see it.
 
-**Two components announce themselves.** `StreamingAnswer`'s phase line and the
-whole of `InlineToast` carry `aria-live="polite"`, because both change without
+**Live feedback uses polite announcements.** `StreamingAnswer`'s phase line and
+`InlineToast` carry `aria-live="polite"`, because both change without
 the user doing anything to make them change and are otherwise silent to a screen
 reader. `polite` rather than `assertive` in both cases: neither should cut
 across whatever is being read.
+
+Pass `announce={false}` to `InlineToast` when a containing live region combines
+the receipt with other feedback. `AskUserFormCard` uses this for one announcement
+of branch reveals, hidden nodes, answers set aside and the remaining count.

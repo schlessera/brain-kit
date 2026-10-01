@@ -1,3 +1,4 @@
+import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 /**
  * The package's ONLY `process.env` reader.
  *
@@ -76,6 +77,10 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_DEPTH", required: false, default: "3", description: "Conditional form maximum depth (roots count as one). Invalid values fail startup." },
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_NODES", required: false, default: "12", description: "Conditional form maximum node count. Invalid values fail startup." },
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS", required: false, default: "8", description: "Conditional form maximum options per choice or scale node. Invalid values fail startup." },
+
   {
     name: "BRAIN_UI_EXEC_KILLER",
     description:
@@ -596,6 +601,7 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  askUserFormLimits?: AskUserFormLimits;
   brainPath: string;
   dbPath: string;
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
@@ -771,6 +777,11 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   return {
     brainPath,
+    askUserFormLimits: resolveAskUserFormLimits(Object.fromEntries([
+      ["maxDepth", env.BRAIN_UI_ASK_USER_FORM_MAX_DEPTH],
+      ["maxNodes", env.BRAIN_UI_ASK_USER_FORM_MAX_NODES],
+      ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
+    ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",

@@ -8,6 +8,8 @@ import type {
   AskUserAnnotation,
   AskUserListSpec,
   AskUserRankSpec,
+  AskUserFormSpec,
+  AskUserFormAnswers,
   TurnFailure,
   TurnRetry,
   ThinkingLevel,
@@ -152,6 +154,9 @@ export interface AskUserExchange {
    */
   list?: AskUserListSpec;
   rank?: AskUserRankSpec;
+  form?: AskUserFormSpec;
+  formAnswers?: AskUserFormAnswers;
+  visibleNodes?: string[];
   order?: string[];
   unchanged?: boolean;
   /** Filled in once the user submits. Keyed by question text, or by item id
@@ -328,6 +333,8 @@ export interface ChatState {
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
   setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec) => void;
   setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec) => void;
+  setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec) => void;
+  submitAskUserFormAnswers: (key: ChatKey, requestId: string, formAnswers: AskUserFormAnswers, visibleNodes: string[]) => void;
   submitAskUserRankOrder: (key: ChatKey, requestId: string, order: string[], unchanged: boolean) => void;
   submitAskUserListAnswers: (
     key: ChatKey,
@@ -887,6 +894,26 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           const update = (e: AskUserExchange): AskUserExchange =>
             e.requestId === requestId
               ? { ...e, order, unchanged, answeredAt }
+              : e;
+          const msgs = chat.messages.map((m) =>
+            m.askUserExchanges?.some((e) => e.requestId === requestId)
+              ? { ...m, askUserExchanges: m.askUserExchanges.map(update) }
+              : m
+          );
+          const askUser =
+            chat.askUser?.requestId === requestId ? update(chat.askUser) : chat.askUser;
+          return { messages: msgs, askUser };
+        }),
+
+      setAskUserFormRequest: (key, requestId, form) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], form })),
+
+      submitAskUserFormAnswers: (key, requestId, formAnswers, visibleNodes) =>
+        mutateBuffer(key, (chat) => {
+          const answeredAt = Date.now();
+          const update = (e: AskUserExchange): AskUserExchange =>
+            e.requestId === requestId
+              ? { ...e, formAnswers, visibleNodes, answeredAt }
               : e;
           const msgs = chat.messages.map((m) =>
             m.askUserExchanges?.some((e) => e.requestId === requestId)

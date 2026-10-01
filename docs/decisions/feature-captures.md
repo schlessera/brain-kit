@@ -28,7 +28,7 @@ catalogue instead names real source exports and source-backed readiness.
 ## Editorial crops serve a different reader from regression baselines
 
 The existing visual suite awaits real composed stories and compares the painted
-body (`async function looksRight(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:159-162`).
+body (`async function looksRight(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:160-163`).
 That is the D10 regression gate. An editorial still needs a named feature,
 consumer, crop and caption, so it has its own output and provenance. Reusing
 a baseline as an unnamed marketing image loses that relationship.
@@ -45,7 +45,7 @@ content on scrolling screens; that exclusion constrains their alt text.
 Use the shared pin (`const IMAGE =`, `scripts/visual.mjs:44-44`)
 and its matching installed dependency. D10's measured rendering differences
 make a host browser an inadequate replacement for the declared environment.
-The paper renderer (`async function looksRightOnPaper(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:172-177`)
+The paper renderer (`async function looksRightOnPaper(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:173-178`)
 passes the theme global and asserts the resulting theme; setting an attribute
 before render can be overwritten by the preview decorator.
 

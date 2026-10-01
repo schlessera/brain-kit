@@ -336,3 +336,20 @@ describe("lifecycle", () => {
     expect(sockets.length).toBe(1);
   });
 });
+
+describe("form turn echo", () => {
+  test("a form response and dismissal echo their own requests despite interleaved sessions", () => {
+    const { client, socket, replies } = setup({ ask_user_form_request: () => {}, text_delta: () => {} });
+    const nodes = [{ id: "n", kind: "text", prompt: "Why?" }];
+    socket.deliver({ type: "ask_user_form_request", requestId: "form-A", prompt: "Notes", nodes, sessionId: "A", turnId: "turn-A" });
+    socket.deliver({ type: "ask_user_form_request", requestId: "form-B", prompt: "Notes", nodes, sessionId: "B", turnId: "turn-B" });
+    socket.deliver({ type: "text_delta", text: "Other", sessionId: "C", turnId: "turn-C" });
+    client.send({ type: "ask_user_form_response", requestId: "form-A", answers: { n: "Useful" } });
+    client.send({ type: "ask_user_cancel", requestId: "form-B", reason: "Dismissed" });
+    expect(replies()).toEqual([
+      { type: "ask_user_form_response", requestId: "form-A", answers: { n: "Useful" }, turnId: "turn-A" },
+      { type: "ask_user_cancel", requestId: "form-B", reason: "Dismissed", turnId: "turn-B" },
+    ]);
+    client.close();
+  });
+});

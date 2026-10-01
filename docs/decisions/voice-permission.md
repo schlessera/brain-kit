@@ -55,7 +55,7 @@ functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:26`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:81-98`)
+`packages/ui-backend-claude/src/sdk-options.ts:83-101`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:49`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -227,7 +227,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:573-578`), applied independently (`params.summary !== undefined`, `:597-613`), so **a single call can overwrite all six** — and `tags` is a comma-separated string that replaces the whole tag list rather than merging into it (`tags: z.string()`, `:576`; `params.tags !== undefined`, `:600-602`), while `deadline` and `next_review` take `""` as *delete the field* (`params.deadline !== undefined`, `:604-613`). `updated` is bumped unconditionally (`updates.updated = updated`, `:627`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:81-98`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:83-101`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 **Excluded, each for its own reason:**
 
@@ -361,7 +361,7 @@ further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
 (`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:240` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:338-360`),
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:351-378`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -388,7 +388,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:324-330`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:338-344`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -397,8 +397,8 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:324-330`, and the lookup computing
-`remembered`, `ws/bridge.ts:143-163`), and 192 of 192 measured
+(the block computing `remembers`, `dispatch.ts:338-344`, and the lookup computing
+`remembered`, `ws/bridge.ts:144-164`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -455,7 +455,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:391-406`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:196-211`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:197-212`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -467,7 +467,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:365-378`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:379-392`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -479,8 +479,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:26`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:46-47`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:81`, and what it
-becomes, `allowedTools: allowed`, `:135`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:83`, and what it
+becomes, `allowedTools: allowed`, `:139`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -566,7 +566,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:326`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:334`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -584,9 +584,9 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:143-163`,
+  `packages/ui-server/src/ws/bridge.ts:144-164`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:324-330`).
+  `packages/ui-server/src/ws/dispatch.ts:338-344`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 

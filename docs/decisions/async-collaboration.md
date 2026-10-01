@@ -64,11 +64,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:326`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:350`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:334`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:358`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The current Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:53-208`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:54-214`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:173-183`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -91,7 +91,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:129-222`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:130-223`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

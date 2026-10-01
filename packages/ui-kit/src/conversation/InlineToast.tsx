@@ -16,7 +16,8 @@ import type { ToastTone } from "../types.js";
  * **`aria-live="polite"`** is one of the design's five non-negotiable rules.
  * A receipt appears without the user doing anything to make it appear, so a
  * screen-reader user otherwise learns nothing happened. `polite`, so it waits
- * for a pause rather than cutting across whatever is being read.
+ * for a pause rather than cutting across whatever is being read. A form
+ * passing `announce=false` owns the combined reveal/receipt announcement.
  *
  * **Undo's hit target.** The word is text-sized and must be a 44px-tall
  * target, so `theme.css`'s `.bk-undo::before` reaches 16px above and below and
@@ -43,6 +44,8 @@ export interface InlineToastProps {
   pending?: boolean;
   icon?: IconName;
   onUndo?: () => void;
+  /** A containing form already announces this receipt in its combined branch update. */
+  announce?: boolean;
 }
 
 const INKS: Record<ToastTone, string> = {
@@ -114,7 +117,7 @@ export function InlineToast(p: InlineToastProps) {
   }
 
   return (
-    <div style={box} aria-live="polite">
+    <div style={box} aria-live={p.announce === false ? undefined : "polite"}>
       <Icon icon={p.icon || (pending ? "later" : "confirm")} size={14} color={ink} />
       <span
         style={{

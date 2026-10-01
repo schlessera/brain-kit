@@ -401,7 +401,7 @@ structure in `details`. Worse: **the Pi adapter sends text content only and drop
 (`const output =`, `stream-adapter.ts:163`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
-`protocol.ts:43` states additions do not bump the rev, only semantics changes
+`protocol.ts:44` states additions do not bump the rev, only semantics changes
 do — and `ToolCallView.output?: string` already lets a renderer parse
 locally. Turning `output` itself into an object would be a different, breaking
 change.
@@ -2519,14 +2519,14 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:234-245`, and the unconditional
+`packages/ui-backend-pi/src/bridge-tools.ts:261-272`, and the unconditional
 push into `tools`, `const tools: ToolDefinition[]`, `:247-250`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
 to have one: `block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:159` passes the
+`packages/ui-backend-pi/src/session-resources.ts:160` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
@@ -2936,7 +2936,7 @@ Two things stop that residue being read as a like-for-like gap, and both cut
 against reading pi as a second replication of the brief result. pi is on a
 different harness driving the model directly, and — this is the one that matters
 — **pi has no no-brief arm and no supported way to have one.**
-`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:159`
+`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:160`
 passes the block brief into `buildSystemPromptAppend` unconditionally, not
 behind a capability check like `askUser`, `location`, `activity` and `mask` on
 the lines above it. So every pi number was measured with the brief present. The
@@ -3240,7 +3240,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:234` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:261` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -3248,7 +3248,7 @@ turns the complete roster the model reached for was `bash`, `show_block`,
 `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
 no search-then-load round trip, ever. The brief is in the prompt on every turn
 unconditionally (`block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:159`, not behind a capability
+`packages/ui-backend-pi/src/session-resources.ts:160`, not behind a capability
 check like the four bridge tools beside it). So pi is the structural twin of
 D43's `--always-load` arm and has never run any other configuration.
 
@@ -3770,7 +3770,7 @@ and each closed before the measured runs:
 
 - **The brain has to live outside the operator's home directory, not only
   outside a checkout.** `settingSources: ["project"]`,
-  `packages/ui-backend-claude/src/sdk-options.ts:126`, makes the CLI walk up
+  `packages/ui-backend-claude/src/sdk-options.ts:130`, makes the CLI walk up
   from the cwd, and at every ancestor it reads `.claude/CLAUDE.md`,
   `.claude/skills/` and `.claude/agents/`. A brain anywhere under a home
   directory therefore loads `~/.claude/CLAUDE.md` as *project* instructions,
@@ -4343,7 +4343,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:212`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:217`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4368,7 +4368,7 @@ does a replayed session show?
    loaded (D44) it measured no effect on the call rate. The description, which
    D44 puts in every prompt, carries a `suggestions:` line. The brief's
    "names every kind" assertion exempts `suggestions` by name
-   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:115-119`).
+   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:118-122`).
 9. **It merges before it is measured, and the release waits.** #550 runs the
    keyed measurement on both backends: the suggestion rate, the rate when the
    answer ends in a question, the drop rate, the added tokens, and a read of

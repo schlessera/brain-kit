@@ -209,16 +209,30 @@ export async function handleClientMessage(
       break;
     }
 
+    case "ask_user_form_response": {
+      const pending = coordinator.pendingAskUserForm.get(msg.requestId);
+      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
+        coordinator.pendingAskUserForm.delete(msg.requestId);
+        pending.turn.recorder?.recordAskUserResponse(
+          connection.authorization.principalId
+        );
+        pending.resolve({ answers: msg.answers });
+      }
+      break;
+    }
+
     case "ask_user_cancel": {
       // Dismisses any ask kind: the ids share one space.
       const pending =
         coordinator.pendingAskUser.get(msg.requestId) ??
         coordinator.pendingAskUserList.get(msg.requestId) ??
-        coordinator.pendingAskUserRank.get(msg.requestId);
+        coordinator.pendingAskUserRank.get(msg.requestId) ??
+        coordinator.pendingAskUserForm.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         coordinator.pendingAskUser.delete(msg.requestId);
         coordinator.pendingAskUserList.delete(msg.requestId);
         coordinator.pendingAskUserRank.delete(msg.requestId);
+        coordinator.pendingAskUserForm.delete(msg.requestId);
         pending.turn.recorder?.recordCancellation(
           connection.authorization.principalId,
           "ask_user"

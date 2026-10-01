@@ -45,6 +45,7 @@ the published template rather than a source checkout.
 | [extending/rerankers.md](extending/rerankers.md) | The opt-in `Reranker` seam and its evaluation evidence. |
 | [extending/skill-emitters.md](extending/skill-emitters.md) | The `SkillEmitter` seam. |
 | [extending/agent-backends.md](extending/agent-backends.md) | The `AgentBackend` seam: authoring a chat-UI agent backend — turn lifecycle, the permission bridge, and how ui-server loads backends. |
+| [conditional-forms.md](conditional-forms.md) | Conditional questions in one card, visible-answer results, configurable limits and keyless schema-cost estimates. |
 | [http-api.md](http-api.md) | Complete mounted-route inventory, supported HTTP authentication/inputs/responses/errors, SDK dependencies and internal UI transport boundary. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, supported HTTP/wire behavior, `brain.db` reads, and versioning rules. |
 

@@ -12,6 +12,7 @@ export type {
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,
+  AskUserFormResult,
   LocationFix,
   SubscriptionAuthAction,
 } from "./backend.js";

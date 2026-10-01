@@ -275,6 +275,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       ? { turnTimeoutMs: (options.turnTimeoutMs ?? config.turnTimeoutMs)! }
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
+    askUserFormLimits: config.askUserFormLimits,
     wsRate: config.wsRate,
     wsMaxConnections: config.wsMaxConnections,
     isPrincipalValid: (principal) => {

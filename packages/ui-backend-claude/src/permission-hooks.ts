@@ -234,7 +234,7 @@ export function createPermissionWiring(options: {
     // one; this is just its runtime binding.
     //
     // Allowlisting is not the only reason it belongs here. This backend loads
-    // the brain repo's project settings (`settingSources`, sdk-options.ts:126),
+    // the brain repo's project settings (`settingSources`, sdk-options.ts:130),
     // and a hook
     // declared in those can answer a call before canUseTool is reached at all
     // — #124 has the measurements. This hook fires either way. None of that

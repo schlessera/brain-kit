@@ -23,6 +23,7 @@ import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
 
+import { ASK_USER_FORM_INPUT_SCHEMA, ASK_USER_FORM_ANSWER_SCHEMA, type AskUserFormNode, type AskUserFormAnswers } from "./tool-contracts/form.js";
 import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 
 import type {
@@ -39,6 +40,7 @@ import type {
   SessionHistoryMessage,
   ServerAskUserListRequest,
   ServerAskUserRankRequest,
+  ServerAskUserFormRequest,
   ServerAskUserRequest,
   ServerError,
   ServerHello,
@@ -62,6 +64,7 @@ import type {
   ClientAskUserCancel,
   ClientAskUserListResponse,
   ClientAskUserRankResponse,
+  ClientAskUserFormResponse,
   ClientAskUserResponse,
   ClientCancelRequest,
   ClientChatMessage,
@@ -422,6 +425,14 @@ export const clientAskUserListResponseSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserListResponse>;
 
+
+export const clientAskUserFormResponseSchema = z.looseObject({
+  type: z.literal("ask_user_form_response"), requestId: id,
+  answers: z.custom<AskUserFormAnswers>((value) => z.record(z.string().min(1).max(64), ASK_USER_FORM_ANSWER_SCHEMA).safeParse(value).success),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientAskUserFormResponse>;
+
+
 export const clientAskUserRankResponseSchema = z.looseObject({
   type: z.literal("ask_user_rank_response"),
   requestId: id,
@@ -632,6 +643,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientAskUserCancelSchema,
   clientAskUserListResponseSchema,
   clientAskUserRankResponseSchema,
+  clientAskUserFormResponseSchema,
   clientLocationResponseSchema,
   clientLocationErrorSchema,
   clientMaskResponseSchema,
@@ -981,6 +993,14 @@ export const serverAskUserListRequestSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerAskUserListRequest>;
 
+export const serverAskUserFormRequestSchema = z.looseObject({
+  type: z.literal("ask_user_form_request"), requestId: id,
+  prompt: ASK_USER_FORM_INPUT_SCHEMA.shape.prompt,
+  // Validate the known shape while preserving every nested additive field.
+  nodes: z.custom<AskUserFormNode[]>((value) => ASK_USER_FORM_INPUT_SCHEMA.shape.nodes.safeParse(value).success),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerAskUserFormRequest>;
+
 export const serverAskUserRankRequestSchema = z.looseObject({
   type: z.literal("ask_user_rank_request"),
   requestId: id,
@@ -1160,6 +1180,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverAskUserRequestSchema,
   serverAskUserListRequestSchema,
   serverAskUserRankRequestSchema,
+  serverAskUserFormRequestSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
   serverActivitySnapshotSchema,

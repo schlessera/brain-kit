@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 import type { AskUserAnnotation, AskUserQuestion } from "../protocol.js";
+import { ASK_USER_FORM_CONTRACT } from "./form.js";
 import { SHOW_BLOCK_CONTRACT } from "./blocks.js";
 import {
   defineToolComponentContract,
@@ -444,6 +445,7 @@ export const BRIDGE_TOOL_CONTRACTS = [
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
   ASK_USER_RANK_CONTRACT,
+  ASK_USER_FORM_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
@@ -457,6 +459,7 @@ const names = [
   ASK_USER_CONTRACT.name,
   ASK_USER_LIST_CONTRACT.name,
   ASK_USER_RANK_CONTRACT.name,
+  ASK_USER_FORM_CONTRACT.name,
   GET_CURRENT_LOCATION_CONTRACT.name,
   REQUEST_IMAGE_MASK_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,

@@ -161,7 +161,7 @@ export function AskUserListCard(p: AskUserListCardProps) {
   const state: AskUserListState = p.state ?? "pending";
   if (state === "answered") return <Answered {...p} />;
   if (state === "dismissed") return <Dismissed {...p} />;
-  return <Pending {...p} />;
+  return <ScaleList {...p} embedded={false} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +220,15 @@ function Legend({ scale }: { scale: AskUserListOption[] }) {
 // Pending
 // ---------------------------------------------------------------------------
 
-function Pending(p: AskUserListCardProps) {
+export interface ScaleListProps extends AskUserListCardProps {
+  /** Default true: rows, hints and bulk fill without another dialog shell. */
+  embedded?: boolean;
+  flagged?: boolean;
+  onChange?: (value: AskUserListSubmission) => void;
+  onComplete?: () => void;
+}
+export function ScaleList(p: ScaleListProps) {
+  const embedded = p.embedded !== false;
   const uid = useId();
   const base = p.id ?? `asklist${uid.replace(/:/g, "")}`;
   const allowSkip = p.allowSkip !== false;
@@ -254,7 +262,8 @@ function Pending(p: AskUserListCardProps) {
     setFocusTarget(null);
     if (focusTarget.submit) {
       const buttons = rootRef.current?.querySelectorAll<HTMLElement>('[data-submit] [role="button"]');
-      buttons?.[buttons.length - 1]?.focus();
+      if (embedded) p.onComplete?.();
+      else buttons?.[buttons.length - 1]?.focus();
     } else if (focusTarget.note) {
       rowEl(focusTarget.note)?.querySelector<HTMLInputElement>("input")?.focus();
     } else if (focusTarget.row) {
@@ -272,12 +281,11 @@ function Pending(p: AskUserListCardProps) {
   }
 
   function pick(id: string, label: string | null) {
-    setAnswers((prev) => {
-      const next = { ...prev };
-      if (label === null || next[id] === label) delete next[id];
-      else next[id] = label;
-      return next;
-    });
+    const next = { ...answers };
+    if (label === null || next[id] === label) delete next[id];
+    else next[id] = label;
+    setAnswers(next);
+    p.onChange?.({ answers: next, notes });
     if (label !== null) {
       setFlagged((prev) => {
         if (!prev.has(id)) return prev;
@@ -301,6 +309,7 @@ function Pending(p: AskUserListCardProps) {
     const after = fillOpen(items, answers, label);
     const count = items.length - answered;
     setAnswers(after);
+    p.onChange?.({ answers: after, notes });
     setFlagged(new Set());
     setFillOpenPanel(false);
     setReceipt({ count, label, before });
@@ -310,6 +319,7 @@ function Pending(p: AskUserListCardProps) {
   function undoFill() {
     if (!receipt) return;
     setAnswers(receipt.before);
+    p.onChange?.({ answers: receipt.before, notes });
     setReceipt(null);
     setLive("Fill undone.");
   }
@@ -404,25 +414,26 @@ function Pending(p: AskUserListCardProps) {
   return (
     <div
       ref={rootRef}
-      style={box(token("ask-border-teal"))}
+      style={embedded ? { minWidth: 0 } : box(token("ask-border-teal"))}
       className="bk-asklist"
       data-cols={narrowColumns(scale.length)}
       data-count={scale.length}
       role="group"
-      aria-labelledby={`${base}-q`}
+      aria-labelledby={embedded ? undefined : `${base}-q`}
+      aria-label={embedded ? p.question : undefined}
     >
       <div
-        style={{ ...sticky, top: 0, borderRadius: "14px 14px 0 0", borderBottom: `1px solid ${color.line}` }}
-        data-list-head=""
+        style={{ ...sticky, position: embedded ? "static" : "sticky", padding: embedded ? "0 0 8px" : sticky.padding, top: 0, borderRadius: "14px 14px 0 0", borderBottom: `1px solid ${color.line}` }}
+        data-list-head={embedded ? undefined : ""}
       >
-        <div style={headStyle(accent.teal.ink)}>
+        {!embedded ? <div style={headStyle(accent.teal.ink)}>
           <Icon icon="ask" size={13} color={accent.teal.ink} />
           {p.prompt ?? "Brain needs your input"}
-        </div>
+        </div> : null}
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10 }}>
-          <p id={`${base}-q`} style={questionStyle}>
+          {!embedded ? <p id={`${base}-q`} style={questionStyle}>
             {p.question}
-          </p>
+          </p> : null}
           {single ? null : (
             <span
               data-counter=""
@@ -467,7 +478,7 @@ function Pending(p: AskUserListCardProps) {
         ) : null}
       </div>
 
-      <div style={{ padding: "4px 13px" }}>
+      <div style={{ padding: embedded ? "4px 0" : "4px 13px" }}>
         {items.map((item, index) => (
           <Row
             key={item.id}
@@ -476,7 +487,7 @@ function Pending(p: AskUserListCardProps) {
             index={index}
             scale={scale}
             chosen={answers[item.id]}
-            flagged={flagged.has(item.id)}
+            flagged={flagged.has(item.id) || (p.flagged === true && !Object.hasOwn(answers, item.id))}
             notesOn={p.notes === true}
             note={notes[item.id] ?? ""}
             noteOpen={openNotes.has(item.id)}
@@ -485,7 +496,7 @@ function Pending(p: AskUserListCardProps) {
               setOpenNotes((prev) => new Set(prev).add(item.id));
               setFocusTarget({ note: item.id });
             }}
-            onNote={(text) => setNotes((prev) => ({ ...prev, [item.id]: text }))}
+            onNote={(text) => { const next = { ...notes, [item.id]: text }; setNotes(next); p.onChange?.({ answers, notes: next }); }}
             onCloseNote={() => {
               if (!(notes[item.id] ?? "").trim()) {
                 setOpenNotes((prev) => {
@@ -504,6 +515,8 @@ function Pending(p: AskUserListCardProps) {
       <div
         style={{
           ...sticky,
+          position: embedded ? "static" : "sticky",
+          padding: embedded ? "0" : sticky.padding,
           bottom: 0,
           borderRadius: "0 0 14px 14px",
           borderTop: `1px solid ${color.line}`,
@@ -511,12 +524,13 @@ function Pending(p: AskUserListCardProps) {
           flexDirection: "column",
           gap: 8,
         }}
-        data-list-foot=""
+        data-list-foot={embedded ? undefined : ""}
       >
         {receipt ? (
           <InlineToast
             text={`${receipt.count} set`}
             target={`to ${receipt.label}`}
+            effect={embedded ? "" : undefined}
             tone="teal"
             icon="confirm"
             onUndo={undoFill}
@@ -528,7 +542,7 @@ function Pending(p: AskUserListCardProps) {
               {hint}
             </span>
           ) : null}
-          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }} data-submit="">
+          {!embedded ? <div style={{ display: "flex", gap: 8, marginLeft: "auto" }} data-submit="">
             <Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={p.onDismiss} />
             <Button
               label={submitLabel(answered, items.length, allowSkip)}
@@ -538,7 +552,7 @@ function Pending(p: AskUserListCardProps) {
               ariaDisabled={blocked}
               onClick={submit}
             />
-          </div>
+          </div> : null}
         </div>
       </div>
       <div aria-live="polite" style={srOnly} data-live="">
