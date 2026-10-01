@@ -232,9 +232,10 @@ that module's discoverable model-invocable skill descriptions under normal
 discovery precedence, plus its authoritative instruction text once. It does not
 charge shared contracts or personal prose, multiply across agent entry files,
 or count full skill bodies. The estimate remains available while dormant.
-Declared tools remain listed; the separately scoped MCP registration filter is
-[tracked in #603](https://github.com/schlessera/brain-kit/issues/603). Running
-sessions keep their loaded state; dormancy controls context and does not revoke
+Declared tools remain listed, so the owner can see what activation would add.
+At MCP startup, tools from dormant modules are neither imported nor registered.
+Running sessions keep their loaded state and registered tools; the next process
+picks up a dormancy edit. Dormancy controls context and does not revoke
 permission or cancel in-flight operations.
 
 ### Instruction contributions

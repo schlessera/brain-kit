@@ -83,6 +83,12 @@ a compact JSON text copy; invalid calls and failed operations return tool
 errors. Client cancellation aborts the call's signal, allowing the operation
 to stop; effects already completed remain completed.
 
+A module dormant at server startup contributes no tools to `tools/list`, and
+its tool definitions are not imported. Registration uses the shared loaded
+module state. `brain module list --json` still shows its declared tool names,
+so the owner can see what activation would add. Dormancy controls context; it
+is not permission revocation.
+
 Definitions load once at server startup. If one definition fails, none of
 that module's tools are registered; other modules and core still work. The
 failure is reported on stderr and in core tools' warnings. Invalid module
