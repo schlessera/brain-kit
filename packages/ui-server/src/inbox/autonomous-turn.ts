@@ -11,6 +11,7 @@ import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
+import { acquireInboxRunLifetime } from "./lifetime.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -63,8 +64,23 @@ export async function runAutonomousTurn(
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
-  try { acquireInboxBudgetRun(deps.db, input.turnId, principalId); }
-  catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous budget admission failed."); }
+  let lifetime: ReturnType<typeof acquireInboxRunLifetime>;
+  try { lifetime = acquireInboxRunLifetime(deps.db, input.turnId); }
+  catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous attempt ownership failed."); }
+  try {
+    try { acquireInboxBudgetRun(deps.db, input.turnId, principalId); }
+    catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous budget admission failed."); }
+    return await executeAutonomousTurn(deps, input, usable, lifetime);
+  } finally { lifetime.close(); }
+}
+
+async function executeAutonomousTurn(
+  deps: AutonomousTurnDeps,
+  input: AutonomousTurnInput,
+  usable: () => boolean,
+  lifetime: ReturnType<typeof acquireInboxRunLifetime>,
+): Promise<AutonomousTurnResult> {
+  const principalId = input.principalId;
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   const recorder = createTurnRecorder(deps, { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
@@ -179,8 +195,13 @@ export async function runAutonomousTurn(
     closed = true;
     clearInterval(principalCheck);
     input.signal.removeEventListener("abort", abort);
-    recorder.finish(outcome);
-    if (yielded) finishYield(deps.db, input.turnId);
+    // The backend has returned. Release its kernel lock under the operational
+    // write lock, then settle before another connection can claim cleanup.
+    deps.db.transaction(() => {
+      lifetime.release();
+      recorder.finish(outcome);
+      if (yielded) finishYield(deps.db, input.turnId);
+    }).immediate();
   }
 }
 

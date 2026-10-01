@@ -6,6 +6,7 @@ import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } f
 import { failInboxWork, sweepInboxLifecycle } from "./actions.js";
 import { createInboxCleanup } from "./cleanup.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
+import { inboxRunIsLive } from "./lifetime.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -59,10 +60,15 @@ export function createInboxRuntime(db: Database, deps: {
     return db.transaction(() => {
       reconcileInboxBudgets(db, now());
       const rows = db.query(
-        "SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
-      ).all(now()) as { id: string }[];
-      for (const { id } of rows) failInboxWork(db, id, store.getItem(id)!.version, now());
-      return rows.length;
+        "SELECT id, run_id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
+      ).all(now()) as { id: string; run_id: string | null }[];
+      let recovered = 0;
+      for (const { id, run_id } of rows) {
+        if (run_id && inboxRunIsLive(db, run_id)) continue;
+        failInboxWork(db, id, store.getItem(id)!.version, now());
+        recovered++;
+      }
+      return recovered;
     }).immediate();
   }
 

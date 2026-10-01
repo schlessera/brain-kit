@@ -17,8 +17,9 @@ paths and permission/question intent for audit; they cannot grant authority.
 
 An insertion, validation or transition failure rolls back all three records
 and their change cursors. The runner aborts on that failure and records an
-error. On success the backend unwinds immediately; no human approval promise
-remains parked. Terminal Activity accounting settles the reservation. A crash
+error. On success the runner aborts the backend and waits for it to unwind;
+no human approval promise remains parked. Terminal Activity accounting settles
+the reservation after that unwind. A crash
 after commit leaves a durable decision and releases conservative reservation
 charges through the existing budget recovery path.
 
@@ -91,7 +92,7 @@ Dismissing that Action terminates its source and journals cleanup. Cleanup failu
 retains the failed compensation record for inspection/recovery.
 
 `cleanup_pending` is server-owned work, not a model effect. Its compensation
-(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:13-80`) counts no model
+(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-83`) counts no model
 operation and takes no spend reservation. Compensation claims it before I/O,
 removes the server-selected staging directory and partial directory
 idempotently, then acknowledges `done` in a separate transaction. A crash
@@ -99,8 +100,12 @@ between removal and acknowledgement safely repeats removal after lease
 recovery and backoff. Staging root symlinks and invalid IDs are refused; final
 entry symlinks are unlinked rather than traversed.
 
-Staging stays available while a thread has active work or a pending decision.
-Cleanup rechecks this under its claim transaction. An enqueue-bearing decision
+Staging stays available while a thread has active work, a pending decision or
+an acquired backend attempt awaiting unwind and accounting settlement.
+Cancellation, dismissal, expiry and Action-cap eviction can retire Queue work
+before that backend returns. Cleanup checks the actual attempt lifetime and
+unsettled reservation both before admitting compensation and under its claim
+transaction, including compensation already journaled. An enqueue-bearing decision
 cannot resurrect staging after cleanup has started; it needs fresh intake.
 Boot and drain maintenance reconcile these records without inference. The
 complete production dispatcher, containment and system proof remain the
