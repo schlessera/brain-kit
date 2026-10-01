@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue poke mounted by `createApp`: 86 unique declared
+The inventory includes the additive Queue intake and poke mounted by `createApp`: 87 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -120,7 +120,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 86 declared endpoints are mounted regardless of backend, renderer or
+All 87 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -606,9 +606,9 @@ query parameter or new HTTP version negotiation in this inventory.
 
 The supported promises above are not removed to accommodate these observations:
 
-- [#691](https://github.com/schlessera/brain-kit/issues/691) owns the complete
-  real-mount inventory/contract coverage matrix. Existing guard-only failures
-  are not proof that a protected handler is mounted.
+- The [runtime coverage matrix](http-api-coverage.md) maps every supported
+  operation to a real mounting check and named behavior tests (#691).
+  Guard-only failures are not proof that a protected handler is mounted.
 - [#702](https://github.com/schlessera/brain-kit/issues/702) resolves nullable
   CLI result tags versus the public SearchResult type and inaccurate private
   list mirrors. The HTTP specification preserves actual pass-through values;
