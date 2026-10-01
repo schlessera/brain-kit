@@ -5,17 +5,19 @@ they are built from, and the Storybook that documents them.
 
 Everything here is **prop-driven**. Props in, callbacks out — no stores, no
 `fetch`, no ambient configuration, no browser globals. That is not a style
-preference: `@schlessera/brain-ui-react`'s stores are module singletons with no
-provider, so a component that reaches for one cannot be rendered in a story, a
-test, or a second embedder without mutating global state. The kit is where that
-class of component does not exist, and `scripts/check-kit-purity.ts` enforces it
-mechanically rather than by review.
+preference: kit components can render in a story, a test or another embedder
+without depending on application state. `@schlessera/brain-ui-react` owns that
+state in isolated roots created by `createBrainUiRoot` and selected through
+`BrainUiProvider`; hooks outside a provider use the default application root
+([UI roots](../ui-react/README.md#ui-roots)). Kit components need neither a root
+nor a provider, and `scripts/check-kit-purity.ts` enforces that separation.
 
 ## Status
 
-**58 presentational components have landed**, including agent views, screen
-chrome and desktop navigation. Four assembled screens exercise the kit in
-Storybook: Morning Digest, Chat Answer, Weekly Review and Run Detail. Browser
+The kit covers primitives, rows, evidence blocks, question and decision cards,
+conversation states, agent views, screen chrome and desktop navigation.
+Assembled Storybook screens exercise Morning Digest, Chat Answer, Weekly Review,
+Run Detail, Actions Triage, File Viewer and First Run. Browser
 interaction/accessibility checks and curated visual baselines run in CI.
 
 `@schlessera/brain-ui-react` consumes the kit: its chat, files, settings, graph
@@ -175,14 +177,19 @@ and are focus-scoped there; the kit only prints them on the controls.
 target with a transparent pseudo-element: `Toggle` (38x22 drawn), `FeedbackRow`
 (30x26) and `InlineToast`'s undo (text-sized). The constraint that makes it safe
 is that expansion per side must be no more than half the distance to the nearest
-interactive neighbour — get it wrong and a neighbour's invisible target steals
-the click, which is how `FeedbackRow` once recorded thumbs-down for a thumbs-up.
+interactive neighbour on that axis — get it wrong and a neighbour's invisible
+target steals the click, which is how `FeedbackRow` once recorded thumbs-down
+for a thumbs-up.
 Each one is asserted with `elementFromPoint` at the target's EDGES in its own
 story. **Note the measurement:** `inset` on an absolutely positioned
-pseudo-element resolves against the containing block's PADDING box, so a 1px
-border costs 1px of reach on every side — `FeedbackRow`'s target is 46x42 rather
-than the 48x44 its source comment claims, and the undo's is 43.65px tall rather
-than 44. Both are recorded in the stories that measure them.
+pseudo-element resolves against the containing block's PADDING box, so a border
+reduces the reach. Historically, borders left `FeedbackRow` at 46x42 and the
+undo at 43.65px tall, both below the 44px floor. D34 corrected this:
+`FeedbackRow` uses an inset box-shadow for its hairline and reaches **46x44**;
+the undo uses `text-decoration` for its underline and extends 16px above and
+below the text, clearing **44px**. Their `HitTargets` and `UndoHitTarget` stories
+assert the reach and zero border widths, preserving the correction alongside
+the history in `docs/decisions/design-feedback.md`.
 
 `TabBar` uses the design's other sanctioned method — padding cancelled by an
 equal negative margin — and that one is exact: padding is not measured against
