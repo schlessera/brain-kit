@@ -23,9 +23,10 @@ recording. Done receives focus on opening; Enter or Space activates the
 focused stop control, and Escape cancels. Closing returns focus to the mic.
 
 Below 900px, dictation keeps the full-width phone sheet and its backdrop stop
-control. Both forms keep the provider disclosure, transcript scrolling and
-review flow. The composer preserves its draft and prevents typing or sending
-while capture or its final drain is active.
+control. Its 200ms upward entrance respects reduced-motion preferences through
+both stylesheet entry points. Both forms keep the provider disclosure,
+transcript scrolling and review flow. The composer preserves its draft and
+prevents typing or sending while capture or its final drain is active.
 
 ## React compatibility
 

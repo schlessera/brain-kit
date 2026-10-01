@@ -94,7 +94,7 @@ export function DictationSheet({
         className={cn(
           desktop
             ? "absolute inset-x-0 bottom-full z-50 mb-2 flex max-h-[min(60vh,32rem)] flex-col overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl transition-none"
-            : "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-border bg-surface shadow-[0_-16px_48px_rgba(0,0,0,0.5)] max-h-[60vh] min-h-[40vh] animate-in slide-in-from-bottom duration-200"
+            : "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-border bg-surface shadow-[0_-16px_48px_rgba(0,0,0,0.5)] max-h-[60vh] min-h-[40vh] dictation-sheet-phone"
         )}
         role={desktop ? "dialog" : undefined}
         aria-modal={desktop ? false : undefined}
