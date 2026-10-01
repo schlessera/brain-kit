@@ -20,7 +20,7 @@ let principalId: string;
 let startedTurns = 0;
 beforeAll(async () => {
   const backend = makeFakeBackend({ id: "fixture", startTurn: async () => { startedTurns++; } });
-  fixture = await createTestApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: Bun.password.hashSync("odysseus-fixture"), COOKIE_SECRET: SECRET }, appOptions: {
+  fixture = await createTestApp({ env: { AUTH_MODE: "password", BRAIN_UI_INBOX_POKE_TOKEN_FILE: undefined, BRAIN_UI_PASSWORD_HASH: Bun.password.hashSync("odysseus-fixture"), COOKIE_SECRET: SECRET }, appOptions: {
     observability: createRecordingObservability(),
     registry: createStaticBackendRegistry([backend], backend.id),
   } });
