@@ -140,7 +140,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
-- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`) and
+- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-148`) and

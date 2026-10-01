@@ -199,6 +199,15 @@ invariants, capability honesty, permission gating).
 
 ## Environment
 
+The location tool always retains raw coordinates. Reverse addresses use the
+shared geo client and cache. The default public Nominatim endpoint sends no
+request until `NOMINATIM_PUBLIC_SERVICE_ELIGIBLE=true` explicitly records informed
+eligibility under its [policy](https://operations.osmfoundation.org/policies/nominatim/).
+The flag grants no permission; generic LLM-platform offerings and bulk,
+autocomplete or systematic queries are excluded. Use a suitable `NOMINATIM_URL`
+for those uses and identify the application/operator with `NOMINATIM_USER_AGENT`.
+`BRAIN_UI_REVERSE_GEOCODE=false` prevents requests even when eligible.
+
 Every variable this package reads, and what happens when it is unset. This
 table is generated from the package's env chokepoint — the single file allowed
 to touch `process.env`.
@@ -214,6 +223,7 @@ to touch `process.env`.
 | `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |
 | `BRAIN_UI_SUBPROCESS_ENV_EXTRA` | Comma-separated environment variable names to admit to the Claude Code subprocess when an operator integration needs a variable outside the shipped agent allowlist. Names are trimmed; malformed entries are ignored; the control variable itself is never forwarded. | (empty) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token: authenticates chat turns on every profile without its own credential, and model discovery. Wins over ANTHROPIC_API_KEY. | — |
+| `NOMINATIM_PUBLIC_SERVICE_ELIGIBLE` | Explicit informed public Nominatim eligibility; enabled alone does not qualify. Configure a suitable endpoint for excluded uses. | false |
 | `NOMINATIM_URL` | Reverse-geocoding endpoint. | https://nominatim.openstreetmap.org |
 | `NOMINATIM_USER_AGENT` | Identifying User-Agent for Nominatim (usage-policy requirement). | brain-kit-ui/1.0 |
 

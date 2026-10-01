@@ -2527,8 +2527,8 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:261-272`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:274-277`);
+`packages/ui-backend-pi/src/bridge-tools.ts:262-273`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:275-278`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
@@ -3250,7 +3250,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:261` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:262` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64

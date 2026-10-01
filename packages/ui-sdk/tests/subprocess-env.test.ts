@@ -27,6 +27,7 @@ describe("subprocess environment descriptor", () => {
       "BRAIN_UI_ALLOW_PASSWORD",
       // Server-only by the container privilege record (brain-hosting-template); #213 keeps it so.
       "CLAUDE_CODE_PATH",
+      "NOMINATIM_PUBLIC_SERVICE_ELIGIBLE",
     ] as const;
     const source = Object.fromEntries(
       serverOnly.map((name) => [name, "server-only-test-value"])

@@ -266,3 +266,24 @@ partial status, the background extent rejection, way/vertex caps (including a
 malformed structure whose guard was moved after parsing), correct served fetch age
 and the legacy disabled wrapper's actual request boolean. Recorded responses also
 assert nonempty geometry and every layer's cache transfer. No live service was used.
+
+## Reverse-geocoding compatibility — 2026-10-01
+
+The SDK wrapper delegates to the concrete shared client and returns the same
+three address fields or null (`reverseGeocode`,
+`packages/ui-sdk/src/server/reverse-geocode.ts:34-61`). Configured endpoints retain
+their role; canonical configuration takes precedence and legacy `enabled:false`
+still prevents any request. The former comment assumed occasional single-user
+location use qualified for public Nominatim. Frequency alone cannot establish
+eligibility under the policy above. Explicit informed eligibility is now required,
+and its absence uses the existing nullable failure path: the actual location bridge
+still returns raw coordinates. No tool/result/wire revision is needed.
+
+The first-party backend environment flag defaults false, recognizes only deliberate
+truthy tokens and remains server-only in child-process filtering. Successful
+evidence shares endpoint/exact-coordinate cache entries with GeoClient; failures
+are not cached as empty locations. A copied address avoids caller mutations leaking
+into later results. Recorded requests and the real location bridge exercise these
+paths without public queries. Eight restored mutations failed the intended
+assertions for the disabled guard, shared-cache source, nonempty address, both
+backend eligibility defaults/forwarding and actual subprocess filtering.

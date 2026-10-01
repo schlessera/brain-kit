@@ -2,6 +2,8 @@
 "@schlessera/brain-geo": minor
 "@schlessera/brain-module-travel": patch
 "@schlessera/brain-ui-sdk": patch
+"@schlessera/brain-ui-backend-claude": patch
+"@schlessera/brain-ui-backend-pi": patch
 ---
 
 Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
@@ -13,3 +15,5 @@ Add configured prepared-dataset routing and explicit eligible FOSSGIS fallback, 
 Add bounded Overpass POI queries near points or along retained track sections, mapped opening-hours unknowns, ordered fallback and persistent admission refusal handling.
 
 Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
+
+Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.

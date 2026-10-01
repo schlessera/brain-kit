@@ -2925,3 +2925,17 @@ or failed layers with usable geometry are partial; no usable data after failure
 has null value/error. Genuine empty successful geometry has `no_match` and empty
 value. Refusal/configuration/local storage failures stop later layers. Attribution
 and every layer's endpoint/fallback/attempt evidence remain available.
+
+`reverseGeocode(coords, ReverseGeocodeConfig)` retains exactly
+`{displayName,summary,address} | null`. Required legacy enabled/url/User-Agent
+settings remain; additive optional `publicServiceEligible`, canonical `geo`,
+`fetchImpl` and shared `admissionDir` select the concrete client/runtime.
+Canonical service/cache configuration wins; legacy `enabled:false` still prevents
+requests. Public Nominatim requires explicit informed eligibility, which is never
+inferred from enabled and grants no permission beyond the public-service policy.
+An ineligible public request is an existing nullable failure path, preserving raw
+coordinates in the location tool. First-party backends default
+`NOMINATIM_PUBLIC_SERVICE_ELIGIBLE` to false; only recognized truthy tokens opt in.
+Configured nonpublic endpoints remain available. Responses are validated and
+cached by endpoint/exact coordinates; transient failures are not cached as null.
+No MCP/tool/result/wire shape or protocol revision changes.
