@@ -2427,8 +2427,9 @@ in different agent entry files. The existing `enabled`/`available` envelope and
 declared fields remain; dormant cron metadata is empty. Namespace execution exits
 1 with `module <name> is dormant — brain module enable <name>` without importing
 or executing the module command. Running sessions keep their loaded state;
-MCP registration filtering remains separately scoped in #603 and consumes this
-state. Dormancy is context control, not permission revocation.
+MCP startup registration reads that same loaded state and skips dormant
+modules before importing tool definitions. Dormancy is context control, not
+permission revocation.
 
 ## Module tools
 
@@ -2437,6 +2438,15 @@ state. Dormancy is context control, not permission revocation.
 eight core tools, in module config order and then declaration order. A loader
 may resolve a `ModuleTool` directly or an object with a `default` tool export.
 Other CLI commands do not import the definitions.
+
+A module dormant at startup contributes no tools: its definitions are not
+imported and its tools are absent from `tools/list`. The filter uses
+`LoadedModule.state`; omission in constructed legacy contexts means active.
+`brain module list --json` still includes dormant modules and their declared
+canonical tool names. Marking a module dormant on disk leaves the running
+process's registered tools callable; the next process omits them. In-flight
+calls are not cancelled and completed effects are not rolled back. Dormancy
+controls context and is not permission revocation.
 
 Core composes each name as `<module>_<local>`, at most 64 characters. Modules
 with nonempty `tools` must match `^[a-z][a-z0-9-]{0,30}$`; `brain` is reserved.
