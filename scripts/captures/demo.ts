@@ -30,7 +30,8 @@ export async function captureDemo(browser: Browser, root: string, cache: string,
     const destination = await page.locator("[data-rank-row]").first().boundingBox();
     if (!handle || !destination) throw new Error("Actual drag handle/destination is missing");
     const start = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
-    const end = { x: destination.x + destination.width / 2, y: destination.y + destination.height / 2 };
+    // Cross the first row's centre instead of landing on its strict boundary.
+    const end = { x: destination.x + destination.width / 2, y: destination.y + destination.height / 4 };
     const fps = 12, count = Math.round(recipe.duration_seconds * fps);
     const hashes: string[] = [];
     const encodingFrames: Buffer[] = [];
