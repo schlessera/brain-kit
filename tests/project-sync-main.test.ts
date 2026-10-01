@@ -89,7 +89,8 @@ class FakeGitHub {
     if (a === "project" && b === "field-list") return JSON.stringify({ fields: FIELDS });
     if (a === "project" && b === "item-list") {
       return JSON.stringify({
-        items: this.items.map((i) => ({ id: i.id, status: i.Status, priority: i.Priority, track: i.Track, content: { url: i.url } })),
+        items: this.items.slice(0, Number(at("--limit"))).map((i) => ({ id: i.id, status: i.Status, priority: i.Priority, track: i.Track, content: { url: i.url } })),
+        totalCount: this.items.length,
       });
     }
     if (a === "project" && b === "item-add") {
@@ -129,6 +130,29 @@ class FakeGitHub {
       this.comments.set(key, [...(this.comments.get(key) ?? []), at("--body")]);
       this.writes.push(`comment ${key}`);
       return "";
+    }
+    if (a === "api" && b === "graphql" && args.includes("project=P1")) {
+      const query = args.find((x) => x.startsWith("query="))!.slice(6);
+      const first = /items\(first: (\d+), after: \$after\)/.exec(query);
+      if (!first) throw new Error("fake gh: missing cursor-based items query");
+      const size = Number(first[1]);
+      if (size < 1 || size > 100) throw new Error("fake gh: invalid page size");
+      const after = args.find((x) => x.startsWith("after="))?.slice(6);
+      if (after && !/^cursor:\d+$/.test(after)) throw new Error("fake gh: invalid cursor");
+      const start = after ? Number(after.slice(7)) : 0;
+      const page = this.items.slice(start, start + size);
+      const value = (alias: string, name: string, field?: string) =>
+        query.includes(`${alias}: fieldValueByName(name: "${name}")`) ? { [alias]: field ? { name: field } : null } : {};
+      return JSON.stringify({ data: { node: { items: {
+        nodes: page.map((i) => ({
+          ...(/nodes\s*\{\s*id\b/.test(query) ? { id: i.id } : {}),
+          ...(query.includes("... on Issue { url }") ? { content: { url: i.url } } : {}),
+          ...value("status", "Status", i.Status),
+          ...value("priority", "Priority", i.Priority),
+          ...value("track", "Track", i.Track),
+        })),
+        pageInfo: { hasNextPage: start + size < this.items.length, endCursor: page.length ? `cursor:${start + page.length}` : null },
+      } } } });
     }
     if (a === "api" && b === "graphql") {
       const node = args.find((x) => x.startsWith("node="))!.slice(5);
@@ -277,6 +301,143 @@ describe("the full sweep", () => {
     expect(out).toEqual([]);
     expect(fake.calls).toEqual([["api", "--include", "user"]]);
     expect(fake.writes).toEqual([]);
+  });
+});
+
+/** Closed public issue items populate earlier pages without expanding the open sweep. */
+function largeBoard() {
+  return new FakeGitHub(
+    [
+      { repo: KIT, number: 731, labels: ["agent-ready", "priority: p2"] },
+      { repo: KIT, number: 732, labels: ["agent-ready", "priority: p2"] },
+      { repo: KIT, number: 733, labels: ["agent-ready", "priority: p2"] },
+      { repo: REPOS[2], number: 731, labels: ["agent-ready", "priority: p2"], parent: { repo: KIT, number: 70 } },
+      { repo: KIT, number: 58, labels: ["agent-ready", "priority: p2"] },
+    ],
+    [
+      ...Array.from({ length: 600 }, (_, i) => ({ id: `closed-${i}`, url: url(KIT, 10000 + i), Status: "Done", Priority: "P3", Track: "Reliability" })),
+      { id: "late-ready", url: url(KIT, 731), Status: "Ready", Priority: "P2", Track: "Modules" },
+      { id: "late-progress", url: url(KIT, 732), Status: "In progress", Priority: "P2", Track: "Modules" },
+      { id: "late-done", url: url(KIT, 733), Status: "Done", Priority: "P2", Track: "Modules" },
+      { id: "late-hosting", url: url(REPOS[2], 731), Status: "Ready", Priority: "P2", Track: "Distribution" },
+      { id: "late-derived", url: url(KIT, 58), Status: "Backlog", Priority: "P2", Track: "Reliability" },
+    ],
+  );
+}
+
+const boardReads = (fake: FakeGitHub) => fake.calls.filter((args) => args[0] === "api" && args[1] === "graphql" && args.includes("project=P1"));
+
+describe("complete board reads", () => {
+  test("recognizes populated later items and edits the existing later item ID only when needed", async () => {
+    const fake = largeBoard();
+    expect(fake.items.length).toBeGreaterThan(500);
+    expect(fake.items[600]).toEqual({ id: "late-ready", url: url(KIT, 731), Status: "Ready", Priority: "P2", Track: "Modules" });
+    const { code, out } = await run(fake, ["--apply"]);
+    // This assertion fails on the original fixed-limit readers, before any
+    // pagination bookkeeping assertion can mask the unnecessary writes.
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(code).toBe(0);
+    expect(fake.calls.filter((args) => args[1] === "item-edit").map((args) => args[args.indexOf("--id") + 1])).toEqual(["late-derived"]);
+    expect(fake.items.find((item) => item.id === "late-progress")!.Status).toBe("In progress");
+    expect(fake.items.find((item) => item.id === "late-done")!.Status).toBe("Done");
+    expect(out).toContain("All 5 open issue(s) are on the board.");
+    expect(out.some((line) => line.includes("did not land"))).toBe(false);
+    // Both initial and final reads traverse all seven pages, with no fixed cap.
+    expect(boardReads(fake)).toHaveLength(14);
+    expect(boardReads(fake).filter((args) => args.includes("after=cursor:600"))).toHaveLength(2);
+    const again = await run(fake, ["--apply"]);
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(again.out).toContain("All 5 open issue(s) are on the board.");
+  });
+
+  test("dry run sees later fields and IDs without changing the populated board", async () => {
+    const fake = largeBoard();
+    const before = JSON.stringify(fake.items);
+    const { out } = await run(fake, []);
+    expect(out.filter((line) => line.startsWith("would add") || line.startsWith("would set"))).toEqual([`would set ${KIT}#58 Status: Backlog -> Ready`]);
+    expect(fake.writes).toEqual([]);
+    expect(JSON.stringify(fake.items)).toBe(before);
+    expect(boardReads(fake)).toHaveLength(7);
+  });
+
+  test("final verification reports only a genuinely absent issue, including after a repeat", async () => {
+    const fake = largeBoard();
+    fake.issues.push({ repo: KIT, number: 69, labels: ["agent-ready", "priority: p2"] });
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      // Model the existing eventual-listing failure: item-add returns an ID
+      // but never makes the new item listable. All other writes are observed.
+      if (args[0] === "project" && args[1] === "item-add") {
+        fake.calls.push(args);
+        fake.writes.push(`add ${args[args.indexOf("--url") + 1]}`);
+        return JSON.stringify({ id: "not-listable" });
+      }
+      if (args[0] === "project" && args[1] === "item-edit" && args.includes("not-listable")) {
+        fake.calls.push(args);
+        fake.writes.push("set not-listable");
+        return "";
+      }
+      return original(args);
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { out } = await run(fake, ["--apply"]);
+      const missing = out.find((line) => line.includes("did not land"));
+      expect(missing).toContain("1 issue(s) did not land");
+      expect(missing!.split("\n").slice(2)).toEqual([`  ${KIT}#69`]);
+    }
+    expect(fake.writes.filter((write) => write.startsWith("add "))).toEqual([`add ${url(KIT, 69)}`, `add ${url(KIT, 69)}`]);
+  });
+});
+
+describe("board pagination failures", () => {
+  test.each([
+    ["GraphQL errors", { errors: [{ message: "fixture denied project" }], data: { node: null } }, "fixture denied project"],
+    ["missing project", { data: { node: null } }, "missing items or page information"],
+    ["missing page info", { data: { node: { items: { nodes: [] } } } }, "missing items or page information"],
+    ["missing cursor", { data: { node: { items: { nodes: [null], pageInfo: { hasNextPage: true, endCursor: null } } } } }, "pagination did not advance"],
+    ["repeated cursor", { data: { node: { items: { nodes: [null], pageInfo: { hasNextPage: true, endCursor: "cursor:100" } } } } }, "pagination did not advance"],
+    ["empty continuing page", { data: { node: { items: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "cursor:200" } } } } }, "pagination did not advance"],
+  ] as const)("%s stops the traversal without any item or tracker write", async (_name, answer, message) => {
+    const fake = largeBoard();
+    const before = JSON.stringify({ issues: fake.issues, items: fake.items });
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      if (args.includes("after=cursor:100")) { fake.calls.push(args); return JSON.stringify(answer); }
+      return original(args);
+    };
+    await expect(run(fake, [])).rejects.toThrow(message);
+    expect(boardReads(fake)).toHaveLength(2);
+    expect(fake.writes).toEqual([]);
+    expect(JSON.stringify({ issues: fake.issues, items: fake.items })).toBe(before);
+  });
+
+  test("a failed later API call propagates without item or tracker writes", async () => {
+    const fake = largeBoard();
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      if (args.includes("after=cursor:100")) { fake.calls.push(args); throw new Error("fixture GitHub access failure"); }
+      return original(args);
+    };
+    await expect(run(fake, [])).rejects.toThrow("fixture GitHub access failure");
+    expect(boardReads(fake)).toHaveLength(2);
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("empty and inaccessible item content does not stop later pages", async () => {
+    const fake = largeBoard();
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      const raw = await original(args);
+      if (args.includes("project=P1") && !args.some((arg) => arg.startsWith("after="))) {
+        const answer = JSON.parse(raw);
+        answer.data.node.items.nodes = [null, { id: "redacted", content: null }, { id: "draft", content: {} }];
+        return JSON.stringify(answer);
+      }
+      return raw;
+    };
+    const { out } = await run(fake, ["--apply"]);
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(out).toContain("All 5 open issue(s) are on the board.");
   });
 });
 

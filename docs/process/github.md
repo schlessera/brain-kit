@@ -186,6 +186,12 @@ leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`:
   That covers the two template repositories, whose events do not reach this
   workflow, and anything an event run missed.
 
+The full sweep reads item IDs and Status/Priority/Track values together through
+all GraphQL cursor pages. Its final on-board verification traverses the pages
+again, so an item after the first 500 is recognized as present. A failed API
+read or a cursor that cannot advance stops the run rather than treating a
+partial listing as the board.
+
 Every `needs:` label, including `needs: human`, prevents a derived `Ready`
 status, even if `agent-ready` was left on by mistake. A human handoff does not
 add a board column; move an item out of a manually set `In progress` state when
