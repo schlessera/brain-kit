@@ -401,7 +401,7 @@ structure in `details`. Worse: **the Pi adapter sends text content only and drop
 (`const output =`, `stream-adapter.ts:166`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
-`protocol.ts:44` states additions do not bump the rev, only semantics changes
+`protocol.ts:45` states additions do not bump the rev, only semantics changes
 do — and `ToolCallView.output?: string` already lets a renderer parse
 locally. Turning `output` itself into an object would be a different, breaking
 change.
@@ -2368,7 +2368,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:227`), so
+  `packages/ui-server/src/ws/run-session.ts:230`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -2921,7 +2921,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3348,7 +3348,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3567,7 +3567,7 @@ separate checks.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:558-573`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:565-581`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -4346,7 +4346,7 @@ does a replayed session show?
    two suggestions per answer. None is a valid answer, and generic filler is
    not offered.
 2. **The payload is the kit's data, minus tone.** The schema
-   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:527-553`) carries the row's
+   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:534-560`) carries the row's
    `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
    which is a callback, and without `tone`, because a suggestion carries no
    effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`
@@ -4361,7 +4361,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:217`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:219`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.

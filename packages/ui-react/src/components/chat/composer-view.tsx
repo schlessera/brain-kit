@@ -1,4 +1,6 @@
 import { BottomSheet, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
+import { TrackChip } from "./track-chip.js";
+import type { PendingTrack } from "../../lib/track-uploads.js";
 import { X } from "lucide-react";
 import { useId } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
@@ -60,6 +62,9 @@ export interface ComposerViewProps {
   palette: ReactNode;
   attachMenuOpen: boolean;
   attachments: ComposerAttachment[];
+  tracks?: PendingTrack[];
+  onRemoveTrack?: (id: string) => void;
+  onRetryTrack?: (id: string) => void;
   attachErrors: string[];
   provider: ComposerProvider | null;
   /** The container's ref: it focuses the field after a recall or a voice edit. */
@@ -73,6 +78,7 @@ export interface ComposerViewProps {
   onAttachToggle: () => void;
   onPickLibrary: () => void;
   onPickCamera: () => void;
+  onPickTracks?: () => void;
   onPasteFiles: (files: File[]) => void;
   onRecall: () => void;
   onEscape: () => void;
@@ -95,10 +101,8 @@ export function ComposerView(p: ComposerViewProps) {
   function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const files = e.clipboardData?.files;
     if (!files || files.length === 0) return;
-    const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (images.length === 0) return;
     e.preventDefault();
-    p.onPasteFiles(images);
+    p.onPasteFiles(Array.from(files));
   }
 
   const pointer = useMediaQuery("(min-width: 900px)");
@@ -106,7 +110,8 @@ export function ComposerView(p: ComposerViewProps) {
     <div className="flex flex-col">
       <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
       <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />
-      <ListRow variant="group" icon="copy" iconTone="neutral" title="Paste" subtitle="An image on the clipboard pastes straight into the field" last />
+      {p.onPickTracks && <ListRow variant="group" icon="file" iconTone="teal" title="Track files" subtitle="GPX, KML or GeoJSON" onClick={p.onPickTracks} />}
+      <ListRow variant="group" icon="copy" iconTone="neutral" title="Paste" subtitle="Images and track files paste into the field" last />
     </div>
   );
 
@@ -141,6 +146,8 @@ export function ComposerView(p: ComposerViewProps) {
         </div>
       )}
 
+      {!!p.tracks?.length && <div className="mb-2 grid gap-2" aria-live="polite">{p.tracks.map(track => <TrackChip key={track.id} track={track} onRemove={() => p.onRemoveTrack?.(track.id)} onRetry={() => p.onRetryTrack?.(track.id)} />)}</div>}
+
       {p.palette}
 
       {/* The provider list, anchored above the field: the chip that opens it
@@ -166,7 +173,7 @@ export function ComposerView(p: ComposerViewProps) {
           }}
         >
           <div role="dialog" aria-label="Attach" className="absolute inset-x-0 bottom-0">
-            <BottomSheet title="Attach" subtitle="Photo, camera, or paste." docked>
+            <BottomSheet title="Attach" subtitle={p.onPickTracks ? "Photo, camera, track files, or paste." : "Photo, camera, or paste."} docked>
               {attachMenu}
             </BottomSheet>
           </div>

@@ -282,7 +282,7 @@ transport; they never call a speech service.
 - `conditional SPA fallback serves deep links, preserves API precedence and reports a missing index` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional SPA fallback serves deep links, preserves API precedence and reports a missing index`, `packages/ui-server/tests/http-inventory.test.ts:69-83`)
 - `conditional static middleware serves existing assets before the SPA fallback` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional static middleware serves existing assets before the SPA fallback`, `packages/ui-server/tests/http-inventory.test.ts:85-93`)
 
-The classified table contains 95 declared endpoints (49 supported and 46
+The classified table contains 97 declared endpoints (49 supported and 48
 internal) and one conditional internal SPA fallback. Exact runtime equality
 rejects an undocumented handler. Wildcard middleware is counted separately:
 global security/observability, `/api` origin/CORS/authentication, owner guards,
@@ -308,7 +308,8 @@ formats retain their integration guarantees.
 
 ## Mutation evidence and limits
 
-The implementation PR records handler removals across all 28 mounted router
+The baseline coverage [PR #803](https://github.com/schlessera/brain-kit/pull/803)
+records handler removals across its 28 mounted router
 and direct-handler families, plus unclassified-route, validation, owner,
 static-middleware, SDK renewal, unread-body, discovery-failure, short-lived-token
 and WebSocket scheme mutations. Each receipt identifies the runtime assertion
@@ -324,3 +325,11 @@ repairs are covered by R and Z. A nonempty 0.5 rollup fixture alone proves that
 the mounted aggregate reads stored accounting; R's higher-precision fixtures
 provide the distinct rounding evidence. This coverage does not redefine those
 promises or claim implementation of the separately delivered repairs.
+
+The imported-track internal transports have successful real-app mounting checks
+in [http-internal-mounts.test.ts](../packages/ui-server/tests/http-internal-mounts.test.ts):
+`mounted internal track handler: POST /api/track-upload` and
+`mounted internal track handler: GET /api/tracks`. Both observe nonempty canonical
+track measurements and unchanged original bytes; the composer transport creates
+no inbox thread. Detailed parser/intake/containment checks live in
+[track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).

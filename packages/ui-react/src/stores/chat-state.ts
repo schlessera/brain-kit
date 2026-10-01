@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type {
+  SharedFileMeta,
   LocalExchange,
   MessageBlock,
   MessageSource,
@@ -47,6 +48,7 @@ export interface ChatMessage {
    * carry no data — only `attachmentCount` — since base64 is never replayed.
    */
   attachments?: MessageAttachment[];
+  files?: SharedFileMeta[];
   /** Attachment count for history-loaded messages without preview data. */
   attachmentCount?: number;
   /**
@@ -292,7 +294,8 @@ export interface ChatState {
     text: string,
     source?: MessageSource,
     attachments?: MessageAttachment[],
-    effort?: { requestId: string; thinkingLevel?: ThinkingLevel }
+    effort?: { requestId: string; thinkingLevel?: ThinkingLevel },
+    files?: SharedFileMeta[]
   ) => void;
   startAssistantMessage: (key: ChatKey, turnId?: string, requestId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;
@@ -685,7 +688,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       // createIfMissing: a user-initiated send must never be dropped, even when
       // the active session's buffer hasn't been materialized yet (cold start
       // racing the history replay).
-      addUserMessage: (key, text, source, attachments, effort) =>
+      addUserMessage: (key, text, source, attachments, effort, files) =>
         mutateBuffer(
           key,
           (chat) => ({
@@ -701,6 +704,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
                 timestamp: Date.now(),
                 source: source ?? "typed",
                 ...effort,
+                ...(files?.length ? { files } : {}),
                 ...(attachments && attachments.length > 0
                   ? { attachments, attachmentCount: attachments.length }
                   : {}),

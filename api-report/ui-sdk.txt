@@ -46,6 +46,7 @@ export "." (./src/index.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -196,7 +197,10 @@ export "." (./src/index.ts)
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
+  TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type TrackFileSummary
+  type TrackFileView
   type TurnFailure
   type TurnRetry
   type TurnUsage
@@ -315,6 +319,7 @@ export "./client" (./src/client/index.ts)
   type BridgeToolName
   COMPARISON_BLOCK_SCHEMA
   CONTACT_BLOCK_SCHEMA
+  type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -516,6 +521,8 @@ export "./client" (./src/client/index.ts)
   TABLE_BLOCK_SCHEMA
   THINKING_LEVELS
   TIMELINE_BLOCK_SCHEMA
+  TRACK_BLOCK_SCHEMA
+  TRACK_MAX_FILE_BYTES
   TREND_BLOCK_SCHEMA
   type ThinkingLevel
   type ToolAdapter
@@ -527,6 +534,8 @@ export "./client" (./src/client/index.ts)
   type ToolRenderer
   type ToolRendererRegistry
   type ToolSemantics
+  type TrackFileSummary
+  type TrackFileView
   type TurnFailure
   type TurnRetry
   type TurnUsage
@@ -636,6 +645,7 @@ export "./protocol" (./src/protocol.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
   type ClientActivitySubscribe
@@ -780,7 +790,10 @@ export "./protocol" (./src/protocol.ts)
   type SubscriptionAuthAction
   type SystemStatus
   THINKING_LEVELS
+  TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type TrackFileSummary
+  type TrackFileView
   type TurnFailure
   type TurnRetry
   type TurnUsage
@@ -884,6 +897,7 @@ export "./schemas" (./src/schemas.ts)
   serverToolResultSchema
   serverToolUseCompleteSchema
   serverToolUseStartSchema
+  sharedFileMetaSchema
   v1ResolutionEffectSchema
   validateResolutionEffect
 
@@ -1021,6 +1035,7 @@ export "./server" (./src/server/index.ts)
   type Candidate
   type CandidateKind
   type CandidateSpan
+  type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
   type ChoiceAnswer
@@ -1262,6 +1277,8 @@ export "./server" (./src/server/index.ts)
   TABLE_BLOCK_SCHEMA
   THINKING_LEVELS
   TIMELINE_BLOCK_SCHEMA
+  TRACK_BLOCK_SCHEMA
+  TRACK_MAX_FILE_BYTES
   TREND_BLOCK_SCHEMA
   type TableCandidate
   type ThinkingLevel
@@ -1273,6 +1290,8 @@ export "./server" (./src/server/index.ts)
   type ToolPayload
   type ToolPermissionApproval
   type ToolPermissionDecisionInput
+  type TrackFileSummary
+  type TrackFileView
   type TranscriptStore
   type TurnFailure
   type TurnRetry
@@ -1538,6 +1557,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ShowBlockSchemaForm
   TABLE_BLOCK_SCHEMA
   TIMELINE_BLOCK_SCHEMA
+  TRACK_BLOCK_SCHEMA
   TREND_BLOCK_SCHEMA
   type ToolAdapter
   type ToolComponentContract
@@ -2089,6 +2109,12 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             accuracyM: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
     }, z.core.$strip>, z.ZodObject<{
+        kind: z.ZodLiteral<"track">;
+        source: z.ZodObject<{
+            path: z.ZodString;
+        }, z.core.$strip>;
+        title: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
         kind: z.ZodLiteral<"link">;
         url: z.ZodString;
         title: z.ZodOptional<z.ZodString>;
@@ -2551,6 +2577,21 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         cacheCreationTokens?: number;
         costUsd?: number;
     }
+  OmissionReason (packages/geo/src/track.ts)
+    export type OmissionReason = "latitude_missing_or_invalid" | "longitude_missing_or_invalid" | "latitude_out_of_range" | "longitude_out_of_range";
+  ParsedTrack (packages/geo/src/track.ts)
+    export interface ParsedTrack extends RouteGeometry {
+        status: "ok" | "partial" | "no_line";
+        partial: boolean;
+        kind: "track" | "route";
+        counts: {
+            input: number;
+            retained: number;
+            omitted: number;
+            segments: number;
+        };
+        omissions: TrackOmission[];
+    }
   PermissionDecision (packages/ui-sdk/src/server/backend.ts)
     export type PermissionDecision = {
         behavior: "allow";
@@ -2619,6 +2660,29 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             matches(profile: ProviderInfo): boolean;
             hasCredential(): boolean | Promise<boolean>;
         };
+    }
+  RouteGeometry (packages/geo/src/track.ts)
+    export interface RouteGeometry {
+        segments: RoutePoint[][];
+        warnings: string[];
+    }
+  RouteMetrics (packages/geo/src/track.ts)
+    export interface RouteMetrics {
+        distance_km: number;
+        ascent_m: number | null;
+        altitude_min_m: number | null;
+        altitude_max_m: number | null;
+        shape: "loop" | "one_way" | "unknown";
+        recorded_duration_s: number | null;
+        points: number;
+        segments: number;
+    }
+  RoutePoint (packages/geo/src/track.ts)
+    export interface RoutePoint {
+        lat: number;
+        lon: number;
+        elevation_m: number | null;
+        time: string | null;
     }
   ServerActivityDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivityDelta {
@@ -2725,6 +2789,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         state: "accepted" | "refused" | "unknown";
         message?: string;
         text?: string;
+        files?: SharedFileMeta[];
         attachmentCount?: number;
         source?: MessageSource;
         thinkingLevel?: ThinkingLevel;
@@ -2808,6 +2873,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   SessionHistoryMessage (packages/ui-sdk/src/protocol.ts)
     export interface SessionHistoryMessage {
+        files?: SharedFileMeta[];
         role: "user" | "assistant";
         content: string;
         thinking?: string;
@@ -2832,6 +2898,17 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export interface SessionScoped {
         sessionId?: string;
         turnId?: string;
+    }
+  SharedFileMeta (packages/ui-sdk/src/protocol.ts)
+    export interface SharedFileMeta {
+        incomingName?: string;
+        sha256?: string;
+        detected?: TrackFormat;
+        summary?: TrackFileSummary;
+        name: string;
+        path: string;
+        mediaType: string;
+        bytes: number;
     }
   SpeechCapabilities (packages/ui-sdk/src/protocol.ts)
     export interface SpeechCapabilities {
@@ -2924,6 +3001,72 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         command?(tool: ToolCallView): string | null;
         writePath?(tool: ToolCallView): string | null;
         unsandboxed?(tool: ToolCallView): boolean;
+    }
+  TrackFileSummary (packages/ui-sdk/src/protocol.ts)
+    export type TrackFileSummary = Omit<TrackSummary, "geometry"> & {
+        waypointCount: number;
+        waypointOmitted: number;
+    };
+  TrackFormat (packages/geo/src/imported-track.ts)
+    export type TrackFormat = "gpx" | "kml" | "geojson";
+  TrackMeasure (packages/geo/src/track.ts)
+    export interface TrackMeasure {
+        value: number | null;
+        unit: "m" | "s";
+        scope: "usable_sections";
+    }
+  TrackOmission (packages/geo/src/track.ts)
+    export interface TrackOmission {
+        index: number;
+        reason: OmissionReason;
+        reasons: OmissionReason[];
+    }
+  TrackSource (packages/geo/src/track.ts)
+    export interface TrackSource {
+        kind: "file";
+        path: string;
+        recordingClaim?: {
+            text: string;
+            verified: false;
+        };
+    }
+  TrackSummary (packages/geo/src/track.ts)
+    export interface TrackSummary {
+        status: ParsedTrack["status"];
+        partial: boolean;
+        source: TrackSource;
+        counts: ParsedTrack["counts"];
+        geometry: RoutePoint[][];
+        measurements: {
+            distance: TrackMeasure;
+            ascent: TrackMeasure;
+            descent: TrackMeasure;
+            altitudeMin: TrackMeasure;
+            altitudeMax: TrackMeasure;
+            elapsed: TrackMeasure;
+            movingTime: TrackMeasure;
+        };
+        bounds: [
+            number,
+            number,
+            number,
+            number
+        ] | null;
+        start: RoutePoint | null;
+        end: RoutePoint | null;
+        shape: RouteMetrics["shape"];
+        unknown: {
+            field: string;
+            reason: string;
+        }[];
+        warnings: string[];
+        method: {
+            distance: "great_circle";
+            earthRadiusM: number;
+            elevation: "three_point_median_3m_hysteresis";
+            elapsed: "segment_last_minus_first_with_pauses";
+            movingTime: "unavailable";
+        };
     }
   TurnFailure (packages/ui-sdk/src/protocol.ts)
     export interface TurnFailure {

@@ -1,3 +1,4 @@
+import { createTrackRoutes } from "./routes/tracks.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
@@ -308,6 +309,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     meter: observability.meter("classification"),
   });
   const host = new WsHost({
+    brainPath: config.brainPath,
     registry,
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
@@ -513,6 +515,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
   );
   app.route("/api", createQueueRoutes(intake));
+  app.route("/api", createTrackRoutes(config.brainPath));
   app.route(
     "/api",
     createShareRoutes({
