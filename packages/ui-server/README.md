@@ -339,6 +339,10 @@ Messages received during routing join the bounded follow-up queue; cancellation
 before routing completes drops that queue and prevents the backend from starting.
 New-conversation frames retain the client's `draftId` for reply correlation.
 
+Interactive requests pass the existing collision checks and register their
+pending response before the host emits a card or waiting status. A refused
+duplicate leaves the original request pending for its answer or cancellation.
+
 Wikilink scans visit each canonical directory once, including when directories
 have symlink aliases or cycles. Concurrent refresh requests share a rebuild.
 
