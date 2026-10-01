@@ -63,6 +63,7 @@ the published template rather than a source checkout.
 | [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
+| [mechanical-hygiene-investigation.md](mechanical-hygiene-investigation.md) | Existing hygiene capabilities, a private mechanical-repair prototype and offline runtime/write controls; actual agent savings remain unmeasured. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
 ## See also
