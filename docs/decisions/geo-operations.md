@@ -101,3 +101,51 @@ normalization gap splitting, interior nearest distance (157,250 m rather than
 partial metadata, uncertainty bounds, sample/comparison limits, zero denominator
 and antipodal ambiguity. The comparison-only mutation returned a percentage below
 the sample cap where the independent comparison cap required unknown.
+
+## Service cache and admission — 2026-10-01
+
+Concrete clients share one disk response cache and operator admission. Per-instance
+promise chains would give each CLI/SDK process its own public-service allowance.
+An atomic exclusive file spans request/body consumption; persisted start/cooldown
+state outlives clients. Public floors are anchored after actual dispatch, avoiding
+the interval lost to a pre-dispatch fsync. Configured response-cache directories
+do not partition the default global admission group. FOSSGIS routing and Overpass
+aliases share script connection admission; custom endpoints group by origin.
+
+A crashed owner's lock fails closed. Automatic stale-file removal or lease expiry
+could admit another request while the first owner remains alive or its network
+operation continues. Recovery requires an exited owner and retained operator
+state. This concrete file protocol keeps server imports usable under Node as well
+as Bun; adding `bun:sqlite` transitively to the existing SDK server export would
+break its packed Node import contract.
+
+The [Nominatim public-service policy](https://operations.osmfoundation.org/policies/nominatim/)
+requires identification, aggregate pacing/caching, endpoint replacement and informed
+developer responsibility. Its restrictions exclude bulk/autocomplete/systematic
+usage and generic LLM-platform offerings. The new client defaults off and requires
+an explicit eligibility flag for that public endpoint; the flag is no permission
+grant. Reverse candidates remain unverified nearby mapped-object evidence per
+the [API documentation](https://nominatim.org/release-docs/latest/api/Reverse/).
+
+The full [FOSSGIS terms](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)
+were verified in the [operator's website source](https://github.com/fossgis/fossgis-webseite/blob/master/content/arbeitsgruppen/osm-server/nutzungsbedingungen.md)
+at blob `cc2ffcc98def5a82c7c058f3df1a0b2a2f64571b` on 2026-10-01; the rendered
+site presented an access challenge. They cover routing and Overpass, require
+attribution/error-reporting links and an identifiable reachable website/app
+operator, an application User-Agent and origin where feasible, one connection for
+scripts, and one routing request per second. Heavy/mass downloading and high-traffic
+uses are prohibited; their general limited commercial allowance does not broaden
+#525's narrower noncommercial/light-use demo ruling. Permission may be revoked,
+terms/services changed without notice, and availability is not guaranteed. Data's
+ODbL license and service permission are distinct. No raster tiles are used; their
+additional tile-only conditions do not become a tile feature here.
+
+Recorded-response fixtures distinguish empty matches from malformed/partial replies,
+HTTP/admission errors, network/timeout and bounded body failures. Valid matches
+retain attribution, fetch/cache age and actual text/coordinate-transfer metadata.
+A separate-process fixture uses distinct response-cache directories and one shared
+admission directory, with requests lasting beyond the start interval. Restored
+mutations fail actual start spacing, the independent no-overlapping-connections
+assertion, persisted cooldown, Overpass resource admission, transient-cache request
+count, identifying/eligible requests, recognized no-match, coordinate validation,
+partial status, response-byte/body-time budgets and visible transfer metadata.

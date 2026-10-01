@@ -2790,3 +2790,42 @@ no usable line in B, ambiguous antipodal geometry and analysis-limit exhaustion
 return null ratio/covered length/bounds with reasons. Partial inputs remain partial;
 no gaps are filled and no denominator is invented. All helpers require validated
 `ParsedTrack` inputs from the shared parser/normalizer.
+
+### Shared geo configuration and server geocoding
+
+The root `geoConfigSchema`, `GeoConfig` and `GeoConfigInput` describe concrete
+configuration. All services are disabled/unconfigured by default; `userAgent`
+defaults empty. Endpoints must be credential-free HTTP(S) URLs without query or
+fragment. Geocoding has `enabled`, optional `url` and `publicServiceEligible`;
+the public Nominatim endpoint requires the latter explicit responsibility flag.
+Routing configuration holds per-mode prepared datasets and an off-by-default
+eligible demo flag; Overpass holds an enabled flag and at most three endpoints.
+Optional `cacheDir`, `cacheTtlMs` (0–30 days, default one day), `timeoutMs` and
+`admissionWaitMs` (100 ms–60 s, defaults 5 s) and `minimumIntervalMs` (0–60 s,
+default 1 s) configure the shared concrete clients. Public operator floors cannot
+be lowered by configuration. No provider registry is added.
+
+`@schlessera/brain-geo/server` exports `GeoClient`, result/candidate/attribution,
+error/source and runtime-option types. `new GeoClient(config?, runtime?)` validates
+configuration. Runtime options accept `fetchImpl` and shared `admissionDir`; they
+default to real fetch and the user's global geo admission directory. The root
+geometry/configuration entry point imports no server I/O.
+
+`geocode(query)` and `reverse(lat,lon)` return `GeoResult<GeocodeCandidate[]>` with
+`status`, nullable `value`/`source`/`error`, `warnings`, `attribution` and candidate
+`counts`. Success is `ok`, multiple matches `ambiguous`, usable mixed replies
+`partial`, and genuine empty matches `no_match`; disabled and failure statuses are
+distinct. A candidate has display/summary/address, numeric point, nullable bounds
+and OSM identity, unknown accuracy and its reason. Inputs validate before dispatch.
+No-match is recognized from an empty search or the exact Nominatim reverse error;
+an unrelated 404 is never fabricated as no-match.
+
+Source reports service/endpoint, `fromCache`, nullable `fetchedAt`/`cacheAgeMs`,
+`requestSent` and `transfer: {data,sent}`. Cache hits preserve fetch age and indicate
+no new transfer. Errors distinguish `disabled`, `configuration`, `ineligible`,
+`capability`, `input`, `timeout`, `network`, `http`, `admission_denied`,
+`admission_timeout`, `bad_response`, `response_limit` and `cache_unavailable`, with
+optional HTTP/retry details. Valid provider data retains attribution and qualified
+accuracy. No transient failure is stored as no-match. Disk caching/admission is
+shared across cooperating processes; the [geo guide](../packages/geo/README.md)
+documents local aggregation, bounds and fail-closed orphan recovery.

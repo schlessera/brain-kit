@@ -253,6 +253,8 @@ jobs:
                 throw new Error(`Failed to import ${name}`);
               }
             }
+            const geo = await import("@schlessera/brain-geo/server");
+            if (typeof geo.GeoClient !== "function") throw new Error("Packed geo server client is missing");
             const claude = await import("@schlessera/brain-backend-claude");
             if (typeof claude.createClaudeBackend !== "function") {
               throw new Error("createClaudeBackend export is missing");
@@ -328,6 +330,7 @@ jobs:
           node --input-type=module <<'NODE'
           const nodePackages = [
             "@schlessera/brain-geo",
+            "@schlessera/brain-geo/server",
             "@schlessera/brain-ui-sdk",
             "@schlessera/brain-ui-sdk/protocol",
             "@schlessera/brain-ui-sdk/schemas",
