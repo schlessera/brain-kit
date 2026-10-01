@@ -474,7 +474,9 @@ export async function handleClientMessage(
 
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
+        await host.failureReplay.wait(msg.sessionId);
         const messages = await backend.getHistory(msg.sessionId);
+        await host.failureReplay.wait(msg.sessionId);
         if (!connection.authorization.valid) return;
         sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
         // A resume of a RUNNING session (reattach) must not report idle: idle

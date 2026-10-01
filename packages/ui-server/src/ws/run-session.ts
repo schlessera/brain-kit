@@ -250,6 +250,7 @@ async function runRetainedSession(
       const billing = host.activity
         ? await resolveRunBilling(host.registry, backend.id, profileId)
         : undefined;
+      const failureRecording = await host.failureReplay.begin(backend, resumeId, turn.turnId, abortController.signal);
       // Revocation can land while routing or billing is in flight. This is the
       // final await boundary before startTurn, so an invalid principal never
       // reaches the backend while an already-running turn remains untouched.
@@ -261,6 +262,7 @@ async function runRetainedSession(
       // enforces revocation, so the timer only has to close the socket.
       host.expireAuthorizationContexts();
       if (!turn.authorization.valid) {
+        await failureRecording.finish();
         clearTimeout(timeoutHandle);
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
@@ -334,7 +336,8 @@ async function runRetainedSession(
           : (sid) => {
               recordSource(sid);
               recordDraftExchanges(host, sid, drafted);
-            }
+            },
+        failureRecording.observe
       );
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
@@ -378,6 +381,7 @@ async function runRetainedSession(
           turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : "error"
         );
       } finally {
+        await failureRecording.finish();
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         releaseActiveAuthorization();

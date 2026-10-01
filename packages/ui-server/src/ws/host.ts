@@ -15,6 +15,7 @@ import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
 import type { InboxStream } from "../inbox/stream.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
+import { FailureReplay } from "./turn-failures.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -162,6 +163,7 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * module-level default host, so two apps coexist without sharing state.
  */
 export class WsHost {
+  readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
   readonly coordinator = new TurnCoordinator();
   readonly clients: ClientSet;
@@ -221,6 +223,7 @@ export class WsHost {
     this.classifier = options.classifier ?? null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
     this.log = this.observability.logger("ws");
+    this.failureReplay = new FailureReplay(this.catalog, this.log);
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {
       description: "Inbound frames refused before reaching a handler",
@@ -308,6 +311,7 @@ export class WsHost {
    * exactly as it did before they existed.
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+    messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
