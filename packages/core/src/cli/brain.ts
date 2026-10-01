@@ -36,7 +36,7 @@ import { computeJson, scanCliArgs, UsageError } from "./io.js";
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
 const TOLERATE_CONFIG_ERROR = new Set([
-  "init", "doctor", "setup", "config", "validate", "module", "skills", "mcp", "okf",
+  "queue", "init", "doctor", "setup", "config", "validate", "module", "skills", "mcp", "okf",
 ]);
 
 // Commands that write to the brain tree or its database. They refuse to run

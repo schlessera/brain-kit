@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
 import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import {
   type SharedFileMeta,
   type ShareIntakeResult,
   type ShareStagingManifest,
+  type QueueStagingManifest,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { safeResolve } from "../files/walker.js";
 
@@ -276,6 +278,18 @@ export async function stageShare(
   input: ShareInput,
   log?: Logger
 ): Promise<ShareIntakeResult> {
+  return stageShareAt(brainPath, input, crypto.randomUUID(), log);
+}
+
+/** Internal recovery entry. Callers obtain this ID from the operational store. */
+export async function stageShareAt(
+  brainPath: string,
+  input: ShareInput,
+  id: string,
+  log?: Logger,
+  source: "web-share-target" | "cli" = "web-share-target"
+): Promise<ShareIntakeResult> {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid staging id");
   const title = cleanTextField(input.title);
   const rawUrl = cleanTextField(input.url);
   const { url, leftover } = splitUrl(rawUrl);
@@ -307,7 +321,6 @@ export async function stageShare(
     throw new ShareTooLargeError("inbox_full", SHARE_MAX_STAGED);
   }
 
-  const id = crypto.randomUUID();
   const dir = `${SHARE_STAGING_DIR}/${id}`;
   const finalDir = join(root, id);
   const partialDir = join(root, `.${id}.partial`);
@@ -365,11 +378,11 @@ export async function stageShare(
       throw new Error("share_write_failed");
     }
 
-    const manifest: ShareStagingManifest = {
+    const manifest: ShareStagingManifest | QueueStagingManifest = {
       id,
       dir,
       receivedAt: Date.now(),
-      source: "web-share-target",
+      source,
       ...(title ? { title } : {}),
       ...(text ? { text } : {}),
       ...(url ? { url } : {}),
@@ -404,7 +417,8 @@ export async function stageShare(
 export async function pruneShareStaging(
   brainPath: string,
   now = Date.now(),
-  log?: Logger
+  log?: Logger,
+  protectedIds: ReadonlySet<string> = new Set()
 ): Promise<number> {
   let root: string;
   let entries;
@@ -432,7 +446,8 @@ export async function pruneShareStaging(
 
   let removed = 0;
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || protectedIds.has(entry.name) ||
+        protectedIds.has(entry.name.replace(/^\./, "").replace(/\.partial$/, ""))) continue;
     const path = join(root, entry.name);
     const ttl = entry.name.startsWith(".") ? PARTIAL_TTL_MS : SHARE_STAGING_TTL_MS;
     try {
@@ -446,4 +461,27 @@ export async function pruneShareStaging(
     }
   }
   return removed;
+}
+
+/** Content identity excludes server IDs/timestamps and includes actual file bytes. */
+export async function shareContentHash(input: ShareInput): Promise<string> {
+  const title = cleanTextField(input.title);
+  const { url, leftover } = splitUrl(cleanTextField(input.url));
+  const text = cleanTextField(leftover ? [input.text, leftover].filter(Boolean).join("\n") : input.text);
+  if (!title && !text && !url && input.files.length === 0) throw new EmptyShareError();
+  if (input.files.length > SHARE_MAX_FILES) throw new ShareTooLargeError("too_many_files", SHARE_MAX_FILES);
+  const hash = createHash("sha256").update(JSON.stringify([title ?? null, text ?? null, url ?? null]));
+  const names = new Set<string>(["meta.json"]);
+  let total = 0;
+  for (const file of input.files) {
+    if (file.size > SHARE_MAX_FILE_BYTES) throw new ShareTooLargeError("file_too_large", SHARE_MAX_FILE_BYTES);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (bytes.length > SHARE_MAX_FILE_BYTES) throw new ShareTooLargeError("file_too_large", SHARE_MAX_FILE_BYTES);
+    total += bytes.length;
+    if (total > SHARE_MAX_TOTAL_BYTES) throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
+    const type = bareMediaType(file.type);
+    hash.update(JSON.stringify([deduplicate(sanitizeFileName(file.name, type), names), type, bytes.length]));
+    hash.update(bytes);
+  }
+  return hash.digest("hex");
 }

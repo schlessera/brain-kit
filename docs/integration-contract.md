@@ -2409,3 +2409,50 @@ compatibility guarantee. Their existence does not define another extension
 seam or classify the other exports covered by the package-wide inventory.
 Operator environment configuration retains its documented meaning; the
 subprocess implementation table is internal.
+
+## Durable share and CLI intake (additive, #679)
+
+`brain queue add --server ORIGIN --key KEY [--credential-file FILE]
+[--title TITLE] [--text TEXT] [--url URL] --json` queues intake on the UI server.
+It does not replace `brain add`, index content or mutate the local brain.
+It runs without a local brain configuration. At least one nonempty content
+field is required, and the explicit key must match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`.
+
+The exact success envelope is `{ "queued": true, "created": boolean,
+"threadId": string, "itemId": string, "stagingId": string }`, exit 0. Duplicate
+key/content returns the original IDs with `created: false`. A different payload
+for that key is refused. Queueing only creates a thread and triage item; neither
+queueing nor `trusted` provenance authorizes filing or inference.
+
+Transport failures in JSON mode are `{ "queued": false, "error": {
+"code": string, "message": string } }`. Codes are `credential_file_invalid`
+(exit 1), `unauthorized` (1), `key_conflict` (1), `queue_failed` (2 for a 5xx,
+otherwise 1), `invalid_response` (2), and `server_unavailable` (2). The exact
+unavailable-server result is `{ "queued": false, "error": {
+"code": "server_unavailable", "message": "Queue server unavailable; retry with
+the same --key." } }`. Normal CLI argument/usage errors keep the existing
+stderr/exit-1 convention. Human success explicitly says content has not been filed.
+
+`--server` must be an HTTP(S) origin, with no credentials, path, query or
+fragment. HTTP is allowed only for loopback; other origins require HTTPS.
+The optional private credential file contains exactly `{ "server": "ORIGIN",
+"cookie": "SIGNED_PRINCIPAL_COOKIE_VALUE" }`, at most 4096 bytes, a regular
+file with no group/other permission bits; symlinks are refused. Its normalized
+server origin must match `--server` before any request. The cookie is the
+existing `brain_ui_session` principal cookie, including a delegated credential
+returned by `POST /api/auth/principals`; it retains its existing expiry and
+revocation semantics. Cookie authentication applies in password mode; other
+server auth modes keep their existing configured authority. No provider key,
+ambient cookie environment variable or credential for another audience is read.
+Requests have a 10-second timeout and never follow redirects; response JSON is
+bounded to 64 KiB. The cookie is never emitted in an error or result.
+
+The transport is protected `POST /api/queue`, whose strict request, response,
+errors and recovery promises are specified in [HTTP API](http-api.md#authenticated-cli-intake-additive-679).
+Shares keep their existing 201 `ShareIntakeResult` envelope and interactive
+confirmation flow, while the real app also records an untrusted triage item.
+Unknown multipart authority fields are refused. Duplicate normalized shares
+reuse the original staging result; source/principal provenance is server-owned,
+immutable and separated from CLI dedup keys. Queue-backed staging is exempt
+from legacy opportunistic pruning. Standalone staging retains its old lifetime.
+No production autonomous dispatch is enabled by these additive surfaces.

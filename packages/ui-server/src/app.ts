@@ -11,6 +11,8 @@ import { createSessionRoutes } from "./routes/sessions.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
+import { createInboxIntake } from "./inbox/intake.js";
+import { createQueueRoutes } from "./routes/queue.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { createProviderRoutes } from "./routes/providers.js";
@@ -213,6 +215,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // containment, budgets, admission and system proof; no backend is wired here.
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox") });
   prunePrincipals(db, Date.now());
+  const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
+  try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const brain = createBrainClient({ brainPath: config.brainPath });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
@@ -474,10 +478,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
   );
+  app.route("/api", createQueueRoutes(intake));
   app.route(
     "/api",
     createShareRoutes({
       brainRoot: config.brainPath,
+      intake,
       allowedOrigins,
       trustProxy: auth.trustProxy,
       log: observability.logger("share"),
@@ -570,6 +576,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await inbox.close();
       host.close();
       subscription.close();
+      await intake.close();
       await scratchPrune.close();
       activity.close();
       db.close();

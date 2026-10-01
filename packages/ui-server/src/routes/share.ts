@@ -1,5 +1,7 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
+import type { AppEnv } from "../app-env.js";
+import { IntakeAuthorizationError, type InboxIntake } from "../inbox/intake.js";
 import {
   SHARE_MAX_CONCURRENT_INTAKE,
   SHARE_MAX_TOTAL_BYTES,
@@ -98,6 +100,8 @@ export interface ShareRoutesDeps {
   trustProxy: boolean;
   /** Where failures are reported; absent means silence. */
   log?: Logger;
+  /** Concrete operational intake used by createApp; standalone staging remains supported. */
+  intake?: InboxIntake;
 }
 
 export function createShareRoutes(deps: ShareRoutesDeps): Hono {
@@ -120,7 +124,7 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     lastPrune = now;
     // Deliberately not awaited: pruning is housekeeping, and the client is
     // waiting on the staging result, not on it.
-    void pruneShareStaging(brainRoot, Date.now(), log).catch((err) => {
+    void pruneShareStaging(brainRoot, Date.now(), log, deps.intake?.protectedIds()).catch((err) => {
       log?.emit({ severityText: "ERROR", body: "share staging prune failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
     });
   }
@@ -163,25 +167,31 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
       return c.json({ error: "invalid_form" }, 400);
     }
 
+    // Preserve ignored application metadata, but reject authority overrides.
+    const authorityFields = new Set(["trust", "trustclass", "source", "profile", "profileid", "principal", "principalid", "allowedtools", "targetpath", "enforceallowedtools", "nograntsurface", "capability", "capabilities"]);
+    if ([...form.keys()].some(key => authorityFields.has(key.replace(/[_-]/g, "").toLowerCase()))) {
+      return c.json({ error: "invalid_form" }, 400);
+    }
+
     // Empty parts are what an app sends when it has nothing to attach.
     const files = form
       .getAll("files")
       .filter((value): value is File => value instanceof File && value.size > 0);
 
-    const result = await stageShare(
-      brainRoot,
-      {
-        title: firstString(form, "title"),
-        text: firstString(form, "text"),
-        url: firstString(form, "url"),
-        files,
-      },
-      log
-    );
+    const input = {
+      title: firstString(form, "title"), text: firstString(form, "text"),
+      url: firstString(form, "url"), files,
+    };
+    const principal = (c.var as AppEnv["Variables"]).principal;
+    if (deps.intake && !principal) return c.json({ error: "Unauthorized" }, 401);
+    const result = deps.intake
+      ? (await deps.intake.share(input, principal!)).result
+      : await stageShare(brainRoot, input, log);
 
     maybePrune();
     return c.json(result, 201);
   } catch (err) {
+    if (err instanceof IntakeAuthorizationError) return c.json({ error: "Unauthorized" }, 401);
     if (err instanceof EmptyShareError) {
       return c.json({ error: "empty_share" }, 400);
     }

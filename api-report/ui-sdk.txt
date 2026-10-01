@@ -128,6 +128,9 @@ export "." (./src/index.ts)
   type PricingRoute
   type PronunciationOverride
   type ProviderInfo
+  type QueueAddRequest
+  type QueueAddResult
+  type QueueStagingManifest
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -419,6 +422,9 @@ export "./client" (./src/client/index.ts)
   QUERY_ACTIVITY_TOOL_NAME
   QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
+  type QueueAddRequest
+  type QueueAddResult
+  type QueueStagingManifest
   RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
@@ -704,6 +710,9 @@ export "./protocol" (./src/protocol.ts)
   type PricingRoute
   type PronunciationOverride
   type ProviderInfo
+  type QueueAddRequest
+  type QueueAddResult
+  type QueueStagingManifest
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -839,6 +848,8 @@ export "./schemas" (./src/schemas.ts)
   messageSourceSchema
   parseClientMessage
   parseServerMessage
+  queueAddRequestSchema
+  queueAddResultSchema
   resolutionEffectSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
@@ -1143,6 +1154,9 @@ export "./server" (./src/server/index.ts)
   QUOTE_BLOCK_SCHEMA
   type QueryActivityInput
   type QuestionObservation
+  type QueueAddRequest
+  type QueueAddResult
+  type QueueStagingManifest
   RECEIPT_BLOCK_SCHEMA
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION

@@ -91,7 +91,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
-| POST | `/api/share` | S | Stage confirmed untrusted share payload | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
+| POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
+| POST | `/api/share` | S | Stage and queue confirmed untrusted share payload | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/api/skills` | I | List built-in and custom skills | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills` | I | Create custom skill and sync agent links | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | DELETE | `/api/skills/:name` | I | Delete custom skill and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
@@ -456,7 +457,7 @@ optional nonempty strings; binary files must be repeated in `files`. Empty
 files are ignored. Normalized payload must contain text, URL or a file. Only
 http/https URLs become the normalized URL; unusable URL text is retained as
 text, not fetched. The app must show untrusted stashed input and obtain user
-confirmation before uploading it for ingestion. Intake stages bytes; it does
+confirmation before uploading it for ingestion. Intake stages bytes and creates one untrusted thread and ready triage item; it does
 not authorize the agent to execute a share's instructions.
 
 Limits: 10 files, 25,000,000 bytes/file, 50,000,000 total file bytes and
@@ -475,8 +476,15 @@ or full inbox yield 413 `{ error, limit }` with `share_too_large`,
 `text_too_large`, `file_too_large`, `too_many_files` or `inbox_full`; malformed
 form 400 `invalid_form`, empty payload 400 `empty_share`, concurrent capacity
 503 `busy`, other staging failures 500 `share_failed`. The common origin
-rejection remains 403. Staging has seven-day housekeeping retention, not a
-permanent delivery or execution guarantee.
+rejection remains 403. Trust/profile/source/principal and capability overrides are rejected as
+`invalid_form`, including case and underscore/hyphen spelling variants.
+Unrecognized application metadata retains the existing ignored-field behavior.
+Identical normalized fields and file names/media types/actual bytes replay the
+original staging result and update `lastSeenAt`, with one thread/item/staging
+area. Changed content is a new arrival; share and CLI dedup namespaces are separate.
+Committed Queue staging is protected from legacy seven-day housekeeping;
+ordinary standalone staging keeps that TTL. The item retains its declared
+expiry. This endpoint starts no model run and provides no execution grant.
 
 ## Push subscription lifecycle
 
@@ -621,3 +629,42 @@ No route removal, consolidation or authentication redesign is authorized here.
 A proposal affecting an existing supported promise needs its own ruling before
 implementation. The tracker holds unfinished work; this page holds the current
 boundary and the evidence needed to interpret its promises.
+
+## Authenticated CLI intake (additive, #679)
+
+**POST /api/queue — protected.** JSON has exactly `{ key, title?, text?, url? }`;
+unknown fields are 400 `invalid_request`. `key` is 1–128 ASCII characters,
+starting with a letter or digit and then letters/digits/`.`/`_`/`:`/`-`. At
+least one normalized content field must survive; text normalization and limits
+match share intake. The common 256 KiB JSON body cap and JSON media type guard
+apply. Files are supported by `/api/share`; CLI intake takes these text fields.
+
+Success is 201 `{ queued: true, created: boolean, threadId: string,
+itemId: string, stagingId: string }`. The server derives immutable `cli` /
+`trusted` provenance and the admitting principal from the authenticated endpoint.
+The staging manifest records `source: "cli"`; a receipt in the operational UI
+store retains principal attribution after credential pruning. A trusted origin
+is no blanket execution authority. Existing password, proxy, tailscale and
+explicitly configured none authentication rules apply, including delegated
+principals' ordinary route access. Current authority is rechecked after awaited
+input/staging and inside the committing transaction.
+
+Replaying the key with identical normalized content returns `created: false`
+and the same IDs, updates `lastSeenAt`, and creates no additional staging area.
+The first arrival's provenance stays unchanged. Different content for that key
+is 409 `{ error: "key_conflict" }`. Replays never revive a terminal/removed item.
+Other responses: common 401/403, 400 `empty_share` / `invalid_request`, 413
+`{ error, limit }` from text limits, common 413 body limit, 415
+`unsupported_media_type`, and 500 `queue_failed`. Keep the same key after an
+unknown delivery outcome; a committed operation followed by response loss is
+safe to retry.
+
+A server-minted staging ID is journaled before files are written. The work and
+committed receipt enter the UI database in one transaction. Definite failed
+writes compensate staging; failed compensation is retained for boot/next-intake
+reconciliation. Abandoned preparations become cleanup after an hour, protecting
+other live writers. Cleanup never removes a committed receipt's bytes. These
+receipts are included in the existing audit-only operational export; they do
+not turn it into a filesystem backup. The CLI never accesses UI SQLite or
+`brain.db` for this operation, and intake does not file markdown or dispatch
+production autonomous work before its containment/system gates.

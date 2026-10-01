@@ -170,6 +170,7 @@ const TABLES = [
   "inbox_suppressions",
   "inbox_scheduler_heartbeats",
   "inbox_budget_reservations",
+  "inbox_intake_receipts",
 ] as const;
 const TERMINAL = new Set([
   "done",

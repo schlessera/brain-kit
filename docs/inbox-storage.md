@@ -99,3 +99,14 @@ deleted projections, checkpoints, resolutions, sequences and reservations.
 Reopening the same UI database recovers these records. Backup and restore
 orchestration owns packaging that export with the brain files and staging;
 this method alone is not a complete backup.
+
+
+Intake adds `inbox_intake_receipts`: server-owned source/principal/content
+identity, the canonical staging result, and preparation/cleanup recovery records.
+A receipt is journaled before file writes; creating work and committing its
+receipt are one database transaction. Committed provenance is immutable and
+survives principal pruning. Intake never creates a lease/claim or dispatches
+work. Boot and subsequent intake compensate abandoned preparations after an
+hour, while committed staging IDs are protected from legacy share TTL pruning.
+The audit-only export includes these receipts; it still excludes staging bytes
+and is not a backup. See the [HTTP intake/recovery contract](http-api.md#authenticated-cli-intake-additive-679).
