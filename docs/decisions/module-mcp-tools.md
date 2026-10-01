@@ -31,7 +31,7 @@ places.
 
 1. **In a voice turn, by design.** The voice posture removes `Bash` and
    `Skill` (`export const VOICE_ALLOWED_TOOLS`,
-   `packages/ui-backend-claude/src/tool-policy.ts:113-147`), for the reasons
+   `packages/ui-backend-claude/src/tool-policy.ts:115-151`), for the reasons
    in [voice-permission.md](voice-permission.md#the-voice-posture): 192 of
    192 measured approvals came from `Bash`, and a skill without `Bash` fails
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
@@ -236,7 +236,7 @@ catch them.
   `destructiveHint`.
 - **No backend allows a module tool unless it names it.** The Claude backend
   auto-allows by exact name (`export const DEFAULT_ALLOWED_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:26-77`). A module tool
+  `packages/ui-backend-claude/src/tool-policy.ts:26-79`). A module tool
   arrives as `mcp__brain__<module>_<local>`, so it raises an approval card
   in text chat and is denied in a voice turn. That is the fail-closed
   default. A brain owner can allow one through the existing profile
@@ -250,13 +250,13 @@ catch them.
 - **A mutating module tool must be serialized before any backend allows it.**
   The Claude backend's awaited hook covers every `mcp__brain__` name
   (`export const MUTATING_TOOL_MATCHER`,
-  `packages/ui-backend-claude/src/tool-policy.ts:173`).
+  `packages/ui-backend-claude/src/tool-policy.ts:177`).
   Only the five core reads and `jobs_review` are exempt
   (`const BRAIN_READ_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:177-184`).
+  `packages/ui-backend-claude/src/tool-policy.ts:181-188`).
   Every other brain tool takes the core document writers' brain lock
   (`export function lockKeyForTool`,
-  `packages/ui-backend-claude/src/tool-policy.ts:231-252`).
+  `packages/ui-backend-claude/src/tool-policy.ts:235-256`).
   An approved call reacquires that same key after its approval wait. This
   serialization policy does not admit a tool or trust its own annotation.
 - A tool is not an escape from containment. It resolves paths with

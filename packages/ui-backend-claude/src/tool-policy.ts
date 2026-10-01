@@ -74,6 +74,8 @@ export const DEFAULT_ALLOWED_TOOLS = [
   `${BRAIN_MCP_PREFIX}brain_graph`,
   `${BRAIN_MCP_PREFIX}brain_add`,
   BRAIN_UPDATE_TOOL,
+  // Read-only jobs queue; chat already allows its CLI spelling through Bash.
+  `${BRAIN_MCP_PREFIX}jobs_review`,
 ];
 
 /**
@@ -122,6 +124,8 @@ export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
   `${BRAIN_MCP_PREFIX}brain_list`,
   // Read-only link traversal.
   `${BRAIN_MCP_PREFIX}brain_graph`,
+  // Read-only local module queue, capped at 50 summaries; no egress.
+  `${BRAIN_MCP_PREFIX}jobs_review`,
   // Capture, the most valuable eyes-free action. A create destroys nothing:
   // the worst case is an unwanted document, visible in Files and removable.
   `${BRAIN_MCP_PREFIX}brain_add`,
