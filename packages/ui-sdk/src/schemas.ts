@@ -1230,7 +1230,27 @@ export function parseServerMessage(
       error: path ? `${path}: ${issue?.message}` : (issue?.message ?? "Frame failed validation"),
     };
   }
-  return { ok: true, message: parsed.data as ServerMessage };
+  const message = parsed.data as ServerMessage;
+  if (message.type === "inbox_snapshot" || message.type === "activity_snapshot") {
+    // Zod records skip __proto__ before validating its value. These scalar
+    // maps carry arbitrary IDs, so validate and restore that own entry at the
+    // wire boundary without changing the exported record schema declarations.
+    // The successful frame parse above has already validated the map's shape.
+    const input = (json as { highWaterSeq: Record<string, unknown> }).highWaterSeq;
+    if (Object.hasOwn(input, "__proto__")) {
+      const valueSchema = message.type === "inbox_snapshot"
+        ? inboxSnapshotSchema.shape.highWaterSeq.valueType
+        : serverActivitySnapshotSchema.shape.highWaterSeq.valueType;
+      const sequence = valueSchema.safeParse(input["__proto__"]);
+      if (!sequence.success) {
+        return { ok: false, error: `highWaterSeq.__proto__: ${sequence.error.issues[0]?.message ?? "Invalid sequence"}` };
+      }
+      Object.defineProperty(message.highWaterSeq, "__proto__", {
+        value: sequence.data, enumerable: true, writable: true, configurable: true,
+      });
+    }
+  }
+  return { ok: true, message };
 }
 
 /** Strict intake input never accepts authority, profile or target overrides. */

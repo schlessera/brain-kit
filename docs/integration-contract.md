@@ -1660,6 +1660,11 @@ keep their existing behavior.
 
 `inbox_snapshot` contains the view/filter, `threads`, `items`, per-thread
 `highWaterSeq`, global `cursor`, and optional `append` for chunk continuation.
+The server-frame parser preserves every own scalar `highWaterSeq` entry,
+including identifiers named `__proto__` or `constructor`, as data properties
+without replacing the map's prototype. Values follow the existing snapshot
+validator: Inbox requires nonnegative safe integers; Activity requires finite
+numbers. Invalid values fail the frame even under a prototype-named key.
 `inbox_delta` contains its view and one `InboxChange`. Changes carry an explicit
 `threadId`, global `changeId` and per-thread `seq`; `upsert_thread` carries the
 thread, `upsert_item` carries `itemId` and the item, `remove_item` carries
