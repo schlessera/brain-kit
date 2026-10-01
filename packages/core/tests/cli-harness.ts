@@ -49,13 +49,16 @@ function testHome(): string {
   return home;
 }
 
-/** Only the local runtimes needed by the CLI; no ambient Claude, gh or MCP commands. */
+/** Local CLI/fixture tools only; no ambient Claude, gh or MCP commands. */
 function testCommandPath(): string {
   if (commandPath === null) {
     const dir = mkdtempSync(join(tmpdir(), "brain-test-path-"));
     symlinkSync(process.execPath, join(dir, "bun"));
-    const git = Bun.which("git");
-    if (git) symlinkSync(git, join(dir, "git"));
+    // The sync push-race fixture's git hook records its first invocation with touch.
+    for (const name of ["git", "touch"]) {
+      const executable = Bun.which(name);
+      if (executable) symlinkSync(executable, join(dir, name));
+    }
     commandPath = dir;
     process.on("exit", () => cleanup(dir));
   }
@@ -79,7 +82,7 @@ export function testBinHome(): string {
 
 /**
  * Env with API keys stripped → deterministic keyless (FTS-only) behaviour, and
- * test-owned home/configuration and a PATH containing only bun and git.
+ * test-owned home/configuration and a PATH containing only bun, git and touch.
  * XDG_BIN_HOME points at `testBinHome()`. Children share the parent runtime's
  * calendar; callers can supply explicit fixture shims through `runCli`.
  */

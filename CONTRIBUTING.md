@@ -77,7 +77,8 @@ tests cover UTC and calendars on either side of it; production sync still
 uses the user's local calendar.
 
 That harness also supplies a throwaway HOME, Claude/pi/XDG configuration
-directories and a command PATH containing only Bun and git. Doctor tests cannot
+directories and a command PATH containing only Bun, git and the sync fixture's
+`touch` utility. Doctor tests cannot
 discover host Claude commands or account configuration. Tests that need external
 discovery provide their own shim and prepend it to `keylessEnv(root).PATH`,
 with explicit overrides pointing only at test fixtures. Do not append the
