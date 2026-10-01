@@ -35,6 +35,9 @@ if (mode === "hold") {
 } else {
   const runtime = createInboxRuntime(db, {
     now: () => Number(clock), log: { emit() {}, enabled: () => false },
+    budget: { config: { spendUsd: 5, turns: mode === "budget" ? 10 : 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => mode === "budget" ? { input: 0.003, output: 0.003, cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" } : null } },
+    operation: (item) => ({ runId: `${item.id}-${item.attempts + 1}`, principalId: "fixture", model: "fixture", billingMode: mode === "budget" ? "api" : "subscription", purpose: "triage",
+      maximumTokens: mode === "budget" ? { inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } : undefined }),
     dispatch: async (item) => { process.stdout.write(JSON.stringify(item) + "\n"); },
   });
   writeFileSync(ready!, "ready");

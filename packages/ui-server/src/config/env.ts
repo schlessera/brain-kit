@@ -1,3 +1,4 @@
+import type { InboxBudgetConfig } from "../inbox/budget.js";
 import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 /**
  * The package's ONLY `process.env` reader.
@@ -77,6 +78,12 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", required: false, default: "5", description: "Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", required: false, default: "0", description: "Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", required: false, default: "0", description: "Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS", required: false, default: "0", description: "Bounded daily emergency autonomous operation reserve. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_TIMEZONE", required: false, default: "UTC", description: "IANA timezone for autonomous admission days; each reservation keeps its admission day. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN", required: false, default: "0.01", description: "Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup." },
   { name: "BRAIN_UI_ASK_USER_FORM_MAX_DEPTH", required: false, default: "3", description: "Conditional form maximum depth (roots count as one). Invalid values fail startup." },
   { name: "BRAIN_UI_ASK_USER_FORM_MAX_NODES", required: false, default: "12", description: "Conditional form maximum node count. Invalid values fail startup." },
   { name: "BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS", required: false, default: "8", description: "Conditional form maximum options per choice or scale node. Invalid values fail startup." },
@@ -615,7 +622,7 @@ export interface ServerConfig {
   brainPath: string;
   dbPath: string;
   /** Internal poke provisioning; optional for existing explicit configurations. */
-  inbox?: { pokeTokenFile: string | null };
+  inbox?: { pokeTokenFile: string | null; budget?: InboxBudgetConfig };
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -771,6 +778,27 @@ export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
   };
 }
 
+function autonomousBudgetConfig(env: EnvRecord): InboxBudgetConfig {
+  const number = (name: string, fallback: number, integer = false, positive = false): number => {
+    const raw = env[name], value = raw === undefined ? fallback : Number(raw);
+    if (raw !== undefined && raw.trim() === "" || !Number.isFinite(value) || value < 0 ||
+      positive && value === 0 || integer && !Number.isSafeInteger(value) || !Number.isSafeInteger(Math.ceil(value * 1_000_000)))
+      throw new Error(`${name} is not a valid autonomous budget value.`);
+    return value;
+  };
+  const timeZone = env.BRAIN_UI_AUTONOMOUS_TIMEZONE ?? "UTC";
+  try { new Intl.DateTimeFormat("en-US", { timeZone }).format(0); }
+  catch { throw new Error("BRAIN_UI_AUTONOMOUS_TIMEZONE is not a valid IANA timezone."); }
+  return {
+    spendUsd: number("BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", 5),
+    turns: number("BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", 0, true),
+    emergencySpendUsd: number("BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", 0),
+    emergencyTurns: number("BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS", 0, true),
+    timeZone,
+    unpricedUsdPerToken: number("BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN", 0.01, false, true),
+  };
+}
+
 /**
  * Resolve an environment into a {@link ServerConfig}. Defaults to the real
  * process environment; tests pass their own record instead of mutating it.
@@ -795,7 +823,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
     ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
-    inbox: { pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null },
+    inbox: { pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null, budget: autonomousBudgetConfig(env) },
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),

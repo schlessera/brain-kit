@@ -184,6 +184,10 @@ brain repository.
   protected local HTTP poke and atomic boot token rotation. See the
   [runtime contract and provisioning](../../docs/inbox-runtime.md).
   Production autonomous dispatch remains gated by the complete v1 proof.
+- **Autonomous admission budgets** — atomic spend/operation reservations,
+  terminal settlement and conservative crash recovery. The default is $5/day
+  with zero admitted operations until configured. See
+  [accounting and configuration](../../docs/inbox-budget.md).
 - **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
   spawning the `brain` CLI from `BRAIN_PATH`.
 - **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
@@ -234,6 +238,12 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH` | Conditional form maximum depth (roots count as one). Invalid values fail startup. | 3 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_NODES` | Conditional form maximum node count. Invalid values fail startup. | 12 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS` | Conditional form maximum options per choice or scale node. Invalid values fail startup. | 8 |
+| `BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD` | Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS` | Bounded daily emergency autonomous operation reserve. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY` | Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup. | 5 |
+| `BRAIN_UI_AUTONOMOUS_TIMEZONE` | IANA timezone for autonomous admission days; each reservation keeps its admission day. Invalid values fail startup. | UTC |
+| `BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY` | Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN` | Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup. | 0.01 |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` | Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice. | medium |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |

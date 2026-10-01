@@ -125,13 +125,13 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 ### Relevant Code and Patterns
 
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
-  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:808-842`). Reuse the algorithm; the
+  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:810-839`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
 - **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:49-171`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:430`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:429`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:130-222`). Timeout unwind is
@@ -147,7 +147,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:75-142`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`) settles after execution;
-  (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) explicitly counts unpriced runs.
+  (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`) and
@@ -689,7 +689,7 @@ recovered tick after killing the interval
 **Files:**
 - Create: `packages/ui-server/src/inbox/budget.ts`
 - Create: a new, next-unused migration for reservation state; never rewrite U2's shipped migration
-- Modify: `packages/ui-server/src/activity/recorder.ts` (settlement hook at rollup)
+- Modify: `packages/ui-server/src/activity/store.ts` (settlement in the terminal rollup transaction)
 - Test: `packages/ui-server/tests/inbox-budget.test.ts`
 
 **Approach:**
@@ -698,7 +698,7 @@ recovered tick after killing the interval
 - Two counters: non-subscription effective spend (default $5/day) and autonomous turns/day,
   both against the configured local-day boundary
 - Query filters autonomous origins and preserves `unpricedRuns` rather than dropping them —
-  ignoring the explicit unpriced count at (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) is the admission bug being avoided
+  ignoring the explicit unpriced count at (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) is the admission bug being avoided
 - **Unknown cost settles at a pessimistic rate, and files an Action.** A run whose effective
   cost resolves NULL is charged a configured worst-case rate against the counter, so the
   budget errs toward stopping early rather than overspending. It simultaneously raises an
@@ -710,9 +710,14 @@ recovered tick after killing the interval
 - Hard caps with a named emergency reserve; when the reserve is exhausted, everything stops and
   one `fyi` is filed (R43)
 - Every model-bearing operation reserves, including T1 batches (R40)
+- The [October 1 ruling](../decisions/async-collaboration.md#scheduling-budgets-and-evidence)
+  defines a hard admission ledger, using conservative whole-operation estimates.
+  Retain actual overruns and refuse later over-cap work; U4 does not add a
+  transport-enforced invoice ceiling. Count one turn per separately dispatched
+  model-bearing operation; folded compaction is included in its existing call.
 
 **Patterns to follow:** the frozen-at-first-computation discipline of effective cost
-(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:501-643`); env descriptor array for the new configuration values
+(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:502-604`); env descriptor array for the new configuration values
 
 **Test scenarios:**
 - Covers AE11: two claims that would each fit but jointly exceed the cap — the second is

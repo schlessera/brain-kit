@@ -9,6 +9,8 @@ import { createUiDb } from "../src/db/client.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createActivityRoutes } from "../src/routes/activity.js";
+import { createInboxBudget } from "../src/inbox/budget.js";
+import { createInboxStore } from "../src/inbox/store.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 
 function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undefined = true) {
@@ -20,7 +22,11 @@ function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undef
     startTurn, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [] };
   const input = { turnId: "run", principalId: principal.id, prompt: "Odysseus fixture", allowedTools: ["read"],
     systemPromptAppend: "Server selected instructions", signal: new AbortController().signal };
-  return { db, store, principal, backend, input };
+  const now = Date.now();
+  createInboxStore(db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus", stagingId: "odysseus", source: "share", stakes: 2, expiresAt: now + 86_400_000 });
+  const budget = createInboxBudget(db, { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => null } });
+  budget.claim("odysseus", { runId: input.turnId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000);
+  return { db, store, principal, backend, input, budget };
 }
 const permission = { toolUseId: "tool", toolName: "write", input: { path: "notes/harbor.md" } };
 
@@ -161,4 +167,27 @@ test("Activity origin migration preserves populated spans, events, cursors and i
     expect(current.sweepOwnOrphans()).toBe(2);
     expect(current.getSpan("new")!.outcome).toBe("interrupted");
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("missing, expired and reused reservations refuse actual backend starts", async () => {
+  let starts = 0;
+  const f = setup(async (request) => {
+    starts++;
+    request.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  });
+  try {
+    const unreservedError = await runAutonomousTurn({ ...f, checkpoint: () => {} }, { ...f.input, turnId: "unreserved" }).catch((error) => error);
+    expect(starts).toBe(0);
+    expect(unreservedError).toBeInstanceOf(BackendRequestError);
+    await runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input);
+    expect(starts).toBe(1);
+    await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input)).rejects.toBeInstanceOf(BackendRequestError);
+    expect(starts).toBe(1);
+    const s = createInboxStore(f.db);
+    s.commit([{ kind: "transition", itemId: "odysseus", expectedVersion: 2, to: "ready" }]);
+    f.budget.claim("odysseus", { runId: "expired", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "retry" }, Date.now() + 600_000);
+    s.commit([{ kind: "transition", itemId: "odysseus", expectedVersion: 4, to: "ready" }]);
+    await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, { ...f.input, turnId: "expired" })).rejects.toBeInstanceOf(BackendRequestError);
+    expect(starts).toBe(1);
+  } finally { f.db.close(); }
 });

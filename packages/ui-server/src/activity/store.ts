@@ -1,3 +1,4 @@
+import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
  *
@@ -599,6 +600,7 @@ export function createActivityStore(
       pricingEstimate,
       failure
     );
+    if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
   return {

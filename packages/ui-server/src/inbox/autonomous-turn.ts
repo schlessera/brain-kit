@@ -6,6 +6,7 @@
 import type { Database } from "bun:sqlite";
 import type { AgentBackend, BackendBridge, PermissionRequest, ServerMessage,
   StartTurnRequest, AskUserQuestion, BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/server";
+import { acquireInboxBudgetRun } from "./budget.js";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
@@ -59,6 +60,8 @@ export async function runAutonomousTurn(
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+  try { acquireInboxBudgetRun(deps.db, input.turnId, principalId); }
+  catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous budget admission failed."); }
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const,
     allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend: input.systemPromptAppend });

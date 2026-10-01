@@ -211,25 +211,24 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
-  // Recovery/heartbeat only. Production dispatch is gated by the full-v1
-  // containment, budgets, admission and system proof; no backend is wired here.
-  const inbox = createInboxRuntime(db, { log: observability.logger("inbox") });
-  prunePrincipals(db, Date.now());
-  const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
-  try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
-  const brain = createBrainClient({ brainPath: config.brainPath });
-  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
-
-  // Model pricing for rollup-time effective cost: constructed here because
-  // the config owns enabled/TTL/brainPath, shared through the activity
-  // runtime. The first refresh warms in the background — ensureFresh never
-  // rejects and no rollup ever waits on the network (resolve() is sync).
+  // One package-local pricing instance, shared by admission and Activity.
+  // Refresh warms in the background; resolve() is synchronous and rollups
+  // never wait on the network.
   const pricing = createModelPricing({
     brainPath: config.brainPath,
     enabled: config.pricing.enabled,
     ttlMs: config.pricing.ttlMs,
   });
   void pricing.ensureFresh();
+  // Recovery/heartbeat only. Production dispatch is gated by the full-v1
+  // containment, budgets, admission and system proof; no backend is wired here.
+  const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
+    budget: config.inbox?.budget ? { config: config.inbox.budget, pricing } : undefined });
+  prunePrincipals(db, Date.now());
+  const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
+  try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
+  const brain = createBrainClient({ brainPath: config.brainPath });
+  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
