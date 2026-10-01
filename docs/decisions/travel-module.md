@@ -146,21 +146,21 @@ GPX parsing is strict XML with explicit same-namespace geometry paths.
 Saxes checks well-formedness; doctypes are refused, and foreign extensions,
 metadata and waypoints cannot supply track points. Track segments take
 precedence over routes. Invalid coordinates reject; missing optional data
-stays unknown (`parseGpx`, `packages/geo/src/track.ts:148-151`).
+stays unknown (`parseGpx`, `packages/geo/src/track.ts:144-147`).
 This uses a verified parser dependency rather than a partial XML regular
 expression reader. Komoot's observed boot payload is decoded as JSON, never
 executed as JavaScript.
 
 Trimming measures great-circle edges independently within each continuous
 segment and interpolates cut boundaries. Segment gaps are never joined
-(`trimRoute`, `packages/geo/src/track.ts:189-214`).
+(`trimRoute`, `packages/geo/src/track.ts:185-210`).
 The writer rebuilds a whitelist GPX from retained points and new bounds;
 source metadata and ancillary geometry are never copied
-(`writeGpx`, `packages/geo/src/track.ts:259-266`).
+(`writeGpx`, `packages/geo/src/track.ts:255-262`).
 Metrics use the exact quantized points written to that file. Unknown
 elevations/timestamps remain null; smoothed ascent resets at segment gaps,
 and duration requires ordered absolute timestamps
-(`routeMetrics`, `packages/geo/src/track.ts:240-256`).
+(`routeMetrics`, `packages/geo/src/track.ts:236-252`).
 The package README specifies units, smoothing, shape and serialization
 tolerances. Original inputs and occupied output names remain untouched
 (`importRoute`, `packages/module-travel/src/route.ts:118-169`).

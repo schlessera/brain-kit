@@ -37,3 +37,35 @@ unavailable. Missing or decreasing required timestamps, incomplete elevations
 and no-line inputs carry explicit unknown reasons; genuine zeros remain zero.
 File timestamps do not establish a recording claim. Optional claims stay unverified.
 The returned geometry can be changed for drawing without changing the parser input.
+
+## Normalized input and proximity
+
+Format adapters call `normalizeTrack(sections, "track" | "route")` with point
+objects containing numeric `lat`/`lon` and optional `elevation_m`/`time`. It uses
+the GPX coordinate and recovery policy. Every omission splits a section; original
+sections stay separate. Non-array sections/non-object points reject. Numeric
+strings are invalid coordinates; metadata remains unknown when invalid. The
+200,000-point limit includes omissions; empty sections have a 200,000-section cap.
+The source file size/format guards remain the intake adapter's responsibility.
+
+`nearestTrackPoint(track, { lat, lon }, toleranceM)` finds the closest point on
+minor great-circle arcs, including segment interiors and retained singletons.
+It reports distance in metres, section/edge/fraction and the supplied tolerance.
+It handles the date line and poles without planar projection. Section gaps are
+never edges. Empty geometry and ambiguous antipodal edges report unknown. Query
+coordinates and finite tolerances from zero to Earth's half-circumference validate.
+
+`trackCoverage(A, B, { toleranceM, sampleSpacingM? })` reports the covered usable
+length of **A relative to A's usable length**, not a symmetric similarity score.
+It samples great-circle arc-length midpoints and reports the tolerance, spacing,
+sample count, method and conservative minimum/maximum ratios. Distance to B is
+1-Lipschitz, so an interval of length `s` is fully covered if midpoint distance
+plus `s/2` is within tolerance, and uncovered if distance minus `s/2` exceeds it.
+Other intervals contribute sampling uncertainty to the bounds. This is an
+estimate; the bounds express its precision. The default maximum spacing is
+`max(0.1, min(5, toleranceM / 4))` metres; explicit spacing is above zero and at
+most 1,000 m. A maximum of 100,000 samples or 5,000,000 edge comparisons bounds
+work. Exceeding it yields unknown, with no fabricated percentage. Zero usable
+length in A, no usable line in B and antipodal ambiguity also yield reasons.
+Partial inputs retain counts and partial status. Neither input's gaps are filled;
+isolated points remain nearest-point evidence but contribute no covered line.

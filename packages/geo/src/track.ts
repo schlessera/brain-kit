@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const MAX_ROUTE_BYTES = 20 * 1024 * 1024;
 const MAX_POINTS = 200_000;
-const EARTH_RADIUS_M = 6_371_008.8;
+export const EARTH_RADIUS_M = 6_371_008.8;
 const radians = Math.PI / 180;
 const isoTime = z.iso.datetime({ offset: true });
 const decimalPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
@@ -91,11 +91,7 @@ function readGpx(source: string, recovery: boolean): ParsedTrack {
       const index = collection.input++;
       const lat = number(tag.attributes.lat?.value), lon = number(tag.attributes.lon?.value);
       pointFields = new Set();
-      const reasons: OmissionReason[] = [];
-      if (lat === null) reasons.push("latitude_missing_or_invalid");
-      else if (Math.abs(lat) > 90) reasons.push("latitude_out_of_range");
-      if (lon === null) reasons.push("longitude_missing_or_invalid");
-      else if (Math.abs(lon) > 180) reasons.push("longitude_out_of_range");
+      const reasons = coordinateOmissions(lat, lon);
       if (recovery && reasons.length) {
         collection.omissions.push({ index, reason: reasons[0]!, reasons });
         // A fresh section starts immediately: later good points never bridge this omission.
@@ -320,4 +316,51 @@ export function summarizeTrack(track: ParsedTrack, source: TrackSource): TrackSu
       movingTime: measure("movingTime", null, "s", "estimator_not_in_scope"),
     }, method: { distance: "great_circle", earthRadiusM: EARTH_RADIUS_M,
       elevation: "three_point_median_3m_hysteresis", elapsed: "segment_last_minus_first_with_pauses", movingTime: "unavailable" } };
+}
+
+/** Shared coordinate policy for XML and format adapters; numeric strings are not normalized coordinates. */
+function coordinateOmissions(lat: unknown, lon: unknown): OmissionReason[] {
+  const reasons: OmissionReason[] = [];
+  for (const [value, limit, invalid, outside] of [
+    [lat, 90, "latitude_missing_or_invalid", "latitude_out_of_range"],
+    [lon, 180, "longitude_missing_or_invalid", "longitude_out_of_range"],
+  ] as const) {
+    if (typeof value !== "number" || !Number.isFinite(value)) reasons.push(invalid);
+    else if (Math.abs(value) > limit) reasons.push(outside);
+  }
+  return reasons;
+}
+
+export interface NormalizedTrackPoint { lat: unknown; lon: unknown; elevation_m?: unknown; time?: unknown }
+
+/** Format adapters supply section boundaries; invalid coordinates split rather than repair them. */
+export function normalizeTrack(input: readonly (readonly NormalizedTrackPoint[])[], kind: "track" | "route" = "track"): ParsedTrack {
+  if (!Array.isArray(input) || !["track", "route"].includes(kind)) throw new Error("Expected normalized track sections and track/route kind.");
+  if (input.length > MAX_POINTS) throw new Error("Normalized track exceeds 200,000 sections.");
+  const segments: RoutePoint[][] = [], omissions: TrackOmission[] = [], warnings = new Set<string>();
+  let count = 0;
+  for (const original of input) {
+    if (!Array.isArray(original)) throw new Error("Each normalized track section must be an array.");
+    let section: RoutePoint[] = [];
+    segments.push(section);
+    for (const raw of original) {
+      if (++count > MAX_POINTS) throw new Error("Route exceeds 200,000 points.");
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("Each normalized track point must be an object.");
+      const reasons = coordinateOmissions(raw.lat, raw.lon);
+      if (reasons.length) {
+        omissions.push({ index: count - 1, reason: reasons[0]!, reasons });
+        section = []; segments.push(section);
+        continue;
+      }
+      const point = routePoint(raw.lat, raw.lon, raw.elevation_m, raw.time);
+      if (raw.elevation_m != null && point.elevation_m === null) warnings.add("Invalid elevations are treated as unknown.");
+      if (raw.time != null && point.time === null) warnings.add("Invalid timestamps are treated as unknown.");
+      section.push(point);
+    }
+  }
+  const retainedSections = segments.filter(s => s.length > 0), partial = omissions.length > 0;
+  if (partial) warnings.add(`${omissions.length} invalid point(s) omitted; gaps preserved; values cover usable sections only.`);
+  return { segments: retainedSections, warnings: [...warnings], omissions, kind, partial,
+    status: !retainedSections.some(s => s.length >= 2) ? "no_line" : partial ? "partial" : "ok",
+    counts: { input: count, retained: retainedSections.reduce((n,s) => n + s.length, 0), omitted: omissions.length, segments: retainedSections.length } };
 }

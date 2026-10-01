@@ -4,23 +4,31 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  EARTH_RADIUS_M
   MAX_ROUTE_BYTES
+  type NearestTrackPoint
+  type NormalizedTrackPoint
   type OmissionReason
   type ParsedTrack
   type RouteGeometry
   type RouteMetrics
   type RoutePoint
+  type TrackCoverage
+  type TrackCoverageOptions
   type TrackMeasure
   type TrackOmission
   type TrackSource
   type TrackSummary
   distanceM
+  nearestTrackPoint
+  normalizeTrack
   parseGpx
   parseTrackGpx
   quantizeRoute
   routeMetrics
   routePoint
   summarizeTrack
+  trackCoverage
   trimRoute
   writeGpx
 

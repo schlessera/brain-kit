@@ -24,11 +24,11 @@ Clamping coordinates or treating poles/zero as invalid confuses parser validity
 with the limitations of a drawing projection.
 
 One reader owns namespace/path validation, strict XML, encoding/entity/nesting,
-byte and point limits (`readGpx`, `packages/geo/src/track.ts:56-145`). Its strict
+byte and point limits (`readGpx`, `packages/geo/src/track.ts:56-141`). Its strict
 entry point preserves travel's existing result/rejection behavior
-(`parseGpx`, `packages/geo/src/track.ts:148-151`). The recovery entry point keeps
+(`parseGpx`, `packages/geo/src/track.ts:144-147`). The recovery entry point keeps
 valid isolated points, reports each omission and returns a clear no-line outcome
-(`parseTrackGpx`, `packages/geo/src/track.ts:154-156`). Invalid points still count
+(`parseTrackGpx`, `packages/geo/src/track.ts:150-152`). Invalid points still count
 toward the resource limit. Structurally duplicated optional fields remain errors
 even in omitted points; recovery does not make unsafe XML acceptable.
 
@@ -52,13 +52,13 @@ separately supplied, unverified claim that a route was recorded.
 
 Distance uses great-circle edges on the existing 6,371,008.8 m sphere. The
 three-point median and 3 m hysteresis are one implementation for both elevation
-directions (`elevationChanges`, `packages/geo/src/track.ts:223-238`). The same
+directions (`elevationChanges`, `packages/geo/src/track.ts:219-234`). The same
 complete-sample eligibility and loop/one-way/unknown baseline remain available to
 strict travel. Alternatives in the earlier design (5 m/90-percent elevation
 rules, a pause/speed estimator and inferred recording) were not selected.
 
 The summary exposes units, usable-section scope, explicit unknown reasons and
-copied source geometry (`summarizeTrack`, `packages/geo/src/track.ts:290-323`).
+copied source geometry (`summarizeTrack`, `packages/geo/src/track.ts:286-319`).
 Display simplification cannot change its input or measurements. Valid isolated
 points remain spatial evidence but do not fabricate a measured line. A no-line
 summary reports unknown distance; repeated valid points may have a genuine zero
@@ -68,3 +68,36 @@ Restored mutations measured gap bridging as 111,306 m instead of 222 m and 7,260
 instead of 720 s; the first respective behavioral assertions failed. Independent
 mutations failed descent (0 instead of 20 m), real-zero unknown labels, no-line
 distance and source mutation after changing the returned display geometry.
+
+## Normalization and geographic proximity — 2026-10-01
+
+Format adapters share coordinate validation and omission splitting through
+`normalizeTrack`; adapters retain ownership of their source format and intake.
+Numeric strings are not normalized coordinates. Optional metadata uses the same
+unknown policy; the library does not infer recording or repair an omitted point.
+
+Nearest points use minor great-circle arcs on the shared sphere, including arc
+interiors. A vertex-only minimum overstates distance near a segment's middle;
+planar longitude arithmetic takes the wrong path across the date line and fails
+at poles. Antipodal endpoints do not specify a unique minor arc and therefore
+yield an explicit unknown instead of selecting an arbitrary route.
+
+Coverage is directional arc length of A within a reported tolerance of B, divided
+by usable length of A. Arc-length midpoint sampling provides a bounded estimate;
+the distance-to-B function is 1-Lipschitz along A, yielding conservative interval
+bounds independently of the estimate. Reported spacing controls uncertainty;
+sample/comparison limits bound work and produce unknown rather than a partial
+percentage. Singletons are spatial evidence but do not invent a covered line.
+
+Keyless references use exact equatorial lengths/distances and nested half-length
+arcs. Self coverage is at least 0.99, disjoint arcs below 0.1, and reversing the
+half-length comparison changes about 0.5 to 1. The analytic tolerance extension
+lies inside the reported bounds. Date-line/polar fixtures and recovered/original
+gaps exercise the actual methods without a map projection or live service.
+
+Restored mutations failed the intended assertions for omitted-point/section limits,
+normalization gap splitting, interior nearest distance (157,250 m rather than
+111,195 m), proximity across gaps (zero rather than 445 m), directional denominator,
+partial metadata, uncertainty bounds, sample/comparison limits, zero denominator
+and antipodal ambiguity. The comparison-only mutation returned a percentage below
+the sample cap where the independent comparison cap required unknown.

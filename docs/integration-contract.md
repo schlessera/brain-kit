@@ -2760,3 +2760,33 @@ Moving time is always unknown with `estimator_not_in_scope`. No-line geometry ha
 unknown distance rather than a successful zero. Absent bounds/start/end and
 unknown shape carry reasons as well. An optional recording claim retains its
 text and `verified: false`; the library never infers recording from timestamps.
+
+`normalizeTrack(sections, kind?)` accepts arrays of normalized point objects with
+numeric `lat`/`lon`, optional `elevation_m`/`time` and a default `"track"` kind.
+It returns the same `ParsedTrack` recovery/count/omission contract as GPX.
+Malformed structure rejects; invalid coordinates omit/split, never coerce or
+clamp. At most 200,000 points (including omissions) and 200,000 sections are
+accepted. Missing/invalid metadata is unknown; caller input remains unchanged.
+`EARTH_RADIUS_M` is the 6,371,008.8 m sphere used by all distance methods.
+
+`nearestTrackPoint(track, query, toleranceM)` returns status/partial/counts,
+`distance: {value: number | null, unit: "m"}`, closest `point: {lat,lon} | null`,
+`location: {section,index,fraction} | null`, nullable `withinTolerance`, unknown
+reasons and method metadata with `"great_circle_segment"`, radius, tolerance and
+`"retained_geometry"` scope. Minor arcs include interiors; gaps remain absent.
+Retained singletons and repeated points are valid spatial evidence. Empty geometry
+and ambiguous antipodal edges yield unknown; invalid queries/tolerances reject.
+
+`trackCoverage(A, B, {toleranceM, sampleSpacingM?})` returns status/partial, counts
+for both inputs, direction `"A_relative_to_B"`, nullable ratio/covered metres,
+usable metres of A, nullable `{minimumRatio,maximumRatio}` bounds, unknown reasons
+and method parameters. Its `"arc_length_midpoints"` estimate measures only A's
+usable sections within tolerance of B's usable sections. Bounds use distance's
+1-Lipschitz property to expose uncertainty. The default spacing is
+`max(0.1,min(5,toleranceM/4))` metres; explicit spacing is >0 and ≤1,000 m.
+Tolerances are finite, nonnegative and at most Earth's half-circumference.
+100,000 samples / 5,000,000 comparisons bound analysis. Zero usable length in A,
+no usable line in B, ambiguous antipodal geometry and analysis-limit exhaustion
+return null ratio/covered length/bounds with reasons. Partial inputs remain partial;
+no gaps are filled and no denominator is invented. All helpers require validated
+`ParsedTrack` inputs from the shared parser/normalizer.
