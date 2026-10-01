@@ -10,6 +10,7 @@
  */
 
 import { join } from "path";
+import { Console } from "node:console";
 
 import { readEnvVar } from "../config/env.js";
 
@@ -253,14 +254,46 @@ async function main(): Promise<number> {
   return typeof code === "number" ? code : 0;
 }
 
-main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
-    if (err instanceof UsageError) {
-      console.error(err.message);
-      process.exit(1);
-    }
-    console.error(err?.message || err);
-    // Exit 2 distinguishes internal failures from usage errors (exit 1).
-    process.exit(2);
-  });
+// Bun's native console can bypass the stream's pending-write accounting after
+// process.stdout is initialized. Use the stream-backed Console so its writes,
+// including command/library diagnostics, join direct stdout/stderr writes.
+const streamConsole = new Console({
+  stdout: process.stdout,
+  stderr: process.stderr,
+  ignoreErrors: false,
+});
+Object.assign(console, {
+  log: streamConsole.log,
+  error: streamConsole.error,
+  warn: streamConsole.warn,
+  info: streamConsole.info,
+  debug: streamConsole.debug,
+});
+
+let outputError = false;
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", () => { outputError = true; });
+}
+
+async function finish(code: number): Promise<void> {
+  await Promise.all([process.stdout, process.stderr].map((stream) =>
+    new Promise<void>((resolve) => {
+      if (stream.destroyed) return resolve();
+      const done = () => {
+        stream.off("error", done);
+        resolve();
+      };
+      stream.once("error", done);
+      stream.end(done);
+    })
+  ));
+  // Only stdio completion delays exit; provider sockets/timers cannot keep a
+  // finished command alive. An output failure is an internal failure.
+  process.exit(outputError ? 2 : code);
+}
+
+main().then(finish, (err) => {
+  console.error(err?.message || err);
+  // Exit 2 distinguishes internal failures from usage errors (exit 1).
+  return finish(err instanceof UsageError ? 1 : 2);
+});

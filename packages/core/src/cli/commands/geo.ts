@@ -131,7 +131,7 @@ function trackText(result: GeoTrackOutput): string {
   if (result.comparison) lines.push(`Coverage of this track relative to ${result.comparison.summary.source.path}: ${measured(result.comparison.coverage.ratio, "ratio")}; tolerance ${result.comparison.coverage.method.toleranceM} m; ${result.comparison.coverage.status}; ${result.comparison.coverage.unknown.join(", ")}.`);
   return lines.join("\n");
 }
-/** Await the complete pipe write; the bin exits immediately after a command resolves. */
+/** Await the complete pipe write before this command resolves, including outside the bin. */
 async function emitGeo(json: boolean, data: unknown, human: () => string): Promise<void> {
   const text = (json ? JSON.stringify(data, null, 2) : human()) + "\n";
   await new Promise<void>((resolve, reject) => process.stdout.write(text, error => error ? reject(error) : resolve()));
