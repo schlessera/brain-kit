@@ -208,6 +208,12 @@ async function main(): Promise<number> {
 
   const entry = registry.commands.get(command);
   if (!entry) {
+    // Invalid module settings prevent its namespace from being registered.
+    // Preserve the loader's corrective diagnostic instead of hiding it.
+    if (configError) {
+      console.error(`Invalid brain.config:\n${configError}`);
+      return 1;
+    }
     console.error(`Unknown command: ${command}`);
     console.error("Run `brain --help` for usage information.");
     return 1;

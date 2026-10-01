@@ -144,7 +144,21 @@ and robots-restricted boards stay off by default.
 An explicit brain config selection replaces those defaults. An explicit
 `boards` array in `settings/jobs.json` replaces the brain config selection;
 JSON that omits `boards` preserves it. The CLI and settings API read the same
-validated effective settings. No existing TypeScript configuration is moved
+validated effective settings. An explicit empty array selects nothing:
+`settings/jobs.json` containing `{"boards": []}` overrides even a nonempty
+TypeScript selection. Plain manual and scheduled scrapes report “no boards
+selected”, succeed and invoke no adapters or network requests; their existing
+JSON report contains empty `sources` and zero totals. Existing jobs are left
+alone. Use `brain module settings jobs --set 'boards=[]'` to save that choice.
+
+Unknown or retired names are errors, even beside valid names. Settings saves
+validate before writing and create no commit when rejected; hand-edited JSON
+and TypeScript selections receive the same validation at load time. Diagnostics
+name the offending entries and valid choices, with a specific explanation for
+retired boards. Invalid loaded settings can block other module commands until
+corrected. An invalid selection never partially runs or substitutes defaults.
+
+No existing TypeScript configuration is moved
 automatically. See the [board-default decision](../../docs/decisions/jobs-board-defaults.md)
 for the rationale and [module settings](../../docs/modules.md#editable-module-settings)
 for the shared settings workflow.
@@ -312,8 +326,8 @@ anyone who has that permission.
 
 Retired: `remoteineurope`. Its domain now redirects every page to We Work
 Remotely, which is already scraped as `weworkremotely`. A scrape that names it
-is refused with that reason, and a `boards` config that names it gets a warning
-while the other boards still run.
+is refused with that reason and valid choices. A `boards` config that names it
+fails shared validation; remove it or select `weworkremotely` explicitly.
 
 ## ⚠️ Scraping & Terms of Service
 
