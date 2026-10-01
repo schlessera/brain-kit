@@ -248,12 +248,17 @@ catch them.
   that `brain_add` and `brain_update` each carry there. None is in the first
   slice.
 - **A mutating module tool must be serialized before any backend allows it.**
-  The Claude backend's lock classification knows core's document tools by
-  name (`export const MUTATING_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:161-169`). An approved
-  module tool that writes and reindexes would take no lock today. The rule:
-  every `mcp__brain__` tool that is not on a named read-only list takes the
-  brain lock.
+  The Claude backend's awaited hook covers every `mcp__brain__` name
+  (`export const MUTATING_TOOL_MATCHER`,
+  `packages/ui-backend-claude/src/tool-policy.ts:173`).
+  Only the five core reads and `jobs_review` are exempt
+  (`const BRAIN_READ_TOOLS`,
+  `packages/ui-backend-claude/src/tool-policy.ts:177-184`).
+  Every other brain tool takes the core document writers' brain lock
+  (`export function lockKeyForTool`,
+  `packages/ui-backend-claude/src/tool-policy.ts:231-252`).
+  An approved call reacquires that same key after its approval wait. This
+  serialization policy does not admit a tool or trust its own annotation.
 - A tool is not an escape from containment. It resolves paths with
   `safeResolve`, as the module's commands already must. The contract's
   containment guarantee covers it.

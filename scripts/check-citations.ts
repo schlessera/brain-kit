@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:103-118`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
