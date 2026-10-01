@@ -1413,9 +1413,10 @@ Rules a consumer may rely on:
   after `generatedAt`; the lifetime totals still include such a session, since
   it happened.
 - **The route does no rounding or formatting**, while
-  `GET /api/activity/rollups` rounds its cost sums to 4 decimal places. Over
-  the same window the two therefore report `0.299997` and `0.3` for one
-  quantity. Round at render time, identically for both, rather than treating
+  `GET /api/activity/rollups` rounds each completed day/job/session sum on
+  both cost axes to 4 decimal places, only at the response boundary; stored
+  costs retain their original precision. Over the same window the two therefore
+  report `0.299997` and `0.3` for one quantity. Round at render time, identically for both, rather than treating
   either as pre-formatted. This channel stays raw on purpose: rounding a sum
   to 4 dp turns a real sub-$0.0001 cost into a `0` that reads as free.
 - **`lifetime.costUsd` is a floor, and cannot be better than one.** The

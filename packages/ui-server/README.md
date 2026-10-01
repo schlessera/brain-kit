@@ -236,6 +236,8 @@ brain repository.
   `GET /api/brain/stats` stays the corpus half; the two are merged by the
   caller. Shape: `ActivityRuntimeStats` in `@schlessera/brain-ui-sdk/protocol`,
   documented in [docs/integration-contract.md](../../docs/integration-contract.md).
+  Rollup responses round both cost sums to four decimal places after grouping;
+  stored costs, run detail and runtime stats keep their original precision.
 - **Voice** — Deepgram token minting and keyterm-cache building from the brain
   index.
 - **Render seam** — `POST /api/render` answers 501 unless the deployment

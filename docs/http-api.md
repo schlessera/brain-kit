@@ -411,7 +411,7 @@ missing sessions into a universal 404 or provide a separate history deadline.
 | --- | --- | --- | --- |
 | GET `/api/activity/runs` | Optional origin/job/session/status strings; limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
 | GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
-| GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. The existing four-decimal cost promise is retained; current runtime gap is #692. |
+| GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
 
 For fractional/negative finite values these rules produce whole-day windows;
@@ -608,9 +608,6 @@ The supported promises above are not removed to accommodate these observations:
 - [#691](https://github.com/schlessera/brain-kit/issues/691) owns the complete
   real-mount inventory/contract coverage matrix. Existing guard-only failures
   are not proof that a protected handler is mounted.
-- [#692](https://github.com/schlessera/brain-kit/issues/692) restores the existing
-  four-decimal activity-rollup cost promise. The current route returns raw
-  sums (a keyless reproduction yields 0.358023 instead of 0.358).
 - [#694](https://github.com/schlessera/brain-kit/issues/694) closes the confirmed
   non-object JSON validation holes in login, passkey registration/rename and
   capture. They currently produce unhandled 500s; valid requests and owner
