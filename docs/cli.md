@@ -235,3 +235,21 @@ not the comparison windows. Evaluation never writes history; `--record` and
 maintain evaluate before their existing recording step. See the
 [full trend contract](integration-contract.md#recorded-corpus-trend-verdicts-additive-in-0400)
 and [decision](decisions/stats-trends.md).
+
+## Queue intake on a UI server
+
+`brain queue add --server https://example.org --key odysseus-route-1
+--credential-file ./queue-credential.json --text "Plan Odysseus's route" --json`
+queues a durable triage item without filing content. Keep the same key when
+retrying: the server returns the same item for identical content and rejects
+reuse for different content. `brain add` remains the content-capture command.
+
+Use the existing signed principal cookie in a private (0600) JSON credential
+file: `{ "server": "https://example.org", "cookie": "SIGNED_PRINCIPAL_COOKIE_VALUE" }`.
+Its origin must match `--server`; redirects never forward it. Password mode
+requires a usable owner or delegated cookie. Other authentication modes retain
+the server's existing authority; omitting the credential file sends no cookie.
+Only loopback supports plain HTTP. `--title`, `--text` and `--url` carry input;
+at least one is required. The command needs no local index or brain config.
+See the [exact JSON and error contract](integration-contract.md#durable-share-and-cli-intake-additive-679)
+and [HTTP intake contract](http-api.md#authenticated-cli-intake-additive-679).

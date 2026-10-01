@@ -29,6 +29,7 @@ import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 import type {
   AskUserAnnotation,
   ClientHello,
+  QueueAddRequest, QueueAddResult,
   ClientInboxResolve, ClientInboxSnooze, ClientInboxSubscribe, ClientInboxUnsubscribe,
   InboxView, InboxQueueStatus, InboxActionStatus, InboxDismissReason, InboxThread,
   InboxOperation, InboxWorkPayload, ResolutionEffect, V1ResolutionEffect, InboxOption,
@@ -1229,3 +1230,12 @@ export function parseServerMessage(
   }
   return { ok: true, message: parsed.data as ServerMessage };
 }
+
+/** Strict intake input never accepts authority, profile or target overrides. */
+export const queueAddRequestSchema = z.strictObject({
+  key: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+  title: z.string().optional(), text: z.string().optional(), url: z.string().optional(),
+}) satisfies z.ZodType<QueueAddRequest>;
+export const queueAddResultSchema = z.looseObject({
+  queued: z.literal(true), created: z.boolean(), threadId: id, itemId: id, stagingId: id,
+}) satisfies z.ZodType<QueueAddResult>;

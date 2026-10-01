@@ -2315,3 +2315,23 @@ export interface ClientAskUserFormResponse {
   answers: import("./tool-contracts/form.js").AskUserFormAnswers;
   turnId?: string;
 }
+
+/** Authenticated operational intake; queueing does not file brain content. */
+export interface QueueAddRequest {
+  key: string;
+  title?: string;
+  text?: string;
+  url?: string;
+}
+export interface QueueAddResult {
+  queued: true;
+  created: boolean;
+  threadId: string;
+  itemId: string;
+  stagingId: string;
+}
+
+/** Server-owned CLI staging metadata; the share manifest's source stays unchanged. */
+export interface QueueStagingManifest extends ShareIntakeResult {
+  source: "cli";
+}
