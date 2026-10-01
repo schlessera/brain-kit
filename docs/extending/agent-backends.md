@@ -66,6 +66,18 @@ export interface BackendModule {
 Use `defineBackendModule()` for inference and excess-property checking. The
 interface is `@experimental` until 1.0.
 
+The existing construction/probe context also carries optional host
+`versionRequirements: { sdk?: string; runtime?: string }`. These are full
+SemVer minima. Use the server SDK's `assertVersionRequirements` with the
+package's own declarations and their owners to enforce both without dropping
+upper bounds or sharing prerelease opt-ins. The default registry verifies
+requested identities against `probeRuntime` reports before constructing a
+backend; an absent probe or SDK identity cannot silently bypass a minimum.
+`createApp` refuses explicit backend requirements with an injected registry.
+Backend factories and prompt-time enforcement are tracked in
+[#643](https://github.com/schlessera/brain-kit/issues/643); the server/context
+addition does not supply those checks for a direct factory consumer.
+
 The descriptor ultimately constructs the runtime interface:
 
 From `@schlessera/brain-ui-sdk/server` (`packages/ui-sdk/src/server/backend.ts`):

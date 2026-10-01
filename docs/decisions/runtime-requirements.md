@@ -194,7 +194,7 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 | Requirement | Initial value | Evidence and limit of the claim |
 | --- | --- | --- |
 | Claude backend's SDK range | Retain `^0.3.241` | It is the published declaration (`"@anthropic-ai/claude-agent-sdk"`, `packages/ui-backend-claude/package.json:48`). Registry metadata on 2026-09-30 confirms 0.3.241 exists. This is a declared compatibility bound, not proof every allowed release passed current measurements. |
-| ui-server's content CLI floor | Retain `0.33.0` | `--` support is the reason documented immediately above `MIN_BRAIN_CLI_VERSION` (`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:82`); the boot refusal test uses 0.32.9 (`a below-minimum brain repo pin`, `packages/ui-server/tests/brain-client.test.ts:236-245`). |
+| ui-server's content CLI floor | Retain `0.33.0` | `--` support is the reason documented immediately above `MIN_BRAIN_CLI_VERSION` (`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:84`); the boot refusal test uses 0.32.9 (`a below-minimum brain repo pin`, `packages/ui-server/tests/brain-client.test.ts:236-245`). |
 | Bun engine floor | Retain existing `>=1.3.5` declarations | Existing engine metadata and the doctor's CVE-based warning (`const MIN_BUN`, `packages/core/src/cli/commands/doctor.ts:43`; `function checkRuntime`, `packages/core/src/cli/commands/doctor.ts:80-87`). This record introduces no new doctor verdict or blanket boot gate. |
 | Pi SDK requirements | Retain existing exact `0.87.1` declarations | `packages/ui-backend-pi/package.json`; a host floor composes with each actual imported Pi dependency's existing exact requirement. The Claude range ruling does not authorize changing Pi's pins. |
 | Additional default Claude runtime floor | None | There is no evidenced numerical incompatibility threshold in the existing record. The successful pairs are observations, not proof that the preceding release fails. A new library floor needs a feature requirement or reproducible incompatibility and its versioning review. |
@@ -250,7 +250,7 @@ const versionRequirements = {
   brainCli: "0.33.0", // This CLI lives in the separate content checkout.
   backends: { claude: { sdk: "0.3.283", runtime: "2.1.283" } },
 };
-// Pass versionRequirements to createApp once the implementation ships.
+// Pass versionRequirements to createApp; backend pre-prompt checks are #643.
 ```
 
 The example deliberately makes an unknown content CLI version an error. The
@@ -263,11 +263,11 @@ reciprocal host-version negotiation is involved.
 
 | Existing boundary | How this design uses it |
 | --- | --- |
-| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:135-184`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
+| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:106-157`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
 | `installedAgentSdkVersion` (`export function installedAgentSdkVersion`, `packages/ui-backend-claude/src/runtime-probe.ts:60-68`) | Retain importer-relative resolution; validate package name/version and the owner's manifest range. |
 | `selectedSpawn` / `probeClaudeRuntime` (`export function selectedSpawn`, `packages/ui-backend-claude/src/runtime-probe.ts:76-103`; `export async function probeClaudeRuntime`, `packages/ui-backend-claude/src/runtime-probe.ts:131-190`) | Keep SDK-selected command capture, native/JS override argv, environment, timeout and group cleanup; add strict identity validation and composed runtime floors. |
-| `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:329-371`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |
-| `BackendModuleContext` / `BackendRuntimeReport` (`export interface BackendModuleContext`, `packages/ui-sdk/src/server/backend-module.ts:95-104`; `export interface BackendRuntimeReport`, `packages/ui-sdk/src/server/backend-module.ts:111-123`) | Extend the existing construction context for optional minimums. Keep report identities and `measured` meanings; a compatibility result must never occupy `measured.matches`. |
+| `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:382-427`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |
+| `BackendModuleContext` / `BackendRuntimeReport` (`export interface BackendModuleContext`, `packages/ui-sdk/src/server/backend-module.ts:96-107`; `export interface BackendRuntimeReport`, `packages/ui-sdk/src/server/backend-module.ts:114-126`) | Extend the existing construction context for optional minimums. Keep report identities and `measured` meanings; a compatibility result must never occupy `measured.matches`. |
 | `MEASURED_RUNTIME`, its guard and `scripts/measure-claude-runtime.ts` | Keep the constant, exact pair guard, keyless behavior probe and dated measurement receipts. A permitted pair can still be unmeasured. |
 | Turn `reportRuntime` / `init` (`const reportRuntime`, `packages/ui-backend-claude/src/turn-runner.ts:96-103`; `if (msg.type === "system"`, `packages/ui-backend-claude/src/turn-runner.ts:319-321`) | Preserve actual per-turn SDK/runtime observations, billing/permission guards and normal failure terminal behavior. |
 | Index schema and graph floors | Remain reader-specific integer schema checks; do not compare them as SemVer or turn `brain.db` into authoritative state. |

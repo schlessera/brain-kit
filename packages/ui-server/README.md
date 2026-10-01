@@ -90,7 +90,45 @@ its group killer runs at the deadline, with a 200 ms helper budget. A hung
 helper, child or inherited output pipe cannot hold the returned promise open.
 Warnings distinguish unconfirmed cleanup from a process observed to exit.
 A timed-out Claude probe rejects startup; an unreadable brain version warns
-and continues; a known incompatible brain version rejects startup.
+and continues by default; a known incompatible brain version rejects startup.
+
+## Host version minima
+
+`CreateAppOptions.versionRequirements?: HostVersionRequirements` lets a host
+declare full SemVer minima for the content checkout's CLI and active backends:
+
+```ts
+const app = await createApp({
+  versionRequirements: {
+    brainCli: "0.33.0",
+    backends: { claude: { sdk: "0.3.283", runtime: "2.1.283" } },
+  },
+});
+```
+
+Values must be full ASCII versions such as `1.2.3`, `1.2.3-beta.1` or
+`1.2.3+build.8`; ranges, prefixes, partial versions and blanks are refused.
+The whole configuration is validated before probes or app resources open.
+Unknown/inactive backend ids and requested identities a descriptor cannot
+report are errors. An injected registry cannot verify explicit backend
+requirements and is refused; injection remains supported without them, and
+can still use a verified `brainCli` minimum.
+
+The CLI always retains the server's `0.33.0` floor. An explicit `brainCli`
+minimum makes a failed or unknown version an error and rechecks the selected
+executable before each client invocation, including streaming sync. Direct
+`createBrainClient({ brainPath, minimumVersion, log })` consumers get the same
+explicit check. The packaged executable or legacy script, wrapper, environment
+and working directory are shared by the probe and invocation. A probe cannot
+eliminate a replacement race; keep the executable installation immutable.
+
+Backend minima are checked against the descriptor's actual SDK/runtime
+reports at startup and registry construction, and forwarded unchanged as
+`BackendModuleContext.versionRequirements`. Backend package range enforcement
+and checks before releasing a chat prompt are separate backend work tracked in
+[#643](https://github.com/schlessera/brain-kit/issues/643). Compatibility and the
+pair a backend was measured against stay distinct; this option does not add
+fields to health/status reports or promise every allowed version was measured.
 
 ## Interactive search
 

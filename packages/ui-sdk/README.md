@@ -71,8 +71,23 @@ resources. Descriptor authors migrating from the synchronous signature use
 `async probeRuntime(context)` and reject to refuse startup. The shared
 `probeVersionCommand` runs a version argv with the five-second deadline,
 250 ms cleanup budget and explicit `cleanupWarnings`; it does not decide the
-backend's version policy. `killWrapped` accepts optional bounded helper
+backend's version policy. Its optional `signal` lets an invocation check
+share a request's cancellation/deadline, with the same bounded cleanup. `killWrapped` accepts optional bounded helper
 handling for these probes; omitting it retains turn cancellation behavior.
+
+`BackendModuleContext.versionRequirements?: BackendVersionRequirements`
+carries the host's optional `{ sdk?: string; runtime?: string }` full SemVer
+minima to probing and construction. Compose these with package-owned bounds
+using `assertVersionRequirements({ identity, version, requirements, phase,
+action, unknownReason? })`. Each requirement retains its `owner`, original
+`declaration` and `kind: "range" | "minimum"`. The helper rejects invalid
+declarations, conflicting requirements, unknown identities and versions that
+do not satisfy every owner. It preserves range upper bounds, OR grouping,
+build metadata precedence and each declaration's prerelease tuple opt-in.
+`validateVersionMinimum(value, owner, identity)` validates full ASCII minima
+without coercion. Both helpers ship in `./server` with a runtime dependency on
+node-semver; they perform no I/O or package resolution. Resolve the actual SDK
+copy beside the importing backend, and probe the executable that will run.
 
 The supported permission toolkit is `decideToolPermission`,
 `createToolPermissionRequest`, `requestToolPermission`, `checkEditedApproval`

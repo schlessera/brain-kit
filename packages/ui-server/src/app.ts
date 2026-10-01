@@ -63,9 +63,12 @@ import {
   assertBackendResolvable,
   probeBackendRuntimes,
   createBackendRegistry,
+  validateBackendVersionRequirements,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
+import type { BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
+import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
 import { WsHost } from "./ws/host.js";
@@ -79,7 +82,15 @@ import type { AppEnv } from "./app-env.js";
 
 export type { AppRenderer };
 
+/** Explicit host minima for independently resolved content and backend runtimes. */
+export interface HostVersionRequirements {
+  brainCli?: string;
+  backends?: Readonly<Record<string, BackendVersionRequirements>>;
+}
+
 export interface CreateAppOptions {
+  /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
+  versionRequirements?: HostVersionRequirements;
   /**
    * Fully-resolved configuration. When omitted, `createApp` resolves it from
    * the process environment ONCE, here at the edge — nothing deeper in the
@@ -186,6 +197,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // guarantee on an unsafe auth configuration.
   assertAuthConfig(authMode, auth, authLog);
   assertPasskeyConfig(config.webauthn);
+  const suppliedRequirements = options.versionRequirements;
+  if (suppliedRequirements !== undefined && (!suppliedRequirements || typeof suppliedRequirements !== "object" || Array.isArray(suppliedRequirements))) {
+    throw new Error("Invalid host versionRequirements during startup: supply a brainCli/backends object.");
+  }
+  for (const key of Object.keys(suppliedRequirements ?? {})) {
+    if (key !== "brainCli" && key !== "backends") throw new Error(`Invalid host versionRequirements.${key} during startup: use brainCli or backends minima.`);
+  }
+  const brainCliMinimum = suppliedRequirements && Object.hasOwn(suppliedRequirements, "brainCli")
+    ? validateVersionMinimum(suppliedRequirements.brainCli, "host versionRequirements.brainCli", "brain CLI during startup")
+    : undefined;
+  const backendRequirements = validateBackendVersionRequirements(config.agent, suppliedRequirements?.backends);
+  if (options.registry && Object.keys(backendRequirements ?? {}).length > 0) {
+    throw new Error(`Cannot verify host versionRequirements.backends during startup through an injected registry: detected identities unknown; declarations ${JSON.stringify(backendRequirements)}. Use the descriptor-backed default registry, or omit explicit backend requirements.`);
+  }
   // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
   // first turn — otherwise /api/health reports healthy while every turn is
   // guaranteed to fail. Descriptor loading and profile validation happen here;
@@ -201,12 +226,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // nothing behind. Skipped with an injected registry, like the check above.
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  await probeBrainCliVersion(config.brainPath, observability.logger("brain"));
+  await probeBrainCliVersion(config.brainPath, observability.logger("brain"), { minimumVersion: brainCliMinimum });
   // Provision the independently authorized runtime file before opening handles.
   const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
@@ -227,7 +252,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
-  const brain = createBrainClient({ brainPath: config.brainPath });
+  const brain = createBrainClient({ brainPath: config.brainPath, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
@@ -246,6 +271,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const registry =
     options.registry ??
     createBackendRegistry({
+      versionRequirements: backendRequirements,
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
@@ -465,7 +491,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route(
     "/api",
-    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms })
+    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
   // Behind the guard by mount position, like /api/status: the activity
