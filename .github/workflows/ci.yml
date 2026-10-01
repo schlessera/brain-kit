@@ -715,6 +715,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build workspace exports used by the browser integration tests
         run: bun run build
+      - name: Prepare pinned preview fonts for ranking layout verification
+        run: bun run capture:fonts
       - name: Stories on dark and on paper (D32), and the visual baselines
         run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
       - name: Dictation phone and desktop review captures
