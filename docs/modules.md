@@ -367,7 +367,11 @@ opportunity notes.
   adds browser boards to the configured selection; `--browser-only` selects
   only browser boards. Selected adapters receive Chrome automatically.
 - **Cron:** advisory `scrape` daily at 06:00 runs plain `jobs scrape`, following
-  the same effective module settings as a manual run without adding boards.
+  the same effective module settings as a manual run without adding boards. Omitted
+  boards use curated defaults; explicit `boards: []` selects nothing and
+  succeeds without scrape requests. Unknown or retired names reject the whole
+  selection through the shared load/save validator. See the
+  [selection decision](decisions/jobs-board-defaults.md).
 - **Caveat:** scraping may violate a board's Terms of Service — review each
   board's ToS and `robots.txt`, keep volume low, and prefer official feeds. See
   the module README.

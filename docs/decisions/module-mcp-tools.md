@@ -37,7 +37,7 @@ places.
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
    reads markdown. The jobs review queue is not markdown. It lives in the
    module's own SQLite file (`const dbPath`,
-   `packages/module-jobs/src/cli.ts:57`). "Anything new in my job queue
+   `packages/module-jobs/src/cli.ts:58`). "Anything new in my job queue
    above 70?" therefore has no answer by voice. The agent can say it cannot
    help, or it can make something up.
 2. **In a client with no shell at all.** [mcp.md](../mcp.md) names desktop
@@ -63,7 +63,7 @@ hygiene checks, index rules, excludes and cron, but no tools
   tool's name. A module cannot choose its prefix.
 - **Expose every CLI subcommand automatically.** The CLI's argument parsing
   is not a schema (`function makeArgs`,
-  `packages/module-jobs/src/cli.ts:86-105`), and its human output is not a
+  `packages/module-jobs/src/cli.ts:87-106`), and its human output is not a
   result. An automatic bridge would ship interactive commands (`jobs
   triage`), mutating ones and TTY-only ones with no schema and no
   annotations. A tool is declared one at a time, deliberately.
@@ -339,7 +339,7 @@ first-party tool gets a row.
 
 **The workflow it enables.** A brain owner has enabled `module-jobs` and uses
 the hosted PWA by voice. The daily cron has already scraped and scored
-(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:75`). They
+(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:76`). They
 ask "anything new in my job queue above 70?". The voice turn calls
 `mcp__brain__jobs_review` with `{ min_score: 70 }` and reads back titles,
 companies and scores. The same call works from a desktop MCP client with no
@@ -347,7 +347,7 @@ shell.
 
 **The operation it shares.** `brain jobs review --json` parses flags,
 calls the shared `reviewJobs` operation, and prints `{ jobs }`
-(`function cmdReview`, `packages/module-jobs/src/cli.ts:320-357`). The query
+(`function cmdReview`, `packages/module-jobs/src/cli.ts:300-337`). The query
 is `getReviewQueue` (`export function getReviewQueue`,
 `packages/module-jobs/src/review.ts:12-49`). The exported operation
 (`export function reviewJobs`,

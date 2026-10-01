@@ -49,7 +49,32 @@ Alternatives rejected:
 - Migrate existing TypeScript selections automatically. Explicit user choices
   remain authoritative until the user changes them.
 
-This decision changes omitted defaults only. Invalid names and explicit empty
-selection semantics belong to
-[#218](https://github.com/schlessera/brain-kit/issues/218); scheduled selection
-is governed by [#227](https://github.com/schlessera/brain-kit/issues/227).
+**Strict selection, decided 2026-09-28 on
+[#218](https://github.com/schlessera/brain-kit/issues/218):** an explicit empty
+`boards` array intentionally selects nothing. JSON `boards: []` replaces a
+nonempty TypeScript selection, and TypeScript `boards: []` replaces defaults.
+An ordinary scrape reports “no boards selected”, succeeds and invokes no
+adapters or network transports. Its existing JSON report has empty `sources`
+and zero totals; it also leaves existing jobs unscored and undeduplicated.
+
+Unknown or retired names reject the entire selection, even beside valid names.
+The shared module schema validates both saves and hand-edited settings with
+field-level diagnostics. Invalid saves preserve settings bytes and create no
+commit. A retired name includes its retirement explanation and valid choices;
+it never becomes a warning followed by a partial scrape or default fallback.
+Invalid loaded settings can block other module commands until corrected. CLI
+dispatch retains the settings error when the invalid module's namespace could
+not be registered.
+
+Positionals still override a valid configured selection, `--all` still selects
+every board, and the browser selectors retain their existing behavior. These
+manual selectors do not bypass invalid loaded settings. The contributed
+schedule uses ordinary `jobs scrape` under
+[#227](https://github.com/schlessera/brain-kit/issues/227), so it observes the
+same validation and empty-selection semantics.
+
+Keyless fixtures run the real CLI and contributed command, shared writer and
+mounted settings HTTP route. They retain nonempty mixed invalid inputs and
+nonempty TypeScript settings beneath an empty JSON override. Adapter and
+transport observations distinguish rejection or intentional emptiness from a
+silently filtered, partially executed or default-substituted run.

@@ -36,24 +36,30 @@ describe("selectSources", () => {
     expect((selection as { error: string }).error).toContain("retired");
   });
 
-  test("a boards config naming a retired board warns, and runs the rest", () => {
-    // A scheduled scrape should not stop over a config that predates the
-    // retirement; it should say so every run until the config is fixed.
+  test("a configured retired board rejects the complete selection", () => {
     const selection = selectSources({ positional: [], configured: ["remoteineurope", "remoteok"] });
-
-    expect("error" in selection).toBe(false);
-    expect((selection as { sources: string[] }).sources).toEqual(["remoteok"]);
-    expect(selection.warnings).toHaveLength(1);
-    expect(selection.warnings[0]).toContain("remoteineurope");
-    expect(selection.warnings[0]).toContain("retired");
-    expect(selection.warnings[0]).toContain("boards");
+    expect("error" in selection).toBe(true);
+    expect((selection as { error: string }).error).toContain(RETIRED_SOURCES.remoteineurope);
+    expect(selection.warnings).toEqual([]);
   });
 
-  test("a boards config naming only a retired board falls back to the defaults, and warns", () => {
-    const selection = selectSources({ positional: [], configured: ["remoteineurope"] });
+  test("all-invalid configured boards reject instead of falling back", () => {
+    const selection = selectSources({ positional: [], configured: ["remoteineurope", "nosuchboard"] });
+    expect("error" in selection).toBe(true);
+    expect((selection as { error: string }).error).toContain("nosuchboard");
+    expect((selection as { error: string }).error).toContain("retired");
+  });
 
-    expect((selection as { sources: string[] }).sources).toEqual([...SOURCES]);
-    expect(selection.warnings[0]).toContain("retired");
+  test("explicit empty settings select nothing; omitted settings select defaults", () => {
+    expect(selectSources({ positional: [], configured: [] })).toEqual({ sources: [], warnings: [] });
+    expect(selectSources({ positional: [] })).toEqual({ sources: [...SOURCES], warnings: [] });
+  });
+
+  test("manual selectors keep precedence over valid empty settings", () => {
+    expect(selectSources({ positional: ["remoteok"], configured: [], all: true })).toEqual({ sources: ["remoteok"], warnings: [] });
+    expect(selectSources({ positional: [], configured: [], all: true })).toEqual({ sources: [...ALL_SOURCES], warnings: [] });
+    expect(selectSources({ positional: [], configured: [], browser: true })).toEqual({ sources: [...BROWSER_SOURCES], warnings: [] });
+    expect(selectSources({ positional: [], configured: [], browserOnly: true })).toEqual({ sources: [...BROWSER_SOURCES], warnings: [] });
   });
 
   test("an unknown name is still reported as unknown", () => {
@@ -65,7 +71,7 @@ describe("selectSources", () => {
 
   test("--all and the defaults do not run a retired board", () => {
     const all = selectSources({ positional: [], configured: [], all: true }) as { sources: string[] };
-    const defaults = selectSources({ positional: [], configured: [] }) as { sources: string[] };
+    const defaults = selectSources({ positional: [] }) as { sources: string[] };
 
     // Positive as well as negative: a selection that returned nothing would
     // pass every `not.toContain` below.

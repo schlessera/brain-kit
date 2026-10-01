@@ -128,6 +128,9 @@ export async function runScrape(opts: {
       total_errors: [],
     };
 
+    // Explicit emptiness is a successful no-op, including for existing jobs.
+    if (sources.length === 0) return report;
+
     const adapters = sources.map((source) => getAdapter(source, opts.queries));
     // Two chokepoints: the scraping base owns SCRAPE_*, this module owns the
     // legacy CHROME_CDP_URL. SCRAPE_CHROME_URL wins when both are set.

@@ -43,7 +43,7 @@ entry through their concrete jobs base; context belongs to one call and is
 released afterward. Their parser/page methods are ordinary implementation.
 
 Production calls the shared runner
-(`const outcomes = await runAdapters`, `packages/module-jobs/src/scrape.ts:153-170`).
+(`const outcomes = await runAdapters`, `packages/module-jobs/src/scrape.ts:156-173`).
 The competing bind/parallel-execution path is removed. The existing sequential
 runner executes in selection order; this migration adds no concurrency policy
 or new scheduling knob. Jobs still collects every listing before its fair,
