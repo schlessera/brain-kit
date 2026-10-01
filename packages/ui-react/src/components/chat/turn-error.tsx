@@ -9,6 +9,24 @@ import { failurePresentation, redactProviderMessage } from "../../lib/turn-failu
 
 type Review = { mode: "copy" | "report"; initial: string };
 
+/** Count down to the reported absolute reset; replay never starts a new delay. */
+function useResetCountdown(resetsAt: number | undefined) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (resetsAt === undefined) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      const remaining = resetsAt - current;
+      if (remaining > 0) timer = setTimeout(tick, Math.min(1000, remaining));
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [resetsAt]);
+  return resetsAt === undefined ? 0 : Math.max(0, Math.ceil((resetsAt - now) / 1000));
+}
+
 export function TurnError({ message, latest }: { message: ChatMessage; latest: boolean }) {
   const root = useBrainUiRoot();
   const failure = message.failure!;
@@ -19,6 +37,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
   const busy = Boolean(pending) && pending?.failedTurnId === message.retryOfTurnId && pending?.state === "waiting";
   const uncertain = Boolean(pending) && pending?.failedTurnId === message.retryOfTurnId && pending?.state === "unknown";
   const presentation = failurePresentation(failure);
+  const resetSeconds = useResetCountdown(latest && presentation.retry && message.retryOfTurnId ? failure.resetsAt : undefined);
   const [announce] = useState(message.failureLive);
   const [review, setReview] = useState<Review | null>(null);
   const [notice, setNotice] = useState("");
@@ -34,6 +53,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
   const rows = [
     ...(backend ? [{ k: "backend", v: backend }] : []),
     ...(failure.status !== undefined ? [{ k: "status", v: String(failure.status) }] : []),
+    ...(failure.attempts !== undefined ? [{ k: "retries", v: String(failure.attempts) }] : []),
     { k: "class", v: failure.errorClass },
   ];
   function openReview(mode: Review["mode"]) {
@@ -48,8 +68,9 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
   const actions = [
     // Retry is wired below to the host's retained original request, rather
     // than reconstructing an attachment-bearing prompt from count-only history.
-    ...(latest && presentation.retry && message.retryOfTurnId ? [{ label: uncertain ? "Check delivery" : busy ? "Retrying…" : "Retry", primary: true, disabled: busy, onClick: () => {
+    ...(latest && presentation.retry && message.retryOfTurnId ? [{ label: uncertain ? "Check delivery" : busy ? "Retrying…" : resetSeconds > 0 ? `Retry · in ${resetSeconds}s` : "Retry", primary: true, disabled: busy || (!uncertain && resetSeconds > 0), onClick: () => {
       if (uncertain && sessionId) { root.connection.checkRetryDelivery(sessionId); return; }
+      if (failure.resetsAt !== undefined && failure.resetsAt > Date.now()) return;
       const result = root.connection.retryTurn(message.retryOfTurnId!);
       if (result === "refused") setNotice("Couldn't send. Check the connection and try again.");
     }}] : []),
