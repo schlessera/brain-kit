@@ -17,19 +17,21 @@ modules: {
 
 ## Contributed type
 
-| Type      | Directory   | Notes |
-|-----------|-------------|-------|
-| `finance` | `clients/`  | one sub-directory per client, each holding a `ledger.md` |
+| Type      | Directory (default) | Notes |
+|-----------|---------------------|-------|
+| `finance` | `clients/`          | one sub-directory per client, each holding a `ledger.md` |
 
-**Relocating the directory.** The manifest declares the `finance` type's dir as
-the static literal `clients` (a module manifest is evaluated before user config,
-so it cannot read `clientsDir`). The `clientsDir` config option is what the CLI
-and hygiene check actually use. If you move clients elsewhere, set **both**:
+**Relocating the directory.** Module setup derives the `finance` type's directory
+from the validated `clientsDir` setting. Finance commands and the hygiene check
+use the same setting. To keep client ledgers under `billing/clients`, configure:
 
 ```ts
 modules: { "@schlessera/brain-module-finance": { clientsDir: "billing/clients" } },
-taxonomy: { types: { finance: { dir: "billing/clients" } } },
 ```
+
+No taxonomy override is required for relocation. Use a
+[taxonomy type override](../../docs/configuration.md#taxonomytypes) for separate
+type customization, such as its staleness policy.
 
 ## Config schema
 
@@ -42,7 +44,7 @@ taxonomy: { types: { finance: { dir: "billing/clients" } } },
 
 ## Ledger frontmatter spec
 
-Each `clients/<slug>/ledger.md` carries this frontmatter. `templates/ledger.md`
+Each `<clientsDir>/<slug>/ledger.md` carries this frontmatter. `templates/ledger.md`
 is the annotated starter (used by `brain finance new-client`); this table is the
 authoritative field reference.
 
@@ -98,8 +100,8 @@ The module registers one top-level command, `brain finance`:
 | Command                        | Effect |
 |--------------------------------|--------|
 | `brain finance`                | AR report across every client ledger (`--json` for a `{ portfolio }` envelope). |
-| `brain finance sync`           | Regenerate the tables in each ledger body and the `clients/_index.md` dashboard from frontmatter (`--json` → `{ files }`). |
-| `brain finance new-client <slug>` | Scaffold `clients/<slug>/ledger.md` from `templates/ledger.md` (errors if it already exists). |
+| `brain finance sync`           | Regenerate the tables in each ledger body and the `<clientsDir>/_index.md` dashboard from frontmatter (`--json` → `{ files }`). |
+| `brain finance new-client <slug>` | Scaffold `<clientsDir>/<slug>/ledger.md` from `templates/ledger.md` (errors if it already exists). |
 
 ### Generated block
 
@@ -120,11 +122,11 @@ A ledger still carrying the older `<!-- BEGIN GENERATED … -->` /
 ## Index-sync rules
 
 This module contributes no directory anchors of its own; ledgers are ordinary
-documents plus a generated `clients/_index.md` dashboard.
+documents plus a generated `<clientsDir>/_index.md` dashboard.
 
 ## Hygiene check
 
 `ledger generated block out of date` — a dry-run of `sync`. For every ledger (and
-`clients/_index.md`) whose generated block no longer matches its frontmatter, it
+`<clientsDir>/_index.md`) whose generated block no longer matches its frontmatter, it
 emits a `warning` audit issue suggesting `brain finance sync`. Surfaced by
 `brain audit`.
