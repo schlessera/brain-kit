@@ -148,3 +148,6 @@ export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";
 
 export * from "../protocol.js";
+
+export { assertVersionRequirements, validateVersionMinimum } from "./version-requirements.js";
+export type { BackendVersionRequirements, VersionRequirement, VersionRequirementCheck } from "./version-requirements.js";

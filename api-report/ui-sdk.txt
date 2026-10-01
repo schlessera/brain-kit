@@ -995,6 +995,7 @@ export "./server" (./src/server/index.ts)
   type BackendRuntimeReport
   type BackendSettingsHooks
   type BackendSettingsReaders
+  type BackendVersionRequirements
   type BillingMode
   type Block
   type BlockKind
@@ -1268,6 +1269,8 @@ export "./server" (./src/server/index.ts)
   VERSION_PROBE_TIMEOUT_MS
   type VersionProbeOptions
   type VersionProbeResult
+  type VersionRequirement
+  type VersionRequirementCheck
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -1290,6 +1293,7 @@ export "./server" (./src/server/index.ts)
   askUserRankPayload
   askUserRankSpec
   assertTurnPosture
+  assertVersionRequirements
   bashLockKey
   bridgeContractForToolName
   buildSystemPromptAppend
@@ -1362,6 +1366,7 @@ export "./server" (./src/server/index.ts)
   toolInputJsonSchema
   transformCandidate
   validateExecWrapper
+  validateVersionMinimum
   visibleToolName
   webSearchBrief
   webSearchProvider
@@ -2199,6 +2204,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         settings: Partial<BackendSettingsReaders>;
         log?: BackendLogFn;
         modelSource?: BackendModelSource | null;
+        versionRequirements?: BackendVersionRequirements;
     }
   BackendModuleResolution (packages/ui-sdk/src/server/backend-module.ts)
     export type BackendModuleResolution = {
@@ -2277,6 +2283,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         getCustomOpenRouterModels(): string[];
         getThinkingOverrides(): Record<string, string>;
         getBillingOverrides(): Record<string, BillingMode>;
+    }
+  BackendVersionRequirements (packages/ui-sdk/src/server/version-requirements.ts)
+    export interface BackendVersionRequirements {
+        sdk?: string;
+        runtime?: string;
     }
   BillingMode (packages/ui-sdk/src/protocol.ts)
     export type BillingMode = "subscription" | "api";

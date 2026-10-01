@@ -8,11 +8,12 @@ import type {
   BackendModelSourceState,
   BackendModule,
   BackendModuleContext,
+  BackendVersionRequirements,
   BackendSettingsHooks,
   BackendSettingsReaders,
   ResolvedBackendModule,
 } from "@schlessera/brain-ui-sdk/server";
-import { BackendProfileConfigError } from "@schlessera/brain-ui-sdk/server";
+import { assertVersionRequirements, validateVersionMinimum, BackendProfileConfigError } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
 import { createRequire } from "module";
 
@@ -39,6 +40,8 @@ function toBackendLog(log: Logger): BackendLogFn {
 }
 
 export interface BackendRegistryOptions {
+  /** Explicit host minima forwarded to every active descriptor. */
+  versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>;
   brainPath: string;
   agent: AgentConfig;
   getHiddenModelIds?: () => string[];
@@ -318,6 +321,56 @@ export interface BackendRuntimeProbe {
   report: BackendRuntimeReport;
 }
 
+/** Validate all requested backend identities before loading or probing them. */
+export function validateBackendVersionRequirements(agent: AgentConfig, value: unknown): Readonly<Record<string, BackendVersionRequirements>> | undefined {
+  if (value === undefined) return undefined;
+  const refuse = (message: string): never => { throw new Error(`Invalid host versionRequirements.backends during configuration validation: ${message}; detected identities unknown (not probed). Configure minima only for active backends that report the requested identity.`); };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return refuse("expected a backend-id object");
+  const active = new Set(activeFirstPartyBackends(agent).map(entry => entry.id));
+  const result: Record<string, BackendVersionRequirements> = {};
+  for (const [id, pair] of Object.entries(value)) {
+    if (!active.has(id as "claude" | "pi")) return refuse(`backend ${JSON.stringify(id)} is unknown or inactive`);
+    if (!pair || typeof pair !== "object" || Array.isArray(pair)) return refuse(`backend ${JSON.stringify(id)} needs an sdk/runtime object`);
+    const minima: BackendVersionRequirements = {};
+    for (const [identity, minimum] of Object.entries(pair)) {
+      if (identity !== "sdk" && identity !== "runtime") return refuse(`unsupported identity ${JSON.stringify(identity)} for backend ${JSON.stringify(id)}`);
+      minima[identity] = validateVersionMinimum(minimum, `host versionRequirements.backends.${id}.${identity}`, `${id} ${identity} during configuration validation`);
+    }
+    result[id] = Object.freeze(minima);
+  }
+  return Object.freeze(result);
+}
+
+async function verifyBackendRequirements(descriptor: BackendModule, context: BackendModuleContext, phase: string): Promise<BackendRuntimeReport | undefined> {
+  const requirements = context.versionRequirements;
+  const requested = requirements && Object.keys(requirements).length > 0;
+  if (!descriptor.probeRuntime) {
+    if (requested) throw new Error(`Cannot verify host versionRequirements for backend ${descriptor.id} during ${phase}: detected identity unknown; declarations ${JSON.stringify(requirements)}; descriptor has no runtime probe. Use a descriptor that reports the requested SDK/runtime identity.`);
+    return undefined;
+  }
+  let report: BackendRuntimeReport;
+  try {
+    report = await descriptor.probeRuntime(context);
+  } catch (error) {
+    if (!requested) throw error;
+    throw new Error(`Cannot verify host versionRequirements for backend ${descriptor.id} during ${phase}: detected identity unknown; declarations ${JSON.stringify(requirements)}; ${error instanceof Error ? error.message : String(error)}. Install a compatible SDK/runtime and ensure its version probe succeeds.`);
+  }
+  for (const identity of ["sdk", "runtime"] as const) {
+    const minimum = requirements?.[identity];
+    if (minimum === undefined) continue;
+    const found = report[identity];
+    assertVersionRequirements({
+      identity: `${descriptor.id} ${identity}${found?.name ? ` (${found.name})` : ""}`,
+      version: found?.name && typeof found.version === "string" ? found.version : null,
+      requirements: [{ owner: `host versionRequirements.backends.${descriptor.id}.${identity}`, kind: "minimum", declaration: minimum }],
+      phase,
+      unknownReason: `descriptor does not report a verifiable ${identity} identity`,
+      action: `Install a compatible ${descriptor.id} ${identity}, or use a descriptor that reports that identity.`,
+    });
+  }
+  return report;
+}
+
 /**
  * Probe the runtime every active first-party backend would spawn, at boot
  * (#211). A backend whose runtime is missing or will not start throws, which
@@ -330,20 +383,23 @@ export async function probeBackendRuntimes(
   agent: AgentConfig,
   brainPath: string,
   log?: Logger,
-  load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier)
+  load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier),
+  versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>
 ): Promise<BackendRuntimeProbe[]> {
+  const validated = validateBackendVersionRequirements(agent, versionRequirements);
   const probes: BackendRuntimeProbe[] = [];
   for (const entry of activeFirstPartyBackends(agent)) {
     const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
-    if (!descriptor.probeRuntime) continue;
-    const report = await descriptor.probeRuntime({
+    const report = await verifyBackendRequirements(descriptor, {
       brainPath,
       config: { ...agent },
       profiles: [],
       confirmBashPatterns: agent.confirmBashPatterns,
       settings: {},
+      ...(validated?.[entry.id] ? { versionRequirements: validated[entry.id] } : {}),
       ...(log ? { log: toBackendLog(log) } : {}),
-    });
+    }, "startup");
+    if (!report) continue;
     const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
     log?.emit({
       severityText: "INFO",
@@ -392,6 +448,7 @@ function settingsFor(
 
 export function createBackendRegistry(options: BackendRegistryOptions): BackendRegistry {
   const { brainPath, agent } = options;
+  const versionRequirements = validateBackendVersionRequirements(agent, options.versionRequirements);
   const primary = agent.backend || "claude";
   if (!firstParty(primary)) {
     return makeRegistry(async () => {
@@ -430,8 +487,12 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
         profiles: parsed.profiles,
         confirmBashPatterns: agent.confirmBashPatterns,
         settings: settingsFor(descriptor.settingsHooks, readers),
+        ...(versionRequirements?.[entry.id] ? { versionRequirements: versionRequirements[entry.id] } : {}),
         ...(backendLog ? { log: backendLog } : {}),
       };
+      if (baseContext.versionRequirements && Object.keys(baseContext.versionRequirements).length) {
+        await verifyBackendRequirements(descriptor, baseContext, "registry construction");
+      }
       const source = descriptor.modelSource?.(baseContext) ?? null;
       const resolution = await descriptor.resolveFromEnv({
         ...baseContext,

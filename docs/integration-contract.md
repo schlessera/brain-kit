@@ -199,8 +199,8 @@ from `@schlessera/brain-ui-sdk/server` now returns
 asynchronous and reject when their required runtime is unavailable. The
 server awaits active backend probes, then the brain CLI version probe, before
 opening its database or starting application services. Injecting a registry
-continues to bypass first-party backend probes, while retaining the brain CLI
-check and configuration validation.
+continues to bypass first-party backend probes without explicit backend
+requirements, while retaining the brain CLI check and configuration validation.
 
 Both built-in version probes run only `--version`, with a five-second deadline
 and up to 250 ms of cleanup, subject to event-loop scheduling. At the deadline
@@ -211,8 +211,21 @@ inherited output pipes or the helper; incomplete cleanup is reported as
 unconfirmed, not as proof that work stopped. Turn cancellation retains its
 existing behavior. Printing a version before timing out does not count as
 success. Claude runtime failure refuses startup; an unknown or unreadable
-brain CLI version warns and continues, and a known incompatible version
-refuses. Compatibility floors and version report shapes are unchanged.
+brain CLI version warns and continues by default, and a known incompatible
+version refuses. Version report shapes and the default CLI floor are unchanged.
+
+**Additive host requirements (#642):** `CreateAppOptions.versionRequirements`
+accepts optional `brainCli` and `backends[backendId].sdk/runtime` full SemVer
+minima. They cannot weaken package constraints. Validation and requested
+identity checks precede app resource creation; unsupported injected backend
+verification refuses startup explicitly. An explicit content-CLI minimum
+refuses unknown versions and revalidates the actual executable before client
+and streaming-sync invocations. Backend minima travel through the existing
+`BackendModuleContext.versionRequirements` to probes and construction. The
+shared server SDK helper retains every owner/declaration, upper bounds, OR
+grouping and normal per-tuple prerelease opt-in. Compatibility remains separate
+from measured status and index schemas; no wire/report fields change. Backend
+factory and pre-prompt enforcement are the separately scoped #643.
 
 ## HTML renderer budgets
 

@@ -44,7 +44,7 @@ next to it.
   `packages/ui-server/src/config/env.ts:388-393`) and is null when unset
   (`claudeCodePath`, `packages/ui-server/src/config/env.ts:860`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:429`), read back as a string
+  `packages/ui-server/src/agent/backend.ts:486`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:265-268`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:177-178`). Because of the `||`
@@ -60,9 +60,9 @@ next to it.
   spawns it directly.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
-  (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:134-186`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:209`).
+  (`Probe the selected content CLI`,
+  `packages/ui-server/src/brain/client.ts:105-157`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:234`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +71,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:48`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:389`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:391`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,10 +85,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:389`, eight
+  (`optionalDependencies`, `bun.lock:391`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:399`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:401`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -207,7 +207,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:189-194`).
+  `packages/ui-server/src/app.ts:214-219`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -237,8 +237,8 @@ than refuses on a mismatch.**
   at the measured version, and then the CLI number alone looks right while the
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
-  `brain` CLI probe (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:134`). The SDK's
+  `brain` CLI probe (`Probe the selected content CLI`,
+  `packages/ui-server/src/brain/client.ts:105`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -379,7 +379,7 @@ until re-measured.
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:621-631` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:231-244` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:243-256` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 | `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2690-2713` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:775,793`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**

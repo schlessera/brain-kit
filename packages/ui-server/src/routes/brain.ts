@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { BrainClient } from "../brain/client.js";
+import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
+import type { Logger } from "@opentelemetry/api-logs";
 import { execConfig, subprocessEnv } from "../config/env.js";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
@@ -17,6 +18,8 @@ import { requireJson } from "../middleware/origin.js";
 const syncingRoots = new Set<string>();
 
 export interface BrainRoutesDeps {
+  brainCliMinimum?: string;
+  log?: Logger;
   brain: BrainClient;
   brainPath: string;
   keyterms: KeytermSettings;
@@ -266,7 +269,11 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // brain.cliCommand() (packaged bin or legacy vendored script), passed to
         // bash as positional args rather than interpolated into the script, so a
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
-        const [cliBin, ...cliArgs] = brain.cliCommand();
+        const command = brain.cliCommand();
+        if (deps.brainCliMinimum !== undefined) {
+          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command });
+        }
+        const [cliBin, ...cliArgs] = command;
         const sync = execConfig();
         const proc = Bun.spawn(
           wrapCommand(

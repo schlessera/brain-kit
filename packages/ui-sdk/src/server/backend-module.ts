@@ -1,6 +1,7 @@
 import type { BillingMode, PricingRoute, ProviderInfo } from "../protocol.js";
 import type { AgentBackend } from "./backend.js";
 import type { ConfirmPatternSource } from "./confirm-patterns.js";
+import type { BackendVersionRequirements } from "./version-requirements.js";
 
 /** @experimental Minimal logging boundary shared by backend modules and hosts. */
 export type BackendLogFn = (
@@ -101,6 +102,8 @@ export interface BackendModuleContext {
   settings: Partial<BackendSettingsReaders>;
   log?: BackendLogFn;
   modelSource?: BackendModelSource | null;
+  /** Explicit host minima, composed with the backend package's own requirements. */
+  versionRequirements?: BackendVersionRequirements;
 }
 
 /**
