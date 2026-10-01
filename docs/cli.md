@@ -135,6 +135,9 @@ is always rejected, even when excluded from indexing.
 `okf-dist` is excluded by default. Wiki-links are resolved against only the exported
 file set, so links into excluded domains degrade to plain display text rather than
 leaking paths.
+Same-document heading links such as `[[#Section one]]` use the heading as their
+visible label; an explicit pipe label takes precedence. Heading fragments are
+preserved without checking whether the heading exists.
 
 ## Onboarding + health
 

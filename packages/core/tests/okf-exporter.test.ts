@@ -18,6 +18,7 @@ import {
 } from "../src/lib/okf-exporter";
 import { getMarkdownFiles } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
+import { makeTempBrain, runCli } from "./cli-harness";
 
 const fixtures: string[] = [];
 afterAll(() => {
@@ -177,6 +178,36 @@ describe("OKF exporter", () => {
     expect(report.linksConverted).toBe(7);
     expect(report.linksDegraded).toBe(2);
     expect(report.degradedLinks.map((item) => item.link)).toEqual(["duplicate", "missing-note"]);
+  });
+
+  test("real fixture export gives same-document heading links visible text", async () => {
+    const root = makeTempBrain();
+    fixtures.push(root);
+    const sourcePath = "notes/anchor-test.md";
+    const source = document("Anchor test", [
+      "## Section one",
+      "",
+      "Plain: [[#Section one]]",
+      "Labelled: [[#Section one|read this section]]",
+      "Trailing slash: [[#Section one/]]",
+      "Missing heading: [[#Missing heading]]",
+    ].join("\n"));
+    writeFileSync(join(root, sourcePath), source);
+    const before = snapshotTree(root);
+    expect(before[sourcePath]).toBe(Buffer.from(source).toString("base64"));
+    expect(Object.keys(before).length).toBeGreaterThan(1);
+
+    const exported = await runCli(root, ["okf", "export", "--json"]);
+    expect(exported.code).toBe(0);
+    const output = readFileSync(join(root, "okf-dist", sourcePath), "utf8");
+    expect(output).toContain("Plain: [Section one](/notes/anchor-test.md#Section one)");
+    expect(output).toContain("Labelled: [read this section](/notes/anchor-test.md#Section one)");
+    expect(output).toContain("Trailing slash: [Section one/](/notes/anchor-test.md#Section one/)");
+    expect(output).toContain("Missing heading: [Missing heading](/notes/anchor-test.md#Missing heading)");
+    const after = Object.fromEntries(
+      Object.entries(snapshotTree(root)).filter(([path]) => !path.startsWith("okf-dist/"))
+    );
+    expect(after).toEqual(before);
   });
 
   test("maps OKF fields, preserves extensions, and keeps timestamp/date/array scalar styles", async () => {
