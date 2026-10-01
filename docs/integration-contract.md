@@ -98,6 +98,65 @@ finish before the interactive wait bound; a lock is never handed to another
 writer while the first body can still write. Semantically different tool inputs
 are evaluated as new calls under current authority, not deduplicated effects.
 
+## Operational recovery command (additive, #686)
+
+The Bun-only `brain-ui-inbox` bin accepts `export` or `restore` with required
+`--db <file>`, `--brain-root <directory>`, `--file <backup.json>` and optional
+`--json`. Paths are explicit; there are no environment defaults.
+Export opens an existing migrated UI database read-only. Restore accepts a new
+database/empty staging target, or the unchanged pending target from the identical
+interrupted restore. It never merges a populated target or opens `brain.db`.
+
+With `--json`, stdout contains one JSON object and a newline:
+
+| Outcome | Shape and exit |
+| --- | --- |
+| Export | `{ schema_version: 1, ok: true, command: "export", snapshot: { version: 1, checksum: string, created_at: number, recovery_point_hours: 24 } }`; exit 0. |
+| Restore | `{ schema_version: 1, ok: true, command: "restore", recovered: number, resumed: boolean }`; exit 0. `recovered` counts restored claims released into bounded retry/dead-letter recovery. |
+| Failure | `{ schema_version: 1, ok: false, error: { code: string } }`; exit 2 for `inbox_usage`, otherwise 1. JSON failure reports no private file paths or exception details. |
+
+Consumers tolerate unknown error codes. Supported codes include
+`inbox_snapshot_version`, `inbox_snapshot_checksum`, `inbox_snapshot_schema`,
+`inbox_snapshot_relations`, `inbox_snapshot_projection`,
+`inbox_snapshot_reservation`, `inbox_snapshot_staging`,
+`inbox_snapshot_missing_staging`, `inbox_snapshot_changed`,
+`inbox_snapshot_destination`, `inbox_restore_nonempty`, `inbox_restore_clock`,
+`inbox_restore_staging_changed`, `inbox_restore_pending`,
+`inbox_staging_symlink`, `inbox_staging_directory`, `inbox_staging_file`
+and `inbox_operation_failed` for unclassified schema/SQLite/filesystem failures.
+Without `--json`, success is human text; failures go to stderr.
+
+The private artifact is strict format `"brain-ui-operational-backup"`, version
+`1`: `{ format, version, createdAt, recoveryPointHours: 24, database:
+{ data, sha256 }, directories: string[], files: [{ data, sha256, path }],
+checksum }`. Times are UTC epoch milliseconds. Byte data is canonical base64;
+digests are lowercase SHA-256 hex. Paths are flat files under sorted canonical
+UUID staging directories, or their `.UUID.partial` directories. Directories
+and files are sorted in bytewise path order.
+
+The outer checksum hashes UTF-8 `JSON.stringify` of validated fields excluding
+`checksum`, in the displayed key order; database/file byte objects use
+`data, sha256`, with file `path` last. JSON whitespace and input object-key order
+do not affect validation. SQLite WAL image header bytes 18/19 are normalized
+to rollback mode in the copy for SQLite deserialization; live WAL is unchanged.
+The complete image retains all UI state, including principal/authentication
+records, Activity accounting, inbox relations and completed-call receipts.
+Each staged file is included with its own digest; required references/manifests
+must agree. An exact compatible SQLite schema/migration set is required.
+
+Database publication holds a durable pending gate while staging is restored.
+App/runtime startup, model claim/acquisition and compensation claims fail closed.
+Active budget settlement and old-worker claim recovery commit with the gate
+opening in one immediate transaction, preserving observed/conservative cost,
+admission day, attempts and stable follow-up identities. Receipts restrict
+replay under current authority. This neither enables production dispatch nor
+promises to recover effects newer than the backup.
+
+The [recovery guide](inbox-recovery.md) defines the 24-hour objective, atomic
+export publication, sensitive-artifact handling and same-artifact crash
+resumption. The host must retain a successful complete export at least every
+24 hours; content Markdown remains separately backed up in Git.
+
 ## Consumers
 
 | Consumer | Surfaces used |

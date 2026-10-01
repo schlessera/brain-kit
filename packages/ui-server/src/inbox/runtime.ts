@@ -5,6 +5,7 @@ import { createInboxStore } from "./store.js";
 import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
 import { failInboxWork, sweepInboxLifecycle } from "./actions.js";
 import { createInboxCleanup } from "./cleanup.js";
+import { assertInboxRecoveryReady } from "./recovery-gate.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -36,6 +37,7 @@ export function createInboxRuntime(db: Database, deps: {
   /** Server-selected bounds/billing for each concrete model-bearing operation. */
   operation?: (item: InboxQueueItem) => InboxBudgetOperation;
 }) {
+  assertInboxRecoveryReady(db);
   const now = deps.now ?? Date.now;
   const timers: Timers = deps.timers ?? {
     setInterval: (callback, ms) => setInterval(callback, ms) as Timer,
@@ -95,6 +97,7 @@ export function createInboxRuntime(db: Database, deps: {
     const pass = result();
     if (closed) return pass;
     try {
+      assertInboxRecoveryReady(db);
       await ready;
       pass.recovered = recoverLeases();
       sweepInboxLifecycle(db, now());

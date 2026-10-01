@@ -97,14 +97,15 @@ single backend acquisition and frozen settlement in migration `024_inbox_budget.
 happens on another day. Missing pricing, ceilings, fallback models and Action
 creation are budget policy rather than implicit storage behavior.
 
-`exportState()` takes one consistent read of every operational table, including
+`exportState()` takes one consistent read of the inbox audit tables, including
 deleted projections, checkpoints, resolutions, sequences and reservations.
 Migration `027_inbox_actions.sql` adds retained Action contexts to that export.
 The [Action engine](inbox-actions.md) composes these records with guarded
 transitions and performs filesystem compensation after database commit.
-Reopening the same UI database recovers these records. Backup and restore
-orchestration owns packaging that export with the brain files and staging;
-this method alone is not a complete backup.
+Reopening the same UI database recovers these records. The supported
+[operational recovery command](inbox-recovery.md) packages the whole UI database
+with staging bytes, including principal identities and Activity spend receipts;
+this audit method alone is not a complete backup.
 
 
 Intake adds `inbox_intake_receipts`: server-owned source/principal/content

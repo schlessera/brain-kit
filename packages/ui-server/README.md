@@ -140,6 +140,11 @@ Bun deployment. Mutating commands retain their existing lifecycle.
 
 ## Cron bin
 
+The package also ships `brain-ui-inbox export` and `brain-ui-inbox restore`
+for a complete operational database/staging backup. Both take explicit
+`--db`, `--brain-root` and `--file` paths and support `--json`.
+See [recovery commands and the 24-hour objective](../../docs/inbox-recovery.md).
+
 The package ships the Bun-only `brain-ui-cron` executable for the container
 crontab. The deployment shell calls this bin instead of carrying loose cron
 scripts:

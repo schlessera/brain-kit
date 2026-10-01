@@ -5,6 +5,7 @@ import type { BillingMode, InboxQueueItem, PricingRoute } from "@schlessera/brai
 import type { ModelPricing, PricingRates } from "../pricing/model-pricing.js";
 import { createInboxStore, type InboxReservation } from "./store.js";
 import { createInboxAction } from "./actions.js";
+import { assertInboxRecoveryReady } from "./recovery-gate.js";
 
 export interface InboxBudgetConfig {
   spendUsd: number;
@@ -196,6 +197,7 @@ export function createInboxBudget(db: Database, deps: {
 
   function admit(ids: string[], op: InboxBudgetOperation, leaseUntil?: number) {
     return db.transaction(() => {
+      assertInboxRecoveryReady(db);
       const at = now(), day = inboxBudgetDay(at, config.timeZone);
       if (ids.length === 0 || new Set(ids).size !== ids.length) throw new Error("Invalid budget claim items");
       const items = ids.map((id) => store.getItem(id));
@@ -263,6 +265,7 @@ export function createInboxBudget(db: Database, deps: {
 /** Acquire exactly once immediately before the concrete backend/transport starts. */
 export function acquireInboxBudgetRun(db: Database, runId: string, principalId: string, now = Date.now()): void {
   db.transaction(() => {
+    assertInboxRecoveryReady(db);
     const row = reservation(db, runId);
     if (!row || row.status !== "active" || row.principal_id !== principalId || row.runtime_acquired_at !== null)
       throw new Error("Autonomous inference requires an unused active budget reservation");

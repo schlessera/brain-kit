@@ -28,7 +28,8 @@
   "sideEffects": false,
   "type": "module",
   "bin": {
-    "brain-ui-cron": "./dist/bin/brain-ui-cron.js"
+    "brain-ui-cron": "./dist/bin/brain-ui-cron.js",
+    "brain-ui-inbox": "./dist/bin/brain-ui-inbox.js"
   },
   "exports": {
     ".": {

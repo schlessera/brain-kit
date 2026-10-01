@@ -56,6 +56,7 @@ import {
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
 import { createInboxRuntime } from "./inbox/runtime.js";
+import { assertInboxRecoveryReady } from "./inbox/recovery-gate.js";
 import { createInboxPokeAuth, createInternalRoutes } from "./routes/internal.js";
 import { readSyncRuntime } from "./activity/sync-runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
@@ -237,6 +238,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
+  try { assertInboxRecoveryReady(db); } catch (error) { db.close(); throw error; }
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
