@@ -25,6 +25,12 @@ export const connectionFrameHandlers = {
     // error arriving between turns (a rejected frame, a failed resume) was
     // dropped as silently on the client as it was on the server.
     context.stores.connection.getState().reportError(msg.code, msg.message);
+    // These socket-boundary refusals reject a frame, not the running turn.
+    // Keep the connection/recovery signal without inventing a failed reply.
+    if (
+      !context.frameTurnId && !msg.failure &&
+      (msg.code === "RATE_LIMITED" || msg.code === "PARSE_ERROR")
+    ) return;
     // The turn's failure, drawn on its message (#575). A bare `error` that
     // ends a turn before its session exists carries the provider failure;
     // any other is shown as its message says.
