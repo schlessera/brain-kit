@@ -274,16 +274,22 @@ describe("emitEnvironment", () => {
     ).toBe('PATH="/usr/bin"\n');
   });
 
+  // Only the label enters the title: Bun 1.3.14 emits invalid JUnit XML
+  // when a title contains the runtime NUL from an unsafe input (#639).
   test.each([
-    ['quote"breakout', "quote"],
-    ["line-one\nSMUGGLED=value", "newline"],
-    ["carriage\rreturn", "carriage return"],
-    ["trailing\\", "backslash"],
-    ["nul\0byte", "NUL"],
-  ])("rejects an unsafe %s value (%s)", (value) => {
+    ["quote", 'quote"breakout'],
+    ["newline", "line-one\nSMUGGLED=value"],
+    ["carriage return", "carriage\rreturn"],
+    ["backslash", "trailing\\"],
+    ["NUL", "nul\0byte"],
+  ])("rejects an unsafe %s value", (label, value) => {
     expect(() => emitEnvironment({ GITHUB_TOKEN: value })).toThrow(
       "cannot emit unsafe /etc/environment value for GITHUB_TOKEN"
     );
+    if (label === "NUL") {
+      expect(value.length).toBeGreaterThan(0);
+      expect(value).toContain("\0");
+    }
   });
 });
 

@@ -96,6 +96,14 @@ Tests must stay keyless and deterministic: integration tests run against
 `packages/core/fixtures/corpus/` with FTS-only search. Never add a test that
 needs an API key or the network.
 
+For parameterized tests with unsafe strings, put a readable label in the test
+name and pass the raw value separately. Bun 1.3.14's JUnit reporter can emit
+both a raw NUL and `&#0;` when the name contains NUL; standard XML parsers
+reject that report even when every test passes (#639). Keep the unsafe value
+and its refusal assertion intact. To verify a report, run `bun run test
+--reporter=junit --reporter-outfile=/tmp/brain-tests.xml`, then parse the file
+with a standard XML parser and inspect its testcase names and counts.
+
 ## The rules that will get a PR merged
 
 1. **Contract changes** (CLI `--json` shapes, MCP tool names/schemas, db
