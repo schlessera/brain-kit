@@ -8,6 +8,10 @@ additional outcomes described below. The `--json` envelope shapes marked ⚖ are
 the [integration contract](integration-contract.md). `brain --version` prints
 the installed `@schlessera/brain` version.
 
+Commands finish stdout and stderr writes before exiting, including large piped
+responses. A slow consumer delays completion until those writes finish; unrelated
+provider sockets and timers do not keep a finished command alive.
+
 This reference follows `main`. Check your installed version and its changelog
 before using additions marked 0.40.0; those are absent from the published
 0.39.0 packages. The [quickstart](quickstart.md) uses the published template.
