@@ -15,9 +15,9 @@
  * Nothing here follows a symlink. A `.brain` or `.brain/scratch` that is one
  * would let a prune delete, or a write land, wherever the link points, so
  * both are refused outright (`ScratchRedirectedError`); the walk reads every
- * entry with `lstat`; a write goes to a temporary sibling and is renamed onto
- * its name, which replaces the directory entry rather than writing through
- * whatever entry was there; and a removal, a descent and a rename each
+ * entry with `lstat`; a write publishes a completed temporary sibling onto
+ * its name, replacing an entry only when requested rather than writing through
+ * whatever entry was there; and a removal, a descent and a publication each
  * re-verify the path just before they act. Node has no `openat`/`unlinkat`/
  * `renameat`, so a window the width of one syscall remains between each
  * check and its operation; it is named at the check.
@@ -25,6 +25,7 @@
 import { randomBytes } from "crypto";
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -242,7 +243,7 @@ export function assertScratchWritable(root: string, abs: string): void {
  * Whether `path` is, right now, a directory of its own inside the verified
  * scratch chain: `scratchDir` still holds, `path` lies in it, its realpath
  * is itself (no link at any segment) and `lstat` says directory. The check
- * a removal, a descent and a rename each repeat just before they act.
+ * a removal, a descent and a publication each repeat just before they act.
  */
 function genuineDir(root: string, dir: string, path: string): boolean {
   try {
@@ -262,24 +263,24 @@ function genuineDir(root: string, dir: string, path: string): boolean {
  * exactly what its path says (`realpath` equal to itself: no symlink at any
  * segment, so a directory swapped for a link since the pre-flight is refused),
  * requires the target's own entry not to be a link or a directory, writes to
- * a random temporary sibling created exclusively, and renames it onto the
- * name. A rename replaces the directory entry: it never writes through a
- * planted link, and never into an inode a hard link shares with a file
- * elsewhere.
+ * a random temporary sibling created exclusively, and publishes it onto the
+ * name. Replacement uses rename, so it changes the entry rather than writing
+ * through a planted link or an inode shared by another hard link. With
+ * replacement disabled, a hard link atomically refuses every occupied name,
+ * including an entry arriving after the final absence check.
  *
- * The directory is re-verified immediately before the rename, and again
- * before the temporary file is removed on failure, so a directory swapped for
+ * The directory is re-verified immediately before publication, and again
+ * before the temporary file is removed, so a directory swapped for
  * a link while the temporary file was being written is refused rather than
- * renamed or removed through. What remains, as in the prune, is the one
- * syscall between that verification and the rename itself: Node has no
+ * published or removed through. What remains, as in the prune, is the one
+ * syscall between verification and each path-based operation: Node has no
  * `renameat`. A temporary file a refused write leaves behind is pruned like
  * any other scratch file.
  *
  * `replace` is for a name the caller chose (`--out`): theirs to overwrite. A
- * generated name refuses an existing file. That check is an `lstat` just
- * before the rename, and a file created in between by another writer would be
- * replaced; generated names carry a random tail, so no two writers produce
- * one. Returns the path written.
+ * generated name uses exclusive publication. Random tails reduce collisions;
+ * they do not establish the nonreplacement guarantee. Successful publication
+ * removes the temporary name, leaving one complete file. Returns its path.
  */
 export function writeScratchFile(
   root: string,
@@ -307,7 +308,18 @@ export function writeScratchFile(
     if (entry?.isSymbolicLink()) throw new ScratchRedirectedError(`${rel} is a symlink`);
     if (entry?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${rel} is a directory`);
     if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${rel} already exists`);
-    renameSync(tmp, abs);
+    if (replace) renameSync(tmp, abs);
+    else {
+      try { linkSync(tmp, abs); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new WriteRefusedError(`EEXIST: ${rel} already exists`);
+        }
+        throw error;
+      }
+      if (!genuineDir(root, dir, parent)) throw swapped();
+      rmSync(tmp, { force: true });
+    }
   } catch (error) {
     // Never remove through a directory that is no longer ours; the prune
     // takes a stranded temporary file with everything else.
@@ -332,11 +344,9 @@ export function isWriteRefusal(error: unknown): boolean {
 }
 
 /**
- * A file name for a generated scratch file that no earlier or concurrent
- * write shares: the stem, the moment, and a random tail. Two renders of
- * different `report.md` files, or two stdin renders in one millisecond, must
- * not land on one name, because a chat link to the first would then show the
- * second.
+ * A generated scratch name: the stem, the moment, and a random tail reduce
+ * collisions between renders. Exclusive publication still refuses a taken
+ * name, so a collision cannot redirect a chat link to another writer's bytes.
  */
 export function scratchName(stem: string, ext: string, now: Date = new Date()): string {
   const stamp = now.toISOString().replace(/[-:.]/g, "");
