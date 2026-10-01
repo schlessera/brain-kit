@@ -42,7 +42,7 @@ distinguishes shell/descendant confinement from built-in file tools and other
 execution paths. A Bash sandbox plus path predicates therefore does not establish
 the requested all-writer boundary. The repository's Bash classifier documents
 indirection as accepted write-lock exposure (`A Bash command the classifier misses`,
-`packages/ui-backend-claude/src/tool-policy.ts:204-209`), rather than containment.
+`packages/ui-backend-claude/src/tool-policy.ts:211-216`), rather than containment.
 
 ## Executable evidence
 

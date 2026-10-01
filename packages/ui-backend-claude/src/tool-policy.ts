@@ -168,12 +168,19 @@ export const MUTATING_TOOLS = new Set([
   `${BRAIN_MCP_PREFIX}brain_archive`,
 ]);
 
-export const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")})$`;
+// Module tool names are open-ended. Dispatch all brain MCP candidates through
+// lockKeyForTool; named reads below return null and acquire no lock.
+export const MUTATING_TOOL_MATCHER = `^(${[...MUTATING_TOOLS].join("|")}|${BRAIN_MCP_PREFIX}.*)$`;
 
-const BRAIN_DOC_TOOLS = new Set([
-  `${BRAIN_MCP_PREFIX}brain_add`,
-  BRAIN_UPDATE_TOOL,
-  `${BRAIN_MCP_PREFIX}brain_archive`,
+// module-mcp-tools.md §6 requires unknown brain tools to serialize. Exempt
+// only these named reads, never a module's own readOnlyHint or an allowlist.
+const BRAIN_READ_TOOLS = new Set([
+  `${BRAIN_MCP_PREFIX}brain_search`,
+  `${BRAIN_MCP_PREFIX}brain_context`,
+  `${BRAIN_MCP_PREFIX}brain_read`,
+  `${BRAIN_MCP_PREFIX}brain_list`,
+  `${BRAIN_MCP_PREFIX}brain_graph`,
+  `${BRAIN_MCP_PREFIX}jobs_review`,
 ]);
 
 /**
@@ -193,9 +200,9 @@ const BRAIN_DOC_TOOLS = new Set([
  *   session landing inside another session's `git add && git commit` commits
  *   the wrong files — silently. Single git commands failing on index.lock are
  *   retryable errors; interleaved staging is corruption.
- * - **The brain lock** for the brain document tools (and their CLI spellings),
- *   which write a file AND reindex `brain.db`. Their bursts are short, so one
- *   shared key is cheap and spares SQLite the busy-retries.
+ * - **The brain lock** for every brain MCP tool except the named reads above,
+ *   plus the core document CLI spellings. A module may write a file AND
+ *   reindex `brain.db`, so unknown names share the document writers' key.
  *
  * Everything else — curl, builds, tests, greps, plain file reads — takes NO
  * lock. That is the load-bearing change: a two-minute `bun run build` in one
@@ -231,7 +238,9 @@ export function lockKeyForTool(
     if (!command) return null;
     return bashLockKey(command);
   }
-  if (BRAIN_DOC_TOOLS.has(toolName)) return BRAIN_LOCK_KEY;
+  if (toolName.startsWith(BRAIN_MCP_PREFIX) && !BRAIN_READ_TOOLS.has(toolName)) {
+    return BRAIN_LOCK_KEY;
+  }
   if (toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit") {
     const path = declaredPath(toolName, input);
     // A call without a usable path fails the tool's own validation anyway;

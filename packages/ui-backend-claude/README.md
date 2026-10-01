@@ -144,10 +144,17 @@ execution regardless of allowlisting — measured against the runtime
 `MEASURED_RUNTIME` names (the `pretooluse-awaited-when-allowlisted` case of
 `scripts/measure-claude-runtime.ts`), not inferred from types.
 
-The mutating set is `Bash`, `Edit`, `Write`, `NotebookEdit` and all three brain
-writers (`brain_add`, `brain_update`, `brain_archive`) — including the one that
-is not auto-allowed, because membership there is about serialization, not
-permission.
+The hook covers `Bash`, `Edit`, `Write`, `NotebookEdit` and every
+`mcp__brain__` tool. Brain MCP tools share the brain document lock unless
+they are a named read: `brain_search`, `brain_context`, `brain_read`,
+`brain_list`, `brain_graph` or `jobs_review`. Every other brain tool name,
+including a module tool, takes that same lock. A tool's own `readOnlyHint`
+does not grant an exemption. This follows
+[the module-tool decision](../../docs/decisions/module-mcp-tools.md#6-annotations-and-permissions).
+
+Locking does not admit a tool. The configured allowlist and approval policy
+still decide whether it may run. A call awaiting approval releases its hook
+lock, then reacquires the key for its approved input before execution.
 
 ## The `brain-kit` MCP server
 

@@ -11,7 +11,6 @@ import {
   BRAIN_UPDATE_TOOL,
   lockKeyForTool,
   MUTATING_TOOL_MATCHER,
-  MUTATING_TOOLS,
 } from "./tool-policy.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 import { createAgentHook, createRtkHook } from "./input-rewrite-hooks.js";
@@ -201,7 +200,7 @@ export function createPermissionWiring(options: {
     // result frame is observed (see the stream loop) or the turn ends. Denials
     // and lock-free tools take nothing. The approved input is what will
     // execute, so the key is computed from it.
-    if (decision.behavior === "allow" && MUTATING_TOOLS.has(toolName)) {
+    if (decision.behavior === "allow") {
       const effectiveInput = decision.updatedInput ?? input;
       const acquired = await turnLock.acquireForTool(
         opts.toolUseID,
@@ -219,12 +218,11 @@ export function createPermissionWiring(options: {
   // or approved — and the SDK awaits it, so acquiring here serializes writes
   // across turns no matter which permission path admitted the tool.
   const mutatingHook: HookCallback = async (hookInput) => {
-    if (
-      hookInput.hook_event_name !== "PreToolUse" ||
-      !MUTATING_TOOLS.has(hookInput.tool_name)
-    ) {
+    if (hookInput.hook_event_name !== "PreToolUse") {
       return { continue: true };
     }
+    // The registered matcher includes every brain MCP name. The classifier
+    // decides the actual key, including null for named read-only tools.
 
     // Confirmation for an auto-allowed call that is destructive anyway: a Bash
     // command matching a configured pattern, or a brain_update that archives.
