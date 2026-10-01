@@ -41,8 +41,12 @@ async function settingsViewport(width: number) {
 
 test("generic module fields render every leaf kind, discover new schema fields and retain complete unsupported values", async () => {
   const restoreViewport = await settingsViewport(320);
-  const host = document.createElement("div"); host.style.width = "320px"; document.body.append(host);
-  const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
+  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
+  // Application preflight and theme variables belong only to this consumer.
+  const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
   const snapshot = catalogFixture as ModuleSettingsSnapshot;
   const store = createModuleSettingsSession(); store.setState({ snapshot, draft: snapshot.overrides });
   function Fixture() { const session = useStore(store); return <SettingsFields snapshot={snapshot} session={session} store={store} />; }
@@ -50,23 +54,23 @@ test("generic module fields render every leaf kind, discover new schema fields a
   try {
     flushSync(() => react.render(<Fixture />));
     expect([...host.querySelectorAll('[data-setting-path]')].map((field) => field.getAttribute('data-setting-path')).sort()).toEqual(['title','count','toggle','mode','choices','tags','weights','nested','nested.note','items','items.0.name','items.0.count','items.1.name','items.1.count','addedLater','unsupported'].sort());
-    expect((document.getElementById("module-setting-addedLater") as HTMLInputElement).value).toBe("Found from schema");
+    expect((doc.getElementById("module-setting-addedLater") as HTMLInputElement).value).toBe("Found from schema");
     expect(host.textContent).toContain("Keeps everything");
     expect(host.textContent).toContain("Edited outside Settings");
     expect(host.querySelector('[role="radiogroup"][aria-label="Travel"]')).not.toBeNull();
     const navigator = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
     flushSync(() => navigator.click());
-    flushSync(() => button(document, "Signal").click());
-    enter(document, "module-setting-title", "Return to Ithaca");
-    enter(document, "module-setting-count", "7");
-    enter(document, "module-setting-addedLater", "Edited without metadata");
-    flushSync(() => button(document, "Move Crew down").click());
-    flushSync(() => button(document, "Add Items item").click());
+    flushSync(() => button(doc, "Signal").click());
+    enter(doc, "module-setting-title", "Return to Ithaca");
+    enter(doc, "module-setting-count", "7");
+    enter(doc, "module-setting-addedLater", "Edited without metadata");
+    flushSync(() => button(doc, "Move Crew down").click());
+    flushSync(() => button(doc, "Add Items item").click());
     const draft = savedDraft(store.getState());
     expect(draft).toMatchObject({ title: "Return to Ithaca", count: 7, toggle: true, choices: ["navigator"], addedLater: "Edited without metadata", unsupported: snapshot.overrides.unsupported });
     expect(draft.items).toEqual([{ name: "Fleet", count: 2 }, { name: "Crew", count: 3 }, { name: "", count: 1 }]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); await restoreViewport(); }
+  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
 });
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
@@ -222,8 +226,12 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
 
 test("jobs nested drafts preserve tiers through reorder, reject extra currency decimals and keep optional values absent", async () => {
   const restoreViewport = await settingsViewport(320);
-  const host = document.createElement("div"); host.style.width = "320px"; document.body.append(host);
-  const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
+  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
+  // Application preflight and theme variables belong only to this consumer.
+  const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
   const snapshot = structuredClone(snapshotFixture) as ModuleSettingsSnapshot;
   const store = createModuleSettingsSession(); store.setState({ snapshot, draft: snapshot.overrides });
   function Fixture() { const session = useStore(store); return <SettingsFields snapshot={snapshot} session={session} store={store} />; }
@@ -231,40 +239,40 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
   try {
     flushSync(() => react.render(<Fixture />));
     const original = savedDraft(store.getState());
-    enter(document, "module-setting-scoring.groups.0.tiers.0.points", "24");
+    enter(doc, "module-setting-scoring.groups.0.tiers.0.points", "24");
     const expected = structuredClone(original);
     (((expected.scoring as { groups: Array<Record<string, unknown>> }).groups[0]!.tiers) as Array<{ points: number }>)[0]!.points = 24;
     expect(savedDraft(store.getState())).toEqual(expected);
     // An invalid amount remains editable; correcting it stores whole EUR cents.
-    enter(document, "module-setting-scoring.compensationBenchmark", "120000.001");
+    enter(doc, "module-setting-scoring.compensationBenchmark", "120000.001");
     expect(host.textContent).toContain("Use at most 2 decimals");
-    expect((document.getElementById("module-setting-scoring.compensationBenchmark") as HTMLInputElement).value).toBe("120000.001");
-    enter(document, "module-setting-scoring.compensationBenchmark", "120000.01");
+    expect((doc.getElementById("module-setting-scoring.compensationBenchmark") as HTMLInputElement).value).toBe("120000.001");
+    enter(doc, "module-setting-scoring.compensationBenchmark", "120000.01");
     expect(host.textContent).not.toContain("Use at most 2 decimals");
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).compensationBenchmark).toBe(12000001);
-    flushSync(() => button(document, "Score location").click());
+    flushSync(() => button(doc, "Score location").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).location).toBeDefined();
-    flushSync(() => button(document, "Score location").click());
+    flushSync(() => button(doc, "Score location").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).location).toBeUndefined();
-    flushSync(() => button(document, "One keyword list").click());
-    enter(document, "module-setting-scoring.groups.0.keywords", "Pending case");
-    flushSync(() => button(document, "Add group").click());
-    flushSync(() => button(document, "Move Navigation down").click());
+    flushSync(() => button(doc, "One keyword list").click());
+    enter(doc, "module-setting-scoring.groups.0.keywords", "Pending case");
+    flushSync(() => button(doc, "Add group").click());
+    flushSync(() => button(doc, "Move Navigation down").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups[1]).toMatchObject({ keywords: ["LegacyCase"] });
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups[1].tiers).toBeUndefined();
     expect(store.getState().pendingInputs["scoring.groups.1.keywords"]).toBe("Pending case");
-    flushSync(() => button(document, "Remove Navigation").click());
+    flushSync(() => button(doc, "Remove Navigation").click());
     expect(host.textContent).toContain("Remove Navigation?");
-    flushSync(() => button(document, "Keep").click());
+    flushSync(() => button(doc, "Keep").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(2);
-    flushSync(() => button(document, "Remove Navigation").click());
-    const removal = button(document, "Remove");
+    flushSync(() => button(doc, "Remove Navigation").click());
+    const removal = button(doc, "Remove");
     expect(removal.getAttribute("aria-disabled")).not.toBe("true");
     flushSync(() => removal.click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(1);
     expect(Object.keys(store.getState().pendingInputs)).not.toContain("scoring.groups.1.keywords");
     expect(Object.keys(store.getState().variants)).not.toContain("scoring.groups.1");
-  } finally { flushSync(() => react.unmount()); host.remove(); style.remove(); await restoreViewport(); }
+  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
 });
 
 test("modules show loading, retry and empty states, and separate migration, dormancy and declared actions", async () => {
