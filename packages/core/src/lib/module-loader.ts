@@ -11,6 +11,8 @@ import {
 } from "./config.js";
 import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types.js";
 import { safeResolve } from "./safe-path.js";
+import { mergeModuleSettings, readModuleSettings } from "./module-settings-source.js";
+import { validateSettingsMetadata } from "./module-settings-metadata.js";
 import { MODULE_TOOL_LOCAL_NAME, MODULE_TOOL_LOCAL_NAME_MESSAGE, ModuleToolNameError, moduleToolNameIssues } from "./module-tool-names.js";
 
 /**
@@ -97,6 +99,7 @@ export async function loadModules(
 
   for (const [key, moduleConfig] of entries) {
     const { manifest, dir } = await importManifest(key, root);
+    validateSettingsMetadata(manifest.settings, manifest.name);
 
     if (seenNames.has(manifest.name)) {
       throw new Error(`Duplicate module name "${manifest.name}" (key: ${key})`);
@@ -114,6 +117,11 @@ export async function loadModules(
         enabled = parsedFlag.data;
       }
       domainConfig = domain;
+    }
+    const configInput = domainConfig;
+    // Legacy names without settings retain their original loading behavior.
+    if (/^[a-z][a-z0-9-]{0,30}$/.test(manifest.name)) {
+      domainConfig = mergeModuleSettings(domainConfig, readModuleSettings(root, manifest.name).values);
     }
     let validated: unknown = domainConfig;
     if (manifest.configSchema) {
@@ -165,6 +173,8 @@ export async function loadModules(
       },
       dir,
       config: validated,
+      declaration: manifest,
+      configInput,
       state: enabled ? "active" : "dormant",
     });
   }
@@ -172,7 +182,7 @@ export async function loadModules(
   return loaded;
 }
 
-async function importManifest(
+export async function importManifest(
   key: string,
   root: string
 ): Promise<{ manifest: ModuleManifest; dir: string }> {

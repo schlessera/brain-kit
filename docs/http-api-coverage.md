@@ -282,7 +282,7 @@ transport; they never call a speech service.
 - `conditional SPA fallback serves deep links, preserves API precedence and reports a missing index` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional SPA fallback serves deep links, preserves API precedence and reports a missing index`, `packages/ui-server/tests/http-inventory.test.ts:69-83`)
 - `conditional static middleware serves existing assets before the SPA fallback` ([source](../packages/ui-server/tests/http-inventory.test.ts)), (`conditional static middleware serves existing assets before the SPA fallback`, `packages/ui-server/tests/http-inventory.test.ts:85-93`)
 
-The classified table contains 87 declared endpoints (49 supported and 38
+The classified table contains 97 declared endpoints (49 supported and 48
 internal) and one conditional internal SPA fallback. Exact runtime equality
 rejects an undocumented handler. Wildcard middleware is counted separately:
 global security/observability, `/api` origin/CORS/authentication, owner guards,
@@ -297,9 +297,19 @@ successful JSON responses (`mounted internal router:`,
 accounts for every other internal method/path without making a raw payload
 compatibility promise.
 
+
+The module Settings router has a mounted real-CLI check in
+[module-settings-http.test.ts](../packages/ui-server/tests/module-settings-http.test.ts).
+It verifies live delegated-principal reads and saves, schema errors, revisions,
+revocation, the saved-settings action and exact commit paths. Draft preview is
+read-only; module state and migration remain separate transactions. These
+editor routes are classified internal, while the module CLI and JSON source
+formats retain their integration guarantees.
+
 ## Mutation evidence and limits
 
-The implementation PR records handler removals across all 28 mounted router
+The baseline coverage [PR #803](https://github.com/schlessera/brain-kit/pull/803)
+records handler removals across its 28 mounted router
 and direct-handler families, plus unclassified-route, validation, owner,
 static-middleware, SDK renewal, unread-body, discovery-failure, short-lived-token
 and WebSocket scheme mutations. Each receipt identifies the runtime assertion

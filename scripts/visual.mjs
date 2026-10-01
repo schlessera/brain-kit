@@ -55,8 +55,9 @@ const update = argv.includes("--update");
 const projectArg = argv.find((a) => a.startsWith("--project="));
 const shardArg = argv.find((a) => a.startsWith("--shard="));
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
-// isolated coarse-pointer context. Touch emulation must not affect fine-pointer cases.
-const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual", "rank-footer-touch"];
+// isolated coarse-pointer context, and module Settings' consumer integration.
+// Consumer styles and font fallback must not affect kit baseline captures.
+const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });

@@ -58,6 +58,7 @@ export const BOOLEAN_FLAGS = new Set([
   "plan",
   "record", "history",
   "no-background",
+  "migrate", "preview", "stdin",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -74,6 +75,7 @@ export const VALUE_FLAGS = new Set([
   "kind", "plan-file",
   "since", "server", "key", "credential-file", "text", "url",
   "reverse", "near", "along", "radius-m", "compare", "tolerance-m", "sample-spacing-m", "pin", "point", "bbox",
+  "revision", "action",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

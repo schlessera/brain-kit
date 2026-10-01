@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
 import { parseFrontmatter } from "./lib/frontmatter-parse.js";
 import type { ScoreBreakdown } from "./types.js";
+import { safeResolve } from "@schlessera/brain";
 
 // ---------------------------------------------------------------------------
 // Criteria model
@@ -180,7 +181,14 @@ export function parseScoringConfig(scoring: unknown): ScoringConfig {
  * resolved against `root` when relative. Throws a readable error when the file
  * is missing or the frontmatter is malformed.
  */
-export function loadScoringConfig(root: string, criteriaPath: string): ScoringConfig {
+export function loadScoringConfig(root: string, criteriaPath: string, source?: unknown): ScoringConfig {
+  if (source !== undefined) return parseScoringConfig(source);
+  const savedPath = safeResolve(root, "settings/jobs.json");
+  if (!savedPath) throw new Error("Jobs settings escape the brain root");
+  if (existsSync(savedPath)) {
+    const saved = JSON.parse(readFileSync(savedPath, "utf8")) as Record<string, unknown>;
+    if (saved.scoring !== undefined) return parseScoringConfig(saved.scoring);
+  }
   const abs = isAbsolute(criteriaPath) ? criteriaPath : resolve(root, criteriaPath);
   if (!existsSync(abs)) {
     throw new Error(

@@ -64,7 +64,12 @@ export const configCommand: CoreCommand = {
     if (sub === "get") {
       const dotted = pos[1];
       if (!dotted) throw new UsageError("Usage: brain config get <dotted.path>");
-      const value = getPath(cli.brain.config ?? {}, dotted);
+      const effective = { ...cli.brain.config, ...(cli.brain.config?.modules ? { modules: Object.fromEntries(cli.brain.modules.map((m) => [m.key, {
+        ...(m.config as Record<string, unknown>),
+        ...(typeof (cli.brain.config?.modules?.[m.key] as Record<string, unknown> | undefined)?.enabled === "boolean"
+          ? { enabled: (cli.brain.config!.modules![m.key] as Record<string, unknown>).enabled } : {}),
+      }])) } : {}) };
+      const value = getPath(effective, dotted);
       // Always JSON — skills consume this programmatically.
       console.log(JSON.stringify(value ?? null, null, 2));
       return;

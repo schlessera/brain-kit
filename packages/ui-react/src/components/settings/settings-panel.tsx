@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useMemo } from "react";
 import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel, type SlidePanelClosedBy } from "../layout/slide-panel.js";
@@ -9,6 +9,7 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { ThemeToggle } from "../layout/theme.js";
 import { ShortcutSwitch } from "../layout/shortcut-switch.js";
 import { Button, Callout, Icon, Label, ScreenHeader, Surface, type IconName } from "@schlessera/brain-ui-kit";
+import { createModuleSettingsSession, type ModuleSettingsSessionStore } from "./module-settings-state.js";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -21,6 +22,7 @@ const ModelsTab = lazy(() => import("./models-tab.js").then((m) => ({ default: m
 const PasskeyTab = lazy(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
 const DevicesAgentsTab = lazy(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
 const SkillsTab = lazy(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
+const ModulesTab = lazy(() => import("./modules-tab.js").then((m) => ({ default: m.ModulesTab })));
 
 /** The phone strip's tabs. Appearance and input sit above the strip there. */
 type StripTab = Exclude<SettingsTab, "appearance">;
@@ -28,6 +30,7 @@ type StripTab = Exclude<SettingsTab, "appearance">;
 const TABS: Array<{ id: StripTab; label: string; icon: typeof KeyRound }> = [
   { id: "models", label: "Models", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", icon: Puzzle },
+  { id: "modules", label: "Modules", icon: Puzzle },
   { id: "security", label: "Security", icon: KeyRound },
   { id: "devices", label: "Devices & agents", icon: Laptop },
 ];
@@ -41,6 +44,7 @@ const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; icon: Icon
   { id: "appearance", label: "Appearance & input", meta: "this device", icon: "settings" },
   { id: "models", label: "Models", meta: "providers", icon: "model" },
   { id: "skills", label: "Skills", meta: "catalog", icon: "capability" },
+  { id: "modules", label: "Modules", meta: "workflows", icon: "capability" },
   { id: "security", label: "Security", meta: "passkeys", icon: "passkey" },
   { id: "devices", label: "Devices & agents", meta: "credentials", icon: "agent" },
 ];
@@ -68,6 +72,12 @@ export function SettingsPanel({
   onClose: () => void;
 }) {
   const tab = useUIStore((s) => s.settingsTab);
+  const settingsProtected = useUIStore((s) => s.settingsNavigationProtected);
+  const root = useBrainUiRoot();
+  // A provider can replace its brain root without remounting this panel.
+  // Keep drafts across responsive remounts, but never across root replacement.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const moduleSession = useMemo(() => createModuleSettingsSession(), [root]);
   const setTab = useUIStore((s) => s.setSettingsTab);
   const mintPending = usePrincipalStore((s) => s.mintPending);
   const oneTimeCredential = usePrincipalStore((s) => s.oneTimeCredential);
@@ -76,7 +86,7 @@ export function SettingsPanel({
   // While a mint is in flight or its one-time value is unacknowledged, the
   // panel does not light-dismiss: a stray click or Escape must not hide the
   // surface the credential is about to land on. Its close control stays live.
-  const closedBy = credentialProtected ? "none" : "any";
+  const closedBy = credentialProtected || settingsProtected ? "none" : "any";
 
   function select(id: SettingsTab) {
     if (!credentialProtected) setTab(id);
@@ -91,6 +101,7 @@ export function SettingsPanel({
         closedBy={closedBy}
         onSelect={select}
         onClose={onClose}
+        moduleSession={moduleSession}
       />
     );
   }
@@ -102,7 +113,7 @@ export function SettingsPanel({
   return (
     <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy}>
       <div className="flex h-full flex-col">
-        <div className="flex shrink-0 gap-1 border-b border-border px-2 pt-2">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: TabIcon }) => (
             <button
               key={id}
@@ -111,7 +122,7 @@ export function SettingsPanel({
               aria-selected={stripTab === id}
               role="tab"
               className={cn(
-                "flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                "flex min-h-11 shrink-0 items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 stripTab === id
                   ? "border-b-2 border-primary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -142,8 +153,8 @@ export function SettingsPanel({
           <ShortcutBanner />
         </div>
 
-        <div className="min-h-0 flex-1">
-          <SectionBody tab={stripTab} open={open} />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <SectionBody tab={stripTab} open={open} moduleSession={moduleSession} />
         </div>
       </div>
     </SlidePanel>
@@ -162,6 +173,7 @@ function SettingsPane({
   closedBy,
   onSelect,
   onClose,
+  moduleSession,
 }: {
   open: boolean;
   tab: SettingsTab;
@@ -169,6 +181,7 @@ function SettingsPane({
   closedBy: SlidePanelClosedBy;
   onSelect: (tab: SettingsTab) => void;
   onClose: () => void;
+  moduleSession: ModuleSettingsSessionStore;
 }) {
   const appName = useBrainUiRoot().config.appName;
   return (
@@ -231,7 +244,7 @@ function SettingsPane({
             {tab === "appearance" ? (
               <AppearanceSection />
             ) : (
-              <SectionBody tab={tab} open={open} />
+              <SectionBody tab={tab} open={open} moduleSession={moduleSession} />
             )}
           </div>
         </div>
@@ -288,13 +301,15 @@ function ShortcutBanner() {
 }
 
 /** The lazily fetched section, mounted only while it is the selected one. */
-function SectionBody({ tab, open }: { tab: StripTab; open: boolean }) {
+function SectionBody({ tab, open, moduleSession }: { tab: StripTab; open: boolean; moduleSession: ModuleSettingsSessionStore }) {
   return (
     <Suspense fallback={null}>
       {tab === "models" ? (
         <ModelsTab active={open} />
       ) : tab === "skills" ? (
         <SkillsTab active={open} />
+      ) : tab === "modules" ? (
+        <ModulesTab active={open} session={moduleSession} />
       ) : tab === "security" ? (
         <PasskeyTab active={open} />
       ) : (

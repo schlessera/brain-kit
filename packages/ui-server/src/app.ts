@@ -41,6 +41,7 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { principalManagementRoutes } from "./middleware/principals.js";
+import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
 import { createInboxStore } from "./inbox/store.js";
 import { createInboxResolver } from "./inbox/resolve.js";
@@ -534,6 +535,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
+  app.route("/api", createModuleRoutes(brain));
   app.route(
     "/api",
     createSkillRoutes({

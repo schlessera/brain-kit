@@ -1,4 +1,12 @@
 import { apiBase } from "./backend.js";
+import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly errors: Array<{ path: string; message: string }> = []) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
 import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
@@ -310,7 +318,7 @@ export function createBrainApi(
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(body.error || `HTTP ${res.status}`);
+      throw new ApiRequestError(body.error || `HTTP ${res.status}`, res.status, body.errors ?? []);
     }
     return res.json();
   }
@@ -477,6 +485,15 @@ export function createBrainApi(
 
     /** Custom + built-in skills, as managed from Settings → Skills. */
     skillsList: () => fetchJson<{ skills: SkillEntry[] }>("/skills"),
+
+    modulesList: () => fetchJson<{ enabled: ConfiguredModule[]; available: unknown[] }>("/modules"),
+    moduleSettings: (name: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings`),
+    moduleSettingsPreview: (name: string, values: Record<string, unknown>) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings/preview`, { method: "POST", body: JSON.stringify({ values }) }),
+    moduleSettingsSave: (name: string, values: Record<string, unknown>, revision: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings`, { method: "PUT", headers: { "If-Match": revision }, body: JSON.stringify({ values }) }),
+    moduleMigrationPreview: (name: string) => fetchJson<ModuleSettingsMigrationPreview>(`/modules/${encodeURIComponent(name)}/migration/preview`, { method: "POST", body: "{}" }),
+    moduleMigrationApply: (name: string, revision: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/migration`, { method: "POST", headers: { "If-Match": revision }, body: "{}" }),
+    moduleState: (name: string, state: "active" | "dormant") => fetchJson<{ module: string; state: "active" | "dormant"; changed: boolean; context: { entered: string[]; left: string[] } }>(`/modules/${encodeURIComponent(name)}/state`, { method: "POST", body: JSON.stringify({ state }) }),
+    moduleAction: (name: string, id: string) => fetchJson<unknown>(`/modules/${encodeURIComponent(name)}/actions/${encodeURIComponent(id)}`, { method: "POST", body: "{}" }),
 
     /** One skill's SKILL.md and file list (builtins read-only). */
     skillGet: (name: string) =>

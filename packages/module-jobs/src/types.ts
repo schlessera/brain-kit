@@ -14,6 +14,8 @@ export const ALL_SOURCES = [
   "remotelyde",
 ] as const;
 export type Source = (typeof ALL_SOURCES)[number];
+/** The module schema's initial selection, independent of per-run CLI defaults. */
+export const DEFAULT_JOB_BOARDS: readonly Source[] = ["remoteok"];
 
 /**
  * Boards with an adapter that are NOT enabled by default, and why. Every board

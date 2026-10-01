@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { z } from "zod";
 import type { AuditIssue } from "./types.js";
 import type { TypeSpec } from "./config.js";
+import type { ModuleSettings } from "./module-settings-types.js";
 
 /**
  * Context handed to module hygiene checks. `C` is the module's config type,
@@ -155,6 +156,8 @@ export interface ModuleManifest<C = unknown> {
   dormancyReason?: string;
   /** Zod schema validating the user's config block for this module. */
   configSchema?: { parse(input: unknown): C };
+  /** Data-only controls/actions; configSchema remains the validator. */
+  settings?: ModuleSettings<C>;
   setup(config: C): ModuleContribution<C>;
 }
 
@@ -191,4 +194,8 @@ export interface LoadedModule<C = unknown> {
   config: C;
   /** The loader always supplies state; omission in constructed contexts means active. */
   state?: "active" | "dormant";
+  /** Original declaration for schema-derived settings and the shared writer. */
+  declaration?: ModuleManifest<C>;
+  /** Domain input before saved JSON overrides or schema defaults. */
+  configInput?: unknown;
 }

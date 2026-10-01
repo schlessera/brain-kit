@@ -35,7 +35,7 @@ not automatically a behavior-preserving replacement for the other.
 Voice extracts terms from tags, titles, paths, link text and markdown content,
 then degrades an old schema to empty vocabulary while retaining overrides
 (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`). The audited pi backend duplicated link walking in its [native-handle graph implementation](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367). A module hygiene callback
-receives a raw database (`HygieneContext`, `packages/core/src/lib/module-types.ts:11-16`); jobs uses it for opportunity metadata (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+receives a raw database (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`); jobs uses it for opportunity metadata (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
 columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) and actual consumers against a CLI-produced index

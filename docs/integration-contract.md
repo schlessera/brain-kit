@@ -2431,6 +2431,86 @@ MCP startup registration reads that same loaded state and skips dormant
 modules before importing tool definitions. Dormancy is context control, not
 permission revocation.
 
+## Module settings (additive, #528)
+
+`ModuleManifest.settings?: ModuleSettings<C>` describes a generic editor over
+`configSchema`: data-only fields, choices, nested records, ordered lists and
+record variants, plus optional module CLI actions, computed notes and a pure
+migration planner. Descriptions are validated at module load. The leaf kinds
+are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
+`record`, `list` and `variant` compose them. Unlisted representable schema
+fields appear through the generic renderer. Unsupported fields show their
+complete JSON value read-only; unchanged JSON subtrees retain their bytes.
+Modules do not contribute React implementations. A module using settings has
+a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
+
+Core reads `settings/<module-name>.json`, a JSON object without the reserved
+`enabled` key. Own object keys merge recursively over the domain block in
+brain config; arrays, scalars and null replace. The original `configSchema`
+then parses the combined input and supplies defaults. Both active and dormant
+modules use this path, including ordinary config checks and `brain validate`.
+Invalid hand-edited settings fail validation rather than silently falling back.
+Config reads expose effective validated module blocks. JSON never replaces
+TypeScript logic or rewrites its source. Settings files and their parent may
+not alias another path through symlinks; a symlinked brain root remains valid.
+
+`brain module settings <name> --json` returns:
+
+```text
+{ module, key, state, canBeDormant, dormancyReason,
+  schema, values, inherited, overrides, provenance, inheritedProvenance,
+  revision, notes, ui: { fields, actions, migration } }
+```
+
+`schema` is generated from the declaration's Zod input schema, with
+unrepresentable leaves shown read-only. `values` are effective validated
+settings; `overrides` are the unnormalized JSON source object. `inherited`
+shows values without that JSON, and provenance distinguishes `default`,
+`brain-config`, `saved` and `migrated`. `revision` is an opaque quoted hash of
+the loaded config source and settings bytes. Do not derive meaning from it.
+
+`--set dotted.key=value` parses a JSON value when possible, otherwise a
+string; numeric path components address existing arrays. `--stdin` accepts
+the complete overrides object. Both use the same validated writer as the UI.
+`--revision REV` requires a matching revision; CLI omission uses a freshly
+read revision. `--preview` with `--set` or `--stdin` validates a draft and
+computes module notes without writing. `--action <id>` invokes the declared
+command in its owning module's namespace, using saved config and the existing
+dormancy guard; it cannot be combined with a settings save.
+
+Successful saves add `changed: boolean` and `commit: string | null` to the
+snapshot. A changed save atomically replaces only the module JSON file and
+creates exactly one git commit. Structurally unchanged requests preserve all
+file bytes and produce no commit. The transaction lock serializes revision
+checks, writes and commit. Stale revisions or a busy transaction return 409;
+validation returns 422 with `{ error, status, errors: [{ path, message }] }`
+and writes nothing. Unavailable modules return 404. A write/commit failure
+restores prior files and target index entries, preserving unrelated staged
+work. Pre-staged target changes are refused. These errors exit CLI 1.
+
+`--migrate --preview` runs the module's pure planner and returns its source
+preview, values, paths and revision. `--migrate --revision REV` applies that
+reviewed plan through the same validator and transaction. Changed settings
+and content are committed together once; stale input, validation, write or
+commit failure changes neither source. Jobs moves known scoring keys from
+criteria frontmatter into `settings/jobs.json.scoring`, retaining raw keyword
+casing, flat/tiered forms, coercible numbers, odd match values and absent
+optionals. Unknown scoring keys and unrelated frontmatter/prose stay in the
+document. It proves identical `parseScoringConfig` outputs before writing.
+Legacy frontmatter remains a read fallback until explicitly migrated.
+
+`module list --json` adds `settings`, `canBeDormant` and `dormancyReason` to
+loaded entries in its existing `enabled` array. A malformed module appears as
+an unavailable row with `error`, while valid neighbors remain readable and
+editable; actions still refuse globally invalid config. The Modules editor's
+HTTP routes are listed as internal transport in [http-api.md](http-api.md).
+GET settings supplies ETag; PUT requires If-Match (428 when absent), passes
+through field errors and 409 conflicts, and uses the CLI writer. Every route
+uses the existing authenticated-principal and origin guards. Migration,
+dormancy and actions are separate confirmed requests. Domain saves never
+change the core-owned `enabled` flag, migrate instruction ownership, hot
+unload a module or cancel running sessions.
+
 ## Module tools
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.

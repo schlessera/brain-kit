@@ -128,7 +128,7 @@ The first five live in core. The self-hosted chat UI adds four in
 `@schlessera/brain-scrape` adds one more, `SiteAdapter`, for modules that fetch
 from the web. All ten `module-jobs` boards implement it through the concrete
 jobs base. `JobAdapter` adds only source/tier/detail-page metadata
-(`JobAdapter`, `packages/module-jobs/src/types.ts:135-143`); it inherits the
+(`JobAdapter`, `packages/module-jobs/src/types.ts:137-145`); it inherits the
 shared `scrape(ctx, options)` lifecycle. Production jobs orchestration calls
 `runAdapters`, which owns transport admission, source failure isolation and
 browser cleanup. `PageLedger` in the jobs module still derives the four source

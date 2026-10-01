@@ -56,6 +56,10 @@ export "." (./src/index.ts)
   type ModuleContribution
   type ModuleCronEntry
   type ModuleManifest
+  type ModuleSettings
+  type ModuleSettingsField
+  type ModuleSettingsMigrationPlan
+  type ModuleSettingsOption
   type ModuleTool
   type OkfCheckIssue
   type OkfCheckReport

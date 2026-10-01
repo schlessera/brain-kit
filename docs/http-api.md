@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake and poke mounted by `createApp`: 89 unique declared
+The inventory includes the additive Queue intake and poke mounted by `createApp`: 97 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -78,6 +78,14 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/models/pricing` | I | Read pricing-table freshness | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
 | POST | `/api/models/refresh` | S | Force model discovery refresh | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/thinking` | I | Replace reasoning-effort overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
+| GET | `/api/modules` | I | List configured modules, including unavailable neighbors | React module settings; CLI module/settings contracts remain binding. |
+| GET | `/api/modules/:name/settings` | I | Read schema, values, provenance and revision | React module settings; CLI module/settings contracts remain binding. |
+| PUT | `/api/modules/:name/settings` | I | Validate and commit JSON overrides with If-Match | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/settings/preview` | I | Validate a draft and compute module notes without writing | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration/preview` | I | Preview a module-owned content migration | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration` | I | Apply the reviewed migration atomically | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/state` | I | Activate or park a configured workflow | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/actions/:id` | I | Run a declared module CLI action using saved settings | React module settings; CLI module/settings contracts remain binding. |
 | POST | `/api/pi-auth/login` | I | Start configured vendor OAuth flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | DELETE | `/api/pi-auth/login/:id` | I | Cancel vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | GET | `/api/pi-auth/login/:id` | I | Poll vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
@@ -122,7 +130,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 89 declared endpoints are mounted regardless of backend, renderer or
+All 97 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 

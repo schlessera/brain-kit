@@ -75,6 +75,7 @@ export "." (./src/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ConfiguredModule
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
@@ -123,6 +124,11 @@ export "." (./src/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  type ModuleSettingsFailure
+  type ModuleSettingsField
+  type ModuleSettingsMigrationPreview
+  type ModuleSettingsOption
+  type ModuleSettingsSnapshot
   PROTOCOL_REV
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary

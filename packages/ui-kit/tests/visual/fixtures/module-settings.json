@@ -1,0 +1,696 @@
+{
+  "module": "jobs",
+  "key": "@schlessera/brain-module-jobs",
+  "state": "active",
+  "canBeDormant": true,
+  "dormancyReason": null,
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "criteria": {
+        "type": "string",
+        "minLength": 1
+      },
+      "scoring": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "weight": {},
+                "match": {},
+                "titleBoost": {},
+                "tiers": {},
+                "keywords": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "weight"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "weight": {},
+                  "preferred": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "excluded": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "weight"
+                ],
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "excludeTitles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compensationBenchmark": {},
+          "compensationWeight": {},
+          "queueThreshold": {},
+          "dismissThreshold": {}
+        },
+        "required": [
+          "groups"
+        ],
+        "additionalProperties": {}
+      },
+      "opportunitiesDir": {
+        "default": "career/opportunities",
+        "type": "string",
+        "minLength": 1
+      },
+      "boards": {
+        "default": [
+          "remoteok"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "queries": {
+        "default": [
+          "software engineer",
+          "backend engineer",
+          "platform engineer"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "dbPath": {
+        "type": "string",
+        "minLength": 1
+      },
+      "rates": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "enrichment": {
+        "default": {
+          "concurrency": 4,
+          "maxDetailPages": 100
+        },
+        "type": "object",
+        "properties": {
+          "concurrency": {
+            "default": 4,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "maxDetailPages": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "criteria"
+    ],
+    "additionalProperties": false
+  },
+  "values": {
+    "criteria": "voyage/criteria.md",
+    "scoring": {
+      "groups": [
+        {
+          "name": "Navigation",
+          "weight": 25,
+          "match": "all",
+          "titleBoost": 1.5,
+          "tiers": [
+            {
+              "points": 25,
+              "keywords": [
+                "Navigation",
+                "Harbor"
+              ]
+            },
+            {
+              "points": 15,
+              "keywords": [
+                "Sailing"
+              ]
+            }
+          ],
+          "keywords": [
+            "LegacyCase"
+          ]
+        }
+      ],
+      "compensationBenchmark": "12000000"
+    },
+    "opportunitiesDir": "career/opportunities",
+    "boards": [
+      "remoteok",
+      "remotive"
+    ],
+    "queries": [
+      "fleet navigator"
+    ],
+    "dbPath": "voyage/jobs.db",
+    "rates": {
+      "USD": 0.92
+    },
+    "enrichment": {
+      "concurrency": 4,
+      "maxDetailPages": 100
+    }
+  },
+  "inherited": {
+    "opportunitiesDir": "career/opportunities",
+    "boards": [
+      "remoteok"
+    ],
+    "queries": [
+      "software engineer",
+      "backend engineer",
+      "platform engineer"
+    ],
+    "enrichment": {
+      "concurrency": 4,
+      "maxDetailPages": 100
+    },
+    "criteria": "voyage/criteria.md",
+    "dbPath": "voyage/jobs.db"
+  },
+  "overrides": {
+    "scoring": {
+      "groups": [
+        {
+          "name": "Navigation",
+          "weight": 25,
+          "match": "all",
+          "titleBoost": 1.5,
+          "tiers": [
+            {
+              "points": 25,
+              "keywords": [
+                "Navigation",
+                "Harbor"
+              ]
+            },
+            {
+              "points": 15,
+              "keywords": [
+                "Sailing"
+              ]
+            }
+          ],
+          "keywords": [
+            "LegacyCase"
+          ]
+        }
+      ],
+      "compensationBenchmark": "12000000"
+    },
+    "boards": [
+      "remoteok",
+      "remotive"
+    ],
+    "queries": [
+      "fleet navigator"
+    ],
+    "rates": {
+      "USD": 0.92
+    }
+  },
+  "provenance": {
+    "criteria": "brain-config",
+    "scoring": "saved",
+    "scoring.groups": "saved",
+    "scoring.groups.0": "saved",
+    "scoring.groups.0.name": "saved",
+    "scoring.groups.0.weight": "saved",
+    "scoring.groups.0.match": "saved",
+    "scoring.groups.0.titleBoost": "saved",
+    "scoring.groups.0.tiers": "saved",
+    "scoring.groups.0.tiers.0": "saved",
+    "scoring.groups.0.tiers.0.points": "saved",
+    "scoring.groups.0.tiers.0.keywords": "saved",
+    "scoring.groups.0.tiers.0.keywords.0": "saved",
+    "scoring.groups.0.tiers.0.keywords.1": "saved",
+    "scoring.groups.0.tiers.1": "saved",
+    "scoring.groups.0.tiers.1.points": "saved",
+    "scoring.groups.0.tiers.1.keywords": "saved",
+    "scoring.groups.0.tiers.1.keywords.0": "saved",
+    "scoring.groups.0.keywords": "saved",
+    "scoring.groups.0.keywords.0": "saved",
+    "scoring.compensationBenchmark": "saved",
+    "opportunitiesDir": "default",
+    "boards": "saved",
+    "boards.0": "saved",
+    "boards.1": "saved",
+    "queries": "saved",
+    "queries.0": "saved",
+    "dbPath": "brain-config",
+    "rates": "saved",
+    "rates.USD": "saved",
+    "enrichment": "default",
+    "enrichment.concurrency": "default",
+    "enrichment.maxDetailPages": "default"
+  },
+  "inheritedProvenance": {
+    "criteria": "brain-config",
+    "scoring": "default",
+    "scoring.groups": "default",
+    "scoring.groups.0": "default",
+    "scoring.groups.0.name": "default",
+    "scoring.groups.0.weight": "default",
+    "scoring.groups.0.match": "default",
+    "scoring.groups.0.titleBoost": "default",
+    "scoring.groups.0.tiers": "default",
+    "scoring.groups.0.tiers.0": "default",
+    "scoring.groups.0.tiers.0.points": "default",
+    "scoring.groups.0.tiers.0.keywords": "default",
+    "scoring.groups.0.tiers.0.keywords.0": "default",
+    "scoring.groups.0.tiers.0.keywords.1": "default",
+    "scoring.groups.0.tiers.1": "default",
+    "scoring.groups.0.tiers.1.points": "default",
+    "scoring.groups.0.tiers.1.keywords": "default",
+    "scoring.groups.0.tiers.1.keywords.0": "default",
+    "scoring.groups.0.keywords": "default",
+    "scoring.groups.0.keywords.0": "default",
+    "scoring.compensationBenchmark": "default",
+    "opportunitiesDir": "default",
+    "boards": "default",
+    "boards.0": "default",
+    "boards.1": "default",
+    "queries": "default",
+    "queries.0": "default",
+    "dbPath": "brain-config",
+    "rates": "default",
+    "rates.USD": "default",
+    "enrichment": "default",
+    "enrichment.concurrency": "default",
+    "enrichment.maxDetailPages": "default"
+  },
+  "revision": "\"fixture-original\"",
+  "notes": [
+    {
+      "key": "scoring.groups",
+      "text": "Highest possible score 25"
+    },
+    {
+      "key": "scoring.dismissThreshold",
+      "text": "Jobs scoring at least 35 and below 60 stay pending."
+    },
+    {
+      "key": "scoring.groups.0",
+      "text": "up to 25 pts · 2 tiers · 3 keywords"
+    }
+  ],
+  "ui": {
+    "fields": [
+      {
+        "key": "scoring",
+        "label": "Scoring",
+        "kind": "record",
+        "group": "Scoring",
+        "fields": [
+          {
+            "key": "groups",
+            "label": "Scoring groups",
+            "kind": "list",
+            "itemTitle": "name",
+            "collapsible": true,
+            "orderMatters": true,
+            "minItems": 1,
+            "uniqueBy": "name",
+            "addLabel": "Add group",
+            "fields": [
+              {
+                "key": "name",
+                "label": "Name",
+                "kind": "text",
+                "help": "Shown in each job's score breakdown."
+              },
+              {
+                "key": "weight",
+                "label": "Maximum points",
+                "kind": "number",
+                "unit": "points"
+              },
+              {
+                "key": "match",
+                "label": "Look in",
+                "kind": "choice",
+                "default": "all",
+                "options": [
+                  {
+                    "value": "all",
+                    "label": "Title and description"
+                  },
+                  {
+                    "value": "title",
+                    "label": "Title only"
+                  }
+                ]
+              },
+              {
+                "key": "titleBoost",
+                "label": "Title boost",
+                "kind": "number",
+                "unit": "×",
+                "step": 0.1,
+                "default": 1,
+                "help": "Multiplies a tier's points when its keyword is in the title."
+              },
+              {
+                "key": "",
+                "label": "Scoring style",
+                "kind": "variant",
+                "variants": [
+                  {
+                    "key": "tiers",
+                    "label": "Graded tiers",
+                    "fields": [
+                      {
+                        "key": "tiers",
+                        "label": "Tiers",
+                        "kind": "list",
+                        "itemTitle": "points",
+                        "orderMatters": true,
+                        "minItems": 1,
+                        "addLabel": "Add tier",
+                        "fields": [
+                          {
+                            "key": "points",
+                            "label": "Points",
+                            "kind": "number",
+                            "unit": "points"
+                          },
+                          {
+                            "key": "keywords",
+                            "label": "Keywords",
+                            "kind": "tags",
+                            "help": "Matched without regard to case."
+                          }
+                        ],
+                        "help": "The best matching tier counts, up to the group's maximum."
+                      }
+                    ]
+                  },
+                  {
+                    "key": "keywords",
+                    "label": "One keyword list",
+                    "fields": [
+                      {
+                        "key": "keywords",
+                        "label": "Keywords",
+                        "kind": "tags",
+                        "help": "Any match scores the group's maximum."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "help": "Each group adds up to its maximum points."
+          },
+          {
+            "key": "location",
+            "label": "Location",
+            "kind": "record",
+            "optional": {
+              "label": "Score location"
+            },
+            "fields": [
+              {
+                "key": "weight",
+                "label": "Points when preferred",
+                "kind": "number",
+                "unit": "points"
+              },
+              {
+                "key": "preferred",
+                "label": "Preferred markers",
+                "kind": "tags",
+                "help": "Whole words, such as remote, europe."
+              },
+              {
+                "key": "excluded",
+                "label": "Excluded markers",
+                "kind": "tags",
+                "help": "Any excluded marker scores location zero, even when a preferred marker matches."
+              }
+            ]
+          },
+          {
+            "key": "excludeTitles",
+            "label": "Never show titles containing",
+            "kind": "tags",
+            "help": "A matching title scores zero in every group."
+          },
+          {
+            "key": "compensationBenchmark",
+            "label": "Salary benchmark (annual)",
+            "kind": "number",
+            "unit": "/ year",
+            "currency": "EUR",
+            "minorUnits": true,
+            "optional": {
+              "label": "Score salary"
+            },
+            "help": "Listings are converted to EUR cents with the rates below."
+          },
+          {
+            "key": "compensationWeight",
+            "label": "Points at or above the benchmark",
+            "kind": "number",
+            "unit": "points",
+            "default": 0,
+            "help": "Half at 80% of it; 30% when a listing gives no salary."
+          },
+          {
+            "key": "queueThreshold",
+            "label": "Queue for review at",
+            "kind": "number",
+            "unit": "points",
+            "default": 60
+          },
+          {
+            "key": "dismissThreshold",
+            "label": "Dismiss below",
+            "kind": "number",
+            "unit": "points",
+            "default": 35
+          }
+        ]
+      },
+      {
+        "key": "boards",
+        "label": "Sources",
+        "kind": "multichoice",
+        "group": "Sources",
+        "options": [
+          {
+            "value": "remoteok",
+            "label": "RemoteOK",
+            "disabled": false,
+            "help": "Selected by default"
+          },
+          {
+            "value": "remotive",
+            "label": "Remotive",
+            "disabled": true,
+            "help": "Not selected by default · robots.txt disallows /api/*, the only path its adapter fetches; it needs the site's permission before it can run"
+          },
+          {
+            "value": "weworkremotely",
+            "label": "We Work Remotely",
+            "disabled": false,
+            "help": "Not selected by default"
+          },
+          {
+            "value": "workingnomads",
+            "label": "Working Nomads",
+            "disabled": false,
+            "help": "Not selected by default"
+          },
+          {
+            "value": "builtin",
+            "label": "BuiltIn",
+            "disabled": false,
+            "help": "Not selected by default · Needs a browser on the host"
+          },
+          {
+            "value": "nodesk",
+            "label": "NoDesk",
+            "disabled": false,
+            "help": "Not selected by default · Needs a browser on the host"
+          },
+          {
+            "value": "simplyhired",
+            "label": "SimplyHired",
+            "disabled": false,
+            "help": "Not selected by default · Uses your queries · intermittent 403s (rate limiting) from the measured vantage point"
+          },
+          {
+            "value": "jobgether",
+            "label": "Jobgether",
+            "disabled": false,
+            "help": "Not selected by default · robots.txt disallows its API's query-string paging, so a run gets one page"
+          },
+          {
+            "value": "dice",
+            "label": "Dice",
+            "disabled": false,
+            "help": "Not selected by default · Uses your queries · Needs a browser on the host"
+          },
+          {
+            "value": "remotelyde",
+            "label": "Remotely.de",
+            "disabled": false,
+            "help": "Not selected by default"
+          }
+        ]
+      },
+      {
+        "key": "queries",
+        "label": "Queries",
+        "kind": "tags",
+        "group": "Sources",
+        "help": "Used by SimplyHired and Dice only."
+      },
+      {
+        "key": "rates",
+        "label": "Currency → EUR rates",
+        "kind": "weights",
+        "group": "Conversion",
+        "help": "Overrides the package's built-in rates, which go stale."
+      },
+      {
+        "key": "enrichment.maxDetailPages",
+        "label": "Maximum detail pages",
+        "kind": "number",
+        "unit": "pages",
+        "group": "Enrichment",
+        "help": "Zero turns enrichment off."
+      },
+      {
+        "key": "enrichment.concurrency",
+        "label": "Concurrent detail requests",
+        "kind": "number",
+        "unit": "requests",
+        "group": "Enrichment"
+      },
+      {
+        "key": "opportunitiesDir",
+        "label": "Opportunity directory",
+        "kind": "text",
+        "group": "Storage",
+        "appliesAt": "restart"
+      },
+      {
+        "key": "dbPath",
+        "label": "Database path",
+        "kind": "text",
+        "group": "Storage",
+        "readOnly": {
+          "reason": "set in brain config",
+          "whenInherited": true
+        },
+        "help": "Set in brain config when inherited.",
+        "appliesAt": "restart"
+      },
+      {
+        "key": "criteria",
+        "label": "Criteria document",
+        "kind": "text",
+        "group": "Storage",
+        "help": "Keeps your criteria prose; legacy scoring remains here until moved."
+      }
+    ],
+    "actions": [
+      {
+        "id": "rescore",
+        "label": "Rescore now",
+        "help": "Rescore the local queue using saved settings.",
+        "command": [
+          "jobs",
+          "score",
+          "--all"
+        ],
+        "confirm": "Rescore all jobs and update their queue classifications?"
+      }
+    ],
+    "migration": {
+      "label": "Move scoring rules",
+      "help": "Preview the complete rules before moving them. Your prose and unrelated settings stay in the criteria document.",
+      "target": "scoring"
+    }
+  }
+}

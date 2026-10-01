@@ -17,6 +17,7 @@ export interface BrainContext {
   /** null = uninitialized brain (no brain.config.*). Taxonomy falls back to core defaults. */
   config: BrainConfig | null;
   configPath: string | null;
+  configSource?: string;
   modules: LoadedModule[];
   taxonomy: Taxonomy;
 }
@@ -43,6 +44,7 @@ export async function initContext(opts: InitContextOptions = {}): Promise<BrainC
     dbPath: join(root, "brain.db"),
     config: loaded.config,
     configPath: loaded.path,
+    configSource: loaded.content,
     modules,
     taxonomy,
   };

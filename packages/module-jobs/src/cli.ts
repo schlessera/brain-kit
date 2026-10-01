@@ -70,7 +70,7 @@ async function resolveJobsCtx(ctx: CommandContext<JobsConfig>): Promise<JobsCtx>
 /** Load the scoring config, or return null (with a warning) when unavailable. */
 function tryLoadScoring(jctx: JobsCtx, required: boolean): ScoringConfig | null {
   try {
-    return loadScoringConfig(jctx.root, jctx.criteriaPath);
+    return loadScoringConfig(jctx.root, jctx.criteriaPath, jctx.config.scoring);
   } catch (err) {
     const msg = (err as Error).message;
     if (required) throw err;
