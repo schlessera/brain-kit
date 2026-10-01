@@ -393,6 +393,14 @@ same structure the first-party modules use — they are the reference examples.
 If it declares tools, lint also validates their imports, definitions, names,
 annotations, schemas, input descriptions and README coverage.
 
+The approved [module instruction ownership and migration policy](decisions/module-instruction-ownership.md)
+binds future instruction contributions and onboarding. It requires text
+derived from validated module config, explicitly owned generated regions,
+and migration of legacy mixed sections before any toggle side effect. The
+implementation belongs to [#527](https://github.com/schlessera/brain-kit/issues/527);
+the policy record does not add an instruction contribution API to the fields
+documented above.
+
 ## See also
 
 - [concepts.md](concepts.md) — the taxonomy model modules extend.
