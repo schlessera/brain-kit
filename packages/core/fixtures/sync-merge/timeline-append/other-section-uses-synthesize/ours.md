@@ -1,15 +1,15 @@
 ---
 type: project
-title: "Workbench Build"
+title: "Practice Spar"
 created: 2026-01-08
 updated: 2026-04-18
-tags: [project, woodworking]
+tags: [project, shipbuilding]
 status: active
 ---
 
-# Workbench Build
+# Practice Spar
 
-A split-top Roubo bench for the garage shop.
+A practice spar for the departure from Ogygia.
 
 ## Materials
 

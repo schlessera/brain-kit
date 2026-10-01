@@ -101,8 +101,8 @@ describe("contract gate diff", () => {
         writeFileSync(join(repo, file), text);
       };
       git(repo, "init", "-q", "-b", "main");
-      git(repo, "config", "user.email", "alex@example.com");
-      git(repo, "config", "user.name", "Alex Example");
+      git(repo, "config", "user.email", "odysseus@example.com");
+      git(repo, "config", "user.name", "Odysseus");
       write(CONTRACT_DOC, "v1\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-qm", "base");

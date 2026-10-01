@@ -633,6 +633,10 @@ Measured against `packages/core/fixtures/`:
   assertion, and an 1872 or 1889 setting cannot host it. That cost is larger
   than any of the IP risks.
 
+> **2026-09-30 — Corpus ruling.** D18’s separate-persona and no-shared-content restrictions are historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
+
 **D18 — the corpus and the kit fixtures are separate, and neither moves the
 other.** `packages/core/fixtures/corpus/` stays exactly as it is, persona
 included: zero test churn, invariants intact, pinned date intact. `ui-kit` gets
@@ -718,6 +722,10 @@ Mapping (from the maintainer's brief):
 | Maps | Route across the Mediterranean |
 | Attachments | Charts, sketches, ship manifests |
 | Tags | #ithaca #crew #gods #danger |
+
+> **2026-09-30 — Corpus ruling.** D19’s former UI-only scope is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
 
 Scope: `packages/ui-kit/fixtures/` per D18. `packages/core/fixtures/corpus/` and
 its "Alex Example" persona are untouched, so no test churn and no invariant
@@ -3355,8 +3363,8 @@ description rule being stretched, and a rate cannot see it.
 against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
 1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
 breaker never opened.** The one swap drew a `receipt` from a key-value run
-in the trail-signage answer. Latency sits in the 700–800 ms band D42
-measured on the Claude side.
+in the trail-signage answer; that corpus predates [the ruling](example-corpus.md).
+Latency sits in the 700–800 ms band D42 measured on the Claude side.
 
 The shape of the difference is not the classifier; it is that pi hardly ever
 leaves it anything. D42's Claude measurement was eight turns, three swaps,
@@ -3815,6 +3823,10 @@ Both drew a `trend` block, so the exclusion lowers the Claude rate rather than
 flattering it. `trend` is also the prompt that cost pi its four excluded
 turns.
 
+> **2026-09-30 — Corpus ruling.** The former corpus in this measurement is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
+
 Apart from those two, an audit of all 64 transcripts found no tool argument
 naming a path outside the brain, no instruction file, no user skill or agent,
 and no account email. Skills and agents were only the CLI's built-ins. Every
@@ -3962,6 +3974,10 @@ one of the 28 turns on prompts 3–7 read the brain through the brain tools
 alone. `Bash` survived only on `trend`, where the model counted files by
 creation date. The only skill loaded was the CLI's built-in `dataviz`, once,
 on a `trend` turn.
+
+> **2026-09-30 — Corpus ruling.** The former corpus in this measurement is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
 
 **Three turns left the brain.** All three are `trend` turns in run 1. One ran
 `find / -maxdepth 3 -iname "brain"`, and two listed the directory that holds

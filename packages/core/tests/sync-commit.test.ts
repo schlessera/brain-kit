@@ -34,15 +34,15 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-/** A repository with one commit, a local empty hooks directory, and Alex Example as its author. */
+/** A repository with one commit, a local empty hooks directory, and Odysseus as its author. */
 function repo(files: Record<string, string>): string {
   const base = mkdtempSync(join(tmpdir(), "brain-sync-commit-"));
   dirs.push(base);
   const root = join(base, "brain");
   mkdirSync(join(base, "hooks"));
   Bun.spawnSync(["git", "init", "-q", "-b", "main", root]);
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "core.hooksPath", join(base, "hooks"));
   for (const [path, text] of Object.entries(files)) write(root, path, text);
@@ -62,20 +62,20 @@ const filesOf = (root: string, rev: string) => git(root, "show", "--no-renames",
 
 describe("composeSubject", () => {
   test("names the domains and titles when they fit", () => {
-    expect(composeSubject("Update", ["trails"], ["Ridge Loop", "Lake Path"])).toBe("Update trails: Ridge Loop, Lake Path");
+    expect(composeSubject("Update", ["routes"], ["Ogygia Shore", "Cave Path"])).toBe("Update routes: Ogygia Shore, Cave Path");
   });
 
   test("drops titles into the `+N more` count until it fits in 72 characters", () => {
-    const titles = ["Ridge Loop trail survey", "Lake Path erosion", "Visitor centre rota", "Bear box inventory"];
-    const subject = composeSubject("Update", ["trails"], titles);
-    expect(subject).toBe("Update trails: Ridge Loop trail survey, Lake Path erosion (+2 more)");
+    const titles = ["Ogygia Shore route survey", "Cave Path erosion", "Visitor centre rota", "Bear box inventory"];
+    const subject = composeSubject("Update", ["routes"], titles);
+    expect(subject).toBe("Update routes: Ogygia Shore route survey, Cave Path erosion (+2 more)");
     expect([...subject].length).toBeLessThanOrEqual(72);
     // 73 characters with both titles: one drops.
-    expect(composeSubject("Update", ["trails"], ["A".repeat(28), "B".repeat(28)])).toBe(`Update trails: ${"A".repeat(28)} (+1 more)`);
+    expect(composeSubject("Update", ["routes"], ["A".repeat(28), "B".repeat(28)])).toBe(`Update routes: ${"A".repeat(28)} (+1 more)`);
   });
 
   test("a first title too long alone is shortened, still within 72 characters", () => {
-    const subject = composeSubject("Add", ["trails"], ["A".repeat(100), "B"]);
+    const subject = composeSubject("Add", ["routes"], ["A".repeat(100), "B"]);
     expect([...subject].length).toBeLessThanOrEqual(72);
     expect(subject.endsWith("… (+1 more)")).toBe(true);
   });
@@ -84,30 +84,30 @@ describe("composeSubject", () => {
 describe("planCommits", () => {
   test("one domain is one commit, split into chunks of at most ten files", () => {
     const files: Record<string, string> = {};
-    for (let i = 1; i <= 12; i++) files[`trails/t${String(i).padStart(2, "0")}.md`] = note(`Trail ${i}`);
+    for (let i = 1; i <= 12; i++) files[`routes/t${String(i).padStart(2, "0")}.md`] = note(`Route ${i}`);
     const root = repo({ "README.md": "# Brain\n" });
     for (const [path, text] of Object.entries(files)) write(root, path, text);
-    const groups: GroupedFile[] = Object.keys(files).map((path) => ({ domain: "trails", status: "?", path }));
+    const groups: GroupedFile[] = Object.keys(files).map((path) => ({ domain: "routes", status: "?", path }));
 
     const plan = planCommits(root, groups);
     expect(plan.commits.map((c) => c.files.length)).toEqual([10, 2]);
-    expect(plan.commits.every((c) => c.domains.join() === "trails")).toBe(true);
-    expect(plan.commits[1]!.subject).toBe("Add trails: Trail 11, Trail 12");
+    expect(plan.commits.every((c) => c.domains.join() === "routes")).toBe(true);
+    expect(plan.commits[1]!.subject).toBe("Add routes: Route 11, Route 12");
   });
 
   test("single-file domains are gathered into one commit, after the others", () => {
     const root = repo({ "README.md": "# Brain\n" });
-    write(root, "trails/a.md", note("Ridge Loop"));
-    write(root, "trails/b.md", note("Lake Path"));
+    write(root, "routes/a.md", note("Ogygia Shore"));
+    write(root, "routes/b.md", note("Cave Path"));
     write(root, "wildlife/elk.md", note("Elk count"));
     write(root, "gear/radio.md", note("Radio check"));
     const plan = planCommits(root, [
       { domain: "wildlife", status: "?", path: "wildlife/elk.md" },
-      { domain: "trails", status: "?", path: "trails/a.md" },
+      { domain: "routes", status: "?", path: "routes/a.md" },
       { domain: "gear", status: "?", path: "gear/radio.md" },
-      { domain: "trails", status: "?", path: "trails/b.md" },
+      { domain: "routes", status: "?", path: "routes/b.md" },
     ]);
-    expect(plan.commits.map((c) => c.domains)).toEqual([["trails"], ["gear", "wildlife"]]);
+    expect(plan.commits.map((c) => c.domains)).toEqual([["routes"], ["gear", "wildlife"]]);
     expect(plan.commits[1]!.subject).toBe("Add gear, wildlife: Radio check, Elk count");
   });
 
@@ -120,19 +120,19 @@ describe("planCommits", () => {
   });
 
   test("the verb is Add, Remove or Update from the statuses; titles fall back to the file name", () => {
-    const root = repo({ "trails/old.md": note("Old Trail"), "trails/gone.md": note("Gone Trail"), "trails/kept.md": note("Kept") });
-    git(root, "rm", "-q", "trails/old.md", "trails/gone.md");
-    write(root, "trails/kept.md", note("Kept", "Changed.\n"));
+    const root = repo({ "routes/old.md": note("Old Route"), "routes/gone.md": note("Gone Route"), "routes/kept.md": note("Kept") });
+    git(root, "rm", "-q", "routes/old.md", "routes/gone.md");
+    write(root, "routes/kept.md", note("Kept", "Changed.\n"));
     write(root, "gear/list.txt", "rope\n");
     write(root, "gear/notes.md", "no frontmatter\n");
 
     const removed = planCommits(root, [
-      { domain: "trails", status: "D", path: "trails/old.md" },
-      { domain: "trails", status: "D", path: "trails/gone.md" },
+      { domain: "routes", status: "D", path: "routes/old.md" },
+      { domain: "routes", status: "D", path: "routes/gone.md" },
     ]).commits[0]!;
     // A deletion is titled as HEAD had it.
-    expect(removed.subject).toBe("Remove trails: Gone Trail, Old Trail");
-    expect(removed.body).toBe("- D trails/gone.md\n- D trails/old.md");
+    expect(removed.subject).toBe("Remove routes: Gone Route, Old Route");
+    expect(removed.body).toBe("- D routes/gone.md\n- D routes/old.md");
 
     const added = planCommits(root, [
       { domain: "gear", status: "?", path: "gear/list.txt" },
@@ -142,22 +142,22 @@ describe("planCommits", () => {
     expect(added.body).toBe("- A gear/list.txt\n- A gear/notes.md");
 
     const mixed = planCommits(root, [
-      { domain: "trails", status: "D", path: "trails/old.md" },
-      { domain: "trails", status: "M", path: "trails/kept.md" },
+      { domain: "routes", status: "D", path: "routes/old.md" },
+      { domain: "routes", status: "M", path: "routes/kept.md" },
     ]).commits[0]!;
-    expect(mixed.subject).toBe("Update trails: Kept, Old Trail");
+    expect(mixed.subject).toBe("Update routes: Kept, Old Route");
   });
 
   test("a path listed twice counts once", () => {
     const root = repo({ "README.md": "# Brain\n" });
-    write(root, "trails/a.md", note("Ridge Loop"));
-    write(root, "trails/b.md", note("Lake Path"));
+    write(root, "routes/a.md", note("Ogygia Shore"));
+    write(root, "routes/b.md", note("Cave Path"));
     const plan = planCommits(root, [
-      { domain: "trails", status: "?", path: "trails/a.md" },
-      { domain: "trails", status: "?", path: "trails/a.md" },
-      { domain: "trails", status: "?", path: "trails/b.md" },
+      { domain: "routes", status: "?", path: "routes/a.md" },
+      { domain: "routes", status: "?", path: "routes/a.md" },
+      { domain: "routes", status: "?", path: "routes/b.md" },
     ]);
-    expect(plan.commits[0]!.files.map((f) => f.path)).toEqual(["trails/a.md", "trails/b.md"]);
+    expect(plan.commits[0]!.files.map((f) => f.path)).toEqual(["routes/a.md", "routes/b.md"]);
   });
 });
 
@@ -165,66 +165,66 @@ describe("bumpUpdated", () => {
   // Comments, quoting, a list and CRLF line endings: everything editFrontmatter must leave as it was.
   const crlf = (text: string) => text.replace(/\n/g, "\r\n");
   const original = crlf(
-    "---\n# kept comment\ntitle: 'Ridge Loop'   # trailing comment\nupdated: 2026-01-01\ntags: [trail, survey]\naliases:\n  - ridge\n---\n# Ridge Loop\n\nWashout at mile 3.\n"
+    "---\n# kept comment\ntitle: 'Ogygia Shore'   # trailing comment\nupdated: 2026-01-01\ntags: [route, survey]\naliases:\n  - ridge\n---\n# Ogygia Shore\n\nRockfall beside the cave.\n"
   );
 
   test("sets `updated` on a body change and leaves every other byte as it was", () => {
-    const root = repo({ "trails/ridge.md": original });
-    const edited = original.replace("Washout at mile 3.", "Washout at mile 3, repaired.");
-    write(root, "trails/ridge.md", edited);
+    const root = repo({ "routes/ridge.md": original });
+    const edited = original.replace("Rockfall beside the cave.", "Washout at mile 3, repaired.");
+    write(root, "routes/ridge.md", edited);
 
-    expect(bumpUpdated(root, [{ path: "trails/ridge.md", status: "M" }], TODAY)).toEqual({ bumped: ["trails/ridge.md"], refused: [] });
-    expect(read(root, "trails/ridge.md")).toBe(edited.replace("updated: 2026-01-01", `updated: ${TODAY}`));
+    expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "M" }], TODAY)).toEqual({ bumped: ["routes/ridge.md"], refused: [] });
+    expect(read(root, "routes/ridge.md")).toBe(edited.replace("updated: 2026-01-01", `updated: ${TODAY}`));
   });
 
   test("adds `updated` when the frontmatter has none, touching nothing else", () => {
-    const text = "---\ntitle: Lake Path\n---\nOld.\n";
-    const root = repo({ "trails/lake.md": text });
-    write(root, "trails/lake.md", "---\ntitle: Lake Path\n---\nNew.\n");
-    expect(bumpUpdated(root, [{ path: "trails/lake.md", status: "M" }], TODAY).bumped).toEqual(["trails/lake.md"]);
-    expect(read(root, "trails/lake.md")).toBe(`---\ntitle: Lake Path\nupdated: ${TODAY}\n---\nNew.\n`);
+    const text = "---\ntitle: Cave Path\n---\nOld.\n";
+    const root = repo({ "routes/lake.md": text });
+    write(root, "routes/lake.md", "---\ntitle: Cave Path\n---\nNew.\n");
+    expect(bumpUpdated(root, [{ path: "routes/lake.md", status: "M" }], TODAY).bumped).toEqual(["routes/lake.md"]);
+    expect(read(root, "routes/lake.md")).toBe(`---\ntitle: Cave Path\nupdated: ${TODAY}\n---\nNew.\n`);
   });
 
   test("a whitespace-only body change is not a change", () => {
-    const root = repo({ "trails/ridge.md": original });
-    const reflowed = original.replace("Washout at mile 3.", "Washout  at\r\nmile 3.  ");
-    write(root, "trails/ridge.md", reflowed);
-    expect(bumpUpdated(root, [{ path: "trails/ridge.md", status: "M" }], TODAY).bumped).toEqual([]);
-    expect(read(root, "trails/ridge.md")).toBe(reflowed);
+    const root = repo({ "routes/ridge.md": original });
+    const reflowed = original.replace("Rockfall beside the cave.", "Washout  at\r\nmile 3.  ");
+    write(root, "routes/ridge.md", reflowed);
+    expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "M" }], TODAY).bumped).toEqual([]);
+    expect(read(root, "routes/ridge.md")).toBe(reflowed);
   });
 
   test("a frontmatter-only change is not a body change", () => {
-    const root = repo({ "trails/ridge.md": original });
-    const retagged = original.replace("[trail, survey]", "[trail]");
-    write(root, "trails/ridge.md", retagged);
-    expect(bumpUpdated(root, [{ path: "trails/ridge.md", status: "M" }], TODAY).bumped).toEqual([]);
-    expect(read(root, "trails/ridge.md")).toBe(retagged);
+    const root = repo({ "routes/ridge.md": original });
+    const retagged = original.replace("[route, survey]", "[route]");
+    write(root, "routes/ridge.md", retagged);
+    expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "M" }], TODAY).bumped).toEqual([]);
+    expect(read(root, "routes/ridge.md")).toBe(retagged);
   });
 
   test("a file listed with another status is left alone, even when its body changed", () => {
-    const root = repo({ "trails/ridge.md": original });
-    const edited = original.replace("Washout at mile 3.", "Washout repaired.");
-    write(root, "trails/ridge.md", edited);
-    expect(bumpUpdated(root, [{ path: "trails/ridge.md", status: "A" }], TODAY).bumped).toEqual([]);
-    expect(read(root, "trails/ridge.md")).toBe(edited);
+    const root = repo({ "routes/ridge.md": original });
+    const edited = original.replace("Rockfall beside the cave.", "Washout repaired.");
+    write(root, "routes/ridge.md", edited);
+    expect(bumpUpdated(root, [{ path: "routes/ridge.md", status: "A" }], TODAY).bumped).toEqual([]);
+    expect(read(root, "routes/ridge.md")).toBe(edited);
   });
 
   test("only modified markdown files are considered", () => {
-    const root = repo({ "trails/ridge.md": original, "gear/list.txt": "rope\n" });
-    write(root, "trails/new.md", note("New", "Fresh.\n"));
+    const root = repo({ "routes/ridge.md": original, "gear/list.txt": "rope\n" });
+    write(root, "routes/new.md", note("New", "Fresh.\n"));
     write(root, "gear/list.txt", "rope\nmap\n");
-    const result = bumpUpdated(root, [{ path: "trails/new.md", status: "?" }, { path: "gear/list.txt", status: "M" }], TODAY);
+    const result = bumpUpdated(root, [{ path: "routes/new.md", status: "?" }, { path: "gear/list.txt", status: "M" }], TODAY);
     expect(result.bumped).toEqual([]);
-    expect(read(root, "trails/new.md")).toBe(note("New", "Fresh.\n"));
+    expect(read(root, "routes/new.md")).toBe(note("New", "Fresh.\n"));
   });
 });
 
 describe("applyCommitPlan", () => {
   function fixture(): string {
-    const root = repo({ "trails/ridge.md": note("Ridge Loop"), "trails/old.md": note("Old"), "gear/radio.md": note("Radio") });
-    write(root, "trails/ridge.md", note("Ridge Loop", "Washout.\n"));
-    write(root, "trails/lake.md", note("Lake Path"));
-    rmSync(join(root, "trails/old.md"));
+    const root = repo({ "routes/ridge.md": note("Ogygia Shore"), "routes/old.md": note("Old"), "gear/radio.md": note("Radio") });
+    write(root, "routes/ridge.md", note("Ogygia Shore", "Washout.\n"));
+    write(root, "routes/lake.md", note("Cave Path"));
+    rmSync(join(root, "routes/old.md"));
     git(root, "rm", "-q", "gear/radio.md");
     // Someone else's staged work, which no commit may take.
     write(root, "staged.md", "staged by someone else\n");
@@ -233,9 +233,9 @@ describe("applyCommitPlan", () => {
   }
 
   const groups: GroupedFile[] = [
-    { domain: "trails", status: "M", path: "trails/ridge.md" },
-    { domain: "trails", status: "?", path: "trails/lake.md" },
-    { domain: "trails", status: "D", path: "trails/old.md" },
+    { domain: "routes", status: "M", path: "routes/ridge.md" },
+    { domain: "routes", status: "?", path: "routes/lake.md" },
+    { domain: "routes", status: "D", path: "routes/old.md" },
     { domain: "gear", status: "D", path: "gear/radio.md" },
   ];
   const allowed = new Set(groups.map((g) => g.path));
@@ -246,12 +246,12 @@ describe("applyCommitPlan", () => {
     const results = applyCommitPlan(root, plan, allowed);
     expect(results.map((r) => ("sha" in r ? r.subject : r.error))).toEqual(plan.commits.map((c) => c.subject));
 
-    expect(filesOf(root, "HEAD~1").sort()).toEqual(["trails/lake.md", "trails/old.md", "trails/ridge.md"]);
+    expect(filesOf(root, "HEAD~1").sort()).toEqual(["routes/lake.md", "routes/old.md", "routes/ridge.md"]);
     expect(filesOf(root, "HEAD")).toEqual(["gear/radio.md"]);
     const message = git(root, "log", "-1", "--format=%B", "HEAD~1");
     expect(message).toBe(`${plan.commits[0]!.subject}\n\n${plan.commits[0]!.body}`);
     expect(message).not.toMatch(/co-authored-by/i);
-    expect(git(root, "log", "-1", "--format=%an")).toBe("Alex Example");
+    expect(git(root, "log", "-1", "--format=%an")).toBe("Odysseus");
     // The unrelated staged file is still staged and in no commit.
     expect(git(root, "status", "--porcelain")).toBe("A  staged.md");
   });
@@ -259,7 +259,7 @@ describe("applyCommitPlan", () => {
   test("someone else's staged file stays staged and out of the commit", () => {
     const root = fixture();
     const results = applyCommitPlan(root, planCommits(root, [groups[0]!, groups[1]!]), allowed);
-    expect(filesOf(root, "HEAD").sort()).toEqual(["trails/lake.md", "trails/ridge.md"]);
+    expect(filesOf(root, "HEAD").sort()).toEqual(["routes/lake.md", "routes/ridge.md"]);
     expect(git(root, "diff", "--cached", "--name-only")).toBe("gear/radio.md\nstaged.md");
     expect("sha" in results[0]!).toBe(true);
   });
@@ -277,13 +277,13 @@ describe("applyCommitPlan", () => {
   test("a file in two commits is refused", () => {
     const root = fixture();
     const head = git(root, "rev-parse", "HEAD");
-    const file = { path: "trails/lake.md", status: "?" };
+    const file = { path: "routes/lake.md", status: "?" };
     const results = applyCommitPlan(
       root,
-      { commits: [{ domains: ["trails"], files: [file], subject: "One", body: "" }, { domains: ["trails"], files: [file], subject: "Two", body: "" }] },
+      { commits: [{ domains: ["routes"], files: [file], subject: "One", body: "" }, { domains: ["routes"], files: [file], subject: "Two", body: "" }] },
       allowed
     );
-    expect(results[1]).toEqual({ subject: "Two", error: "refused: already in an earlier commit: trails/lake.md" });
+    expect(results[1]).toEqual({ subject: "Two", error: "refused: already in an earlier commit: routes/lake.md" });
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
   });
 
@@ -301,29 +301,29 @@ describe("applyCommitPlan", () => {
     const root = repo({ "README.md": "# Brain\n" });
     const hooks = git(root, "config", "core.hooksPath");
     writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-    write(root, "trails/lake.md", note("Lake Path"));
-    const results = applyCommitPlan(root, planCommits(root, [{ domain: "trails", status: "?", path: "trails/lake.md" }]), new Set(["trails/lake.md"]));
+    write(root, "routes/lake.md", note("Cave Path"));
+    const results = applyCommitPlan(root, planCommits(root, [{ domain: "routes", status: "?", path: "routes/lake.md" }]), new Set(["routes/lake.md"]));
     expect("error" in results[0]!).toBe(true);
-    expect(git(root, "status", "--porcelain", "-uall")).toBe("?? trails/lake.md");
+    expect(git(root, "status", "--porcelain", "-uall")).toBe("?? routes/lake.md");
   });
 });
 
 describe("serializePlan / parsePlan / planFromFile", () => {
   test("a plan survives a round trip, and an edited message is applied as given", () => {
     const root = repo({ "README.md": "# Brain\n" });
-    write(root, "trails/lake.md", note("Lake Path"));
-    const plan = planCommits(root, [{ domain: "trails", status: "?", path: "trails/lake.md" }]);
+    write(root, "routes/lake.md", note("Cave Path"));
+    const plan = planCommits(root, [{ domain: "routes", status: "?", path: "routes/lake.md" }]);
     expect(parsePlan(serializePlan(plan))).toEqual({ plan });
 
     const edited = JSON.parse(serializePlan(plan));
-    edited.commits[0].subject = "Record the Lake Path survey";
+    edited.commits[0].subject = "Record the Cave Path survey";
     edited.commits[0].body = "Written by hand.";
     const file = join(root, "..", "plan.json");
     writeFileSync(file, JSON.stringify(edited));
     const loaded = planFromFile(file);
     if (!("plan" in loaded)) throw new Error(loaded.error);
-    applyCommitPlan(root, loaded.plan, new Set(["trails/lake.md"]));
-    expect(git(root, "log", "-1", "--format=%B")).toBe("Record the Lake Path survey\n\nWritten by hand.");
+    applyCommitPlan(root, loaded.plan, new Set(["routes/lake.md"]));
+    expect(git(root, "log", "-1", "--format=%B")).toBe("Record the Cave Path survey\n\nWritten by hand.");
   });
 
   test("an edited plan's files are still checked against the allowed set", () => {

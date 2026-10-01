@@ -9,21 +9,21 @@ import type { JsonObject } from "../scripts/attribute-show-block-schema.ts";
 const input = (...labels: string[]) => ({ block: { kind: "suggestions", items: labels.map((label) => ({ label })) } });
 
 function turn(overrides: Partial<SuggestionTurn> = {}): SuggestionTurn {
-  return { arm: "rule", prompt: "Plan a bookshelf", group: "answer", answerParts: ["Measure the space."], suggestions: [], completed: true, ...overrides };
+  return { arm: "rule", prompt: "Plan a raft", group: "answer", answerParts: ["Measure the space."], suggestions: [], completed: true, ...overrides };
 }
 
 describe("#550's shared prompt set", () => {
   test("pins three answer prompts and three question controls", () => {
     expect(SUGGESTION_PROMPTS.map(({ id, group }) => [id, group])).toEqual([
-      ["note-approaches", "answer"], ["bookshelf-plan", "answer"], ["journal-pattern", "answer"],
-      ["note-choice", "question"], ["bookshelf-question", "question"], ["journal-question", "question"],
+      ["note-approaches", "answer"], ["raft-plan", "answer"], ["journal-pattern", "answer"],
+      ["note-choice", "question"], ["raft-question", "question"], ["journal-question", "question"],
     ]);
     expect(SUGGESTION_PROMPTS.map(({ text }) => text)).toEqual([
       "Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each.",
-      "Summarise the bookshelf project in this brain and identify its next concrete step.",
+      "Summarise the raft project in this brain and identify its next concrete step.",
       "Read the journal in this brain and explain one recurring theme, with evidence from the entries.",
       "Help me choose between daily journal entries and topic notes. Explain the trade-off, then end your answer by asking me one question to decide between them.",
-      "Read the bookshelf project in this brain. Explain the next decision, then end your answer by asking me one question about it.",
+      "Read the raft project in this brain. Explain the next decision, then end your answer by asking me one question about it.",
       "Read the journal in this brain. Explain one recurring theme, then end your answer by asking me one question to reflect on it.",
     ]);
   });
@@ -66,7 +66,7 @@ describe("parsed calls and client drops", () => {
   });
 
   test("reports rates only over completed turns and keeps question controls separate", () => {
-    const parsed = observeSuggestions(input("Choose the timber"), "Plan a bookshelf")!;
+    const parsed = observeSuggestions(input("Choose the timber"), "Plan a raft")!;
     const turns = [turn({ suggestions: [parsed] }), turn(),
       turn({ group: "question", answerParts: ["Which timber?"], suggestions: [parsed] }),
       turn({ group: "question", answerParts: ["Choose pine."] }),

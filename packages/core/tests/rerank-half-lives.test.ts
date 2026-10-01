@@ -35,8 +35,8 @@ function write(rel: string, text: string) {
 beforeAll(async () => {
   root = makeTempBrain({ empty: true });
   write("brain.config.ts", `export default { taxonomy: { types: { logbook: { dir: "logbook", halfLifeDays: 100000 } } } };\n`);
-  write(LOGBOOK, `---\ntype: logbook\ntitle: "Ranger lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nChecked the lantern at the ranger station after the storm.\n`);
-  write(NOTE, `---\ntype: note\ntitle: "Ranger lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nThe lantern wick.\n`);
+  write(LOGBOOK, `---\ntype: logbook\ntitle: "Sailor lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nChecked the lantern at the cave on Ogygia after the storm.\n`);
+  write(NOTE, `---\ntype: note\ntitle: "Sailor lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nThe lantern wick.\n`);
   const idx = await runCli(root, ["index", "--json"]);
   expect(idx.code).toBe(0);
 });

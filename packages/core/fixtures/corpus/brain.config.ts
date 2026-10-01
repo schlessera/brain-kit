@@ -1,9 +1,9 @@
 import { defineConfig } from "@schlessera/brain";
 
 /**
- * Test fixture brain for the fictional persona "Alex Example", a park ranger.
- * Deliberately NOT a software/speaking persona: the domains are health,
- * woodworking projects, and evening astronomy studies.
+ * Test fixture brain for the fictional persona "Odysseus", Odysseus on Ogygia.
+ * Ancient problems, modern organisational tools: health,
+ * shipbuilding projects, and navigation studies.
  *
  * This config exercises every taxonomy feature the resolver supports:
  *   - custom types layered over the core built-ins (identity/context/note/index)
@@ -15,8 +15,8 @@ import { defineConfig } from "@schlessera/brain";
  */
 export default defineConfig({
   profile: {
-    name: "Alex Example",
-    cliTitle: "Alex Example's field notebook",
+    name: "Odysseus",
+    cliTitle: "Odysseus's voyage notebook",
   },
 
   taxonomy: {
@@ -50,9 +50,9 @@ export default defineConfig({
     ],
 
     facts: {
-      // FACTS.md holds the value (`facts: { ranger_since: 2019 }`); a bio that
+      // FACTS.md holds the value (`facts: { troy_fell: 2016 }`); a bio that
       // restates another year is fact-drift. long-bio.md drifted on purpose.
-      ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger at .{0,80}? since (\\d{4})"] },
+      troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (\\d{4})"] },
     },
 
     assetTitleRules: [

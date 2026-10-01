@@ -15,7 +15,7 @@ type Query = { id: string; q: string; class: string; expected: string[] };
 
 // Each is the FTS top-1 hit for its query on the fixture corpus.
 const TOP1: Query[] = [
-  { id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
+  { id: "scope", q: "star guide setup", class: "exact", expected: ["studies/star-bearings.md"] },
   { id: "knee", q: "knee injury", class: "exact", expected: ["health/knee-injury.md"] },
   { id: "sleep", q: "sleep tracking", class: "paraphrase", expected: ["health/sleep-tracking.md"] },
 ];
@@ -65,7 +65,7 @@ describe("scores", () => {
     const set = writeSet("two-of-three.jsonl", [
       TOP1[0],
       TOP1[1],
-      { ...TOP1[2], expected: ["notes/quick-note-owl.md"] },
+      { ...TOP1[2], expected: ["notes/quick-note-eagle.md"] },
     ]);
     const { code, out } = await evalJson(["--set", set]);
     expect(code).toBe(0);
@@ -73,7 +73,7 @@ describe("scores", () => {
     const overall = out.rows.find((r: { class: string | null }) => r.class === null);
     expect(overall.n).toBe(3);
     expect(overall.hit_at["1"]).toBeCloseTo(2 / 3, 10);
-    // The owl note never came back for "sleep tracking": a recall miss, which
+    // The eagle note never came back for "sleep tracking": a recall miss, which
     // the oracle column separates from a ranking miss.
     expect(out.per_query[2].rank).toBeNull();
     expect(overall.oracle).toBeCloseTo(2 / 3, 10);
@@ -84,7 +84,7 @@ describe("scores", () => {
   test("a no-answer query is reported, never scored", async () => {
     const set = writeSet("no-answer.jsonl", [
       TOP1[0],
-      { id: "none", q: "telescope", class: "no-answer", expected: [] },
+      { id: "none", q: "star guide", class: "no-answer", expected: [] },
     ]);
     const { code, out } = await evalJson(["--set", set]);
     expect(code).toBe(0);
@@ -156,7 +156,7 @@ describe("validity gates exit 2 with no score", () => {
     // The fixture's real PDF, replaced by a directory of the same name.
     rmSync(join(root, "studies", "star-chart.pdf"));
     mkdirSync(join(root, "studies", "star-chart.pdf"));
-    symlinkSync(join(root, "studies", "astronomy"), join(root, "studies", "star-link.pdf"));
+    symlinkSync(join(root, "studies", "navigation"), join(root, "studies", "star-link.pdf"));
 
     for (const path of ["studies/star-chart.pdf", "studies/star-link.pdf"]) {
       const set = writeSet("not-a-file.jsonl", [TOP1[0], { ...TOP1[1], expected: [path] }]);

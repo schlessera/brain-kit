@@ -92,14 +92,14 @@ describe("parseRssItems", () => {
     const xml = `<rss><channel>
       <item>
         <title><![CDATA[Hello & goodbye]]></title>
-        <dc:creator>Alex Example</dc:creator>
+        <dc:creator>Odysseus</dc:creator>
         <media:content url="https://example.com/img.png"/>
       </item>
     </channel></rss>`;
     const [item] = parseRssItems(xml);
 
     expect(item.title).toBe("Hello & goodbye");
-    expect(item.dc_creator).toBe("Alex Example");
+    expect(item.dc_creator).toBe("Odysseus");
     expect(item.media_content_url).toBe("https://example.com/img.png");
   });
 });

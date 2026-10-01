@@ -38,7 +38,7 @@ async function evalRun(set: string, ...flags: string[]) {
   return { ...run, out };
 }
 
-// The bookshelf project's deadline is 2026-08-15; no other fixture has one.
+// The raft project's deadline is 2026-08-15; no other fixture has one.
 const DUE_NEXT = {
   id: "due-next",
   q: "what is due next",
@@ -47,9 +47,9 @@ const DUE_NEXT = {
 };
 
 describe("selectors", () => {
-  test("the deadline selector resolves to the bookshelf status at the header's now", async () => {
+  test("the deadline selector resolves to the raft status at the header's now", async () => {
     const { code, out } = await evalRun(writeSet("due.jsonl", [{ now: "2026-07-12" }, DUE_NEXT]));
-    expect(out?.per_query?.[0]?.expected).toEqual(["projects/active/bookshelf/status.md"]);
+    expect(out?.per_query?.[0]?.expected).toEqual(["projects/active/raft/status.md"]);
     expect(code).toBe(0);
     expect(out.meta.now).toBe("2026-07-12T00:00:00.000Z");
   });
@@ -65,7 +65,7 @@ describe("selectors", () => {
   test("--now pins the run when the header does not", async () => {
     const set = writeSet("due-flag.jsonl", [DUE_NEXT]);
     const early = await evalRun(set, "--now", "2026-07-12");
-    expect(early.out?.per_query?.[0]?.expected).toEqual(["projects/active/bookshelf/status.md"]);
+    expect(early.out?.per_query?.[0]?.expected).toEqual(["projects/active/raft/status.md"]);
     expect(early.out.meta.now).toBe("2026-07-12T00:00:00.000Z");
     const late = await evalRun(set, "--now", "2026-09-01");
     expect(late.code).toBe(2);
@@ -185,7 +185,7 @@ describe("selectors over a brain with notes the indexer skips", () => {
   });
   afterAll(() => cleanup(messy));
 
-  test("the deadline selector still resolves to the bookshelf status", async () => {
+  test("the deadline selector still resolves to the raft status", async () => {
     const set = join(messy, "evals", "due.jsonl");
     writeFileSync(set, [{ now: "2026-07-12" }, DUE_NEXT].map((l) => JSON.stringify(l)).join("\n"));
     const run = await runCli(messy, ["eval", "--mode", "fts", "--json", "--set", set]);
@@ -195,7 +195,7 @@ describe("selectors over a brain with notes the indexer skips", () => {
     } catch {
       out = undefined;
     }
-    expect(out?.per_query?.[0]?.expected).toEqual(["projects/active/bookshelf/status.md"]);
+    expect(out?.per_query?.[0]?.expected).toEqual(["projects/active/raft/status.md"]);
     expect(run.code).toBe(0);
   });
 });

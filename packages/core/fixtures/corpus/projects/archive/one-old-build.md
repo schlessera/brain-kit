@@ -1,21 +1,18 @@
 ---
 type: project
-title: "Cedar Bench (archived)"
+title: "Practice Spar (archived)"
 created: 2025-06-01
 updated: 2025-11-15
-tags: [project, woodworking, archived, bench]
+tags: [project, shipbuilding, archived, bench]
 status: archived
 relevance: historical
-summary: "Completed cedar trailhead bench — archived build kept for reference"
+summary: "Completed practice spar on Ogygia — archived for the lashing reference"
 ---
 
 ## Summary
 
-Simple slab bench in cedar, installed at the main trailhead in 2025. Completed and
-in service. Kept for the joinery reference — the half-lap legs held up well through
-the wet season.
+A practice spar lashed on Ogygia in 2025. No vessel left the island.
+Kept for the joinery reference; the lashings held through a wet season.
 
-Path is `projects/archive/` (not `projects/active/`), so this exercises the
-`match: ["projects/"]` prefix: it still classifies as a `project` even though it
-lives outside the type's canonical `dir`. Techniques informed the current
-bookshelf [[plan]].
+The archive path still matches the project prefix outside its canonical
+active directory. The techniques inform the current raft [[plan]].

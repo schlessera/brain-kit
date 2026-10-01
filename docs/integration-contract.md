@@ -419,6 +419,9 @@ set as open.
 Added in 0.38.0. The query-set format and how to read the numbers are in
 [evaluating-search.md](evaluating-search.md).
 
+The values below illustrate the envelope. Actual fixture ranks are recorded
+in `packages/core/fixtures/corpus/evals/expected-ranks.json`.
+
 ```jsonc
 {
   "schema_version": 1,           // bumped when a field below changes meaning
@@ -460,13 +463,13 @@ Added in 0.38.0. The query-set format and how to read the numbers are in
       "current_first": null }
   ],
   "per_query": [
-    { "mode": "fts", "id": "dob", "class": "alias", "q": "the Dobsonian",
-      "expected": ["studies/telescope-setup.md"],
+    { "mode": "fts", "id": "calypso-guide", "class": "alias", "q": "the Calypso guide",
+      "expected": ["studies/star-bearings.md"],
       "rank": 2,                 // of the first expected path in the pool; null when absent
       "hit_at": { "1": false, "3": true, "10": true },  // null for no-answer
       "rr": 0.5,                 // 1/rank, 0 below rank 10; null for no-answer
       "top1_score": 4.02,        // null when the search returned nothing
-      "top": ["studies/astronomy/overview.md", "studies/telescope-setup.md"],  // up to max(k) paths
+      "top": ["studies/navigation/overview.md", "studies/star-bearings.md"],  // up to max(k) paths
       "current_first": null }    // with `stale`: the first expected path ranks above
                                  // every stale one, or no stale path is in the top
                                  // max(k); null without `stale` (additive in 0.38.0)
@@ -526,7 +529,7 @@ through the assembler `brain context` uses, at each budget, with the run's
                                   // queries; an even sample's median is the lower middle value
   ],
   "per_query": [                  // one per query and budget
-    { "budget": 1000, "id": "dob", "class": "alias",
+    { "budget": 1000, "id": "calypso-guide", "class": "alias",
       "answer_present": true,     // null for a no-answer query
       "budget_used": 0.97,        // the assembler's estimateTokens(output) / budget
       "sections": { "identity": 1, "focus": 1, "results": 5, "related": 3 } }  // related: documents listed

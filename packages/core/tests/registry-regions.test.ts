@@ -236,7 +236,7 @@ async function json(root: string, args: string[]): Promise<{ code: number; out: 
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", ...args]);
+  const r = Bun.spawnSync(["git", "-C", cwd, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", ...args]);
   if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
   return r.stdout.toString();
 }
@@ -255,8 +255,8 @@ describe("brain registry", () => {
     expect(bodyAfter.slice(bodyBefore.length)).toStartWith("\n<!-- brain:generated:registry -->\n");
     const table = readGeneratedRegion(text, "registry")!;
     expect(table.split("\n").slice(0, 2)).toEqual(["| link | status | updated |", "| --- | --- | --- |"]);
-    expect(table).toContain("| [[projects/active/bookshelf/status]] |");
-    expect(table).toContain("| [[projects/active/trail-signage/status]] |");
+    expect(table).toContain("| [[projects/active/raft/status]] |");
+    expect(table).toContain("| [[projects/active/sail-repairs/status]] |");
     expect(text).toMatch(/^updated: \d{4}-\d{2}-\d{2}$/m);
     expect(text).not.toContain("updated: 2026-01-02");
   }, 60_000);
@@ -291,7 +291,7 @@ describe("brain registry", () => {
     const { root, index } = brain();
     // The child's updated goes far ahead of the index's first, so plain
     // index-lag would fire; the table is generated with it in place.
-    const child = join(root, "projects/active/trail-signage/status.md");
+    const child = join(root, "projects/active/sail-repairs/status.md");
     writeFileSync(child, readFileSync(child, "utf8").replace(/^updated: .*$/m, "updated: 2027-01-01"));
     await json(root, ["registry"]);
     // Then only the status changes.
@@ -307,7 +307,7 @@ describe("brain registry", () => {
   test("--check exits 1 on a stale index and writes nothing", async () => {
     const { root } = brain();
     await json(root, ["registry"]);
-    const child = join(root, "projects/active/trail-signage/status.md");
+    const child = join(root, "projects/active/sail-repairs/status.md");
     writeFileSync(child, readFileSync(child, "utf8").replace(/^status: .*$/m, "status: paused"));
     git(root, "init", "-q");
     git(root, "add", "-A", "--", ".", ":!node_modules");

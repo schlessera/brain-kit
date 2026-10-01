@@ -1,19 +1,19 @@
 ---
 type: index
-title: "Workshop Index"
+title: "Departure Preparations Index"
 created: 2026-01-08
 updated: 2026-05-04
-tags: [index, woodworking]
+tags: [index, shipbuilding]
 ---
 
-## Builds
+## Preparations
 
-Every build Alex Example has on the bench, grouped by status.
+Every build Odysseus has on the shore, grouped by status.
 
 | Project | Status | Updated |
 |---------|--------|---------|
-| [[bookshelf]] | active | 2026-05-02 |
-| [[jewelry-box]] | planned | 2026-03-11 |
+| [[raft]] | active | 2026-05-02 |
+| [[water-cask]] | planned | 2026-03-11 |
 
 ## Retired
 

@@ -23,13 +23,13 @@ function resolvedOf(outcome: MergeOutcome): { content: string; notes: string[] }
   return { content: outcome.content, notes: outcome.notes };
 }
 
-const table = (head: string, rows: string[]) => `---\ntitle: Trail index\n---\n\n${head}\n${rows.join("\n")}\n`;
+const table = (head: string, rows: string[]) => `---\ntitle: Route index\n---\n\n${head}\n${rows.join("\n")}\n`;
 const HEAD = "| Name | Link |\n|---|---|";
 
 describe("table-union compares cells as written", () => {
   test("a new link target on one side and new link text on the other is a conflict, not a silent loss", () => {
     const base = table(HEAD, ["| ridge | [old](old) |", "| bench | kept |"]);
-    const ours = table(HEAD, ["| ridge | [old](new-url) |", "| bench | kept |", "| owl | ours |"]);
+    const ours = table(HEAD, ["| ridge | [old](new-url) |", "| bench | kept |", "| eagle | ours |"]);
     const theirs = table(HEAD, ["| ridge | [new](old) |", "| bench | kept |", "| oak | theirs |"]);
     const { content, notes } = resolvedOf(planMerge({ path: "_index.md", base, ours, theirs }, "table-union").render(new Map()));
     expect(content).toContain("| ridge | [old](new-url) |");
@@ -40,7 +40,7 @@ describe("table-union compares cells as written", () => {
   test("a link target only THEIRS changed is taken", () => {
     const base = table(HEAD, ["| ridge | [map](old) |", "| bench | a |"]);
     const ours = table(HEAD, ["| ridge | [map](old) |", "| bench | b |"]);
-    const theirs = table(HEAD, ["| ridge | [map](new) |", "| bench | a |", "| owl | c |"]);
+    const theirs = table(HEAD, ["| ridge | [map](new) |", "| bench | a |", "| eagle | c |"]);
     const { content } = resolvedOf(planMerge({ path: "_index.md", base, ours, theirs }, "table-union").render(new Map()));
     expect(content).toContain("| ridge | [map](new) |");
     expect(content).toContain("| bench | b |");
@@ -83,7 +83,7 @@ describe("synthesize compares sections and blocks as written", () => {
   test("the same heading added on both sides in different case keeps ours, with a note", () => {
     const base = "---\ntitle: Plan\n---\n\nIntro.\n";
     const ours = `${base}\n## Ideas\n\nOak bench.\n`;
-    const theirs = `${base}\n## IDEAS\n\nRidge trail.\n`;
+    const theirs = `${base}\n## IDEAS\n\nRidge route.\n`;
     const { content, notes } = resolvedOf(planMerge({ path: "notes/plan.md", base, ours, theirs }, "synthesize").render(new Map()));
     expect(content).toContain("## Ideas");
     expect(notes).toContain('section "Ideas": both sides wrote the heading differently; kept ours: "## Ideas" / "## IDEAS"');

@@ -475,7 +475,7 @@ describe("isWsAuthorized", () => {
 
   test("proxy mode authorizes when the trusted header is present", async () => {
     const ctx = {
-      req: { header: (n: string) => (n === "x-forwarded-user" ? "alex" : undefined) },
+      req: { header: (n: string) => (n === "x-forwarded-user" ? "odysseus" : undefined) },
     };
     expect(
       await isWsAuthorized(
@@ -484,12 +484,12 @@ describe("isWsAuthorized", () => {
         auth({ PROXY_AUTH_HEADER: "x-forwarded-user", TRUST_PROXY: "1" }),
         DB
       )
-    ).toMatchObject({ kind: "ambient", label: "alex" });
+    ).toMatchObject({ kind: "ambient", label: "odysseus" });
   });
 
   test("proxy mode denies the header when TRUST_PROXY is not set", async () => {
     const ctx = {
-      req: { header: (n: string) => (n === "x-forwarded-user" ? "alex" : undefined) },
+      req: { header: (n: string) => (n === "x-forwarded-user" ? "odysseus" : undefined) },
     };
     expect(
       await isWsAuthorized(
@@ -524,8 +524,8 @@ describe("ambient principals", () => {
       {
         mode: "proxy",
         runtime: auth({ TRUST_PROXY: "1", PROXY_AUTH_HEADER: "x-forwarded-user" }),
-        headers: { "x-forwarded-user": "Alex Example" },
-        label: "Alex Example",
+        headers: { "x-forwarded-user": "Odysseus" },
+        label: "Odysseus",
       },
     ];
 
@@ -591,7 +591,7 @@ describe("ambient principals", () => {
     app.get("/api/principal", (c) => c.json(c.get("principal")));
 
     const first = await app.request("/api/principal", {
-      headers: { "x-forwarded-user": "Alex Example" },
+      headers: { "x-forwarded-user": "Odysseus" },
     });
     const principal = await first.json();
     DB.prepare("UPDATE principals SET label = ? WHERE id = ?").run(
@@ -600,16 +600,16 @@ describe("ambient principals", () => {
     );
 
     const response = await app.request("/api/principal", {
-      headers: { "x-forwarded-user": "Alex Example" },
+      headers: { "x-forwarded-user": "Odysseus" },
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       id: principal.id,
       kind: "ambient",
-      label: "Alex Example",
+      label: "Odysseus",
     });
-    expect(resolvePrincipal(DB, principal.id)?.label).toBe("Alex Example");
+    expect(resolvePrincipal(DB, principal.id)?.label).toBe("Odysseus");
   });
 
   test("proxy admission does not depend on the sanitized label being non-empty", async () => {

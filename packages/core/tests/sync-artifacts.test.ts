@@ -32,15 +32,15 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-/** A repository with one commit, a local empty hooks directory, and Alex Example as its author. */
+/** A repository with one commit, a local empty hooks directory, and Odysseus as its author. */
 function repo(files: Record<string, string> = { "notes.md": "# Notes\n" }): string {
   const base = mkdtempSync(join(tmpdir(), "brain-sync-artifacts-"));
   dirs.push(base);
   const root = join(base, "brain");
   mkdirSync(join(base, "hooks"));
   Bun.spawnSync(["git", "init", "-q", "-b", "main", root]);
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "core.hooksPath", join(base, "hooks"));
   for (const [path, text] of Object.entries(files)) write(root, path, text);
@@ -69,13 +69,13 @@ describe("planIgnores", () => {
   });
 
   test("a sensitive file gets its exact, anchored path and never a glob", () => {
-    const plan = planIgnores([untracked("SENSITIVE", "config/.env"), untracked("SENSITIVE", "ranger_token.txt")], {
+    const plan = planIgnores([untracked("SENSITIVE", "config/.env"), untracked("SENSITIVE", "navigator_token.txt")], {
       artifact: ARTIFACT,
       sensitive: [".env", "*_token*"],
     });
     expect(plan.additions).toEqual([
       { line: "/config/.env", reason: "sensitive", paths: ["config/.env"] },
-      { line: "/ranger_token.txt", reason: "sensitive", paths: ["ranger_token.txt"] },
+      { line: "/navigator_token.txt", reason: "sensitive", paths: ["navigator_token.txt"] },
     ]);
   });
 

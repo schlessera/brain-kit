@@ -42,7 +42,7 @@ function twinDocument(label: string): string {
     "created: 2026-03-06",
     "tags: [alpha, beta]",
     "meta:",
-    "  owner: Alex Example",
+    "  owner: Odysseus",
     "  review: { every: 30 }",
     "---",
     "Body text.",

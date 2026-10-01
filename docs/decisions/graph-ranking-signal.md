@@ -15,6 +15,12 @@ question does not come back without evidence, and it agrees with the ruling.
 
 ## What was measured
 
+> **2026-09-30 — Corpus ruling.** This measurement used the former core
+> persona and fixture paths. Its queries and scores remain historical evidence;
+> [the Odysseus migration](example-corpus.md) replaces the active corpus and
+> goldens. Running the current harness produces a new run, not a reproduction
+> of the table below. The decision against graph ranking remains in force.
+
 `scripts/measure-graph-boost.ts` reruns the keyless retrieval goldens:
 `packages/core/fixtures/corpus/evals/retrieval.jsonl`, full-text lane,
 heuristic reranker, clock pinned to the set's `now` (2026-07-12). It then

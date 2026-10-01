@@ -10,10 +10,10 @@ export const SUGGESTION_ARMS = ["rule", "no-rule"] as const;
 export type SuggestionArm = (typeof SUGGESTION_ARMS)[number];
 export const SUGGESTION_PROMPTS = [
   { id: "note-approaches", group: "answer", text: "Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each." },
-  { id: "bookshelf-plan", group: "answer", text: "Summarise the bookshelf project in this brain and identify its next concrete step." },
+  { id: "raft-plan", group: "answer", text: "Summarise the raft project in this brain and identify its next concrete step." },
   { id: "journal-pattern", group: "answer", text: "Read the journal in this brain and explain one recurring theme, with evidence from the entries." },
   { id: "note-choice", group: "question", text: "Help me choose between daily journal entries and topic notes. Explain the trade-off, then end your answer by asking me one question to decide between them." },
-  { id: "bookshelf-question", group: "question", text: "Read the bookshelf project in this brain. Explain the next decision, then end your answer by asking me one question about it." },
+  { id: "raft-question", group: "question", text: "Read the raft project in this brain. Explain the next decision, then end your answer by asking me one question about it." },
   { id: "journal-question", group: "question", text: "Read the journal in this brain. Explain one recurring theme, then end your answer by asking me one question to reflect on it." },
 ] as const;
 

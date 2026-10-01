@@ -185,7 +185,7 @@ describe("precompute", () => {
       expect(getGraphStats(db).reachable).toBe(2);
 
       const beforeEdit = inputHash();
-      writeFileSync(join(root, "notes/alpha.md"), md("Updated astronomy title", "[[delta]]").replace("tags: [test]", "tags: [astronomy]"));
+      writeFileSync(join(root, "notes/alpha.md"), md("Updated navigation title", "[[delta]]").replace("tags: [test]", "tags: [navigation]"));
       expect((await indexAll(db, options)).graphNodes).toBe(8);
       expect(inputHash()).not.toEqual(beforeEdit);
       expect((await indexAll(db, options)).graphNodes).toBe(0);

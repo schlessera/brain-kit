@@ -51,13 +51,13 @@ describe("over fixtures/corpus", () => {
   test("includes identity whole when it fits, past its first 500 characters", async () => {
     const identity = parseFrontmatter(readFileSync(join(ctx.root, "me/identity.md"), "utf8")).content;
     // The premise: the heading sits past the 500 characters main kept.
-    expect(identity.indexOf("## How to Work With Alex")).toBeGreaterThan(500);
-    expect(await assemble("astronomy", 4000)).toContain("## How to Work With Alex");
+    expect(identity.indexOf("## How to Work With Odysseus")).toBeGreaterThan(500);
+    expect(await assemble("navigation", 4000)).toContain("## How to Work With Odysseus");
   });
 
-  // "astronomy" matches too little of the corpus to outgrow 2000 tokens, so a
+  // "navigation" matches too little of the corpus to outgrow 2000 tokens, so a
   // broader query shows the budget being used.
-  const BROAD = "bookshelf telescope knee trail sleep owl walnut messier";
+  const BROAD = "raft star guide knee sail sleep eagle pine navigation";
 
   test("a larger budget yields strictly more, and neither exceeds its budget", async () => {
     const small = await assemble(BROAD, 2000);
@@ -65,7 +65,7 @@ describe("over fixtures/corpus", () => {
     expect(large.length).toBeGreaterThan(small.length);
     expect(estimateTokens(small)).toBeLessThanOrEqual(2000);
     expect(estimateTokens(large)).toBeLessThanOrEqual(8000);
-    expect(estimateTokens(await assemble("astronomy", 4000))).toBeLessThanOrEqual(4000);
+    expect(estimateTokens(await assemble("navigation", 4000))).toBeLessThanOrEqual(4000);
   });
 
   test("a budget with more material than room is mostly used", async () => {
@@ -79,11 +79,11 @@ describe("over fixtures/corpus", () => {
     // The premise: more than the 800 characters main kept.
     expect(focus.length).toBeGreaterThan(800);
     // Summary first, then the body whole.
-    expect(await assemble("astronomy", 4000)).toContain(`## Current Focus\n${data.summary}\n\n${focus}`);
+    expect(await assemble("navigation", 4000)).toContain(`## Current Focus\n${data.summary}\n\n${focus}`);
   });
 
   test("carries no FTS5 highlight markers", async () => {
-    const out = await assemble("astronomy", 4000);
+    const out = await assemble("navigation", 4000);
     // The premise: the query hits the full-text lane, whose snippets carry them.
     expect(out).toContain("### ");
     expect(out).not.toContain(">>>");
@@ -91,7 +91,7 @@ describe("over fixtures/corpus", () => {
   });
 
   test("identity and current focus each appear once, not again as a search hit", async () => {
-    const out = await assemble("astronomy", 4000);
+    const out = await assemble("navigation", 4000);
     expect(out.split("\n").filter((l) => l === "## Identity")).toHaveLength(1);
     expect(out.split("\n").filter((l) => l === "## Current Focus")).toHaveLength(1);
     expect(out).not.toContain("(me/identity.md)");
@@ -101,9 +101,9 @@ describe("over fixtures/corpus", () => {
   test("an identity that does not fit leads with its summary, with a pointer to the file", async () => {
     // The corpus identity has no text before its first "##" heading, and its
     // first section does not fit in 200 tokens: what leads is the summary.
-    const out = await assembleContext(db, ctx, { query: "astronomy", maxTokens: 200, includeCurrentFocus: false });
+    const out = await assembleContext(db, ctx, { query: "navigation", maxTokens: 200, includeCurrentFocus: false });
     expect(out.startsWith(
-      "## Identity\nWho Alex Example is — a park ranger tracking health, woodworking, and astronomy\n\n(truncated — brain read me/identity.md)"
+      "## Identity\nKing of Ithaca, on Ogygia after ten years returning from Troy\n\n(truncated — brain read me/identity.md)"
     )).toBe(true);
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
   });
@@ -117,7 +117,7 @@ describe("over fixtures/corpus", () => {
   // later, smaller hit. This sweep guards that no such case occurs here.
   test("a larger budget never drops a search hit, and every budget is kept", async () => {
     const now = new Date("2026-07-12");
-    for (const query of ["ranger", "knee injury"]) {
+    for (const query of ["Odysseus", "knee injury"]) {
       let previous: string[] = [];
       const dropped: string[] = [];
       const over: number[] = [];
@@ -140,22 +140,22 @@ describe("over fixtures/corpus", () => {
 
   test("with room for them and every hit, identity and focus are whole again", async () => {
     const report = emptyAssembleReport();
-    const out = await assembleContext(db, ctx, { query: "ranger", maxTokens: 2000, now: new Date("2026-07-12"), report });
-    // The premise: at 2000 tokens "ranger" gets all of its hits.
+    const out = await assembleContext(db, ctx, { query: "Odysseus", maxTokens: 2000, now: new Date("2026-07-12"), report });
+    // The premise: at 2000 tokens "Odysseus" gets all of its hits.
     expect(report.results.length).toBe(4);
     expect(out).not.toContain("(truncated — brain read");
-    expect(out).toContain("## How to Work With Alex");
+    expect(out).toContain("## How to Work With Odysseus");
   });
 });
 
 describe("neighbours over fixtures/corpus", () => {
   let ctx: BrainContext;
   let db: Database;
-  // "dadoes shiplap" matches only the bookshelf plan, so its directory index
+  // "auger bulwarks" matches only the raft plan, so its directory index
   // and its links reach the output only as neighbours.
-  const QUERY = "dadoes shiplap";
-  const PLAN = "projects/active/bookshelf/plan.md";
-  const INDEX_LINE = "- Bookshelf Build — Index (projects/active/bookshelf/_index.md) — Registry for the walnut-and-cedar bookshelf build — plan, status, and overview";
+  const QUERY = "auger bulwarks";
+  const PLAN = "projects/active/raft/plan.md";
+  const INDEX_LINE = "- Raft Build — Index (projects/active/raft/_index.md) — Registry for the Ogygia raft — plan, status and overview";
 
   beforeAll(async () => {
     const root = mkdtempSync(join(tmpdir(), "brain-context-neighbours-"));
@@ -417,7 +417,7 @@ describe("over a hand-built index", () => {
       ["orbit/quote.md", "> quoted title", "a summary"],
       ["orbit/list.md", "- listed title", null],
       ["orbit/multi.md", "First line\n## Forged section", "one\n\n> two"],
-      ["orbit/refdef.md", "[role]: ranger", null],
+      ["orbit/refdef.md", "[role]: sailor", null],
     ];
     for (const [path, title, summary] of linkedDocs) addDoc(path, title, "unrelated words", summary);
     const hubId = (db.prepare("SELECT id FROM documents WHERE path = 'orbit/hub.md'").get() as { id: number }).id;
@@ -483,7 +483,7 @@ describe("over a hand-built index", () => {
   describe("identity leads with its lead, then whole sections", () => {
     // A 300-character lead, then a 2,000-character section made of short
     // paragraphs (each would fit on its own), then a second section.
-    const LEAD = `${"Ranger at the north preserve; speaks two languages; reach me by radio. ".repeat(4).trim()}`;
+    const LEAD = `${"Sailor waiting on Ogygia; speaks two languages; reach me by the phone. ".repeat(4).trim()}`;
     const SECTION = `## History\n\n${Array.from({ length: 20 }, (_, i) => `Year ${i}: ${"ninety-some characters of old history ".repeat(3).trim()}.`).join("\n\n")}`;
     const LATER = `## Later\n\n${"more words ".repeat(300).trim()}`;
     const write = () => {
@@ -552,8 +552,8 @@ describe("over a hand-built index", () => {
     });
 
     test("a # heading stays in the lead, so an overflowing lead is cut after it", async () => {
-      const out = await identity(doc(`Intro.\n\n# Roles\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
-      expect(out).toBe(`## Identity\nIntro.\n\n# Roles\n\nCurrent ranger.\n\n${MARKER}`);
+      const out = await identity(doc(`Intro.\n\n# Roles\n\nCurrent sailor.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\nIntro.\n\n# Roles\n\nCurrent sailor.\n\n${MARKER}`);
     });
 
     test("the summary leads at every budget", async () => {
@@ -592,7 +592,7 @@ describe("over a hand-built index", () => {
       expect(out.endsWith(MARKER)).toBe(true);
     });
 
-    for (const summary of ["[role]: ranger", "[^profile]: ranger\n    indented footnote body"]) {
+    for (const summary of ["[role]: sailor", "[^profile]: sailor\n    indented footnote body"]) {
       test(`a summary like ${JSON.stringify(summary.split("\n")[0])} opens no definition, when the document fits whole`, async () => {
         mkdirSync(join(dir, "me"), { recursive: true });
         writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n`);
@@ -610,8 +610,8 @@ describe("over a hand-built index", () => {
     }
 
     test("indented code at the start of the body stays code, and the lead after it is kept", async () => {
-      const out = await identity(doc(`    ## code\n    example\n\nCurrent ranger.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
-      expect(out).toBe(`## Identity\n    ## code\n    example\n\nCurrent ranger.\n\n${MARKER}`);
+      const out = await identity(doc(`    ## code\n    example\n\nCurrent sailor.\n\n${LONG}\n\n## History\n\n${LONG}`), 100);
+      expect(out).toBe(`## Identity\n    ## code\n    example\n\nCurrent sailor.\n\n${MARKER}`);
     });
 
     test("with no lead, sections are taken whole or not at all", async () => {
@@ -629,9 +629,9 @@ describe("sections from chunks", () => {
   // Three sections, each well over the chunker's 100-token floor, so each is
   // its own chunk. The query word is only in the third.
   const FIELD_GUIDE =
-    "---\ntype: study\ntitle: Ranger Field Guide\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n" +
+    "---\ntype: study\ntitle: Sailor Field Guide\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [sailor]\n---\n\n" +
     "Opening line of the field guide.\n\n" +
-    `## Trail markers\n\n${para("Marker", 8)}\n\n` +
+    `## Route markers\n\n${para("Marker", 8)}\n\n` +
     `## Water crossings\n\n${para("Crossing", 8)}\n\n` +
     `## Lichen survey\n\nThe lichen survey runs every spring on the north loop.\n\n${para("Survey", 8)}\n\n### Quadrats\n\n` +
     "The last line of the lichen section names the quadrat grid.\n";
@@ -658,7 +658,7 @@ describe("sections from chunks", () => {
       const chunks = db
         .prepare("SELECT heading FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
         .all("studies/field-guide.md") as { heading: string }[];
-      expect(chunks.map((c) => c.heading)).toEqual(["Trail markers", "Water crossings", "Lichen survey"]);
+      expect(chunks.map((c) => c.heading)).toEqual(["Route markers", "Water crossings", "Lichen survey"]);
       const out = await assembleContext(db, ctx, { query: "lichen", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
       expect(out).toContain("#### Lichen survey");
       // A line of the section with no query word in it: only the whole section carries it.
@@ -676,7 +676,7 @@ describe("sections from chunks", () => {
   test("a section split over several chunks comes back whole, in order", async () => {
     const long = `## Lichen survey\n\n${para("Survey lichen", 120)}\n`;
     const { ctx, db } = await brainWith({
-      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${long}`,
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [sailor]\n---\n\n${long}`,
     });
     try {
       // The premise: the one section is more than one chunk, the later ones
@@ -699,7 +699,7 @@ describe("sections from chunks", () => {
   test("a section split at its ### subsections gets their headings back", async () => {
     const long = `## Lichen survey\n\n### North loop\n\n${para("North lichen", 70)}\n\n### South loop\n\n${para("South lichen", 70)}\n`;
     const { ctx, db } = await brainWith({
-      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${long}`,
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [sailor]\n---\n\n${long}`,
     });
     try {
       // The premise: the chunker split the section at its subsections.
@@ -727,7 +727,7 @@ describe("sections from chunks", () => {
   test("one hit's section never takes more than 40% of the budget", async () => {
     const huge = `## Lichen survey\n\n${para("Survey lichen", 200)}\n`;
     const { ctx, db } = await brainWith({
-      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${huge}`,
+      "studies/lichen-atlas.md": `---\ntype: study\ntitle: Lichen Atlas\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [sailor]\n---\n\n${huge}`,
     });
     try {
       const budget = 2000;
@@ -741,7 +741,7 @@ describe("sections from chunks", () => {
     }
   });
   const study = (title: string, body: string) =>
-    `---\ntype: study\ntitle: ${title}\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [ranger]\n---\n\n${body}`;
+    `---\ntype: study\ntitle: ${title}\ncreated: 2026-01-01\nupdated: 2026-06-01\ntags: [sailor]\n---\n\n${body}`;
   /** The output's hits, each from its `### ` header to the next. */
   const hitsOf = (out: string) => out.split(/\n\n(?=### )/).filter((part) => part.startsWith("### ") && !part.startsWith("### Related"));
 

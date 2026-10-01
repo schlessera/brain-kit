@@ -39,11 +39,11 @@ describe("TODO and VERIFY markers, grouped per document", () => {
   test("three VERIFY markers are one info finding with count 3", () => {
     const db = openDatabase(":memory:");
     try {
-      insertDoc(db, "notes/owls.md", "Barred [VERIFY: call] or spotted [VERIFY: plumage], seen [VERIFY: 2019].");
+      insertDoc(db, "notes/eagles.md", "Barred [VERIFY: call] or spotted [VERIFY: plumage], seen [VERIFY: 2019].");
       const verify = of(audit(db, taxonomy, { now: NOW }), "verify");
       expect(verify).toEqual([
         expect.objectContaining({
-          path: "notes/owls.md",
+          path: "notes/eagles.md",
           severity: "info",
           count: 3,
           examples: ["[VERIFY: call]", "[VERIFY: plumage]", "[VERIFY: 2019]"],

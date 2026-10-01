@@ -33,7 +33,7 @@ function repo(files: Record<string, number | string>): string {
   const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
   git("init", "-q", "-b", "main");
   git("add", "-A", "--", ".", ":!node_modules");
-  git("-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
+  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
   return root;
 }
 
@@ -102,7 +102,7 @@ test("a tracked symlink is not weighed by its target", async () => {
   symlinkSync(join(outside, "huge.png"), join(root, "linked.png"));
   const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
   git("add", "linked.png");
-  git("-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "link");
+  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "link");
   const check = await mediaCheck(root);
   expect(check.status).toBe("pass");
   expect(check.detail).not.toContain("linked.png");
@@ -120,7 +120,7 @@ test("an object git cannot read makes the check warn that it is incomplete", asy
 // Review round 2: conflicted paths and objects that vanish mid-inspection.
 function gitIn(root: string) {
   return (...args: string[]) =>
-    Bun.spawnSync(["git", "-C", root, "-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", ...args]);
+    Bun.spawnSync(["git", "-C", root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", ...args]);
 }
 
 test("a delete/modify conflict is reported as not inspected, not passed over", async () => {

@@ -211,14 +211,14 @@ config says where that is and how the fact is phrased elsewhere.
 ```ts
 taxonomy: {
   facts: {
-    ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger at .{0,80}? since (\\d{4})"] },
+    troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (\\d{4})"] },
   },
 }
 ```
 
 ```yaml
 # me/basics/FACTS.md
-facts: { ranger_since: 2019 }
+facts: { troy_fell: 2016 }
 ```
 
 | Key        | Type       | Meaning                                                                                  |
@@ -230,7 +230,7 @@ Every non-archived markdown document other than the source is scanned outside
 its code. A captured value that differs from the canonical one (compared after
 trimming, and as numbers when both are numbers) is a `fact-drift` warning, once
 per document per fact. A document that is right to state an old value, such as
-a retrospective, lists the key under `facts_ignore: [ranger_since]`. A pattern
+a retrospective, lists the key under `facts_ignore: [troy_fell]`. A pattern
 that does not compile, or that has other than one capture group, fails config
 load with a message naming the fact. Drift is reported, never rewritten.
 
@@ -294,8 +294,8 @@ tag's format.
 ```ts
 taxonomy: {
   tags: {
-    vocabulary: ["astronomy", "hiking", "woodworking"],
-    aliases: { "wood-working": "woodworking", scope: "telescope" },
+    vocabulary: ["navigation", "route", "shipbuilding"],
+    aliases: { "ship-building": "shipbuilding", "star-guide": "navigation" },
     redundant: "warn",
     inflection: "en",
   },
@@ -549,7 +549,7 @@ How full-text search reads text.
   a query drops English stopwords ("the", "was", "also") before its terms are
   ORed. A query made only of stopwords keeps them, so `was` alone still
   searches for "was"; the setting shows in a mixed query such as
-  `was telescope`.
+  `was star guide`.
 - `none`: the index uses `unicode61 remove_diacritics 2`, with no stemming and
   no stopwords. Use it for a brain in another language. The Porter stemmer is
   English-only, stems nothing useful elsewhere, and can conflate unrelated

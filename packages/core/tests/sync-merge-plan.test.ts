@@ -143,17 +143,17 @@ describe("alignment", () => {
         path: "_index.md",
         base: page("2026-05-01", [table(["| Chisels | wall rack |"])]),
         ours: page("2026-05-02", [table(["| Scraper | drawer 1 |"]), table(["| Chisels | wall rack |"]), "Both tables live in the shop."]),
-        theirs: page("2026-05-03", [table(["| Chisels | wall rack |"]), "- Sharpen before the trail-sign build."]),
+        theirs: page("2026-05-03", [table(["| Chisels | wall rack |"]), "- Sharpen before the route-sign build."]),
       },
       "table-union"
     );
     // The only passage both sides wrote in one place is the paragraph and the item.
-    expect(plan.pairs.map((pair) => [pair.ours, pair.theirs])).toEqual([["Both tables live in the shop.", "- Sharpen before the trail-sign build."]]);
+    expect(plan.pairs.map((pair) => [pair.ours, pair.theirs])).toEqual([["Both tables live in the shop.", "- Sharpen before the route-sign build."]]);
     expect(resolvedContent(plan.render(new Map()))).toBe(
       page("2026-05-03", [
         table(["| Scraper | drawer 1 |"]),
         table(["| Chisels | wall rack |"]),
-        "- Sharpen before the trail-sign build.",
+        "- Sharpen before the route-sign build.",
         "Both tables live in the shop.",
       ])
     );
@@ -175,14 +175,14 @@ describe("strategyFor", () => {
   test("the type's mergeStrategy wins over the file's shape", () => {
     // `type: note` is keep-both even as an `_index.md` with a Timeline.
     expect(strategyFor("projects/_index.md", taxonomy, sides(md("type: note\n", "\n## Timeline\n\n- 2026-05-01 x\n")))).toBe("keep-both");
-    expect(strategyFor("me/identity.md", taxonomy, sides("# Alex\n"))).toBe("latest-wins-additive");
+    expect(strategyFor("me/identity.md", taxonomy, sides("# Odysseus\n"))).toBe("latest-wins-additive");
     expect(strategyFor("anywhere/registry.md", taxonomy, sides(md("type: index\n")))).toBe("table-union");
   });
 
   test("a document the taxonomy cannot place does not inherit the inbox's strategy", () => {
     // typeForPath would call this a note (the inbox type) and pick keep-both.
-    expect(taxonomy.typeForPath("projects/workbench.md")).toBe("note");
-    expect(strategyFor("projects/workbench.md", taxonomy, sides(md("type: project\n")))).toBe("synthesize");
+    expect(taxonomy.typeForPath("projects/mast-support.md")).toBe("note");
+    expect(strategyFor("projects/mast-support.md", taxonomy, sides(md("type: project\n")))).toBe("synthesize");
   });
 
   test("the declared type is read from OURS, then THEIRS, then BASE", () => {
@@ -249,11 +249,11 @@ describe("mergeFrontmatter", () => {
   });
 
   test("OURS' key order, quoting and comments survive an edit from THEIRS", () => {
-    const base = "---\n# kept by hand\ntitle: 'Owl survey'\nupdated: 2026-05-01\ntags: [owl]\n---\n";
-    const ours = "---\n# kept by hand\ntitle: 'Owl survey'\nupdated: 2026-05-02\ntags: [owl, dusk]\n---\n";
-    const theirs = "---\nupdated: 2026-05-04\ntags: [owl, fire-road]\ntitle: 'Owl survey'\ncreated: 2026-04-30\n---\n";
+    const base = "---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-01\ntags: [eagle]\n---\n";
+    const ours = "---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-02\ntags: [eagle, dusk]\n---\n";
+    const theirs = "---\nupdated: 2026-05-04\ntags: [eagle, fire-road]\ntitle: 'Eagle survey'\ncreated: 2026-04-30\n---\n";
     const { block, notes } = merge(base, ours, theirs);
-    expect(block).toBe("---\n# kept by hand\ntitle: 'Owl survey'\nupdated: 2026-05-04\ntags: [dusk, fire-road, owl]\ncreated: 2026-04-30\n---\n");
+    expect(block).toBe("---\n# kept by hand\ntitle: 'Eagle survey'\nupdated: 2026-05-04\ntags: [dusk, fire-road, eagle]\ncreated: 2026-04-30\n---\n");
     expect(notes).toEqual([
       "frontmatter `updated`: both sides changed it; kept the later (theirs)",
       "frontmatter `tags`: both sides changed them; kept the union",
@@ -287,10 +287,10 @@ describe("mergeFrontmatter", () => {
 
 describe("remotePath", () => {
   test("names THEIRS' copy after the first free name", () => {
-    expect(remotePath("notes/owl.md")).toBe("notes/owl-remote.md");
-    const taken = new Set(["notes/owl-remote.md", "notes/owl-remote-2.md"]);
-    expect(remotePath("notes/owl.md", (p) => taken.has(p))).toBe("notes/owl-remote-3.md");
-    expect(remotePath("notes/OWL.MD")).toBe("notes/OWL-remote.MD");
+    expect(remotePath("notes/eagle.md")).toBe("notes/eagle-remote.md");
+    const taken = new Set(["notes/eagle-remote.md", "notes/eagle-remote-2.md"]);
+    expect(remotePath("notes/eagle.md", (p) => taken.has(p))).toBe("notes/eagle-remote-3.md");
+    expect(remotePath("notes/EAGLE.MD")).toBe("notes/EAGLE-remote.MD");
   });
 });
 

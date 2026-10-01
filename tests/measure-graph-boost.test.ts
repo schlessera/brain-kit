@@ -42,12 +42,12 @@ describe("goldenDrift, the measurement's baseline guard", () => {
   const baseline = [
     outcome("exact", 1),
     outcome("stale-facts", 1, { current_first: true }),
-    outcome("no-answer-tax", null, { top: ["projects/active/bookshelf/status.md", "notes/x.md"] }),
+    outcome("no-answer-tax", null, { top: ["projects/active/raft/status.md", "notes/x.md"] }),
   ];
   const goldens: Record<string, Golden> = {
     exact: { rank: 1 },
     "stale-facts": { rank: 1, current_first: true },
-    "no-answer-tax": { rank: null, top: ["projects/active/bookshelf/status.md"] },
+    "no-answer-tax": { rank: null, top: ["projects/active/raft/status.md"] },
   };
 
   test("accepts a baseline that reproduces every pinned field", () => {
@@ -60,7 +60,7 @@ describe("goldenDrift, the measurement's baseline guard", () => {
       "stale-facts: current_first true (golden false)",
     ]);
     expect(goldenDrift(baseline, { ...goldens, "no-answer-tax": { rank: null, top: ["me/identity.md"] } })).toEqual([
-      'no-answer-tax: top ["projects/active/bookshelf/status.md"] (golden ["me/identity.md"])',
+      'no-answer-tax: top ["projects/active/raft/status.md"] (golden ["me/identity.md"])',
     ]);
   });
 

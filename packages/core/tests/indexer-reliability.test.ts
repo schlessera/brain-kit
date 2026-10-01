@@ -14,7 +14,7 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 function markdown(body: string): string {
-  return `---\ntitle: Alex Example\ntype: note\ncreated: "2026-01-01"\nupdated: "2026-01-02"\n---\n${body}\n`;
+  return `---\ntitle: Odysseus\ntype: note\ncreated: "2026-01-01"\nupdated: "2026-01-02"\n---\n${body}\n`;
 }
 
 async function corpus(body = "Original content.", vectors = true) {

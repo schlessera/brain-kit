@@ -64,7 +64,7 @@ class Gen {
     return `n${++this.counter}`;
   }
   words(): string {
-    const vocabulary = ["oak", "trail", "glue", "Saturn", "knee", "bench", "ridge", "owl", "plane", "shift", "rota", "sleep"];
+    const vocabulary = ["oak", "route", "glue", "Saturn", "knee", "bench", "ridge", "eagle", "plane", "shift", "rota", "sleep"];
     const count = 2 + this.int(5);
     return Array.from({ length: count }, () => this.pick(vocabulary)).join(" ");
   }
@@ -128,7 +128,7 @@ function newModel(g: Gen, strategy: MergeStrategy): Model {
     title: `Field notes ${g.token()}`,
     created: "2026-01-08",
     updated: g.date(),
-    tags: ["ranger", g.pick(["wood", "sky", "health"])],
+    tags: ["sailor", g.pick(["wood", "sky", "health"])],
     status: "active",
     rating: 1 + g.int(5),
     sections,

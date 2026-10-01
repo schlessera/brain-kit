@@ -44,8 +44,8 @@ function fakeJev(oracle: Oracle, outcomes: JevResult["outcome"][] = []): JevLike
 const file = (id: string, path: string, head: string): UnknownFile => ({ id, path, head, bytes: head.length });
 const pair = (id: string, ours: string, theirs: string): JudgmentPair => ({
   id,
-  path: "projects/active/bookshelf/status.md",
-  context: "Bookshelf > Next action",
+  path: "projects/active/raft/status.md",
+  context: "Raft > Next action",
   ours,
   theirs,
 });
@@ -87,7 +87,7 @@ describe("J1: classifyFiles", () => {
     expect([...decided.keys()]).toEqual(["long"]);
     // One NUL in otherwise plain text is still binary.
     const nul = await createSyncJudge({ apiKey: "k", client: jev }).classifyFiles([
-      file("nul", "notes/log.txt", `${"ranger log line\n".repeat(20)}\u0000`),
+      file("nul", "notes/log.txt", `${"sailor log line\n".repeat(20)}\u0000`),
     ]);
     expect(nul.size).toBe(0);
     const state = jev.requests[0]!.state as Record<string, { path: string; head: string }>;

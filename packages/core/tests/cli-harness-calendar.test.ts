@@ -47,7 +47,7 @@ for (const { timezone, instant, expected } of [
           setSystemTime(new Date(${JSON.stringify(instant)}));
           try {
             const { root } = brainWithRemote();
-            const note = "notes/quick-note-owl.md";
+            const note = "notes/quick-note-eagle.md";
             const path = join(root, note);
             writeFileSync(path, readFileSync(path, "utf8") + "\\nFixed calendar fixture.\\n");
             expect(${JSON.stringify(PROVIDER_KEYS)}.filter(key => process.env[key] === "fixture-bogus-key"))

@@ -144,7 +144,7 @@ describe("the run record", () => {
         subscriptionType: "Claude Max",
         apiProvider: "firstParty",
         // Who the account is stays out of the activity record.
-        email: "alex@example.com",
+        email: "odysseus@example.com",
         organization: "Example Org",
       })
     );
