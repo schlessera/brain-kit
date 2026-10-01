@@ -365,6 +365,8 @@ jobs:
           for sub in digest crontab environment; do
             grep -qE "^ *brain-ui-cron $sub( |$)" <<< "$CRON_USAGE"
           done
+      - name: Check packed query source and default JavaScript imports
+        run: bun scripts/check-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
       - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
         # The repo's own typecheck resolves cross-package imports to src via
         # customConditions ["bun"], so the emitted .d.ts consumers get is
