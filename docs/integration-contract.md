@@ -1346,6 +1346,22 @@ Rules a consumer may rely on:
   page size, the WAL sidecar aside). It is a rebuild-cost figure for a
   disposable store, not a claim that the file holds authoritative state.
 
+## Content-index query API
+
+The concrete synchronous `@schlessera/brain/queries` entry supports
+`readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
+`readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
+`readVoiceVocabulary`, `listIndexDocuments` and `findIndexDocuments`.
+Its [complete API specification](content-index-queries.md) is part of this
+contract: signatures/reachable exports, validation/defaults/caps/order,
+detached result and safe error envelopes, feature compatibility, read-only
+per-operation snapshot lifetime and replacement behavior. Ordinary conditional
+exports ship TypeScript source, JavaScript and declarations from the same build.
+Supported result/behavior additions ship in a minor; changes follow this file's
+versioning policy. The [SQL-boundary ruling](decisions/index-query-api.md) keeps
+the direct-SQL guarantees below binding during the separate consumer migrations.
+No SQL/handle/provider interface is exposed by the query entry.
+
 ## brain.db (direct SQL reads)
 
 Prefer the CLI/MCP. If reading directly:
