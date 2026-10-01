@@ -1261,6 +1261,18 @@ The detailed stats promises below remain binding. The specification calls out
 observed implementation/client gaps with linked tasks; an implementation gap
 does not revoke a documented guarantee.
 
+### Internal Queue poke (additive)
+
+The supported `POST /api/internal/inbox/poke` operation uses an independent
+boot-minted bearer token and the actual loopback socket, before general API
+authentication in every auth mode. Forwarding headers never authorize it.
+Its runtime-file configuration, rotation, exact success/error shapes and
+bounded stopped-interval recovery are specified in [inbox-runtime.md](inbox-runtime.md).
+The generated host consumes this operation; its `/internal` path does not
+exclude it from HTTP compatibility. The shipped app wiring performs recovery
+and heartbeat work with no production dispatcher. An unavailable or closed
+runtime never grants access to ordinary APIs or enables autonomous execution.
+
 ### Corpus stats history (`GET /api/brain/stats/history`, additive in 0.40.0)
 
 Passes `brain stats --history --json` through untouched, behind the auth

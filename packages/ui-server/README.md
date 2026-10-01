@@ -177,6 +177,10 @@ brain repository.
 - **Durable Queue and Action storage** — internal transactional operational
   state, immutable provenance, checkpoints and recovery records. See
   [storage invariants and ownership](../../docs/inbox-storage.md).
+- **Queue lifecycle and internal poke** — 60-second recovery/heartbeat,
+  protected local HTTP poke and atomic boot token rotation. See the
+  [runtime contract and provisioning](../../docs/inbox-runtime.md).
+  Production autonomous dispatch remains gated by the complete v1 proof.
 - **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
   spawning the `brain` CLI from `BRAIN_PATH`.
 - **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
@@ -237,6 +241,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH` | Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access. | 0 |
 | `BRAIN_UI_EXEC_KILLER` | Absolute path to an authorised helper that cancels a wrapped process group, invoked as `<killer> <pgid> <TERM\|KILL\|INT>`. Needed only when the wrapper changes uid: signalling then fails with EPERM however the group is arranged, and an aborted request would keep running. | (none — signal the group directly) |
 | `BRAIN_UI_EXEC_WRAPPER` | Absolute path to an executable every agent and brain-CLI subprocess is launched through, as `<wrapper> <program> <args…>`. Lets a host run those children as another user without this package knowing how. It is an argv[0], never a command line: no shell parses it. Unset, spawns are exactly what they were. | (none — spawn the program directly) |
+| `BRAIN_UI_INBOX_POKE_TOKEN_FILE` | Absolute runtime token-file path for the protected internal inbox poke. Provision a private directory under /run for this app instance. The server atomically writes a new 0600 boot token; unset disables poke authorization. Does not enable autonomous dispatch. | (unset; poke unavailable) |
 | `BRAIN_UI_LOG_LEVEL` | Minimum severity the console log consumer emits: TRACE, DEBUG, INFO, WARN, ERROR or FATAL. Case-insensitive; an unrecognised value falls back to the default rather than silencing the server. | INFO |
 | `BRAIN_UI_MODEL_DISCOVERY` | Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
 | `BRAIN_UI_MODEL_TTL_HOURS` | How long a model-discovery result stays fresh, in hours. | 24 |

@@ -10,8 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory was checked against the real `createApp` mounts on 2026-09-30,
-source commit `e0875269b21b707482545be9e94901acb897893b`: 85 unique declared
+The inventory includes the additive Queue poke mounted by `createApp`: 86 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -70,6 +69,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/graph/meta` | I | Read graph availability and provenance | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/neighborhood` | I | Read bounded local presentation subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/health` | S | Probe SQLite liveness without identity | Health probes and React connectivity; preserve public minimal response without identity. |
+| POST | `/api/internal/inbox/poke` | S | Recover and trigger the Queue lifecycle | Generated-host cron caller; independent boot bearer token plus actual loopback socket. See the [runtime specification](inbox-runtime.md). |
 | GET | `/api/models` | S | Read full catalog including hidden profiles | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/billing` | I | Replace billing classification overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
 | PUT | `/api/models/custom` | I | Replace custom OpenRouter model IDs | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
@@ -119,7 +119,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 85 declared endpoints are mounted regardless of backend, renderer or
+All 86 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -138,6 +138,10 @@ DELETE, `Content-Type` and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
+
+`ALL /api/internal/inbox/poke` refuses methods other than its supported POST
+with JSON HTTP 405 and `Allow: POST`, before general authentication. The
+supported POST retains origin policy and its independent token/socket checks.
 
 `ALL /api/auth/passkey/*` and `ALL /api/auth/principals/*` add mode and owner
 checks to the management families after authentication. Public login ceremonies

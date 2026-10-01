@@ -188,6 +188,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_INBOX_POKE_TOKEN_FILE",
+    description:
+      "Absolute runtime token-file path for the protected internal inbox poke. " +
+      "Provision a private directory under /run for this app instance. The server " +
+      "atomically writes a new 0600 boot token; unset disables poke authorization. " +
+      "Does not enable autonomous dispatch.",
+    default: "(unset; poke unavailable)",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_CONFIRM_BASH",
     description:
       "JSON array of regex sources, or {\"pattern\", \"effect\"} objects whose " +
@@ -604,6 +614,8 @@ export interface ServerConfig {
   askUserFormLimits?: AskUserFormLimits;
   brainPath: string;
   dbPath: string;
+  /** Internal poke provisioning; optional for existing explicit configurations. */
+  inbox?: { pokeTokenFile: string | null };
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -783,6 +795,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
     ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
+    inbox: { pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null },
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
