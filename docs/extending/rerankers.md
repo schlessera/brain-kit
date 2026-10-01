@@ -76,6 +76,9 @@ The contract suite is `runRerankerContract` in `@schlessera/brain/testing`;
 | ----- | --------------------------------------------------------------- | ------------------ |
 | `jev` | One TypeSafe System One Choice over the candidate ids (opt-in provider) | `TYPESAFE_API_KEY` |
 
+The explicit activation policy below is available in 0.40.0+; published
+0.39.0 does not have `reranker.enabled`.
+
 Judgment providers require `reranker.enabled: true`; omitted or false keeps
 search on local `heuristic` ordering (or `none` when selected), even with a key
 or custom provider. `jev` is the default provider once enabled. It also needs
@@ -181,6 +184,7 @@ queries moved.
 2. **Reference it by value:**
 
    ```ts
+   import { defineConfig } from "@schlessera/brain";
    import { myReranker } from "./my-reranker";
 
    export default defineConfig({

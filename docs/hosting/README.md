@@ -13,6 +13,10 @@ overview of both.
 > generate it from, `schlessera/brain-hosting-template`, is not available. The
 > backup half of this page needs nothing but git and works today.
 
+Template extraction and clean-room hosting verification remain with
+[#70](https://github.com/schlessera/brain-kit/issues/70). The package behavior
+below is reference material; it is not a completed deployment walkthrough.
+
 The chat UI is a Progressive Web App that drives a coding agent over your brain.
 Nothing in this repository runs it: what you run is a **deployment shell** you
 generate for yourself — a Dockerfile, a compose file, a bin entry, your own
@@ -148,8 +152,9 @@ write-capable agent without authentication.
 
 ## Claude subscription login
 
-The chat UI's Claude turns bill the Claude subscription. They never bill an API
-key: a turn whose profile has no credential of its own clears
+Claude profiles without their own credential require the Claude subscription.
+Profiles that explicitly declare an API credential use that profile's billing
+mode instead. A turn whose profile has no credential of its own clears
 `ANTHROPIC_API_KEY` before Claude Code starts, and refuses to send its prompt if
 Claude Code still selects a key. The subscription is authenticated by one
 secret, `CLAUDE_CODE_OAUTH_TOKEN`: a **bearer credential for the account's
@@ -158,9 +163,10 @@ you keep your other secrets.
 
 The token is minted **off the host**, because minting it needs the account
 holder to approve it in a browser, and a headless server has neither the
-browser nor, usually, a terminal you can paste into. It lasts one year. Run
-this procedure once a year, and again whenever the token is revoked or the
-server says to log in again:
+browser nor, usually, a terminal you can paste into. The server estimates
+expiry as one year after the supplied mint date; this is its reminder policy,
+not proof that a token is still accepted. Renew when the account/provider
+requires it, the token is revoked or the server says to log in again:
 
 1. **Mint.** On any machine with a browser and Claude Code installed, run
    `claude setup-token` and approve in the browser. Either completion path
@@ -242,17 +248,19 @@ without signing out the rest.
 
 ## The honest cost picture
 
-The hosting is cheap. The AI is not — and that is the part people underestimate.
+Budget for hosting and model usage separately. Prices, credits and quotas vary
+by provider, account, region and date; no free allowance is guaranteed here.
 
 | Item                | Cost                                                                                   |
 | ------------------- | -------------------------------------------------------------------------------------- |
-| VPS                 | €4–6/mo (entry tier) — or $0 on a home server                                           |
-| Domain              | ~$10/yr                                                                                 |
-| Embeddings (Gemini) | ≈ $0 — the free tier covers a personal corpus                                           |
-| Voice (Deepgram)    | Optional — free credit, then cents per hour                                             |
-| **The model**       | **The dominant cost.** Claude backend: ~$100–200/mo (Max) or $20 (Pro, tight). pi backend: any API key at per-token rates, OpenRouter, or **$0 with local models** (Ollama/vLLM) at reduced quality. |
+| Host                | Provider plan, storage and backups; a home server also uses hardware and electricity. |
+| Domain              | Registration and renewal if you choose public HTTPS. |
+| Embeddings/enrichment | Corpus size, changed chunks, asset descriptions and the selected provider's current rates/quotas. |
+| Voice               | Optional transcription usage under the selected provider's plan. |
+| Chat model          | A supported subscription or API usage for the configured profile. Local models need compute and may differ in capability. |
 
-> **The AI usually costs more than the hosting.** Budget for the model first.
+Consult the current provider plan before enabling paid capabilities, and use
+the Activity cost figures only where the backend can actually report them.
 
 ## Encryption, honestly
 
@@ -260,8 +268,8 @@ The hosting is cheap. The AI is not — and that is the part people underestimat
 agent has to read your plaintext to operate on it. So brain-kit scopes
 encryption to what actually protects you:
 
-- **At rest** — an encrypted volume (LUKS or your provider's volume encryption)
-  is the documented default for VPS deployments. This is real and recommended.
+- **At rest** — protect the content and UI-state volumes with your host's
+  encryption facilities; brain-kit does not provision an encrypted host.
 - **Encrypted backups** — restic or borg with encryption; an easy, high-value
   win (see below).
 - **Encrypted git remote** for the content repo (age-encrypted bundles or
@@ -281,6 +289,13 @@ recovery, **encrypted snapshots** with [restic](https://restic.net) or
 [borg](https://www.borgbackup.org). Both encrypt client-side, so the backup
 target never sees plaintext. `brain.db` needs no backup — `brain index --force`
 rebuilds it from the markdown.
+
+If you run the chat UI, its database is separate persistent state: sessions,
+principals, settings, activity and push/notification records are not rebuilt
+by `brain index`. Preserve that database and the required secrets as part of
+your host's backup and restore procedure. See the server's
+[environment reference](../../packages/ui-server/README.md#environment)
+for `DB_PATH`; the future hosting template owns the operational procedure.
 
 ## See also
 

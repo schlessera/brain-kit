@@ -1,7 +1,11 @@
 # Configuration
 
 `brain.config.ts` is the single source of truth for your brain's shape:
-its taxonomy, providers, and enabled modules. This page documents every key.
+its taxonomy, providers, and enabled modules. This reference follows `main`;
+check `brain --version` and the installed package changelog for release
+availability. In particular, per-type `embed` and explicit `reranker.enabled`
+are 0.40.0 additions and are absent from published 0.39.0. The travel module
+also joins 0.40.0; its config below assumes that release is installed.
 
 The file default-exports `defineConfig({...})`. `defineConfig` is a typed
 identity helper — it gives you autocomplete and type-checking while you edit;
@@ -12,7 +16,7 @@ validate` runs config validation first and refuses on schema errors.
 import { defineConfig } from "@schlessera/brain";
 
 export default defineConfig({
-  profile: { name: "Alex Example", cliTitle: "Alex Example's knowledge base" },
+  profile: { name: "Odysseus", cliTitle: "Odysseus's knowledge base" },
   taxonomy: { /* … */ },
   embeddings: { provider: "gemini" },
   modules: { "@schlessera/brain-module-speaking": {} },
@@ -33,7 +37,7 @@ Cosmetic identity for the CLI.
 | `cliTitle` | `string` | —       | Shown in `brain --help`.       |
 
 ```ts
-profile: { name: "Alex Example", cliTitle: "Alex Example's personal knowledge base" }
+profile: { name: "Odysseus", cliTitle: "Odysseus's personal knowledge base" }
 ```
 
 ## `taxonomy`
@@ -73,7 +77,7 @@ Each type spec (`TypeSpec`) accepts:
 | `staleDays`     | `number` (positive int)           | —                           | Staleness threshold in days for docs under this type's dir.                                                 |
 | `staleSeverity` | `"error" \| "warning" \| "info"`  | `"warning"` when `staleDays` set | Severity of staleness findings.                                                                       |
 | `inbox`         | `boolean`                         | `false`                     | This type's dir is the quick-capture inbox (`brain add`'s default target). **Exactly one type must set this.** |
-| `orphanExempt`  | `boolean`                         | `false`                     | Exempt from the "no wiki-links point here" orphan audit.                                                    |
+| `orphanExempt`  | `boolean`                         | `false`                     | Exempt from the orphan audit; see [the link-based definition](concepts.md#staleness-and-the-audit-model). |
 | `embed`         | `boolean`                         | `true`                      | Generate chunk contexts and vectors for this type. `false` keeps keyword search, links, audit and ordinary counts. |
 | `appendMatch`   | `boolean`                         | `false`                     | `brain add` content titled exactly like an existing doc of this type appends into it instead of creating a new file. |
 | `halfLifeDays`  | `number` (positive int)           | `staleDays`, else `365`     | Search recency half-life: a doc of this type loses half its recency boost per `halfLifeDays` since its `updated` date. |
@@ -100,6 +104,8 @@ keeps its strategy unless you set `mergeStrategy` again. What each strategy
 does, and how a file without one gets its strategy, is under [`sync`](#sync).
 
 ### Per-type embedding eligibility
+
+Available in 0.40.0+.
 
 Set `taxonomy.types.<type>.embed` to `false` for bulk or generated material
 that should remain findable by keyword without paying for chunk context or
@@ -366,6 +372,7 @@ registry compiled into core) or a **passed-in implementation** (a value you
 import and hand over). See [extending/README.md](extending/README.md).
 
 ```ts
+import { defineConfig } from "@schlessera/brain";
 import { ollamaEmbeddings } from "brain-embeddings-ollama"; // hypothetical 3rd-party pkg
 
 export default defineConfig({
@@ -377,8 +384,8 @@ export default defineConfig({
 ### `embeddings`
 
 Vector embeddings for semantic/hybrid search. When omitted, the `gemini` built-in
-is used but stays dormant until a key is present, so search silently falls back
-to full-text.
+is used but stays dormant until a key is present. Search falls back to
+full-text and reports the unavailable vector capability in its warnings.
 
 | Key          | Type                            | Default              | Notes                                           |
 | ------------ | ------------------------------- | -------------------- | ----------------------------------------------- |
@@ -406,7 +413,8 @@ embeddings: { provider: "gemini", model: "gemini-embedding-2", apiKeyEnv: "GEMIN
 ### `completions`
 
 Plain (non-agentic) LLM completions for enrichment (chunk contexts, asset
-descriptions), note processing, and briefings.
+descriptions) and note processing. `brain briefing` itself is mechanical;
+the `/whatsup` skill adds an agent's interpretation.
 
 | Key        | Type                            | Default          | Notes                                        |
 | ---------- | ------------------------------- | ---------------- | -------------------------------------------- |
@@ -424,7 +432,7 @@ the primary's capabilities, so pair it with a fallback at least as capable. See
 completions: { provider: "gemini-flash", fallback: "anthropic-haiku" }
 ```
 
-**Name the Anthropic key separately when brain-ui runs Claude.** A Claude chat
+**Name the Anthropic key separately when the chat server runs Claude.** A Claude chat
 turn on a profile without its own credential runs on the subscription, with
 `ANTHROPIC_API_KEY` cleared from its environment so the CLI cannot bill it
 ([decision record](decisions/claude-code-runtime.md)). A `brain` command the
@@ -452,6 +460,10 @@ agentRunner: "claude"
 ```
 
 ### `reranker`
+
+Explicit activation with `enabled` is available in 0.40.0+. In 0.39.0 a usable
+configured reranker can activate without that field; check the installed
+changelog before relying on the opt-in behavior below.
 
 How search orders what it retrieves, for `brain search`, `brain context`,
 `brain eval`, the MCP tools and the chat backends. Model judgment is off by
@@ -761,14 +773,16 @@ modules: {
 
 Configuration lives in `brain.config.ts`; environment holds the things that
 must not be committed (keys) or that differ per machine (paths, endpoints).
-Nothing here is required — every feature that needs a key degrades to a keyless
-path and says so, rather than failing at the call.
+Basic capture and keyword search require no provider key. Search reports
+degradation when optional providers are unavailable; capabilities that require
+a provider, such as image generation, can refuse the request instead. Select
+the capability you need and read its command's requirements.
 
 | Variable | Read by | Effect |
 |---|---|---|
 | `BRAIN_ROOT` | root resolution | Which brain to operate on. See below. |
 | `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
-| `OPENAI_API_KEY` | images | The OpenAI image models — the only ones that do masked inpainting, transparent backgrounds, PNG/WebP output and exact pixel sizes. GPT-image models also need API Organization Verification on the account. |
+| `OPENAI_API_KEY` | images | OpenAI image generation. Mask, transparency, output-format and exact-size requirements route by capability; see the [images reference](../packages/module-images/README.md). |
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
@@ -778,19 +792,21 @@ path and says so, rather than failing at the call.
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
 | `CHROME_CDP_URL` | `brain jobs scrape --browser` | Headless-Chrome DevTools endpoint. Default `http://127.0.0.1:9222`. |
-| `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. Point it at `chrome-headless-shell` to render in about half the time of full Chrome. |
+| `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. `chrome-headless-shell` is also supported. |
 | `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX` | `brain render` | `=1` launches Chrome without its sandbox. Required when running as root, as in a container; strictly weaker, so it is opt-in. |
 | `OPENAI_BASE_URL`, `GEMINI_BASE_URL` | images | Point a provider at a proxy or a compatible endpoint. |
 
 Two notes that have cost people time:
 
-- **A key present in a container is not automatically present in cron.** Cron
-  builds each job's environment from `/etc/environment`, not from the container
-  environment, so a deployment must export the keys its scheduled jobs need.
-  The failure reads as "no provider configured", not as a missing variable.
+- **A key in your shell is not automatically present in a scheduled job.**
+  Verify the environment of the process that executes the command. The chat
+  server forwards a per-audience allowlist; custom variable names require
+  explicit admission through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. See
+  [hosting](hosting/README.md#subprocess-environment-allowlist-0331).
 - **Keys are read at the moment a feature needs one.** `brain image models`,
-  `brain doctor` and `brain config check` all report what is actually reachable,
-  which is a faster way to answer "did my key land?" than reading a shell.
+  `brain doctor` and `brain config check` report catalog availability or
+  configuration health. Those checks do not prove that a provider will accept
+  a live request under your account's access and quota.
 
 ## Activity (chat-UI observability)
 
@@ -838,15 +854,16 @@ is only read when no `brain.config.ts` is present.
 
 ```json
 {
-  "profile": { "name": "Alex Example" },
+  "profile": { "name": "Odysseus" },
   "embeddings": { "provider": "gemini" },
   "modules": { "@schlessera/brain-module-speaking": {} }
 }
 ```
 
 JSON can express everything **except passed-in provider values** — those require
-importing an implementation, which only the `.ts` form can do. If you use custom
-providers or import a local module by value, use `brain.config.ts`.
+importing an implementation, which only the `.ts` form can do. Local modules
+are enabled by their path under `modules` in either format; modules are not
+passed-in provider values.
 
 ## See also
 

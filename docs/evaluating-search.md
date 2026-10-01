@@ -1,7 +1,9 @@
 # Evaluating search
 
 `brain eval` scores a set of queries against the brain it runs in. You write down
-questions you actually ask and the documents that answer them. The command runs
+questions you actually ask and the documents that answer them. The template
+does not ship a personal query set: create one before running the commands
+below, with expected paths that exist and have been indexed. The command runs
 each question through the same search `brain search` uses and reports how often
 a right document came first.
 
@@ -22,12 +24,15 @@ points at another (a relative path is relative to the brain root). It is JSON Li
 object, with its right answers inline.
 
 ```jsonl
-{"id": "scope-setup", "q": "how is the telescope set up", "class": "question", "expected": ["studies/telescope-setup.md"]}
-{"id": "dob", "q": "the Dobsonian", "class": "alias", "expected": ["studies/telescope-setup.md"]}
-{"id": "bookshelf-status", "q": "bookshelf status", "class": "ambiguous-filename", "expected": ["projects/active/bookshelf/status.md"]}
-{"id": "bio", "q": "short bio", "class": "exact", "expected": ["me/basics/short-bio.md", "me/basics/long-bio.md"]}
-{"id": "tax", "q": "tax return deadline", "class": "no-answer", "expected": []}
+{"id": "raft-supplies", "q": "sailcloth", "class": "exact", "expected": ["notes/raft-supplies.md"]}
+{"id": "timber", "q": "timber for the raft", "class": "question", "expected": ["notes/raft-supplies.md"]}
 ```
+
+These two queries work with the note created by [daily workflow](daily-workflow.md).
+Save them as `evals/retrieval.jsonl` (create the directory first), then run
+`brain eval --mode fts`. Adapt the expected path if capture added a filename
+suffix. Grow the set with real questions and paths from your own brain; an
+alias query should name an alias your document actually declares.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -199,6 +204,10 @@ Scores are only comparable within one mode and one rerank setting:
 | `fts` | the BM25 value, larger is better | BM25 times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 | `hybrid` | the fusion value, in the hundredths | fusion times the lifecycle factors | `1 / (60 + rank)` of the judged order |
 | `vector` | the similarity `1 / (1 + distance)` | `1 / (60 + rank)` times the lifecycle factors | `1 / (60 + rank)` of the judged order |
+
+The following explicit activation policy is available in 0.40.0+; published
+0.39.0 does not have `reranker.enabled`. Check the installed changelog when
+comparing releases.
 
 The default is local `heuristic` ordering. Set `reranker.enabled: true` in
 the canonical config to use its judgment provider (`jev` by default, with a

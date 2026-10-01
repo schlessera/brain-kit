@@ -66,13 +66,16 @@ agentRunner: "claude"
 [^1]: The `pi` and `gemini` runners are implemented, but their non-interactive
 CLI flags are not yet pinned against a released CLI version (pi's headless
 surface, for instance, may move to its RPC mode). Treat these two as provisional
-until v0.1; `claude` and `codex` are ported from a working implementation. If you
+until verified against the CLI you use; keyless contract tests use stand-ins
+and do not prove live authentication or upstream flag compatibility. If you
 depend on `pi` or `gemini` today, verify the flag against your installed CLI or
 pass a custom runner.
 
 ## Add your own (≤3 steps)
 
-1. **Implement `AgentRunner`** — typically a thin shell-out:
+1. **Implement `AgentRunner`** — typically a thin shell-out. This sketch
+   deliberately throws until you implement process creation and return its
+   final text:
 
    ```ts
    // my-runner.ts
@@ -83,7 +86,7 @@ pass a custom runner.
        id: "mine",
        capabilities: { streaming: false, skills: true },
        async run(prompt, { cwd, timeoutMs }) {
-         /* spawn your agent CLI in cwd, return its final text */
+         throw new Error("Implement spawning the agent in cwd and returning its final text");
        },
      };
    }
@@ -92,6 +95,7 @@ pass a custom runner.
 2. **Reference it by value:**
 
    ```ts
+   import { defineConfig } from "@schlessera/brain";
    import { myRunner } from "./my-runner";
    export default defineConfig({ agentRunner: myRunner() });
    ```

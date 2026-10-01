@@ -2,8 +2,8 @@
 
 A **module** packages a domain workflow — its document types, its skills, and
 optionally a CLI command — so you can turn a whole area of your life on with one
-config entry. brain-kit ships first-party modules and a `/new-module`
-skill for authoring your own.
+config entry. The first-party modules are listed below; `/new-module` helps
+you author your own.
 
 ## What a module is
 
@@ -14,7 +14,9 @@ and no lifecycle beyond load-time registration.
 A manifest is two-phase: static identity (`name`, `configSchema`), then a
 `setup(config)` function that builds the module's **contribution** from the
 user's already-validated config block. This is what lets a taxonomy dir follow
-a configured directory instead of being a static literal.
+a configured directory instead of being a static literal. This manifest
+excerpt assumes a defined `configSchema` and a `./cli` command implementation;
+see a first-party module's source for a complete package.
 
 ```ts
 import { defineModule } from "@schlessera/brain";
@@ -88,6 +90,8 @@ overrides — is covered in
 [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
 
 ## Authoring MCP tools
+
+Available in 0.40.0+. Published 0.39.0 serves only the core MCP tools.
 
 Declare a tool when an existing CLI operation needs to be reachable from an
 MCP client without a shell. Keep its deterministic operation in one function
@@ -184,6 +188,12 @@ Modules are enabled by their presence in `brain.config.ts` under `modules:` —
 the config **is** the registry. A key is a package name or a local path; the
 value is the module's config block.
 
+Install a package before enabling it, for example `bun add
+@schlessera/brain-module-speaking`. Keep first-party module versions aligned
+with your installed `@schlessera/brain` release. A local module must exist at
+the configured path. After a manual config edit, run `brain config check` and
+`brain skills sync`.
+
 ```ts
 modules: {
   "@schlessera/brain-module-speaking": {},
@@ -194,13 +204,20 @@ modules: {
 The `/brain-module` skill does this conversationally: it lists available modules,
 and enabling one creates its directories and `_index.md` files, adds the config
 entry, regenerates the marked sections of your `CLAUDE.md`, and notes that a
-hosting container's cron picks it up on next deploy. **Disabling flips the config
-entry off and never deletes content** — because config is the state, it is
+hosting container's cron picks it up on next deploy. **Disabling removes the
+config entry and never deletes content** — because config is the state, it is
 idempotent by construction.
 
 ## First-party modules
 
+This list follows `main`. Travel and module-contributed MCP tools join the
+next release (0.40.0); they are absent from published 0.39.0. Speaking's travel
+ownership changes with that release, so use the linked migration guide when
+upgrading rather than copying a new config into an older install.
+
 ### `@schlessera/brain-module-jobs`
+
+Full reference: [jobs package](../packages/module-jobs/README.md).
 
 A personal job-search pipeline: it scrapes remote-job boards, deduplicates and
 full-text-indexes postings in its own SQLite database (`jobs.db`), scores each
@@ -237,6 +254,8 @@ opportunity notes.
   the module README.
 
 ### `@schlessera/brain-module-speaking`
+
+Full reference: [speaking package](../packages/module-speaking/README.md).
 
 The speaking lifecycle: researching conferences, developing talk ideas,
 submitting to CFPs, tracking outcomes, preparing talks and wrapping up afterward.
@@ -275,6 +294,8 @@ for canonical formats and the complete upgrade path.
 
 ### `@schlessera/brain-module-finance`
 
+Full reference: [finance package](../packages/module-finance/README.md).
+
 Accounts-receivable tracking for freelance/agency work. Per-client `ledger.md`
 files are the source of truth; the module derives every balance, status, aging
 bucket, and reconciliation warning from their frontmatter.
@@ -294,27 +315,31 @@ bucket, and reconciliation warning from their frontmatter.
 
 ### `@schlessera/brain-module-images`
 
+Full reference: [images package](../packages/module-images/README.md).
+
 Image generation and editing, routed between OpenAI and Google image models by
 capability rather than by a configured favourite.
 
 - **Types contributed:** none. Generated images are assets that belong wherever
   the thing they illustrate lives; the module owns no directory.
 - **Config:** `imagesDir` (fallback output directory, default `assets/images`),
+  `preferredModels` (tie-break order overriding the shipped routing policy),
   `disabledModels` (hide a model even when its provider has a key — useful to
   keep an expensive tier out of reach, or to drop one the account cannot use).
 - **Environment:** `OPENAI_API_KEY` and/or `GEMINI_API_KEY`. Neither is
-  required; each unlocks its own models, and `brain image models` reports what
-  is actually reachable. Some requests can only be served by one side — see the
-  module README for the routing table. GPT-image models additionally require
-  API Organization Verification on the OpenAI account.
+  required for listing the catalog; each admits its provider's candidates.
+  A generation call still needs a usable key and the account's model access
+  and quota. Some requests can only be served by one side — see the module
+  README for the routing table.
 - **Skills:** `image-gen` (pick the model, price the call, write the file).
 - **CLI word:** `brain image` — `"<prompt>"` to generate, `models` to list what
   is available. `--aspect`/`--resolution` work on every model; `--ref`,
   `--mask`, `--transparent`, `--size` route by capability; `--dry-run` prices a
   decision without spending, `--draft` takes the cheapest model that fits.
-- **Caveat:** every call costs money and the command says how much. Where
-  nothing in the request settles which model to use, it stops and asks rather
-  than guessing — there is no vendor benchmark for "nicer picture".
+- **Caveat:** generation uses provider billing. Capability filters run first;
+  where several models fit, configured preferences and the documented shipped
+  policy choose the model. `--dry-run` shows the choice without generating.
+  A displayed cost is an estimate where the provider's billing is not yet known.
 
 ## Local (path) modules
 
