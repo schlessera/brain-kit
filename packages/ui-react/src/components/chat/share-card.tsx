@@ -1,3 +1,4 @@
+import { trackBytes, trackDisplayName } from "../../lib/track-uploads.js";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Share2, X } from "lucide-react";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
@@ -41,11 +42,13 @@ function useThumbnails(files: File[]): { url: string; name: string }[] {
 function ShareCard({
   record,
   busy,
+  phase,
   onConfirm,
   onDismiss,
 }: {
   record: StoredShare;
   busy: boolean;
+  phase: "review" | "uploading" | "parsing" | "paused";
   onConfirm: () => void;
   onDismiss: () => void;
 }) {
@@ -61,7 +64,8 @@ function ShareCard({
           type="button"
           onClick={onDismiss}
           title="Dismiss"
-          className="rounded p-0.5 transition-colors hover:text-foreground"
+          aria-label="Dismiss shared files"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -93,9 +97,9 @@ function ShareCard({
               {record.text}
             </div>
           )}
-          {otherFiles.map((file) => (
-            <div key={file.name} className="truncate text-xs text-muted-foreground">
-              {file.name}
+          {otherFiles.map((file, index) => (
+            <div key={index} className="break-words text-xs text-muted-foreground">
+              {trackDisplayName(file.name)} · {trackBytes(file.size)} · {phase === "paused" ? "waiting for connection" : busy ? phase === "parsing" ? "reading file…" : "uploading…" : "awaiting your review"}
             </div>
           ))}
         </div>
@@ -114,8 +118,7 @@ function ShareCard({
         <button
           type="button"
           onClick={onDismiss}
-          disabled={busy}
-          className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground disabled:opacity-60"
+          className="min-h-11 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground disabled:opacity-60"
         >
           Dismiss
         </button>
@@ -135,6 +138,7 @@ export function ShareIntake() {
   const { confirm, dismiss } = useShareIntake();
   const queue = useShareStore((s) => s.queue);
   const busy = useShareStore((s) => s.busy);
+  const phase = useShareStore((s) => s.phase);
   const error = useShareStore((s) => s.error);
   const notes = useShareStore((s) => s.notes);
   const setError = useShareStore((s) => s.setError);
@@ -170,6 +174,7 @@ export function ShareIntake() {
         <ShareCard
           record={head}
           busy={busy}
+          phase={phase}
           onConfirm={() => void confirm(head)}
           onDismiss={() => dismiss(head)}
         />

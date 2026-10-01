@@ -108,6 +108,7 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     badge: "loyal",
     facts: [{ k: "last seen", v: "20 years ago", tone: "red" }],
   },
+  track: { kind: "track", source: { path: ".brain-ui/inbox/00000000-0000-0000-0000-000000000000/ithaca-loop.gpx" }, title: "Ithaca loop" },
   map: {
     kind: "map",
     title: "Where the crew went ashore",

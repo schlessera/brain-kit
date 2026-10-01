@@ -1,3 +1,4 @@
+import { trackDisplayFixture } from "./track-fixtures.js";
 // What a shared PNG or PDF of an answer contains (#46). Messages are built
 // through the chat store's own actions, the way a live turn builds them, so
 // the order under test is the order the store records, not a hand-made one.
@@ -13,7 +14,7 @@ import type { ChatMessage } from "../src/stores/chat-state.js";
 import { BLOCKS, SUGGESTIONS, type AnswerBlockKind } from "./block-fixtures.js";
 
 const SHOW_BLOCK = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
-const identity = { renderBlock: renderBlockHtml, inlineMermaid: async (md: string) => md };
+const identity = { renderBlock: (block: Block) => renderBlockHtml(block, block.kind === "track" ? trackDisplayFixture() : undefined), inlineMermaid: async (md: string) => md };
 
 beforeEach(() => {
   useChatStore.setState({ buffers: {}, draft: null, activeSessionId: null, runStates: {} });
@@ -134,7 +135,7 @@ describe("a message with blocks", () => {
 
   test("draws every block kind, in order, in the print theme", async () => {
     const kinds = Object.keys(BLOCKS) as AnswerBlockKind[];
-    expect(kinds).toHaveLength(13);
+    expect(kinds).toHaveLength(14);
     store().startAssistantMessage(null);
     store().appendText(null, "All of them.");
     kinds.forEach((kind, i) => showBlock(`s${i}`, BLOCKS[kind])());

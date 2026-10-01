@@ -22,7 +22,7 @@ export function clearRetryRequest(db: Database, sessionId: string) {
   db.prepare("DELETE FROM retry_requests WHERE session_id = ?").run(sessionId);
 }
 
-function retained(db: Database, sessionId: string): RetainedRetry | null {
+export function retained(db: Database, sessionId: string): RetainedRetry | null {
   const row = db.query("SELECT turn_id, principal_id, request_json, prompt, failure_message FROM retry_requests WHERE session_id = ?")
     .get(sessionId) as { turn_id: string; principal_id: string; request_json: string; prompt: string; failure_message: string } | null;
   if (!row) return null;
@@ -49,7 +49,7 @@ export function refuseRetry(db: Database, sessionId: string, requestId: string, 
 }
 
 /** Persist receipt and consume eligibility atomically BEFORE dispatch. A duplicate never dispatches again. */
-export function reserveRetry(db: Database, sessionId: string, failedTurnId: string, requestId: string, principalId: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string } {
+export function reserveRetry(db: Database, sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string } {
   return db.transaction(() => {
     const existing = retryReceipt(db, sessionId, requestId, principalId);
     if (existing.state !== "unknown") return { receipt: existing };
@@ -61,6 +61,7 @@ export function reserveRetry(db: Database, sessionId: string, failedTurnId: stri
     if (!original || original.turnId !== failedTurnId || original.principalId !== principalId) {
       return { receipt: refuseRetry(db, sessionId, requestId, principalId, "The original request is unavailable or is no longer the latest turn.") };
     }
+    if (expectedPrompt !== undefined && original.prompt !== expectedPrompt) return { receipt: refuseRetry(db, sessionId, requestId, principalId, "The retained request changed while its attachments were checked.") };
     const request = { ...original.request, sessionId };
     db.prepare("INSERT INTO retry_receipts (request_id, session_id, principal_id, state) VALUES (?, ?, ?, 'accepted')")
       .run(requestId, sessionId, principalId);

@@ -315,3 +315,11 @@ repairs are covered by R and Z. A nonempty 0.5 rollup fixture alone proves that
 the mounted aggregate reads stored accounting; R's higher-precision fixtures
 provide the distinct rounding evidence. This coverage does not redefine those
 promises or claim implementation of the separately delivered repairs.
+
+The imported-track internal transports have successful real-app mounting checks
+in [http-internal-mounts.test.ts](../packages/ui-server/tests/http-internal-mounts.test.ts):
+`mounted internal track handler: POST /api/track-upload` and
+`mounted internal track handler: GET /api/tracks`. Both observe nonempty canonical
+track measurements and unchanged original bytes; the composer transport creates
+no inbox thread. Detailed parser/intake/containment checks live in
+[track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake and poke mounted by `createApp`: 87 unique declared
+The inventory includes the additive Queue intake and poke mounted by `createApp`: 89 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -102,6 +102,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
+| GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | GET | `/api/voice/keyterms` | S | Read or rebuild domain keyterms | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
@@ -120,7 +122,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 87 declared endpoints are mounted regardless of backend, renderer or
+All 89 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -662,3 +664,13 @@ receipts are included in the existing audit-only operational export; they do
 not turn it into a filesystem backup. The CLI never accesses UI SQLite or
 `brain.db` for this operation, and intake does not file markdown or dispatch
 production autonomous work before its containment/system gates.
+
+## Imported track UI transport (#526)
+
+The paired UI uses authenticated `POST /api/track-upload` multipart intake and
+`GET /api/tracks?path=<staged reference>` to validate originals and resolve track
+blocks. These are internal HTTP transports under the selection policy; published
+SDK file-reference frames, `show_block` and kit props retain their ordinary
+contracts. The [imported-track behavior](integration-contract.md#imported-track-files-in-chat-additive)
+describes validation, limits, outcomes and static export. They do not file
+knowledge-base content or narrow existing generic `/api/share` intake.

@@ -1,3 +1,5 @@
+import { trackContextText, withTrackFiles } from "../tracks/read.js";
+import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 /**
  * How each user message was produced, kept between the turn and its replay.
  *
@@ -24,7 +26,7 @@
 import type { Database } from "bun:sqlite";
 import type { MessageSource, SessionHistoryMessage, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
-import { messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { sharedFileMetaSchema, messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 /** The key one message's text gets. Exported so the writer and the joiner agree by construction. */
 export function messageTextHash(text: string): string {
@@ -41,7 +43,7 @@ export function saveMessageSource(
   sessionId: string,
   text: string,
   source: MessageSource,
-  effort?: { thinkingLevel?: ThinkingLevel; turnId: string }
+  effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] }
 ): void {
   const hash = messageTextHash(text);
   db.transaction(() => {
@@ -49,9 +51,9 @@ export function saveMessageSource(
       .query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id = ? AND text_hash = ?")
       .get(sessionId, hash) as { n: number };
     db.prepare(
-      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(sessionId, hash, row.n, source, Date.now(), effort?.thinkingLevel ?? null, effort?.turnId ?? null);
+      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id, track_files)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, hash, row.n, source, Date.now(), effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null);
   }).immediate();
 }
 
@@ -70,8 +72,8 @@ export function attachMessageSources(
   messages: SessionHistoryMessage[]
 ): SessionHistoryMessage[] {
   const rows = db
-    .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level FROM message_sources WHERE session_id = ?")
-    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null }>;
+    .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level, track_files FROM message_sources WHERE session_id = ?")
+    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null; track_files: string | null }>;
   const stored = new Map<string, Partial<SessionHistoryMessage>>();
   for (const row of rows) {
     // Re-validated on the way out: a row written by a newer server with a
@@ -83,6 +85,17 @@ export function attachMessageSources(
       metadata.thinkingLevel = row.thinking_level;
       if (isThinkingLevel(row.effective_thinking_level)) metadata.effectiveThinkingLevel = row.effective_thinking_level;
     }
+    if (row.track_files) {
+      try {
+        const raw: unknown = JSON.parse(row.track_files);
+        if (Array.isArray(raw) && raw.length > 0 && raw.length <= 10) {
+          const parsedFiles = raw.map(f => sharedFileMetaSchema.safeParse(f));
+          // Validation must not reorder JSON keys: replay compares the original
+          // server context byte for byte before removing it from user text.
+          if (parsedFiles.every(f => f.success && f.data.detected && f.data.summary)) metadata.files = raw as SharedFileMeta[];
+        }
+      } catch { /* Corrupt operational metadata cannot become a claimed attachment. */ }
+    }
     if (Object.keys(metadata).length) stored.set(`${row.hash}:${row.ordinal}`, metadata);
   }
   if (stored.size === 0) return messages;
@@ -90,10 +103,22 @@ export function attachMessageSources(
   const seen = new Map<string, number>();
   return messages.map((message) => {
     if (message.role !== "user") return message;
-    const hash = messageTextHash(message.content);
-    const ordinal = seen.get(hash) ?? 0;
+    let content = message.content;
+    let hash = messageTextHash(content);
+    let ordinal = seen.get(hash) ?? 0;
+    let metadata = stored.get(`${hash}:${ordinal}`);
+    if (!metadata) {
+      const candidate = trackContextText(content);
+      if (candidate !== null) {
+        const candidateHash = messageTextHash(candidate);
+        const candidateOrdinal = seen.get(candidateHash) ?? 0;
+        const recorded = stored.get(`${candidateHash}:${candidateOrdinal}`);
+        if (recorded?.files && withTrackFiles(candidate, recorded.files) === content) {
+          content = candidate; hash = candidateHash; ordinal = candidateOrdinal; metadata = recorded;
+        }
+      }
+    }
     seen.set(hash, ordinal + 1);
-    const metadata = stored.get(`${hash}:${ordinal}`);
-    return metadata ? { ...message, ...metadata } : message;
+    return metadata ? { ...message, content, ...metadata } : message;
   });
 }

@@ -67,6 +67,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     isStreaming: false,
     timestamp: Date.now(),
     ...(askUserExchanges ? { askUserExchanges } : {}),
+    ...(msg.files?.length ? { files: msg.files } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
     ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
     // Absent means typed: an older host never sends it, and a newer one

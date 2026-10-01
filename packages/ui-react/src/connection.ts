@@ -165,7 +165,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     chat.setTurnRetry(sessionId, null);
     const buffer = chat.buffers[sessionId];
     if (msg.text !== undefined && pending.state === "waiting" && buffer?.messages.at(-1)?.retryOfTurnId === pending.failedTurnId) {
-      chat.addUserMessage(sessionId, msg.text, msg.source, undefined, { requestId: msg.requestId, thinkingLevel: msg.thinkingLevel });
+      chat.addUserMessage(sessionId, msg.text, msg.source, undefined, { requestId: msg.requestId, thinkingLevel: msg.thinkingLevel }, msg.files);
       if (msg.attachmentCount) {
         const current = root.stores.chat.getState().buffers[sessionId];
         const messages = [...current.messages];

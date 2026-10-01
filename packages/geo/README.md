@@ -26,6 +26,14 @@ within continuous sections; gaps contribute nothing. Elevation requires complete
 samples, a three-point median and 3 m hysteresis. Ordered complete timestamps
 supply elapsed intervals including pauses, without inter-section gaps.
 
+`parseImportedTrack(source)` validates GPX, KML LineString/MultiGeometry/Point,
+and GeoJSON LineString/MultiLineString/Point/MultiPoint with their supported
+collection wrappers. It returns the shared normalized line plus named waypoint
+evidence and exact waypoint omissions. Invalid coordinates split usable sections;
+structural errors, DTD/entities, unsupported geometry/CRS and byte/point/depth
+limits remain errors. Name and MIME claims never select a successful parse.
+The unchanged original remains the evidence; measurements cover usable sections.
+
 ## Track summaries
 
 `summarizeTrack(parseTrackGpx(source), { kind: "file", path })` reports copied
