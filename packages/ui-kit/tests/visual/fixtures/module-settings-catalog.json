@@ -1,0 +1,309 @@
+{
+  "module": "catalog",
+  "key": "./modules/catalog",
+  "state": "active",
+  "canBeDormant": true,
+  "dormancyReason": null,
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "title": {
+        "default": "Voyage",
+        "type": "string"
+      },
+      "count": {
+        "default": 2,
+        "type": "number"
+      },
+      "toggle": {
+        "default": false,
+        "type": "boolean"
+      },
+      "mode": {
+        "default": "sail",
+        "type": "string",
+        "enum": [
+          "sail",
+          "row"
+        ]
+      },
+      "choices": {
+        "default": [],
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "tags": {
+        "default": [
+          "Ithaca"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "weights": {
+        "default": {
+          "navigation": 2
+        },
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "number"
+        }
+      },
+      "nested": {
+        "default": {
+          "note": "Harbor"
+        },
+        "type": "object",
+        "properties": {
+          "note": {
+            "default": "Harbor",
+            "type": "string"
+          }
+        }
+      },
+      "items": {
+        "default": [
+          {
+            "name": "Crew",
+            "count": 3
+          },
+          {
+            "name": "Fleet",
+            "count": 2
+          }
+        ],
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "count": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "name",
+            "count"
+          ]
+        }
+      },
+      "addedLater": {
+        "default": "Found from schema",
+        "type": "string"
+      },
+      "unsupported": {}
+    }
+  },
+  "values": {
+    "title": "Voyage",
+    "count": 2,
+    "toggle": false,
+    "mode": "sail",
+    "choices": [],
+    "tags": [
+      "Ithaca"
+    ],
+    "weights": {
+      "navigation": 2
+    },
+    "nested": {
+      "note": "Harbor"
+    },
+    "items": [
+      {
+        "name": "Crew",
+        "count": 3
+      },
+      {
+        "name": "Fleet",
+        "count": 2
+      }
+    ],
+    "addedLater": "Found from schema",
+    "unsupported": {
+      "complete": [
+        null,
+        {
+          "nested": "Keeps everything"
+        }
+      ],
+      "extra": true
+    }
+  },
+  "inherited": {
+    "title": "Voyage",
+    "count": 2,
+    "toggle": false,
+    "mode": "sail",
+    "choices": [],
+    "tags": [
+      "Ithaca"
+    ],
+    "weights": {
+      "navigation": 2
+    },
+    "nested": {
+      "note": "Harbor"
+    },
+    "items": [
+      {
+        "name": "Crew",
+        "count": 3
+      },
+      {
+        "name": "Fleet",
+        "count": 2
+      }
+    ],
+    "addedLater": "Found from schema"
+  },
+  "overrides": {
+    "unsupported": {
+      "complete": [
+        null,
+        {
+          "nested": "Keeps everything"
+        }
+      ],
+      "extra": true
+    }
+  },
+  "provenance": {
+    "title": "default",
+    "count": "default",
+    "toggle": "default",
+    "mode": "default",
+    "choices": "default",
+    "tags": "default",
+    "tags.0": "default",
+    "weights": "default",
+    "weights.navigation": "default",
+    "nested": "default",
+    "nested.note": "default",
+    "items": "default",
+    "items.0": "default",
+    "items.0.name": "default",
+    "items.0.count": "default",
+    "items.1": "default",
+    "items.1.name": "default",
+    "items.1.count": "default",
+    "addedLater": "default",
+    "unsupported": "saved",
+    "unsupported.complete": "saved",
+    "unsupported.complete.0": "saved",
+    "unsupported.complete.1": "saved",
+    "unsupported.complete.1.nested": "saved",
+    "unsupported.extra": "saved"
+  },
+  "inheritedProvenance": {
+    "title": "default",
+    "count": "default",
+    "toggle": "default",
+    "mode": "default",
+    "choices": "default",
+    "tags": "default",
+    "tags.0": "default",
+    "weights": "default",
+    "weights.navigation": "default",
+    "nested": "default",
+    "nested.note": "default",
+    "items": "default",
+    "items.0": "default",
+    "items.0.name": "default",
+    "items.0.count": "default",
+    "items.1": "default",
+    "items.1.name": "default",
+    "items.1.count": "default",
+    "addedLater": "default",
+    "unsupported": "default",
+    "unsupported.complete": "default",
+    "unsupported.complete.0": "default",
+    "unsupported.complete.1": "default",
+    "unsupported.complete.1.nested": "default",
+    "unsupported.extra": "default"
+  },
+  "revision": "\"c82547d8c33b1cbcc62e35c4da53055669481d45cf993f8fb5d6961e5f26f7e7\"",
+  "notes": [],
+  "ui": {
+    "fields": [
+      {
+        "key": "title",
+        "kind": "text",
+        "label": "Title"
+      },
+      {
+        "key": "count",
+        "kind": "number",
+        "label": "Count"
+      },
+      {
+        "key": "toggle",
+        "kind": "toggle",
+        "label": "Signal"
+      },
+      {
+        "key": "mode",
+        "kind": "choice",
+        "label": "Travel",
+        "options": [
+          {
+            "value": "sail",
+            "label": "Sail"
+          },
+          {
+            "value": "row",
+            "label": "Row"
+          }
+        ]
+      },
+      {
+        "key": "choices",
+        "kind": "multichoice",
+        "label": "Crew choices",
+        "options": [
+          {
+            "value": "navigator",
+            "label": "Navigator"
+          },
+          {
+            "value": "lookout",
+            "label": "Lookout"
+          }
+        ]
+      },
+      {
+        "key": "tags",
+        "kind": "tags",
+        "label": "Ports"
+      },
+      {
+        "key": "weights",
+        "kind": "weights",
+        "label": "Weights"
+      },
+      {
+        "key": "nested",
+        "kind": "record",
+        "label": "Nested"
+      },
+      {
+        "key": "items",
+        "kind": "list",
+        "label": "Items",
+        "itemTitle": "name",
+        "orderMatters": true
+      }
+    ],
+    "actions": [],
+    "migration": null
+  }
+}

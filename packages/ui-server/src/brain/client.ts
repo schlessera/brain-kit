@@ -21,6 +21,7 @@ import type {
   BrainAddResult,
 } from "./types.js";
 import { parseSyncResult, syncMessage, type BrainSyncOutput } from "./sync-result.js";
+import type { ConfiguredModule } from "@schlessera/brain-ui-sdk";
 
 /**
  * A `brain sync` that exited non-zero, with its result when stdout held one:
@@ -41,6 +42,9 @@ export class BrainSyncError extends Error {
 export interface BrainClient {
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
+  /** Additive settings support; older injected clients may omit it. */
+  modules?(): Promise<{ enabled: ConfiguredModule[]; available: unknown[] }>;
+  moduleSettings?(name: string, operation: "get" | "save" | "validate" | "preview" | "migrate" | "enable" | "disable" | "action", options?: { values?: Record<string, unknown>; revision?: string; action?: string }): Promise<unknown>;
   search(
     query: string,
     opts?: { type?: string; tag?: string; limit?: number; mode?: string; signal?: AbortSignal }
@@ -171,7 +175,7 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     throw new Error("searchTimeoutMs must be a positive finite number");
   }
 
-  async function execBrain(args: string[], signal?: AbortSignal): Promise<ExecResult> {
+  async function execBrain(args: string[], signal?: AbortSignal, input?: string): Promise<ExecResult> {
     signal?.throwIfAborted();
     const command = brainCliCommand(brainPath);
     if (minimumVersion !== undefined) {
@@ -189,6 +193,7 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
       cwd: brainPath,
       stdout: "pipe",
       stderr: "pipe",
+      ...(input !== undefined ? { stdin: new TextEncoder().encode(input) } : {}),
       // Force JSON output when not a TTY
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
       // Only read-only search passes a signal. Kill even a CLI that ignores
@@ -240,6 +245,29 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
   return {
     cliCommand() {
       return brainCliCommand(brainPath);
+    },
+
+    async modules() {
+      return parseJsonOutput(await execBrain(["module", "list", "--json"]));
+    },
+
+    async moduleSettings(name, operation, options = {}) {
+      if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error("Invalid module name");
+      const args = ["module", operation === "enable" || operation === "disable" ? operation : "settings", name, "--json"];
+      if (operation === "save" || operation === "validate") args.push("--stdin");
+      if (operation === "validate") args.push("--preview");
+      if (operation === "preview" || operation === "migrate") args.push("--migrate");
+      if (operation === "preview") args.push("--preview");
+      if (options.revision) args.push("--revision", options.revision);
+      if (operation === "action") {
+        if (!options.action || !/^[a-z][a-z0-9-]*$/.test(options.action)) throw new Error("Invalid module action");
+        args.push("--action", options.action);
+      }
+      const result = await execBrain(args, undefined, (operation === "save" || operation === "validate") ? JSON.stringify(options.values) : undefined);
+      let parsed: unknown;
+      try { parsed = JSON.parse(result.stdout); } catch { return parseJsonOutput(result); }
+      if (result.exitCode !== 0 && !(parsed && typeof parsed === "object" && "status" in parsed)) return parseJsonOutput(result);
+      return parsed;
     },
 
     async search(query, searchOpts) {

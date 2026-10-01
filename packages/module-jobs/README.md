@@ -80,12 +80,17 @@ Selected browser boards get Chrome automatically; a host without a usable
 browser loses those boards rather than the whole scrape. Existing user-authored
 schedules are not rewritten.
 
-## The scoring criteria file
+## Scoring settings
 
 Scoring is **not** hard-coded. It is driven by the YAML frontmatter of the
-markdown file named by `criteria` (which stays brain content you own and tune).
+markdown file named by `criteria` until you explicitly move it to
+`settings/jobs.json.scoring`. The criteria file retains your prose.
 Copy [`docs/criteria-template.md`](./docs/criteria-template.md) to that path and
-edit the `scoring:` block. Score breakdowns are keyed by **your** group names.
+edit the legacy `scoring:` block, or preview and move it with
+`brain module settings jobs --migrate --preview --json` followed by
+`--migrate --revision <preview-revision> --json`. Settings → Modules → Jobs
+edits the complete scoring format and sources through validated JSON saves.
+Score breakdowns are keyed by **your** group names.
 
 ```yaml
 scoring:

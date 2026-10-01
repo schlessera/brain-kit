@@ -21,7 +21,7 @@ function isThemePreference(value: unknown): value is ThemePreference {
  * input) is a section column row from `laptop:` up only; the phone strip
  * keeps those controls above its tabs and folds the value to `models`.
  */
-export type SettingsTab = "appearance" | "models" | "skills" | "security" | "devices";
+export type SettingsTab = "appearance" | "models" | "skills" | "security" | "devices" | "modules";
 
 /** Full-screen surface currently shown inside the AppShell. */
 export type ActiveView = "chat" | "graph" | "activity";
@@ -44,6 +44,8 @@ export interface UIState {
   filePanelOpen: boolean;
   settingsPanelOpen: boolean;
   settingsTab: SettingsTab;
+  settingsNavigationProtected: boolean;
+  setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
   /** Switch the full-screen view; closes any open panel so the new view starts clean. */
   setActiveView: (view: ActiveView) => void;
   toggleSessionPanel: () => void;
@@ -95,10 +97,14 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
   const stored = env?.storage()?.getItem(themeKey);
   const singleKeyKey = env?.storageKey(SINGLE_KEY_KEY) ?? SINGLE_KEY_KEY;
   const storedSingleKey = env?.storage()?.getItem(singleKeyKey);
+  let navigationGuard: ((leave: () => void) => void) | null = null;
+  const leaveSettings = (change: () => void) => navigationGuard ? navigationGuard(change) : change();
   return createStore<UIState>((set) => ({
     ...CLOSED,
     activeView: "chat",
     settingsTab: "models",
+    settingsNavigationProtected: false,
+    setSettingsNavigationGuard: (guard) => { navigationGuard = guard; set({ settingsNavigationProtected: guard !== null }); },
     theme: isThemePreference(stored) ? stored : "dark",
     setTheme: (theme) => {
       env?.storage()?.setItem(themeKey, theme);
@@ -113,31 +119,31 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
     pushSubagentView: (spanId) =>
       set((s) => ({ subagentStack: [...s.subagentStack, spanId] })),
     popSubagentView: () => set((s) => ({ subagentStack: s.subagentStack.slice(0, -1) })),
-    setActiveView: (view) => set({ ...CLOSED, activeView: view }),
+    setActiveView: (view) => leaveSettings(() => set({ ...CLOSED, activeView: view })),
     toggleSessionPanel: () =>
-      set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen }))),
     toggleSyncPanel: () =>
-      set((s) => ({ ...CLOSED, syncPanelOpen: !s.syncPanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, syncPanelOpen: !s.syncPanelOpen }))),
     toggleWhatsupPanel: () =>
-      set((s) => ({ ...CLOSED, whatsupPanelOpen: !s.whatsupPanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, whatsupPanelOpen: !s.whatsupPanelOpen }))),
     toggleSearchPanel: () =>
-      set((s) => ({ ...CLOSED, searchPanelOpen: !s.searchPanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, searchPanelOpen: !s.searchPanelOpen }))),
     toggleAddPanel: () =>
-      set((s) => ({ ...CLOSED, addPanelOpen: !s.addPanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, addPanelOpen: !s.addPanelOpen }))),
     toggleFilePanel: () =>
-      set((s) => ({ ...CLOSED, filePanelOpen: !s.filePanelOpen })),
+      leaveSettings(() => set((s) => ({ ...CLOSED, filePanelOpen: !s.filePanelOpen }))),
     toggleSettingsPanel: () =>
-      set((s) => ({ ...CLOSED, settingsPanelOpen: !s.settingsPanelOpen })),
-    closeAllPanels: () => set({ ...CLOSED }),
+      leaveSettings(() => set((s) => ({ ...CLOSED, settingsPanelOpen: !s.settingsPanelOpen }))),
+    closeAllPanels: () => leaveSettings(() => set({ ...CLOSED })),
     setSyncPanelOpen: (open) => set({ syncPanelOpen: open }),
     setWhatsupPanelOpen: (open) => set({ whatsupPanelOpen: open }),
     setSearchPanelOpen: (open) => set({ searchPanelOpen: open }),
     setAddPanelOpen: (open) => set({ addPanelOpen: open }),
     setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
     setFilePanelOpen: (open) => set({ filePanelOpen: open }),
-    setSettingsPanelOpen: (open) => set({ settingsPanelOpen: open }),
+    setSettingsPanelOpen: (open) => open ? set({ settingsPanelOpen: true }) : leaveSettings(() => set({ settingsPanelOpen: false })),
     openSettings: (tab) =>
-      set({ ...CLOSED, settingsPanelOpen: true, settingsTab: tab }),
-    setSettingsTab: (tab) => set({ settingsTab: tab }),
+      leaveSettings(() => set({ ...CLOSED, settingsPanelOpen: true, settingsTab: tab })),
+    setSettingsTab: (tab) => leaveSettings(() => set({ settingsTab: tab })),
   }));
 }

@@ -810,7 +810,12 @@ conflict, like `code-merge`.
 Enables workflow modules. A key is either an npm package name
 (`"@schlessera/brain-module-jobs"`) or a **local path** (`"./modules/catalog"`); the
 value is that module's config block, validated by the module's own schema. Load
-order follows config order. See [modules.md](modules.md).
+order follows config order. A `settings/<manifest-name>.json` object overrides
+that block one key at a time before the same module schema validates it. Nested
+objects merge; arrays and scalar values replace. Schema defaults apply afterward.
+The CLI and Settings → Modules write these JSON overrides without rewriting a
+TypeScript config. `brain config get modules --json` returns the effective
+validated blocks. See [modules.md](modules.md#editable-module-settings).
 
 An optional `enabled` boolean inside each entry defaults to `true`. Core owns
 and validates it separately from the module's domain schema. `false` keeps the
