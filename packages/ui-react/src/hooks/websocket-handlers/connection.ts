@@ -1,6 +1,6 @@
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame = "server_hello" | "location_request" | "error";
+type ConnectionFrame = "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta";
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
@@ -12,6 +12,10 @@ export const connectionFrameHandlers = {
     context.stores.activity.getState().bumpConnectionEpoch();
     context.ensureActivitySubscription(context.state.activeSessionId);
   },
+  // Durable subscriptions/store are wired by #682/#684. This client does
+  // not subscribe yet; additive frames are safely ignored in the meantime.
+  inbox_snapshot: () => {},
+  inbox_delta: () => {},
   location_request: (msg, context) => {
     context.requestBrowserLocation(msg);
   },

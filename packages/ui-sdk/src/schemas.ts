@@ -8,7 +8,9 @@
 // checks exact keys, optionality, and nested values in both directions.
 //
 // Validation policy (matches the additive-only protocol contract):
-// - Unknown OBJECT KEYS are PRESERVED (z.looseObject) — a newer peer may add
+// - Durable inbox commands and model-submitted effects use strict schemas.
+//   Server frames remain loose; see the authority boundary below.
+// - Other unknown OBJECT KEYS are PRESERVED (z.looseObject) — a newer peer may add
 //   optional fields and they must survive the boundary.
 // - Unknown FRAME TYPES fail the union — receivers should treat that as
 //   "ignore frame" (client) or "protocol error" (server), never as a crash.
@@ -26,6 +28,10 @@ import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 import type {
   AskUserAnnotation,
   ClientHello,
+  ClientInboxResolve, ClientInboxSnooze, ClientInboxSubscribe, ClientInboxUnsubscribe,
+  InboxView, InboxQueueStatus, InboxActionStatus, InboxDismissReason, InboxThread,
+  InboxOperation, InboxWorkPayload, ResolutionEffect, V1ResolutionEffect, InboxOption,
+  InboxItemBase, InboxQueueItem, InboxActionItem, InboxItem, InboxChange, InboxSnapshot, InboxDelta,
   ClientRetryTurn,
   ClientRetryStatus,
   ServerRetryReceipt,
@@ -497,6 +503,122 @@ export const clientActivityUnsubscribeSchema = z.looseObject({
 export const clientRetryTurnSchema = z.looseObject({ type: z.literal("retry_turn"), sessionId: id, failedTurnId: id, requestId: id }) satisfies z.ZodType<ClientRetryTurn>;
 export const clientRetryStatusSchema = z.looseObject({ type: z.literal("retry_status"), sessionId: id, requestId: id }) satisfies z.ZodType<ClientRetryStatus>;
 
+// --- Durable inbox submissions: a separate strict authority boundary ---
+
+export const inboxViewSchema = z.enum(["queue", "actions"]) satisfies z.ZodType<InboxView>;
+export const inboxQueueStatusSchema = z.enum(["scheduled", "ready", "claimed", "done", "blocked", "failed", "superseded", "expired", "dropped"]) satisfies z.ZodType<InboxQueueStatus>;
+export const inboxActionStatusSchema = z.enum(["pending", "snoozed", "resolved", "dismissed", "expired", "dropped"]) satisfies z.ZodType<InboxActionStatus>;
+export const inboxDismissReasonSchema = z.enum(["dont_ask_again", "wrong_call", "need_more_info", "no_longer_relevant"]) satisfies z.ZodType<InboxDismissReason>;
+const inboxTime = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const inboxSeq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const inboxText = z.string().min(1).max(MAX_PROMPT_CHARS);
+const inboxTargetPath = z.string().min(1).max(4096).refine((path) =>
+  !/[\\\x00-\x1f\x7f]/.test(path) && !path.startsWith("/") && !/^[a-zA-Z]:/.test(path) &&
+  path.split("/").every((part) => part !== "" && part !== "." && part !== ".."),
+  "Expected a canonical brain-relative target path"
+);
+
+// Tool-specific input is inert JSON. Deny authority fields even when nested
+// inside it; arbitrary JSON must not become a second route around strictObject.
+const inboxAuthorityKeys = new Set([
+  "trust", "trustclass", "profile", "profileid", "providerid", "principal", "principalid",
+  "allowedtools", "toolpolicy", "capability", "capabilities", "grant", "grants",
+  "enforceallowedtools", "nograntsurface", "authority", "envelope",
+]);
+function isInboxOperationInput(input: Record<string, unknown>): boolean {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: input, depth: 0 }];
+  const seen = new Set<object>();
+  while (stack.length) {
+    const { value, depth } = stack.pop()!;
+    if (depth > MAX_JSON_DEPTH) return false;
+    if (value === null || typeof value === "string" || typeof value === "boolean") continue;
+    if (typeof value === "number") { if (!Number.isFinite(value)) return false; continue; }
+    if (typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const entry of value) stack.push({ value: entry, depth: depth + 1 });
+    } else {
+      if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return false;
+      for (const [key, entry] of Object.entries(value)) {
+        if (inboxAuthorityKeys.has(key.replace(/[_-]/g, "").toLowerCase())) return false;
+        stack.push({ value: entry, depth: depth + 1 });
+      }
+    }
+  }
+  return true;
+}
+
+export const inboxOperationSchema = z.strictObject({
+  toolName: id,
+  input: z.record(z.string(), z.unknown()).refine(isInboxOperationInput, "Expected authority-free JSON input"),
+  targetPath: inboxTargetPath,
+}) satisfies z.ZodType<InboxOperation>;
+export const inboxWorkPayloadSchema = z.strictObject({
+  instruction: inboxText,
+  operation: inboxOperationSchema.optional(),
+}) satisfies z.ZodType<InboxWorkPayload>;
+const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
+const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
+const snoozeEffectSchema = z.strictObject({ kind: z.literal("snooze") });
+const dismissEffectSchema = z.strictObject({ kind: z.literal("dismiss"), reason: inboxDismissReasonSchema.optional() });
+const writePolicyEffectSchema = z.strictObject({
+  kind: z.literal("write_policy"),
+  policy: z.strictObject({ slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(128), content: inboxText }),
+});
+const openSessionEffectSchema = z.strictObject({
+  kind: z.literal("open_session"), seed: z.strictObject({ prompt: inboxText }),
+});
+/** All six data variants; this is NOT the schema for v1 execution. */
+export const resolutionEffectSchema = z.discriminatedUnion("kind", [
+  enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
+  writePolicyEffectSchema, openSessionEffectSchema,
+]) satisfies z.ZodType<ResolutionEffect>;
+/** Use at creation/application in v1: deferred kinds fail validation. */
+export const v1ResolutionEffectSchema = z.discriminatedUnion("kind", [
+  enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
+]) satisfies z.ZodType<V1ResolutionEffect>;
+export const inboxOptionSchema = z.strictObject({ id, label: inboxText, effect: resolutionEffectSchema }) satisfies z.ZodType<InboxOption>;
+
+// Compare exact JSON values, independent of object key order. An approved
+// operation binds the entire input and target, rather than just a tool name.
+function sameInboxInput(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, i) => sameInboxInput(value, right[i]));
+  }
+  const a = Object.keys(left), b = Object.keys(right);
+  return a.length === b.length && a.every((key) => Object.hasOwn(right, key) && sameInboxInput((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+}
+
+/**
+ * Validate v1 data against a server-owned set of exact permitted operations.
+ * This does not mint authority or prove runtime containment. The server must
+ * derive/revalidate that set for the principal and thread at each application.
+ */
+export function validateResolutionEffect(
+  value: unknown, allowedOperations: readonly InboxOperation[]
+): ParseFrameResult<V1ResolutionEffect> {
+  const parsed = v1ResolutionEffectSchema.safeParse(value);
+  if (!parsed.success) return { ok: false, error: "Invalid or unavailable v1 resolution effect" };
+  const effect = parsed.data;
+  if (effect.kind === "enqueue" && effect.payload.operation) {
+    const operation = effect.payload.operation;
+    if (!allowedOperations.some((allowed) => allowed.toolName === operation.toolName &&
+      allowed.targetPath === operation.targetPath && sameInboxInput(allowed.input, operation.input))) {
+      return { ok: false, error: "Requested operation is outside the thread envelope" };
+    }
+  }
+  return { ok: true, message: effect };
+}
+
+export const clientInboxResolveSchema = z.strictObject({
+  type: z.literal("inbox_resolve"), itemId: id, optionId: id, reason: inboxDismissReasonSchema.optional(),
+}) satisfies z.ZodType<ClientInboxResolve>;
+export const clientInboxSnoozeSchema = z.strictObject({ type: z.literal("inbox_snooze"), itemId: id }) satisfies z.ZodType<ClientInboxSnooze>;
+export const clientInboxSubscribeSchema = z.strictObject({ type: z.literal("inbox_subscribe"), view: inboxViewSchema, threadId: id.optional() }) satisfies z.ZodType<ClientInboxSubscribe>;
+export const clientInboxUnsubscribeSchema = z.strictObject({ type: z.literal("inbox_unsubscribe"), view: inboxViewSchema, threadId: id.optional() }) satisfies z.ZodType<ClientInboxUnsubscribe>;
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientRetryTurnSchema,
   clientRetryStatusSchema,
@@ -517,6 +639,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientActivitySubscribeSchema,
   clientActivityUnsubscribeSchema,
   clientLocalExchangeSchema,
+  clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
 // --- Boundary helper ---
@@ -967,6 +1090,58 @@ export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_r
   thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerRetryReceipt>;
 
+// Durable server projections preserve additive fields; they are display data,
+// never fed to effect application without the strict submission validators.
+const wireOperationSchema = inboxOperationSchema.loose().extend({ input: z.record(z.string(), z.unknown()) });
+const wireWorkPayloadSchema = inboxWorkPayloadSchema.loose().extend({ operation: wireOperationSchema.optional() });
+const wireEffectSchema = z.discriminatedUnion("kind", [
+  enqueueEffectSchema.loose().extend({ payload: wireWorkPayloadSchema }),
+  cancelBlockedEffectSchema.loose(), snoozeEffectSchema.loose(), dismissEffectSchema.loose(),
+  writePolicyEffectSchema.loose().extend({ policy: writePolicyEffectSchema.shape.policy.loose() }),
+  openSessionEffectSchema.loose().extend({ seed: openSessionEffectSchema.shape.seed.loose() }),
+]);
+export const inboxThreadSchema = z.looseObject({
+  id, trustClass: z.enum(["trusted", "untrusted"]), source: z.enum(["share", "cli"]),
+  status: z.enum(["open", "closed"]), stateMd: z.string().refine((text) => utf8ByteLength(text) <= 4096, "Projection exceeds 4096 bytes"),
+  stakes: z.number().int().min(0).max(3), deadline: inboxTime.optional(), createdAt: inboxTime, lastSeenAt: inboxTime,
+}) satisfies z.ZodType<InboxThread>;
+export const inboxItemBaseSchema = z.looseObject({
+  id, threadId: id, dedupKey: id, createdAt: inboxTime, updatedAt: inboxTime, expiresAt: inboxTime,
+  waitUntil: inboxTime.optional(), version: z.number().int().min(1), runId: id.optional(),
+}) satisfies z.ZodType<InboxItemBase>;
+const queueItemSchema = inboxItemBaseSchema.extend({
+  queue: z.literal("queue"), status: inboxQueueStatusSchema,
+  attempts: z.number().int().min(0), maxAttempts: z.number().int().min(1),
+  claimedAt: inboxTime.optional(), leaseUntil: inboxTime.optional(), blockedByItemId: id.optional(),
+});
+export const inboxQueueItemSchema = z.discriminatedUnion("type", [
+  queueItemSchema.extend({ type: z.literal("triage"), payload: z.looseObject({ stagingId: id }) }),
+  queueItemSchema.extend({ type: z.literal("execute"), payload: wireWorkPayloadSchema }),
+  queueItemSchema.extend({ type: z.literal("cleanup_pending"), payload: z.looseObject({ stagingId: id }) }),
+]) satisfies z.ZodType<InboxQueueItem>;
+const wireOptionSchema = inboxOptionSchema.loose().extend({ effect: wireEffectSchema });
+export const inboxActionItemSchema = inboxItemBaseSchema.extend({
+  queue: z.literal("actions"), type: z.enum(["approve", "choose", "fyi"]), status: inboxActionStatusSchema,
+  payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema),
+}).refine((item) => item.type !== "fyi" || item.options.length === 0, "FYIs cannot offer resolution options") satisfies z.ZodType<InboxActionItem>;
+export const inboxItemSchema = z.discriminatedUnion("queue", [inboxQueueItemSchema, inboxActionItemSchema]) satisfies z.ZodType<InboxItem>;
+const inboxChangeBaseSchema = z.looseObject({ changeId: inboxSeq, threadId: id, seq: z.number().int().min(1) });
+export const inboxChangeSchema = z.discriminatedUnion("kind", [
+  inboxChangeBaseSchema.extend({ kind: z.literal("upsert_thread"), thread: inboxThreadSchema }),
+  inboxChangeBaseSchema.extend({ kind: z.literal("upsert_item"), itemId: id, item: inboxItemSchema }),
+  inboxChangeBaseSchema.extend({ kind: z.literal("remove_item"), itemId: id }),
+  inboxChangeBaseSchema.extend({ kind: z.literal("remove_thread") }),
+]).refine((change) => change.kind === "upsert_thread" ? change.thread.id === change.threadId :
+  change.kind === "upsert_item" ? change.item.id === change.itemId && change.item.threadId === change.threadId : true,
+  "Change payload does not match its scope"
+) satisfies z.ZodType<InboxChange>;
+export const inboxSnapshotSchema = z.looseObject({
+  type: z.literal("inbox_snapshot"), view: inboxViewSchema, threadId: id.optional(),
+  threads: z.array(inboxThreadSchema), items: z.array(inboxItemSchema),
+  highWaterSeq: z.record(z.string(), inboxSeq), cursor: inboxSeq, append: z.boolean().optional(),
+}) satisfies z.ZodType<InboxSnapshot>;
+export const inboxDeltaSchema = z.looseObject({ type: z.literal("inbox_delta"), view: inboxViewSchema, change: inboxChangeSchema }) satisfies z.ZodType<InboxDelta>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverRetryReceiptSchema,
   serverHelloSchema,
@@ -991,6 +1166,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
   serverLocalExchangeResultSchema,
+  inboxSnapshotSchema, inboxDeltaSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

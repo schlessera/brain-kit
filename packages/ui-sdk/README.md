@@ -39,6 +39,21 @@ via `satisfies`. A compile-time equality test checks exact keys, optionality,
 and nested values in both directions so the schemas cannot drift from the
 interfaces. Hosts should never cast a client frame; binary frames are rejected.
 
+Durable Queue/Actions definitions are additive: `InboxThread`, `InboxItem`,
+`InboxChange`, `InboxSnapshot`, `InboxDelta`, separate Queue/Action statuses,
+and the six-kind `ResolutionEffect`. New `inbox_resolve`, `inbox_snooze`,
+`inbox_subscribe` and `inbox_unsubscribe` commands pass through the actual parser
+with strict unknown-field rejection. Existing frames and server projections
+keep their additive parsing policy. Subscribe only when `server_hello`
+advertises `capabilities.inbox`; the current host/client do not wire the stream.
+
+Model-submitted effects use `resolutionEffectSchema`; v1 creation/application
+uses `v1ResolutionEffectSchema` or `validateResolutionEffect` with server-owned
+exact permitted operations. `write_policy` and `open_session` are deferred data
+variants and fail v1 validation. Neither a parsed effect nor an operation
+request grants authority. See the [durable wire contract](../../docs/integration-contract.md#durable-queue-and-actions-additive)
+for payloads, state vocabularies and ordering.
+
 ## Backend seam (`./server`)
 
 `AgentBackend` is the interface a model integration implements

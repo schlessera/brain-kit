@@ -1424,12 +1424,83 @@ Both directions are now schema-validated at the boundary
 - A **client** rejecting a server frame DROPS it and reports it, never throws.
   The protocol is additive, so a client that hard-failed an unrecognised frame
   would turn every additive server change into a breaking one for older
-  clients. Unknown object keys are preserved in both directions.
+  clients. Unknown object keys are preserved in both directions, except the new strict
+  durable-inbox client commands described below. Existing frames retain their
+  validation policy.
 
 A third-party client may rely on that: adding a frame type, or an optional
 field to an existing one, is not a breaking change. `BrainUiClient`
 (`@schlessera/brain-ui-sdk/client`) implements this policy and is the supported
 way to speak the protocol without reimplementing it.
+
+### Durable Queue and Actions (additive)
+
+The SDK defines the durable inbox wire shapes separately from Activity's
+notification acknowledgement inbox. A host advertises optional
+`server_hello.capabilities.inbox: true` only when durable subscriptions are
+implemented. Missing/false means unsupported. Clients explicitly opt in with
+`inbox_subscribe { view: "queue" | "actions", threadId? }`; the matching
+`inbox_unsubscribe` ends that view/filter subscription. No `client_hello` or
+new capability declaration is required for existing chat/Activity flow.
+The current server does not advertise or dispatch this durable stream yet.
+
+`inbox_snapshot` contains the view/filter, `threads`, `items`, per-thread
+`highWaterSeq`, global `cursor`, and optional `append` for chunk continuation.
+`inbox_delta` contains its view and one `InboxChange`. Changes carry an explicit
+`threadId`, global `changeId` and per-thread `seq`; `upsert_thread` carries the
+thread, `upsert_item` carries `itemId` and the item, `remove_item` carries
+`itemId`, and `remove_thread` needs no joined row. Clients discard deltas
+before a snapshot and at/below that thread's high-water mark; reconnect
+starts a fresh snapshot. Snapshot consistency, persistence and streaming
+implementation remain the server's responsibility.
+
+Threads carry immutable server-assigned `trustClass` (`trusted`/`untrusted`),
+`source` (`share`/`cli`), `status` (`open`/`closed`), the derived `stateMd`
+projection (4 KB UTF-8 maximum), stakes (0–3), optional deadline, and creation/
+last-seen times. Item metadata carries identity, thread, dedup key, creation/
+update/expiry times, version, optional wait time and Activity run ID. All times
+are UTC epoch milliseconds. Queue items (`triage`, `execute`,
+`cleanup_pending`) carry attempt/lease/block metadata and use only
+`scheduled | ready | claimed | done | blocked | failed | superseded | expired | dropped`.
+Actions (`approve`, `choose`, `fyi`) carry title/detail and stored options,
+and use only `pending | snoozed | resolved | dismissed | expired | dropped`.
+FYIs carry no options. The store owns guarded transitions; defining these
+vocabularies does not implement claims or resolution.
+
+Each option carries a closed `ResolutionEffect`:
+
+| Kind | Payload | Availability |
+| --- | --- | --- |
+| `enqueue` | `payload { instruction, operation? { toolName, input, targetPath } }` | v1 |
+| `cancel_blocked` | No additional fields | v1 |
+| `snooze` | No additional fields; timing is server-derived | v1 |
+| `dismiss` | Optional `reason` | v1 |
+| `write_policy` | `policy { slug, content }` | Deferred v2 data only |
+| `open_session` | `seed { prompt }` | Deferred v2 data only |
+
+`V1ResolutionEffect` and `v1ResolutionEffectSchema` exclude both deferred
+kinds. `resolutionEffectSchema` describes all six kinds as data; it is not
+an execution validator. `inboxOperationSchema`, `inboxWorkPayloadSchema`,
+`inboxOptionSchema` and effect schemas reject unknown fields, including trust,
+profile, principal and tool-policy injections. Arbitrary tool input is inert
+JSON and also rejects nested authority fields. `targetPath` must be a canonical
+brain-relative path. `validateResolutionEffect(value, allowedOperations)`
+validates v1 data and binds any requested operation to one exact server-owned
+tool/input/target tuple, independent of JSON object key order. The server must
+revalidate current principal/thread authority at creation and application;
+this helper neither grants permission nor proves filesystem/egress containment.
+An instruction without an operation remains inside the restricted envelope.
+
+Clients send `inbox_resolve { itemId, optionId, reason? }` to select a stored
+option, or `inbox_snooze { itemId }` to request deterministic snooze. They cannot
+submit effects, scheduling overrides or authority. Reasons are optional
+`dont_ask_again | wrong_call | need_more_info | no_longer_relevant` feedback,
+never standing grants. These four new client frame schemas are strict,
+including subscribe/unsubscribe. New server projections preserve unknown keys
+recursively for additive display compatibility; applying any displayed effect
+requires the strict v1 validator again. The actual client/server parsers cover
+all new frame kinds. These definitions enable later server work; they do not
+enable unattended execution, policy formation or session creation.
 
 ### Activity stream (rev 3, additive)
 
