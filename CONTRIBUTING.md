@@ -76,6 +76,15 @@ its children explicitly, including when `TZ` is absent. Fixed-instant sync
 tests cover UTC and calendars on either side of it; production sync still
 uses the user's local calendar.
 
+That harness also supplies a throwaway HOME, Claude/pi/XDG configuration
+directories and a command PATH containing only Bun, git and the sync fixture's
+`touch` utility. Doctor tests cannot
+discover host Claude commands or account configuration. Tests that need external
+discovery provide their own shim and prepend it to `keylessEnv(root).PATH`,
+with explicit overrides pointing only at test fixtures. Do not append the
+host PATH to a doctor fixture. The hostile-sentinel tests exercise both
+`runCli` and direct children using `keylessEnv`, including `doctor --fix`.
+
 CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
 (then `2/3` and `3/3`), each in one Bun process. This option uses the default
 `packages`/`tests` roots and cannot combine with paths, `--cwd` or native
