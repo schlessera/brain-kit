@@ -291,7 +291,7 @@ function transformWikiLinks(
       const targetWithoutFragment = (hash === -1 ? rawTarget : rawTarget.slice(0, hash)).trim();
       const fragment = hash === -1 ? "" : rawTarget.slice(hash + 1).trim();
       const display = pipe === -1
-        ? targetWithoutFragment.replace(/\/$/, "")
+        ? (targetWithoutFragment ? targetWithoutFragment.replace(/\/$/, "") : fragment)
         : inner.slice(pipe + 1).trim();
       const resolved =
         resolveLink(rawTarget, sourcePath) ??
