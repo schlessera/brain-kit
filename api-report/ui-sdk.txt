@@ -47,6 +47,10 @@ export "." (./src/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientInboxResolve
+  type ClientInboxSnooze
+  type ClientInboxSubscribe
+  type ClientInboxUnsubscribe
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
@@ -75,6 +79,21 @@ export "." (./src/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  type InboxActionItem
+  type InboxActionStatus
+  type InboxChange
+  type InboxDelta
+  type InboxDismissReason
+  type InboxItem
+  type InboxItemBase
+  type InboxOperation
+  type InboxOption
+  type InboxQueueItem
+  type InboxQueueStatus
+  type InboxSnapshot
+  type InboxThread
+  type InboxView
+  type InboxWorkPayload
   type Keyterm
   LOCAL_ANSWER_CLOSE
   type LocalAnswer
@@ -100,6 +119,7 @@ export "." (./src/index.ts)
   type RenderContentType
   type RenderFormat
   type RenderRequest
+  type ResolutionEffect
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -158,6 +178,7 @@ export "." (./src/index.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type V1ResolutionEffect
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -265,6 +286,10 @@ export "./client" (./src/client/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientInboxResolve
+  type ClientInboxSnooze
+  type ClientInboxSubscribe
+  type ClientInboxUnsubscribe
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
@@ -302,6 +327,21 @@ export "./client" (./src/client/index.ts)
   type GraphSubgraphResponse
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
+  type InboxActionItem
+  type InboxActionStatus
+  type InboxChange
+  type InboxDelta
+  type InboxDismissReason
+  type InboxItem
+  type InboxItemBase
+  type InboxOperation
+  type InboxOption
+  type InboxQueueItem
+  type InboxQueueStatus
+  type InboxSnapshot
+  type InboxThread
+  type InboxView
+  type InboxWorkPayload
   type Keyterm
   LINK_BLOCK_SCHEMA
   LOCAL_ANSWER_CLOSE
@@ -356,6 +396,7 @@ export "./client" (./src/client/index.ts)
   type RenderRequest
   type RendererPack
   type RequestImageMaskInput
+  type ResolutionEffect
   SCHEDULE_BLOCK_SCHEMA
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
@@ -444,6 +485,7 @@ export "./client" (./src/client/index.ts)
   type TurnRetry
   type TurnUsage
   type UnpinnedReason
+  type V1ResolutionEffect
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -542,6 +584,10 @@ export "./protocol" (./src/protocol.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientInboxResolve
+  type ClientInboxSnooze
+  type ClientInboxSubscribe
+  type ClientInboxUnsubscribe
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
@@ -570,6 +616,21 @@ export "./protocol" (./src/protocol.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  type InboxActionItem
+  type InboxActionStatus
+  type InboxChange
+  type InboxDelta
+  type InboxDismissReason
+  type InboxItem
+  type InboxItemBase
+  type InboxOperation
+  type InboxOption
+  type InboxQueueItem
+  type InboxQueueStatus
+  type InboxSnapshot
+  type InboxThread
+  type InboxView
+  type InboxWorkPayload
   type Keyterm
   LOCAL_ANSWER_CLOSE
   type LocalAnswer
@@ -595,6 +656,7 @@ export "./protocol" (./src/protocol.ts)
   type RenderContentType
   type RenderFormat
   type RenderRequest
+  type ResolutionEffect
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -653,6 +715,7 @@ export "./protocol" (./src/protocol.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type V1ResolutionEffect
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -688,6 +751,10 @@ export "./schemas" (./src/schemas.ts)
   clientChatMessageSchema
   clientEnvironmentSchema
   clientHelloSchema
+  clientInboxResolveSchema
+  clientInboxSnoozeSchema
+  clientInboxSubscribeSchema
+  clientInboxUnsubscribeSchema
   clientLocalExchangeSchema
   clientLocationErrorSchema
   clientLocationResponseSchema
@@ -699,11 +766,27 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  inboxActionItemSchema
+  inboxActionStatusSchema
+  inboxChangeSchema
+  inboxDeltaSchema
+  inboxDismissReasonSchema
+  inboxItemBaseSchema
+  inboxItemSchema
+  inboxOperationSchema
+  inboxOptionSchema
+  inboxQueueItemSchema
+  inboxQueueStatusSchema
+  inboxSnapshotSchema
+  inboxThreadSchema
+  inboxViewSchema
+  inboxWorkPayloadSchema
   localExchangeSchema
   messageBlockSchema
   messageSourceSchema
   parseClientMessage
   parseServerMessage
+  resolutionEffectSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
   serverAskUserListRequestSchema
@@ -728,6 +811,8 @@ export "./schemas" (./src/schemas.ts)
   serverToolResultSchema
   serverToolUseCompleteSchema
   serverToolUseStartSchema
+  v1ResolutionEffectSchema
+  validateResolutionEffect
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
@@ -862,6 +947,10 @@ export "./server" (./src/server/index.ts)
   type ClientChatMessage
   type ClientEnvironment
   type ClientHello
+  type ClientInboxResolve
+  type ClientInboxSnooze
+  type ClientInboxSubscribe
+  type ClientInboxUnsubscribe
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
@@ -914,6 +1003,21 @@ export "./server" (./src/server/index.ts)
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskHandlerOptions
   type ImageMaskPayload
+  type InboxActionItem
+  type InboxActionStatus
+  type InboxChange
+  type InboxDelta
+  type InboxDismissReason
+  type InboxItem
+  type InboxItemBase
+  type InboxOperation
+  type InboxOption
+  type InboxQueueItem
+  type InboxQueueStatus
+  type InboxSnapshot
+  type InboxThread
+  type InboxView
+  type InboxWorkPayload
   type KeyValueRunCandidate
   type KeyedLock
   type Keyterm
@@ -974,6 +1078,7 @@ export "./server" (./src/server/index.ts)
   type RenderRequest
   type RequestImageMaskInput
   type RequestToolPermissionOptions
+  type ResolutionEffect
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
@@ -1068,6 +1173,7 @@ export "./server" (./src/server/index.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type V1ResolutionEffect
   VERSION_PROBE_TIMEOUT_MS
   type VersionProbeOptions
   type VersionProbeResult
@@ -1992,6 +2098,126 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         timeoutMs?: number;
         maximumAgeMs?: number;
     }
+  InboxActionItem (packages/ui-sdk/src/protocol.ts)
+    export type InboxActionItem = InboxItemBase & {
+        queue: "actions";
+        type: "approve" | "choose" | "fyi";
+        status: InboxActionStatus;
+        payload: {
+            title: string;
+            detail: string;
+        };
+        options: InboxOption[];
+    };
+  InboxActionStatus (packages/ui-sdk/src/protocol.ts)
+    export type InboxActionStatus = "pending" | "snoozed" | "resolved" | "dismissed" | "expired" | "dropped";
+  InboxChange (packages/ui-sdk/src/protocol.ts)
+    export type InboxChange = {
+        changeId: number;
+        threadId: string;
+        seq: number;
+    } & ({
+        kind: "upsert_thread";
+        thread: InboxThread;
+    } | {
+        kind: "upsert_item";
+        itemId: string;
+        item: InboxItem;
+    } | {
+        kind: "remove_item";
+        itemId: string;
+    } | {
+        kind: "remove_thread";
+    });
+  InboxDelta (packages/ui-sdk/src/protocol.ts)
+    export interface InboxDelta {
+        type: "inbox_delta";
+        view: InboxView;
+        change: InboxChange;
+    }
+  InboxDismissReason (packages/ui-sdk/src/protocol.ts)
+    export type InboxDismissReason = "dont_ask_again" | "wrong_call" | "need_more_info" | "no_longer_relevant";
+  InboxItem (packages/ui-sdk/src/protocol.ts)
+    export type InboxItem = InboxQueueItem | InboxActionItem;
+  InboxItemBase (packages/ui-sdk/src/protocol.ts)
+    export interface InboxItemBase {
+        id: string;
+        threadId: string;
+        dedupKey: string;
+        createdAt: number;
+        updatedAt: number;
+        expiresAt: number;
+        waitUntil?: number;
+        version: number;
+        runId?: string;
+    }
+  InboxOperation (packages/ui-sdk/src/protocol.ts)
+    export interface InboxOperation {
+        toolName: string;
+        input: Record<string, unknown>;
+        targetPath: string;
+    }
+  InboxOption (packages/ui-sdk/src/protocol.ts)
+    export interface InboxOption {
+        id: string;
+        label: string;
+        effect: ResolutionEffect;
+    }
+  InboxQueueItem (packages/ui-sdk/src/protocol.ts)
+    export type InboxQueueItem = InboxItemBase & {
+        queue: "queue";
+        status: InboxQueueStatus;
+        attempts: number;
+        maxAttempts: number;
+        claimedAt?: number;
+        leaseUntil?: number;
+        blockedByItemId?: string;
+    } & ({
+        type: "triage";
+        payload: {
+            stagingId: string;
+        };
+    } | {
+        type: "execute";
+        payload: InboxWorkPayload;
+    } | {
+        type: "cleanup_pending";
+        payload: {
+            stagingId: string;
+        };
+    });
+  InboxQueueStatus (packages/ui-sdk/src/protocol.ts)
+    export type InboxQueueStatus = "scheduled" | "ready" | "claimed" | "done" | "blocked" | "failed" | "superseded" | "expired" | "dropped";
+  InboxSnapshot (packages/ui-sdk/src/protocol.ts)
+    export interface InboxSnapshot {
+        type: "inbox_snapshot";
+        view: InboxView;
+        threadId?: string;
+        threads: InboxThread[];
+        items: InboxItem[];
+        highWaterSeq: Record<string, number>;
+        cursor: number;
+        append?: boolean;
+    }
+  InboxThread (packages/ui-sdk/src/protocol.ts)
+    export interface InboxThread {
+        id: string;
+        trustClass: "trusted" | "untrusted";
+        source: "share" | "cli";
+        status: "open" | "closed";
+        stateMd: string;
+        stakes: number;
+        deadline?: number;
+        createdAt: number;
+        lastSeenAt: number;
+    }
+  InboxView (packages/ui-sdk/src/protocol.ts)
+    export type InboxView = "queue" | "actions";
+  InboxWorkPayload (packages/ui-sdk/src/protocol.ts)
+    export interface InboxWorkPayload {
+        instruction: string;
+        operation?: InboxOperation;
+    }
   LocalAnswer (packages/ui-sdk/src/protocol.ts)
     export interface LocalAnswer {
         exchangeId: string;
@@ -2068,6 +2294,29 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export interface RequestToolPermissionOptions {
         noGrantSurface?: boolean;
     }
+  ResolutionEffect (packages/ui-sdk/src/protocol.ts)
+    export type ResolutionEffect = {
+        kind: "enqueue";
+        payload: InboxWorkPayload;
+    } | {
+        kind: "cancel_blocked";
+    } | {
+        kind: "snooze";
+    } | {
+        kind: "dismiss";
+        reason?: InboxDismissReason;
+    } | {
+        kind: "write_policy";
+        policy: {
+            slug: string;
+            content: string;
+        };
+    } | {
+        kind: "open_session";
+        seed: {
+            prompt: string;
+        };
+    };
   ResolvedBackendModule (packages/ui-sdk/src/server/backend-module.ts)
     export interface ResolvedBackendModule {
         backend: AgentBackend;
@@ -2149,7 +2398,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | InboxSnapshot | InboxDelta;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";

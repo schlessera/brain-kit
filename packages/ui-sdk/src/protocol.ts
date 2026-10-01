@@ -85,7 +85,11 @@ export type ClientMessage =
   | ClientMaskError
   | ClientActivitySubscribe
   | ClientActivityUnsubscribe
-  | ClientLocalExchange;
+  | ClientLocalExchange
+  | ClientInboxResolve
+  | ClientInboxSnooze
+  | ClientInboxSubscribe
+  | ClientInboxUnsubscribe;
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -374,19 +378,22 @@ export type ServerMessage =
   | ServerActivitySnapshot
   | ServerActivityDelta
   | ServerMessageBlocks
-  | ServerLocalExchangeResult;
+  | ServerLocalExchangeResult
+  | InboxSnapshot
+  | InboxDelta;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
  * that don't know it ignore it; clients that do can gate behavior on
  * `protocolRev` and the coarse capability flags instead of sniffing.
- * ADVISORY for now — no shipped client reads it yet; servers must not gate
- * anything on the client having seen it.
+ * Capabilities gate their documented opt-in features. Servers must not gate
+ * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
   type: "server_hello";
   protocolRev: number;
-  /** Coarse, additive capability flags (e.g. multiSession, askUser, location). */
+  /** Coarse, additive flags. `inbox: true` advertises durable Queue/Actions;
+   * absent/false means unsupported. Delivery still requires `inbox_subscribe`. */
   capabilities?: Record<string, boolean>;
 }
 
@@ -2126,4 +2133,169 @@ export interface ActivityIntent {
   status: "pending" | "sent" | "send_failed" | "suppressed";
   acknowledged: boolean;
   createdAt: number;
+}
+
+// ============================================================
+// Durable Queue and Actions (additive; distinct from activity notifications)
+// ============================================================
+
+export type InboxView = "queue" | "actions";
+export type InboxQueueStatus = "scheduled" | "ready" | "claimed" | "done" | "blocked" | "failed" | "superseded" | "expired" | "dropped";
+export type InboxActionStatus = "pending" | "snoozed" | "resolved" | "dismissed" | "expired" | "dropped";
+export type InboxDismissReason = "dont_ask_again" | "wrong_call" | "need_more_info" | "no_longer_relevant";
+
+/** Server-owned provenance and immutable trust; never accepted from a model. */
+export interface InboxThread {
+  id: string;
+  trustClass: "trusted" | "untrusted";
+  source: "share" | "cli";
+  status: "open" | "closed";
+  /** Bounded derived projection, not the append-only audit record. */
+  stateMd: string;
+  stakes: number;
+  deadline?: number;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
+/** A requested exact operation, NOT a capability grant or a tool allowlist. */
+export interface InboxOperation {
+  toolName: string;
+  input: Record<string, unknown>;
+  /** Canonical brain-relative path; the server must check its current envelope. */
+  targetPath: string;
+}
+
+export interface InboxWorkPayload {
+  instruction: string;
+  operation?: InboxOperation;
+}
+
+/**
+ * Model output is data, never authority. These payloads contain no trust,
+ * principal, profile, tool-policy or grant fields. Creation AND application
+ * must validate the requested operation against server-owned authority.
+ * `write_policy` and `open_session` describe deferred v2 data only; v1 uses
+ * V1ResolutionEffect and v1ResolutionEffectSchema, which exclude both kinds.
+ * Snooze has no model-selected time; the server derives it deterministically.
+ */
+export type ResolutionEffect =
+  | { kind: "enqueue"; payload: InboxWorkPayload }
+  | { kind: "cancel_blocked" }
+  | { kind: "snooze" }
+  | { kind: "dismiss"; reason?: InboxDismissReason }
+  | { kind: "write_policy"; policy: { slug: string; content: string } }
+  | { kind: "open_session"; seed: { prompt: string } };
+
+export type V1ResolutionEffect = Exclude<ResolutionEffect, { kind: "write_policy" | "open_session" }>;
+
+export interface InboxOption {
+  id: string;
+  label: string;
+  effect: ResolutionEffect;
+}
+
+export interface InboxItemBase {
+  id: string;
+  threadId: string;
+  dedupKey: string;
+  createdAt: number;
+  updatedAt: number;
+  /** UTC epoch milliseconds. Every item has an explicit expiry. */
+  expiresAt: number;
+  waitUntil?: number;
+  version: number;
+  runId?: string;
+}
+
+export type InboxQueueItem = InboxItemBase & {
+  queue: "queue";
+  status: InboxQueueStatus;
+  attempts: number;
+  maxAttempts: number;
+  claimedAt?: number;
+  leaseUntil?: number;
+  blockedByItemId?: string;
+} & (
+  | { type: "triage"; payload: { stagingId: string } }
+  | { type: "execute"; payload: InboxWorkPayload }
+  /** Server-owned compensation; never a model-submitted effect. */
+  | { type: "cleanup_pending"; payload: { stagingId: string } }
+);
+
+export type InboxActionItem = InboxItemBase & {
+  queue: "actions";
+  type: "approve" | "choose" | "fyi";
+  status: InboxActionStatus;
+  payload: { title: string; detail: string };
+  /** FYIs have no options and do not count against the decision cap. */
+  options: InboxOption[];
+};
+
+/** Queue work acquires leases; human Actions never enter `claimed`. */
+export type InboxItem = InboxQueueItem | InboxActionItem;
+
+/** Scope survives removal: clients never derive it by joining a mutable item. */
+export type InboxChange = {
+  changeId: number;
+  threadId: string;
+  /** Per-thread order, independent of the global change cursor. */
+  seq: number;
+} & (
+  | { kind: "upsert_thread"; thread: InboxThread }
+  | { kind: "upsert_item"; itemId: string; item: InboxItem }
+  | { kind: "remove_item"; itemId: string }
+  | { kind: "remove_thread" }
+);
+
+/** Opt-in only after server_hello advertises inbox; no hello remains tolerated. */
+export interface ClientInboxSubscribe {
+  type: "inbox_subscribe";
+  view: InboxView;
+  /** Optional thread filter, subject to server-side principal authorization. */
+  threadId?: string;
+}
+
+export interface ClientInboxUnsubscribe {
+  type: "inbox_unsubscribe";
+  view: InboxView;
+  threadId?: string;
+}
+
+/** Select a stored option; no client-supplied effect or authority is accepted. */
+export interface ClientInboxResolve {
+  type: "inbox_resolve";
+  itemId: string;
+  optionId: string;
+  /** Feedback only, never standing authority. */
+  reason?: InboxDismissReason;
+}
+
+/** The server computes waitUntil; clients cannot override the scheduling rule. */
+export interface ClientInboxSnooze {
+  type: "inbox_snooze";
+  itemId: string;
+}
+
+/**
+ * A transactionally consistent snapshot. Chunk continuations set append;
+ * highWaterSeq is per-thread and cursor is the global change high-water mark.
+ * Discard deltas at/below the thread's snapshot seq. A delta before the first
+ * snapshot is ignored; reconnect starts with a fresh snapshot.
+ */
+export interface InboxSnapshot {
+  type: "inbox_snapshot";
+  view: InboxView;
+  threadId?: string;
+  threads: InboxThread[];
+  items: InboxItem[];
+  highWaterSeq: Record<string, number>;
+  cursor: number;
+  append?: boolean;
+}
+
+export interface InboxDelta {
+  type: "inbox_delta";
+  view: InboxView;
+  change: InboxChange;
 }
