@@ -14,6 +14,73 @@ to [#615](https://github.com/schlessera/brain-kit/issues/615). The catalogue
 contains configuration and source requirements. GitHub holds ownership,
 prerequisites and acceptance of the work.
 
+## Generate captures
+
+From the repository root, install the frozen dependencies and prepare the public
+font inputs once. Preparation downloads the checksum-pinned fonts and original
+upstream notices into an external cache; generation uses only verified local
+bytes and runs with Docker networking disabled.
+
+```sh
+bun install --frozen-lockfile
+bun run capture:fonts
+bun run captures --all
+```
+
+`--list` shows the nine stills, the ranking gesture and both runtime IDs. The
+default output is ignored `tmp/feature-captures/`, with a `manifest.json` that
+records provenance per artifact. Select IDs without regenerating other outputs:
+
+```sh
+bun run captures --id screens-chat-answer--chat-answer,screens-file-viewer--file-viewer
+bun run captures --id approval-roundtrip --theme light --viewport 600x1000
+bun run capture:verify
+```
+
+`--out` selects a dedicated empty or previously managed output directory.
+`--font-cache` selects the same prepared cache for preparation, generation and
+verification. A theme override changes the filename; a viewport override adds
+its dimensions. Still viewports are the rendering canvas: approved composition
+crops retain their source dimensions and fail if the canvas cannot contain them.
+Component-stage CSS measurements round to their declared image pixels; phone
+border boxes are exact. Runtime transcripts use the full document height.
+
+Docker and the installed Bun binary are required. Builds and Chromium run in
+the image declared by the shared visual runner, with the frozen installed
+packages. The manifest records the image ID/digests, browser and Bun binaries,
+font lock, actual source bytes and build bytes. A checkout admits one capture
+at a time because builds share its output. After an interrupted process, verify
+that no capture is running before removing `tmp/.feature-capture-lock`.
+
+Editorial Chromium uses `--disable-partial-raster`, recorded in the manifest.
+Without it, otherwise unchanged approval reloads differed at rounded-border
+raster edges. This setting follows the browser's
+[documented tooling flags](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md#rendering--gpu)
+and keeps exact output comparison; regression-browser settings are separate.
+
+The ranking gesture samples 72 actual frames at 12 fps over six seconds. The
+image-provided FFmpeg encodes high-quality JPEG samples; PNG frame hashes and
+before/after stills retain the gesture evidence. No frame substitutes a staged
+order. The capture/search transcript contains the real CLI results and written
+Markdown. Approval frames come from the mounted chat client, with independent
+allow/deny turns, actual executor effects, recorded principals and backend
+history replayed after reload. Runtime stills wait for the actual connection
+and three consecutive identical paints after text and font readiness.
+
+`capture:verify` runs representative captures twice and requires identical PNG,
+video and capture/search evidence bytes. Approval evidence retains the app's
+randomly generated principal ID; verification permits only that field to vary,
+requires one correlated nonempty principal for both decisions in each run, and
+compares the remaining evidence exactly. Each run keeps its actual build and
+source provenance. Use `--all` to verify the entire catalogue. CI runs the same
+command; font preparation is an explicit dependency step outside the keyless
+test suite. Missing sources, unready stories, fonts, clipped required text,
+blank pixels and observed executor/store mismatches fail with the recipe ID.
+
+These commands produce artifacts for review. They do not copy files into public
+pages or accept final launch assets. Integration and corpus prerequisites remain
+in the linked issues.
+
 ## Choose the evidence
 
 | Recipe ID | Feature illustrated | Consumer | Theme and output |
@@ -115,8 +182,8 @@ stream.
 
 The two `harness_requirements` scope actual capture/search and approval-resolution
 evidence for #614. They name current source files, inputs, sequence, observation
-and failure conditions. They are separate from the nine composed stills and
-are not selectable capture recipes until their real source harness is supplied.
+and failure conditions. They are separate from the nine composed stills. The generator supplies their
+real source harnesses, making both IDs selectable.
 
 Capture/search runs real index/add/search operations against isolated Odysseus
 files, then observes written Markdown and a nonempty FTS result. Approval
@@ -653,13 +720,25 @@ source hash; the capture runner must reject missing, duplicate or invalid blocks
         "packages/core/src/cli/commands/add.ts",
         "packages/core/src/cli/commands/search.ts",
         "packages/core/tests/cli-harness.ts",
-        "docs/quickstart.md"
+        "docs/quickstart.md",
+        "scripts/captures/core-fixture.ts",
+        "packages/ui-kit/fixtures/notes.ts",
+        "scripts/captures/runtime-server.ts"
       ],
       "inputs": "An isolated Odysseus fixture brain from the shared corpus policy, without API keys or external networking. Fixed reference date and one unique raft-supplies note.",
       "sequence": "Index; run the actual add command; verify the written Markdown; run search in FTS mode; verify the captured note path and nonempty matching text in the actual result.",
       "capture": "A fixture app wired to these actual results or a transcript of the actual commands. Preserve provenance and distinguish FTS from model-generated answers.",
       "acceptance": "Use real filesystem/index outputs; fail if capture, indexing or retrieval is removed. Do not reuse the composed SearchResultCard scores as evidence.",
-      "consumer": "README first capture/search and public homepage capture/search; implementation belongs to #614 and final example acceptance follows #625."
+      "consumer": "README first capture/search and public homepage capture/search; implementation belongs to #614 and final example acceptance follows #625.",
+      "theme": "light",
+      "viewport": {
+        "width": 960,
+        "height": 1200
+      },
+      "outputs": [
+        "capture-search-light.png",
+        "capture-search-evidence.json"
+      ]
     },
     {
       "id": "approval-roundtrip",
@@ -667,13 +746,30 @@ source hash; the capture runner must reject missing, duplicate or invalid blocks
       "source": [
         "packages/ui-react/src/components/chat/tool-views.tsx",
         "packages/ui-react/src/components/chat/chat-page.tsx",
-        "packages/ui-server/src/app.ts"
+        "packages/ui-server/src/app.ts",
+        "scripts/captures/runtime-client.ts",
+        "scripts/captures/runtime-server.ts",
+        "scripts/captures/runtime.ts"
       ],
       "inputs": "A local fixture app, supported scripted AgentBackend, isolated session/activity store and one nonempty tool request. No model credentials or real external tool.",
       "sequence": "Reach the mounted tool request through the client; display its target/change; resolve allow and deny in independent runs; verify the observed executor/store result and reload.",
       "capture": "The actual app state before and after resolution, with the effect or refusal visible. Bind each frame to its fixture request and principal.",
       "acceptance": "Removing the approval route, executor guard or store persistence must change the observed result. A mocked ApprovalCard click or an earlier auth response is insufficient.",
-      "consumer": "Public homepage approvals/activity; scoped fixture harness work for #614, using existing supported behavior."
+      "consumer": "Public homepage approvals/activity; scoped fixture harness work for #614, using existing supported behavior.",
+      "theme": "dark",
+      "viewport": {
+        "width": 480,
+        "height": 960
+      },
+      "outputs": [
+        "approval-allow-before-dark.png",
+        "approval-allow-after-dark.png",
+        "approval-allow-reload-dark.png",
+        "approval-deny-before-dark.png",
+        "approval-deny-after-dark.png",
+        "approval-deny-reload-dark.png",
+        "approval-evidence.json"
+      ]
     }
   ]
 }
