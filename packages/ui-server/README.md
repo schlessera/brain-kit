@@ -174,6 +174,9 @@ brain repository.
   objects (`WsHost`, `TurnCoordinator`, `SessionCatalog`) under `src/ws/`.
 - **Session catalog** — SQLite (WAL) with bundled migrations, applied on first
   open.
+- **Durable Queue and Action storage** — internal transactional operational
+  state, immutable provenance, checkpoints and recovery records. See
+  [storage invariants and ownership](../../docs/inbox-storage.md).
 - **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
   spawning the `brain` CLI from `BRAIN_PATH`.
 - **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
