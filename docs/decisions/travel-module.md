@@ -125,3 +125,45 @@ pixels check rotation separately from the reported dimensions. A filesystem
 test injects an arriving destination and verifies its bytes remain unchanged.
 Invalid, truncated and animated inputs, repeated jobs, source/output collisions,
 and root/symlink escapes exercise the actual command and writer.
+
+## Route geometry and privacy — 2026-10-01
+
+The approved route work in [#568](https://github.com/schlessera/brain-kit/issues/568)
+is a deterministic travel CLI job. Local/direct GPX and public Komoot tour
+and smarttour pages provide geometry; no route planning or geocoding is
+introduced. Travel depends on the existing scrape package for this concrete
+HTTP job, sharing its robots/pacing policy rather than adding an adapter or
+browser-driver seam. URL/DNS checks run before every route hop and bounded
+robots redirect; unavailable robots retains the shared permissive policy
+(`RouteRobots`, `packages/module-travel/src/route.ts:65-80`).
+
+GPX parsing is strict XML with explicit same-namespace geometry paths.
+Saxes checks well-formedness; doctypes are refused, and foreign extensions,
+metadata and waypoints cannot supply track points. Track segments take
+precedence over routes. Invalid coordinates reject; missing optional data
+stays unknown (`parseGpx`, `packages/module-travel/src/route-gpx.ts:44-106`).
+This uses a verified parser dependency rather than a partial XML regular
+expression reader. Komoot's observed boot payload is decoded as JSON, never
+executed as JavaScript.
+
+Trimming measures great-circle edges independently within each continuous
+segment and interpolates cut boundaries. Segment gaps are never joined
+(`trimRoute`, `packages/module-travel/src/route-gpx.ts:142-168`).
+The writer rebuilds a whitelist GPX from retained points and new bounds;
+source metadata and ancillary geometry are never copied
+(`writeGpx`, `packages/module-travel/src/route-gpx.ts:203-210`).
+Metrics use the exact quantized points written to that file. Unknown
+elevations/timestamps remain null; smoothed ascent resets at segment gaps,
+and duration requires ordered absolute timestamps
+(`routeMetrics`, `packages/module-travel/src/route-gpx.ts:175-200`).
+The package README specifies units, smoothing, shape and serialization
+tolerances. Original inputs and occupied output names remain untouched
+(`importRoute`, `packages/module-travel/src/route.ts:118-169`).
+
+Outdooractive has a readable public route page, but GPX export requires
+login and its geometry API is covered by its `/api/*` robots disallow.
+The [scraping-politeness decision](scraping-politeness.md) requires written
+site permission before fetching a disallowed path; observing normal browser
+subrequests does not authorize importing through them. Its source criterion
+therefore remains open in #568 with the exact human permission prerequisite.
+The independently usable GPX/Komoot slice does not complete that criterion.

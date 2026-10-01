@@ -283,7 +283,11 @@ for canonical formats and the complete upgrade path.
   default `[]`. Existing paths and values move losslessly from speaking.
 - **Skill:** `plan-travel`, for conference-linked and personal journeys.
 - **CLI word:** `brain travel validate`, `brain travel migrate [--dry-run]`,
-  `brain travel photo <files> --to <dir>`; each has a documented `--json` envelope.
+  `brain travel photo <files> --to <dir>` and
+  `brain travel route <url|file> --to <dir>`; all have documented `--json`
+  envelopes. Route import supports local/direct GPX and public Komoot pages,
+  with optional distance trimming. Outdooractive requires site permission
+  under #568.
 - **Migration:** install/enable travel, preview/apply migration, restart and
   sync skills. Documents keep their paths, types, links and bytes. Conflicts
   and ambiguous TypeScript construction are reported without writes. Existing
