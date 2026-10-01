@@ -131,6 +131,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (pending?.failedTurnId === failedTurnId && pending.state !== "refused") return "pending";
     const buffer = chat.buffers[sessionId];
     const last = buffer?.messages.at(-1);
+    if (last?.failure?.resetsAt !== undefined && last.failure.resetsAt > Date.now()) return "refused";
     if (buffer?.isStreaming || chat.runStates[sessionId] === "streaming" || last?.retryOfTurnId !== failedTurnId || !last.failure) return "refused";
     const retry = { requestId: crypto.randomUUID(), failedTurnId, state: "waiting" as const };
     chat.setTurnRetry(sessionId, retry);

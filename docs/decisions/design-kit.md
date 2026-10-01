@@ -4490,8 +4490,10 @@ are the design. A red or gold hairline `Surface` follows the partial answer
 and tool timeline under the existing turn header. Class-driven copy states
 only what the payload establishes. It promises no empty workspace, rollback,
 fixed recovery time or absence of prior tool effects. Missing model, runtime
-version, time, attempt totals and reset times are omitted; #630 and #631 own
-the remaining normalized-payload gaps. D50's error suppression now applies
+version, time and total call counts are omitted. #631's observed counts are
+retries and appear as `retries` in the receipt; they never imply an initial-call
+total. The normalized per-turn observations supplied by #630 and #631 survive
+replay. D50's error suppression now applies
 live and on replay, even when the failed turn had offered valid suggestions.
 
 `TurnErrorCard` composes the kit's `Receipt`, `Disclosure`, inert `DiffBlock`,
@@ -4517,6 +4519,14 @@ The client stores only correlation ids and checks delivery after reconnect;
 unconfirmed delivery is not an invitation to resend. A refusal restores the
 action. An unclassified failure gets one manual retry. Server errors offer
 Report after a repeated observed failure.
+
+When a reported absolute reset is in the future, the latest eligible action
+reads `Retry · in Ns` and is disabled until that timestamp passes. The same
+deadline governs live arrival and replay; reopening the transcript never
+starts a new delay. Countdown updates do not change the fixed live-failure
+announcement. Expiry does not override a pending send or an uncertain delivery:
+`Check delivery` remains available to reconcile an acknowledgement, including
+while a cooldown is still active. Unknown or expired resets add no wait.
 
 Copy and Report first open an editable, exact outgoing preview in the kit's
 `BottomSheet` inside a native modal. Its keyboard focus is trapped and

@@ -50,6 +50,32 @@ test("double tap sends one retained-request handle and acceptance appends a dist
   expect(messages[3].isStreaming).toBe(true);
 });
 
+test("a known future reset refuses a retry without sending, then admits the original handle at expiry", () => {
+  const originalNow = Date.now;
+  let now = Date.UTC(2026, 3, 11, 12);
+  Date.now = () => now;
+  try {
+    const { root, socket } = setup();
+    root.connection.handleServerMessage({ type: "session_history", sessionId: "s1", messages: [
+      { role: "user", content: "Original", attachmentCount: 2, toolCalls: [] },
+      { role: "assistant", content: "Partial", toolCalls: [], retryOfTurnId: "failed-turn",
+        failure: { errorClass: "rate_limit", message: "Reported limit", attempts: 2, resetsAt: now + 3250 } },
+    ] });
+    root.connection.handleServerMessage({ type: "status", sessionId: "s1", status: "idle" });
+    expect(root.stores.chat.getState().buffers.s1.messages.at(-1)!.failure?.resetsAt).toBe(now + 3250);
+    expect(root.connection.retryTurn("failed-turn")).toBe("refused");
+    expect(socket.frames().filter(frame => frame.type === "retry_turn")).toHaveLength(0);
+    now += 3250;
+    expect(root.connection.retryTurn("failed-turn")).toBe("sent");
+    expect(root.connection.retryTurn("failed-turn")).toBe("pending");
+    expect(socket.frames().filter(frame => frame.type === "retry_turn")).toEqual([
+      expect.objectContaining({ failedTurnId: "failed-turn" }),
+    ]);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("a historical card and an offline send cannot start a retry; an explicit refusal restores the action", () => {
   const { root, socket } = setup(); failed(root);
   root.stores.chat.getState().addUserMessage("s1", "Later");
