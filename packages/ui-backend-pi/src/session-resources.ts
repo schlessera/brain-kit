@@ -79,14 +79,15 @@ export function createSessionResources(options: {
       loadExtensions && hasPackage(settingsManager, "pi-web-access")
         ? readWebSearchBrief()
         : undefined;
-    const append = buildAppend(backend, env, subagentTool, webSearch);
+    const append = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,
       settingsManager,
       noExtensions: !loadExtensions,
       extensionFactories: [
-        createPermissionGate({ turn: toolkit.turnContext, allowedTools, confirmPatterns }),
+        createPermissionGate({ turn: toolkit.turnContext,
+          allowedTools: env.autonomous ? new Set(env.autonomous.allowedTools) : allowedTools, confirmPatterns }),
       ],
       agentsFilesOverride: withCwdContextFiles,
       ...(append

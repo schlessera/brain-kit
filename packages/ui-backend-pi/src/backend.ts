@@ -107,7 +107,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
 
   return {
     id: PI_BACKEND_ID,
-    capabilities: CAPABILITIES,
+    capabilities: { ...CAPABILITIES, autonomous: !options.sessionFactory },
     listProfiles: () => listPiProfiles(options),
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {

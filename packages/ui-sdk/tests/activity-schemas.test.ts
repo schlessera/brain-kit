@@ -49,6 +49,14 @@ describe("activity server frames", () => {
     usage: { inputTokens: 10, costUsd: 0.1, model: "claude-fable-5" },
   };
 
+  test("autonomous origin round-trips alongside ordinary and cron runs", () => {
+    for (const origin of ["session", "cron", "autonomous"] as const) {
+      const res = parseServerMessage(JSON.stringify({ type: "activity_delta", runId: "r1", seq: 1, span: { ...span, origin } }));
+      expect(res.ok).toBe(true);
+      if (res.ok && res.message.type === "activity_delta") expect(res.message.span!.origin).toBe(origin);
+    }
+  });
+
   test("snapshot round-trips with high-water map and events", () => {
     const res = parseServerMessage(
       JSON.stringify({

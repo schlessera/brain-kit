@@ -28,7 +28,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-286`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-292`).
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
@@ -452,7 +452,7 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:391-406`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:400-415`),
 fed from the bridge's
 `recorded()` wrapper
 (`const recorded`, `packages/ui-server/src/ws/bridge.ts:197-212`).
@@ -480,7 +480,7 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:46-47`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:83`, and what it
-becomes, `allowedTools: allowed`, `:139`). The voice posture is one
+becomes, `allowedTools: allowed`, `:143`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -566,7 +566,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:334`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:347`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

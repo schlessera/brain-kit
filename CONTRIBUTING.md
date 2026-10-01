@@ -37,6 +37,11 @@ issue when you are not sure.
 
 ## Running the code
 
+The Linux backend nonpersistence tests require `bubblewrap` and permitted user
+namespaces. They launch the installed Claude and pi adapters with a loopback
+fixture model inside a network namespace; no provider credential or external
+network is needed. CI installs bubblewrap and runs these proofs without skips.
+
 ```sh
 bun install
 bun run test        # all packages — NOT bare `bun test`

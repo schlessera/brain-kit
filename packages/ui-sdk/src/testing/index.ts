@@ -5,7 +5,7 @@
  *
  *   1. capabilities is a complete, honest boolean set
  *   2. listProfiles() yields safe ProviderInfo shapes
- *   3. a turn emits session_info before content, streams deltas, and ends
+ *   3. an ordinary turn emits session_info before content, streams deltas, and ends
  *      with a terminal `result` frame (outcome: success) before the promise
  *      resolves
  *   4. host abort → diagnostic `status: cancelled`, then the unified terminal
@@ -303,7 +303,9 @@ export function runBackendContract(
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");
       }
-      expect(Object.keys(backend.capabilities).sort()).toEqual([...keys].sort());
+      const optional = Object.hasOwn(backend.capabilities, "autonomous") ? ["autonomous"] : [];
+      if (optional.length) expect(typeof backend.capabilities.autonomous).toBe("boolean");
+      expect(Object.keys(backend.capabilities).sort()).toEqual([...keys, ...optional].sort());
       expect(backend.id.length).toBeGreaterThan(0);
     });
 
@@ -317,6 +319,33 @@ export function runBackendContract(
         // Never leak key material through profile listings.
         expect(JSON.stringify(p).toLowerCase()).not.toMatch(/api[_-]?key|token|secret/);
       }
+    });
+
+    test("an explicit autonomous request honors its lifecycle or rejects safely", async () => {
+      const backend = harness.scripted({ sessionId: "autonomous-1", textDeltas: ["fixture"] });
+      const { frames, bridge } = makeBridge();
+      const events: BackendActivityEvent[] = [];
+      bridge.activity = (event) => events.push(event);
+      bridge.checkpointPermission = () => {};
+      const request: StartTurnRequest = {
+        prompt: "fixture", signal: new AbortController().signal, bridge,
+        enforceAllowedTools: true, noGrantSurface: true,
+        autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "" },
+      };
+      if (backend.capabilities.autonomous !== true) {
+        await expect(backend.startTurn(request)).rejects.toBeInstanceOf(BackendRequestError);
+        expect(frames).toEqual([]);
+        expect(events).toEqual([]);
+        return;
+      }
+      await backend.startTurn(request);
+      expect(frames.some((frame) => frame.type === "session_info")).toBe(false);
+      expect(events.some((event) => event.kind === "autonomous_identity" && event.runtimeSessionId === "autonomous-1")).toBe(true);
+      expect(frames.filter((frame) => frame.type === "text_delta").map((frame) => frame.text)).toEqual(["fixture"]);
+      const results = frames.filter((frame) => frame.type === "result");
+      expect(results).toHaveLength(1);
+      expect(frames.at(-1)).toBe(results[0]);
+      expect(results[0].outcome).toBe("success");
     });
 
     test("turn lifecycle: session_info first, deltas, terminal result, then resolve", async () => {

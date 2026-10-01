@@ -18,7 +18,7 @@ not that ruling, a shipping guard, or production containment evidence.
 ## Why a tool hook or child-only wrapper is insufficient
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:53-206`).
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:54-210`).
 The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
 the child with piped stdio (`createWrappedSpawn`,
 `packages/ui-backend-claude/src/spawn-wrapper.ts:39-68`). Parent-side MCP/bridge
@@ -26,9 +26,9 @@ handlers are outside a boundary around that child. Their effects must be audited
 and validated separately; this report does not claim they currently write policies.
 
 Pi creates sessions directly in the server process (`async newSession`,
-`packages/ui-backend-pi/src/session-runtime.ts:36-59`). Its resource loader
+`packages/ui-backend-pi/src/session-runtime.ts:36-60`). Its resource loader
 initializes extensions (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:31-99`). The permission extension
+`packages/ui-backend-pi/src/session-resources.ts:31-100`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:75-96`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment

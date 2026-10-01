@@ -89,6 +89,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
   });
 
   const capabilities: BackendCapabilities = {
+    autonomous: true,
     resume: true,
     permissions: true,
     thinking: true,

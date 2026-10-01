@@ -1040,7 +1040,7 @@ const activitySpanSchema = z.looseObject({
   name: z.string(),
   toolName: z.string().optional(),
   kind: z.enum(["turn", "tool", "subagent", "cron"]),
-  origin: z.enum(["session", "cron"]),
+  origin: z.enum(["session", "cron", "autonomous"]),
   sessionId: id.optional(),
   jobName: z.string().optional(),
   principalId: id.optional(),

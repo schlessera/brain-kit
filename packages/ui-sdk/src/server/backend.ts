@@ -8,18 +8,18 @@
  * ## startTurn contract (rev 2 — parallel sessions)
  *
  * - Resolves when the turn has fully ended: after the backend emitted its
- *   terminal frame (`result`, or `status: cancelled`).
- * - The backend MUST emit `session_info` as soon as the session identity is
- *   known, before any content frames for a new session.
+ *   terminal frame (`result`, or a pre-identity `error`).
+ * - Ordinary turns MUST emit `session_info` before content once identity is known.
+ *   Explicit autonomous mode reports `autonomous_identity` through activity.
  * - Multi-session servers require every session-scoped frame to carry
  *   `sessionId` (backends emit it whenever the session identity is known).
- * - Abort: the host owns the AbortController (user cancel + timeout). On
- *   abort the backend stops work, emits `status: cancelled`, and RESOLVES.
+ * - Abort: the host owns the AbortController (user cancel + timeout). Work stops
+ *   and resolves after a cancelled result, or a pre-identity error terminal.
  * - Runtime failures (agent crashed, provider unreachable) are emitted as an
  *   `error` frame and the promise RESOLVES — the wire consumer needs the
  *   frame either way. The promise REJECTS only for caller errors: a turn on a
  *   session that is already running (BackendBusyError), an unknown profileId,
- *   or resume without `capabilities.resume` (BackendRequestError).
+ *   or unsupported resume/autonomous mode (BackendRequestError).
  * - Concurrency: busy-ness is PER SESSION. When `capabilities.concurrentSessions`
  *   is true, turns on different sessions run in parallel (the host enforces
  *   its own deployment-time cap); when false, the backend is a single-turn
@@ -56,6 +56,8 @@ import type {
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface BackendCapabilities {
+  /** Explicit nonpersistent turns; does not claim containment or enable dispatch. */
+  autonomous?: boolean;
   /** Can continue an existing session (startTurn with sessionId). */
   resume: boolean;
   /** Emits tool_approval_request round-trips via bridge.requestPermission. */
@@ -141,6 +143,8 @@ export interface LocationFix {
  */
 export interface BackendBridge {
   emit(msg: ServerMessage): void;
+  /** Synchronous server checkpoint before a no-grant denial; never an approval promise. */
+  checkpointPermission?(req: PermissionRequest): void;
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
   askUser?(requestId: string, questions: AskUserQuestion[]): Promise<AskUserResult>;
   /**
@@ -200,6 +204,13 @@ export type ActivityQueryResult = Record<string, unknown>;
  * the frames it already relays; these events add what only the backend sees.
  */
 export type BackendActivityEvent =
+  | {
+      /** Runtime identity without advertising a resumable interactive session. */
+      kind: "autonomous_identity";
+      runtimeSessionId: string;
+      backendId: string;
+      profileId?: string;
+    }
   | {
       kind: "subagent_started";
       /** The Agent tool call that spawned this subagent. */
@@ -285,6 +296,8 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** Server-only explicit mode. Absent preserves the ordinary session contract. */
+  autonomous?: AutonomousTurnOptions;
   prompt: string;
   attachments?: ChatImageAttachment[];
   /** Resume this session (requires capabilities.resume). Absent = new session. */
@@ -358,6 +371,16 @@ export interface StartTurnRequest {
   noGrantSurface?: boolean;
 }
 
+/** @experimental Nonpersistence and permission posture, not a containment profile. */
+export interface AutonomousTurnOptions {
+  origin: "autonomous";
+  persistence: "none";
+  /** Exact runtime names selected by the server; never inherited from a client or model. */
+  allowedTools: readonly string[];
+  /** Server-selected prompt configuration; cache/static-prefix work is separate. */
+  systemPromptAppend: string;
+}
+
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */
 export interface FollowUpRequest {
   sessionId: string;
@@ -424,8 +447,20 @@ export class BackendRequestError extends Error {
  * @experimental
  */
 export function assertTurnPosture(
-  req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">
+  req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge">>,
+  supportsAutonomous: boolean = false
 ): void {
+  if (req.autonomous !== undefined) {
+    if (!supportsAutonomous) throw new BackendRequestError("This backend does not support autonomous turns.");
+    if (req.sessionId !== undefined || req.autonomous.origin !== "autonomous" ||
+        req.autonomous.persistence !== "none" || !Array.isArray(req.autonomous.allowedTools) ||
+        !req.autonomous.allowedTools.every((name) => typeof name === "string" && name.length > 0) ||
+        typeof req.autonomous.systemPromptAppend !== "string" ||
+        req.enforceAllowedTools !== true || req.noGrantSurface !== true ||
+        typeof req.bridge?.checkpointPermission !== "function") {
+      throw new BackendRequestError("Autonomous turns require nonpersistence, an explicit tool policy, enforced no-grant posture and a checkpoint bridge; resume is forbidden.");
+    }
+  }
   if (req.noGrantSurface === true && req.enforceAllowedTools !== true) {
     throw new BackendRequestError(
       "A turn that declares noGrantSurface must also declare enforceAllowedTools. " +

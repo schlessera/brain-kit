@@ -6,6 +6,7 @@ export type {
   ActivityQueryResult,
   BackendCapabilities,
   StartTurnRequest,
+  AutonomousTurnOptions,
   FollowUpRequest,
   PermissionDecision,
   PermissionRequest,

@@ -87,7 +87,7 @@ export interface AgentBackend {
 }
 ```
 
-`BackendCapabilities` is a complete, honest boolean set — `resume`,
+`BackendCapabilities` has a required, honest boolean set — `resume`,
 `permissions`, `thinking`, `attachments`, `askUser`, `costReporting`,
 `concurrentSessions`, `followUp`. The host and the client degrade against it;
 never advertise a capability you do not implement (a backend that claims
@@ -159,6 +159,40 @@ by the cross-backend suite:
 `buildSystemPromptAppend` (`packages/ui-sdk/src/server/system-prompt.ts`)
 builds the shared brain-ui system-prompt block; backends that can vary their
 system prompt per turn feed it the advisory `req.client` environment.
+
+### Explicit autonomous turns (`@experimental`)
+
+`BackendCapabilities.autonomous?: boolean` advertises nonpersistent turn support,
+not containment or production dispatch. An absent/false capability makes the
+server refuse dispatch. `StartTurnRequest.autonomous` carries server-selected
+`origin: "autonomous"`, `persistence: "none"`, exact `allowedTools` and
+`systemPromptAppend`. It requires `enforceAllowedTools`, `noGrantSurface` and
+a bridge with `checkpointPermission`; resume is forbidden. A backend must honor
+these inputs or reject with `BackendRequestError` before execution.
+`assertTurnPosture(req)` rejects the new mode by default; a conforming adapter
+explicitly opts in with `assertTurnPosture(req, true)`.
+
+Ordinary turns still emit `session_info` and persist resumable history. Autonomous
+turns do not emit `session_info`: their runtime identity is delivered through
+`activity({ kind: "autonomous_identity", runtimeSessionId, backendId, profileId })`.
+Content and the single terminal `result` still carry the runtime id. Failure
+before identity may end on a bare `error`, as before. The id never enters the
+interactive session catalog and cannot be resumed or receive a follow-up.
+
+`checkpointPermission` synchronously captures escalation data before the shared
+no-grant denial shortcut. It must commit or throw; it cannot return an approval
+or a promise. The synthetic server bridge snapshots the request and its bounded
+model-authored findings, then aborts without a live approval promise. The later
+escalation engine supplies the atomic checkpoint/Action/block transaction.
+Activity spans/rollups use `origin: "autonomous"`, keep server principal attribution
+and runtime identity, and retain usage for reservation settlement.
+
+Claude uses the installed SDK's `persistSession: false`; pi uses
+`SessionManager.inMemory` and disposes the attempt instead of retaining a session
+for resume. This does not filter ambient configuration or contain filesystem,
+credentials or network access; those are the restricted-profile enablement gate.
+Linux runtime tests exercise the installed adapters with fixture inference in an
+isolated network namespace, including ordinary persistence as a positive control.
 
 ### An enforced allowlist (`@experimental`)
 

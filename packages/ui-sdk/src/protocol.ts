@@ -1718,7 +1718,7 @@ export interface ClientActivityUnsubscribe {
 }
 
 export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
-export type ActivitySpanOrigin = "session" | "cron";
+export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
 export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
 /**
  * Terminal dispositions. `denied` is an approval declined by the user —

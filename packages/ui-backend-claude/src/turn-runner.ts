@@ -52,7 +52,7 @@ export function createClaudeTurnRunner(options: {
   return async function startTurn(req: StartTurnRequest): Promise<void> {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
-    assertTurnPosture(req);
+    assertTurnPosture(req, true);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -202,7 +202,7 @@ export function createClaudeTurnRunner(options: {
 
     try {
       const allowedTools =
-        profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+        req.autonomous?.allowedTools ?? profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
         req,
@@ -307,13 +307,13 @@ export function createClaudeTurnRunner(options: {
             activeTurns.set(sessionId, turn);
             turnKey = sessionId;
           }
-          emit({
-            type: "session_info",
-            sessionId,
-            isNew: !req.sessionId,
-            providerId: profile.id,
-            backendId: BACKEND_ID,
-          });
+          if (req.autonomous) {
+            reportActivity({ kind: "autonomous_identity", runtimeSessionId: sessionId,
+              backendId: BACKEND_ID, profileId: profile.id });
+          } else {
+            emit({ type: "session_info", sessionId, isNew: !req.sessionId,
+              providerId: profile.id, backendId: BACKEND_ID });
+          }
         }
         // After session_info, so the run is opened with its session.
         if (msg.type === "system" && msg.subtype === "init") {
