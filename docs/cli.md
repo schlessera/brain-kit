@@ -156,8 +156,9 @@ preserved without checking whether the heading exists.
 |---|---|---|
 | `skills sync` | Materialize core + module skills into `.agents/skills/`, run emitters | extra emitters via config `skills.emitters` |
 | `skills lint` | Lint all skills (agent-agnostic rules) | unparseable SKILL.md frontmatter = error; exit 1 on errors |
-| `module list` | Enabled + available modules with one-liners | |
+| `module list` | Configured + available modules with one-liners | `--json` adds active/dormant state and estimated active context tokens; dormant cron metadata is empty |
 | `module lint <name>` | Validate a module: manifest, skills, collisions, configSchema | quality gate for `/new-module` |
+| `module enable\|disable <name>` | Reactivate or park a configured workflow, synchronize skills and owned instructions | preserves domain config and content; refuses legacy mixed instruction sections before writes; see [migration](modules.md#instruction-migration) |
 | `config check` | Validate config, print effective taxonomy summary | |
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
 | `sync` ⚖ | `sync run`, then the `/sync` skill only for what needs judgment | In 0.40.0+, machine mode (`--json` or non-TTY stdout) emits one `{run, agent}` result; human mode prints the report and any agent answer. Hands over to a configured runner for unresolved conflicts, `UNKNOWN` leftovers, or interactive `MEDIA`/`LARGE` leftovers. Without an invocation, preserves the run's exit code (`0` complete, `1` failed, `3` needs judgment); a successful agent invocation exits `0`, an agent failure `2`. On 0.39.0, bare sync always prints text; use `sync run --json` for the mechanical envelope |

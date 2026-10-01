@@ -107,10 +107,15 @@ After showing a summary of what will be written, generate:
   default) with a lead listing the top priorities and the next dated items from Stage 1, and
   room for `##` sections below.
 - **CLAUDE.md** — the personal overlay (Layer 2). Import the shipped agent contract on the
-  first line via `@node_modules/@schlessera/brain/CONTRACT.md`, then fill the fixed skeleton
-  (Quick Navigation, Key Conventions, Directory Structure, Personal Rules). Wrap every
-  generated region in `<!-- brain:generated:{section} -->` … `<!-- /brain:generated:{section} -->`
-  markers. Anything outside the markers is the user's forever and must never be rewritten.
+  first line via `@node_modules/@schlessera/brain/CONTRACT.md`, then fill navigation, conventions,
+  directory structure and personal rules as user-owned prose outside generated markers.
+  Module conventions come from authoritative `instructions: { text }` contributions through
+  `setup(validatedConfig)`. Use `brain module enable <name>` for configured domains to derive
+  their separate `module-<name>` generated regions after explicit ownership slots; never mix
+  personal rules into a module region or infer ownership of existing paragraphs. Legacy shared
+  generated sections require reviewed, content-preserving migration before toggling; see
+  [the migration guide](https://github.com/schlessera/brain-kit/blob/main/docs/modules.md#instruction-migration).
+  Anything outside owned markers is the user's forever and must never be rewritten.
   **When `brain.config.ts` lists `"codex"` in `skills.emitters`**, the first line is
   `@AGENTS.md` instead, followed by the same overlay: the codex emitter copies the contract
   into `AGENTS.md`, and importing both would load it twice. Run `brain skills sync` after

@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:116-140`).
+`packages/core/src/lib/module-types.ts:116-142`).
 
 ## Alternatives rejected
 
@@ -168,7 +168,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
   produces `mcp__brain__jobs_review`, so 64 leaves headroom under 128.
 - **Collisions are impossible by construction and still checked.** Module
   names are unique at load (`if (seenNames.has(manifest.name))`,
-  `packages/core/src/lib/module-loader.ts:95-98`), local names are keys of
+  `packages/core/src/lib/module-loader.ts:101-104`), local names are keys of
   one record, and `brain` is reserved. Registration nevertheless checks
   every composed name against the names already registered, core's first,
   then modules in config order. On a duplicate it fails with
@@ -181,7 +181,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:23-73`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:23-79`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
 | `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`const toolWarnings`, `packages/core/src/mcp-server.ts:185-189`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
@@ -265,6 +265,11 @@ catch them.
 
 ### 7. Lifecycle: dormancy, stale handles, in-flight calls
 
+The [instruction ownership and explicit migration record](module-instruction-ownership.md)
+binds structured module contributions, separately owned generated regions and
+reviewed migration before either toggle changes config, managed skill links or
+instructions. Its preservation rules leave the MCP process lifecycle below intact.
+
 This agrees with #527 as filed. #527 keeps a dormant module **loaded**: its
 types stay valid, and `brain module list` shows it. Its workflow leaves the
 context, and runtime unloading is out of scope, taking effect in the next
@@ -310,7 +315,7 @@ A module that stops shipping a documented tool is making a breaking change.
 ### 9. Lint and documentation checks
 
 `brain module lint <name>` gains these checks
-(`function moduleLint`, `packages/core/src/cli/commands/module.ts:60-110`):
+(`function moduleLint`, `packages/core/src/cli/commands/module.ts:68-118`):
 
 - `tool-load`: every declared tool imports, and its definition passes §1
   and §3.
@@ -334,7 +339,7 @@ first-party tool gets a row.
 
 **The workflow it enables.** A brain owner has enabled `module-jobs` and uses
 the hosted PWA by voice. The daily cron has already scraped and scored
-(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:68`). They
+(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:69`). They
 ask "anything new in my job queue above 70?". The voice turn calls
 `mcp__brain__jobs_review` with `{ min_score: 70 }` and reads back titles,
 companies and scores. The same call works from a desktop MCP client with no

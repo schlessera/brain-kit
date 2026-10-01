@@ -1,16 +1,17 @@
 ---
 name: brain-module
-description: Use when turning a workflow domain on or off — jobs, speaking, travel, finance, or a locally authored module — or when a module's directories, taxonomy types, and skills should start or stop appearing.
+description: Use when activating or parking a workflow domain — jobs, speaking, travel, finance, or a local module — while preserving its content, configuration and valid document types.
 compatibility: Requires git.
 ---
 
 # Brain Module — Enable / Disable Domains
 
-Turns workflow modules on and off. Config is the state, so this is idempotent by construction:
-enabling adds structure, disabling flips a flag and leaves all content in place.
+Activates or parks configured modules with an optional `enabled` boolean (default true).
+Dormant content and validated domain config stay in place; skills, generated module context,
+classifier hints, cron metadata and module hygiene leave the active workflow.
 
-**This skill orchestrates; the CLI reports and validates.** The agent edits config and scaffolds
-directories; `brain module` and `brain validate` do the deterministic parts.
+**This skill orchestrates; the CLI executes.** Interview and scaffold new domains, review
+explicit instruction migration when needed, then use the CLI for deterministic toggles.
 
 ## List what's available
 
@@ -18,49 +19,64 @@ directories; `brain module` and `brain validate` do the deterministic parts.
 brain module list
 ```
 
-Show each available module with its one-liner (e.g. "jobs — scrape, score, and track job
-opportunities"; "speaking — talks and conferences"; "travel — journeys, day trips and visited places";
-"finance — client ledgers and accounts-receivable"). Mark which are already enabled.
+Show configured modules, their active/dormant state and the estimated active context cost
+from `brain module list --json`. Shared contracts and personal prose are not charged to modules.
+Keep the existing domain settings when reactivating; no new interview is needed.
 
 ## Enable a module
 
-1. Add the module's entry to the `modules` block in `brain.config.ts`, filling any required
-   config fields from a short interview (e.g. finance: which directory holds client ledgers).
-2. Create the directories the module owns, each with an `_index.md` (type `index`): purpose
-   blurb + empty registry table.
-3. Regenerate the affected `<!-- brain:generated:{section} -->` regions of CLAUDE.md so the new
-   directories and conventions are documented. Leave everything outside the markers untouched.
-4. Validate and re-link skills:
+1. For a newly configured domain, install its matching package, add its config entry and
+   interview only missing required fields. Scaffold the owned directories and `_index.md`
+   files. For a dormant configured domain, retain its complete config and documents.
+2. Review the instruction migration prerequisite below if legacy mixed sections remain.
+3. Run the deterministic toggle and validate:
    ```bash
+   brain module enable <name>
    brain validate
-   brain skills sync
    ```
-5. Commit the change:
+4. Inspect the source/context diff and commit the change:
    ```bash
    git add -A && git commit -m "brain-module: enable <name>"
    ```
 
-Tell the user that if they self-host, the container's cron picks up the module's scheduled jobs
-on the next deploy — nothing to wire by hand.
+Scheduler-facing metadata includes active cron entries. Existing hosts refresh their
+schedules through their own lifecycle; no schedule is executed by this skill.
 
 ## Disable a module
 
-Flip its entry off in `brain.config.ts` (or remove the entry). **Never delete the module's
-content** — the directories and documents stay exactly as they are, just no longer driven by the
-module. Regenerate the CLAUDE.md marked sections to drop the module's conventions, run
-`brain validate` and `brain skills sync`, and commit. Re-enabling later restores the workflow
-against the content that was left in place.
+Run `brain module disable <name>`, then `brain validate` and inspect the diff before committing.
+The command writes `enabled: false`, retains domain config and content, removes managed skills
+and module-owned generated regions, and leaves the shared installed contract and personal
+prose alone. Never delete the config entry or documents to represent dormancy. A manifest may
+refuse dormancy with its reason. An unchanged second toggle is a no-op.
+
+## Explicit instruction migration
+
+Both toggles refuse legacy mixed generated sections before changing config, skills or
+instruction bytes. Review their full contents: keep personal prose under user ownership
+outside generated markers, and put module conventions in authoritative
+`instructions: { text }` contributions from `setup(validatedConfig)`. Separate them explicitly;
+never infer paragraph ownership from a module name or delete a whole mixed section.
+
+Owned regions are named `module-<name>` and immediately follow a newline-terminated
+`<!-- brain:module-instructions:<name> -->` ownership slot. The slot stays when dormant;
+generated prose is derived again from current validated config when re-enabled. Review and
+remove obsolete generic section markers only after preserving every personal paragraph and
+module convention. Retry the CLI after this migration. See the
+[instruction migration guide](https://github.com/schlessera/brain-kit/blob/main/docs/modules.md#instruction-migration).
 
 ## Notes
 
 - Because the config is the single source of truth, running enable twice is a no-op and running
   disable never loses data.
-- A module contributes its own types, directory anchors, and hygiene checks; after enabling,
-  those types are valid targets for `brain add` and appear in audits automatically.
+- Dormant types and directory anchors remain valid and searchable; only active module hygiene
+  checks are applied. Running sessions keep their loaded state. MCP filtering is separately
+  tracked in #603; dormancy is context control and never permission revocation.
 
 ## CLI it relies on
 
-- `brain module list` — available and enabled modules with one-liners.
+- `brain module list --json` — configured modules, state and active context estimates.
+- `brain module enable <name>` / `disable <name>` — source-preserving state/context changes.
 - `brain validate` — confirm the config and structure are consistent.
-- `brain skills sync` — pick up the module's skills.
+- `brain skills sync` — refresh managed discovery output after other manual skill changes.
 - `git` — commit the enable/disable.

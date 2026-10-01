@@ -58,6 +58,7 @@ export default defineModule({
         },
       },
       skills: "./skills",
+      instructions: { text: "## Speaking workflow\n\nKeep talk ideas and preparation under talks/, and conference research and submissions under conferences/. Track status and submission outcomes in the existing documents. Link conference journeys to the travel module's documents; speaking owns talks and conferences, while travel owns journeys." },
       indexRules: { dirAnchors: ["status.md", "itinerary.md", "outline.md"] },
       exclude: { segments: ["alt-decks", "versions", "deck"] },
     };
