@@ -27,17 +27,22 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
     dependencies: ["@schlessera/brain-render-template"],
     optionalPeers: ["@schlessera/brain-render-puppeteer"],
   },
-  // Content modules extend core and nothing else.
+  // Content modules extend core; concrete web imports also share scrape below.
   "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  // jobs is the one module that fetches from the web, so it is the one module
-  // allowed the scraping base. `puppeteer-core` stays optional underneath it.
+  // jobs fetches public boards through the polite scraping base.
+  // `puppeteer-core` stays optional underneath it.
   "@schlessera/brain-module-jobs": {
     dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"],
     optionalPeers: [],
   },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  "@schlessera/brain-module-travel": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  // Approved route imports (#524/#568) fetch public geometry. Share the
+  // existing robots/pacing/redirect client instead of a second scrape stack;
+  // this concrete CLI job does not need the optional browser driver.
+  "@schlessera/brain-module-travel": {
+    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"], optionalPeers: [],
+  },
   // The template remains a dependency-free internal leaf.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   // #558 Option B: the concrete export policy belongs to the shared template;

@@ -62,7 +62,7 @@ Missing peer becomes query capability unavailability, never a fallback to
 hand-written SQL or a subprocess per click. Match the imported peer identity,
 not a different `brain` binary found on PATH. Version/feature checks precede use.
 
-This edge is not currently allowed (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:81-84`). A maintainer decision must
+This edge is not currently allowed (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:86-89`). A maintainer decision must
 approve the optional peer and its version/capability behavior, or specify a
 concrete alternative. A hard dependency would guarantee the API but install
 core for all server consumers; duplicating SQL or a pluggable query provider

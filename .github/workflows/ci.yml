@@ -277,6 +277,14 @@ jobs:
             if (!Buffer.from(await Bun.file(join(root, "inputs/odysseus.png")).arrayBuffer()).equals(input)) throw new Error("Packed photo command changed its source");
             const repeated = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
             if (repeated.files[0]?.output !== "photos/odysseus-2.jpg") throw new Error("Packed photo command overwrote its first copy");
+            const recording = `<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>`;
+            await Bun.write(join(root, "recordings/odysseus.gpx"), recording);
+            const imported = (await run(["travel", "route", "recordings/odysseus.gpx", "--to", "routes"])).route;
+            if (imported.source_kind !== "local_gpx" || imported.points !== 2 || imported.distance_km !== 0.111195 || imported.ascent_m !== null) {
+              throw new Error("Packed route CLI did not parse the nonempty GPX with honest unknown elevations");
+            }
+            if (!(await Bun.file(join(root, imported.gpx)).text()).includes("<trkpt")) throw new Error("Packed route CLI wrote no geometry");
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed route CLI changed its source");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [

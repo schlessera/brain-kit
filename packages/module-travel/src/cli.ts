@@ -10,6 +10,8 @@ const HELP = `brain travel — journey, day-trip and place foundations
   travel validate              Check canonical formats, references and assets
   travel migrate [--dry-run]    Move legacy speaking travelParty without changing content
   travel photo <files> --to <dir>  Create reduced JPEG copies without metadata
+  travel route <url|file> --to <dir> [--trim-start-m N] [--trim-end-m N]
+                               Normalize GPX/Komoot geometry, report metrics, trim distance
 
 Flags: --json  emit the documented envelope; --human  display photo paths and dimensions`;
 
@@ -40,7 +42,7 @@ async function migrate(root: string, dryRun: boolean): Promise<{ path: string; c
 }
 
 const command: CommandModule<TravelConfig> = {
-  summary: "Validate travel content, migrate travel configuration and prepare photo copies",
+  summary: "Validate travel content, migrate travel configuration, prepare photo copies and import routes",
   helpBlock: HELP,
   async run(args: string[], ctx: CommandContext<TravelConfig>): Promise<number> {
     const sub = args[0];
@@ -69,6 +71,7 @@ const command: CommandModule<TravelConfig> = {
         return photo.errors.length ? 2 : 0;
       } catch (error) { console.error((error as Error).message); return 1; }
     }
+    if (sub === "route") return (await import("./route.js")).runRoute(args.slice(1), ctx.root, ctx.json);
     if (sub !== "validate" && sub !== "migrate") { console.error(HELP); return 1; }
     if (args.slice(1).some((arg) => arg !== "--json" && !(sub === "migrate" && arg === "--dry-run"))) {
       console.error(`Unknown travel argument.\n${HELP}`); return 1;

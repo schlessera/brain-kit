@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Odysseus fixture">
+  <metadata><name>Odysseus navigation exercise</name><bounds minlat="0" minlon="0" maxlat="0" maxlon="0.003"/></metadata>
+  <wpt lat="0" lon="0"><name>Departure to be trimmed</name></wpt>
+  <extensions><departure lat="0" lon="0">Departure to be trimmed</departure></extensions>
+  <trk><name>Odysseus navigation exercise</name><trkseg>
+    <trkpt lat="0" lon="0"><ele>100</ele><time>2026-07-15T00:00:00Z</time></trkpt>
+    <trkpt lat="0" lon="0.001"><ele>110</ele><time>2026-07-15T00:01:00Z</time></trkpt>
+    <trkpt lat="0" lon="0.002"><ele>109</ele><time>2026-07-15T00:02:00Z</time></trkpt>
+    <trkpt lat="0" lon="0.003"><ele>120</ele><time>2026-07-15T00:03:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>
