@@ -13,6 +13,7 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
+import type { InboxStream } from "../inbox/stream.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 
 /** The activity record and its live stream, when the host records activity. */
@@ -117,6 +118,8 @@ export interface WsHostOptions {
    * most existing tests want.
    */
   activity?: ActivityRuntime;
+  /** The concrete durable stream; absent on hosts without durable inbox support. */
+  inbox?: InboxStream;
   /**
    * The user's remembered "always allow" tool grants. Optional: a host
    * without one never auto-answers and never persists an `always` approval —
@@ -171,6 +174,7 @@ export class WsHost {
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
   readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
+  readonly inbox: InboxStream | null;
   readonly toolPermissions: ToolPermissions | null;
   readonly classifier: TurnClassifier | null;
   readonly scratchPrune?: () => Promise<void>;
@@ -212,6 +216,7 @@ export class WsHost {
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
+    this.inbox = options.inbox ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     this.classifier = options.classifier ?? null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
@@ -383,6 +388,7 @@ export class WsHost {
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
+      this.inbox?.dropFor(principalId);
       this.activity?.pushSender?.unbindPrincipal(principalId);
     }
     for (const turn of affectedRunning) {
@@ -404,6 +410,7 @@ export class WsHost {
   /** Stop host-owned timers during application/test teardown. */
   close(): void {
     clearInterval(this.authorizationExpiryTimer);
+    this.inbox?.close();
   }
 
   /** Send a frame to one specific socket (size-bounded). */

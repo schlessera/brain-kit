@@ -39,6 +39,8 @@ import {
 } from "./middleware/passkeys.js";
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createUiDb } from "./db/client.js";
+import { createInboxStore } from "./inbox/store.js";
+import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
   getAutoAllowedTools,
@@ -274,6 +276,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     registry,
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
+    inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox")),
     classifier,
     scratchPrune: () => scratchPrune.tick(),
     ...(options.appName ? { appName: options.appName } : {}),

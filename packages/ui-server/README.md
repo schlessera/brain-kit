@@ -175,7 +175,10 @@ brain repository.
 - **Session catalog** — SQLite (WAL) with bundled migrations, applied on first
   open.
 - **Durable Queue and Action storage** — internal transactional operational
-  state, immutable provenance, checkpoints and recovery records. See
+  state, immutable provenance, checkpoints and recovery records. Authenticated
+  Queue/Actions subscriptions on `/ws` send bounded snapshots and frozen deltas,
+  including writes from other database connections; revocation and socket/app
+  close stop delivery. See
   [storage invariants and ownership](../../docs/inbox-storage.md).
 - **Queue lifecycle and internal poke** — 60-second recovery/heartbeat,
   protected local HTTP poke and atomic boot token rotation. See the

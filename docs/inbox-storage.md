@@ -43,6 +43,26 @@ Stakes are clamped to 1–3; urgency uses strict 24-hour, 72-hour and seven-day
 boundaries. Display order is descending score, then oldest creation time,
 then bytewise item ID. Admission owns any eviction ordering.
 
+## WebSocket replication
+
+`createApp()` connects the internal store to its authenticated WebSocket.
+Subscribers explicitly select Queue or Actions, optionally filtering an existing
+thread. Each subscription starts with the store's transactional snapshot;
+the shared change scan never moves past pending work for an older subscriber.
+Polling while subscribed reads frozen deltas from every database connection.
+Reconnect starts a new snapshot, including retained tombstone high waters.
+
+Snapshot rows and sequence entries are chunked within the transport byte cap.
+Whole records survive replication; an oversized individual record fails
+explicitly. Delivery rechecks the server-owned principal, including revocation
+or expiry written through another connection. Socket/app close, revocation and
+unsubscribe release listeners; an idle stream keeps no poller alive. The
+[wire contract](integration-contract.md#durable-queue-and-actions-additive)
+defines view filtering, continuation merging, errors and limits.
+
+The stream reads operational state only. It does not apply a selected effect,
+start work or grant authority to an item's Activity run identifier.
+
 ## Checkpoints and lazy compaction
 
 Run checkpoints are append-only. Their full text and structured decisions,

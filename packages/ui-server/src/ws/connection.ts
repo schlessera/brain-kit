@@ -144,6 +144,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.
           ...(host.activity ? { activity: true } : {}),
+          ...(host.inbox ? { inbox: true } : {}),
         },
       });
 
@@ -318,6 +319,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       host.clients.remove(ws);
       connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
+      host.inbox?.dropConnection(ws);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
       // mask). Approvals and ask-user cards survive the disconnect and are
