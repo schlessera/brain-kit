@@ -21,7 +21,7 @@ import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/pr
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
-import { envFlag } from "./env-core.js";
+import { envFlag, type DynamicEnvReadSpec } from "./env-core.js";
 import {
   validateExecWrapper,
   type ConfirmPatternSource,
@@ -1058,3 +1058,24 @@ export function resolveWebSearchEnv(
   ];
   return Object.fromEntries(names.map((name) => [name, env[name]]));
 }
+
+/** @internal Documentation-generator metadata; not a package entry-point API. */
+export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
+  {
+    source: "web-search provider catalog (`WEB_SEARCH_PROVIDERS`)",
+    description:
+      "Presence checks for catalog-declared API-key names when reporting " +
+      "web-search provider availability. Credentials are not returned over " +
+      "the API, logged or copied into web-search.json.",
+  },
+  {
+    source: "filtered environment snapshot (`subprocessEnv`)",
+    description:
+      "At call time, filters by the requested SDK agent, brainCli or cron " +
+      "audience (agent when omitted), admitting valid operator names from " +
+      "BRAIN_UI_SUBPROCESS_ENV_EXTRA and explicit per-spawn extraNames. " +
+      "Explicit extra overrides merge last; the control variable is excluded " +
+      "from the filtered snapshot. Internal transport does not make every " +
+      "inherited variable supported server configuration.",
+  },
+];

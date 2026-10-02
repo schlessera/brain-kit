@@ -167,6 +167,14 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "API key presence check for the configured embedding provider, read at " +
       "call time under whatever name the config declares (default: GEMINI_API_KEY).",
   },
+  {
+    source: "filtered environment snapshot (`subprocessEnv`)",
+    description:
+      "At each tool spawn, forwards the SDK agent allowlist plus valid operator " +
+      "names from BRAIN_UI_SUBPROCESS_ENV_EXTRA and explicitly admitted per-spawn " +
+      "names. The control variable itself is never forwarded. This is internal " +
+      "transport, not unrestricted inheritance or additional supported configuration.",
+  },
 ];
 
 /**
