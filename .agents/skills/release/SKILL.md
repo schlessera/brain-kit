@@ -20,6 +20,14 @@ mistake therefore lands on the whole group at once.
 1. **Changesets exist for everything user-visible.** `.changeset/*.md`, one per
    change, each naming the packages it affects and a bump type. No changeset
    means no version bump and no changelog entry.
+   Before handing off any pending changeset, run
+   `bun scripts/check-changeset-packages.ts` and
+   `bunx --no-install changeset status`. Inspect the full plan against the actual
+   workspace manifest names and intended bump types; package directories are not
+   package identities. `changeset status --since=origin/main` can additionally
+   inspect this contribution, but does not replace full pending-set validation.
+   An unknown name prevents plan assembly even when the contribution gate passes;
+   correct the reference while preserving its intended bump and release prose.
 2. **`bun run test` and `bunx tsc --noEmit` are green.** The `tests/`
    directory holds the release guards — a failure there is about the release
    itself, not the code.
