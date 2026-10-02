@@ -13,7 +13,7 @@ const submitted = (): State => ({ outcome: "submitted", history: "2026-07-10 sub
 export const decision = (outcome: Decision["outcome"] = "accepted", extra: Partial<Decision> = {}): Decision => ({ kind: "outcome", conference: "council", submission: "first", outcome, date: "2026-07-11", source: `Calypso's decision on submission ${extra.submission ?? "first"} at ${extra.conference ?? "council"}: ${outcome}.`, confirmed: true, ...extra });
 const state = (outcome: string, last: Decision): State => ({ outcome, history: `2026-07-10 submitted; ${last.date} ${outcome}`, last });
 const accept = decision();
-const conditional = decision("accepted", { confirmation: "2026-07-13", slides: "2026-07-14", conditions: "Confirm the shorter address.", source: "Conditional acceptance of the raft address.\nConfirmation deadline: 2026-07-13\nSlides deadline: 2026-07-14" });
+const conditional = decision("accepted", { confirmation: "2026-07-13", slides: "2026-07-14", conditions: "Confirm the shorter address.", source: "Conditional acceptance of submission first at council.\nConfirmation deadline: 2026-07-13\nSlides deadline: 2026-07-14" });
 const backup = decision("backup", { date: "2026-07-10" });
 const rejected = decision("rejected", { submission: "second" });
 const withdrawn = decision(undefined, { kind: "withdrawal", outcome: undefined, date: TODAY, source: "Odysseus withdraws the address." });

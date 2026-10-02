@@ -107,8 +107,8 @@ test("two submissions for one delivered address yield one delivery row",async()=
 
 test("draft target questions include none and a nonempty source/candidate state",()=>{
   const env=prepare(fixtures[4]);try{
-    const q=questions(capture(env.root,env.taxonomy),"Calypso declines the oath address, not the raft address.");
-    expect(q.state.untrusted_source).toContain("not the raft");
+    const q=questions(capture(env.root,env.taxonomy),"Calypso declines submission second, not first, at council.");
+    expect(q.state.untrusted_source).toContain("not first");
     expect(q.state.candidates.length).toBeGreaterThan(1);
     expect(q.conference).toContain("none");expect(q.submission).toContain("none");
     expect(Object.keys(q.outcome)).toEqual(["accepted","rejected","waitlisted","backup","unclear"]);

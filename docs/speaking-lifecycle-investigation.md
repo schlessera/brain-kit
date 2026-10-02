@@ -105,7 +105,7 @@ bun run lint
 ```
 
 The draft fixture SHA-256, including concrete input/expected bytes and email labels,
-is `6aac09713c9fa05209675189b16f29a09bd64dcc8b7e46793cd3af49bc0a8a1c`.
+is `8fbfafbcae0e5545d302ad117c7d9b3a326330d41d638b015a4d993d03a5a56e`.
 The generated draft classifier request SHA-256 is
 `48932a43337478f3bd35c3035afcf238aaaaf1268c0ae33a2ff27c22f8446bc8`.
 There are 21 workflow cases: four tuning controls and 17 draft held-out controls.
@@ -125,10 +125,10 @@ have not had independent golden review or representative held-out separation.
 | Actual agent/JEV target and outcome precision, cost and savings | Unmeasured | Unmeasured |
 
 On Bun 1.3.14, the two-decision mixed workflow over 13 source documents took
-13.86/14.93 ms p50/p95 with explicit input, and 15.72/18.21 ms with scripted
+13.67/16.43 ms p50/p95 with explicit input, and 15.81/16.37 ms with scripted
 choices. Three fresh-brain samples per arm exclude fixture creation and include
 capture, validation, staging, projection and application. Raw samples are
-13.86472, 13.05188, 14.92658 ms and 15.71914, 13.66071, 18.20693 ms.
+13.66609, 13.63529, 16.42837 ms and 16.37395, 13.69710, 15.80609 ms.
 The nearest-rank p95 is the maximum of three samples, not a stable tail estimate.
 This measures local code, not agent work or model latency/cache behavior.
 
