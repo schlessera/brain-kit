@@ -158,7 +158,7 @@ claim. Its recorded preference is historical evidence about a synthetic dataset;
 current provider availability, model/effort support and prices require verification
 when enabling it. No paid benchmark was run for #533. The shipped scorer/gate
 and keyless fixtures are reused (`verdict`,
-`packages/ui-server/evals/triage/score.ts:126-139`); unjudged configurations do not pass.
+`packages/ui-server/evals/triage/score.ts:128-143`); unjudged configurations do not pass.
 Measure T1 diversion and cost against direct-to-T2 before retaining tiering.
 
 An autonomous prompt has a fixed trusted prefix and dynamic item context after
