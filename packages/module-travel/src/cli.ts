@@ -28,7 +28,7 @@ async function migrate(root: string, dryRun: boolean): Promise<{ path: string; c
   // to guess when those sources are already present, and never overwrite them.
   for (const module of ["speaking", "travel"]) {
     if (existsSync(join(root, "settings", `${module}.json`))) {
-      throw new Error(`settings/${module}.json already exists; no changes made. Review it with the module-settings migration before moving canonical configuration.`);
+      throw new Error(`settings/${module}.json already exists; no changes made. Review canonical config and saved settings precedence, then follow the manual upgrade in the travel guide (packages/module-travel/README.md, "Upgrade from speaking").`);
     }
   }
   const source = readFileSync(path, "utf8");
