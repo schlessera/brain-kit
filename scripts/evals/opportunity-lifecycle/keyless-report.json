@@ -1,0 +1,92 @@
+{
+  "mode": "keyless controls; proposed goldens are not independently reviewed",
+  "fixtureSha256": "fab7e6ab3dfd35915550851640ff9dbac1ae571efb72a3a66c649cc85008d19a",
+  "expectedSha256": "190d08db6a841cf468e688acbcd9bb8d810cf44d793c9fc3dc9f02f7b9bb0ca8",
+  "schemaSha256": "8f0e75b43ffd9bc6761f8e3e6124a1a8c4e29933efad972098923f6de829a4aa",
+  "prototypeSha256": "4ef3a231f2b98996ed760d21ebf4ee5ff2e08cbd7b292142c63f611eb0384f7e",
+  "runtime": "Bun 1.3.14",
+  "sequences": 4,
+  "eventsPerSequence": 6,
+  "repetitions": 5,
+  "observations": 120,
+  "results": [
+    {
+      "id": "new",
+      "split": "tuning",
+      "repetitions": 5,
+      "exactDiffMismatchedFiles": 0,
+      "deadlineErrors": 0,
+      "briefingErrors": 0,
+      "unintendedEdits": 0,
+      "replayWrites": 0
+    },
+    {
+      "id": "existing-prep",
+      "split": "tuning",
+      "repetitions": 5,
+      "exactDiffMismatchedFiles": 0,
+      "deadlineErrors": 0,
+      "briefingErrors": 0,
+      "unintendedEdits": 0,
+      "replayWrites": 0
+    },
+    {
+      "id": "custom-taxonomy",
+      "split": "held-out",
+      "repetitions": 5,
+      "exactDiffMismatchedFiles": 0,
+      "deadlineErrors": 0,
+      "briefingErrors": 0,
+      "unintendedEdits": 0,
+      "replayWrites": 0
+    },
+    {
+      "id": "module-directory",
+      "split": "held-out",
+      "repetitions": 5,
+      "exactDiffMismatchedFiles": 0,
+      "deadlineErrors": 0,
+      "briefingErrors": 0,
+      "unintendedEdits": 0,
+      "replayWrites": 0
+    }
+  ],
+  "localMs": {
+    "scope": "inspect + apply + pipeline + index + briefing; excludes lab setup and replay",
+    "p50": 56.66,
+    "p95": 66.19,
+    "min": 37.75,
+    "max": 595.88,
+    "throughputEventsPerSecond": 16.58
+  },
+  "deterministic": {
+    "inferenceCalls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "billedCostUsd": 0,
+    "classifierThresholds": null
+  },
+  "today": {
+    "skillExecutionCalls": null,
+    "tokens": null,
+    "billedCostUsd": null,
+    "p50Ms": null,
+    "p95Ms": null
+  },
+  "hybrid": {
+    "naturalLanguageMapping": "not run; explicit structured input uses the deterministic lane",
+    "model": null,
+    "quality": null,
+    "costUsd": null
+  },
+  "live": {
+    "callsSaved": null,
+    "timeSavedMs": null,
+    "costSavedUsd": null,
+    "coldWarmCacheComparison": null,
+    "modelSensitivity": null
+  },
+  "adoption": "unresolved; keyless controls do not establish comparative savings or unattended safety"
+}

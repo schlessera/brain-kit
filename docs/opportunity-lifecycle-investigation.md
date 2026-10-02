@@ -1,0 +1,204 @@
+# Explicit opportunity events and mechanical file updates
+
+Investigation for [#845](https://github.com/schlessera/brain-kit/issues/845),
+under [#838](https://github.com/schlessera/brain-kit/issues/838)'s evaluation
+protocol. Source discovery used main `a5e1ecf432f8dbfb2ad1104ab436f16f1e74da59`
+on 2026-10-02. The prototype is private evaluation code operating only on
+factory-created disposable fixture brains. It adds no production command,
+module setting, export, frontmatter field or classifier integration.
+
+## What exists today
+
+The interview skill asks for the opportunity, timezone-explicit date/time,
+round/format and interviewer before writing. It then describes status/timeline,
+contacts, pipeline, current-focus and prep updates (`## Actions`,
+`packages/module-jobs/skills/interview-scheduled/SKILL.md:36-88`). These source
+edits are instructions for an agent, not one implemented lifecycle transaction.
+Research and preparation prose, fit assessment and the decision to pursue or
+close remain conversational work (`## Actions`,
+`packages/module-jobs/skills/research-opportunity/SKILL.md:32-119`).
+
+Closing is already specified: historical relevance, no status next step or
+deadline, cancellation history, and retirement of other active opportunity
+deadlines (`**Closing**`,
+`packages/module-jobs/skills/research-opportunity/SKILL.md:156-169`). Rebooking
+keeps prior history; merely updating the status date leaves a prep deadline
+stale. Existing tests of the closing skill's wording do not execute those
+cross-file edits.
+
+Directory resolution is real code: the configured opportunity type directory
+takes precedence, with module `opportunitiesDir` as the null-directory fallback
+(`resolveJobsCtx`, `packages/module-jobs/src/cli.ts:48-70`). The pipeline is
+also real code: ensure the registry spec, then regenerate tables from child
+frontmatter (`cmdPipeline`, `packages/module-jobs/src/cli.ts:525-542`;
+`ensurePipelineIndex`, `packages/module-jobs/src/pipeline.ts:60-100`). There
+is no reason to classify a structured event or hand-edit a pipeline row.
+
+Briefing queries indexed deadlines over the next 60 days (`// 3. Upcoming deadlines`,
+`packages/core/src/cli/commands/briefing.ts:235-250`). Markdown changes therefore
+need reindexing before those queries can prove the result. `stage: closed`
+alone does not remove a leftover deadline from this query.
+
+## Event and ownership proposal
+
+The executable private schema is
+[`eventSchema`](../scripts/evals/opportunity-lifecycle/prototype.ts).
+Every event supplies a unique `id`, exact existing opportunity slug and real
+calendar `on` date. It accepts the following bounded events:
+
+| Event | Explicit input | Mechanical effect |
+| --- | --- | --- |
+| `scheduled` | New `roundId`, round, format, ISO instant with offset, IANA timezone, contact ID/name/role and nullable contact details | Add round/history/contact; stage interviewing; status/prep deadline and next step reflect the earliest active round; update the exact selected focus line. |
+| `rebooked` | Existing active `roundId`, full replacement call details | Replace that round's current call; retain its prior event and next-step history; recompute the earliest round. |
+| `cancelled` | Exact active `roundId`, reason, explicit resume stage (`researching`, `applied`, `screening`) | Retire that round. Other rounds remain; absent any, remove active deadlines/next step and the selected focus line. |
+| `offer` | Nullable next step and deadline, with a deadline requiring a next step | Set offer stage, retire interview rounds and every other opportunity document deadline; retain cancellation history. |
+| `closed` | Explicit reason | Set closed/historical, remove status next step/deadline and every other opportunity deadline, preserve old details and cancellation history, remove the selected focus line. |
+
+The named timezone must agree with the supplied offset at the instant, including
+DST. Missing timezone/contact, invalid/past dates, an unknown opportunity/round,
+unsupported event, duplicate round, reused ID with different data or a closed
+opportunity being implicitly reopened requires clarification. Missing contact
+details remain explicitly unknown and never become invented outreach details.
+
+An event ledger lives in a generated Markdown region of status, rather than in
+disposable `brain.db`. It records full confirmed input. Other generated regions
+hold current call details, recorded contacts and lifecycle history. Existing
+prep research and status prose stay verbatim. The experiment refuses an
+unowned contact table, existing interview state or existing call-details section
+for scheduling until an ownership migration is reviewed; it does not attempt
+to replace ambiguous prose. Closing can retire legacy deadlines while retaining
+the old call details as cancelled history.
+
+Current-focus is deliberately different: the caller supplies one complete,
+existing line containing the exact opportunity wiki-link. It must occur once.
+Only that line changes; unrelated priorities remain. This experiments with an
+explicit text selection, not fuzzy company matching or ownership of the whole
+canonical document. A production version still needs approved ownership and
+migration rules, including ambiguous focus placement, disabled canonicals and
+existing independently maintained prep files.
+
+## Execution and recovery boundary
+
+The prototype reuses the source-preserving `editFrontmatter`, generated-region
+helpers, containment checks, safe file publication, pipeline spec and registry
+planner/writer. It does not fall back to YAML serialization when the raw layout
+cannot be edited safely. All relevant raw files are captured in the preview;
+authorization is a separate supplied input, and every captured revision is
+checked before the first write. Symlinked paths require clarification even
+when their destination is inside the fixture.
+
+Source writes happen before the derived pipeline. The complete status event
+receipt is written last. An injected interruption returns the actual written
+paths and remains incomplete. The same sealed in-memory plan can resume only
+when each file still equals its before or planned-after bytes; a concurrent
+edit stops recovery before another write. Replay of a completed event does no
+source writes, checks deadline drift and can regenerate a failed pipeline.
+An invalid registry returns `repair-pipeline`, not success.
+
+This is **not a cross-file production transaction**. It has no shared lock,
+durable recovery journal, process-crash test, production permission envelope or
+git commit/rollback integration. Source files can remain partially updated
+after interruption, and ordinary filesystem race windows remain. The in-memory
+receipt cannot survive a process death. Production adoption requires a durable,
+Markdown-authoritative recovery design, revalidation of ownership and whole
+source effects, and explicit handling of registry/reindex/commit failures.
+The tests establish the stated fixture controls, not unattended production safety.
+
+## Keyless measurements
+
+With Bun 1.3.14 and a frozen dependency install:
+
+```sh
+bun run test tests/opportunity-lifecycle-eval.test.ts
+bun scripts/evals/opportunity-lifecycle/run.ts --repeat 5
+```
+
+The committed [report](../scripts/evals/opportunity-lifecycle/keyless-report.json)
+records fixture, schema, prototype and proposed-golden SHA-256 values, runtime,
+repetitions, local p50/p95/min/max and throughput. Timings include planning,
+source writes, pipeline generation, full keyless index rebuild and briefing;
+they exclude disposable-brain setup and replay. They are local measurements,
+not agent latency or a comparative speedup. No timing threshold gates CI.
+
+Four separate fixture setups run six events each, five times: 120 event
+observations, plus replay of each event. Ridge is the tuning entity; Cedar
+uses custom taxonomy/canonical paths and existing prose prep, while Harbor uses
+the module-directory fallback in held-out controls. The common reference date
+is `2026-07-12`; this is Alex Example's non-UI fixture world.
+
+Every checkpoint compares **all Markdown bytes and file membership** against
+the committed [proposed expected files](../scripts/evals/opportunity-lifecycle/expected.json).
+Separate assertions query real deadline rows and the briefing section, verify
+generated pipeline rows, contact deduplication, history retention and unrelated
+files. The controls report zero checkpoint file mismatches, deadline/briefing
+errors, unintended edits and replay writes. These goldens were seeded from
+the prototype output and inspected for the intended fields and retained prose;
+they still require independent review before an adoption experiment. Agreement
+with them cannot establish the correctness of a subjective golden.
+
+Thirty-three runtime tests additionally cover unknowns, missing fields,
+negation/ambiguous natural language, injection-shaped input, long irrelevant
+state and quoted markers, multiple rounds, duplicate events, extra prep
+deadlines, legacy closure, malformed children, unsafe paths, missing ownership,
+denied execution, stale previews, three interruption points and failed pipeline
+recovery. No natural-language classifier exists in this harness.
+
+Six separately restored mutations reached the intended behavioral assertions:
+
+| Mutation | Intended assertion failure |
+| --- | --- |
+| Remove the propagated prep deadline | The real indexed deadline rows lack `interview-prep.md`; expected two rows, received only status. |
+| Remove the authorization guard | Expected `denied`, received `applied` with actual fixture writes. |
+| Remove revision validation | Expected `stale`, received `applied` after a concurrent status edit. |
+| Skip closure's sibling deadline retirement | Expected no deadline rows, received `second-prep.md` with its old `2026-07-31` deadline. |
+| Remove duplicate-round rejection | Expected clarification, received a new plan for an already active round. |
+| Remove unowned-call/contact rejection | Expected clarification, received a plan for existing unowned call details. |
+
+The deterministic lane makes zero inference calls, consumes no inference tokens
+and incurs zero inference charges. Today's actual agent workflow has not been
+run in a paid comparison. Its calls, tokens, billed/effective cost, cache behavior
+and latency are unknown, so measured calls/time/money saved remain null.
+No JEV mapping accuracy, thresholds, confidence calibration, model sensitivity,
+generation fallback cost or measured hybrid recommendation is claimed.
+
+## Comparative evaluation and contract requirements
+
+Recommendation for the next experiment: keep structured event application in
+code, and keep questions, research, preparation prose and ambiguous targeting
+with the person/agent. Optional JEV work is confined to a proposed event and an
+existing opportunity, with explicit none/unclear outcomes. It grants no write
+permission, chooses no timezone and cannot bypass explicit event validation.
+The [TypeSafe introduction](https://docs.typesafe.ai/introduction),
+[confidence semantics](https://docs.typesafe.ai/confidence) and
+[limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13) were checked
+on 2026-10-02; the existing D42/sync thresholds are not evidence for this task.
+
+Before tuning, independently review the expected diffs, separate held-out
+entities/templates, and freeze adoption gates: zero wrong-target edits, content
+loss, permission errors, missed/stale active deadlines or duplicate entries;
+all confirmed structured events either produce their complete expected effects
+or an explicit incomplete/refused outcome. Ambiguous messages must abstain.
+Additional coverage must include legacy ownership migration, timezone boundary
+days/DST, simultaneous edits, restart recovery and arbitrary custom paths.
+
+Record provider/account/model access and a total spend ceiling on #845 before
+live runs, as #838 requires. Compare the current agent executing the existing
+skills, the explicit-input deterministic lane and any optional mapping hybrid
+on identical complete brains. Record full task outcomes and every model call,
+input/output/cache token, retry, clarification/fallback/generation cost, billed
+and effective cost, p50/p95, throughput, repetitions and spread. Verify current
+model availability/pricing at that time. A live variant's missing metrics stay
+unknown; no vendor example substitutes for these measurements.
+
+If measurements support adoption, file the smallest implementation task under
+#838. A possible `brain jobs event --plan/--apply` remains a proposal. It would
+need a documented JSON envelope containing the event ID, outcome, changed/stale
+paths, generated/reindexed result and recoverable incomplete state; explicit
+revision/authorization requirements; exit semantics; stable idempotency rules;
+and exact event-ledger, contact-ID, multi-round/next-step and generated-region
+ownership semantics. These are additive CLI/frontmatter contract work requiring
+a `CONTRACT:` commit, integration-contract documentation and a minor changeset.
+Any incompatible existing-field/skill behavior also needs the maintainer's
+breaking-change ruling before implementation. No MCP tool, calendar/outreach
+integration, criteria settings UI or generic lifecycle seam is part of this
+prototype. This investigation is not a binding production adoption decision.
