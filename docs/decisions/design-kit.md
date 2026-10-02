@@ -398,10 +398,10 @@ inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
 `details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
 `:46`), and Claude uses MCP `content` arrays via a different path
-(`const output =`, `stream-adapter.ts:163`). So "JSON payload in the output
+(`const output =`, `stream-adapter.ts:166`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
-`protocol.ts:43` states additions do not bump the rev, only semantics changes
+`protocol.ts:45` states additions do not bump the rev, only semantics changes
 do — and `ToolCallView.output?: string` already lets a renderer parse
 locally. Turning `output` itself into an object would be a different, breaking
 change.
@@ -633,6 +633,10 @@ Measured against `packages/core/fixtures/`:
   assertion, and an 1872 or 1889 setting cannot host it. That cost is larger
   than any of the IP risks.
 
+> **2026-09-30 — Corpus ruling.** D18’s separate-persona and no-shared-content restrictions are historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
+
 **D18 — the corpus and the kit fixtures are separate, and neither moves the
 other.** `packages/core/fixtures/corpus/` stays exactly as it is, persona
 included: zero test churn, invariants intact, pinned date intact. `ui-kit` gets
@@ -718,6 +722,10 @@ Mapping (from the maintainer's brief):
 | Maps | Route across the Mediterranean |
 | Attachments | Charts, sketches, ship manifests |
 | Tags | #ithaca #crew #gods #danger |
+
+> **2026-09-30 — Corpus ruling.** D19’s former UI-only scope is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
 
 Scope: `packages/ui-kit/fixtures/` per D18. `packages/core/fixtures/corpus/` and
 its "Alex Example" persona are untouched, so no test churn and no invariant
@@ -2360,7 +2368,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:227`), so
+  `packages/ui-server/src/ws/run-session.ts:230`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -2519,14 +2527,14 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:234-245`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:247-250`);
+`packages/ui-backend-pi/src/bridge-tools.ts:262-273`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:275-278`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
 to have one: `block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:159` passes the
+`packages/ui-backend-pi/src/session-resources.ts:161` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
@@ -2663,7 +2671,9 @@ nine at six, with `recommend` the one this entry's nine that it omits:
 ```sh
 bun scripts/measure-show-block.ts --always-load --reps 3 --only \
   compare-short,compare-long,trend,contact,table,steps,quote,bars
-``` It is a script and not a test: it needs
+```
+
+It is a script and not a test: it needs
 the network and a key, so CI never runs it. Re-run it before changing the brief
 again.
 
@@ -2911,7 +2921,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -2936,7 +2946,7 @@ Two things stop that residue being read as a like-for-like gap, and both cut
 against reading pi as a second replication of the brief result. pi is on a
 different harness driving the model directly, and — this is the one that matters
 — **pi has no no-brief arm and no supported way to have one.**
-`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:159`
+`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:161`
 passes the block brief into `buildSystemPromptAppend` unconditionally, not
 behind a capability check like `askUser`, `location`, `activity` and `mask` on
 the lines above it. So every pi number was measured with the brief present. The
@@ -3240,7 +3250,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:234` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:262` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -3248,7 +3258,7 @@ turns the complete roster the model reached for was `bash`, `show_block`,
 `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
 no search-then-load round trip, ever. The brief is in the prompt on every turn
 unconditionally (`block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:159`, not behind a capability
+`packages/ui-backend-pi/src/session-resources.ts:161`, not behind a capability
 check like the four bridge tools beside it). So pi is the structural twin of
 D43's `--always-load` arm and has never run any other configuration.
 
@@ -3338,7 +3348,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:597`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3355,8 +3365,8 @@ description rule being stretched, and a rate cannot see it.
 against `jev-latest`, 18:29:13Z to 18:44:35Z: **31 `skipped_no_candidates`,
 1 `swapped` at 718 ms, zero timeouts, zero errors, zero rate limits, and the
 breaker never opened.** The one swap drew a `receipt` from a key-value run
-in the trail-signage answer. Latency sits in the 700–800 ms band D42
-measured on the Claude side.
+in the trail-signage answer; that corpus predates [the ruling](example-corpus.md).
+Latency sits in the 700–800 ms band D42 measured on the Claude side.
 
 The shape of the difference is not the classifier; it is that pi hardly ever
 leaves it anything. D42's Claude measurement was eight turns, three swaps,
@@ -3557,7 +3567,7 @@ separate checks.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:558-573`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:565-581`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -3770,7 +3780,7 @@ and each closed before the measured runs:
 
 - **The brain has to live outside the operator's home directory, not only
   outside a checkout.** `settingSources: ["project"]`,
-  `packages/ui-backend-claude/src/sdk-options.ts:126`, makes the CLI walk up
+  `packages/ui-backend-claude/src/sdk-options.ts:134`, makes the CLI walk up
   from the cwd, and at every ancestor it reads `.claude/CLAUDE.md`,
   `.claude/skills/` and `.claude/agents/`. A brain anywhere under a home
   directory therefore loads `~/.claude/CLAUDE.md` as *project* instructions,
@@ -3814,6 +3824,10 @@ states: a turn whose shell left the brain is not a measurement of this brain.
 Both drew a `trend` block, so the exclusion lowers the Claude rate rather than
 flattering it. `trend` is also the prompt that cost pi its four excluded
 turns.
+
+> **2026-09-30 — Corpus ruling.** The former corpus in this measurement is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
 
 Apart from those two, an audit of all 64 transcripts found no tool argument
 naming a path outside the brain, no instruction file, no user skill or agent,
@@ -3962,6 +3976,10 @@ one of the 28 turns on prompts 3–7 read the brain through the brain tools
 alone. `Bash` survived only on `trend`, where the model counted files by
 creation date. The only skill loaded was the CLI's built-in `dataviz`, once,
 on a `trend` turn.
+
+> **2026-09-30 — Corpus ruling.** The former corpus in this measurement is historical.
+> [One Odysseus world](example-corpus.md) now governs every example surface.
+> The original passage and measured results below are preserved as evidence.
 
 **Three turns left the brain.** All three are `trend` turns in run 1. One ran
 `find / -maxdepth 3 -iname "brain"`, and two listed the directory that holds
@@ -4129,7 +4147,7 @@ found, and what the ruling did not say:
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/render-template/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:51`), and ui-kit now
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:58`), and ui-kit now
   builds and publishes ahead of ui-sdk. At that point the kit's own row was unchanged.
   #558 later moved the pure classifier to the template's `./links` leaf and
   added the kit-to-template edge; D13's purity gate still holds.
@@ -4328,7 +4346,7 @@ does a replayed session show?
    two suggestions per answer. None is a valid answer, and generic filler is
    not offered.
 2. **The payload is the kit's data, minus tone.** The schema
-   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:527-553`) carries the row's
+   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:534-560`) carries the row's
    `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
    which is a callback, and without `tone`, because a suggestion carries no
    effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`
@@ -4343,7 +4361,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:212`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:219`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4368,7 +4386,7 @@ does a replayed session show?
    loaded (D44) it measured no effect on the call rate. The description, which
    D44 puts in every prompt, carries a `suggestions:` line. The brief's
    "names every kind" assertion exempts `suggestions` by name
-   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:115-119`).
+   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:118-122`).
 9. **It merges before it is measured, and the release waits.** #550 runs the
    keyed measurement on both backends: the suggestion rate, the rate when the
    answer ends in a question, the drop rate, the added tokens, and a read of
@@ -4472,8 +4490,10 @@ are the design. A red or gold hairline `Surface` follows the partial answer
 and tool timeline under the existing turn header. Class-driven copy states
 only what the payload establishes. It promises no empty workspace, rollback,
 fixed recovery time or absence of prior tool effects. Missing model, runtime
-version, time, attempt totals and reset times are omitted; #630 and #631 own
-the remaining normalized-payload gaps. D50's error suppression now applies
+version, time and total call counts are omitted. #631's observed counts are
+retries and appear as `retries` in the receipt; they never imply an initial-call
+total. The normalized per-turn observations supplied by #630 and #631 survive
+replay. D50's error suppression now applies
 live and on replay, even when the failed turn had offered valid suggestions.
 
 `TurnErrorCard` composes the kit's `Receipt`, `Disclosure`, inert `DiffBlock`,
@@ -4499,6 +4519,14 @@ The client stores only correlation ids and checks delivery after reconnect;
 unconfirmed delivery is not an invitation to resend. A refusal restores the
 action. An unclassified failure gets one manual retry. Server errors offer
 Report after a repeated observed failure.
+
+When a reported absolute reset is in the future, the latest eligible action
+reads `Retry · in Ns` and is disabled until that timestamp passes. The same
+deadline governs live arrival and replay; reopening the transcript never
+starts a new delay. Countdown updates do not change the fixed live-failure
+announcement. Expiry does not override a pending send or an uncertain delivery:
+`Check delivery` remains available to reconcile an acknowledgement, including
+while a cooldown is still active. Unknown or expired resets add no wait.
 
 Copy and Report first open an editable, exact outgoing preview in the kit's
 `BottomSheet` inside a native modal. Its keyboard focus is trapped and

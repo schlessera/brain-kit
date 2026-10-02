@@ -13,11 +13,10 @@
  * the same exec wrapper, environment and working directory a turn uses, so a
  * binary the agent's uid cannot execute fails here and not on the first turn.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
-import type { BackendRuntimeReport } from "@schlessera/brain-ui-sdk/server";
+import { loadedSdkIdentity } from "@schlessera/brain-ui-sdk/internal";
+import type { BackendRuntimeReport, BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
 import {
   probeVersionCommand,
   VERSION_PROBE_TIMEOUT_MS,
@@ -27,6 +26,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { MEASURED_RUNTIME } from "./measured-runtime.js";
+import { assertClaudeSdk, assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 
 /** Thrown when the binary a turn would spawn is missing or will not start. */
 export class ClaudeRuntimeUnavailableError extends Error {
@@ -51,20 +51,13 @@ class Captured extends Error {
   }
 }
 
-let sdkVersion: string | undefined;
-
-/**
- * The version of the SDK copy this package loads. Read once; it cannot change
- * under a running process. `sdkEntry` is where the SDK resolved to, for tests.
- */
+/** The SDK identity at this backend's import site, including its owning range. */
 export function installedAgentSdkVersion(sdkEntry?: string): string {
-  if (sdkEntry !== undefined) return readSdkVersion(sdkEntry);
-  sdkVersion ??= readSdkVersion(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));
-  return sdkVersion;
-}
-
-function readSdkVersion(entry: string): string {
-  return (JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8")) as { version: string }).version;
+  if (sdkEntry !== undefined) {
+    const identity = loadedSdkIdentity(sdkEntry, "@anthropic-ai/claude-agent-sdk");
+    return identity.version;
+  }
+  return assertClaudeSdk(undefined, "SDK observation").version;
 }
 
 /** Whether a pair is the one the backend's behaviour was measured against. Both halves count. */
@@ -122,13 +115,38 @@ export interface ClaudeRuntimeProbeOptions {
   env: Record<string, string | undefined>;
   exec: ExecWrapperConfig;
   log?: BackendLogFn;
+  versionRequirements?: BackendVersionRequirements;
+  phase?: string;
+  signal?: AbortSignal;
 }
 
 /**
  * Probe the binary a turn would spawn. Throws `ClaudeRuntimeUnavailableError`
  * when it is missing or will not report a version; returns what it found.
  */
-export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Promise<BackendRuntimeReport> {
+export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Promise<BackendRuntimeReport & { runtime: NonNullable<BackendRuntimeReport["runtime"]> }> {
+  const phase = options.phase ?? "startup probe";
+  const sdk = assertClaudeSdk(options.versionRequirements, phase);
+  const requirements = claudeRuntimeRequirements(options.versionRequirements, phase);
+  let report: BackendRuntimeReport & { runtime: NonNullable<BackendRuntimeReport["runtime"]> };
+  try {
+    report = await runProbe(options, sdk.version);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (requirements.length) {
+      try { assertClaudeRuntime(null, requirements, phase, reason); } catch (failure) {
+        throw new ClaudeRuntimeUnavailableError(failure instanceof Error ? failure.message : String(failure));
+      }
+    }
+    throw new ClaudeRuntimeUnavailableError(`@schlessera/brain-backend-claude runtime (claude-code) during ${phase}; required valid Claude Code version; detected unknown. ${reason}. Install/select an executable that answers --version successfully.`);
+  }
+  try { assertClaudeRuntime(report.runtime.version, requirements, phase); } catch (error) {
+    throw new ClaudeRuntimeUnavailableError(error instanceof Error ? error.message : String(error));
+  }
+  return report;
+}
+
+async function runProbe(options: ClaudeRuntimeProbeOptions, agentSdk: string): Promise<BackendRuntimeReport & { runtime: NonNullable<BackendRuntimeReport["runtime"]> }> {
   const spawn = selectedSpawn({
     ...(options.claudeCodePath ? { pathToClaudeCodeExecutable: options.claudeCodePath } : {}),
     env: options.env,
@@ -143,7 +161,7 @@ export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Pr
   }
   let result: VersionProbeResult;
   try {
-    result = await probeVersionCommand(argv, { cwd, env: spawn.env, exec: options.exec });
+    result = await probeVersionCommand(argv, { cwd, env: spawn.env, exec: options.exec, ...(options.signal ? { signal: options.signal } : {}) });
   } catch (error) {
     throw new ClaudeRuntimeUnavailableError(
       `Claude Code at ${spawn.command} cannot be started: ${error instanceof Error ? error.message : String(error)}`
@@ -157,7 +175,7 @@ export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Pr
   for (const warning of result.cleanupWarnings) {
     if (options.log) options.log("warn", warning); else console.error(warning);
   }
-  const stdout = result.stdout.trim();
+  const stdout = result.stdout.replace(/\r?\n$/, "");
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
     throw new ClaudeRuntimeUnavailableError(
@@ -166,13 +184,12 @@ export async function probeClaudeRuntime(options: ClaudeRuntimeProbeOptions): Pr
   }
   // Claude Code names itself; an interpreter answering for a script it could
   // not load prints a version too, and must not pass for Claude's.
-  const version = stdout.match(/(\d+\.\d+\.\d+\S*) \(Claude Code\)/)?.[1];
+  const version = stdout.match(/^v?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \(Claude Code\)$/)?.[1];
   if (!version) {
     throw new ClaudeRuntimeUnavailableError(
       `${spawn.command} did not report a Claude Code version: ${stdout || "(no output)"}`
     );
   }
-  const agentSdk = installedAgentSdkVersion();
   return {
     runtime: {
       name: "claude-code",

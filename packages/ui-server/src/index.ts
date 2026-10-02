@@ -11,6 +11,7 @@
 export {
   createApp,
   type CreateAppOptions,
+  type HostVersionRequirements,
   type BrainUiApp,
   type AppRenderer,
 } from "./app.js";

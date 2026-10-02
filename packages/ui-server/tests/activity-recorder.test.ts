@@ -48,7 +48,7 @@ function insertPrincipal(
 describe("principal attribution", () => {
   test("the initiator is stamped on the root and snapshotted onto the durable rollup", () => {
     const { db, store, recorder } = setup("turn-actor", { principalId: "principal-a" });
-    insertPrincipal(db, "principal-a", "Alex Example's laptop");
+    insertPrincipal(db, "principal-a", "Odysseus's laptop");
 
     recorder.finish("success");
     db.query("UPDATE principals SET label = 'Renamed device' WHERE id = 'principal-a'").run();
@@ -61,7 +61,7 @@ describe("principal attribution", () => {
       )
     ).toMatchObject({
       principalId: "principal-a",
-      principalLabel: "Alex Example's laptop",
+      principalLabel: "Odysseus's laptop",
       principalKind: "owner",
     });
   });

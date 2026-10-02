@@ -10,6 +10,7 @@ import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 import { hasStoredCredential } from "./auth.js";
 import { createPiBackend } from "./backend.js";
 import type { PiProfile } from "./backend-options.js";
+import { assertPiSdks } from "./version-requirements.js";
 
 const PROFILE_SOURCE = "BRAIN_UI_PI_PROFILES";
 const CLAUDE_PROFILE_SOURCE = "BRAIN_UI_CLAUDE_PROFILES";
@@ -157,6 +158,9 @@ const FIRST_PARTY_PI_PROVIDERS: ReadonlySet<string> = new Set([
 
 export const backendModule: BackendModule = defineBackendModule({
   id: "pi",
+  async probeRuntime(context) {
+    return { sdk: assertPiSdks(context.versionRequirements, "startup probe") };
+  },
   profileSchema: {
     source: PROFILE_SOURCE,
     parse(raw, context) {
@@ -183,6 +187,7 @@ export const backendModule: BackendModule = defineBackendModule({
       };
       const backend = createPiBackend({
         brainPath: context.brainPath,
+        ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
         ...(profiles.length > 0 ? { profiles: withOverrides } : {}),
         ...(context.confirmBashPatterns !== null
           ? { confirmBashPatterns: context.confirmBashPatterns }

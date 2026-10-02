@@ -98,6 +98,12 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "NOMINATIM_PUBLIC_SERVICE_ELIGIBLE",
+    description: "Explicit informed public Nominatim eligibility; enabled alone does not qualify. Configure a suitable endpoint for excluded uses.",
+    default: "false",
+    required: false,
+  },
+  {
     name: "NOMINATIM_URL",
     description: "Reverse-geocoding endpoint.",
     default: "https://nominatim.openstreetmap.org",
@@ -119,6 +125,8 @@ export interface PiBackendEnv {
   nominatimUrl: string;
   /** NOMINATIM_USER_AGENT with the default applied. */
   nominatimUserAgent: string;
+  /** NOMINATIM_PUBLIC_SERVICE_ELIGIBLE explicitly records informed eligibility. */
+  nominatimPublicServiceEligible: boolean;
 }
 
 /** Resolve the statically-named variables. Reads happen here and only here. */
@@ -127,6 +135,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
     reverseGeocodeEnabled: envFlag(env.BRAIN_UI_REVERSE_GEOCODE, true),
     nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",
+    nominatimPublicServiceEligible: envFlag(env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE, false),
   };
 }
 

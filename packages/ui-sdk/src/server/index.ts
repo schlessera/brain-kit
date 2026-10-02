@@ -6,12 +6,15 @@ export type {
   ActivityQueryResult,
   BackendCapabilities,
   StartTurnRequest,
+  AutonomousTurnOptions,
+  CompletedAutonomousToolCall,
   FollowUpRequest,
   PermissionDecision,
   PermissionRequest,
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,
+  AskUserFormResult,
   LocationFix,
   SubscriptionAuthAction,
 } from "./backend.js";
@@ -21,6 +24,7 @@ export {
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
   SUBSCRIPTION_RELOGIN_PROCEDURE,
   assertTurnPosture,
+  isCompletedAutonomousToolCall,
   subscriptionAuthAction,
 } from "./backend.js";
 
@@ -59,7 +63,7 @@ export type { VersionProbeOptions, VersionProbeResult } from "./version-probe.js
 export type { WriteLock } from "./write-lock.js";
 export { createWriteLock } from "./write-lock.js";
 
-export type { KeyedLock } from "./keyed-lock.js";
+export type { KeyedLock, KeyedLockAcquireOptions } from "./keyed-lock.js";
 export { createKeyedLock, LockBusyError } from "./keyed-lock.js";
 
 export {
@@ -129,6 +133,8 @@ export {
 
 export type { ReverseGeocodeConfig, ReverseGeocodeResult } from "./reverse-geocode.js";
 export { reverseGeocode } from "./reverse-geocode.js";
+export { geoConfigSchema } from "@schlessera/brain-geo";
+export type { GeoConfig, GeoConfigInput } from "@schlessera/brain-geo";
 
 export * from "./bridge-tools/index.js";
 
@@ -146,3 +152,6 @@ export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";
 
 export * from "../protocol.js";
+
+export { assertVersionRequirements, validateVersionMinimum } from "./version-requirements.js";
+export type { BackendVersionRequirements, VersionRequirement, VersionRequirementCheck } from "./version-requirements.js";

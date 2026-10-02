@@ -19,13 +19,15 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
  * factory's test green while every turn shipped deferred tools again.
  */
 describe("the SDK options a turn is built with", () => {
-  function turnFor(brain: string, bridge: Record<string, unknown>) {
+  function turnFor(brain: string, bridge: Record<string, unknown>, noGrantSurface = false) {
     return createClaudeSdkTurn({
       backend: { brainPath: brain } as never,
       req: {
         prompt: "hello",
         turnBudgetMs: 180_000,
         bridge,
+        noGrantSurface,
+        enforceAllowedTools: noGrantSurface,
         client: undefined,
       } as never,
       profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
@@ -48,6 +50,7 @@ describe("the SDK options a turn is built with", () => {
         askUser: unreachable,
         askUserList: unreachable,
         askUserRank: unreachable,
+        askUserForm: unreachable,
         getLocation: unreachable,
         requestMask: unreachable,
         queryActivity: unreachable,
@@ -79,4 +82,25 @@ describe("the SDK options a turn is built with", () => {
       rmSync(brain, { recursive: true, force: true });
     }
   });
+  test("a no-grant turn withholds the form schema, allowlist entry and prompt brief", async () => {
+    const brain = mkdtempSync(join(tmpdir(), "sdk-options-form-"));
+    try {
+      const { options } = turnFor(brain, { askUserForm: async () => ({ answers: {} }) }, true);
+      const server = options.mcpServers?.["brain-ui"];
+      expect(server).toBeDefined();
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "form-posture", version: "0.1.0" }, {});
+      await (server as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const { tools } = await client.listTools();
+      expect(tools.length).toBeGreaterThan(0);
+      expect(tools.map((tool) => tool.name)).not.toContain("ask_user_form");
+      expect(options.allowedTools).not.toContain("mcp__brain-ui__ask_user_form");
+      expect(JSON.stringify(options.systemPrompt)).not.toContain("ask_user_form");
+      await client.close();
+    } finally { rmSync(brain, { recursive: true, force: true }); }
+  });
+
 });

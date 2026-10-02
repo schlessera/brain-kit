@@ -1,23 +1,23 @@
 ---
 type: project
-title: "Workbench Build"
+title: "Practice Spar"
 created: 2026-01-08
 updated: 2026-04-18
-tags: [project, woodworking]
+tags: [project, shipbuilding]
 status: active
 ---
 
-# Workbench Build
+# Practice Spar
 
-A split-top Roubo bench for the garage shop.
+A practice spar for the departure from Ogygia.
 
 ## Materials
 
-- white oak, 8/4
-- hide glue, 1 lb
+- fir, one practice spar
+- lashing rope, one coil
 
 ## Timeline
 
-- 2026-04-02: Milled the top laminations.
-- 2026-04-09: Glued up the first half of the top.
+- 2026-04-02: Shaped the spar with the adze.
+- 2026-04-09: Lashed the first half of the spar.
 - 2026-04-18: Fitted the leg vise.

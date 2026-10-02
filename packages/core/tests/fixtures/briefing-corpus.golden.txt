@@ -2,56 +2,60 @@
 
 ## Current Focus (as of 2026-07-05)
 
-### Woodworking
+### Shipbuilding
 
-- **Bookshelf build** — glue-up done, sanding the walnut face frame next. Working
-  from the [[projects/active/bookshelf/plan]] and tracking day-to-day state in the
-  build's registry at [[projects/active/bookshelf/]]. Photos going into the build log.
-- **Trail signage** — routing the second batch of cedar blanks this weekend.
+- **Raft build** — planning the pine deck frame before permission to leave.
+  Working from [[projects/active/raft/plan]] and the project registry at
+  [[projects/active/raft/]]. Construction must wait for Calypso's tools.
+- **Sail repairs** — splicing and sealing the second batch of cedar spars.
 
 ### Health
 
-- Knee rehab is the open thread — see [[knee-injury]]. Next physio appointment is
-  on the calendar; logging range-of-motion after each session.
+- Knee rehab is the open thread — see [[knee-injury]]. Next recovery appointment
+  with Calypso is on the calendar; logging range-of-motion after each session.
 
-### Astronomy
+### Navigation
 
-- Partway through the study course; the [[telescope-setup]] notes cover collimation
-  so I stop re-learning it every dark-sky weekend.
+- Working through the study course; [[star-bearings]] covers orientation before
+  the night-sailing passage. Keep the Bear to the left.
 
 ### Loose ends
 
-- Still need to write up the barred-owl sighting from the north loop — the note
-  references [[does-not-exist]] until I create the wildlife log.
+- Need to verify the eagle report from Ithaca. The note refers to
+  [[does-not-exist]] until the omen register is created.
 
 ## Focus-Linked Documents
 
-- 2026-06-20 | project | projects/active/bookshelf/plan.md | Bookshelf — Build Plan | Cut list, joinery, and timber sourcing for the walnut-and-cedar bookshelf
-- 2026-06-15 | index | projects/active/bookshelf/_index.md | Bookshelf Build — Index | Registry for the walnut-and-cedar bookshelf build — plan, status, and overview
-- 2026-06-12 | study | studies/telescope-setup.md | Telescope Setup & Collimation | Setup, collimation, and transport notes for the Dobsonian — the reference I keep reopening
-- 2026-04-20 | health | health/knee-injury.md | Left Knee — Rehab | Left-knee rehab log — symptoms, physio appointments, and range-of-motion progress
+- 2026-06-20 | project | projects/active/raft/plan.md | Raft — Build Plan | Timber, pine deck frame joinery and lashings for departure from Ogygia
+- 2026-06-15 | index | projects/active/raft/_index.md | Raft Build — Index | Registry for the Ogygia raft — plan, status and overview
+- 2026-06-12 | study | studies/star-bearings.md | Star Bearings & Orientation | Calypso's navigation guide — orientation, bearings and case dimensions
+- 2026-04-20 | health | health/knee-injury.md | Left Knee — Rehab | Left-knee rehab log — symptoms, recovery appointments and range-of-motion progress
 
 ## Upcoming Deadlines
 
-- 2026-08-15 | projects/active/bookshelf/status.md | Bookshelf — Status | Latest session log and next action for the bookshelf build
+- 2026-07-29 | projects/active/raft/status.md | Raft — Status | Latest planning check and next action for leaving Ogygia
+
+## Upkeep
+
+- 7 must-fix audit finding(s) (errors and warnings; brain audit)
 
 ## Recently Active
 
-- 2026-07-05 | index | _index.md | Alex Example — Brain Index | Top-level map of Alex Example's brain — the three threads and where they live
-- 2026-07-05 | context | context/current-focus.md | Current Focus | What Alex is working on right now — the most frequently updated file
-- 2026-06-30 | project | projects/active/bookshelf/status.md | Bookshelf — Status | Latest session log and next action for the bookshelf build
-- 2026-06-28 | note | notes/loose-idea.md | Idea: laminated pocket star wheel | 
-- 2026-06-25 | health | health/checkup-log.md | Routine Checkup Log | Running log of routine checkups, blood pressure readings, and appointments
-- 2026-06-20 | project | projects/active/bookshelf/plan.md | Bookshelf — Build Plan | Cut list, joinery, and timber sourcing for the walnut-and-cedar bookshelf
-- 2026-06-18 | project | projects/active/bookshelf/overview.md | Bookshelf — Overview | At-a-glance current state of the bookshelf build
-- 2026-06-15 | identity | me/identity.md | Alex Example - Identity | Who Alex Example is — a park ranger tracking health, woodworking, and astronomy
-- 2026-06-15 | index | projects/active/bookshelf/_index.md | Bookshelf Build — Index | Registry for the walnut-and-cedar bookshelf build — plan, status, and overview
-- 2026-06-14 | study | studies/astronomy/overview.md | Astronomy Course — Overview | Map of the self-directed astronomy course — modules, progress, and reference not
-- 2026-06-12 | study | studies/telescope-setup.md | Telescope Setup & Collimation | Setup, collimation, and transport notes for the Dobsonian — the reference I keep
-- 2026-06-10 | identity | me/basics/long-bio.md | Long Bio | Extended public bio covering career, certifications, and off-duty pursuits
-- 2026-06-10 | project | projects/active/trail-signage/status.md | Trail Signage — Status | Routed cedar trail signs — batch progress and next action
-- 2026-06-01 | identity | me/basics/FACTS.md | Personal Facts | Single source of truth for Alex Example's biographical facts — derivation base f
-- 2026-05-01 | identity | me/basics/short-bio.md | Short Bio | One-paragraph public bio for event programs and trail-guide credits
+- 2026-07-05 | index | _index.md | Odysseus — Brain Index | Top-level map of Odysseus's brain — preparations for the return and where they l
+- 2026-07-05 | context | context/current-focus.md | Current Focus | What Odysseus is preparing on Ogygia — the July 5 planning snapshot
+- 2026-06-30 | project | projects/active/raft/status.md | Raft — Status | Latest planning check and next action for leaving Ogygia
+- 2026-06-28 | note | notes/loose-idea.md | Idea: pocket star wheel | 
+- 2026-06-25 | health | health/checkup-log.md | Routine Checkup Log | Running log of routine checks, blood pressure readings and appointments
+- 2026-06-20 | project | projects/active/raft/plan.md | Raft — Build Plan | Timber, pine deck frame joinery and lashings for departure from Ogygia
+- 2026-06-18 | project | projects/active/raft/overview.md | Raft — Overview | At-a-glance planning state of the Ogygia raft
+- 2026-06-15 | identity | me/identity.md | Odysseus - Identity | King of Ithaca, on Ogygia after ten years returning from Troy
+- 2026-06-15 | index | projects/active/raft/_index.md | Raft Build — Index | Registry for the Ogygia raft — plan, status and overview
+- 2026-06-14 | study | studies/navigation/overview.md | Navigation Course — Overview | Map of the night-sailing study course — chapters, exercises and reference notes
+- 2026-06-12 | study | studies/star-bearings.md | Star Bearings & Orientation | Calypso's navigation guide — orientation, bearings and case dimensions
+- 2026-06-10 | identity | me/basics/long-bio.md | Long Bio | Extended account of the voyage, household and remaining preparations
+- 2026-06-10 | project | projects/active/sail-repairs/status.md | Sail Repairs — Status | Spliced and sealed cedar spars — practice batch and next action
+- 2026-06-01 | identity | me/basics/FACTS.md | Personal Facts | Single source of truth for Odysseus's biographical facts — derivation base for a
+- 2026-05-01 | identity | me/basics/short-bio.md | Short Bio | A concise account of the return from Troy
 
 ## Stale Documents
 

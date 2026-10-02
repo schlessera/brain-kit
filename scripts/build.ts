@@ -8,6 +8,7 @@ import { resolve } from "path";
 // scripts/check-dist-types.ts. Dependencies are listed before dependents
 // anyway, so a future resolution change fails loudly instead of subtly.
 const packages = [
+  "geo",
   "render-template",
   "core",
   // Ahead of ui-sdk, whose `show_block` handler classifies links with the
@@ -65,7 +66,7 @@ for (const packageName of packages) {
     const cssEntry = resolve(packageDir, "src", "styles.css");
     const cssOut = resolve(distDir, "styles.css");
     const css = Bun.spawn(
-      [bunx, "@tailwindcss/cli", "-i", cssEntry, "-o", cssOut, "--minify"],
+      [bunx, "-p", "@tailwindcss/cli", "tailwindcss", "-i", cssEntry, "-o", cssOut, "--minify"],
       { cwd: packageDir, stdout: "inherit", stderr: "inherit" }
     );
     const cssExit = await css.exited;

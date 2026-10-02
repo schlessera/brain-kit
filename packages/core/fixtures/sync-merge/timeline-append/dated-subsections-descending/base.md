@@ -3,7 +3,7 @@ type: study
 title: "Night Sky Log"
 created: 2026-01-08
 updated: 2026-05-03
-tags: [astronomy, log]
+tags: [navigation, log]
 ---
 
 # Night Sky Log
@@ -12,8 +12,8 @@ tags: [astronomy, log]
 
 ### 2026-05-03
 
-Saturn low in the east before dawn; seeing 3/5.
+Orion low in the east before dawn; bearing recorded.
 
 ### 2026-04-28
 
-First light for the 8-inch Dobsonian. Collimation was off.
+First light for the 8-inch Calypso guide. Orientation was off.

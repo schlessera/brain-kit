@@ -13,8 +13,8 @@ let brain: TempBrain;
 beforeAll(async () => {
   brain = await makeIndexedBrain({
     "brain.config.ts": `export default { taxonomy: { types: { logbook: { dir: "logbook", halfLifeDays: 100000 } } } };\n`,
-    [LOGBOOK]: `---\ntype: logbook\ntitle: "Ranger lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nChecked the lantern at the ranger station after the storm.\n`,
-    [NOTE]: `---\ntype: note\ntitle: "Ranger lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nThe lantern wick.\n`,
+    [LOGBOOK]: `---\ntype: logbook\ntitle: "Sailor lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nChecked the lantern at the cave on Ogygia after the storm.\n`,
+    [NOTE]: `---\ntype: note\ntitle: "Sailor lantern"\nupdated: 2020-01-01\nrelevance: secondary\n---\n\nThe lantern wick.\n`,
   });
 });
 

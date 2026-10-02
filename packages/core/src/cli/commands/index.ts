@@ -22,6 +22,7 @@ import { maintainCommand } from "./maintain.js";
 import { registryCommand } from "./registry.js";
 import { statsCommand } from "./stats.js";
 import { graphCommand } from "./graph.js";
+import { geoCommand } from "./geo.js";
 import { renderCommand } from "./render.js";
 import { scratchCommand } from "./scratch.js";
 import { syncCommand } from "./sync.js";
@@ -36,6 +37,7 @@ import { mcpCommand } from "./mcp.js";
 import { okfCommand } from "./okf.js";
 import { evalCommand } from "./eval.js";
 import { tagsCommand } from "./tags.js";
+import { queueCommand } from "./queue.js";
 import { hygieneCommand } from "./hygiene.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
@@ -55,6 +57,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   registry: registryCommand,
   stats: statsCommand,
   graph: graphCommand,
+  geo: geoCommand,
   render: renderCommand,
   scratch: scratchCommand,
   sync: syncCommand,
@@ -70,6 +73,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   eval: evalCommand,
   tags: tagsCommand,
   hygiene: hygieneCommand,
+  queue: queueCommand,
 };
 
 export { generateBriefing } from "./briefing.js";

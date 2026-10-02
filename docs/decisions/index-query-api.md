@@ -34,13 +34,20 @@ not automatically a behavior-preserving replacement for the other.
 
 Voice extracts terms from tags, titles, paths, link text and markdown content,
 then degrades an old schema to empty vocabulary while retaining overrides
-(`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`). The pi backend duplicates link walking (`async graph`, `packages/ui-backend-pi/src/brain-access.ts:280-367`). A module hygiene callback
-receives a raw database (`HygieneContext`, `packages/core/src/lib/module-types.ts:11-16`); jobs uses it for opportunity metadata (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+(`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`). The audited pi backend duplicated link walking in its [native-handle graph implementation](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367). A module hygiene callback
+receives a raw database (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`); jobs uses it for opportunity metadata (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
 columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) and actual consumers against a CLI-produced index
 (`ui-server's readers run`, `tests/brain-db-contract.test.ts:201-244`). Those proofs must be replaced with result and runtime coverage,
 not deleted to make a schema change pass.
+
+> **2026-10-01 — Implementation context (pi reader audit above).** Pi's graph
+> and listing now use the supported [query results](../content-index-queries.md).
+> The linked native-handle implementation is historical. Search/context and
+> write helpers use the explicitly unsupported core `/internal` entry; #534
+> owns ordinary-export removal. Tool permissions and write locks retain their
+> existing ownership, and the direct-SQL promise still binds.
 
 ## Ownership and efficient access
 
@@ -52,7 +59,7 @@ pattern is retained, with an internal read transaction covering each complete
 operation. An operation may finish on the old index snapshot; the next one must
 open the replacement. No database handle or live statement escapes a result.
 
-The current dependency table excludes a ui-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:81-84`).
+The current dependency table excludes a ui-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:92-95`).
 An optional, lazily resolved core peer is the recommendation, **not an approved
 edge change**. The decision task must settle that edge and the supported
 replacement for `HygieneContext.db` before dependent implementation. The

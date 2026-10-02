@@ -28,7 +28,7 @@ function hints(name: string, input: Record<string, unknown>, backendId = "claude
 describe("isInsideBrainRepo", () => {
   test("container and home checkout roots are inside", () => {
     expect(isInsideBrainRepo("/data/brain/notes/a.md")).toBe(true);
-    expect(isInsideBrainRepo("/home/alex/brain/notes/a.md")).toBe(true);
+    expect(isInsideBrainRepo("/home/odysseus/brain/notes/a.md")).toBe(true);
   });
   test("repo-relative paths are inside", () => {
     expect(isInsideBrainRepo("notes/a.md")).toBe(true);

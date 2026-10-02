@@ -27,7 +27,7 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   db.run("PRAGMA wal_checkpoint(TRUNCATE)");
   db.close();
 
-  const search = await runCli(root, ["search", "ranger", "--json"]);
+  const search = await runCli(root, ["search", "sailor", "--json"]);
   expect(search.stderr).not.toContain("no such column");
   expect(search.code).toBe(0);
   expect(JSON.parse(search.stdout).results.length).toBeGreaterThan(0);

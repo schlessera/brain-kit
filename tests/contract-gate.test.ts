@@ -84,7 +84,9 @@ describe("contract gate", () => {
 
 describe("contract gate diff", () => {
   function git(cwd: string, ...args: string[]): string {
-    const result = Bun.spawnSync(["git", ...args], { cwd });
+    const result = Bun.spawnSync([
+      "git", "-c", "commit.gpgsign=false", ...args,
+    ], { cwd });
     if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
     return new TextDecoder().decode(result.stdout).trim();
   }
@@ -101,8 +103,13 @@ describe("contract gate diff", () => {
         writeFileSync(join(repo, file), text);
       };
       git(repo, "init", "-q", "-b", "main");
-      git(repo, "config", "user.email", "alex@example.com");
-      git(repo, "config", "user.name", "Alex Example");
+      git(repo, "config", "user.email", "odysseus@example.com");
+      git(repo, "config", "user.name", "Odysseus");
+      // Exercise the host-signing regression without touching host config or keys.
+      // Command-scoped overrides must win for both commits and the merge below.
+      git(repo, "config", "commit.gpgsign", "true");
+      git(repo, "config", "gpg.format", "openpgp");
+      git(repo, "config", "gpg.program", "fixture-missing-signer");
       write(CONTRACT_DOC, "v1\n");
       git(repo, "add", "-A");
       git(repo, "commit", "-qm", "base");

@@ -217,6 +217,9 @@ never overwrites those files.
 
 ## CLI and library
 
+- `brain travel route <url|file> --to <dir> [--trim-start-m N]
+  [--trim-end-m N] [--json]`: imports GPX or public Komoot geometry and
+  writes a new normalized GPX. See [route import](#route-import) below.
 - `brain travel validate [--json]`: `{validation: {valid, files, issues}}`,
   with issues `{file, level: "error", message}`. Exit 0 means valid, 1 means
   domain errors. `files` counts successfully parsed domain documents.
@@ -229,7 +232,96 @@ never overwrites those files.
   `parseTravelDocument`, `readTravelCorpus` and `summarizePlaceVisits` with
   their corresponding types. `./module` supplies the manifest for the loader.
 
-The package provides canonical content, existing journey planning and photo
-processing. Route fetching/metrics, day-trip/place workflows and generated
-registries are the separate follow-ups [#568](https://github.com/schlessera/brain-kit/issues/568) and
+Day-trip/place workflows and generated registries are covered by
 [#569](https://github.com/schlessera/brain-kit/issues/569).
+
+## Route import
+
+```sh
+brain travel route recordings/odysseus.gpx --to routes --json
+brain travel route recordings/odysseus.gpx --to routes --trim-start-m 100 --trim-end-m 100 --json
+```
+
+Input and output paths are relative to the brain root (absolute contained
+paths also work). The original stays untouched. An occupied output name
+gets `-2`, `-3`, and so on; an existing file is never replaced. Output paths
+in the response are relative to the brain root. Importing a recording does
+not attach it to a trip or change a Markdown document.
+
+Supported inputs are local GPX 1.0/1.1 files, direct HTTP(S) GPX URLs, and
+public `komoot.com/tour/<id>` or `komoot.com/smarttour/<id>` pages, including
+`www` and locale prefixes. Public pages use anonymous requests and discard
+query/share tokens. Private, deleted, login-only, malformed and unsupported
+pages refuse with an error. Komoot page geometry can have different sampling
+from its exported GPX; metrics describe the imported points. The package
+does not request account credentials or use Komoot's authenticated export.
+
+HTTP uses the shared scrape client's User-Agent, robots.txt enforcement,
+redirect checks and pacing. Embedded credentials, unsupported schemes and
+hosts resolving to private/reserved addresses are refused before dispatch;
+redirect targets receive the same checks. Files and responses are capped at
+20 MiB and geometry at 200,000 points. XML doctypes/entities and unsupported
+encodings are refused. These address checks do not pin DNS answers to the
+HTTP connection. Robots lookup failures retain the shared client's documented
+permissive policy.
+
+GPX track segments take precedence over route elements. Gaps between
+segments add no distance, ascent or duration; segments with fewer than two
+points are omitted with a warning. Missing/invalid elevations and timestamps
+stay unknown. Invalid latitude/longitude rejects the input. Source metadata,
+waypoints, links and extensions are discarded. The output contains only
+retained track points, optional elevations/timestamps and recomputed bounds.
+
+Metrics derive from the points written to GPX:
+
+- Distance is the sum of spherical great-circle edges (mean Earth radius
+  6,371,008.8 m), reported in kilometres to six decimal places. Coordinates
+  are written to nine decimal places, elevations to three.
+- Ascent uses a three-point median for interior elevations, retaining each
+  segment's endpoints, then a 3 m hysteresis: changes smaller than 3 m from
+  the last accepted elevation are ignored; accepted upward changes add to
+  ascent. This resets at every segment. Ascent and altitude extrema are
+  `null` if any retained point lacks a valid elevation. Altitude extrema use
+  retained unsmoothed values, in metres.
+- A continuous single segment is a `loop` when its endpoints are within
+  both 30 m and 5% of its travelled distance; otherwise it is `one_way`.
+  Multiple segments have `unknown` shape.
+- Recorded duration sums each segment's last minus first timestamp, in
+  seconds to three decimals. Every retained timestamp must be valid and
+  nondecreasing within its segment. Gaps are excluded. Missing or reversed
+  timestamps yield `null`. Komoot's relative `t` values are not absolute
+  recording timestamps and are discarded, so its duration stays `null`.
+
+Trimming measures metres along those same edges, excluding segment gaps.
+Boundaries interpolate on the great circle; known elevations and ordered
+timestamps interpolate linearly. Unknown endpoint data stays unknown.
+Nonzero cuts must be at least 1 mm. Trimming away the entire route, a
+zero-distance input, an ambiguous antipodal cut or a retained distance below
+1 mm reporting precision refuses without writing. For the documented sphere,
+each cut's position is within 1 cm after serialization and reported distance
+rounding; this is a computational tolerance, not a GPS accuracy claim.
+Bounds and all metrics are rebuilt after trimming. Removing departure/end
+points does not hide a location that the retained track visits again.
+
+### Source access evidence
+
+Checked 2026-10-01: normal anonymous HTTP requests to Komoot tour and
+smarttour pages expose `page._embedded.tour._embedded.coordinates.items` in
+the JSON string passed to `kmtBoot.setProps`. The parser decodes that JSON
+without running JavaScript. Deterministic CLI fixtures use the observed
+structure with invented Odysseus geometry. Komoot documents that its official
+[GPX export requires an unlocked region](https://support.komoot.com/hc/en-us/articles/10115477099674-Export-and-import-Routes-and-Activities).
+The [GPX schema](https://www.topografix.com/gpx/1/1/) specifies WGS84 positions,
+metric elevations and continuous track segments.
+
+Outdooractive import remains an unmet requirement of
+[#568](https://github.com/schlessera/brain-kit/issues/568). Its public page
+offers a login-gated GPX export; [robots.txt](https://www.outdooractive.com/robots.txt)
+disallows GPX download paths and `/api/*`, including the geometry API its
+public map uses. Its documented [Data API](https://developers.outdooractive.com/API-Reference/Data-API.html)
+requires a project/API key. The [robots-wins decision](../../docs/decisions/scraping-politeness.md)
+requires written site permission before using a disallowed path. Rendering
+the public map to observe its response shape grants no importing permission.
+Outdooractive URLs therefore give an actionable refusal. A user-exported
+local GPX can be processed, but that does not complete the Outdooractive
+criterion. #568 records the exact permission and completion evidence needed.

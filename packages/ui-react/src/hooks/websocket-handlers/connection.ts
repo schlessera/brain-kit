@@ -1,6 +1,6 @@
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame = "server_hello" | "location_request" | "error";
+type ConnectionFrame = "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta";
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
@@ -12,6 +12,10 @@ export const connectionFrameHandlers = {
     context.stores.activity.getState().bumpConnectionEpoch();
     context.ensureActivitySubscription(context.state.activeSessionId);
   },
+  // Durable subscriptions/store are wired by #682/#684. This client does
+  // not subscribe yet; additive frames are safely ignored in the meantime.
+  inbox_snapshot: () => {},
+  inbox_delta: () => {},
   location_request: (msg, context) => {
     context.requestBrowserLocation(msg);
   },
@@ -21,6 +25,12 @@ export const connectionFrameHandlers = {
     // error arriving between turns (a rejected frame, a failed resume) was
     // dropped as silently on the client as it was on the server.
     context.stores.connection.getState().reportError(msg.code, msg.message);
+    // These socket-boundary refusals reject a frame, not the running turn.
+    // Keep the connection/recovery signal without inventing a failed reply.
+    if (
+      !context.frameTurnId && !msg.failure &&
+      (msg.code === "RATE_LIMITED" || msg.code === "PARSE_ERROR")
+    ) return;
     // The turn's failure, drawn on its message (#575). A bare `error` that
     // ends a turn before its session exists carries the provider failure;
     // any other is shown as its message says.

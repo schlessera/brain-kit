@@ -1,3 +1,5 @@
+import { parseImportedTrack, MAX_ROUTE_BYTES, summarizeTrack, type ImportedTrack } from "@schlessera/brain-geo";
+import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
 import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +14,7 @@ import {
   type SharedFileMeta,
   type ShareIntakeResult,
   type ShareStagingManifest,
+  type QueueStagingManifest,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { safeResolve } from "../files/walker.js";
 
@@ -85,6 +88,9 @@ const MEDIA_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]{0,60}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,60}$/;
 
 const EXTENSION_BY_TYPE: Record<string, string> = {
+  "application/gpx+xml": ".gpx",
+  "application/vnd.google-earth.kml+xml": ".kml",
+  "application/geo+json": ".geojson",
   "image/jpeg": ".jpg",
   "image/png": ".png",
   "image/gif": ".gif",
@@ -117,7 +123,15 @@ const DEFAULT_MEDIA_TYPE = "application/octet-stream";
 /** A partial directory older than this was orphaned by a crash mid-write. */
 const PARTIAL_TTL_MS = 60 * 60 * 1000;
 
+export class UnsupportedTrackError extends Error {
+  constructor() { super("Not a validated GPX, KML or supported GeoJSON track."); this.name = "UnsupportedTrackError"; }
+}
+
 export interface ShareInput {
+  /** Internal composer admission policy; ordinary share intake keeps its behavior. */
+  tracksOnly?: boolean;
+  /** Cancel an uncommitted composer upload; never serialized into its manifest. */
+  signal?: AbortSignal;
   title?: string | undefined;
   text?: string | undefined;
   url?: string | undefined;
@@ -276,6 +290,19 @@ export async function stageShare(
   input: ShareInput,
   log?: Logger
 ): Promise<ShareIntakeResult> {
+  return stageShareAt(brainPath, input, crypto.randomUUID(), log);
+}
+
+/** Internal recovery entry. Callers obtain this ID from the operational store. */
+export async function stageShareAt(
+  brainPath: string,
+  input: ShareInput,
+  id: string,
+  log?: Logger,
+  source: "web-share-target" | "cli" = "web-share-target"
+): Promise<ShareIntakeResult> {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid staging id");
+  input.signal?.throwIfAborted();
   const title = cleanTextField(input.title);
   const rawUrl = cleanTextField(input.url);
   const { url, leftover } = splitUrl(rawUrl);
@@ -307,7 +334,6 @@ export async function stageShare(
     throw new ShareTooLargeError("inbox_full", SHARE_MAX_STAGED);
   }
 
-  const id = crypto.randomUUID();
   const dir = `${SHARE_STAGING_DIR}/${id}`;
   const finalDir = join(root, id);
   const partialDir = join(root, `.${id}.partial`);
@@ -322,8 +348,9 @@ export async function stageShare(
 
     for (const file of files) {
       const mediaType = bareMediaType(file.type);
-      const name = deduplicate(sanitizeFileName(file.name, mediaType), used);
       const bytes = Buffer.from(await file.arrayBuffer());
+      input.signal?.throwIfAborted();
+      if (input.tracksOnly && bytes.byteLength > MAX_ROUTE_BYTES) throw new ShareTooLargeError("file_too_large", MAX_ROUTE_BYTES);
 
       // `file.size` is a claim; the decoded length is the fact. Re-check both
       // caps against it so a lying multipart part cannot slip past the gate.
@@ -335,6 +362,25 @@ export async function stageShare(
         throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
       }
 
+      let imported: ImportedTrack | undefined;
+      try { imported = parseImportedTrack(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+      catch { if (input.tracksOnly) throw new UnsupportedTrackError(); }
+      // Generic incoming extensions do not identify a track. Validated content does.
+      const incoming = file.name.replace(CONTROL_CHARS, "").replace(FORMAT_CHARS, "");
+      const incomingName = incoming ? truncateToBytes(incoming, MAX_NAME_BYTES) : "";
+      let stored = sanitizeFileName(file.name, mediaType);
+      if (imported && (!/\.[a-z0-9]{1,8}$/i.test(file.name) || /\.(?:bin|dat|tmp|xml|json)$/i.test(file.name))) {
+        const stem = stored.replace(/\.[a-z0-9]{1,8}$/i, "");
+        stored = sanitizeFileName(stem, { gpx: "application/gpx+xml", kml: "application/vnd.google-earth.kml+xml", geojson: "application/geo+json" }[imported.format]);
+      }
+      const name = deduplicate(stored, used);
+      const path = `${dir}/${name}`;
+      let trackMeta = {};
+      if (imported) {
+        const { geometry: _geometry, ...summary } = summarizeTrack(imported.track, { kind: "file", path });
+        trackMeta = { incomingName, sha256: createHash("sha256").update(bytes).digest("hex"), detected: imported.format,
+          summary: { ...summary, waypointCount: imported.waypointCount, waypointOmitted: imported.waypointOmissions.length } };
+      }
       try {
         // "wx": never follow a link, never truncate something that exists. In a
         // freshly minted directory nothing can pre-exist, so this is a loud
@@ -355,7 +401,8 @@ export async function stageShare(
 
       staged.push({
         name,
-        path: `${dir}/${name}`,
+        path,
+        ...trackMeta,
         mediaType,
         bytes: bytes.byteLength,
       });
@@ -365,11 +412,11 @@ export async function stageShare(
       throw new Error("share_write_failed");
     }
 
-    const manifest: ShareStagingManifest = {
+    const manifest: ShareStagingManifest | QueueStagingManifest = {
       id,
       dir,
       receivedAt: Date.now(),
-      source: "web-share-target",
+      source,
       ...(title ? { title } : {}),
       ...(text ? { text } : {}),
       ...(url ? { url } : {}),
@@ -383,7 +430,12 @@ export async function stageShare(
     );
 
     // The share becomes visible here, whole, in one operation.
+    input.signal?.throwIfAborted();
     await rename(partialDir, finalDir);
+    if (input.signal?.aborted) {
+      await rm(finalDir, { recursive: true, force: true });
+      input.signal.throwIfAborted();
+    }
 
     const { source: _source, ...result } = manifest;
     return result;
@@ -404,7 +456,8 @@ export async function stageShare(
 export async function pruneShareStaging(
   brainPath: string,
   now = Date.now(),
-  log?: Logger
+  log?: Logger,
+  protectedIds: ReadonlySet<string> = new Set()
 ): Promise<number> {
   let root: string;
   let entries;
@@ -432,7 +485,8 @@ export async function pruneShareStaging(
 
   let removed = 0;
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || protectedIds.has(entry.name) ||
+        protectedIds.has(entry.name.replace(/^\./, "").replace(/\.partial$/, ""))) continue;
     const path = join(root, entry.name);
     const ttl = entry.name.startsWith(".") ? PARTIAL_TTL_MS : SHARE_STAGING_TTL_MS;
     try {
@@ -446,4 +500,27 @@ export async function pruneShareStaging(
     }
   }
   return removed;
+}
+
+/** Content identity excludes server IDs/timestamps and includes actual file bytes. */
+export async function shareContentHash(input: ShareInput): Promise<string> {
+  const title = cleanTextField(input.title);
+  const { url, leftover } = splitUrl(cleanTextField(input.url));
+  const text = cleanTextField(leftover ? [input.text, leftover].filter(Boolean).join("\n") : input.text);
+  if (!title && !text && !url && input.files.length === 0) throw new EmptyShareError();
+  if (input.files.length > SHARE_MAX_FILES) throw new ShareTooLargeError("too_many_files", SHARE_MAX_FILES);
+  const hash = createHash("sha256").update(JSON.stringify([title ?? null, text ?? null, url ?? null]));
+  const names = new Set<string>(["meta.json"]);
+  let total = 0;
+  for (const file of input.files) {
+    if (file.size > SHARE_MAX_FILE_BYTES) throw new ShareTooLargeError("file_too_large", SHARE_MAX_FILE_BYTES);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (bytes.length > SHARE_MAX_FILE_BYTES) throw new ShareTooLargeError("file_too_large", SHARE_MAX_FILE_BYTES);
+    total += bytes.length;
+    if (total > SHARE_MAX_TOTAL_BYTES) throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
+    const type = bareMediaType(file.type);
+    hash.update(JSON.stringify([deduplicate(sanitizeFileName(file.name, type), names), type, bytes.length]));
+    hash.update(bytes);
+  }
+  return hash.digest("hex");
 }

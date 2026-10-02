@@ -1,3 +1,4 @@
+import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
  *
@@ -55,7 +56,7 @@ export const SPAN_OUTCOMES = [
 export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
 
 export type SpanKind = "turn" | "tool" | "subagent" | "cron";
-export type SpanOrigin = "session" | "cron";
+export type SpanOrigin = "session" | "cron" | "autonomous";
 
 function isPrincipalKind(value: unknown): value is PrincipalKind {
   return (
@@ -599,6 +600,7 @@ export function createActivityStore(
       pricingEstimate,
       failure
     );
+    if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
   return {
@@ -707,8 +709,8 @@ export function createActivityStore(
       // writer stamp includes the start time, so rows written by the
       // current instance never match a fresh store's sweep... but a boot
       // sweep runs before any spans are written, so sweeping by pid-prefix
-      // alone would be wrong across pid reuse. Sweep every session-origin
-      // open span instead: only THIS server writes session spans, and at
+      // alone would be wrong across pid reuse. Sweep session and autonomous
+      // open spans instead: only THIS server writes those spans, and at
       // boot none of ours can legitimately be open.
       //
       // Candidates are read OUTSIDE the write transaction — the common case

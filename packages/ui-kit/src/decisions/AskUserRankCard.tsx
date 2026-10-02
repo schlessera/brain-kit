@@ -40,6 +40,15 @@ type Drag = Move & { pointerId: number; capture: HTMLDivElement; y: number; offs
 
 /** One exchange, one action row. Tap-to-move is equal to handle dragging. */
 export function AskUserRankCard(p: AskUserRankCardProps) {
+  return <RankList {...p} embedded={false} />;
+}
+export interface RankListProps extends AskUserRankCardProps {
+  embedded?: boolean;
+  onChange?: (value: AskUserRankSubmission) => void;
+  onMoveChange?: (label: string | null) => void;
+}
+export function RankList(p: RankListProps) {
+  const embedded = p.embedded !== false;
   const generated = useId();
   const id = p.id ?? generated;
   const state = p.state ?? "pending";
@@ -66,7 +75,14 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
 
   function row(item: string) { return [...(rows.current?.querySelectorAll<HTMLElement>("[data-rank-row]") ?? [])].find((node) => node.dataset.rankRow === item); }
   function focus(item: string) { setFocused(item); row(item)?.querySelector<HTMLButtonElement>("[data-rank-pick]")?.focus({ preventScroll: true }); }
-  function apply(next: string[]) { orderRef.current = next; setOrder(next); }
+  function apply(next: string[]) {
+    orderRef.current = next; setOrder(next);
+    p.onChange?.({ order: [...next], unchanged: initial.every((id, i) => next[i] === id) });
+  }
+  function changePicked(move: Move | null) {
+    pickedRef.current = move; setPicked(move);
+    p.onMoveChange?.(move ? name(move.id) : null);
+  }
   function announce(item: string, before: string[], next: string[]) {
     const position = next.indexOf(item) + 1;
     const dropped = p.cutoff ? before.slice(0, p.cutoff).find((candidate) => !next.slice(0, p.cutoff).includes(candidate)) : undefined;
@@ -87,7 +103,7 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
     if (!move) return;
     cleanupDrag();
     apply(move.before);
-    setPicked(null); pickedRef.current = null;
+    changePicked(null);
     setLive(`Move cancelled. ${name(move.id)} stays at ${move.before.indexOf(move.id) + 1}.`);
     focus(move.id);
   }
@@ -99,17 +115,17 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
     if (move) {
       if (move.id === item) { cancel(); return; }
       const next = moveRankItem(orderRef.current, move.id, orderRef.current.indexOf(item));
-      apply(next); setPicked(null); pickedRef.current = null; announce(move.id, move.before, next); focus(move.id);
+      apply(next); changePicked(null); announce(move.id, move.before, next); focus(move.id);
     } else {
       const next = { id: item, before: [...orderRef.current] };
-      pickedRef.current = next; setPicked(next); setFocused(item);
+      pickedRef.current = next; changePicked(next); setFocused(item);
       setLive(`${name(item)} picked up, position ${orderRef.current.indexOf(item) + 1} of ${p.items.length}. Tap or arrow to where it should go.`);
     }
   }
   function drop() {
     const move = drag.current ?? pickedRef.current;
     if (!move) return;
-    cleanupDrag(); setPicked(null); pickedRef.current = null;
+    cleanupDrag(); changePicked(null);
     announce(move.id, move.before, orderRef.current); focus(move.id);
   }
   function updateDrag(reorder = true) {
@@ -156,7 +172,7 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
     const scroller = transcriptScroller(root.current);
     const current: Drag = { id: item, before: [...orderRef.current], pointerId: event.pointerId, capture: root.current, y: event.clientY, offset: event.clientY - node.getBoundingClientRect().top, scroller, overscroll: scroller?.style.overscrollBehavior ?? "", frame: 0 };
     drag.current = current;
-    pickedRef.current = current; setPicked(current); setUndo(null);
+    pickedRef.current = current; changePicked(current); setUndo(null);
     if (scroller) scroller.style.overscrollBehavior = "contain";
     current.capture.setPointerCapture(event.pointerId);
     const tick = () => {
@@ -210,20 +226,20 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
   const displayed = state === "answered" ? recorded : order;
   const visibleCount = state === "answered" && p.items.length >= 8 && !expanded ? p.cutoff ?? 5 : displayed.length;
   return (
-    <div ref={root} className="bk-askrank" style={shell} role="group" aria-labelledby={`${id}-question`} data-state={state}
+    <div ref={root} className="bk-askrank" style={embedded ? { minWidth: 0 } : shell} role="group" aria-labelledby={embedded ? undefined : `${id}-question`} aria-label={embedded ? p.question : undefined} data-state={state} data-embedded={embedded ? "" : undefined}
       onPointerDownCapture={(event) => { if (drag.current && event.pointerId !== drag.current.pointerId) cancel(); }}
       onPointerMove={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current.y = event.clientY; }}
       onPointerUp={(event) => { if (drag.current?.pointerId === event.pointerId) { drag.current.y = event.clientY; updateDrag(); drop(); } }}
       onPointerCancel={cancel} onLostPointerCapture={() => { if (drag.current) cancel(); }}>
-      <div style={head} data-rank-head=""><Icon icon={state === "answered" ? "resolved" : state === "dismissed" ? "later" : "ask"} size={13} />
+      {!embedded ? <div style={head} data-rank-head=""><Icon icon={state === "answered" ? "resolved" : state === "dismissed" ? "later" : "ask"} size={13} />
         {state === "answered" ? `Answered · ${p.unchanged ? "Kept brain’s order" : p.cutoff ? `Top ${p.cutoff} chosen` : `Ranked ${p.items.length}`}` : p.prompt ?? (state === "dismissed" ? "Unanswered — the turn ended" : "Brain needs your input")}
-      </div>
-      <p id={`${id}-question`} style={{ margin: "10px 0", font: `500 13px/1.5 ${font.body}`, color: color.ink, overflowWrap: "anywhere" }}>{p.question}</p>
+      </div> : null}
+      {!embedded ? <p id={`${id}-question`} style={{ margin: "10px 0", font: `500 13px/1.5 ${font.body}`, color: color.ink, overflowWrap: "anywhere" }}>{p.question}</p> : null}
       {state === "dismissed" ? (
         <div className="bk-rank-lapsed"><span>{p.lapsedNote ?? "Dismissed"}</span>{p.onAskAgain ? <Button label="Ask again" tone="quiet" size="sm" block={false} onClick={p.onAskAgain} /> : null}</div>
       ) : (
         <>
-          {state === "pending" && (!changed || !!drag.current) ? <p className="bk-rank-instructions">Drag the handle or tap an item, then tap where it should go.</p> : null}
+          {state === "pending" && !embedded && (!changed || !!drag.current) ? <p className="bk-rank-instructions">Drag the handle or tap an item, then tap where it should go.</p> : null}
           <div className={state === "answered" ? "bk-rank-record" : undefined}>
           <div ref={rows} className="bk-rank-rows" role="list" aria-label={p.question}>
             {displayed.slice(0, visibleCount).map((item, index) => {
@@ -249,13 +265,19 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
             {visibleCount < displayed.length ? <button className="bk-rank-disclosure" type="button" aria-expanded={expanded} onClick={() => setExpanded(true)}>Show {displayed.length - visibleCount} {p.cutoff ? "not ranked" : "more, in order"}</button> : null}
             {state === "answered" ? <span className="bk-rank-meta">{p.answerMeta ?? `you ${p.unchanged ? "kept this order" : `ranked ${count}`}`}</span> : null}
           </div>
-          {state === "pending" ? <div className="bk-rank-actions" data-rank-actions="">
+          {state === "pending" && embedded ? <div className="bk-rank-hint">
             {picked ? <><span>Tap where {name(picked.id)} should go</span><Button label="Cancel" tone="quiet" size="sm" block={false} onClick={cancel} /></> : <>
+              {undo ? <InlineToast text="Order reset" target="" effect="" tone="teal" icon="confirm" onUndo={() => { apply(undo); setUndo(null); setLive("Previous order restored."); }} /> : <span>Drag the handle or tap an item, then tap where it should go.</span>}
+              {changed ? <Button label="Reset" tone="quiet" size="sm" block={false} onClick={() => { setUndo([...orderRef.current]); apply(initial); setLive("Brain’s order restored. Undo available."); }} /> : null}
+            </>}
+          </div> : null}
+          {state === "pending" && !embedded ? <div className="bk-rank-actions" data-rank-actions="">
+            {picked ? <><span>Tap where {name(picked.id)} should go</span><Button label="Cancel" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={cancel} /></> : <>
               {undo ? <InlineToast text="Order reset" tone="teal" icon="confirm" onUndo={() => { apply(undo); setUndo(null); setLive("Previous order restored."); }} /> : null}
               <span className="bk-rank-keys" aria-hidden="true">space pick up · ↑↓ move{p.singleKeys !== false ? " · 1–9 place" : ""}</span>
-              <div className="bk-rank-buttons"><Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={p.onDismiss} />
-                {changed ? <Button label="Reset" tone="quiet" size="sm" block={false} onClick={() => { setUndo([...orderRef.current]); apply(initial); setLive("Brain’s order restored. Undo available."); }} /> : null}
-                <Button label={changed ? "Submit order" : "Keep this order"} tone="affirm" size="sm" block={false} onClick={() => p.onSubmit?.({ order: [...orderRef.current], unchanged: !changed })} /></div>
+              <div className="bk-rank-buttons">{!embedded ? <Button label="Dismiss" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={p.onDismiss} /> : null}
+                {changed ? <Button label="Reset" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={() => { setUndo([...orderRef.current]); apply(initial); setLive("Brain’s order restored. Undo available."); }} /> : null}
+                {!embedded ? <Button label={changed ? "Submit order" : "Keep this order"} tone="affirm" size="sm" block={false} style={rankAffirmButtonStyle} onClick={() => p.onSubmit?.({ order: [...orderRef.current], unchanged: !changed })} /> : null}</div>
             </>}
           </div> : null}
         </>
@@ -264,3 +286,16 @@ export function AskUserRankCard(p: AskUserRankCardProps) {
     </div>
   );
 }
+
+// D34: an expanded target measures from border-free paint. The extra padding
+// retains the small Button's original border-box size; the inset hairline uses
+// the same rest/hover palette without changing the shared Button primitive.
+const rankQuietButtonStyle = {
+  border: 0,
+  padding: "7px 13px",
+  boxShadow: `inset 0 0 0 1px var(--hv-rank-hairline, ${color.edge})`,
+};
+const rankAffirmButtonStyle = {
+  ...rankQuietButtonStyle,
+  boxShadow: `inset 0 0 0 1px var(--hv-rank-hairline, ${token("button-border-affirm")})`,
+};

@@ -17,7 +17,7 @@ afterAll(() => {
 // Injected wall clock — every age in these tests is measured against it.
 const NOW = new Date("2026-07-01T00:00:00Z");
 
-// Neutral taxonomy for the persona "Alex Example": health notes go stale fast,
+// Neutral taxonomy for the persona "Odysseus": health notes go stale fast,
 // studies live under studies/, journal entries are orphan-exempt, and a
 // propagation rule keeps me/basics bios in step with FACTS.md.
 const taxonomy = buildTaxonomy({
@@ -120,7 +120,7 @@ describe("audit generated_from", () => {
     insertDoc(db, { path: "notes/old-source.md", type: "note", updated: "2026-03-01" });
     insertDoc(db, { path: "notes/lagging.md", type: "note", updated: "2026-05-01", generatedFrom: "notes/source.md" });
     insertDoc(db, { path: "notes/current.md", type: "note", updated: "2026-05-01", generatedFrom: "notes/old-source.md" });
-    insertDoc(db, { path: "notes/scraped.md", type: "note", updated: "2026-01-01", generatedFrom: "trail-scraper" });
+    insertDoc(db, { path: "notes/scraped.md", type: "note", updated: "2026-01-01", generatedFrom: "route-scraper" });
     insertDoc(db, { path: "notes/dangling.md", type: "note", updated: "2026-01-01", generatedFrom: "notes/gone.md" });
     insertDoc(db, { path: "notes/outside.md", type: "note", updated: "2026-01-01", generatedFrom: "../notes/source.md" });
     return db;
@@ -164,7 +164,7 @@ describe("audit index-lag", () => {
   test("flags an _index.md that lags more than a week behind its detail files", () => {
     const db = freshDb();
     insertDoc(db, { path: "studies/_index.md", type: "index", updated: "2026-01-01" });
-    insertDoc(db, { path: "studies/telescope-setup.md", type: "study", updated: "2026-06-01" });
+    insertDoc(db, { path: "studies/star-bearings.md", type: "study", updated: "2026-06-01" });
 
     const lag = categories(audit(db, taxonomy, { now: NOW }), "index-lag");
     expect(lag.length).toBe(1);
@@ -194,7 +194,7 @@ describe("audit tag-noise", () => {
   test("emits one aggregate finding when singleton tags exceed 40%", () => {
     const db = freshDb();
     const id = insertDoc(db, { path: "notes/tagged.md", type: "note", updated: "2026-06-20" });
-    for (const name of ["owls", "trailhead", "lichen"]) {
+    for (const name of ["eagles", "watercask", "lichen"]) {
       db.run("INSERT INTO tags (name) VALUES (?)", [name]);
       const tagId = (db.prepare("SELECT id FROM tags WHERE name = ?").get(name) as { id: number }).id;
       db.run("INSERT INTO document_tags (document_id, tag_id) VALUES (?, ?)", [id, tagId]);
@@ -214,7 +214,7 @@ describe("audit todo/verify markers", () => {
       path: "notes/markers.md",
       type: "note",
       updated: "2026-06-20",
-      content: "Fix the gate [TODO: repair hinge]. Date is [VERIFY: confirm 2019].",
+      content: "Fix the gate [TODO: repair hinge]. Date is [VERIFY: confirm 2016].",
     });
 
     const issues = audit(db, taxonomy, { now: NOW });
@@ -233,7 +233,7 @@ describe("audit type-mismatch", () => {
     const db = freshDb();
     insertDoc(db, { path: "notes/misfiled.md", type: "study", updated: "2026-06-20" });
     // A correctly-placed study produces no finding.
-    insertDoc(db, { path: "studies/astronomy.md", type: "study", updated: "2026-06-20" });
+    insertDoc(db, { path: "studies/navigation.md", type: "study", updated: "2026-06-20" });
 
     const mismatch = categories(audit(db, taxonomy, { now: NOW }), "type-mismatch");
     expect(mismatch.length).toBe(1);
@@ -283,9 +283,9 @@ describe("audit fact-drift (#392)", () => {
     user: brainConfigSchema.parse({
       taxonomy: {
         facts: {
-          ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d{4})"] },
-          trail_seasons: { source: "me/basics/FACTS.md", patterns: ["(\\w+) seasons on the trail crew"] },
-          loop_miles: { source: "me/basics/FACTS.md", patterns: ["loop of (\\d+(?:\\.\\d+)?) miles"] },
+          troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (\\d{4})"] },
+          years_on_aeaea: { source: "me/basics/FACTS.md", patterns: ["(\\w+) years? on Aeaea"] },
+          passage_miles: { source: "me/basics/FACTS.md", patterns: ["passage of (\\d+(?:\\.\\d+)?) miles"] },
         },
       },
     }),
@@ -305,41 +305,41 @@ describe("audit fact-drift (#392)", () => {
   }
   const SOURCE = {
     path: "me/basics/FACTS.md",
-    frontmatter: "facts: { ranger_since: 2019, trail_seasons: four, loop_miles: 12.5 }\n",
+    frontmatter: "facts: { troy_fell: 2016, years_on_aeaea: one, passage_miles: 12.5 }\n",
     // The source states another value in its own prose; it is never reported.
-    body: "Once a ranger since 2017 in the old notes.\n",
+    body: "Troy fell in 2014 in the old notes.\n",
   };
 
   test("a drifted restatement is one issue; a matching one, the source and an archived piece are none", () => {
     const { root, db } = brain([
       SOURCE,
-      { path: "me/basics/long-bio.md", body: "Alex has been a ranger since 2018, after four seasons on the trail crew.\n" },
-      { path: "me/basics/short-bio.md", body: "A ranger since 2019.\n" },
-      { path: "me/basics/old-bio.md", body: "A ranger since 2016.\n", status: "archived" },
+      { path: "me/basics/long-bio.md", body: "Troy fell in 2015, after one year on Aeaea.\n" },
+      { path: "me/basics/short-bio.md", body: "Troy fell in 2016.\n" },
+      { path: "me/basics/old-bio.md", body: "Troy fell in 2013.\n", status: "archived" },
     ]);
     const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
     expect(drift.map((i) => i.path)).toEqual(["me/basics/long-bio.md"]);
     expect(drift[0]).toMatchObject({
       severity: "warning",
-      message: "ranger_since: found 2018, canonical 2019",
+      message: "troy_fell: found 2015, canonical 2016",
     });
     expect(drift[0].suggestion).toContain("me/basics/FACTS.md");
     db.close();
   });
 
   test("facts_ignore suppresses exactly that key on exactly that document", () => {
-    const drifted = "A ranger since 2018, after three seasons on the trail crew.\n";
+    const drifted = "Troy fell in 2015, after two years on Aeaea.\n";
     const { root, db } = brain([
       SOURCE,
-      { path: "journal/2020-retrospective.md", frontmatter: "facts_ignore: [ranger_since]\n", body: drifted },
+      { path: "journal/2020-retrospective.md", frontmatter: "facts_ignore: [troy_fell]\n", body: drifted },
       { path: "me/basics/long-bio.md", body: drifted },
     ]);
     const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
     expect(drift.map((i) => `${i.path} ${i.message}`).sort()).toEqual([
-      "journal/2020-retrospective.md trail_seasons: found three, canonical four",
-      "me/basics/long-bio.md ranger_since: found 2018, canonical 2019",
-      "me/basics/long-bio.md trail_seasons: found three, canonical four",
-    ]);
+      "journal/2020-retrospective.md years_on_aeaea: found two, canonical one",
+      "me/basics/long-bio.md troy_fell: found 2015, canonical 2016",
+      "me/basics/long-bio.md years_on_aeaea: found two, canonical one",
+    ].sort());
     db.close();
   });
 
@@ -348,26 +348,26 @@ describe("audit fact-drift (#392)", () => {
       SOURCE,
       {
         path: "me/basics/short-bio.md",
-        body: "A ranger since 2019, who walks a loop of 12.50 miles — see `ranger since 2010` in the example.\n\n```\nranger since 2011\n```\n",
+        body: "Troy fell in 2016, who records a passage of 12.50 miles — see `Troy fell in 2010` in the example.\n\n```\nTroy fell in 2011\n```\n",
       },
       // The positive control: a number that really differs is reported.
-      { path: "me/basics/long-bio.md", body: "Alex walks a loop of 13 miles.\n" },
+      { path: "me/basics/long-bio.md", body: "Odysseus records a passage of 13 miles.\n" },
     ]);
     const drift = categories(audit(db, factTaxonomy, { now: NOW, root }), "fact-drift");
-    expect(drift.map((i) => `${i.path} ${i.message}`)).toEqual(["me/basics/long-bio.md loop_miles: found 13, canonical 12.5"]);
+    expect(drift.map((i) => `${i.path} ${i.message}`)).toEqual(["me/basics/long-bio.md passage_miles: found 13, canonical 12.5"]);
     db.close();
   });
 
   test("a capture that reaches into code is not a restatement, though the match starts in prose", () => {
     const codeTaxonomy = buildTaxonomy({
       user: brainConfigSchema.parse({
-        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since .*?(\\d{4})"] } } },
+        taxonomy: { facts: { troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in .*?(\\d{4})"] } } },
       }),
     });
     const { root, db } = brain([
       SOURCE,
-      { path: "me/basics/short-bio.md", body: "Listed as ranger since `2018` in the old export.\n" },
-      { path: "me/basics/long-bio.md", body: "A ranger since the spring of 2018.\n" },
+      { path: "me/basics/short-bio.md", body: "Listed as Troy fell in `2015` in the old export.\n" },
+      { path: "me/basics/long-bio.md", body: "Troy fell in the spring of 2015.\n" },
     ]);
     const drift = categories(audit(db, codeTaxonomy, { now: NOW, root }), "fact-drift");
     expect(drift.map((i) => i.path)).toEqual(["me/basics/long-bio.md"]);
@@ -377,12 +377,12 @@ describe("audit fact-drift (#392)", () => {
   test("an empty capture is compared like any other value", () => {
     const emptyTaxonomy = buildTaxonomy({
       user: brainConfigSchema.parse({
-        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (\\d*)"] } } },
+        taxonomy: { facts: { troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (\\d*)"] } } },
       }),
     });
-    const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "A ranger since . Years unknown.\n" }]);
+    const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "Troy fell in . Years unknown.\n" }]);
     const drift = categories(audit(db, emptyTaxonomy, { now: NOW, root }), "fact-drift");
-    expect(drift.map((i) => i.message)).toEqual(['ranger_since: found "", canonical 2019']);
+    expect(drift.map((i) => i.message)).toEqual(['troy_fell: found "", canonical 2016']);
     db.close();
   });
 
@@ -390,10 +390,10 @@ describe("audit fact-drift (#392)", () => {
     for (const source of ["./me/basics/FACTS.md", "me//basics/FACTS.md"]) {
       const spelled = buildTaxonomy({
         user: brainConfigSchema.parse({
-          taxonomy: { facts: { ranger_since: { source, patterns: ["ranger since (\\d{4})"] } } },
+          taxonomy: { facts: { troy_fell: { source, patterns: ["Troy fell in (\\d{4})"] } } },
         }),
       });
-      const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "A ranger since 2018.\n" }]);
+      const { root, db } = brain([SOURCE, { path: "me/basics/long-bio.md", body: "Troy fell in 2015.\n" }]);
       const drift = categories(audit(db, spelled, { now: NOW, root }), "fact-drift");
       expect({ source, paths: drift.map((i) => i.path) }).toEqual({ source, paths: ["me/basics/long-bio.md"] });
       db.close();
@@ -402,16 +402,16 @@ describe("audit fact-drift (#392)", () => {
 
   test("a pattern without exactly one capture group fails config load, naming the key", () => {
     // The third is malformed on its own and only looks valid once wrapped.
-    for (const patterns of [["ranger since \\d{4}"], ["(ranger) since (\\d{4})"], ["ranger)|(2018"]]) {
+    for (const patterns of [["Troy fell in \\d{4}"], ["(Troy) fell in (\\d{4})"], ["Troy)|(2015"]]) {
       const parsed = brainConfigSchema.safeParse({
-        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns } } },
+        taxonomy: { facts: { troy_fell: { source: "me/basics/FACTS.md", patterns } } },
       });
       expect(parsed.success).toBe(false);
-      expect(parsed.error!.issues.map((i) => i.message).join("\n")).toContain('fact "ranger_since"');
+      expect(parsed.error!.issues.map((i) => i.message).join("\n")).toContain('fact "troy_fell"');
     }
     expect(
       brainConfigSchema.safeParse({
-        taxonomy: { facts: { ranger_since: { source: "me/basics/FACTS.md", patterns: ["ranger since (?:about )?(\\d{4})"] } } },
+        taxonomy: { facts: { troy_fell: { source: "me/basics/FACTS.md", patterns: ["Troy fell in (?:about )?(\\d{4})"] } } },
       }).success
     ).toBe(true);
   });
@@ -420,7 +420,7 @@ describe("audit fact-drift (#392)", () => {
 describe("audit repeated-text (#431)", () => {
   // 240 characters of boilerplate, the kind a generated set repeats.
   const BOILERPLATE =
-    "This entry was generated from the trail survey template. Figures are provisional until the season report is filed, " +
+    "This entry was generated from the route survey template. Figures are provisional until the season report is filed, " +
     "and any measurement taken during a storm closure should be read as an estimate rather than a reading from the gauge.";
   const note = (i: number, extra: string) => ({
     path: `notes/survey-${i}.md`,
@@ -483,7 +483,7 @@ describe("audit repeated-text (#431)", () => {
   }
   const control = [expect.stringContaining(`"${BOILERPLATE.slice(0, 80)}…"`)];
   const OTHER =
-    "The ranger station keeps a paper copy of every permit in the grey cabinet by the door, filed by trailhead and then by date, " +
+    "Odysseus keeps a paper copy of every sailing instruction in a dry chest below the cave, filed by island and then by date, " +
     "so a lost digital record can be rebuilt from the cabinet in a single afternoon.";
   // Long enough to count, so each negative test below is about its structure, not its length.
   test("the second paragraph is long enough to count as prose", () => {
@@ -524,21 +524,21 @@ describe("audit duplicate-title (#416)", () => {
 
   test("two documents with the same title each get one finding naming the other", () => {
     const db = freshDb();
-    insertDoc(db, titled("notes/a.md", "Trail Log"));
-    insertDoc(db, titled("notes/b.md", "Trail Log"));
-    insertDoc(db, titled("notes/c.md", "Trail Log, 2025"));
+    insertDoc(db, titled("notes/a.md", "Route Log"));
+    insertDoc(db, titled("notes/b.md", "Route Log"));
+    insertDoc(db, titled("notes/c.md", "Route Log, 2025"));
     const found = categories(audit(db, taxonomy, { now: NOW }), "duplicate-title");
     expect(found.map((i) => ({ path: i.path, severity: i.severity, message: i.message }))).toEqual([
-      { path: "notes/a.md", severity: "info", message: 'Title "Trail Log" is also the title of notes/b.md' },
-      { path: "notes/b.md", severity: "info", message: 'Title "Trail Log" is also the title of notes/a.md' },
+      { path: "notes/a.md", severity: "info", message: 'Title "Route Log" is also the title of notes/b.md' },
+      { path: "notes/b.md", severity: "info", message: 'Title "Route Log" is also the title of notes/a.md' },
     ]);
     db.close();
   });
 
   test("distinct titles, and a duplicate that is archived, produce none", () => {
     const db = freshDb();
-    insertDoc(db, titled("notes/a.md", "Trail Log"));
-    insertDoc(db, titled("notes/b.md", "Trail Log", "archived"));
+    insertDoc(db, titled("notes/a.md", "Route Log"));
+    insertDoc(db, titled("notes/b.md", "Route Log", "archived"));
     insertDoc(db, titled("notes/c.md", "Signage Plan"));
     expect(categories(audit(db, taxonomy, { now: NOW }), "duplicate-title")).toEqual([]);
     db.close();

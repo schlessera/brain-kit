@@ -27,7 +27,34 @@ jobs:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Typecheck (strict)
-        run: bunx tsc --noEmit
+        run: |
+          node <<'JS'
+          const os = require("node:os");
+          const fs = require("node:fs");
+          const v8 = require("node:v8");
+          const cgroupLimits = Object.fromEntries([
+            "/sys/fs/cgroup/memory.max",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+          ].map((path) => {
+            try { return [path, fs.readFileSync(path, "utf8").trim()]; }
+            catch { return [path, null]; }
+          }));
+          const capacity = Math.min(os.totalmem(), ...Object.values(cgroupLimits)
+            .filter((value) => /^\d+$/.test(value ?? "")).map(Number));
+          console.log(JSON.stringify({
+            node: process.version,
+            typescript: require("typescript/package.json").version,
+            nodeOptions: process.env.NODE_OPTIONS,
+            v8HeapLimitBytes: v8.getHeapStatistics().heap_size_limit,
+            totalMemoryBytes: os.totalmem(), freeMemoryBytes: os.freemem(),
+            cgroupLimits, effectiveMemoryCapacityBytes: capacity,
+          }, null, 2));
+          JS
+          /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+        env:
+          # The historical runner exhausted its default heap (#752). Keep the
+          # full strict check in one process with measured headroom.
+          NODE_OPTIONS: --max-old-space-size=4096
       - name: Invisible-character gate
         # A raw NUL byte makes grep/ripgrep treat a source file as binary, so it
         # drops out of every search silently. Caught that way once already
@@ -53,6 +80,14 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
+      - name: Network namespace for installed backend runtime tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          knob=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$knob" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+          bwrap --version
+          bwrap --unshare-net --ro-bind / / --proc /proc --dev /dev /usr/bin/true
       - name: Chrome for the renderer runtime tests
         # The renderer's isolation holes were found by launching real Chrome,
         # not by testing its allowlist function, so this job MUST cover it —
@@ -121,6 +156,7 @@ jobs:
           TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           mkdir -p "$TARBALL_DIR"
           for package in \
+            geo \
             core \
             ui-sdk \
             ui-backend-claude \
@@ -141,6 +177,11 @@ jobs:
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
             TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
             grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = geo ]; then
+              grep -q "^package/assets/IBMPlexSans-Regular\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/IBMPlexSans-Medium\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/OFL\.txt$" <<< "$TARBALL_CONTENTS"
+            fi
             if [ "$package" = core ]; then
               grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
               grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
@@ -155,6 +196,7 @@ jobs:
             fi
             if [ "$package" = ui-server ]; then
               grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/bin/brain-ui-inbox.js" <<< "$TARBALL_CONTENTS"
             fi
           done
       - name: Install and smoke-test packed packages
@@ -171,6 +213,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain": `file:${tarballs}/core.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
@@ -192,6 +235,7 @@ jobs:
           bun add "$TARBALL_DIR"/*.tgz react react-dom
           bun -e '
             const names = [
+              "@schlessera/brain-geo",
               "@schlessera/brain",
               "@schlessera/brain-ui-sdk",
               "@schlessera/brain-backend-claude",
@@ -213,6 +257,14 @@ jobs:
               if (!loaded || typeof loaded !== "object") {
                 throw new Error(`Failed to import ${name}`);
               }
+            }
+            const geo = await import("@schlessera/brain-geo/server");
+            if (typeof geo.GeoClient !== "function") throw new Error("Packed geo server client is missing");
+            const map = await new geo.GeoClient().staticMap({
+              pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+            });
+            if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+              throw new Error(`Packed Bun static map failed: ${map.reason}`);
             }
             const claude = await import("@schlessera/brain-backend-claude");
             if (typeof claude.createClaudeBackend !== "function") {
@@ -277,9 +329,29 @@ jobs:
             if (!Buffer.from(await Bun.file(join(root, "inputs/odysseus.png")).arrayBuffer()).equals(input)) throw new Error("Packed photo command changed its source");
             const repeated = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
             if (repeated.files[0]?.output !== "photos/odysseus-2.jpg") throw new Error("Packed photo command overwrote its first copy");
+            const recording = `<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>`;
+            await Bun.write(join(root, "recordings/odysseus.gpx"), recording);
+            const imported = (await run(["travel", "route", "recordings/odysseus.gpx", "--to", "routes"])).route;
+            if (imported.source_kind !== "local_gpx" || imported.points !== 2 || imported.distance_km !== 0.111195 || imported.ascent_m !== null) {
+              throw new Error("Packed route CLI did not parse the nonempty GPX with honest unknown elevations");
+            }
+            if (!(await Bun.file(join(root, imported.gpx)).text()).includes("<trkpt")) throw new Error("Packed route CLI wrote no geometry");
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed route CLI changed its source");
+            const summary = await run(["geo", "track", "recordings/odysseus.gpx"]);
+            if (summary.operation !== "track" || summary.geometry[0]?.length !== 2 || summary.counts.retained !== 2 || summary.measurements.distance.value <= 0) {
+              throw new Error("Packed geo track CLI lost its nonempty source/measurement contract");
+            }
+            const map = await run(["geo", "map", "recordings/odysseus.gpx", "--no-background", "--width", "320", "--out", "walk.png"]);
+            const png = Buffer.from(await Bun.file(join(root, "walk.png")).arrayBuffer());
+            if (map.operation !== "map" || map.kind !== "track_only" || map.artifact?.bytes !== png.length || png[0] !== 137 || png.length < 1000 || map.png !== undefined || map.svg !== undefined) {
+              throw new Error("Packed geo map CLI did not write a qualified local PNG");
+            }
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed geo CLI changed its source");
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
+            "@schlessera/brain-geo",
+            "@schlessera/brain-geo/server",
             "@schlessera/brain-ui-sdk",
             "@schlessera/brain-ui-sdk/protocol",
             "@schlessera/brain-ui-sdk/schemas",
@@ -298,6 +370,14 @@ jobs:
             if (!loaded || typeof loaded !== "object") {
               throw new Error(`Node failed to import ${name}`);
             }
+          }
+
+          const { GeoClient } = await import("@schlessera/brain-geo/server");
+          const map = await new GeoClient().staticMap({
+            pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+          });
+          if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+            throw new Error(`Packed Node static map failed: ${map.reason}`);
           }
 
           const bunApiPackages = [
@@ -353,6 +433,12 @@ jobs:
           for sub in digest crontab environment; do
             grep -qE "^ *brain-ui-cron $sub( |$)" <<< "$CRON_USAGE"
           done
+      - name: Check packed query source and default JavaScript imports
+        run: bun scripts/check-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed pi graph and listing tool runtime
+        run: bun scripts/check-pi-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed operational backup and restore commands
+        run: bun scripts/check-inbox-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
       - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
         # The repo's own typecheck resolves cross-package imports to src via
         # customConditions ["bun"], so the emitted .d.ts consumers get is
@@ -390,6 +476,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
                 "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
@@ -398,6 +485,7 @@ jobs:
             }, null, 2) + "\n");
           '
           bun add \
+            "$TARBALL_DIR/geo.tgz" \
             "$TARBALL_DIR/render-template.tgz" \
             "$TARBALL_DIR/ui-sdk.tgz" \
             "$TARBALL_DIR/ui-kit.tgz" \
@@ -424,6 +512,7 @@ jobs:
               }
             }
             for (const [name, tarball] of [
+              ["@schlessera/brain-geo", "geo"],
               ["@schlessera/brain-render-template", "render-template"],
               ["@schlessera/brain-ui-sdk", "ui-sdk"],
               ["@schlessera/brain-ui-kit", "ui-kit"],
@@ -553,6 +642,32 @@ jobs:
             bun scripts/check-changeset.ts "${{ github.event.before }}"
           fi
 
+  feature-captures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Prepare pinned public fonts and original notices
+        run: bun run capture:fonts
+      - name: Real editorial sources twice, in the shared offline browser image
+        run: bun run capture:verify
+        env:
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          TYPESAFE_API_KEY: ""
+      - name: Reviewable captures, provenance and reproducibility receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: feature-captures
+          path: tmp/feature-capture-verification/
+          if-no-files-found: error
+          include-hidden-files: true
+
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
     # they are allowed to run in.
@@ -600,8 +715,18 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build workspace exports used by the browser integration tests
         run: bun run build
+      - name: Prepare pinned preview fonts for ranking layout verification
+        run: bun run capture:fonts
       - name: Stories on dark and on paper (D32), and the visual baselines
         run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
+      - name: Dictation phone and desktop review captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dictation-captures-${{ matrix.shard }}
+          path: packages/ui-kit/.vitest-attachments/dictation/
+          if-no-files-found: ignore
+          include-hidden-files: true
       - name: The actual and diff images, when a baseline moved
         if: failure()
         uses: actions/upload-artifact@v7

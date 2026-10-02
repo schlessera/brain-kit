@@ -36,6 +36,9 @@
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,9 +54,10 @@ const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArg = argv.find((a) => a.startsWith("--project="));
 const shardArg = argv.find((a) => a.startsWith("--shard="));
-// Three projects: every story on dark, every story on paper (D32), and the
-// curated visual baselines in both themes.
-const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual"];
+// Stories on dark and paper (D32), curated visual baselines, and the footer's
+// isolated coarse-pointer context, and module Settings' consumer integration.
+// Consumer styles and font fallback must not affect kit baseline captures.
+const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -66,7 +70,7 @@ if (inside) {
   // through a package script, because a package script would need bun.
   //
   // One call for every project, not one per project: vitest then spreads the
-  // files of all three over every core, where a project at a time left cores
+  // files of the selected projects over every core, where a project at a time left cores
   // idle. `--shard` splits that combined file list, so no shard runs empty.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
   const args = ["run", ...projects.map((project) => `--project=${project}`)];
@@ -82,6 +86,13 @@ if (inside) {
 const uid = typeof process.getuid === "function" ? process.getuid() : 0;
 const gid = typeof process.getgid === "function" ? process.getgid() : 0;
 
+// The ranking footer proves layout with the actual preview faces. Prepare public
+// pinned inputs before the browser runs; the test command only reads this cache.
+const fontStatus = run("bun", ["scripts/capture.ts", "--prepare-fonts"], { cwd: REPO });
+if (fontStatus !== 0) process.exit(fontStatus);
+const fontHash = createHash("sha256").update(readFileSync(resolve(REPO, "scripts/captures/font-lock.json"))).digest("hex");
+const fontCache = resolve(tmpdir(), "brain-kit-feature-capture-fonts", fontHash);
+
 const status = run("docker", [
   "run",
   "--rm",
@@ -90,6 +101,8 @@ const status = run("docker", [
   `${uid}:${gid}`,
   "-v",
   `${REPO}:/repo`,
+  "-v",
+  `${fontCache}:/tmp/brain-kit-feature-capture-fonts/${fontHash}:ro`,
   "-w",
   "/repo",
   "-e",

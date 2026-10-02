@@ -1,25 +1,25 @@
 {"now": "2026-07-12"}
-{"id": "exact-title-telescope", "q": "Telescope Setup & Collimation", "class": "exact", "expected": ["studies/telescope-setup.md"]}
-{"id": "exact-title-plan", "q": "Bookshelf Build Plan", "class": "exact", "expected": ["projects/active/bookshelf/plan.md"]}
-{"id": "question-collimate", "q": "how do I collimate the telescope?", "class": "question", "expected": ["studies/telescope-setup.md"]}
-{"id": "question-physio", "q": "when is my next physio appointment", "class": "question", "expected": ["health/knee-injury.md"]}
-{"id": "paraphrase-signs", "q": "route and seal the sign", "class": "paraphrase", "expected": ["projects/active/trail-signage/status.md"]}
-{"id": "paraphrase-blanks", "q": "cedar blank", "class": "paraphrase", "expected": ["projects/active/trail-signage/materials.md"]}
-{"id": "alias-dobsonian", "q": "the Dobsonian", "class": "alias", "expected": ["studies/telescope-setup.md"]}
-{"id": "alias-scope", "q": "my scope", "class": "alias", "expected": ["studies/telescope-setup.md"]}
-{"id": "alias-only", "q": "lightbucket", "class": "alias", "expected": ["studies/telescope-setup.md"]}
-{"id": "filename-bookshelf", "q": "bookshelf status", "class": "ambiguous-filename", "expected": ["projects/active/bookshelf/status.md"]}
-{"id": "filename-signage", "q": "trail signage status", "class": "ambiguous-filename", "expected": ["projects/active/trail-signage/status.md"]}
+{"id": "exact-title-bearings", "q": "Star Bearings & Orientation", "class": "exact", "expected": ["studies/star-bearings.md"]}
+{"id": "exact-title-plan", "q": "Raft — Build Plan", "class": "exact", "expected": ["projects/active/raft/plan.md"]}
+{"id": "question-orient", "q": "how do I orient the star guide?", "class": "question", "expected": ["studies/star-bearings.md"]}
+{"id": "question-recovery", "q": "when is my next recovery appointment", "class": "question", "expected": ["health/knee-injury.md"]}
+{"id": "paraphrase-spars", "q": "splice and seal the spar", "class": "paraphrase", "expected": ["projects/active/sail-repairs/status.md"]}
+{"id": "paraphrase-blanks", "q": "cedar blank", "class": "paraphrase", "expected": ["projects/active/sail-repairs/materials.md"]}
+{"id": "alias-calypso-guide", "q": "the Calypso guide", "class": "alias", "expected": ["studies/star-bearings.md"]}
+{"id": "alias-bearings", "q": "my bearings", "class": "alias", "expected": ["studies/star-bearings.md"]}
+{"id": "alias-only", "q": "bearingbook", "class": "alias", "expected": ["studies/star-bearings.md"]}
+{"id": "filename-raft", "q": "raft status", "class": "ambiguous-filename", "expected": ["projects/active/raft/status.md"]}
+{"id": "filename-sail-repairs", "q": "sail repairs status", "class": "ambiguous-filename", "expected": ["projects/active/sail-repairs/status.md"]}
 {"id": "time-due-next", "q": "what is due next", "class": "time", "expect": {"select": {"field": "deadline", "after": "now", "order": "asc", "take": 1}}}
 {"id": "time-review", "q": "what should I review next", "class": "time", "expect": {"select": {"type": "context", "field": "next_review", "after": "now", "order": "asc", "take": 1}}}
 {"id": "stale-bio", "q": "short bio", "class": "stale-vs-current", "expected": ["me/basics/FACTS.md"], "stale": ["me/basics/short-bio.md"]}
 {"id": "stale-facts", "q": "biographical facts", "class": "stale-vs-current", "expected": ["me/basics/FACTS.md"], "stale": ["me/basics/short-bio.md"]}
-{"id": "no-answer-tax", "q": "tax return deadline", "class": "no-answer", "expected": []}
-{"id": "multi-hop-collimate", "q": "what should I collimate before the deep-sky session", "class": "multi-hop", "expected": ["studies/telescope-setup.md"]}
-{"id": "multi-hop-focus", "q": "current focus telescope", "class": "multi-hop", "expected": ["studies/telescope-setup.md"]}
-{"id": "non-english-title", "q": "Deep-Sky Übersicht", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
-{"id": "non-english-word", "q": "Katalog", "class": "non-english", "expected": ["studies/astronomy/messier-catalog.md"]}
+{"id": "no-answer-tribute", "q": "tribute return deadline", "class": "no-answer", "expected": []}
+{"id": "multi-hop-orient", "q": "what should I orient before the night-sailing passage", "class": "multi-hop", "expected": ["studies/star-bearings.md"]}
+{"id": "multi-hop-focus", "q": "current focus star guide", "class": "multi-hop", "expected": ["studies/star-bearings.md"]}
+{"id": "non-english-title", "q": "Nächtliche Übersicht", "class": "non-english", "expected": ["studies/navigation/star-catalog.md"]}
+{"id": "non-english-word", "q": "Katalog", "class": "non-english", "expected": ["studies/navigation/star-catalog.md"]}
 {"id": "recency-rehab", "q": "knee rehab", "class": "recency", "expected": ["context/current-focus.md"]}
-{"id": "current-state-face-frame", "q": "walnut face frame joinery", "class": "current-state", "expected": ["projects/active/bookshelf/plan.md"]}
-{"id": "current-state-scope-case", "q": "telescope case dimensions", "class": "current-state", "expected": ["studies/telescope-setup.md"]}
+{"id": "current-state-deck-frame", "q": "pine deck frame joinery", "class": "current-state", "expected": ["projects/active/raft/plan.md"]}
+{"id": "current-state-guide-case", "q": "navigation guide case dimensions", "class": "current-state", "expected": ["studies/star-bearings.md"]}
 {"id": "current-state-rehab", "q": "range-of-motion progress", "class": "current-state", "expected": ["health/knee-injury.md"]}

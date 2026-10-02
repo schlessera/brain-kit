@@ -6,27 +6,24 @@ updated: 2026-06-01
 tags: [identity, facts, source-of-truth]
 status: active
 relevance: primary
-summary: "Single source of truth for Alex Example's biographical facts — derivation base for all bios"
-facts: { ranger_since: 2019 }
+summary: "Single source of truth for Odysseus's biographical facts — derivation base for all bios"
+facts: { troy_fell: 2016 }
 ---
 
-Canonical facts. The bios under `me/basics/` are derived from this file and must
+Canonical facts. The bios under `me/basics/` derive from this file and must
 not lag behind it. See [[identity]] for the narrative overview.
 
 ## Basics
 
-- **Name:** Alex Example
-- **Role:** Park ranger, Cedar Hollow Wilderness Preserve (since 2019)
-- **Prior:** Seasonal trail crew (2015–2019); certified Wilderness First Responder
-- **Location:** Cedar Hollow, Pacific Northwest
+- **Name:** Odysseus
+- **Role:** King of Ithaca
+- **Departure:** Troy fell in 2016. The return has taken ten years.
+- **Location:** Ogygia; seven years here, after one year on Aeaea
+- **Household:** Penelope holds Ithaca; Telemachus is seeking news in Sparta
+- **Crew:** 600 men in 12 ships out of Troy; none survived Thrinacia
 
-## Interests (tracked in this brain)
+## Threads tracked in this brain
 
-- **Health:** long-term knee rehab, routine checkups, sleep tracking
-- **Woodworking:** hand-tool furniture; current builds are a bookshelf and trail signage
-- **Astronomy:** self-study course, small Dobsonian telescope, deep-sky observing
-
-## Certifications
-
-- Wilderness First Responder (renewed 2026-02)
-- Chainsaw operator, Class B
+- **Health:** knee rehab, routine checks and sleep before departure
+- **Shipbuilding:** raft plans and sail repairs
+- **Navigation:** Calypso's star bearings and a night-sailing study guide

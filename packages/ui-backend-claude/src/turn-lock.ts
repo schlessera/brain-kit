@@ -1,4 +1,4 @@
-import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
+import type { KeyedLock, KeyedLockAcquireOptions } from "@schlessera/brain-ui-sdk/server";
 import { LockBusyError } from "@schlessera/brain-ui-sdk/server";
 
 import type { BackendLogFn } from "./options.js";
@@ -29,8 +29,13 @@ export function createTurnLockBinding(options: {
   writeLock: KeyedLock;
   lockWaitMs: number;
   log: BackendLogFn;
+  admission?: KeyedLockAcquireOptions;
 }): TurnLockBinding {
   const { turn, writeLock, lockWaitMs, log } = options;
+  const waiting = new AbortController();
+  const onAbort = () => waiting.abort();
+  if (options.admission?.signal?.aborted) waiting.abort();
+  else options.admission?.signal?.addEventListener("abort", onAbort, { once: true });
 
   // Write-lock bookkeeping is keyed by toolUseId and idempotent per key: the
   // PreToolUse hook and the canUseTool re-acquire can both run for one tool
@@ -44,15 +49,17 @@ export function createTurnLockBinding(options: {
     toolUseId,
     lockKey
   ) => {
+    if (turn.ended || waiting.signal.aborted) return { ok: false, reason: "Turn ended before lock admission." };
     if (lockKey === null || turn.pendingReleases.has(toolUseId)) return { ok: true };
     const waitStarted = Date.now();
     let release: () => void;
     try {
       release = await writeLock.acquire(
         lockKey,
-        lockWaitMs > 0 ? { timeoutMs: lockWaitMs } : undefined
+        { ...options.admission, signal: waiting.signal, ...(lockWaitMs > 0 ? { timeoutMs: lockWaitMs } : {}) }
       );
     } catch (err) {
+      if (waiting.signal.aborted) return { ok: false, reason: "Turn cancelled while waiting for the shared write lock." };
       if (err instanceof LockBusyError) {
         log("warn", "lock wait exceeded the bound; denying with retry", {
           key: lockKey,
@@ -79,10 +86,12 @@ export function createTurnLockBinding(options: {
         waitedMs,
       });
     }
-    if (turn.ended || turn.pendingReleases.has(toolUseId)) {
+    if (turn.ended || waiting.signal.aborted || turn.pendingReleases.has(toolUseId)) {
       // Turn drained while queued, or a concurrent acquire won: never runs.
       release();
-      return { ok: true };
+      return turn.ended || waiting.signal.aborted
+        ? { ok: false, reason: "Turn ended before the shared write lock became available." }
+        : { ok: true };
     }
     turn.pendingReleases.set(toolUseId, release);
     return { ok: true };
@@ -101,6 +110,8 @@ export function createTurnLockBinding(options: {
     releaseForTool,
     close() {
       turn.ended = true;
+      waiting.abort();
+      options.admission?.signal?.removeEventListener("abort", onAbort);
       for (const release of turn.pendingReleases.values()) release();
       turn.pendingReleases.clear();
     },

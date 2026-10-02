@@ -69,7 +69,7 @@ export const ACTIVITY_SQL = {
   heartbeat:
     "UPDATE activity_spans SET last_heartbeat_at = ? WHERE span_id = ? AND outcome IS NULL",
   openSessionRuns:
-    "SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL AND origin = 'session'",
+    "SELECT DISTINCT run_id FROM activity_spans WHERE outcome IS NULL AND origin IN ('session', 'autonomous')",
   staleRoots: `SELECT span_id, run_id FROM activity_spans
            WHERE outcome IS NULL AND parent_span_id IS NULL
              AND writer != ? AND COALESCE(last_heartbeat_at, started_at) < ?`,

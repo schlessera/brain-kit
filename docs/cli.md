@@ -8,6 +8,10 @@ additional outcomes described below. The `--json` envelope shapes marked ⚖ are
 the [integration contract](integration-contract.md). `brain --version` prints
 the installed `@schlessera/brain` version.
 
+Commands finish stdout and stderr writes before exiting, including large piped
+responses. A slow consumer delays completion until those writes finish; unrelated
+provider sockets and timers do not keep a finished command alive.
+
 This reference follows `main`. Check your installed version and its changelog
 before using additions marked 0.40.0; those are absent from the published
 0.39.0 packages. The [quickstart](quickstart.md) uses the published template.
@@ -65,6 +69,65 @@ pages. The `generate-pdf` skill treats zero warnings as done.
 To use `chrome-headless-shell`, point `PUPPETEER_EXECUTABLE_PATH` at its
 executable. Measure rendering time on your own documents and machine.
 
+### Geo operations
+
+`brain geo` shares the concrete geo implementation used by SDK/travel consumers.
+It needs no index. All coordinate arguments are **latitude,longitude**; map bounds
+are **west,south,east,north**. Services use [canonical geo config](configuration.md#geo)
+and remain off until configured. Public eligibility is explicit; review the
+[Nominatim policy](https://operations.osmfoundation.org/policies/nominatim/) and
+[FOSSGIS full terms](https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/)
+before choosing those services. Configured endpoints can replace them without code
+changes. The [geo reference](../packages/geo/README.md) details aggregate admission,
+cache age/coordinate transfer, dataset capability, fallback and query budgets.
+
+| Command | Result and options |
+|---|---|
+| `geo geocode "Harbour, Ithaca"` ⚖ | Qualified forward candidates; ambiguity and unknown accuracy remain visible. `--reverse 38.36,20.72` selects reverse lookup instead of a query. |
+| `geo route 38.36,20.72 38.37,20.73 --mode foot` ⚖ | Ordered 2–100 stops; explicit `car`, `foot` or `bike` mode. Declared verified prepared dataset, actual service/transfer/fallback, all legs and nullable provider estimates. |
+| `geo poi --near 38.36,20.72 --radius-m 100 --tag amenity=cafe` ⚖ | Near a point, or `--along routes/walk.gpx`; exactly one. Radius 1–5,000 m. Repeat `--tag` for exact AND filters; a bare key means presence. Opening-hours strings remain uninterpreted; absence is unknown. |
+| `geo track routes/walk.gpx` ⚖ | Recovered GPX summary with exact omissions and usable-section measurements. `--near lat,lon` and/or `--compare other.gpx` require `--tolerance-m`. Comparison optionally accepts `--sample-spacing-m`, reports coverage of the first track relative to the second, and retains both sources/counts. |
+| `geo map routes/walk.gpx --no-background --out assets/walk.png` ⚖ | Local vector PNG plus complete source/text evidence. Repeat `--pin lat,lon,label` for stops; labels can contain commas after the coordinates. Optional repeated `--point lat,lon` plus required `--mode` resolves calculated routing first. `--bbox`, `--title`, `--width` (320–2,048, default 1,024); background uses configured vector geometry unless explicitly omitted. |
+
+GPX parsing retains valid zero/polar/repeated coordinates, splits at invalid points
+and preserves original gaps/files. Measurements use unsimplified usable sections:
+great-circle distance, complete-data three-point-median/3 m ascent/descent, elapsed
+time including pauses within sections and excluding gaps. Missing/decreasing times
+and incomplete elevations are unknown; moving time stays unavailable. Files do not
+prove travel. Nearest distance uses great-circle segment interiors; coverage is
+directional and reports its tolerance, sampling method and uncertainty bounds.
+
+Maps preserve every stop/leg in the full legend, including missing routes and
+cropped stops. Wide (>5 degrees per axis) or unavailable backgrounds yield a
+qualified plain map. Unsupported polar/date-line projection, missing glyphs or
+image budgets retain full text/summary/source with a null artifact. Valid source
+coordinates are never clamped. Used OSM evidence has visible attribution; pure
+imported-track maps make no OSM-background claim. The geo reference describes
+projection, scale, font licenses and bounded image/input sizes.
+
+Files/output stay inside the brain through symlink checks. Map output requires an
+initialized brain and explicit PNG `--out`; an existing regular file at the chosen
+path is replaced. Scratch destinations follow the usual ignored/genuine-directory
+rules and are pruned after writing. Read-only geo commands do not create `brain.db`.
+
+Machine output is one JSON document. Geocode/reverse/route/POI preserve the complete
+shared service result and add `operation` (plus query/coordinate request for
+geocoding and nullable `sourceFile` for along-track POIs). Track adds `operation`,
+`omissions`, nullable `nearest` and nullable `comparison` to its full summary. Map
+adds `operation` and `artifact: {path,format:"png",bytes} | null` to full map evidence,
+omitting binary PNG/SVG contents. The exact types are in the
+[integration contract](integration-contract.md#geo-cli-envelopes).
+`--human` prints source, unknowns, partial status, every transfer attempt and
+applicable attribution. Exit 0 means a valid result or documented text/plain-map
+fallback; exit 1 is usage/input failure; exit 2 is a failed service command, storage
+or local-renderer failure. Genuine no-match/no-route is a successful empty result.
+
+Resolve/fetch before document export. Inline the already-created local PNG as a
+`data:image/png;base64,...` image in the document, then run `brain render` without
+`--allow-host`. The renderer keeps its existing network-denied policy; geo service
+lookups belong to the earlier map operation. Retain the map's full text record
+when its artifact is null.
+
 ## Search + context
 
 | Command | Does | Notes |
@@ -87,7 +150,7 @@ executable. Measure rendering time on your own documents and machine.
 | `registry` ⚖ | Regenerate the registry table of every `_index.md` with a `registry:` frontmatter block, from its children's frontmatter, between `<!-- brain:generated:registry -->` markers | `--check` writes nothing and lists stale indexes (exit 1), and is the only form that runs in an uninitialized directory; an index or child that cannot be read or parsed is reported under `invalid` and left as it is; `updated` is bumped only on a file whose table changed; `{indexes, written, stale, invalid}` |
 | `maintain` | Routine maintenance sequence: registry tables (as `brain registry`), incremental index, vector compaction (only when fewer than half the vector slots are live), audit snapshot (the same counts as `brain audit`, module hygiene checks included, with its must-fix and informational totals), stats recording (0.40.0+), tag report (counts only), git packing, scratch prune | exit 2 if any step failed (the tag report never fails it); the hosting container runs it daily. The git step runs git's non-destructive `loose-objects`, `incremental-repack` and `pack-refs` maintenance tasks when the brain is a git work tree (git's own gc counts loose objects, not bytes, so a content repo's large blobs can stay loose indefinitely); it never deletes a ref or expires a reflog; `--no-git` skips it. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
 | `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], failed: [{path, reason}], bytes, files}`; exit 2 when a file could not be removed; `render`, `image`, `okf export` and the UI's mask tool prune after writing there, and the chat server prunes hourly |
-| `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top. Opens with a `> **Warning:**` line for each `brain audit` finding about the focus document (review overdue, over its `canonicalPolicy` budget, past-dated lines). Overdue Reviews lists the 5 oldest, then `… and N more (brain audit)`; `--limit-reviews <n>` changes the cap. An **Upkeep** section, printed when `context/hygiene/last-run.md` or `open.md` exists, gives the last content-hygiene run, its age (`(overdue)` past 10 days) and the number of open entries |
+| `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top. Opens with a `> **Warning:**` line for each `brain audit` finding about the focus document (review overdue, over its `canonicalPolicy` budget, past-dated lines). Overdue Reviews lists the 5 oldest, then `… and N more (brain audit)`; `--limit-reviews <n>` changes the cap. **Upkeep** always shows the current audit must-fix count (errors plus warnings, including enabled module checks; informational TODO/VERIFY findings do not count). When `context/hygiene/last-run.md` or `open.md` exists, it also gives the last content-hygiene run, its age (`(overdue)` past 10 days) and the number of open entries |
 
 ## Graph
 
@@ -135,6 +198,9 @@ is always rejected, even when excluded from indexing.
 `okf-dist` is excluded by default. Wiki-links are resolved against only the exported
 file set, so links into excluded domains degrade to plain display text rather than
 leaking paths.
+Same-document heading links such as `[[#Section one]]` use the heading as their
+visible label; an explicit pipe label takes precedence. Heading fragments are
+preserved without checking whether the heading exists.
 
 ## Onboarding + health
 
@@ -153,8 +219,10 @@ leaking paths.
 |---|---|---|
 | `skills sync` | Materialize core + module skills into `.agents/skills/`, run emitters | extra emitters via config `skills.emitters` |
 | `skills lint` | Lint all skills (agent-agnostic rules) | unparseable SKILL.md frontmatter = error; exit 1 on errors |
-| `module list` | Enabled + available modules with one-liners | |
+| `module list` | Configured + available modules with one-liners | `--json` adds active/dormant state and estimated active context tokens; dormant cron metadata is empty |
+| `module settings <name>` | Read or save validated per-module JSON settings | `--set dotted.key=value`, `--stdin` complete overrides, `--revision REV`, `--preview` without writing; `--migrate [--preview]` reviews/applies declared content migration; `--action id` uses saved settings |
 | `module lint <name>` | Validate a module: manifest, skills, collisions, configSchema | quality gate for `/new-module` |
+| `module enable\|disable <name>` | Reactivate or park a configured workflow, synchronize skills and owned instructions | preserves domain config and content; refuses legacy mixed instruction sections before writes; see [migration](modules.md#instruction-migration) |
 | `config check` | Validate config, print effective taxonomy summary | |
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
 | `sync` ⚖ | `sync run`, then the `/sync` skill only for what needs judgment | In 0.40.0+, machine mode (`--json` or non-TTY stdout) emits one `{run, agent}` result; human mode prints the report and any agent answer. Hands over to a configured runner for unresolved conflicts, `UNKNOWN` leftovers, or interactive `MEDIA`/`LARGE` leftovers. Without an invocation, preserves the run's exit code (`0` complete, `1` failed, `3` needs judgment); a successful agent invocation exits `0`, an agent failure `2`. On 0.39.0, bare sync always prints text; use `sync run --json` for the mechanical envelope |
@@ -235,3 +303,21 @@ not the comparison windows. Evaluation never writes history; `--record` and
 maintain evaluate before their existing recording step. See the
 [full trend contract](integration-contract.md#recorded-corpus-trend-verdicts-additive-in-0400)
 and [decision](decisions/stats-trends.md).
+
+## Queue intake on a UI server
+
+`brain queue add --server https://example.org --key odysseus-route-1
+--credential-file ./queue-credential.json --text "Plan Odysseus's route" --json`
+queues a durable triage item without filing content. Keep the same key when
+retrying: the server returns the same item for identical content and rejects
+reuse for different content. `brain add` remains the content-capture command.
+
+Use the existing signed principal cookie in a private (0600) JSON credential
+file: `{ "server": "https://example.org", "cookie": "SIGNED_PRINCIPAL_COOKIE_VALUE" }`.
+Its origin must match `--server`; redirects never forward it. Password mode
+requires a usable owner or delegated cookie. Other authentication modes retain
+the server's existing authority; omitting the credential file sends no cookie.
+Only loopback supports plain HTTP. `--title`, `--text` and `--url` carry input;
+at least one is required. The command needs no local index or brain config.
+See the [exact JSON and error contract](integration-contract.md#durable-share-and-cli-intake-additive-679)
+and [HTTP intake contract](http-api.md#authenticated-cli-intake-additive-679).

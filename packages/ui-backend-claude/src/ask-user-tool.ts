@@ -1,3 +1,5 @@
+import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { createAskUserFormTool, type AskUserFormHandler } from "./ask-user-form-tool.js";
 import {
   tool,
   createSdkMcpServer,
@@ -90,6 +92,8 @@ export function createBrainUiMcpServer(handlers: {
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
   askUserRank?: AskUserRankHandler;
+  askUserForm?: AskUserFormHandler;
+  askUserFormLimits?: AskUserFormLimits;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
   queryActivity?: ActivityQueryHandler;
@@ -101,6 +105,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.askUser) tools.push(createAskUserTool(handlers.askUser));
   if (handlers.askUserList) tools.push(createAskUserListTool(handlers.askUserList));
   if (handlers.askUserRank) tools.push(createAskUserRankTool(handlers.askUserRank));
+  if (handlers.askUserForm) tools.push(createAskUserFormTool(handlers.askUserForm, handlers.askUserFormLimits));
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath));
   }

@@ -28,7 +28,8 @@
   "sideEffects": false,
   "type": "module",
   "bin": {
-    "brain-ui-cron": "./dist/bin/brain-ui-cron.js"
+    "brain-ui-cron": "./dist/bin/brain-ui-cron.js",
+    "brain-ui-inbox": "./dist/bin/brain-ui-inbox.js"
   },
   "exports": {
     ".": {
@@ -63,7 +64,8 @@
     "hono": "^4",
     "ignore": "^7.0.5",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@schlessera/brain-geo": "workspace:*"
   },
   "peerDependencies": {
     "@schlessera/brain-backend-pi": "*",

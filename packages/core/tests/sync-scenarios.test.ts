@@ -65,10 +65,10 @@ const ROWS: Row[] = [
     check(brain, body) {
       const subjects = body.steps.commit[0].commits.map((c: { subject: string }) => c.subject);
       // Two single-file domains gathered into one commit.
-      expect(subjects).toEqual(["Update health, note: Trail fitness, Owl count"]);
+      expect(subjects).toEqual(["Update health, note: Shore fitness, Eagle count"]);
       expect(body.steps.pull[0].status).toBe("synced");
       expect(body.steps.push[0].status).toBe("pushed");
-      expect(pushedFile(brain, "notes/owl-count.md")).toContain("Three barred owls");
+      expect(pushedFile(brain, "notes/eagle-count.md")).toContain("Three eagles");
       inSync(brain, body);
     },
   },
@@ -81,7 +81,7 @@ const ROWS: Row[] = [
       expect(body.steps.pull[0].status).toBe("rebased");
       expect(body.steps.resolve).toEqual([]);
       expect(pushedFile(brain, "notes/elk-sighting.md")).toContain("bull elk");
-      expect(pushedFile(brain, "notes/owl-count.md")).toContain("Three barred owls");
+      expect(pushedFile(brain, "notes/eagle-count.md")).toContain("Three eagles");
       inSync(brain, body);
     },
   },

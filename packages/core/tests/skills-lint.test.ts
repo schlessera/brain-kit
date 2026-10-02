@@ -209,12 +209,12 @@ describe("lint rules — one fixture per rule", () => {
     const s = mkSkill("abs-path", {
       name: "abs-path",
       description: "d",
-      body: "Read the file at /home/alex/brain/me/identity.md before starting.",
+      body: "Read the file at /home/odysseus/brain/me/identity.md before starting.",
     });
     const findings = lintSkills([s]).filter((f) => f.rule === "absolute-path");
     expect(findings).toHaveLength(1);
     expect(findings[0].severity).toBe("warning");
-    expect(findings[0].message).toContain("/home/alex/brain/me/identity.md");
+    expect(findings[0].message).toContain("/home/odysseus/brain/me/identity.md");
   });
 
   test("URLs are not flagged as absolute paths", () => {

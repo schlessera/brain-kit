@@ -63,7 +63,9 @@ Make the body the current specification: context/source pointers, scope,
 exclusions, checkable acceptance criteria, verification and contract impact.
 For an epic, maintain its outcome, scope/exclusions, definition of done and
 native child relationships instead of pretending it is one coding task.
-Epics are never coded directly; `work-issue` excludes them from selection.
+Epics are never coded directly and never carry `agent-ready`, even when their
+children's prerequisites are resolved; `work-issue` excludes them from selection.
+This follows the [maintainer's epic ruling](https://github.com/schlessera/brain-kit/issues/56#issuecomment-5866350052).
 
 Perform useful work available **this turn** when known facts and decisions
 settle it: repair citations, fold a recorded ruling into the body, clarify
@@ -170,14 +172,27 @@ contradictory specifications. Re-read, apply only intended label deltas and
 parent/body changes, and verify the result. Do not post a duplicate summary or
 prompt on an unchanged repeat pass.
 
-**Finally, re-read the issue's actual labels. If it has no `needs:` label,
-add `agent-ready`; otherwise keep it absent.** First establish the complete
-brief above: any unresolved scoping/design/access/repro/use-case prerequisite
-must have its honest `needs:` label. A fully specified dependency-blocked
-issue may have both `agent-ready` and `blocked`; it remains unpickable until
-unblocked. If a prerequisite label appears concurrently, do not add readiness.
-Verify after the edit and correct any inconsistent readiness introduced by
-this pass. Do not label a closed issue or claim another worker's assignment.
+**Finally, re-read the issue's state and actual labels. Keep `agent-ready`
+absent on epics, removing it if present. For ordinary issues, add it only when
+the brief is complete and no `needs:` label remains; otherwise keep it absent.**
+Do not invent a `needs:` label merely to keep an epic out of readiness. First
+establish the complete brief above: any unresolved scoping/design/access/repro/
+use-case prerequisite must have its honest `needs:` label. A fully specified
+dependency-blocked ordinary issue may have both `agent-ready` and `blocked`;
+it remains unpickable until unblocked.
+
+| Issue after prerequisite review | Readiness |
+| --- | --- |
+| Epic, with or without `needs:` labels | No `agent-ready`; preserve genuine prerequisites. |
+| Complete ordinary issue, no `needs:` or `blocked` | Add `agent-ready`. |
+| Ordinary issue with any unresolved `needs:` | No `agent-ready`. |
+| Complete ordinary issue, no `needs:`, dependency `blocked` | May carry `agent-ready` and `blocked`. |
+
+If an epic or prerequisite label appears concurrently, do not add readiness.
+After the edit, verify the actual state and labels again: open epics must lack
+`agent-ready`, and ordinary readiness must agree with the cases above. Correct
+any inconsistent readiness introduced by this pass. Do not label a closed issue
+or claim another worker's assignment.
 
 Leave board status to `project-sync`; preserve manually set `In progress` or
 `Done` unless a real paused-work handoff needs reconciliation under the

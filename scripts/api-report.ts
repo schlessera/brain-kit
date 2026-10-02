@@ -38,9 +38,13 @@ const REPORT_DIR = join(ROOT, "api-report");
  * separately in schlessera/brain-kit#534.
  */
 export const SEAMS: Record<string, Record<string, string[]>> = {
-  core: { ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"] },
+  core: {
+    ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"],
+    "./queries": ["readGraphMeta", "readGraphClusters", "readGraphNeighborhood", "readGraphDiscovery", "readGraphMaintenance", "readLinkWalk", "readVoiceVocabulary", "listIndexDocuments", "findIndexDocuments"],
+  },
   scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },
   "module-jobs": { ".": ["JobAdapter"] },
+  "ui-server": { ".": ["ServerConfig"] },
   "ui-sdk": {
     "./client": ["AsrClient", "ToolRenderer"],
     "./server": [

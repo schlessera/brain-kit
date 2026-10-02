@@ -54,7 +54,8 @@ export interface BackendModule {
 - `modelSource` is optional. The Claude descriptor uses it for Anthropic model
   discovery; pi has no discovery source.
 - `probeRuntime` is optional and asynchronous. It checks the runtime a turn
-  would spawn, returning its `BackendRuntimeReport` or rejecting to refuse
+  would spawn, and its loaded SDK. An in-process backend can return an SDK-only
+  `BackendRuntimeReport`; it never invents an executable identity. Reject to refuse
   startup. `createApp` awaits it before opening application resources. Migrate
   synchronous descriptors to `async probeRuntime(context)`; no synchronous
   compatibility signature is retained. A host injecting its own registry
@@ -65,6 +66,22 @@ export interface BackendModule {
 
 Use `defineBackendModule()` for inference and excess-property checking. The
 interface is `@experimental` until 1.0.
+
+The existing construction/probe context also carries optional host
+`versionRequirements: { sdk?: string; runtime?: string }`. These are full
+SemVer minima. Use the server SDK's `assertVersionRequirements` with the
+package's own declarations and their owners to enforce both without dropping
+upper bounds or sharing prerelease opt-ins. The default registry verifies
+requested identities against `probeRuntime` reports before constructing a
+backend; an absent probe or SDK identity cannot silently bypass a minimum.
+`createApp` refuses explicit backend requirements with an injected registry.
+Both first-party direct factories accept the same optional pair and enforce
+actual loaded SDK copies against their owning manifest constraints. Pi checks
+all three SDK dependencies, reports the primary coding-agent identity and
+refuses a separate runtime requirement. Claude additionally rechecks constrained
+executables on start/resume and holds the prompt until the bounded SDK
+handshake succeeds. Its later init observation preserves provenance and aborts
+contradictory versions. Compatibility never supplies a measured verdict.
 
 The descriptor ultimately constructs the runtime interface:
 
@@ -87,7 +104,7 @@ export interface AgentBackend {
 }
 ```
 
-`BackendCapabilities` is a complete, honest boolean set — `resume`,
+`BackendCapabilities` has a required, honest boolean set — `resume`,
 `permissions`, `thinking`, `attachments`, `askUser`, `costReporting`,
 `concurrentSessions`, `followUp`. The host and the client degrade against it;
 never advertise a capability you do not implement (a backend that claims
@@ -98,6 +115,19 @@ Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
 normalizing to `SessionHistoryMessage` at read time.
+
+The UI host keeps observed terminal failure metadata separately from those
+transcripts. It reads normalized history before a resumed turn and after a
+failed turn settles, then records the terminal assistant's ordinal, guarded by
+the ordered transcript prefix and the backend's failure text. This accommodates
+Claude's merged assistant steps and pi's separate steps without counting host
+turns as messages. Replay joins the record before adding local exchanges. An
+unreadable or changed transcript, or a failed turn with no new stored assistant,
+keeps the backend-derived failure. The host also preserves observed terminal
+`attempts` and `resetsAt`; unknown values stay absent. `attempts` means reported
+retries (Claude's per-turn retry observations or pi's last reported attempt),
+not an estimate including the first call. Reset timestamps use epoch milliseconds.
+No additional backend method or separate wire field is required; see [Turn failures](../integration-contract.md#turn-failures-additive-in-0400).
 
 ## Turn lifecycle
 
@@ -120,7 +150,9 @@ by the cross-backend suite:
   set it; `durationMs`, `numTurns`, optional `costUsd` — absent means
   unknown, `0` means actually free) and only then resolve the `startTurn`
   promise. A failure before any session identity exists ends with a bare
-  `error` frame instead of a `result`.
+  `error` frame instead of a `result`. The published lifecycle suite accepts
+  omitted cost regardless of `costReporting`; a present cost must be numeric
+  and nonnegative.
 - **Abort:** the host owns the `AbortController` (user cancel + host timeout).
   On abort, stop work, emit `status: "cancelled"` then the terminal `result`
   with `outcome: "cancelled"`, and RESOLVE. Cancellation before a session
@@ -159,6 +191,40 @@ by the cross-backend suite:
 `buildSystemPromptAppend` (`packages/ui-sdk/src/server/system-prompt.ts`)
 builds the shared brain-ui system-prompt block; backends that can vary their
 system prompt per turn feed it the advisory `req.client` environment.
+
+### Explicit autonomous turns (`@experimental`)
+
+`BackendCapabilities.autonomous?: boolean` advertises nonpersistent turn support,
+not containment or production dispatch. An absent/false capability makes the
+server refuse dispatch. `StartTurnRequest.autonomous` carries server-selected
+`origin: "autonomous"`, `persistence: "none"`, exact `allowedTools` and
+`systemPromptAppend`. It requires `enforceAllowedTools`, `noGrantSurface` and
+a bridge with `checkpointPermission`; resume is forbidden. A backend must honor
+these inputs or reject with `BackendRequestError` before execution.
+`assertTurnPosture(req)` rejects the new mode by default; a conforming adapter
+explicitly opts in with `assertTurnPosture(req, true)`.
+
+Ordinary turns still emit `session_info` and persist resumable history. Autonomous
+turns do not emit `session_info`: their runtime identity is delivered through
+`activity({ kind: "autonomous_identity", runtimeSessionId, backendId, profileId })`.
+Content and the single terminal `result` still carry the runtime id. Failure
+before identity may end on a bare `error`, as before. The id never enters the
+interactive session catalog and cannot be resumed or receive a follow-up.
+
+`checkpointPermission` synchronously captures escalation data before the shared
+no-grant denial shortcut. It must commit or throw; it cannot return an approval
+or a promise. The synthetic server bridge snapshots the request and its bounded
+model-authored findings, then aborts without a live approval promise. The later
+escalation engine supplies the atomic checkpoint/Action/block transaction.
+Activity spans/rollups use `origin: "autonomous"`, keep server principal attribution
+and runtime identity, and retain usage for reservation settlement.
+
+Claude uses the installed SDK's `persistSession: false`; pi uses
+`SessionManager.inMemory` and disposes the attempt instead of retaining a session
+for resume. This does not filter ambient configuration or contain filesystem,
+credentials or network access; those are the restricted-profile enablement gate.
+Linux runtime tests exercise the installed adapters with fixture inference in an
+isolated network namespace, including ordinary persistence as a positive control.
 
 ### An enforced allowlist (`@experimental`)
 
@@ -500,6 +566,9 @@ server never interprets an npm specifier from configuration.
   `BackendContractHarness` backed by your own fake runtime and inject your test
   runner's `{ describe, test, expect }`; the same assertions used by both
   first-party backends then run in your package.
+- Supply `retriedFailure` for runtimes that expose retries followed by a terminal
+  failure: the shared suite verifies two live retry observations and the terminal
+  failure's `attempts: 2`. Both first-party adapters exercise this case.
 - The harness's required `permission(scenario)` drives the adapter's actual
   tool path and observes runtime starts, attempts and tool-body effects for
   off-list mutation, runtime-shortcut and allowlisted confirmation scenarios.

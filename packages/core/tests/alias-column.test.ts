@@ -21,21 +21,21 @@ import { loadVec } from "./vec-fixture";
 const roots: string[] = [];
 afterAll(() => roots.forEach(cleanup));
 
-const SCOPE = "studies/telescope-setup.md"; // aliases: "my scope", "the Dobsonian", "the lightbucket"
-const DIARY = "notes/scope-diary.md";
+const GUIDE = "studies/star-bearings.md"; // aliases: "my bearings", "the Calypso guide", "the bearingbook"
+const DIARY = "notes/bearings-diary.md";
 
-/** A log that says "scope" in its title and "my scope" over and over in its body, and carries a tag no text uses. */
+/** A log that says "bearings" in its title and "my bearings" over and over in its body, and carries a tag no text uses. */
 const DIARY_TEXT = [
   "---",
   "type: note",
-  "title: Scope Log",
+  "title: Bearings Log",
   'created: "2026-01-01"',
   'updated: "2026-01-02"',
   "tags: [zenithal]",
   "---",
   "",
-  "Took my scope out at dusk. My scope needed a cool-down, so my scope sat on the deck for an hour.",
-  "Next time my scope goes to the ridge; my scope is lighter than it looks.",
+  "Checked my bearings at dusk. My bearings needed another reading, so my bearings stayed open on the shore for an hour.",
+  "Next time my bearings guide goes below the cave; my bearings are easier to read there.",
   "",
 ].join("\n");
 
@@ -62,7 +62,7 @@ async function withVectors(root: string, nearest: string): Promise<{ db: Databas
   setMeta(db, "embedding_model", "test:alias");
   const chunks = db
     .prepare("SELECT c.id, d.path FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path IN (?, ?)")
-    .all(SCOPE, DIARY) as { id: number; path: string }[];
+    .all(GUIDE, DIARY) as { id: number; path: string }[];
   for (const { id, path } of chunks) {
     const vector = new Float32Array([1, path === nearest ? 0 : 0.5]);
     db.run("INSERT INTO vec_chunks(chunk_id,embedding,is_archived,doc_type) VALUES (?,?,0,'note')", [id, new Uint8Array(vector.buffer)]);
@@ -75,9 +75,9 @@ describe("an exact alias", () => {
   test("ranks its document first under --mode fts, above one that says the phrase in its title and body", async () => {
     const root = brain();
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    const found = await paths(root, "my scope", "--mode", "fts");
+    const found = await paths(root, "my bearings", "--mode", "fts");
     expect(found).toContain(DIARY);
-    expect(found[0]).toBe(SCOPE);
+    expect(found[0]).toBe(GUIDE);
   }, 120_000);
 
   test("ranks its document first under hybrid, when the vector lane ranks another first", async () => {
@@ -85,11 +85,11 @@ describe("an exact alias", () => {
     await runCli(root, ["index", "--json"]);
     const { db, provider } = await withVectors(root, DIARY);
 
-    const vector = await hybridSearch(db, { query: "my scope", mode: "vector", rerank: "none" }, { embeddings: provider });
+    const vector = await hybridSearch(db, { query: "my bearings", mode: "vector", rerank: "none" }, { embeddings: provider });
     expect(vector.results[0]?.path).toBe(DIARY); // the premise
     for (const rerank of ["none", "heuristic"] as const) {
-      const { results } = await hybridSearch(db, { query: "My  Scope", mode: "hybrid", rerank }, { embeddings: provider });
-      expect({ rerank, first: results[0]?.path }).toEqual({ rerank, first: SCOPE });
+      const { results } = await hybridSearch(db, { query: "My  Bearings", mode: "hybrid", rerank }, { embeddings: provider });
+      expect({ rerank, first: results[0]?.path }).toEqual({ rerank, first: GUIDE });
     }
     db.close();
   }, 120_000);
@@ -97,11 +97,11 @@ describe("an exact alias", () => {
   test("an exact title counts the same way", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
-    const { db, provider } = await withVectors(root, SCOPE);
-    const plain = await hybridSearch(db, { query: "scope log", mode: "hybrid", rerank: "none" }, { embeddings: provider });
+    const { db, provider } = await withVectors(root, GUIDE);
+    const plain = await hybridSearch(db, { query: "bearings log", mode: "hybrid", rerank: "none" }, { embeddings: provider });
     const titled = plain.results.find((r) => r.path === DIARY);
-    expect(titled?.title).toBe("Scope Log");
-    const { results } = await hybridSearch(db, { query: "SCOPE LOG", mode: "hybrid", rerank: "none" }, { embeddings: provider });
+    expect(titled?.title).toBe("Bearings Log");
+    const { results } = await hybridSearch(db, { query: "BEARINGS LOG", mode: "hybrid", rerank: "none" }, { embeddings: provider });
     db.close();
     expect(results[0]?.path).toBe(DIARY);
   }, 120_000);
@@ -112,17 +112,17 @@ describe("aliases leave tags alone", () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
     expect(await paths(root, "zenithal", "--mode", "fts")).toEqual([DIARY]);
-    expect(await paths(root, "my scope", "--mode", "fts", "--tag", "zenithal")).toEqual([DIARY]);
+    expect(await paths(root, "my bearings", "--mode", "fts", "--tag", "zenithal")).toEqual([DIARY]);
     // An alias still finds its document, through its own column.
-    expect((await paths(root, "lightbucket", "--mode", "fts"))[0]).toBe(SCOPE);
+    expect((await paths(root, "bearingbook", "--mode", "fts"))[0]).toBe(GUIDE);
 
     const db = new Database(join(root, "brain.db"), { readonly: true });
     const row = db
       .prepare("SELECT fts.tags AS tags, fts.aliases AS aliases FROM documents_fts fts JOIN documents d ON d.id = fts.rowid WHERE d.path = ?")
-      .get(SCOPE) as { tags: string; aliases: string };
+      .get(GUIDE) as { tags: string; aliases: string };
     db.close();
-    expect(row.tags).not.toContain("lightbucket");
-    expect(row.aliases.split("\n")).toEqual(["my scope", "the Dobsonian", "the lightbucket"]);
+    expect(row.tags).not.toContain("bearingbook");
+    expect(row.aliases.split("\n")).toEqual(["my bearings", "the Calypso guide", "the bearingbook"]);
   }, 120_000);
 });
 
@@ -156,11 +156,11 @@ describe("schema 14", () => {
 
     // The next index run writes each markdown row again, aliases included.
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    expect((await paths(root, "the Dobsonian", "--mode", "fts"))[0]).toBe(SCOPE);
+    expect((await paths(root, "the Calypso guide", "--mode", "fts"))[0]).toBe(GUIDE);
     const after = new Database(path, { readonly: true });
-    const aliases = (after.prepare("SELECT fts.aliases AS a FROM documents_fts fts JOIN documents d ON d.id = fts.rowid WHERE d.path = ?").get(SCOPE) as { a: string }).a;
+    const aliases = (after.prepare("SELECT fts.aliases AS a FROM documents_fts fts JOIN documents d ON d.id = fts.rowid WHERE d.path = ?").get(GUIDE) as { a: string }).a;
     after.close();
-    expect(aliases).toContain("the Dobsonian");
+    expect(aliases).toContain("the Calypso guide");
   }, 180_000);
 });
 
@@ -177,8 +177,8 @@ describe("a search.language switch", () => {
     db.close();
     expect(sql).toContain("aliases");
     expect(sql).toContain("unicode61 remove_diacritics 2");
-    expect((await paths(root, "lightbucket", "--mode", "fts"))[0]).toBe(SCOPE);
-    expect((await paths(root, "my scope", "--mode", "fts"))[0]).toBe(SCOPE);
+    expect((await paths(root, "bearingbook", "--mode", "fts"))[0]).toBe(GUIDE);
+    expect((await paths(root, "my bearings", "--mode", "fts"))[0]).toBe(GUIDE);
   }, 180_000);
 });
 
@@ -214,12 +214,12 @@ describe("an exact name is found whatever the lanes retrieved", () => {
 
   test("when the full-text pool is taken by better-scoring documents, supersededBy included", async () => {
     const { db, add, supersede } = handBuilt();
-    const setup = add("studies/setup.md", "Telescope setup", words(2000), { aliases: ["my scope"] });
-    const newer = add("studies/setup-v2.md", "Telescope setup, revised", words(10));
+    const setup = add("studies/setup.md", "Star Guide setup", words(2000), { aliases: ["my bearings"] });
+    const newer = add("studies/setup-v2.md", "Star Guide setup, revised", words(10));
     supersede(newer, setup);
-    for (let i = 0; i < 42; i++) add(`notes/scope-${i}.md`, "Scope notes", "scope scope");
+    for (let i = 0; i < 42; i++) add(`notes/bearings-${i}.md`, "Bearings notes", "bearings bearings");
     for (const limit of [1, 20]) {
-      const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", rerank: "none", limit });
+      const { results } = await hybridSearch(db, { query: "my bearings", mode: "fts", rerank: "none", limit });
       expect({ limit, first: results[0]?.path, by: results[0]?.supersededBy, count: results.length }).toEqual({
         limit,
         first: "studies/setup.md",
@@ -260,28 +260,28 @@ describe("an exact name is found whatever the lanes retrieved", () => {
 
   test("but not past the search's filters", async () => {
     const { db, add } = handBuilt();
-    add("notes/old.md", "Old setup", words(20), { aliases: ["my scope"], status: "archived" });
-    add("notes/scope.md", "Scope notes", "scope scope");
-    const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", rerank: "none" });
-    expect(results.map((r) => r.path)).toEqual(["notes/scope.md"]);
+    add("notes/old.md", "Old setup", words(20), { aliases: ["my bearings"], status: "archived" });
+    add("notes/bearings.md", "Bearings notes", "bearings bearings");
+    const { results } = await hybridSearch(db, { query: "my bearings", mode: "fts", rerank: "none" });
+    expect(results.map((r) => r.path)).toEqual(["notes/bearings.md"]);
     db.close();
   });
 
   test("and it goes first after the rerank, which favours the other document", async () => {
     const { db, add } = handBuilt();
     // Everything the reranker weighs against the named document.
-    add("studies/setup.md", "Telescope setup", `my scope ${words(40)}`, {
-      aliases: ["my scope"],
+    add("studies/setup.md", "Star Guide setup", `my bearings ${words(40)}`, {
+      aliases: ["my bearings"],
       relevance: "historical",
       status: "draft",
       updated: "2000-01-01",
     });
-    add("notes/scope.md", "Scope notes", "my scope my scope my scope", { updated: "2026-06-30" });
+    add("notes/bearings.md", "Bearings notes", "my bearings my bearings my bearings", { updated: "2026-06-30" });
     const now = new Date("2026-07-01T00:00:00Z");
     // The premise: ranked on its own, the reranked order puts the other first.
-    const plain = await hybridSearch(db, { query: "scope my", mode: "fts", now });
-    expect(plain.results[0]?.path).toBe("notes/scope.md");
-    const { results } = await hybridSearch(db, { query: "my scope", mode: "fts", now });
+    const plain = await hybridSearch(db, { query: "bearings my", mode: "fts", now });
+    expect(plain.results[0]?.path).toBe("notes/bearings.md");
+    const { results } = await hybridSearch(db, { query: "my bearings", mode: "fts", now });
     expect(results[0]?.path).toBe("studies/setup.md");
     db.close();
   });

@@ -5,6 +5,7 @@ import {
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
   ASK_USER_RANK_CONTRACT,
+  ASK_USER_FORM_CONTRACT,
   BRIDGE_TOOL_CONTRACTS,
   BRIDGE_TOOL_POSTURE,
   GET_CURRENT_LOCATION_CONTRACT,
@@ -44,6 +45,7 @@ describe("the contract list is the single source", () => {
         askUser: visibleToolName(ASK_USER_CONTRACT.name, "claude"),
         askUserList: ASK_USER_LIST_CONTRACT.name,
         askUserRank: ASK_USER_RANK_CONTRACT.name,
+        askUserForm: ASK_USER_FORM_CONTRACT.name,
         location: GET_CURRENT_LOCATION_CONTRACT.name,
         mask: REQUEST_IMAGE_MASK_CONTRACT.name,
         activity: QUERY_ACTIVITY_CONTRACT.name,
@@ -78,6 +80,7 @@ describe("the contract list is the single source", () => {
       ASK_USER_CONTRACT.brief(ASK_USER_CONTRACT.name),
       ASK_USER_LIST_CONTRACT.brief(ASK_USER_LIST_CONTRACT.name),
       ASK_USER_RANK_CONTRACT.brief(ASK_USER_RANK_CONTRACT.name),
+      ASK_USER_FORM_CONTRACT.brief(ASK_USER_FORM_CONTRACT.name),
       GET_CURRENT_LOCATION_CONTRACT.brief(GET_CURRENT_LOCATION_CONTRACT.name),
       REQUEST_IMAGE_MASK_CONTRACT.brief(REQUEST_IMAGE_MASK_CONTRACT.name),
       SHOW_BLOCK_CONTRACT.brief(SHOW_BLOCK_CONTRACT.name),
@@ -163,7 +166,7 @@ describe("show_block", () => {
     });
   });
 
-  test("the fourteen kinds, in brief order", () => {
+  test("the fifteen kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -177,6 +180,7 @@ describe("show_block", () => {
       "quote",
       "contact",
       "map",
+      "track",
       "link",
       "suggestions",
     ]);

@@ -54,13 +54,13 @@ async function briefing(focus: string, opts: BriefingOptions = {}): Promise<stri
   const brain = await initContext({ root });
   setSystemTime(NOW);
   try {
-    return generateBriefing(brain);
+    return await generateBriefing(brain);
   } finally {
     setSystemTime();
   }
 }
 
-const current = "## Now\n\n- Sand the face frame.\n- 2026-07-10 glue-up.";
+const current = "## Now\n\n- Fair the deck frame.\n- 2026-07-10 lashings.";
 
 test("a focus document past its next_review opens the briefing with an overdue warning", async () => {
   const out = await briefing(focusDoc("next_review: 2026-06-19\n", current));
@@ -76,34 +76,38 @@ test("a focus document over its configured budget names both numbers", async () 
   const out = await briefing(focusDoc("", body), {
     config: `export default { taxonomy: { canonicalPolicy: { currentFocus: { maxTokens: 100 } } } };\n`,
   });
-  const tokens = estimateTokens(`${body}\n`);
+  // focusDoc leaves a blank line after its closing delimiter.
+  const tokens = estimateTokens(`\n${body}\n`);
   expect(tokens).toBeGreaterThan(100);
   expect(out.split("\n")[0]).toBe(`> **Warning:** \`${FOCUS}\` is ~${tokens} tokens, over its 100-token budget.`);
 });
 
 test("past-dated lines are counted in one warning", async () => {
-  const out = await briefing(focusDoc("", `${current}\n- 2026-05-01 send the quote.\n- 2026-06-30 book the kiln.`));
+  const out = await briefing(focusDoc("", `${current}\n- 2026-05-01 ask Calypso for rope.\n- 2026-06-30 dry the sail.`));
   expect(out.split("\n")[0]).toBe(`> **Warning:** \`${FOCUS}\` has 2 line(s) naming a past date; \`brain audit\` lists them.`);
 });
 
-test("a current, in-budget focus document with no past dates gives exactly the briefing it gave before", async () => {
+test("a current, in-budget focus keeps its sections around the audit count", async () => {
   // Another document's overdue review stays in its own section below.
   const other = `---\ntype: note\ntitle: "Old"\ncreated: 2026-01-01\nupdated: 2026-06-01\nstatus: active\nnext_review: 2026-06-01\n---\n\nOld note.\n`;
   const out = await briefing(focusDoc("next_review: 2026-07-20\n", current), { extra: { "notes/old.md": other } });
-  // The approved baseline: the output of the tree before this change for the
-  // same brain and clock.
+  // Reviewed baseline at the same brain and clock, including the audit count.
   expect(out).toBe(
     [
       "## Current Focus",
       "",
       "## Now",
       "",
-      "- Sand the face frame.",
-      "- 2026-07-10 glue-up.",
+      "- Fair the deck frame.",
+      "- 2026-07-10 lashings.",
       "",
       "## Overdue Reviews",
       "",
       "- 2026-06-01 | notes/old.md | Old",
+      "",
+      "## Upkeep",
+      "",
+      "- 1 must-fix audit finding(s) (errors and warnings; brain audit)",
       "",
       "## Recently Active",
       "",

@@ -1,14 +1,16 @@
+import { ASK_USER_FORM_INPUT_SCHEMA, askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {
   AskUserListSpec,
   AskUserRankSpec,
+  AskUserFormSpec,
   AskUserQuestion,
   ServerMessage,
   SessionHistoryMessage,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { isAskUserListTool, isAskUserRankTool, isAskUserTool } from "../../lib/tool-names.js";
+import { isAskUserFormTool, isAskUserListTool, isAskUserRankTool, isAskUserTool } from "../../lib/tool-names.js";
 import { replayedStatsSections } from "../../components/chat/stats/context-text.js";
 import type { ServerMessageHandlerMap } from "./types.js";
 
@@ -23,6 +25,7 @@ type ChatFrame =
   | "ask_user_request"
   | "ask_user_list_request"
   | "ask_user_rank_request"
+  | "ask_user_form_request"
   | "result"
   | "retry_receipt"
   | "message_blocks"
@@ -64,6 +67,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     isStreaming: false,
     timestamp: Date.now(),
     ...(askUserExchanges ? { askUserExchanges } : {}),
+    ...(msg.files?.length ? { files: msg.files } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
     ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
     // Absent means typed: an older host never sends it, and a newer one
@@ -137,6 +141,7 @@ function reconstructAskUserExchanges(
 ): AskUserExchange[] | undefined {
   const exchanges: AskUserExchange[] = [];
   for (const tc of toolCalls) {
+    if (isAskUserFormTool(tc.name)) { exchanges.push(reconstructFormExchange(tc)); continue; }
     if (isAskUserRankTool(tc.name)) {
       exchanges.push(reconstructRankExchange(tc));
       continue;
@@ -230,6 +235,25 @@ function reconstructListExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
+export function formSpecFromInput(input: Record<string, unknown> | undefined): AskUserFormSpec {
+  const parsed = ASK_USER_FORM_INPUT_SCHEMA.parse(input);
+  // A historical request already passed its host configuration. Check structure
+  // without imposing this client's defaults on a host's larger valid form.
+  return askUserFormSpec(parsed, { maxDepth: parsed.nodes.length, maxNodes: parsed.nodes.length, maxOptions: Math.max(2, ...parsed.nodes.map((node) => node.kind === "single" || node.kind === "multi" ? node.options.length : node.kind === "scale" ? node.scale.length : 0)) });
+}
+function reconstructFormExchange(tc: SessionHistoryMessage["toolCalls"][number]): AskUserExchange {
+  const exchange: AskUserExchange = { requestId: tc.id, questions: [], form: { prompt: "Conditional questions", nodes: [] } };
+  try {
+    exchange.form = formSpecFromInput(tc.input);
+    if (tc.output && !tc.isError) {
+      const result = askUserFormPayload(exchange.form, JSON.parse(tc.output));
+      exchange.formAnswers = result.answers;
+      exchange.visibleNodes = result.visibleNodes;
+    } else exchange.cancelled = true;
+  } catch { exchange.cancelled = true; }
+  return exchange;
+}
+
 export function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
   const list = listSpecFromInput(input);
   const cutoff = typeof input?.cutoff === "number" ? input.cutoff : undefined;
@@ -309,7 +333,7 @@ export const chatFrameHandlers = {
     // Once the agent receives the ask_user tool result, the exchange is
     // complete — drop any leftover ask_user UI state.
     const chat = context.buffer();
-    if (chat?.askUser?.answers || chat?.askUser?.order || chat?.askUser?.cancelled) {
+    if (chat?.askUser?.answers || chat?.askUser?.order || chat?.askUser?.formAnswers || chat?.askUser?.cancelled) {
       context.state.clearAskUser(context.key);
     }
   },
@@ -329,6 +353,9 @@ export const chatFrameHandlers = {
   ask_user_rank_request: (msg, context) => {
     const { prompt, items, cutoff } = msg;
     context.state.setAskUserRankRequest(context.key, msg.requestId, { prompt, items, ...(cutoff !== undefined ? { cutoff } : {}) });
+  },
+  ask_user_form_request: (msg, context) => {
+    context.state.setAskUserFormRequest(context.key, msg.requestId, formSpecFromInput({ prompt: msg.prompt, nodes: msg.nodes }));
   },
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);

@@ -2,6 +2,7 @@ import { rmSync } from "fs";
 import { resolve } from "path";
 
 const packages = [
+  "geo",
   "core",
   "ui-sdk",
   "ui-backend-claude",

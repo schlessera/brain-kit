@@ -5,7 +5,7 @@
  *
  *   1. capabilities is a complete, honest boolean set
  *   2. listProfiles() yields safe ProviderInfo shapes
- *   3. a turn emits session_info before content, streams deltas, and ends
+ *   3. an ordinary turn emits session_info before content, streams deltas, and ends
  *      with a terminal `result` frame (outcome: success) before the promise
  *      resolves
  *   4. host abort → diagnostic `status: cancelled`, then the unified terminal
@@ -93,6 +93,8 @@ export interface BackendContractHarness {
    * and then plays the script to success (#575).
    */
   retrying?(script: TurnScript): AgentBackend;
+  /** Runtime reports retries 1 and 2, then an HTTP 429 terminal provider failure. */
+  retriedFailure?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
 }
@@ -303,7 +305,9 @@ export function runBackendContract(
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");
       }
-      expect(Object.keys(backend.capabilities).sort()).toEqual([...keys].sort());
+      const optional = Object.hasOwn(backend.capabilities, "autonomous") ? ["autonomous"] : [];
+      if (optional.length) expect(typeof backend.capabilities.autonomous).toBe("boolean");
+      expect(Object.keys(backend.capabilities).sort()).toEqual([...keys, ...optional].sort());
       expect(backend.id.length).toBeGreaterThan(0);
     });
 
@@ -317,6 +321,33 @@ export function runBackendContract(
         // Never leak key material through profile listings.
         expect(JSON.stringify(p).toLowerCase()).not.toMatch(/api[_-]?key|token|secret/);
       }
+    });
+
+    test("an explicit autonomous request honors its lifecycle or rejects safely", async () => {
+      const backend = harness.scripted({ sessionId: "autonomous-1", textDeltas: ["fixture"] });
+      const { frames, bridge } = makeBridge();
+      const events: BackendActivityEvent[] = [];
+      bridge.activity = (event) => events.push(event);
+      bridge.checkpointPermission = () => {};
+      const request: StartTurnRequest = {
+        prompt: "fixture", signal: new AbortController().signal, bridge,
+        enforceAllowedTools: true, noGrantSurface: true,
+        autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "" },
+      };
+      if (backend.capabilities.autonomous !== true) {
+        await expect(backend.startTurn(request)).rejects.toBeInstanceOf(BackendRequestError);
+        expect(frames).toEqual([]);
+        expect(events).toEqual([]);
+        return;
+      }
+      await backend.startTurn(request);
+      expect(frames.some((frame) => frame.type === "session_info")).toBe(false);
+      expect(events.some((event) => event.kind === "autonomous_identity" && event.runtimeSessionId === "autonomous-1")).toBe(true);
+      expect(frames.filter((frame) => frame.type === "text_delta").map((frame) => frame.text)).toEqual(["fixture"]);
+      const results = frames.filter((frame) => frame.type === "result");
+      expect(results).toHaveLength(1);
+      expect(frames.at(-1)).toBe(results[0]);
+      expect(results[0].outcome).toBe("success");
     });
 
     test("turn lifecycle: session_info first, deltas, terminal result, then resolve", async () => {
@@ -343,8 +374,11 @@ export function runBackendContract(
       if (result?.type === "result") {
         expect(result.sessionId).toBe("sess-42");
         expect(result.outcome).toBe("success");
-        expect(typeof result.costUsd).toBe("number");
-        expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        // Omitted cost is unknown, including on a cost-reporting backend.
+        if (result.costUsd !== undefined) {
+          expect(typeof result.costUsd).toBe("number");
+          expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        }
         expect(result.isError).toBe(false);
       }
       // The terminal frame must exist by the time the promise resolved —
@@ -468,6 +502,24 @@ export function runBackendContract(
         expect(last.failure?.message ?? "").toMatch(new RegExp(API_FAILURE_DETAIL));
         // One failure, reported once: nothing else in the turn carries it.
         expect(frames.filter((f) => (f as { failure?: unknown }).failure !== undefined)).toHaveLength(1);
+      });
+    }
+
+    if (harness.retriedFailure) {
+      test("exhausted retries → the terminal failure retains two observed attempts", async () => {
+        const backend = harness.retriedFailure!({ sessionId: "retry-fail-1", textDeltas: [] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+        const retries = frames.filter((frame) => frame.type === "status" && frame.retry);
+        expect(retries.map((frame) => frame.type === "status" && frame.retry?.attempt)).toEqual([1, 2]);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type !== "result") return;
+        expect(last.failure?.attempts).toBe(2);
+        expect(last.outcome).toBe("error");
+        expect(last.failure?.errorClass).toBe("rate_limit");
+        expect(last.failure?.status).toBe(429);
+        expect(frames.filter((frame) => frame.type === "result")).toHaveLength(1);
       });
     }
 

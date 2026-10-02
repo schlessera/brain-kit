@@ -131,6 +131,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (pending?.failedTurnId === failedTurnId && pending.state !== "refused") return "pending";
     const buffer = chat.buffers[sessionId];
     const last = buffer?.messages.at(-1);
+    if (last?.failure?.resetsAt !== undefined && last.failure.resetsAt > Date.now()) return "refused";
     if (buffer?.isStreaming || chat.runStates[sessionId] === "streaming" || last?.retryOfTurnId !== failedTurnId || !last.failure) return "refused";
     const retry = { requestId: crypto.randomUUID(), failedTurnId, state: "waiting" as const };
     chat.setTurnRetry(sessionId, retry);
@@ -164,7 +165,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     chat.setTurnRetry(sessionId, null);
     const buffer = chat.buffers[sessionId];
     if (msg.text !== undefined && pending.state === "waiting" && buffer?.messages.at(-1)?.retryOfTurnId === pending.failedTurnId) {
-      chat.addUserMessage(sessionId, msg.text, msg.source, undefined, { requestId: msg.requestId, thinkingLevel: msg.thinkingLevel });
+      chat.addUserMessage(sessionId, msg.text, msg.source, undefined, { requestId: msg.requestId, thinkingLevel: msg.thinkingLevel }, msg.files);
       if (msg.attachmentCount) {
         const current = root.stores.chat.getState().buffers[sessionId];
         const messages = [...current.messages];

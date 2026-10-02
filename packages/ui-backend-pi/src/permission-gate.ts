@@ -39,6 +39,7 @@ import {
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
+  isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
 import type { TurnContext } from "./turn-context.js";
@@ -78,6 +79,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     name: "brain-permission-gate",
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
+        if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
+        if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
+          return { block: true, reason: "This call already completed before yielding; inspect its retained result instead of replaying it." };
         const approval = decideToolPermission({
           toolName: event.toolName,
           shellToolName: "bash",

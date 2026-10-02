@@ -200,11 +200,11 @@ export interface SkillManifest {
 }
 
 /**
- * Emits skills into an agent's native discovery location. The canonical home
- * is `.agents/skills/` (discovered natively by Codex); emitters cover agents
- * that need another layout (claude → .claude/skills symlinks, gemini → a
- * GEMINI.md index block, …), or that read the skills but need something else
- * delivered (codex → the agent contract in AGENTS.md).
+ * Emits skills and agent instructions into the locations an agent reads. The
+ * canonical skills home is `.agents/skills/`, discovered natively by Codex
+ * and Gemini. Claude and pi use symlinks in `.claude/skills/` and `.pi/skills/`.
+ * Codex and Gemini embed the installed agent contract in AGENTS.md and
+ * GEMINI.md, respectively.
  *
  * @experimental Extension seam; may change before 1.0.
  */

@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { ZodError } from "zod";
 import type { CommandContext, CommandModule, Taxonomy } from "@schlessera/brain";
 import { runRegistry, safeResolve } from "@schlessera/brain";
 
 import { openDatabase } from "./db.js";
+import { reviewJobs } from "./review-operation.js";
 import { runScrape } from "./scrape.js";
 import {
   loadScoringConfig,
@@ -25,8 +27,9 @@ import {
 } from "./review.js";
 import { runInteractiveReview, openUrl } from "./interactive-review.js";
 import { ensurePipelineIndex } from "./pipeline.js";
-import { ALL_SOURCES, BROWSER_SOURCES, RETIRED_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
-import type { ReviewStatus, Source } from "./types.js";
+import { ALL_SOURCES, BROWSER_SOURCES, REVIEW_STATUSES, SOURCES } from "./types.js";
+import { boardNameSchema } from "./board-selection.js";
+import type { JobRow, ReviewStatus, Source } from "./types.js";
 import type { JobsConfig } from "./module.js";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +71,7 @@ async function resolveJobsCtx(ctx: CommandContext<JobsConfig>): Promise<JobsCtx>
 /** Load the scoring config, or return null (with a warning) when unavailable. */
 function tryLoadScoring(jctx: JobsCtx, required: boolean): ScoringConfig | null {
   try {
-    return loadScoringConfig(jctx.root, jctx.criteriaPath);
+    return loadScoringConfig(jctx.root, jctx.criteriaPath, jctx.config.scoring);
   } catch (err) {
     const msg = (err as Error).message;
     if (required) throw err;
@@ -114,49 +117,28 @@ function emitJson(value: unknown): void {
 
 /**
  * Which boards a scrape runs: explicit positionals > `--all` > the configured
- * `boards` > the default `SOURCES`, then the browser selectors on top.
- *
- * `warnings` are printed and the run goes ahead; an `error` refuses the run.
+ * `boards` (including an intentional empty array) > the default `SOURCES`,
+ * then the browser selectors on top. Invalid names refuse the complete run.
  */
 export function selectSources(input: {
   positional: string[];
-  configured: string[];
+  configured?: string[];
   all?: boolean;
   browser?: boolean;
   browserOnly?: boolean;
 }): { sources: Source[]; warnings: string[] } | { error: string; warnings: string[] } {
   const warnings: string[] = [];
-  const known = (name: string): name is Source => (ALL_SOURCES as readonly string[]).includes(name);
-  const retired = (name: string): boolean => Object.hasOwn(RETIRED_SOURCES, name);
-  const retiredMessage = (name: string): string => `${name} was retired: ${RETIRED_SOURCES[name]}.`;
-
-  // Asked for by name, a retired board refuses the run: skipping it would
-  // bury the answer in a scrape summary.
-  const retiredRequested = input.positional.filter(retired);
-  if (retiredRequested.length > 0) {
-    return { error: retiredRequested.map(retiredMessage).join("\n"), warnings };
-  }
-
-  // Named in config, it warns and the rest runs, so a scheduled scrape does not
-  // stop over a config written before the board was retired.
-  for (const name of input.configured.filter(retired)) {
-    warnings.push(`${retiredMessage(name)} Remove it from the jobs module's \`boards\` config.`);
-  }
-
-  const requested = input.positional.filter(known);
-  if (input.positional.length > 0 && requested.length === 0) {
-    return { error: `Unknown sources: ${input.positional.join(", ")}. Valid: ${ALL_SOURCES.join(", ")}`, warnings };
-  }
-
-  const configured = input.configured.filter(known);
+  const errors = [...input.positional, ...(input.configured ?? [])].flatMap((name) => {
+    const parsed = boardNameSchema.safeParse(name);
+    return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+  });
+  if (errors.length) return { error: [...new Set(errors)].join("\n"), warnings };
   const base: Source[] =
-    requested.length > 0
-      ? requested
+    input.positional.length > 0
+      ? input.positional as Source[]
       : input.all
         ? [...ALL_SOURCES]
-        : configured.length > 0
-          ? configured
-          : [...SOURCES];
+        : (input.configured ?? [...SOURCES]) as Source[];
   const sources: Source[] = input.browserOnly
     ? [...BROWSER_SOURCES]
     : input.browser
@@ -197,7 +179,7 @@ async function cmdScrape(args: string[], jctx: JobsCtx): Promise<number> {
 
   if (!jctx.json) {
     console.log(
-      `Scraping ${sources.join(", ")}${full ? " (full)" : " (incremental)"}${dryRun ? " [DRY RUN]" : ""}...`
+      sources.length === 0 ? "no boards selected" : `Scraping ${sources.join(", ")}${full ? " (full)" : " (incremental)"}${dryRun ? " [DRY RUN]" : ""}...`
     );
   }
 
@@ -318,13 +300,19 @@ async function cmdTriage(args: string[], jctx: JobsCtx): Promise<number> {
 function cmdReview(args: string[], jctx: JobsCtx): number {
   const a = makeArgs(args);
   const status = a.flag("all") ? "all" : (a.option("status") as ReviewStatus | undefined) ?? "queued";
-  const minScore = a.option("min-score") ? Number(a.option("min-score")) : undefined;
-  const limit = a.option("limit") ? Number(a.option("limit")) : 20;
+  const minScore = a.flag("min-score") ? Number(a.option("min-score")) : undefined;
+  const limit = a.flag("limit") ? Number(a.option("limit")) : 20;
   const source = a.option("source") as Source | undefined;
 
-  const db = openDatabase(jctx.dbPath);
-  const jobs = getReviewQueue(db, { status: status as ReviewStatus | "all", minScore, limit, source });
-  db.close();
+  let jobs: JobRow[];
+  try {
+    jobs = reviewJobs(jctx.root, jctx.config, { status, minScore, limit, source });
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    console.error(error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("\n"));
+    console.error("Usage: brain jobs review [--status <status> | --all] [--min-score <number>] [--limit <positive integer>] [--source <source>]");
+    return 1;
+  }
 
   if (jctx.json) {
     emitJson({ jobs });
@@ -637,7 +625,12 @@ function cmdSearch(args: string[], jctx: JobsCtx): number {
     console.error("Usage: jobs search <query> [--limit <n>]");
     return 1;
   }
-  const limit = a.option("limit") ? Number(a.option("limit")) : 20;
+  const limit = a.flag("limit") ? Number(a.option("limit")) : 20;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    console.error("--limit must be a positive safe integer");
+    console.error("Usage: brain jobs search <query> [--limit <n>]");
+    return 1;
+  }
   const db = openDatabase(jctx.dbPath);
   const results = searchJobs(db, query, limit);
   db.close();

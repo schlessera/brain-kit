@@ -24,20 +24,27 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // core owns the render template (the CLI's `brain render` uses it); the
   // Puppeteer renderer is heavyweight and optional, so it may never be hard.
   "@schlessera/brain": {
-    dependencies: ["@schlessera/brain-render-template"],
+    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-render-puppeteer"],
   },
-  // Content modules extend core and nothing else.
+  // Content modules extend core; concrete web imports also share scrape below.
   "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  // jobs is the one module that fetches from the web, so it is the one module
-  // allowed the scraping base. `puppeteer-core` stays optional underneath it.
+  // jobs fetches public boards through the polite scraping base.
+  // `puppeteer-core` stays optional underneath it.
   "@schlessera/brain-module-jobs": {
     dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"],
     optionalPeers: [],
   },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  "@schlessera/brain-module-travel": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  // Approved route imports (#524/#568) fetch public geometry. Share the
+  // existing robots/pacing/redirect client instead of a second scrape stack;
+  // this concrete CLI job does not need the optional browser driver.
+  "@schlessera/brain-module-travel": {
+    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape", "@schlessera/brain-geo"], optionalPeers: [],
+  },
+  // #525 ownership B: geo is a concrete independent library; consumers depend one way.
+  "@schlessera/brain-geo": { dependencies: [], optionalPeers: [] },
   // The template remains a dependency-free internal leaf.
   "@schlessera/brain-render-template": { dependencies: [], optionalPeers: [] },
   // #558 Option B: the concrete export policy belongs to the shared template;
@@ -48,7 +55,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // it, so the handler and the card that draws the link can never disagree
   // (maintainer ruling on schlessera/brain-kit#43, D48). The edge reaches only
   // `@schlessera/brain-ui-kit/links`, which is pure and imports no React.
-  "@schlessera/brain-ui-sdk": { dependencies: ["@schlessera/brain-ui-kit"], optionalPeers: [] },
+  "@schlessera/brain-ui-sdk": { dependencies: ["@schlessera/brain-ui-kit", "@schlessera/brain-geo"], optionalPeers: [] },
   // The scraping base is infrastructure, not a content domain: it knows
   // nothing about documents, taxonomy or the index, so it must NEVER depend on
   // core. An edge here would mean scraping logic had started reasoning about
@@ -78,8 +85,12 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // are optional peers — a hard dependency on either would ship that agent SDK
   // to every install regardless of AGENT_BACKEND. The consumer (a deployment)
   // declares the backend it actually deploys.
+  // #526 validates staged track originals itself through #525's shared geo
+  // parser. This concrete intake is always installed, independent of optional
+  // agent backends; a direct hard edge names that ownership without relying
+  // on the SDK's transitive dependency or adding a second measurement stack.
   "@schlessera/brain-ui-server": {
-    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
   },
 };

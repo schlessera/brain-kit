@@ -5,14 +5,13 @@ Troy and about to push a raft off the beach at Ogygia. Every component in
 `@schlessera/brain-ui-kit` renders against this data, in Storybook, in the
 visual-regression baselines, and in anything that ends up on the website.
 
-This is **not** the same fixture set as
-[`packages/core/fixtures/corpus/`](../../core/fixtures/README.md), and the two
-never meet. The corpus belongs to Alex Example and is a precision instrument
-for the indexer's global invariants — engineered orphans, engineered basename
-ambiguity, asserted staleness windows. Adding to it is expensive. This
-directory has none of those obligations: its job is to render well and to
-render identically twice. That separation is **D18**; the choice of world is
-**D19**.
+This is the same fictional world as
+[`packages/core/fixtures/corpus/`](../../core/fixtures/README.md). The
+[2026-09-30 ruling](../../../docs/decisions/example-corpus.md) supersedes
+D18/D19's former separate-persona and no-shared-content rules. The core corpus
+preserves engineered retrieval and audit cases; this directory stages
+presentation data with a closed link graph. Keep their technical shapes
+separate where useful, while sharing the cast, timeline and canonical facts.
 
 ## The tone rule
 
@@ -30,9 +29,8 @@ fixture set that winks at the reader stops being usable for a screenshot.
 ## Reference date and the fixed "now"
 
 **Every date in this world is derived from `2026-07-12`** — the same reference
-date `packages/core/fixtures/corpus/` pins. The two fixture sets share no
-content, but a repo with two different "now"s is a repo where a screenshot and
-a test disagree about what is stale.
+date `packages/core/fixtures/corpus/` pins. Both technical fixture sets use this world and clock, so dated observations
+and presentation state can be compared without inventing another timeline.
 
 > **Story and test authors: import `REFERENCE_DATE` / `REFERENCE_INSTANT` from
 > `fixtures/time.ts`. Never `new Date()`.**
@@ -237,7 +235,9 @@ three notification densities. Each progress `StepList` has exactly one
 4. **Tone.** Before adding a line, ask whether it would still read as serious
    with the joke removed. If the answer is no, it is parody and it does not
    belong in a screenshot.
-5. **`packages/core/fixtures/` is off limits.** D18. Zero churn there.
+5. **Core scenario invariants.** Changes to `packages/core/fixtures/` preserve
+   its engineered cases and document their semantic counterparts, following
+   [the corpus ruling](../../../docs/decisions/example-corpus.md).
 
 ## Why the kit-purity gate does not cover this directory
 

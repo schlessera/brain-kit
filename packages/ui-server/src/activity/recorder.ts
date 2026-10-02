@@ -90,6 +90,8 @@ export function createTurnRecorder(
     pricingRoute?: PricingRoute;
     /** Principal that initiated this turn; absent means unattributed. */
     principalId?: string;
+    /** Server-selected; autonomous attempts never acquire an interactive session. */
+    origin?: "session" | "autonomous";
   }
 ): TurnRecorder {
   const { store, onWrite, log, runtime } = deps;
@@ -131,7 +133,7 @@ export function createTurnRecorder(
       runId,
       name: SPAN_OP_INVOKE_AGENT,
       kind: "turn",
-      origin: "session",
+      origin: turn.origin ?? "session",
       sessionId,
       principalId: turn.principalId,
       // Profile, billing and pricing route ride the ROOT span so the rollup
@@ -185,7 +187,7 @@ export function createTurnRecorder(
               parentSpanId: msg.parentToolUseId ?? rootSpanId,
               name: `${SPAN_TOOL_NAME_PREFIX}${msg.toolName}`,
               kind: isSubagent ? "subagent" : "tool",
-              origin: "session",
+              origin: turn.origin ?? "session",
               sessionId,
               attrs: {
                 "gen_ai.operation.name": isSubagent ? SPAN_OP_INVOKE_AGENT : SPAN_OP_EXECUTE_TOOL,
@@ -262,6 +264,13 @@ export function createTurnRecorder(
       guard(() => {
         if (finished) return;
         switch (event.kind) {
+          case "autonomous_identity": {
+            ensureRoot();
+            store.patchSpan(rootSpanId, { attrs: { "brain.runtime.session_id": event.runtimeSessionId,
+              "brain.backend_id": event.backendId } });
+            onWrite?.();
+            break;
+          }
           case "subagent_started": {
             store.patchSpan(event.toolUseId, {
               attrs: {

@@ -1,10 +1,57 @@
 import type {
+  ClientInboxResolve,
+  ClientInboxSnooze,
+  ClientInboxSubscribe,
+  ClientInboxUnsubscribe,
+  InboxView,
+  InboxQueueStatus,
+  InboxActionStatus,
+  InboxDismissReason,
+  InboxThread,
+  InboxOperation,
+  InboxWorkPayload,
+  ResolutionEffect,
+  V1ResolutionEffect,
+  InboxOption,
+  InboxItemBase,
+  InboxQueueItem,
+  InboxActionItem,
+  InboxItem,
+  InboxChange,
+  InboxSnapshot,
+  InboxDelta,
+} from "../src/protocol.js";
+import {
+  clientInboxResolveSchema,
+  clientInboxSnoozeSchema,
+  clientInboxSubscribeSchema,
+  clientInboxUnsubscribeSchema,
+  inboxViewSchema,
+  inboxQueueStatusSchema,
+  inboxActionStatusSchema,
+  inboxDismissReasonSchema,
+  inboxThreadSchema,
+  inboxOperationSchema,
+  inboxWorkPayloadSchema,
+  resolutionEffectSchema,
+  v1ResolutionEffectSchema,
+  inboxOptionSchema,
+  inboxItemBaseSchema,
+  inboxQueueItemSchema,
+  inboxActionItemSchema,
+  inboxItemSchema,
+  inboxChangeSchema,
+  inboxSnapshotSchema,
+  inboxDeltaSchema,
+} from "../src/schemas.js";
+import type {
   ClientActivitySubscribe,
   ClientActivityUnsubscribe,
   ClientAskUserCancel,
   ClientAskUserResponse,
   ClientAskUserListResponse,
   ClientAskUserRankResponse,
+  ClientAskUserFormResponse,
   ClientCancelRequest,
   ClientChatMessage,
   ClientHello,
@@ -25,6 +72,7 @@ import type {
   ServerAskUserRequest,
   ServerAskUserListRequest,
   ServerAskUserRankRequest,
+  ServerAskUserFormRequest,
   ServerError,
   ServerHello,
   ServerLocationRequest,
@@ -48,6 +96,7 @@ import {
   clientAskUserResponseSchema,
   clientAskUserListResponseSchema,
   clientAskUserRankResponseSchema,
+  clientAskUserFormResponseSchema,
   clientCancelSchema,
   clientChatMessageSchema,
   clientHelloSchema,
@@ -68,6 +117,7 @@ import {
   serverAskUserRequestSchema,
   serverAskUserListRequestSchema,
   serverAskUserRankRequestSchema,
+  serverAskUserFormRequestSchema,
   serverErrorSchema,
   serverHelloSchema,
   serverLocationRequestSchema,
@@ -91,6 +141,8 @@ import type {
 } from "./type-equality.js";
 
 
+type ClientAskUserFormResponseMatches = Assert<SchemaEqualsProtocol<typeof clientAskUserFormResponseSchema, ClientAskUserFormResponse>>;
+type ServerAskUserFormRequestMatches = Assert<SchemaEqualsProtocol<typeof serverAskUserFormRequestSchema, ServerAskUserFormRequest>>;
 type ClientAskUserRankResponseMatches = Assert<SchemaEqualsProtocol<typeof clientAskUserRankResponseSchema, ClientAskUserRankResponse>>;
 type ServerAskUserRankRequestMatches = Assert<SchemaEqualsProtocol<typeof serverAskUserRankRequestSchema, ServerAskUserRankRequest>>;
 // Client -> server: all 15 frames.
@@ -262,6 +314,7 @@ export type ProtocolSchemaAssertions = [
   ClientAskUserResponseMatches,
   ClientAskUserListResponseMatches,
   ClientAskUserRankResponseMatches,
+  ClientAskUserFormResponseMatches,
   ClientAskUserCancelMatches,
   ClientLocationResponseMatches,
   ClientLocationErrorMatches,
@@ -287,6 +340,7 @@ export type ProtocolSchemaAssertions = [
   ServerAskUserRequestMatches,
   ServerAskUserListRequestMatches,
   ServerAskUserRankRequestMatches,
+  ServerAskUserFormRequestMatches,
   ServerLocationRequestMatches,
   ServerMaskRequestMatches,
   ServerActivitySnapshotMatches,
@@ -296,4 +350,51 @@ export type ProtocolSchemaAssertions = [
   MessageBlockMatches,
   MissingNestedMemberMustFail,
   ReadonlyArrayDriftMustFail,
+];
+
+// Durable public shapes: recursive key/optionality/value parity, not only assignability.
+type ClientInboxResolveMatches = Assert<SchemaEqualsProtocol<typeof clientInboxResolveSchema, ClientInboxResolve>>;
+type ClientInboxSnoozeMatches = Assert<SchemaEqualsProtocol<typeof clientInboxSnoozeSchema, ClientInboxSnooze>>;
+type ClientInboxSubscribeMatches = Assert<SchemaEqualsProtocol<typeof clientInboxSubscribeSchema, ClientInboxSubscribe>>;
+type ClientInboxUnsubscribeMatches = Assert<SchemaEqualsProtocol<typeof clientInboxUnsubscribeSchema, ClientInboxUnsubscribe>>;
+type InboxViewMatches = Assert<SchemaEqualsProtocol<typeof inboxViewSchema, InboxView>>;
+type InboxQueueStatusMatches = Assert<SchemaEqualsProtocol<typeof inboxQueueStatusSchema, InboxQueueStatus>>;
+type InboxActionStatusMatches = Assert<SchemaEqualsProtocol<typeof inboxActionStatusSchema, InboxActionStatus>>;
+type InboxDismissReasonMatches = Assert<SchemaEqualsProtocol<typeof inboxDismissReasonSchema, InboxDismissReason>>;
+type InboxThreadMatches = Assert<SchemaEqualsProtocol<typeof inboxThreadSchema, InboxThread>>;
+type InboxOperationMatches = Assert<SchemaEqualsProtocol<typeof inboxOperationSchema, InboxOperation>>;
+type InboxWorkPayloadMatches = Assert<SchemaEqualsProtocol<typeof inboxWorkPayloadSchema, InboxWorkPayload>>;
+type ResolutionEffectMatches = Assert<SchemaEqualsProtocol<typeof resolutionEffectSchema, ResolutionEffect>>;
+type V1ResolutionEffectMatches = Assert<SchemaEqualsProtocol<typeof v1ResolutionEffectSchema, V1ResolutionEffect>>;
+type InboxOptionMatches = Assert<SchemaEqualsProtocol<typeof inboxOptionSchema, InboxOption>>;
+type InboxItemBaseMatches = Assert<SchemaEqualsProtocol<typeof inboxItemBaseSchema, InboxItemBase>>;
+type InboxQueueItemMatches = Assert<SchemaEqualsProtocol<typeof inboxQueueItemSchema, InboxQueueItem>>;
+type InboxActionItemMatches = Assert<SchemaEqualsProtocol<typeof inboxActionItemSchema, InboxActionItem>>;
+type InboxItemMatches = Assert<SchemaEqualsProtocol<typeof inboxItemSchema, InboxItem>>;
+type InboxChangeMatches = Assert<SchemaEqualsProtocol<typeof inboxChangeSchema, InboxChange>>;
+type InboxSnapshotMatches = Assert<SchemaEqualsProtocol<typeof inboxSnapshotSchema, InboxSnapshot>>;
+type InboxDeltaMatches = Assert<SchemaEqualsProtocol<typeof inboxDeltaSchema, InboxDelta>>;
+
+export type DurableInboxChecks = [
+  ClientInboxResolveMatches,
+  ClientInboxSnoozeMatches,
+  ClientInboxSubscribeMatches,
+  ClientInboxUnsubscribeMatches,
+  InboxViewMatches,
+  InboxQueueStatusMatches,
+  InboxActionStatusMatches,
+  InboxDismissReasonMatches,
+  InboxThreadMatches,
+  InboxOperationMatches,
+  InboxWorkPayloadMatches,
+  ResolutionEffectMatches,
+  V1ResolutionEffectMatches,
+  InboxOptionMatches,
+  InboxItemBaseMatches,
+  InboxQueueItemMatches,
+  InboxActionItemMatches,
+  InboxItemMatches,
+  InboxChangeMatches,
+  InboxSnapshotMatches,
+  InboxDeltaMatches,
 ];

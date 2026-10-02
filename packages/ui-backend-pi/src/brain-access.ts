@@ -16,18 +16,20 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import { readEnvVar } from "./config/env.js";
 
-
+// Native-handle search/context and writes remain first-party internals (#534).
 import {
   archiveDocument,
   assembleContext,
-  estimateTokens,
-  filterSearch,
   hybridSearch,
   indexAll,
   ingest,
-  initContext,
   loadVecSupport,
   openDatabase,
+} from "@schlessera/brain/internal";
+import { listIndexDocuments, readLinkWalk, type QueryCode, type QueryResult } from "@schlessera/brain/queries";
+import {
+  estimateTokens,
+  initContext,
   relevanceOnArchive,
   resolveEmbeddingProvider,
   rerankSetup,
@@ -128,8 +130,22 @@ export interface UpdateOutcome {
   changes: string[];
 }
 
-const MAX_LIST_LIMIT = 100;
-const MAX_GRAPH_DEPTH = 4;
+/** Only core's typed codes cross this boundary; no native diagnostics escape. */
+const QUERY_ERRORS: Record<QueryCode, string> = {
+  missing_index: "Brain database not found — run `brain index` first.",
+  incompatible_index: "Brain index is incompatible — rebuild it with `brain index --force`.",
+  corrupt_index: "Brain index is corrupt — rebuild it with `brain index --force`.",
+  busy_index: "Brain index is busy — try again.",
+  unavailable_index: "Brain index is unavailable.",
+  not_computed: "Brain index results have not been computed — run `brain index` first.",
+  not_found: "Brain document is not indexed.",
+  invalid_input: "Invalid brain index query.",
+};
+
+function queryValue<T>(result: QueryResult<T>): T {
+  if (!result.ok) throw new Error(QUERY_ERRORS[result.error.code]);
+  return result.value;
+}
 
 export function createBrainAccess(brainPath: string): BrainAccess {
   let ctx: BrainContext | undefined;
@@ -152,9 +168,9 @@ export function createBrainAccess(brainPath: string): BrainAccess {
     // `brain.config.ts` in the repository already has the server's privileges,
     // wrapper or not.
     //
-    // Why it is still here: closing it means every BrainAccess read —
-    // search, list, graph, context assembly — going out through the CLI as a
-    // subprocess, which is a different design for this package rather than a
+    // Why it is still here: closing it means search and context assembly
+    // going out through the CLI as a subprocess, which is a different design
+    // for this package rather than a
     // patch to it. Tracked separately; see the exec-wrapper section of the
     // README.
     ctx = await initContext({ root: brainPath });
@@ -253,123 +269,14 @@ export function createBrainAccess(brainPath: string): BrainAccess {
     },
 
     async list(opts: ListOptions): Promise<ListedDocument[]> {
-      const c = await ensureContext();
-      const db = openRead(c.dbPath);
-      try {
-        const results = filterSearch(db, {
-          type: opts.type,
-          tag: opts.tag,
-          status: opts.status,
-          relevance: opts.relevance,
-          includeArchived: opts.status === "archived",
-          limit: Math.min(Math.max(1, opts.limit ?? 20), MAX_LIST_LIMIT),
-        });
-        return results.map((r) => ({
-          path: r.path,
-          title: r.title,
-          type: r.type,
-          relevance: r.relevance ?? null,
-          status: r.status ?? null,
-          tags: r.tags ?? null,
-        }));
-      } finally {
-        db.close();
-      }
+      return queryValue(listIndexDocuments({ ...opts, brainPath }));
     },
 
     async graph(opts: GraphOptions): Promise<GraphResult> {
-      const c = await ensureContext();
-      const db = openRead(c.dbPath);
-      try {
-        // One read transaction: the edges and their nodes come from one
-        // snapshot even while another process reindexes.
-        return db.transaction((): GraphResult => {
-          const edges: GraphEdge[] = [];
-          const visited = new Set<string>();
-          let frontier = new Set<string>([opts.path]);
-          const depth = Math.min(Math.max(1, opts.depth ?? 1), MAX_GRAPH_DEPTH);
-          const direction = opts.direction ?? "both";
-
-          for (let hop = 0; hop < depth; hop++) {
-            const nextFrontier = new Set<string>();
-            for (const currentPath of frontier) {
-              if (visited.has(currentPath)) continue;
-              visited.add(currentPath);
-
-              if (direction === "outgoing" || direction === "both") {
-                const outgoing = db
-                  .prepare(
-                    `SELECT d.path AS source, l.target, l.target_id
-                     FROM links l
-                     JOIN documents d ON d.id = l.source_id
-                     WHERE d.path = ?`
-                  )
-                  .all(currentPath) as Array<{
-                  source: string;
-                  target: string;
-                  target_id: number | null;
-                }>;
-                for (const row of outgoing) {
-                  let targetPath = row.target;
-                  let resolved = false;
-                  if (row.target_id) {
-                    const targetDoc = db
-                      .prepare("SELECT path FROM documents WHERE id = ?")
-                      .get(row.target_id) as { path: string } | null;
-                    if (targetDoc) {
-                      targetPath = targetDoc.path;
-                      resolved = true;
-                    }
-                  }
-                  edges.push({ source: row.source, target: targetPath, resolved });
-                  if (resolved) nextFrontier.add(targetPath);
-                }
-              }
-
-              if (direction === "incoming" || direction === "both") {
-                const incoming = db
-                  .prepare(
-                    `SELECT d2.path AS source, d.path AS target
-                     FROM links l
-                     JOIN documents d ON d.id = l.target_id
-                     JOIN documents d2 ON d2.id = l.source_id
-                     WHERE d.path = ?`
-                  )
-                  .all(currentPath) as Array<{ source: string; target: string }>;
-                for (const row of incoming) {
-                  edges.push({ source: row.source, target: row.target, resolved: true });
-                  nextFrontier.add(row.source);
-                }
-              }
-            }
-            frontier = nextFrontier;
-          }
-
-          const seen = new Set<string>();
-          const unique = edges.filter((e) => {
-            const key = `${e.source}->${e.target}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
-
-          const touched = new Set<string>();
-          for (const e of unique) {
-            touched.add(e.source);
-            if (e.resolved) touched.add(e.target);
-          }
-          const nodes = db
-            .prepare(
-              `SELECT path, title, type, summary, updated FROM documents
-               WHERE path IN (SELECT value FROM json_each(?))
-               ORDER BY path`
-            )
-            .all(JSON.stringify([...touched])) as GraphNode[];
-          return { edges: unique, nodes };
-        })();
-      } finally {
-        db.close();
-      }
+      const result = readLinkWalk({ ...opts, brainPath });
+      // brain_graph has always returned an empty walk for an absent path.
+      if (!result.ok && result.error.code === "not_found") return { edges: [], nodes: [] };
+      return queryValue(result);
     },
 
     async update(input: UpdateInput): Promise<UpdateOutcome> {

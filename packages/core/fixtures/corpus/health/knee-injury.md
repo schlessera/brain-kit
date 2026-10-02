@@ -6,20 +6,19 @@ updated: 2026-04-20
 tags: [health, knee, rehab, injury]
 status: active
 relevance: primary
-summary: "Left-knee rehab log — symptoms, physio appointments, and range-of-motion progress"
+summary: "Left-knee rehab log — symptoms, recovery appointments and range-of-motion progress"
 ---
 
 ## History
 
-Tweaked the left knee on a washed-out section of the ridge trail in February.
-Initial symptom was lateral pain on descents. No surgery; conservative rehab.
+Slipped on the rocks below Calypso's cave in February. Initial symptom was pain
+on descents. Recovery matters before seventeen days on a raft.
 
-## Physio
+## Recovery
 
-- Appointment cadence: every three weeks.
-- Home protocol: loading exercises, range-of-motion tracking after each session.
+- Appointment with Calypso every three weeks.
+- Loading exercises and range-of-motion progress recorded after each session.
 
-Staleness fixture: this file was last updated 2026-04-20, which is more than 60
-days before the reference date 2026-07-12 (83 days), so with `health` at
-`staleDays: 60` it should raise a **warning**. Cross-referenced from
+This file was last updated 2026-04-20: 83 days before the pinned July 12 date.
+The 60-day health threshold must raise a warning. Referenced from
 [[checkup-log]] and [[current-focus]].

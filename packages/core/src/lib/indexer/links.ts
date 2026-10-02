@@ -69,8 +69,13 @@ export function createWikiLinkResolver(
   }
 
   return (rawTarget, sourcePath) => {
-    const target = rawTarget.split("#")[0].trim();
-    if (!target) return null;
+    const [documentTarget, heading] = rawTarget.split("#");
+    const target = documentTarget.trim();
+    if (!target) {
+      // A heading without a document target refers to the linking document.
+      // As with [[file#heading]], resolution does not check heading existence.
+      return heading?.trim() && sourcePath && paths.has(sourcePath) ? sourcePath : null;
+    }
     if (target.endsWith("/")) {
       return disambiguateCandidates(anchors.get(target.replace(/\/+$/, "")) ?? [], sourcePath);
     }

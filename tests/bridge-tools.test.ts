@@ -1,3 +1,4 @@
+import * as claudeAskForm from "../packages/ui-backend-claude/src/ask-user-form-tool";
 import { describe, expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -61,6 +62,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
       },
     ],
   },
+  ask_user_form: { prompt: "Choose", nodes: [{ id: "choice", kind: "single", prompt: "Which?", options: [{ label: "A" }, { label: "B" }] }] },
   ask_user_rank: { prompt: "Which first?", items: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] },
   ask_user_list: {
     prompt: "Rate these?",
@@ -112,6 +114,7 @@ function makeAdapters(root: string) {
       annotations: { Choice: {} },
     }),
     askUserList: async () => ({ answers: { a: "loved" } }),
+    askUserForm: async () => ({ answers: { choice: { value: "B" } } }),
     askUserRank: async () => ({ order: ["b", "a"], unchanged: false }),
     getLocation: async () => ({
       coords: { latitude: 1, longitude: 2, accuracy: 3.6 },
@@ -130,6 +133,7 @@ function makeAdapters(root: string) {
       claudeAsk.createAskUserTool(bridge.askUser),
       claudeAskList.createAskUserListTool(bridge.askUserList),
       claudeAskRank.createAskUserRankTool(bridge.askUserRank),
+      claudeAskForm.createAskUserFormTool(bridge.askUserForm),
       claudeLocation.createLocationTool(bridge.getLocation, {
         reverseGeocodeConfig: noGeocode,
       }),
@@ -505,6 +509,7 @@ describe("bridge tool adapter validation", () => {
       },
       { questions: "wrong type" },
     ],
+    ask_user_form: [{ prompt: "Choose", nodes: [] }, { prompt: "Choose", nodes: [{ id: "a", kind: "unknown", prompt: "Which?" }] }],
     ask_user_rank: [{ prompt: "Empty?", items: [] }, { prompt: "One?", items: [{ id: "a", label: "A" }] }, { prompt: "Order?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }], cutoff: 1.5 }],
     ask_user_list: [
       // One scale option is not a scale.
@@ -606,15 +611,17 @@ describe("bridge tool adapter validation", () => {
 });
 
 describe("bridge tool geocode configuration", () => {
-  test("both adapters pass the same enabled/url/userAgent values", async () => {
+  test("both adapters pass the same endpoint, identification and explicit eligibility", async () => {
     const previous = {
       enabled: process.env.BRAIN_UI_REVERSE_GEOCODE,
       url: process.env.NOMINATIM_URL,
       userAgent: process.env.NOMINATIM_USER_AGENT,
+      eligible: process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE,
     };
     process.env.BRAIN_UI_REVERSE_GEOCODE = "true";
     process.env.NOMINATIM_URL = "https://nominatim.example";
     process.env.NOMINATIM_USER_AGENT = "bridge-test/1";
+    process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE = "true";
     const configs: unknown[] = [];
     const geocode = async (_coords: unknown, config: unknown) => {
       configs.push(config);
@@ -643,11 +650,13 @@ describe("bridge tool geocode configuration", () => {
           enabled: true,
           url: "https://nominatim.example",
           userAgent: "bridge-test/1",
+          publicServiceEligible: true,
         },
         {
           enabled: true,
           url: "https://nominatim.example",
           userAgent: "bridge-test/1",
+          publicServiceEligible: true,
         },
       ]);
     } finally {
@@ -657,6 +666,8 @@ describe("bridge tool geocode configuration", () => {
       else process.env.NOMINATIM_URL = previous.url;
       if (previous.userAgent === undefined) delete process.env.NOMINATIM_USER_AGENT;
       else process.env.NOMINATIM_USER_AGENT = previous.userAgent;
+      if (previous.eligible === undefined) delete process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE;
+      else process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE = previous.eligible;
     }
   });
 });
@@ -739,12 +750,13 @@ describe("bridge tool loading posture", () => {
     return (await client.listTools()).tools;
   }
 
-  /** Every handler supplied, so the full six-tool roster is registered. */
+  /** Every handler supplied, so the full eight-tool roster is registered. */
   function fullServer() {
     const unreachable = () => Promise.reject(new Error("not called in this test"));
     return claudeAsk.createBrainUiMcpServer({
       askUser: unreachable as never,
       askUserList: unreachable as never,
+      askUserForm: async () => ({ answers: {} }),
       askUserRank: unreachable as never,
       getLocation: unreachable as never,
       requestMask: unreachable as never,

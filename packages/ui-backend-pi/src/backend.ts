@@ -27,6 +27,7 @@ import {
   createKeyedLock,
 } from "@schlessera/brain-ui-sdk/server";
 import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+import { assertPiSdks } from "./version-requirements.js";
 
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { createBrainAccess } from "./brain-access.js";
@@ -70,6 +71,8 @@ const CAPABILITIES: BackendCapabilities = {
 };
 
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
+  options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}) };
+  assertPiSdks(options.versionRequirements, "backend construction");
   const brainPath = options.brainPath;
   const sessionDir = options.sessionDir ?? join(brainPath, ".brain-kit-ui", "sessions");
   const allowedTools: ReadonlySet<string> = new Set(
@@ -107,7 +110,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
 
   return {
     id: PI_BACKEND_ID,
-    capabilities: CAPABILITIES,
+    capabilities: { ...CAPABILITIES, autonomous: !options.sessionFactory },
     listProfiles: () => listPiProfiles(options),
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {

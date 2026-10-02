@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -430,6 +430,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // A changed SHA, path or first line needs its own verified exception.
   ...Object.fromEntries(
     [
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/app.ts#L267",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L221",
@@ -528,7 +529,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the global epoch revoke, replaced by per-principal revocation",
   "docs/decisions/session-principals.md|auth.ts:221-237":
     "isWsAuthorized returning a boolean; it now returns a principal",
-  "docs/decisions/session-principals.md|app.ts:267-281":
+  "docs/decisions/session-principals.md|app.ts:268-282":
     "the request log without an actor; it now logs the principal",
   "docs/decisions/session-principals.md|ws/connection.ts:262-264":
     "the upgrade ignoring the request context; it now reads the principal",

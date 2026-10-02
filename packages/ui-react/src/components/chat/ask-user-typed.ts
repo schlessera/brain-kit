@@ -17,7 +17,7 @@ import type { AskUserExchange, ChatKey, ChatState } from "../../stores/chat-stat
 export function isPendingExchange(
   exchange: AskUserExchange | null | undefined
 ): exchange is AskUserExchange {
-  return !!exchange && !exchange.answers && !exchange.order && !exchange.cancelled;
+  return !!exchange && !exchange.answers && !exchange.order && !exchange.formAnswers && !exchange.cancelled;
 }
 
 /**

@@ -10,8 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory was checked against the real `createApp` mounts on 2026-09-30,
-source commit `e0875269b21b707482545be9e94901acb897893b`: 85 unique declared
+The inventory includes the additive Queue intake and poke mounted by `createApp`: 97 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -70,6 +69,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/graph/meta` | I | Read graph availability and provenance | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/neighborhood` | I | Read bounded local presentation subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/health` | S | Probe SQLite liveness without identity | Health probes and React connectivity; preserve public minimal response without identity. |
+| POST | `/api/internal/inbox/poke` | S | Recover and trigger the Queue lifecycle | Generated-host cron caller; independent boot bearer token plus actual loopback socket. See the [runtime specification](inbox-runtime.md). |
 | GET | `/api/models` | S | Read full catalog including hidden profiles | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/billing` | I | Replace billing classification overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
 | PUT | `/api/models/custom` | I | Replace custom OpenRouter model IDs | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
@@ -78,6 +78,14 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/models/pricing` | I | Read pricing-table freshness | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
 | POST | `/api/models/refresh` | S | Force model discovery refresh | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/thinking` | I | Replace reasoning-effort overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
+| GET | `/api/modules` | I | List configured modules, including unavailable neighbors | React module settings; CLI module/settings contracts remain binding. |
+| GET | `/api/modules/:name/settings` | I | Read schema, values, provenance and revision | React module settings; CLI module/settings contracts remain binding. |
+| PUT | `/api/modules/:name/settings` | I | Validate and commit JSON overrides with If-Match | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/settings/preview` | I | Validate a draft and compute module notes without writing | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration/preview` | I | Preview a module-owned content migration | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration` | I | Apply the reviewed migration atomically | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/state` | I | Activate or park a configured workflow | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/actions/:id` | I | Run a declared module CLI action using saved settings | React module settings; CLI module/settings contracts remain binding. |
 | POST | `/api/pi-auth/login` | I | Start configured vendor OAuth flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | DELETE | `/api/pi-auth/login/:id` | I | Cancel vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | GET | `/api/pi-auth/login/:id` | I | Poll vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
@@ -91,7 +99,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
-| POST | `/api/share` | S | Stage confirmed untrusted share payload | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
+| POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
+| POST | `/api/share` | S | Stage and queue confirmed untrusted share payload | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/api/skills` | I | List built-in and custom skills | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills` | I | Create custom skill and sync agent links | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | DELETE | `/api/skills/:name` | I | Delete custom skill and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
@@ -101,6 +110,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
+| GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | GET | `/api/voice/keyterms` | S | Read or rebuild domain keyterms | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
@@ -119,7 +130,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 85 declared endpoints are mounted regardless of backend, renderer or
+All 97 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -138,6 +149,10 @@ DELETE, `Content-Type` and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
+
+`ALL /api/internal/inbox/poke` refuses methods other than its supported POST
+with JSON HTTP 405 and `Allow: POST`, before general authentication. The
+supported POST retains origin policy and its independent token/socket checks.
 
 `ALL /api/auth/passkey/*` and `ALL /api/auth/principals/*` add mode and owner
 checks to the management families after authentication. Public login ceremonies
@@ -269,7 +284,8 @@ empty or non-string passwords become invalid credentials. Password mode only:
 other modes return 400; a passkey for the current RP disables password login
 unless recovery is configured, returning 403. Malformed JSON returns 400,
 invalid credentials 401, rate/capacity limits 429, and principal capacity 503.
-A parsed JSON null body currently reaches the common 500 (#694).
+Malformed JSON and non-object JSON (null, arrays or scalars) return 400
+`{ error: "Invalid request body" }`; object password defaults remain unchanged.
 The limiter currently counts five failed passwords per IP and 100 globally
 per minute, with bounded concurrent verification. Success returns `{ ok: true }`
 and a Secure, HttpOnly, SameSite=Strict signed session cookie at `/`, with a
@@ -303,9 +319,9 @@ options. The bounded, process-local challenge store can evict old challenges.
 | POST `/api/auth/passkey/login-options` | Public; body ignored; Origin required | WebAuthn JSON request options: challenge, RP ID, empty allowCredentials, userVerification required | 429 options-rate limit (currently 10/IP/minute); creates an authentication challenge. |
 | POST `/api/auth/passkey/login-verify` | Public; JSON `AuthenticationResponseJSON` from the browser ceremony | `{ ok: true }`, with the same owner session cookie as password login | 400 malformed JSON; 401 unknown/foreign-RP credential, expired/replayed challenge or failed verification; 429 failed-verify/in-flight limit; 503 session capacity. Verifies challenge, origin, RP and credential, updates counter/last-use; a failed attempt consumes its challenge. |
 | POST `/api/auth/passkey/register-options` | Password owner; body ignored; Origin required | WebAuthn JSON creation options | Discoverable credential and user verification required; no attestation; excludes existing RP credentials; ES256/RS256 algorithms. Creates a registration challenge. |
-| POST `/api/auth/passkey/register-verify` | Password owner; JSON `{ response: RegistrationResponseJSON, label?: string }`; Origin required | `{ ok: true, credential: PasskeySummary \| null }` | 400 missing response, malformed JSON, expired/replayed challenge, duplicate or failed registration. Label is trimmed and sliced to 64 characters; absent/non-string becomes empty. Stores only verified credential data. A JSON null body currently falls through to common 500 rather than the missing-response check. |
+| POST `/api/auth/passkey/register-verify` | Password owner; JSON `{ response: RegistrationResponseJSON, label?: string }`; Origin required | `{ ok: true, credential: PasskeySummary \| null }` | 400 missing response, malformed/non-object JSON, expired/replayed challenge, duplicate or failed registration. Label is trimmed and sliced to 64 characters; absent/non-string becomes empty. Stores only verified credential data. |
 | GET `/api/auth/passkey/list` | Password owner; no inputs | `{ credentials: PasskeySummary[] }` | All RPs, newest registration first; no credential public-key bytes. |
-| PUT `/api/auth/passkey/:id` | Password owner; JSON `{ label?: string }`; credential ID in path | `{ ok: true }` | 400 malformed JSON; 404 unknown credential. Same label normalization; omitted label clears it. JSON null currently reaches common 500. |
+| PUT `/api/auth/passkey/:id` | Password owner; JSON `{ label?: string }`; credential ID in path | `{ ok: true }` | 400 malformed/non-object JSON; 404 unknown credential. Same label normalization; omitted label clears it. |
 | DELETE `/api/auth/passkey/:id` | Password owner; body ignored; credential ID in path | `{ ok: true }` | 404 unknown credential. Revokes sessions derived from that credential and their delegated agents; deleting the last RP credential re-enables password login unless configured otherwise. |
 
 `PasskeySummary` is the SDK shape `{ id, label, rpId, createdAt, lastUsedAt,
@@ -346,7 +362,7 @@ The route does not create a second independent taxonomy or ranking policy.
 | GET `/api/brain/list` | Optional type, tag, status, relevance and Number-converted limit; limit 20 when omitted; archived excluded unless status=archived | `{ results: SearchResult[] }`, the full CLI list result | CLI/subprocess failures are 500 `{ error }`; filter strings are not HTTP enum-validated. Rows include path, title, type, status, relevance, nullable summary, updated, nullable deadline/generatedFrom, comma-separated tags (null when none), score=0 and empty snippet. No created field or tags-array conversion is added by HTTP. |
 | GET `/api/brain/stats` | No inputs | Full `brain stats --json` object | No HTTP wrapping, filtering or formatting; CLI failure 500 `{ error }`. The integration contract owns the complete corpus shape, including unknown values. |
 | GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |
-| POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; route checks content truthiness; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Invalid JSON/null/non-string fields lack uniform 400 validation today. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
+| POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; nonempty string content and declared optional field types are checked before CLI dispatch; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Malformed/non-object JSON or invalid field types return JSON 400 before CLI dispatch or content writes. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
 | POST `/api/brain/index` | JSON media type required; body ignored | `{ success: true }` | Concurrent retries coalesce per route instance. Failed index is 500 `{ error }`; no captured content is written again. |
 
 Search/list payloads are the actual CLI JSON results, not the server's narrower
@@ -406,7 +422,7 @@ missing sessions into a universal 404 or provide a separate history deadline.
 | --- | --- | --- | --- |
 | GET `/api/activity/runs` | Optional origin/job/session/status strings; limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
 | GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
-| GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. The existing four-decimal cost promise is retained; current runtime gap is #692. |
+| GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
 
 For fractional/negative finite values these rules produce whole-day windows;
@@ -452,7 +468,7 @@ optional nonempty strings; binary files must be repeated in `files`. Empty
 files are ignored. Normalized payload must contain text, URL or a file. Only
 http/https URLs become the normalized URL; unusable URL text is retained as
 text, not fetched. The app must show untrusted stashed input and obtain user
-confirmation before uploading it for ingestion. Intake stages bytes; it does
+confirmation before uploading it for ingestion. Intake stages bytes and creates one untrusted thread and ready triage item; it does
 not authorize the agent to execute a share's instructions.
 
 Limits: 10 files, 25,000,000 bytes/file, 50,000,000 total file bytes and
@@ -471,8 +487,15 @@ or full inbox yield 413 `{ error, limit }` with `share_too_large`,
 `text_too_large`, `file_too_large`, `too_many_files` or `inbox_full`; malformed
 form 400 `invalid_form`, empty payload 400 `empty_share`, concurrent capacity
 503 `busy`, other staging failures 500 `share_failed`. The common origin
-rejection remains 403. Staging has seven-day housekeeping retention, not a
-permanent delivery or execution guarantee.
+rejection remains 403. Trust/profile/source/principal and capability overrides are rejected as
+`invalid_form`, including case and underscore/hyphen spelling variants.
+Unrecognized application metadata retains the existing ignored-field behavior.
+Identical normalized fields and file names/media types/actual bytes replay the
+original staging result and update `lastSeenAt`, with one thread/item/staging
+area. Changed content is a new arrival; share and CLI dedup namespaces are separate.
+Committed Queue staging is protected from legacy seven-day housekeeping;
+ordinary standalone staging keeps that TTL. The item retains its declared
+expiry. This endpoint starts no model run and provides no execution grant.
 
 ## Push subscription lifecycle
 
@@ -593,16 +616,9 @@ query parameter or new HTTP version negotiation in this inventory.
 
 The supported promises above are not removed to accommodate these observations:
 
-- [#691](https://github.com/schlessera/brain-kit/issues/691) owns the complete
-  real-mount inventory/contract coverage matrix. Existing guard-only failures
-  are not proof that a protected handler is mounted.
-- [#692](https://github.com/schlessera/brain-kit/issues/692) restores the existing
-  four-decimal activity-rollup cost promise. The current route returns raw
-  sums (a keyless reproduction yields 0.358023 instead of 0.358).
-- [#694](https://github.com/schlessera/brain-kit/issues/694) closes the confirmed
-  non-object JSON validation holes in login, passkey registration/rename and
-  capture. They currently produce unhandled 500s; valid requests and owner
-  checks must retain their meaning.
+- The [runtime coverage matrix](http-api-coverage.md) maps every supported
+  operation to a real mounting check and named behavior tests (#691).
+  Guard-only failures are not proof that a protected handler is mounted.
 - [#702](https://github.com/schlessera/brain-kit/issues/702) resolves nullable
   CLI result tags versus the public SearchResult type and inaccurate private
   list mirrors. The HTTP specification preserves actual pass-through values;
@@ -617,3 +633,52 @@ No route removal, consolidation or authentication redesign is authorized here.
 A proposal affecting an existing supported promise needs its own ruling before
 implementation. The tracker holds unfinished work; this page holds the current
 boundary and the evidence needed to interpret its promises.
+
+## Authenticated CLI intake (additive, #679)
+
+**POST /api/queue — protected.** JSON has exactly `{ key, title?, text?, url? }`;
+unknown fields are 400 `invalid_request`. `key` is 1–128 ASCII characters,
+starting with a letter or digit and then letters/digits/`.`/`_`/`:`/`-`. At
+least one normalized content field must survive; text normalization and limits
+match share intake. The common 256 KiB JSON body cap and JSON media type guard
+apply. Files are supported by `/api/share`; CLI intake takes these text fields.
+
+Success is 201 `{ queued: true, created: boolean, threadId: string,
+itemId: string, stagingId: string }`. The server derives immutable `cli` /
+`trusted` provenance and the admitting principal from the authenticated endpoint.
+The staging manifest records `source: "cli"`; a receipt in the operational UI
+store retains principal attribution after credential pruning. A trusted origin
+is no blanket execution authority. Existing password, proxy, tailscale and
+explicitly configured none authentication rules apply, including delegated
+principals' ordinary route access. Current authority is rechecked after awaited
+input/staging and inside the committing transaction.
+
+Replaying the key with identical normalized content returns `created: false`
+and the same IDs, updates `lastSeenAt`, and creates no additional staging area.
+The first arrival's provenance stays unchanged. Different content for that key
+is 409 `{ error: "key_conflict" }`. Replays never revive a terminal/removed item.
+Other responses: common 401/403, 400 `empty_share` / `invalid_request`, 413
+`{ error, limit }` from text limits, common 413 body limit, 415
+`unsupported_media_type`, and 500 `queue_failed`. Keep the same key after an
+unknown delivery outcome; a committed operation followed by response loss is
+safe to retry.
+
+A server-minted staging ID is journaled before files are written. The work and
+committed receipt enter the UI database in one transaction. Definite failed
+writes compensate staging; failed compensation is retained for boot/next-intake
+reconciliation. Abandoned preparations become cleanup after an hour, protecting
+other live writers. Cleanup never removes a committed receipt's bytes. These
+receipts are included in the existing audit-only operational export; they do
+not turn it into a filesystem backup. The CLI never accesses UI SQLite or
+`brain.db` for this operation, and intake does not file markdown or dispatch
+production autonomous work before its containment/system gates.
+
+## Imported track UI transport (#526)
+
+The paired UI uses authenticated `POST /api/track-upload` multipart intake and
+`GET /api/tracks?path=<staged reference>` to validate originals and resolve track
+blocks. These are internal HTTP transports under the selection policy; published
+SDK file-reference frames, `show_block` and kit props retain their ordinary
+contracts. The [imported-track behavior](integration-contract.md#imported-track-files-in-chat-additive)
+describes validation, limits, outcomes and static export. They do not file
+knowledge-base content or narrow existing generic `/api/share` intake.

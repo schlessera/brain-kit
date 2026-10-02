@@ -1,3 +1,5 @@
+import type { InboxBudgetConfig } from "../inbox/budget.js";
+import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 /**
  * The package's ONLY `process.env` reader.
  *
@@ -13,7 +15,7 @@
  * env record to the resolver — no global mutation required.
  */
 
-import { join } from "path";
+import { join, resolve } from "path";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
@@ -25,6 +27,8 @@ import {
   type ConfirmPatternSource,
   type ExecWrapperConfig,
   WEB_SEARCH_PROVIDERS,
+  geoConfigSchema,
+  type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -76,6 +80,16 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", required: false, default: "5", description: "Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", required: false, default: "0", description: "Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", required: false, default: "0", description: "Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS", required: false, default: "0", description: "Bounded daily emergency autonomous operation reserve. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_TIMEZONE", required: false, default: "UTC", description: "IANA timezone for autonomous admission days; each reservation keeps its admission day. Invalid values fail startup." },
+  { name: "BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN", required: false, default: "0.01", description: "Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup." },
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_DEPTH", required: false, default: "3", description: "Conditional form maximum depth (roots count as one). Invalid values fail startup." },
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_NODES", required: false, default: "12", description: "Conditional form maximum node count. Invalid values fail startup." },
+  { name: "BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS", required: false, default: "8", description: "Conditional form maximum options per choice or scale node. Invalid values fail startup." },
+
   {
     name: "BRAIN_UI_EXEC_KILLER",
     description:
@@ -180,6 +194,28 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe.",
     default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_INBOX_POKE_TOKEN_FILE",
+    description:
+      "Absolute runtime token-file path for the protected internal inbox poke. " +
+      "Provision a private directory under /run for this app instance. The server " +
+      "atomically writes a new 0600 boot token; unset disables poke authorization. " +
+      "Does not enable autonomous dispatch.",
+    default: "(unset; poke unavailable)",
+    required: false,
+  },
+  {
+    name: "MAX_AUTONOMOUS_RUNS",
+    description: "Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch.",
+    default: "2",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS",
+    description: "Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000.",
+    default: "20000",
     required: false,
   },
   {
@@ -515,6 +551,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "$BRAIN_PATH/.brain-ui/geo",
     required: false,
   },
+  {
+    name: "BRAIN_GEO_CONFIG_JSON",
+    description: "Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup.",
+    default: null,
+    required: false,
+  },
 ] as const;
 
 // --- resolved configuration --------------------------------------------------
@@ -583,6 +625,8 @@ export interface CoastlineConfig {
   userAgent: string;
   /** Resolved geometry cache directory. */
   cacheDir: string;
+  /** Optional canonical service/response-cache settings; legacy privacy switch still wins. */
+  geo?: GeoConfigInput;
 }
 
 export interface VoiceConfig {
@@ -596,8 +640,11 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  askUserFormLimits?: AskUserFormLimits;
   brainPath: string;
   dbPath: string;
+  /** Internal poke provisioning; optional for existing explicit configurations. */
+  inbox?: { pokeTokenFile: string | null; budget?: InboxBudgetConfig; maxAutonomousRuns?: number; yieldAfterMs?: number };
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -753,6 +800,34 @@ export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
   };
 }
 
+function autonomousBudgetConfig(env: EnvRecord): InboxBudgetConfig {
+  const number = (name: string, fallback: number, integer = false, positive = false): number => {
+    const raw = env[name], value = raw === undefined ? fallback : Number(raw);
+    if (raw !== undefined && raw.trim() === "" || !Number.isFinite(value) || value < 0 ||
+      positive && value === 0 || integer && !Number.isSafeInteger(value) || !Number.isSafeInteger(Math.ceil(value * 1_000_000)))
+      throw new Error(`${name} is not a valid autonomous budget value.`);
+    return value;
+  };
+  const timeZone = env.BRAIN_UI_AUTONOMOUS_TIMEZONE ?? "UTC";
+  try { new Intl.DateTimeFormat("en-US", { timeZone }).format(0); }
+  catch { throw new Error("BRAIN_UI_AUTONOMOUS_TIMEZONE is not a valid IANA timezone."); }
+  return {
+    spendUsd: number("BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", 5),
+    turns: number("BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", 0, true),
+    emergencySpendUsd: number("BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", 0),
+    emergencyTurns: number("BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS", 0, true),
+    timeZone,
+    unpricedUsdPerToken: number("BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN", 0.01, false, true),
+  };
+}
+
+function autonomousPositiveInteger(env: EnvRecord, name: string, fallback: number, upper = Number.MAX_SAFE_INTEGER): number {
+  const raw = env[name], value = raw === undefined ? fallback : Number(raw);
+  if (raw?.trim() === "" || !Number.isSafeInteger(value) || value < 1 || value >= upper)
+    throw new Error(`${name} must be a positive integer below ${upper}.`);
+  return value;
+}
+
 /**
  * Resolve an environment into a {@link ServerConfig}. Defaults to the real
  * process environment; tests pass their own record instead of mutating it.
@@ -760,6 +835,16 @@ export function resolveStandalonePricingConfig(env: EnvRecord = process.env): {
 export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig {
   const { brainPath, enabled: pricingEnabled, ttlMs: pricingTtlMs } =
     resolveStandalonePricingConfig(env);
+
+  let geo: GeoConfigInput | undefined;
+  if (env.BRAIN_GEO_CONFIG_JSON !== undefined) {
+    try {
+      geo = geoConfigSchema.parse(JSON.parse(env.BRAIN_GEO_CONFIG_JSON));
+      if (geo.cacheDir !== undefined) geo.cacheDir = resolve(brainPath, geo.cacheDir);
+    } catch {
+      throw new Error("BRAIN_GEO_CONFIG_JSON must contain valid canonical geo JSON.");
+    }
+  }
 
   const rawAuthMode = env.AUTH_MODE?.trim().toLowerCase() || null;
   const validMode = AUTH_MODES.find((mode) => mode === rawAuthMode) ?? null;
@@ -771,7 +856,17 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   return {
     brainPath,
+    askUserFormLimits: resolveAskUserFormLimits(Object.fromEntries([
+      ["maxDepth", env.BRAIN_UI_ASK_USER_FORM_MAX_DEPTH],
+      ["maxNodes", env.BRAIN_UI_ASK_USER_FORM_MAX_NODES],
+      ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
+    ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
     dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
+    inbox: {
+      pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null, budget: autonomousBudgetConfig(env),
+      maxAutonomousRuns: autonomousPositiveInteger(env, "MAX_AUTONOMOUS_RUNS", 2),
+      yieldAfterMs: autonomousPositiveInteger(env, "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", 20_000, 30_000),
+    },
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
@@ -831,6 +926,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       url: env.OVERPASS_URL || "https://overpass-api.de/api/interpreter",
       userAgent: env.OVERPASS_USER_AGENT || "brain-kit-ui/1.0",
       cacheDir: env.COASTLINE_CACHE_DIR || join(brainPath, ".brain-ui", "geo"),
+      ...(geo === undefined ? {} : { geo }),
     },
     pricing: {
       enabled: pricingEnabled,

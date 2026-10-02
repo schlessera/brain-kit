@@ -56,7 +56,7 @@ const meta = preview.meta({
   args: { variant: "send" },
   argTypes: {
     variant: { control: "select", options: ["send", "voice", "plain"] },
-    state: { control: "select", options: ["ready", "streaming", "reconnecting", "offline"] },
+    state: { control: "select", options: ["ready", "streaming", "reconnecting", "offline", "dictating"] },
   },
 });
 
@@ -429,3 +429,25 @@ export const Loaded = meta.story({
 });
 
 export const LoadedWide = Loaded.extend({ parameters: wide });
+
+/** Capture is reviewed before sending: the draft stays intact and the mic stops. */
+export const Dictating = meta.story({
+  args: { state: "dictating", value: "Keep the existing draft", onChange: fn(), onSend: fn(), onMic: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    const field = await canvas.findByRole("textbox");
+    await expect(field).toHaveAttribute("readonly");
+    await expect(field).toHaveValue("Keep the existing draft");
+    field.focus();
+    await userEvent.keyboard("typed{Enter}");
+    await expect(args.onChange).not.toHaveBeenCalled();
+    await expect(args.onSend).not.toHaveBeenCalled();
+    const send = await canvas.findByRole("button", { name: "Send — unavailable" });
+    await expect(send).toHaveAttribute("aria-disabled", "true");
+    send.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onSend).not.toHaveBeenCalled();
+    const mic = await canvas.findByRole("button", { name: "Stop dictation" });
+    await userEvent.click(mic);
+    await expect(args.onMic).toHaveBeenCalledTimes(1);
+  },
+});

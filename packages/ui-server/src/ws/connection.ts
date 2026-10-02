@@ -57,6 +57,16 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
       )
     );
   }
+  for (const p of coordinator.pendingAskUserForm.values()) {
+    host.sendMessage(
+      ws,
+      withTurnScope(
+        { type: "ask_user_form_request", requestId: p.requestId, ...p.request },
+        p.turn,
+        p.turnId
+      )
+    );
+  }
 }
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
@@ -128,11 +138,13 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           askUser: true,
           askUserList: true,
           askUserRank: true,
+          askUserForm: true,
           chatRequestAck: true,
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.
           ...(host.activity ? { activity: true } : {}),
+          ...(host.inbox ? { inbox: true } : {}),
         },
       });
 
@@ -167,7 +179,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
           );
+          await host.failureReplay.wait(sid);
           const history = await backend.getHistory(sid);
+          await host.failureReplay.wait(sid);
           if (connection.authorization.valid && history.length > 0) {
             sendSessionHistory(ws, sid, host.prepareHistory(sid, history));
           }
@@ -307,6 +321,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       host.clients.remove(ws);
       connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
+      host.inbox?.dropConnection(ws);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
       // mask). Approvals and ask-user cards survive the disconnect and are

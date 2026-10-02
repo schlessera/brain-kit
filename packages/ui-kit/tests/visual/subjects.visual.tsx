@@ -85,7 +85,7 @@
 // browser, not to every file in the repo.
 /// <reference types="@vitest/browser/matchers" />
 import { expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { page, commands } from "vitest/browser";
 
 import * as agentOrbit from "../../stories/agents/AgentOrbit.stories.js";
 import * as agentRunCard from "../../stories/agents/AgentRunCard.stories.js";
@@ -98,6 +98,7 @@ import * as placeMap from "../../stories/blocks/PlaceMap.stories.js";
 import * as statTiles from "../../stories/blocks/StatTiles.stories.js";
 import * as trendChart from "../../stories/blocks/TrendChart.stories.js";
 import * as approvalCard from "../../stories/decisions/ApprovalCard.stories.js";
+import * as conditionalForm from "../../stories/decisions/AskUserFormCard.stories.js";
 import * as rankedQuestion from "../../stories/decisions/AskUserRankCard.stories.js";
 import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
@@ -455,3 +456,41 @@ for (const light of [false, true]) {
     await inViewport(1024, 1000, () => rankLooksRight(rankedQuestion.RankWide, "dense-rank-wide", light));
   });
 }
+
+// Capture the full card inside the browser frame, including its Submit row.
+async function formBaseline(story: unknown, name: string, theme: "dark" | "light", desktop = false) {
+  const width = desktop ? 960 : 320;
+  const frameBefore = { width: innerWidth, height: innerHeight };
+  const outerBefore = await commands.formViewport(width, 2400);
+  // The same deterministic local mono stand-in as rankLooksRight above.
+  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
+  document.fonts.add(await face.load());
+  try {
+    await page.viewport(width, 2400);
+    await (story as ComposedStory).run({ globals: { theme } });
+    expect(document.documentElement.dataset.theme).toBe(theme);
+    const card = document.querySelector<HTMLElement>(".bk-askform")!;
+    expect(card.getBoundingClientRect().bottom).toBeLessThan(window.innerHeight);
+    expect(card.getBoundingClientRect().width).toBe(width);
+    if (card.dataset.state === "pending") expect(card.querySelector("[data-form-submit]")).not.toBeNull();
+    console.info(`form layout ${name} ${theme}: ${card.getBoundingClientRect().width}×${card.getBoundingClientRect().height} CSS px`);
+    await expect(card).toMatchScreenshot(`${name}-${theme}`, TOLERANCE);
+  } finally {
+    document.fonts.delete(face);
+    await page.viewport(frameBefore.width, frameBefore.height);
+    await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
+  }
+}
+
+test("form: FormThreeLevels", async () => { await formBaseline(conditionalForm.FormThreeLevels, "formthreelevels", "dark"); await formBaseline(conditionalForm.FormThreeLevels, "formthreelevels", "light"); });
+
+test("form: FormFourLevels", async () => { await formBaseline(conditionalForm.FormFourLevels, "formfourlevels", "dark"); await formBaseline(conditionalForm.FormFourLevels, "formfourlevels", "light"); });
+
+test("form: FormSwitchSetAside", async () => { await formBaseline(conditionalForm.FormSwitchSetAside, "formswitchsetaside", "dark"); await formBaseline(conditionalForm.FormSwitchSetAside, "formswitchsetaside", "light"); });
+
+test("form: FormAnsweredGames", async () => { await formBaseline(conditionalForm.FormAnsweredGames, "formansweredgames", "dark"); await formBaseline(conditionalForm.FormAnsweredGames, "formansweredgames", "light"); });
+
+test("form: desktop three levels", async () => { await formBaseline(conditionalForm.FormThreeLevelsWide, "formthreelevels-wide", "dark", true); await formBaseline(conditionalForm.FormThreeLevelsWide, "formthreelevels-wide", "light", true); });
+
+test("form: six-option scale at depth three", async () => { await formBaseline(conditionalForm.FormSixOptionScale, "formsixoptionscale", "dark"); await formBaseline(conditionalForm.FormSixOptionScale, "formsixoptionscale", "light"); });
+test("form: twelve nodes", async () => { await formBaseline(conditionalForm.FormNodeLimit, "formnodelimit", "dark"); await formBaseline(conditionalForm.FormNodeLimit, "formnodelimit", "light"); });

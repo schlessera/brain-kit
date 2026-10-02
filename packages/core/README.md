@@ -45,3 +45,16 @@ Reads whose variable *name* is configuration rather than code:
 
 Generated from `packages/core/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
+
+### Content-index query results
+
+`@schlessera/brain/queries` offers supported synchronous graph, link-walk,
+voice-vocabulary, listing and complete hygiene metadata results over an existing
+index. It opens read-only per operation and returns detached values or safe typed
+errors. See the [API specification](../../docs/content-index-queries.md) for
+options, defaults, compatibility and snapshot semantics. Existing CLI/MCP
+behavior and direct-SQL guarantees remain binding during consumer migration.
+
+`@schlessera/brain/internal` holds first-party native-handle search/context and
+write helpers. It has no compatibility guarantee and requires the same
+lockstep version; integrations should use the supported query results.

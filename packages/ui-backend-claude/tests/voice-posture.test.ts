@@ -11,8 +11,13 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildTaxonomy } from "@schlessera/brain";
+import { openDatabase } from "../../module-jobs/src/db";
+import jobsReview from "../../module-jobs/src/mcp/review";
+import { configSchema as jobsConfigSchema } from "../../module-jobs/src/module";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   BackendActivityEvent,
@@ -90,7 +95,8 @@ describe("VOICE_ALLOWED_TOOLS", () => {
     expect(RECORD_ALLOWED).toContain("mcp__brain-ui__show_block");
     expect(RECORD_EXCLUDED).toContain("Bash");
     expect(RECORD_EXCLUDED).toContain("mcp__brain-ui__request_image_mask");
-    expect(RECORD_ALLOWED).toHaveLength(16);
+    expect(RECORD_ALLOWED).toContain("mcp__brain__jobs_review");
+    expect(RECORD_ALLOWED).toHaveLength(17);
     expect(RECORD_EXCLUDED).toHaveLength(9);
   });
 
@@ -186,14 +192,15 @@ async function runToolCall(
 }
 
 /**
- * Run one turn under the voice posture (the named allowlist, enforced, with
- * no grant surface) and hand its SDK options to `probe` WHILE the turn is
+ * Run a voice turn (the named allowlist, enforced, with no grant surface) or
+ * ordinary chat turn and hand its SDK options to each call WHILE the turn is
  * live, the way the runtime calls the hooks mid-turn. The bridge mirrors the
  * real host: a permission request is a `tool_approval_request` frame on the
  * wire, which here nobody could answer.
  */
-async function duringVoiceTurn(
-  calls: Array<(options: Options) => Promise<ToolCallOutcome & { id: string }>>
+async function duringTurn(
+  calls: Array<(options: Options) => Promise<ToolCallOutcome & { id: string }>>,
+  context: { mode?: "voice" | "chat"; brainPath?: string } = {}
 ): Promise<{
   value: ToolCallOutcome[];
   options: Options;
@@ -204,6 +211,7 @@ async function duringVoiceTurn(
   const requests: PermissionRequest[] = [];
   const frames: ServerMessage[] = [];
   const activity: BackendActivityEvent[] = [];
+  const voice = context.mode !== "chat";
   let captured: Options | undefined;
   const value: ToolCallOutcome[] = [];
   const queryFn = ((params: { options?: Options }) => {
@@ -225,16 +233,15 @@ async function duringVoiceTurn(
     })();
   }) as unknown as typeof query;
   const backend = createClaudeBackend({
-    brainPath: "/brain",
+    brainPath: context.brainPath ?? "/brain",
     queryFn,
-    ...(VOICE ? { allowedTools: [...VOICE] } : {}),
+    ...(voice && VOICE ? { allowedTools: [...VOICE] } : {}),
     log: () => {},
   });
   await backend.startTurn({
     prompt: "add this to my note about the garden",
     signal: new AbortController().signal,
-    enforceAllowedTools: true,
-    noGrantSurface: true,
+    ...(voice ? { enforceAllowedTools: true, noGrantSurface: true } : {}),
     bridge: {
       emit: (msg) => frames.push(msg),
       requestPermission: async (request) => {
@@ -273,7 +280,7 @@ const call =
 
 describe("a turn under the voice posture", () => {
   test("denies Bash without raising a card, even where the runtime or project settings would admit it", async () => {
-    const turn = await duringVoiceTurn([
+    const turn = await duringTurn([
       call("Bash", { command: "git status" }, "bash-auto", { autoApproves: true }),
       call("Bash", { command: "ls" }, "bash-settings", { projectSettingsAllow: true }),
       call("Bash", { command: "rm -rf notes/old" }, "bash-destructive"),
@@ -294,7 +301,7 @@ describe("a turn under the voice posture", () => {
   });
 
   test("allows brain_add and brain_update in that same turn: read-mostly, not read-only", async () => {
-    const turn = await duringVoiceTurn([
+    const turn = await duringTurn([
       call("mcp__brain__brain_add", { type: "note", title: "Garden" }, "add-1"),
       call(
         "mcp__brain__brain_update",
@@ -313,7 +320,7 @@ describe("a turn under the voice posture", () => {
   });
 
   test("an archiving brain_update is still denied, not granted by the posture", async () => {
-    const turn = await duringVoiceTurn([
+    const turn = await duringTurn([
       call("mcp__brain__brain_update", { path: "notes/garden.md", status: "archived" }, "archive-1"),
     ]);
     expect(turn.value[0]!.executed).toBe(false);
@@ -321,7 +328,74 @@ describe("a turn under the voice posture", () => {
   });
 
   test("the mask editor is not in the turn's allowlist, although the host offers it", async () => {
-    const turn = await duringVoiceTurn([]);
+    const turn = await duringTurn([]);
     expect(turn.options.allowedTools).not.toContain(MASK_TOOL_NAME);
   });
+});
+
+for (const mode of ["voice", "chat"] as const) {
+  test(`jobs_review executes the real queue query without a card in ${mode}`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "brain-jobs-posture-"));
+    const db = openDatabase(join(root, "jobs.db"));
+    try {
+      const insert = db.query(`INSERT INTO jobs (
+        source, source_id, fingerprint, title, title_normalized,
+        company, company_normalized, first_seen_at, last_seen_at, scraped_at,
+        review_status, relevance_score, tags
+      ) VALUES ('remoteok', ?, ?, ?, ?, 'Ithaca Fleet', 'ithaca fleet',
+        '2026-09-30', '2026-09-30', '2026-09-30', 'queued', ?, '["navigation"]')`);
+      insert.run("ithaca-1", "ithaca-1", "Navigation engineer", "navigation engineer", 90);
+      insert.run("ithaca-2", "ithaca-2", "Shipwright", "shipwright", 45);
+      expect(db.query("SELECT id FROM jobs").all()).toHaveLength(2);
+      let result: Awaited<ReturnType<typeof jobsReview.run>> | undefined;
+      let decideExecutions = 0;
+      const reviewCall = async (options: Options) => {
+        const input = { min_score: 70 };
+        const outcome = await runToolCall(options, "mcp__brain__jobs_review", input, "jobs-review");
+        if (outcome.executed) {
+          result = await jobsReview.run(jobsReview.inputSchema.parse(input), {
+            root, config: jobsConfigSchema.parse({ criteria: "career/criteria.md" }),
+            taxonomy: buildTaxonomy({}), signal: new AbortController().signal,
+          });
+        }
+        return { id: "jobs-review", ...outcome };
+      };
+      const decideCall = async (options: Options) => {
+        // A project settings hook attempts to re-admit the unlisted mutator.
+        const outcome = await runToolCall(options, "mcp__brain__jobs_decide", {}, "jobs-decide", {
+          projectSettingsAllow: true,
+        });
+        if (outcome.executed) {
+          decideExecutions++;
+          db.exec("UPDATE jobs SET review_status = 'dismissed'");
+        }
+        return { id: "jobs-decide", ...outcome };
+      };
+      const turn = await duringTurn(mode === "voice" ? [reviewCall, decideCall] : [reviewCall], {
+        mode, brainPath: root,
+      });
+      expect(turn.value[0]!.executed).toBe(true);
+      expect(result?.jobs).toHaveLength(1);
+      expect(result!.jobs[0]).toMatchObject({ title: "Navigation engineer", relevance_score: 90 });
+      expect(turn.requests).toHaveLength(0);
+      expect(approvalFrames(turn.frames)).toHaveLength(0);
+      if (mode === "voice") {
+        expect(turn.value[1]!.executed).toBe(false);
+        expect(turn.value[1]!.message).toContain("jobs_decide");
+        expect(decideExecutions).toBe(0);
+        expect(db.query("SELECT review_status FROM jobs ORDER BY id").all()).toEqual([
+          { review_status: "queued" }, { review_status: "queued" },
+        ]);
+        expect(turn.activity.map((event) => event.kind)).toEqual(["permission_denied"]);
+      }
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("jobs_review takes no mutation lock", () => {
+  expect(policy.lockKeyForTool("mcp__brain__jobs_review", { min_score: 70 }, "/brain")).toBeNull();
+  expect(policy.MUTATING_TOOLS.has("mcp__brain__jobs_review")).toBe(false);
 });

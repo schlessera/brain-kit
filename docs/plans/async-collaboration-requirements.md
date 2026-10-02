@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:128-221`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:138-229`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -94,8 +94,8 @@ Stated before the requirements because five of them derive from it.
   life of the thread.** `trusted` (the user's own CLI invocation) or `untrusted` (everything
   that arrived from outside, including every v1 share). It is never present in any
   model-authored payload schema, and no model output can change it. The share manifest
-  already hardcodes its source server-side
-  (`source: "web-share-target",`, `packages/ui-server/src/share/staging.ts:372`); this generalizes that.
+  has its source selected server-side
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`); this generalizes that.
 - **T2. Model output is data, never authority.** `state_md`, T1 classifications, and
   follow-up payloads are authored by a model that has read attacker-controllable text. They
   may describe, request, and summarize. They may not select a tool profile, widen a
@@ -150,7 +150,7 @@ Stated before the requirements because five of them derive from it.
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
   ((`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`),
-  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:808-842`)), and deriving scope through a join on a
+  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:810-839`)), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
   per-thread order. Append-only checkpoints, unique resolution records, scheduler
   heartbeats and budget reservations also need explicit durable storage. The four
@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:414`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:466`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -246,27 +246,27 @@ Stated before the requirements because five of them derive from it.
 - R23. A boot sweep and a periodic sweep return expired leases to `ready`, mirroring the
   activity stale sweeper.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
-  conversation-shaped with existing `enforceAllowedTools`/`noGrantSurface` permission
-  postures but no headless/persistence/origin mode
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:274-345`); Claude creates an SDK session, emits
+  additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
+  and prompt configuration alongside the required permission postures
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:298-372`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
-  `persistSession: false`. Add an autonomous request shape carrying persistence, tool policy,
-  origin, and prompt configuration; drive it with a synthetic bridge; and generalize the
-  recorder, which hardcodes `origin: "session"`
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-142`).
+  `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
+  with a synthetic checkpoint bridge and server-selected authority; the
+  recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:642-652`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
-  (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`). Required: an admission controller
+  (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:187-221`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:173-228`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:238-244`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -277,19 +277,19 @@ Stated before the requirements because five of them derive from it.
 
 - R28. **The restricted execution profile is a build item, not a configuration.** Today
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
-  `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`), and auto-allowed tools bypass
+  `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-79`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
-  credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`)),
+  credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`)),
   `strictMcpConfig`, fail-closed filesystem and network permission rules, and containment
   testing of each real runtime boundary against symlinks, shell indirection, `/proc`, Unix sockets,
   and DNS. Predicate-only tests do not establish containment — the same lesson
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:53-208`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -319,7 +319,7 @@ Stated before the requirements because five of them derive from it.
   only a server-owned helper writes it. R22 of revision 1 removed only the *autonomous*
   agent's write path, but an ordinary interactive turn holds auto-allowed `Write`/`Edit`/
   `Bash`, and the backend itself notes that Bash confirmation is not containment because the
-  same effect is reachable indirectly (`A Bash command the classifier misses`, `packages/ui-backend-claude/src/tool-policy.ts:204-209`). Without this, stored attacker
+  same effect is reachable indirectly (`A Bash command the classifier misses`, `packages/ui-backend-claude/src/tool-policy.ts:215-220`). Without this, stored attacker
   text read by a normal session can write an active grant.
 - R36. **Unexpected policy content is quarantined, not announced.** The server persists a
   per-policy expected hash and activation record transactionally; content that does not match
@@ -336,16 +336,16 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1225`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1248`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:442`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
-  costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) so the query **fails open**.
+  costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
   rollup, and the chosen unknown-cost rule: pessimistic reserve plus one suppressed-per-model
   Action; refuse a claim when neither price nor usage permits a conservative estimate.
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:53-208`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK
@@ -367,7 +367,7 @@ Stated before the requirements because five of them derive from it.
 - R45. Snooze timing is rule-derived (backoff plus calendar-aware defaults); model overrides
   require a stated reason in v2 and are unavailable in v1. Times stored UTC, resolved against one configured timezone.
 - R46. **T2 dominance is a measured claim, not a design assertion.** Most v1 shares are
-  read-store-process requests (`export function buildSharePrompt(`, `packages/ui-react/src/lib/share-intake.ts:126-152`) that need
+  read-store-process requests (`export function buildSharePrompt(`, `packages/ui-react/src/lib/share-intake.ts:128-157`) that need
   a read plus a write tool, i.e. T2. Ship telemetry with acceptance targets — T2 rate, T1
   false-routing rate, cost per completed item — measured against a direct-to-T2 baseline. If
   T1 does not divert a meaningful fraction or materially shrink T2 context, it is theatre and

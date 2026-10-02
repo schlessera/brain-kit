@@ -5,17 +5,19 @@ they are built from, and the Storybook that documents them.
 
 Everything here is **prop-driven**. Props in, callbacks out — no stores, no
 `fetch`, no ambient configuration, no browser globals. That is not a style
-preference: `@schlessera/brain-ui-react`'s stores are module singletons with no
-provider, so a component that reaches for one cannot be rendered in a story, a
-test, or a second embedder without mutating global state. The kit is where that
-class of component does not exist, and `scripts/check-kit-purity.ts` enforces it
-mechanically rather than by review.
+preference: kit components can render in a story, a test or another embedder
+without depending on application state. `@schlessera/brain-ui-react` owns that
+state in isolated roots created by `createBrainUiRoot` and selected through
+`BrainUiProvider`; hooks outside a provider use the default application root
+([UI roots](../ui-react/README.md#ui-roots)). Kit components need neither a root
+nor a provider, and `scripts/check-kit-purity.ts` enforces that separation.
 
 ## Status
 
-**58 presentational components have landed**, including agent views, screen
-chrome and desktop navigation. Four assembled screens exercise the kit in
-Storybook: Morning Digest, Chat Answer, Weekly Review and Run Detail. Browser
+The kit covers primitives, rows, evidence blocks, question and decision cards,
+conversation states, agent views, screen chrome and desktop navigation.
+Assembled Storybook screens exercise Morning Digest, Chat Answer, Weekly Review,
+Run Detail, Actions Triage, File Viewer and First Run. Browser
 interaction/accessibility checks and curated visual baselines run in CI.
 
 `@schlessera/brain-ui-react` consumes the kit: its chat, files, settings, graph
@@ -42,6 +44,44 @@ Submit returns every id in order and whether the original order was kept.
 Users can drag a handle, tap an item then its destination, or use the keyboard.
 Handle gestures capture the pointer while the rest of the row scrolls the
 transcript. Answered cards retain the order; dismissed cards can be asked again.
+
+## Conditional questions
+
+`AskUserFormCard` presents `single`, `multi`, `scale`, `rank` and short `text`
+nodes in one exchange. The caller supplies `question` and a flat `nodes` list;
+`showIf: { node, anyOf }` reveals a child when an earlier choice matches. Children
+occupy branch slots below the parent's whole control, without accumulating
+indentation. Breadcrumbs identify the path and shorten beyond three levels.
+The form has one sticky header and one outer action row.
+
+Changing a choice sets hidden branch answers aside locally, with an Undo
+receipt; revisiting the branch restores them. `onSubmit` receives
+`{ answers, visibleNodes }` and omits hidden answers. Nodes default to required;
+an incomplete submission flags missing required answers and focuses the first
+flagged node. Revealing a branch announces the change and keeps focus on the
+current control.
+
+Use `state="answered"` with `answers` to replay a compact summary of the visible
+paths, skipped optional questions, scale groups and ranked items. Longer
+records can expand. `state="dismissed"` accepts `lapsedNote` and `onAskAgain`,
+as the standalone cards do.
+
+`ScaleList` and `RankList` export the same controls used by the standalone
+`AskUserListCard` and `AskUserRankCard`. Their `embedded` prop defaults to
+`true`, omitting another header and action row. Both expose `onChange`;
+`ScaleList` also exposes `flagged` and `onComplete`, while `RankList` exposes
+`onMoveChange` so an outer form can guard submission during a move.
+
+## Imported tracks
+
+`TrackMap` draws file-provided lines with start/end shapes, a scale and a full
+summary and waypoint list. Supply one path per usable section, the complete
+track envelope through `fitPoints`, canonical metrics and evidence, and an
+original file name/path. Optional background paths/land carry their attribution.
+Without background geometry it labels the drawing **Track only**. A
+`projectionReason` replaces the drawing while retaining all text and the original.
+The component performs no parsing, measurements or requests. `ui-react` resolves
+staged originals and optional geography before both chat display and static export.
 
 ## Link policy
 
@@ -75,6 +115,10 @@ scales as `@theme static`. A consumer with its OWN Tailwind theme imports
 `ui-react` does). Two things in it are easy to get wrong and are asserted by
 `tests/theme-tokens.test.ts`: the spacing scale is deliberately irregular (it is
 not a 4px grid), and three radius steps are ranges whose ends both ship.
+
+`tokens.css` also delivers the shared scale, rank and conditional-form layout
+and interaction rules. All three stylesheet entries include these rules;
+components need no separate form stylesheet.
 
 ### Themes
 
@@ -144,14 +188,19 @@ and are focus-scoped there; the kit only prints them on the controls.
 target with a transparent pseudo-element: `Toggle` (38x22 drawn), `FeedbackRow`
 (30x26) and `InlineToast`'s undo (text-sized). The constraint that makes it safe
 is that expansion per side must be no more than half the distance to the nearest
-interactive neighbour — get it wrong and a neighbour's invisible target steals
-the click, which is how `FeedbackRow` once recorded thumbs-down for a thumbs-up.
+interactive neighbour on that axis — get it wrong and a neighbour's invisible
+target steals the click, which is how `FeedbackRow` once recorded thumbs-down
+for a thumbs-up.
 Each one is asserted with `elementFromPoint` at the target's EDGES in its own
 story. **Note the measurement:** `inset` on an absolutely positioned
-pseudo-element resolves against the containing block's PADDING box, so a 1px
-border costs 1px of reach on every side — `FeedbackRow`'s target is 46x42 rather
-than the 48x44 its source comment claims, and the undo's is 43.65px tall rather
-than 44. Both are recorded in the stories that measure them.
+pseudo-element resolves against the containing block's PADDING box, so a border
+reduces the reach. Historically, borders left `FeedbackRow` at 46x42 and the
+undo at 43.65px tall, both below the 44px floor. D34 corrected this:
+`FeedbackRow` uses an inset box-shadow for its hairline and reaches **46x44**;
+the undo uses `text-decoration` for its underline and extends 16px above and
+below the text, clearing **44px**. Their `HitTargets` and `UndoHitTarget` stories
+assert the reach and zero border widths, preserving the correction alongside
+the history in `docs/decisions/design-feedback.md`.
 
 `TabBar` uses the design's other sanctioned method — padding cancelled by an
 equal negative margin — and that one is exact: padding is not measured against
@@ -173,8 +222,19 @@ to the caller (`FileRow`'s `tree`) the stories show the wrapper it is owed.
 the effect chip into the row's `aria-label` — *"Re-index knowledge/, reindex"* —
 so the warning is not shown only to people who can see it.
 
-**Two components announce themselves.** `StreamingAnswer`'s phase line and the
-whole of `InlineToast` carry `aria-live="polite"`, because both change without
+**Live feedback uses polite announcements.** `StreamingAnswer`'s phase line and
+`InlineToast` carry `aria-live="polite"`, because both change without
 the user doing anything to make them change and are otherwise silent to a screen
 reader. `polite` rather than `assertive` in both cases: neither should cut
 across whatever is being read.
+
+Pass `announce={false}` to `InlineToast` when a containing live region combines
+the receipt with other feedback. `AskUserFormCard` uses this for one announcement
+of branch reveals, hidden nodes, answers set aside and the remaining count.
+
+## Dictating composer state
+
+`Composer` accepts `state="dictating"` to preserve a read-only draft and
+make Send and Attach unavailable while capture is active. Its mic is labelled
+“Stop dictation” and still calls `onMic`; the consumer owns capture, draining
+and review. Other composer states keep their existing behavior.

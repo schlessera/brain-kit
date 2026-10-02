@@ -1,10 +1,10 @@
 ---
 type: note
-title: "Owl Survey"
+title: "Eagle Survey"
 created: 2026-01-08
 updated: 2026-05-05
-tags: [note, ranger]
+tags: [note, voyage]
 status: active
 ---
 
-Heard two barred owls calling near the fire road at dusk.
+Heard two eagles calling above the Ogygia shore at dusk.

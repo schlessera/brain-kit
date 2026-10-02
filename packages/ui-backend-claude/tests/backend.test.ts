@@ -284,6 +284,7 @@ describe("createClaudeBackend identity + profiles", () => {
     const backend = createClaudeBackend({ brainPath: "/brain" });
     expect(backend.id).toBe("claude");
     expect(backend.capabilities).toEqual({
+      autonomous: true,
       resume: true,
       permissions: true,
       thinking: true,

@@ -11,5 +11,5 @@ tags: [index, tools]
 | Tool | Where | Note |
 |------|-------|------|
 | Chisels | wall rack | set of six, two need regrinding |
-| Block plane | drawer 2 | needs a new iron |
+| Adze | cave wall | needs a sharpened edge |
 | Card scraper | drawer 1 | burnished |

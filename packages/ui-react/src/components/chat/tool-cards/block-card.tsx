@@ -42,6 +42,8 @@ import {
 import { classifyLink } from "@schlessera/brain-ui-kit/links";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 
+import { TrackBlockCard } from "./track-block.js";
+import type { TrackDisplay } from "../../../lib/track-display.js";
 import { MapBlockCard } from "./map-block.js";
 
 /** A kit icon key, or nothing when the model named one the kit lacks. */
@@ -86,6 +88,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `quote · ${block.source ?? "unattributed"}`;
     case "contact":
       return `contact · ${block.label}`;
+    case "track":
+      return `track · ${block.title ?? block.source.path}`;
     case "map":
       return `map · ${block.title ?? count(block.places.length, "place")}`;
     case "link": {
@@ -97,7 +101,7 @@ export function blockSummary({ block }: ShowBlockPayload): string {
   }
 }
 
-function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
+function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: boolean; trackDisplay?: TrackDisplay }) {
   switch (block.kind) {
     case "comparison": {
       const { kind: _kind, footnote, ...props } = block;
@@ -154,6 +158,8 @@ function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
       const { kind: _kind, contactKind, role, facts, ...props } = block;
       return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
     }
+    case "track":
+      return <TrackBlockCard block={block} isStatic={isStatic} resolved={trackDisplay} />;
     case "map":
       return <MapBlockCard block={block} isStatic={isStatic} />;
     case "link": {
@@ -173,10 +179,10 @@ function BlockView({ block, isStatic }: { block: Block; isStatic: boolean }) {
  * Bound to `SHOW_BLOCK_CONTRACT`; receives the parsed payload as props.
  * `isStatic` is for a render nothing will update (the share document).
  */
-export function BlockCard({ block, isStatic = false }: ShowBlockPayload & { isStatic?: boolean }) {
+export function BlockCard({ block, isStatic = false, trackDisplay }: ShowBlockPayload & { isStatic?: boolean; trackDisplay?: TrackDisplay }) {
   return (
     <div data-block={block.kind}>
-      <BlockView block={block} isStatic={isStatic} />
+      <BlockView block={block} isStatic={isStatic} trackDisplay={trackDisplay} />
     </div>
   );
 }

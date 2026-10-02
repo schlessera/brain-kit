@@ -38,7 +38,7 @@ toolkit does not classify them implicitly.
 The public permission implementation is the gate (`decideToolPermission`,
 `packages/ui-sdk/src/server/permission-gate.ts:62-96`), request construction
 (`createToolPermissionRequest`, `packages/ui-sdk/src/server/permission-gate.ts:205-219`),
-bridge operation (`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-286`)
+bridge operation (`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-292`)
 and edited-input check (`checkEditedApproval`,
 `packages/ui-sdk/src/server/permission-gate.ts:148-180`). Pattern compilation is
 shared (`compileConfirmPatterns`, `packages/ui-sdk/src/server/confirm-patterns.ts:91-128`).

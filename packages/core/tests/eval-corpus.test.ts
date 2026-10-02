@@ -163,7 +163,7 @@ describe("full-text ranks (keyless goldens)", () => {
   });
 
   test("a selector resolves to the document its frontmatter names", () => {
-    expect(outcomes.get("time-due-next")?.expected).toEqual(["projects/active/bookshelf/status.md"]);
+    expect(outcomes.get("time-due-next")?.expected).toEqual(["projects/active/raft/status.md"]);
     expect(outcomes.get("time-review")?.expected).toEqual(["context/current-focus.md"]);
   });
 });
@@ -185,9 +185,9 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
   // The vector lane's order per query, shared by the direct tests and the
   // provider the spawned `brain eval` loads from the temp brain's config.
   const KNEE_ORDER = ["health/sleep-tracking.md", "health/knee-injury.md"];
-  const WOOD_ORDER = ["health/checkup-log.md", "journal/2026-06-15.md", "projects/active/trail-signage/status.md"];
-  const KNEE_FUSED = ["health/knee-injury.md", "context/current-focus.md", "health/sleep-tracking.md"];
-  const WOOD_FUSED = ["projects/active/trail-signage/status.md", "_index.md", "context/current-focus.md"];
+  const RAFT_ORDER = ["health/checkup-log.md", "journal/2026-06-15.md", "projects/active/raft/overview.md"];
+  const KNEE_FUSED = ["health/knee-injury.md", "_index.md", "context/current-focus.md"];
+  const RAFT_FUSED = ["projects/active/raft/overview.md", "context/reading-list.md", "context/current-focus.md"];
 
   /**
    * A query vector that ranks the documents in `order` first, then every
@@ -247,7 +247,7 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
     // The spawned `brain eval` resolves its provider from brain.config, which
     // takes a custom provider value as-is: give this temp brain one that
     // embeds each test query the way the direct tests do.
-    const orders = { "knee injury": KNEE_ORDER, "woodworking project": WOOD_ORDER };
+    const orders = { "knee injury": KNEE_ORDER, "raft": RAFT_ORDER };
     writeFileSync(
       join(root, "staged-provider.ts"),
       `const vectorFor = ${VECTOR_FOR};\n` +
@@ -275,26 +275,33 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
     cleanup(root);
   });
 
-  // "knee injury" matches six documents as text: a thin pool (under half of
-  // limit 20), so the text lane's weight drops to 0.05. Vector puts
-  // sleep-tracking first and knee-injury second. Summed, knee-injury (text 1
-  // + vector 2) passes sleep-tracking (vector 1 alone), and current-focus
-  // (text 3 + vector 4) edges past it too. A fusion that kept each
-  // document's best lane instead of the sum would put sleep-tracking first.
+  // Eight text matches keep the text lane thin (< half of limit 20).
+  // The vector lane puts sleep-tracking first, which text never found.
+  // Summed agreement puts knee-injury first and two further text hits next.
   test("thin text pool: agreement still edges out one lane's first place", async () => {
+    const text = await hybridSearch(db, { query: "knee injury", mode: "fts", rerank: "none", limit: 20, now: NOW });
+    expect(text.results.length).toBeGreaterThan(0);
+    expect(text.results.length).toBeLessThan(10);
+    expect(text.results[0]?.path).toBe("health/knee-injury.md");
+    expect(text.results.map((r) => r.path)).not.toContain("health/sleep-tracking.md");
+    const vector = await hybridSearch(db, { query: "knee injury", mode: "vector", rerank: "none", limit: 20, now: NOW }, { embeddings: provider(KNEE_ORDER) });
+    expect(vector.results[0]?.path).toBe("health/sleep-tracking.md");
     const ranked = await fused("knee injury", KNEE_ORDER);
     expect(ranked.slice(0, 3)).toEqual(KNEE_FUSED);
   });
 
-  // "woodworking project" matches twelve documents as text, so the text lane
-  // keeps its full weight 0.8. Text ranks trail-signage/status first; vector
-  // ranks it third, behind two documents text never found. Summed (0.8/61 +
-  // 1/63) it leads, and at full weight every document both lanes found (the
-  // query vector ranks the whole corpus) passes checkup-log's vector first
-  // place alone. Each document's best lane alone would put checkup-log first.
+  // Fifteen text matches keep weight 0.8. Text puts raft/overview first;
+  // vector puts it third behind two documents text never found. Summing
+  // both lanes puts it first, above checkup-log's vector-only first place.
   test("full-weight text: documents both lanes found outrank vector's first place alone", async () => {
-    const ranked = await fused("woodworking project", WOOD_ORDER);
-    expect(ranked.slice(0, 3)).toEqual(WOOD_FUSED);
+    const text = await hybridSearch(db, { query: "raft", mode: "fts", rerank: "none", limit: 20, now: NOW });
+    expect(text.results.length).toBeGreaterThanOrEqual(10);
+    expect(text.results[0]?.path).toBe("projects/active/raft/overview.md");
+    expect(text.results.map((r) => r.path)).not.toContain("health/checkup-log.md");
+    const vector = await hybridSearch(db, { query: "raft", mode: "vector", rerank: "none", limit: 20, now: NOW }, { embeddings: provider(RAFT_ORDER) });
+    expect(vector.results[0]?.path).toBe("health/checkup-log.md");
+    const ranked = await fused("raft", RAFT_ORDER);
+    expect(ranked.slice(0, 3)).toEqual(RAFT_FUSED);
     expect(ranked.indexOf("health/checkup-log.md")).toBeGreaterThan(2);
   });
 
@@ -309,7 +316,7 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
       [
         { now: "2026-07-12" },
         { id: "knee", q: "knee injury", class: "thin", expected: ["health/knee-injury.md"] },
-        { id: "wood", q: "woodworking project", class: "full", expected: ["projects/active/trail-signage/status.md"] },
+        { id: "raft", q: "raft", class: "full", expected: ["projects/active/raft/overview.md"] },
       ].map((l) => JSON.stringify(l)).join("\n")
     );
     const run = await runCli(root, ["eval", "--set", set, "--mode", "hybrid", "--rerank", "none", "--json"]);
@@ -319,8 +326,8 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
     expect(out.meta).toMatchObject({ modes: ["hybrid"], embedding_model: `fake:${DIMENSIONS}` });
     const byId = new Map(out.per_query.map((o: Outcome) => [o.id, o]));
     expect((byId.get("knee") as Outcome).top.slice(0, 3)).toEqual(KNEE_FUSED);
-    expect((byId.get("wood") as Outcome).top.slice(0, 3)).toEqual(WOOD_FUSED);
-    expect([(byId.get("knee") as Outcome).rank, (byId.get("wood") as Outcome).rank]).toEqual([1, 1]);
+    expect((byId.get("raft") as Outcome).top.slice(0, 3)).toEqual(RAFT_FUSED);
+    expect([(byId.get("knee") as Outcome).rank, (byId.get("raft") as Outcome).rank]).toEqual([1, 1]);
   });
 
   test("a document only the vector lane finds still ranks", async () => {

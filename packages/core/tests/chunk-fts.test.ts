@@ -43,12 +43,12 @@ const LONG = doc(
         "label the crate with the focal length, and ask the optician for a protective overcoat on the new " +
         "aluminium, which roughly doubles how long the coating lasts before it needs doing again. While the " +
         "mirror is away, cap the tube, check the spider vanes for play, and clean the secondary with distilled " +
-        "water only; when the mirror comes back, collimate before the first night out."
-      : `## Section ${i}\n\n${`Routine field note ${i} about trail walking, weather, water and camp chores. `.repeat(12)}`
+        "water only; when the mirror comes back, orient before the first night out."
+      : `## Section ${i}\n\n${`Routine field note ${i} about route walking, weather, water and camp chores. `.repeat(12)}`
   ).join("\n\n"),
   // The summary matches too, so both the document row and a chunk match, and
   // the snippet must still come from the chunk.
-  "Trail and telescope upkeep, mirror care included"
+  "Route and star guide upkeep, mirror care included"
 );
 
 /** A short note that mentions recoating once, among other words. */

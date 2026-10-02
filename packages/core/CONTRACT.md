@@ -49,11 +49,11 @@ Markers and verification:
 
 Facts, for documents that restate the same facts (bios, fact sheets):
 - `facts` — on the canonical document a `taxonomy.facts` entry names as its
-  `source`: a map of scalar values, `facts: { ranger_since: 2019 }`. The
+  `source`: a map of scalar values, `facts: { troy_fell: 2016 }`. The
   config says how each key is restated in prose, and `brain audit` reports a
   document that states another value as `fact-drift`.
 - `facts_ignore` — on any other document: an inline list of fact keys it
-  restates on purpose as they once were (a retrospective), `[ranger_since]`.
+  restates on purpose as they once were (a retrospective), `[troy_fell]`.
   `brain audit` skips exactly those keys on exactly that document.
 
 Rules:
@@ -81,7 +81,8 @@ Rules:
 
 A directory link (`[[some/dir/]]`) resolves to its anchor file (`_index.md`
 first; modules may add anchors like `status.md`). `[[file#heading]]` links to
-the file.
+the file. `[[#heading]]` and `[[#heading|display text]]` link to the source
+document. Neither form checks whether the heading exists.
 
 ## Conventions
 

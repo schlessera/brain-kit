@@ -12,8 +12,8 @@ describe("sync exact paths", () => {
     };
     try {
       git("init", "-q", "-b", "main");
-      git("config", "user.name", "Alex Example");
-      git("config", "user.email", "alex@example.test");
+      git("config", "user.name", "Odysseus");
+      git("config", "user.email", "odysseus@example.test");
       writeFileSync(join(root, "credentials.json"), "{}\n");
       writeFileSync(join(root, "old.md"), "rename body\n");
       git("add", "credentials.json", "old.md");

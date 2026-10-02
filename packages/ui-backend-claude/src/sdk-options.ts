@@ -1,3 +1,4 @@
+import { ASK_USER_FORM_TOOL_NAME } from "./ask-user-form-tool.js";
 import type {
   Options,
   SDKUserMessage,
@@ -77,33 +78,39 @@ export function createClaudeSdkTurn(options: {
   // withheld here rather than appended into an allowlist that left it out.
   const askUserList = req.noGrantSurface === true ? undefined : req.bridge.askUserList;
   const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
+  const askUserForm = req.noGrantSurface === true ? undefined : req.bridge.askUserForm;
   const queryActivity = req.bridge.queryActivity;
   const allowed = [...options.allowedTools];
-  // Auto-allow the in-process MCP tools so they never trip a permission
-  // prompt (ask-user is itself the question channel; location consent is
-  // handled by the browser's geolocation prompt).
-  if (askUser) allowed.push(ASK_USER_TOOL_NAME);
-  if (askUserList) allowed.push(ASK_USER_LIST_TOOL_NAME);
-  if (askUserRank) allowed.push(ASK_USER_RANK_TOOL_NAME);
-  if (getLocation) allowed.push(GET_LOCATION_TOOL_NAME);
-  // Auto-allowed like the other bridge tools: the approval is the editor
-  // itself — nothing happens unless the user paints and confirms.
-  if (requestMask) allowed.push(MASK_TOOL_NAME);
-  // Read-only over the host's own record — strictly narrower than the
-  // file/tool access the model already has.
-  if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
-  // No side effect and no host handler: the block is part of the answer, and
-  // an approval card for drawing a table would be the surface asking
-  // permission to answer.
-  allowed.push(SHOW_BLOCK_TOOL_NAME);
+  // An autonomous roster is exact server authority, including bridge tools.
+  if (!req.autonomous) {
+    // Auto-allow the in-process MCP tools so they never trip a permission
+    // prompt (ask-user is itself the question channel; location consent is
+    // handled by the browser's geolocation prompt).
+    if (askUser) allowed.push(ASK_USER_TOOL_NAME);
+    if (askUserList) allowed.push(ASK_USER_LIST_TOOL_NAME);
+    if (askUserRank) allowed.push(ASK_USER_RANK_TOOL_NAME);
+    if (askUserForm) allowed.push(ASK_USER_FORM_TOOL_NAME);
+    if (getLocation) allowed.push(GET_LOCATION_TOOL_NAME);
+    // Auto-allowed like the other bridge tools: the approval is the editor
+    // itself — nothing happens unless the user paints and confirms.
+    if (requestMask) allowed.push(MASK_TOOL_NAME);
+    // Read-only over the host's own record — strictly narrower than the
+    // file/tool access the model already has.
+    if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
+    // No side effect and no host handler: the block is part of the answer, and
+    // an approval card for drawing a table would be the surface asking
+    // permission to answer.
+    allowed.push(SHOW_BLOCK_TOOL_NAME);
+  }
 
-  const append = buildAppend(
+  const append = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
     {
       askUser: Boolean(askUser),
       askUserList: Boolean(askUserList),
       askUserRank: Boolean(askUserRank),
+      askUserForm: Boolean(askUserForm),
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
       activity: Boolean(queryActivity),
@@ -114,6 +121,7 @@ export function createClaudeSdkTurn(options: {
   const childEnv = turnEnv(profile);
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
+    ...(req.autonomous ? { persistSession: false } : {}),
     cwd: backend.brainPath,
     includePartialMessages: true,
     // Forward subagent text/thinking tagged with parent_tool_use_id so
@@ -184,6 +192,8 @@ export function createClaudeSdkTurn(options: {
       askUser,
       askUserList,
       askUserRank,
+      askUserForm,
+      askUserFormLimits: req.bridge.askUserFormLimits,
       getLocation,
       requestMask,
       queryActivity,
@@ -212,6 +222,7 @@ function buildAppend(
     askUser: boolean;
     askUserList: boolean;
     askUserRank: boolean;
+    askUserForm: boolean;
     location: boolean;
     mask: boolean;
     activity: boolean;
@@ -230,6 +241,7 @@ function buildAppend(
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
         askUserList: tools.askUserList && ASK_USER_LIST_TOOL_NAME,
         askUserRank: tools.askUserRank && ASK_USER_RANK_TOOL_NAME,
+        askUserForm: tools.askUserForm && ASK_USER_FORM_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,

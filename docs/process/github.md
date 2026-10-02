@@ -186,6 +186,12 @@ leaves them alone. `.github/workflows/project-sync.yml` runs it with `--apply`:
   That covers the two template repositories, whose events do not reach this
   workflow, and anything an event run missed.
 
+The full sweep reads item IDs and Status/Priority/Track values together through
+all GraphQL cursor pages. Its final on-board verification traverses the pages
+again, so an item after the first 500 is recognized as present. A failed API
+read or a cursor that cannot advance stops the run rather than treating a
+partial listing as the board.
+
 Every `needs:` label, including `needs: human`, prevents a derived `Ready`
 status, even if `agent-ready` was left on by mistake. A human handoff does not
 add a board column; move an item out of a manually set `In progress` state when
@@ -193,10 +199,14 @@ work pauses, because sync preserves that state.
 
 An event run costs a few GraphQL points. The full sweep costs about 520 of the
 account's 5,000 per hour, so it is not run per event. A label change reaches
-the board within seconds without anyone running anything. Runs for the same
-issue queue behind each other. Do not run `--apply` from a terminal while the
-workflow is live, because it can overlap a workflow run and post a notice
-twice. The dry run is safe from anywhere.
+the board through event runs without anyone running anything. Issue events,
+PR events and sweeps share one concurrency group, so
+only one apply runs at a time across the board. `queue: max` retains up to 100
+pending runs; excess runs are cancelled and the daily or on-demand sweep
+recovers their changes. Each run reads current issue state when it executes.
+Do not run `--apply` from a terminal while the workflow exists: that bypasses
+its serialization and can post a duplicate notice. The dry run is safe from
+anywhere.
 
 The `blocked` label is checked against the blockers it names. An issue that
 waits on another says so on its own line in its body, starting with the

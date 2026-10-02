@@ -4,6 +4,8 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
   BackendBridge,
+  BackendVersionRequirements,
+  AutonomousTurnOptions,
   ClientEnvironment,
   ConfirmPatternSource,
   WriteLock,
@@ -85,6 +87,8 @@ export interface PiProfile {
 }
 
 export interface CreatePiBackendOptions {
+  /** Full SemVer minimum for the primary SDK; composed with all three manifest constraints. Pi has no separate runtime identity. */
+  versionRequirements?: BackendVersionRequirements;
   /** Absolute path to the brain repository (the agent's cwd). */
   brainPath: string;
   /** Default model when no profiles are configured: "vendor/modelId" or "modelId". */
@@ -153,6 +157,7 @@ export interface SessionCaps {
   askUser: boolean;
   askUserList: boolean;
   askUserRank: boolean;
+  askUserForm?: boolean;
   location: boolean;
   activity: boolean;
   mask: boolean;
@@ -160,6 +165,7 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;
   caps: SessionCaps;
   turnBudgetMs?: number;
@@ -170,6 +176,7 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     askUser: Boolean(bridge.askUser),
     askUserList: Boolean(bridge.askUserList),
     askUserRank: Boolean(bridge.askUserRank),
+    askUserForm: Boolean(bridge.askUserForm),
     location: Boolean(bridge.getLocation),
     activity: Boolean(bridge.queryActivity),
     mask: Boolean(bridge.requestMask),

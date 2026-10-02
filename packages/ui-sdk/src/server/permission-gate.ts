@@ -252,11 +252,17 @@ function noGrantSurfaceMessage(request: PermissionRequest): string {
  * @experimental
  */
 export function requestToolPermission(
-  bridge: Pick<BackendBridge, "requestPermission" | "activity"> | null | undefined,
+  bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined,
   request: PermissionRequest,
   options: RequestToolPermissionOptions = {}
 ): Promise<PermissionDecision> {
   if (options.noGrantSurface) {
+    // Durable escalation must precede the shortcut. Failure propagates to the
+    // runtime as a tool error; it must never silently discard the checkpoint.
+    const captured: unknown = bridge?.checkpointPermission?.(request);
+    if (captured && typeof (captured as { then?: unknown }).then === "function") {
+      throw new Error("Permission checkpoints must complete synchronously.");
+    }
     const message = noGrantSurfaceMessage(request);
     // Reported on the activity side channel because this decision never
     // reaches the host's requestPermission, which is where a user's denial is

@@ -29,7 +29,8 @@ import { dirname } from "path";
 import { Type } from "typebox";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { KeyedLock, WriteLock } from "@schlessera/brain-ui-sdk/server";
+import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import {
   execWrapperSpawnOptions,
   killWrapped,
@@ -152,7 +153,7 @@ function clip(text: string, max = MAX_OUTPUT_BYTES): string {
  * toolset (see backend.ts).
  */
 export interface ToolLock {
-  withKey<T>(key: string | null, fn: () => Promise<T> | T): Promise<T>;
+  withKey<T>(key: string | null, fn: () => Promise<T> | T, admission?: KeyedLockAcquireOptions): Promise<T>;
 }
 
 /**
@@ -162,8 +163,9 @@ export interface ToolLock {
  */
 export function toolLockFromKeyed(keyed: KeyedLock): ToolLock {
   return {
-    withKey(key, fn) {
-      return key === null ? Promise.resolve(fn()) : keyed.withLock(key, fn);
+    withKey(key, fn, admission) {
+      if (admission?.signal?.aborted) return Promise.reject(new DOMException("Tool cancelled", "AbortError"));
+      return key === null ? Promise.resolve(fn()) : keyed.withLock(key, fn, admission);
     },
   };
 }
@@ -174,9 +176,14 @@ export function toolLockFromKeyed(keyed: KeyedLock): ToolLock {
  * behavior a deployment sharing a lock with another writer opted into.
  */
 export function toolLockFromWriteLock(writeLock: WriteLock): ToolLock {
+  const keyed = createKeyedLock();
   return {
-    withKey(_key, fn) {
-      return writeLock.withLock(fn);
+    withKey(key, fn, admission) {
+      const body = () => writeLock.withLock(() => {
+        if (admission?.signal?.aborted) throw new DOMException("Tool cancelled", "AbortError");
+        return fn();
+      });
+      return keyed.withLock(key ?? "legacy-keyless", body, admission);
     },
   };
 }
@@ -213,6 +220,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   ask_user: "read",
   ask_user_list: "read",
   ask_user_rank: "read",
+  ask_user_form: "read",
   get_current_location: "read",
   query_activity: "read",
   // Echoes the block it was given; the surface draws it. Touches nothing.
@@ -278,7 +286,22 @@ export const PI_BRAIN_UPDATE_TOOL_NAME = "brain_update";
 export const PI_ASK_USER_TOOL_NAME = BRIDGE_TOOL_POSTURE.names[0];
 
 export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
-  const { brain, turn, lock, capabilities } = deps;
+  const { brain, turn, capabilities } = deps;
+  const lock: ToolLock = {
+    withKey: (key, body) => {
+      const pending = turn.pendingMutations;
+      const work = deps.lock.withKey(key, body, {
+        signal: turn.signal ?? undefined,
+        priority: turn.autonomous ? "autonomous" : "interactive",
+        onYield: turn.autonomous?.onYield,
+        yieldAfterMs: turn.autonomous?.yieldAfterMs,
+        timeoutMs: 30_000,
+      });
+      pending?.add(work);
+      void work.then(() => pending?.delete(work), () => pending?.delete(work));
+      return work;
+    },
+  };
 
   const resolveOrThrow = (rel: string): string => {
     const abs = brain.resolveInRepo(rel);
@@ -480,17 +503,20 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       command: Type.String({ description: "The bash command line to execute." }),
     }),
     async execute(_id: string, params: { command: string }, signal?: AbortSignal) {
+      signal = signal && turn.signal ? AbortSignal.any([signal, turn.signal]) : signal ?? turn.signal ?? undefined;
       // The tool_call gate has already confirmed a destructive-pattern match
       // by now (and may have edited the command via updatedInput). The rtk
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
       const childEnv = subprocessEnv(resolveEnabledWebSearchEnvNames());
       const cmd = await rtkRewriteCommand(params.command, childEnv);
+      if (signal?.aborted) throw new DOMException("Tool cancelled before lock admission", "AbortError");
       // Only commands that touch git staging/history or the brain CLI's
       // write path take a lock (shared bashLockKey policy) — builds, greps,
       // curls and other reads run in parallel, across sessions and across
       // sibling tool calls in one message.
       return lock.withKey(bashLockKey(params.command), async () => {
+        if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         const exec = resolveExecConfig();
         const proc = spawn(wrapCommand(["bash", "-lc", cmd], exec.wrapper), {
           cwd: brain.root,

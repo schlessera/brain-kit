@@ -17,7 +17,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { installGitHooks } from "../src/cli/hooks-util";
 
 const temps: string[] = [];
@@ -344,19 +344,24 @@ test("doctor's mcp check does not pass when nothing registers the server", async
   const shimDir = join(root, ".shim");
   mkdirSync(home, { recursive: true });
   mkdirSync(shimDir, { recursive: true });
-  writeFileSync(join(shimDir, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-
-  const proc = Bun.spawn(["bun", BRAIN_BIN, "doctor", "--json"], {
-    env: { ...keylessEnv(root), HOME: home, PATH: `${shimDir}:${process.env.PATH}` },
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "ignore",
-  });
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
+  const calls = join(root, "claude-calls");
+  writeFileSync(join(shimDir, "claude"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$FIXTURE_CALLS"\n', { mode: 0o755 });
+  const env = { HOME: home, PATH: `${shimDir}:${keylessEnv(root).PATH}`, FIXTURE_CALLS: calls };
+  const { stdout, stderr, code } = await runCli(root, ["doctor", "--json"], env);
+  expect(code, stderr).toBe(0);
+  expect(existsSync(calls), "the fixture Claude shim must execute").toBe(true);
+  expect(readFileSync(calls, "utf8")).toBe("mcp list\n");
 
   expect(existsSync(join(root, ".mcp.json"))).toBe(false);
   expect(mcpCheck(stdout).status).not.toBe("pass");
+
+  // A second answer proves that the deliberate shim still drives fallback,
+  // rather than the harness unconditionally suppressing all discovery.
+  writeFileSync(join(shimDir, "claude"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$FIXTURE_CALLS"\nprintf "brain\\n"\n', { mode: 0o755 });
+  const registered = await runCli(root, ["doctor", "--json"], env);
+  expect(registered.code, registered.stderr).toBe(0);
+  expect(readFileSync(calls, "utf8")).toBe("mcp list\nmcp list\n");
+  expect(mcpCheck(registered.stdout)).toMatchObject({ status: "pass", detail: "registered (claude mcp list)" });
 });
 
 /** Stage 5's MCP step of the brain-init skill, split into what an agent acts on. */

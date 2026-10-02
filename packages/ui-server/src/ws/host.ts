@@ -1,3 +1,4 @@
+import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
@@ -12,7 +13,9 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
+import type { InboxStream } from "../inbox/stream.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
+import { FailureReplay } from "./turn-failures.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -61,6 +64,9 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  /** Concrete contained staging root for track attachments; absent refuses the new path. */
+  brainPath?: string;
+  askUserFormLimits?: Partial<AskUserFormLimits>;
   /** Backend registry resolving profiles/sessions to agent backends. */
   registry: BackendRegistry;
   /** Session persistence seam (SQLite catalog in production). */
@@ -115,6 +121,8 @@ export interface WsHostOptions {
    * most existing tests want.
    */
   activity?: ActivityRuntime;
+  /** The concrete durable stream; absent on hosts without durable inbox support. */
+  inbox?: InboxStream;
   /**
    * The user's remembered "always allow" tool grants. Optional: a host
    * without one never auto-answers and never persists an `always` approval —
@@ -157,6 +165,9 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * module-level default host, so two apps coexist without sharing state.
  */
 export class WsHost {
+  readonly brainPath?: string;
+  readonly failureReplay: FailureReplay;
+  readonly askUserFormLimits: AskUserFormLimits;
   readonly coordinator = new TurnCoordinator();
   readonly clients: ClientSet;
   readonly registry: BackendRegistry;
@@ -168,6 +179,7 @@ export class WsHost {
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
   readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
+  readonly inbox: InboxStream | null;
   readonly toolPermissions: ToolPermissions | null;
   readonly classifier: TurnClassifier | null;
   readonly scratchPrune?: () => Promise<void>;
@@ -194,6 +206,8 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
+    this.brainPath = options.brainPath;
+    this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
     });
@@ -208,10 +222,12 @@ export class WsHost {
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
+    this.inbox = options.inbox ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     this.classifier = options.classifier ?? null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
     this.log = this.observability.logger("ws");
+    this.failureReplay = new FailureReplay(this.catalog, this.log);
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {
       description: "Inbound frames refused before reaching a handler",
@@ -299,6 +315,7 @@ export class WsHost {
    * exactly as it did before they existed.
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+    messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
@@ -379,6 +396,7 @@ export class WsHost {
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
+      this.inbox?.dropFor(principalId);
       this.activity?.pushSender?.unbindPrincipal(principalId);
     }
     for (const turn of affectedRunning) {
@@ -400,6 +418,7 @@ export class WsHost {
   /** Stop host-owned timers during application/test teardown. */
   close(): void {
     clearInterval(this.authorizationExpiryTimer);
+    this.inbox?.close();
   }
 
   /** Send a frame to one specific socket (size-bounded). */

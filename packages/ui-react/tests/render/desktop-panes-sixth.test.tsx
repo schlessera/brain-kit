@@ -125,8 +125,8 @@ describe("Files rail (sixth pass §3)", () => {
   test("the tree marks a stale file from its own mtime — gold dot and mono meta — and leaves folders and files without mtime alone", async () => {
     openFile({ path: "fresh.md", content: "x", kind: "text", mtime: Date.now() });
     const view = render(<FilePanel open onClose={() => {}} />);
-    await act(flushPromises);
-    const stale = view.getByRole("treeitem", { name: /old\.md/ });
+    // The real lazy tree can settle after a microtask drain. Observe its row.
+    const stale = await view.findByRole("treeitem", { name: /old\.md/ }, { timeout: 5000 });
     expect(stale.textContent).toContain("stale 38d");
     expect(view.getByRole("treeitem", { name: /fresh\.md/ }).textContent).not.toContain("stale");
     expect(view.getByRole("treeitem", { name: /unknown\.md/ }).textContent).not.toContain("stale");
@@ -165,12 +165,11 @@ describe("Files tree keys (sixth pass §8)", () => {
     useUIStore.getState().setSingleKeyShortcuts(false);
     try {
       const view = render(<FilePanel open onClose={() => {}} />);
-      await act(flushPromises);
+      const folder = await view.findByRole("treeitem", { name: /notes/ }, { timeout: 5000 });
       const pane = view.getByRole("dialog", { name: "Files" });
       expect(pane.textContent).toContain("← → fold · ⏎ open");
       expect(pane.textContent).not.toContain("j / k");
 
-      const folder = view.getByRole("treeitem", { name: /notes/ });
       expect(folder.getAttribute("aria-expanded")).toBe("false");
       fireEvent.keyDown(folder, { key: "ArrowLeft" });
       expect(toggled).toEqual([]);
@@ -209,14 +208,14 @@ describe("Actions dismissal (sixth pass §4)", () => {
       return Response.json({ error: "not_found" }, { status: 404 });
     }) as typeof fetch;
     const page = render(<ActivityPage />);
-    await act(flushPromises);
-    expect(page.getAllByRole("button", { name: /Intent \d/ })).toHaveLength(2);
+    const intents = await page.findAllByRole("button", { name: /Intent \d/ }, { timeout: 5000 });
+    expect(intents).toHaveLength(2);
     fireEvent.click(page.getByRole("button", { name: "Dismiss all" }));
-    await act(flushPromises);
+    const empty = await page.findByRole("heading", { name: "Nothing is waiting on you" }, { timeout: 5000 });
     expect(useActivityStore.getState().inbox).toEqual([]);
     expect(page.queryByText("Dismissed")).toBeNull();
     expect(page.queryByText("2 items")).toBeNull();
-    expect(page.getByRole("heading", { name: "Nothing is waiting on you" })).toBeTruthy();
+    expect(empty).toBeTruthy();
     page.unmount();
   });
 });

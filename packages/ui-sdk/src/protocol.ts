@@ -26,6 +26,8 @@
  * it; `sessionId` is optional for wire compatibility with single-session
  * servers, but multi-session servers MUST set it on every scoped frame.
  */
+import type { ImportedTrack, TrackFormat, TrackSummary } from "@schlessera/brain-geo";
+import type { AskUserFormSpec } from "./tool-contracts/form.js";
 import type { Block } from "./tool-contracts/blocks.js";
 
 export interface SessionScoped {
@@ -79,13 +81,18 @@ export type ClientMessage =
   | ClientAskUserCancel
   | ClientAskUserListResponse
   | ClientAskUserRankResponse
+  | ClientAskUserFormResponse
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
   | ClientMaskError
   | ClientActivitySubscribe
   | ClientActivityUnsubscribe
-  | ClientLocalExchange;
+  | ClientLocalExchange
+  | ClientInboxResolve
+  | ClientInboxSnooze
+  | ClientInboxSubscribe
+  | ClientInboxUnsubscribe;
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -117,6 +124,8 @@ export interface ClientChatMessage {
    */
   providerId?: string;
   attachments?: ChatImageAttachment[];
+  /** Server validates these staged file references and derives their measurements. */
+  files?: ChatFileAttachment[];
   /** Reasoning effort for this message only; absent uses the current profile default. */
   thinkingLevel?: ThinkingLevel;
   /** Correlates acceptance/refusal of this message, including queued follow-ups. */
@@ -344,6 +353,7 @@ export interface ServerRetryReceipt extends SessionScoped {
   message?: string;
   /** Original user text for the accepted new turn's local row. */
   text?: string;
+  files?: SharedFileMeta[];
   attachmentCount?: number;
   source?: MessageSource;
   thinkingLevel?: ThinkingLevel;
@@ -369,24 +379,28 @@ export type ServerMessage =
   | ServerAskUserRequest
   | ServerAskUserListRequest
   | ServerAskUserRankRequest
+  | ServerAskUserFormRequest
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
   | ServerActivityDelta
   | ServerMessageBlocks
-  | ServerLocalExchangeResult;
+  | ServerLocalExchangeResult
+  | InboxSnapshot
+  | InboxDelta;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
  * that don't know it ignore it; clients that do can gate behavior on
  * `protocolRev` and the coarse capability flags instead of sniffing.
- * ADVISORY for now — no shipped client reads it yet; servers must not gate
- * anything on the client having seen it.
+ * Capabilities gate their documented opt-in features. Servers must not gate
+ * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
   type: "server_hello";
   protocolRev: number;
-  /** Coarse, additive capability flags (e.g. multiSession, askUser, location). */
+  /** Coarse, additive flags. `inbox: true` advertises durable Queue/Actions;
+   * absent/false means unsupported. Delivery still requires `inbox_subscribe`. */
   capabilities?: Record<string, boolean>;
 }
 
@@ -416,6 +430,8 @@ export type MessagePart =
   | { kind: "tool"; toolIndex: number };
 
 export interface SessionHistoryMessage {
+  /** Validated staged-file metadata recorded by the host, without original contents. */
+  files?: SharedFileMeta[];
   role: "user" | "assistant";
   content: string;
   thinking?: string;
@@ -650,6 +666,10 @@ export interface TurnFailure {
   errorClass: string;
   /** HTTP status the provider answered with. Absent means unknown, not "no status". */
   status?: number;
+  /** Observed retries before this terminal failure; absent when none were reported. */
+  attempts?: number;
+  /** Observed subscription limit reset, in epoch milliseconds; absent means unknown. */
+  resetsAt?: number;
   /** The failure as the runtime worded it. */
   message: string;
   /**
@@ -1218,6 +1238,9 @@ export const SHARE_MAX_FILES = 10;
  */
 export const SHARE_MAX_FILE_BYTES = 25_000_000;
 
+/** Validated track input cap, matching the shared geo parser. */
+export const TRACK_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
 /** Cap across every file in one share. */
 export const SHARE_MAX_TOTAL_BYTES = 50_000_000;
 
@@ -1259,7 +1282,21 @@ export const SHARE_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const SHARE_STASH_TTL_MS = SHARE_STAGING_TTL_MS;
 
+/** Unit-bearing shared measurements, without the potentially large display geometry. */
+export type TrackFileSummary = Omit<TrackSummary, "geometry"> & { waypointCount: number; waypointOmitted: number };
+
+export interface TrackFileView extends ImportedTrack { file: SharedFileMeta }
+
+export interface ChatFileAttachment { kind: "file"; path: string }
+
 export interface SharedFileMeta {
+  /** Bounded, visible incoming display name; separate from the sanitized stored name. */
+  incomingName?: string;
+  /** SHA-256 of a validated original; exact retries refuse changed files. */
+  sha256?: string;
+  /** Format established from validated contents, never from a name or MIME claim. */
+  detected?: TrackFormat;
+  summary?: TrackFileSummary;
   /** File name as stored, after sanitizing whatever the sharing app supplied. */
   name: string;
   /** Repo-relative path, e.g. `.brain-ui/inbox/<id>/photo.jpg`. */
@@ -1344,7 +1381,7 @@ export interface ClientAskUserResponse {
 
 /**
  * Client → Server. User dismissed the ask-user prompt; the agent gets an error.
- * Cancels `ask_user_list_request` and `ask_user_rank_request` too: ids are unique across all
+ * Cancels `ask_user_list_request`, `ask_user_rank_request` and `ask_user_form_request` too: ids are unique across all
  * kinds, so one dismissal frame serves any card.
  */
 export interface ClientAskUserCancel {
@@ -1708,7 +1745,7 @@ export interface ClientActivityUnsubscribe {
 }
 
 export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
-export type ActivitySpanOrigin = "session" | "cron";
+export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
 export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
 /**
  * Terminal dispositions. `denied` is an approval declined by the user —
@@ -2126,4 +2163,202 @@ export interface ActivityIntent {
   status: "pending" | "sent" | "send_failed" | "suppressed";
   acknowledged: boolean;
   createdAt: number;
+}
+
+// ============================================================
+// Durable Queue and Actions (additive; distinct from activity notifications)
+// ============================================================
+
+export type InboxView = "queue" | "actions";
+export type InboxQueueStatus = "scheduled" | "ready" | "claimed" | "done" | "blocked" | "failed" | "superseded" | "expired" | "dropped";
+export type InboxActionStatus = "pending" | "snoozed" | "resolved" | "dismissed" | "expired" | "dropped";
+export type InboxDismissReason = "dont_ask_again" | "wrong_call" | "need_more_info" | "no_longer_relevant";
+
+/** Server-owned provenance and immutable trust; never accepted from a model. */
+export interface InboxThread {
+  id: string;
+  trustClass: "trusted" | "untrusted";
+  source: "share" | "cli";
+  status: "open" | "closed";
+  /** Bounded derived projection, not the append-only audit record. */
+  stateMd: string;
+  stakes: number;
+  deadline?: number;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
+/** A requested exact operation, NOT a capability grant or a tool allowlist. */
+export interface InboxOperation {
+  toolName: string;
+  input: Record<string, unknown>;
+  /** Canonical brain-relative path; the server must check its current envelope. */
+  targetPath: string;
+}
+
+export interface InboxWorkPayload {
+  instruction: string;
+  operation?: InboxOperation;
+}
+
+/**
+ * Model output is data, never authority. These payloads contain no trust,
+ * principal, profile, tool-policy or grant fields. Creation AND application
+ * must validate the requested operation against server-owned authority.
+ * `write_policy` and `open_session` describe deferred v2 data only; v1 uses
+ * V1ResolutionEffect and v1ResolutionEffectSchema, which exclude both kinds.
+ * Snooze has no model-selected time; the server derives it deterministically.
+ */
+export type ResolutionEffect =
+  | { kind: "enqueue"; payload: InboxWorkPayload }
+  | { kind: "cancel_blocked" }
+  | { kind: "snooze" }
+  | { kind: "dismiss"; reason?: InboxDismissReason }
+  | { kind: "write_policy"; policy: { slug: string; content: string } }
+  | { kind: "open_session"; seed: { prompt: string } };
+
+export type V1ResolutionEffect = Exclude<ResolutionEffect, { kind: "write_policy" | "open_session" }>;
+
+export interface InboxOption {
+  id: string;
+  label: string;
+  effect: ResolutionEffect;
+}
+
+export interface InboxItemBase {
+  id: string;
+  threadId: string;
+  dedupKey: string;
+  createdAt: number;
+  updatedAt: number;
+  /** UTC epoch milliseconds. Every item has an explicit expiry. */
+  expiresAt: number;
+  waitUntil?: number;
+  version: number;
+  runId?: string;
+}
+
+export type InboxQueueItem = InboxItemBase & {
+  queue: "queue";
+  status: InboxQueueStatus;
+  attempts: number;
+  maxAttempts: number;
+  claimedAt?: number;
+  leaseUntil?: number;
+  blockedByItemId?: string;
+} & (
+  | { type: "triage"; payload: { stagingId: string } }
+  | { type: "execute"; payload: InboxWorkPayload }
+  /** Server-owned compensation; never a model-submitted effect. */
+  | { type: "cleanup_pending"; payload: { stagingId: string } }
+);
+
+export type InboxActionItem = InboxItemBase & {
+  queue: "actions";
+  type: "approve" | "choose" | "fyi";
+  status: InboxActionStatus;
+  payload: { title: string; detail: string };
+  /** FYIs have no options and do not count against the decision cap. */
+  options: InboxOption[];
+};
+
+/** Queue work acquires leases; human Actions never enter `claimed`. */
+export type InboxItem = InboxQueueItem | InboxActionItem;
+
+/** Scope survives removal: clients never derive it by joining a mutable item. */
+export type InboxChange = {
+  changeId: number;
+  threadId: string;
+  /** Per-thread order, independent of the global change cursor. */
+  seq: number;
+} & (
+  | { kind: "upsert_thread"; thread: InboxThread }
+  | { kind: "upsert_item"; itemId: string; item: InboxItem }
+  | { kind: "remove_item"; itemId: string }
+  | { kind: "remove_thread" }
+);
+
+/** Opt-in only after server_hello advertises inbox; no hello remains tolerated. */
+export interface ClientInboxSubscribe {
+  type: "inbox_subscribe";
+  view: InboxView;
+  /** Optional thread filter, subject to server-side principal authorization. */
+  threadId?: string;
+}
+
+export interface ClientInboxUnsubscribe {
+  type: "inbox_unsubscribe";
+  view: InboxView;
+  threadId?: string;
+}
+
+/** Select a stored option; no client-supplied effect or authority is accepted. */
+export interface ClientInboxResolve {
+  type: "inbox_resolve";
+  itemId: string;
+  optionId: string;
+  /** Feedback only, never standing authority. */
+  reason?: InboxDismissReason;
+}
+
+/** The server computes waitUntil; clients cannot override the scheduling rule. */
+export interface ClientInboxSnooze {
+  type: "inbox_snooze";
+  itemId: string;
+}
+
+/**
+ * A transactionally consistent snapshot. Chunk continuations set append;
+ * highWaterSeq is per-thread and cursor is the global change high-water mark.
+ * Discard deltas at/below the thread's snapshot seq. A delta before the first
+ * snapshot is ignored; reconnect starts with a fresh snapshot.
+ */
+export interface InboxSnapshot {
+  type: "inbox_snapshot";
+  view: InboxView;
+  threadId?: string;
+  threads: InboxThread[];
+  items: InboxItem[];
+  highWaterSeq: Record<string, number>;
+  cursor: number;
+  append?: boolean;
+}
+
+export interface InboxDelta {
+  type: "inbox_delta";
+  view: InboxView;
+  change: InboxChange;
+}
+
+// Conditional form: flat request nodes, typed visible answers (#585).
+export type { AskUserFormLimits, AskUserFormNode, AskUserFormInput, AskUserFormSpec, AskUserFormAnswer, AskUserFormAnswers, AskUserFormPayload, AskUserFormSingleAnswer, AskUserFormMultiAnswer, AskUserFormScaleAnswer, AskUserFormRankAnswer } from "./tool-contracts/form.js";
+export interface ServerAskUserFormRequest extends SessionScoped, AskUserFormSpec {
+  type: "ask_user_form_request";
+  requestId: string;
+}
+export interface ClientAskUserFormResponse {
+  type: "ask_user_form_response";
+  requestId: string;
+  answers: import("./tool-contracts/form.js").AskUserFormAnswers;
+  turnId?: string;
+}
+
+/** Authenticated operational intake; queueing does not file brain content. */
+export interface QueueAddRequest {
+  key: string;
+  title?: string;
+  text?: string;
+  url?: string;
+}
+export interface QueueAddResult {
+  queued: true;
+  created: boolean;
+  threadId: string;
+  itemId: string;
+  stagingId: string;
+}
+
+/** Server-owned CLI staging metadata; the share manifest's source stays unchanged. */
+export interface QueueStagingManifest extends ShareIntakeResult {
+  source: "cli";
 }

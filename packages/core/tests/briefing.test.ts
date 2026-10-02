@@ -39,7 +39,7 @@ async function brief(root: string, opts: BriefingOptions = {}): Promise<string> 
   const brain = await initContext({ root });
   setSystemTime(NOW);
   try {
-    return generateBriefing(brain, 15, opts);
+    return await generateBriefing(brain, 15, opts);
   } finally {
     setSystemTime();
   }
@@ -49,6 +49,11 @@ function section(briefing: string, name: string): string[] {
   const body = briefing.split(`\n## ${name}\n`)[1];
   if (body === undefined) return [];
   return body.split("\n## ")[0]!.split("\n").filter((line) => line.startsWith("- "));
+}
+
+/** These log-specific assertions leave the independently tested audit line out. */
+function hygieneLines(briefing: string): string[] {
+  return section(briefing, "Upkeep").filter((line) => !line.includes("must-fix audit finding(s)"));
 }
 
 const note = (title: string) =>
@@ -69,7 +74,7 @@ describe("Upkeep", () => {
       "context/hygiene/open.md": OPEN,
       "context/hygiene/last-run.md": lastRun(daysAgo(20)),
     });
-    expect(section(await brief(root), "Upkeep")).toEqual([
+    expect(hygieneLines(await brief(root))).toEqual([
       `- content-hygiene last ran ${daysAgo(20)}, 20 day(s) ago (overdue)`,
       "- 3 open (context/hygiene/open.md)",
     ]);
@@ -80,18 +85,18 @@ describe("Upkeep", () => {
       "context/hygiene/open.md": OPEN,
       "context/hygiene/last-run.md": lastRun(daysAgo(10)),
     });
-    expect(section(await brief(root), "Upkeep")[0]).toBe(`- content-hygiene last ran ${daysAgo(10)}, 10 day(s) ago`);
+    expect(hygieneLines(await brief(root))[0]).toBe(`- content-hygiene last ran ${daysAgo(10)}, 10 day(s) ago`);
   });
 
   test("an open.md with no last-run.md still shows, and says no run is recorded", async () => {
     const root = await makeBrain({ "context/hygiene/open.md": OPEN });
-    expect(section(await brief(root), "Upkeep")).toEqual([
+    expect(hygieneLines(await brief(root))).toEqual([
       "- content-hygiene has no recorded run (context/hygiene/last-run.md)",
       "- 3 open (context/hygiene/open.md)",
     ]);
   });
 
-  test("a brain with no hygiene log briefs exactly as before the section existed", async () => {
+  test("a brain with no hygiene log includes its audit count in the reviewed corpus briefing", async () => {
     const root = await makeBrain({}, true);
     const golden = readFileSync(join(import.meta.dir, "fixtures/briefing-corpus.golden.txt"), "utf-8");
     expect((await brief(root)) + "\n").toBe(golden);
@@ -164,7 +169,7 @@ describe("review round 1", () => {
       const briefing = await brief(await makeBrain({ ...files, "notes/a.md": note("A") })).catch(
         (e: Error) => `briefing threw: ${e.message}`
       );
-      expect({ name, upkeep: section(briefing, "Upkeep") }).toEqual({ name, upkeep: expected });
+      expect({ name, upkeep: hygieneLines(briefing) }).toEqual({ name, upkeep: expected });
       const recent = section(briefing, "Recently Active").some((l) => l.includes("notes/a.md"));
       expect({ name, recent }).toEqual({ name, recent: true });
     }

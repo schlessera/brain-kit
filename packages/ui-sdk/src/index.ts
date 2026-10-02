@@ -9,3 +9,4 @@
  * submodules explicitly so server bundles never touch client code.
  */
 export * from "./protocol.js";
+export type { ModuleSettingsField, ModuleSettingsOption, ModuleSettingsSnapshot, ModuleSettingsFailure, ConfiguredModule, ModuleSettingsMigrationPreview } from "./module-settings.js";

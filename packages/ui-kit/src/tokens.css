@@ -1767,8 +1767,18 @@
 .bk-rank-row .bk-asklist-link { margin-right: 8px; }
 .bk-rank-cutoff { margin: 0 0 8px; padding-top: 8px; border-top: 1px solid var(--bk-color-line); font: 400 10.5px/1.5 "JetBrains Mono", monospace; color: var(--bk-color-ink-dim); }
 .bk-rank-actions { display: flex; flex-wrap: wrap; gap: 12px 8px; align-items: center; margin-top: 12px; font: 400 11px/1.5 "JetBrains Mono", monospace; color: var(--bk-color-ink-mute); }
-.bk-rank-actions > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* Content basis wraps the action group before keyboard phrases become a sliver.
+   Target the hint after an Undo receipt as well as in the untouched state. */
+.bk-rank-actions > span:first-child, .bk-rank-actions > .bk-rank-keys { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .bk-rank-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+/* D20/D34: small paint stays small. Reserve the transparent vertical reach in
+ * each action's flex item, including wrapped rows and the picked-up Cancel.
+ * Undo keeps InlineToast's own text-sized paint and expanded target. */
+.bk-rank-actions > .bk-control:hover, .bk-rank-buttons > .bk-control:hover { --hv-rank-hairline: var(--hv-bd); }
+@media (any-pointer: coarse) {
+  .bk-rank-actions > .bk-control, .bk-rank-buttons > .bk-control { position: relative; margin-block: 8px; }
+  .bk-rank-actions > .bk-control::before, .bk-rank-buttons > .bk-control::before { content: ""; position: absolute; inset: -8px 0; }
+}
 .bk-rank-keys { display: none; }
 @media (any-pointer: fine) { .bk-rank-keys { display: block; } }
 .bk-rank-instructions { margin: 0 0 8px; font: 400 11px/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-mute); }
@@ -1780,3 +1790,34 @@
 .bk-rank-lapsed { display: flex; align-items: center; gap: 8px; font: 400 11px/1.5 "JetBrains Mono", monospace; color: var(--bk-color-ink-dim); }
 .bk-rank-lapsed > span { flex: 1; }
 .bk-rank-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* Conditional forms use branch slots, never cumulative indentation. */
+.bk-askform { box-sizing: border-box; width: 100%; overflow-wrap: anywhere; }
+.bk-form-node { display: flex; flex-direction: column; min-width: 0; margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--bk-color-line); }
+.bk-form-question { margin: 10px 0 8px; font: 500 13px/1.5 "Plus Jakarta Sans",sans-serif; }
+.bk-form-options { display: flex; flex-direction: column; gap: 7px; }
+.bk-form-path { order: -1; display: flex; flex-wrap: wrap; align-items: center; color: var(--bk-color-ink-mute); font: 500 10.5px/1.5 "JetBrains Mono",monospace; text-transform: uppercase; }
+.bk-form-path button { min-height: 44px; min-width: 44px; padding: 0; color: inherit; font: inherit; text-transform: inherit; background: none; border: 0; cursor: pointer; }
+.bk-form-branch { display: flex; flex-direction: column; min-width: 0; }
+.bk-form-receipt { order: -1; margin-top: 8px; }
+.bk-form-header { position: sticky; top: 0; z-index: 3; margin: -13px -13px 0; padding: 13px 13px 1px; background: var(--bk-color-surface); border-radius: 14px 14px 0 0; }
+.bk-form-title { display: flex; align-items: baseline; gap: 8px; }
+.bk-form-title > .bk-form-question { flex: 1; min-width: 0; }
+.bk-form-title > .bk-form-hint { flex: none; }
+.bk-form-path button:hover { text-decoration: underline; }
+.bk-form-path button:focus-visible { outline: 2px solid var(--bk-color-amber); outline-offset: 2px; border-radius: 4px; }
+.bk-form-summary-answer { margin-top: 8px; }
+.bk-rank-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font: 400 11px/1.5 "Plus Jakarta Sans",sans-serif; color: var(--bk-color-ink-mute); }
+.bk-rank-hint > span { flex: 1; min-width: 0; }
+.bk-form-actions { position: sticky; bottom: 0; z-index: 3; background: var(--bk-color-surface); margin: 16px -13px -13px; padding: 10px 13px 13px; border-radius: 0 0 14px 14px; padding-top: 10px; border-top: 1px solid var(--bk-color-line); display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.bk-form-actions > .bk-form-hint { margin-right: auto; }
+.bk-form-hint { font: 400 10.5px/1.5 "JetBrains Mono",monospace; color: var(--bk-color-ink-mute); }
+.bk-form-error { color: var(--bk-red-ink); font: 400 12px/1.5 "Plus Jakarta Sans",sans-serif; margin: 0 0 8px; }
+.bk-askform .bk-field textarea { display: block; box-sizing: border-box; width: 100%; min-height: 44px; max-height: calc(4.5em + 22px); resize: none; padding: 10px; font: 400 13px/1.5 "Plus Jakarta Sans",sans-serif; color: var(--bk-color-ink); background: var(--bk-inset-well-bg); border: 1px solid var(--bk-color-edge); border-radius: 8px; }
+.bk-form-record p { margin: 6px 0; font: 500 12px/1.5 "JetBrains Mono",monospace; color: var(--bk-teal-ink); }
+.bk-form-preview { margin: 8px 0; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 11px/1.5 "JetBrains Mono",monospace; background: var(--bk-inset-well-bg); }
+
+.bk-askrank[data-embedded] { display: flex; flex-direction: column; }
+.bk-askrank[data-embedded] > .bk-rank-hint { order: -1; }
+
+.bk-form-keys { flex-basis: 100%; font: 400 10.5px/1.5 "JetBrains Mono",monospace; color: var(--bk-color-ink-mute); }

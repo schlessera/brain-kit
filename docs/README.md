@@ -45,7 +45,14 @@ the published template rather than a source checkout.
 | [extending/rerankers.md](extending/rerankers.md) | The opt-in `Reranker` seam and its evaluation evidence. |
 | [extending/skill-emitters.md](extending/skill-emitters.md) | The `SkillEmitter` seam. |
 | [extending/agent-backends.md](extending/agent-backends.md) | The `AgentBackend` seam: authoring a chat-UI agent backend — turn lifecycle, the permission bridge, and how ui-server loads backends. |
+| [conditional-forms.md](conditional-forms.md) | Conditional questions in one card, visible-answer results, configurable limits and keyless schema-cost estimates. |
 | [http-api.md](http-api.md) | Complete mounted-route inventory, supported HTTP authentication/inputs/responses/errors, SDK dependencies and internal UI transport boundary. |
+| [content-index-queries.md](content-index-queries.md) | Supported synchronous content-index results, validation, compatibility and snapshot lifetime. |
+| [inbox-storage.md](inbox-storage.md) | Internal durable Queue and Action storage, guarded transactions, checkpoints, cursor replay and recovery ownership. |
+| [inbox-actions.md](inbox-actions.md) | Atomic escalation and exactly-once decisions, deterministic snooze, cap/expiry/suppression, bounded retries and staging compensation. |
+| [inbox-budget.md](inbox-budget.md) | Autonomous spend/turn admission, conservative reservations, frozen settlement and crash recovery. |
+| [inbox-runtime.md](inbox-runtime.md) | Queue lifecycle, expired-lease recovery and the protected local HTTP poke with boot token rotation. |
+| [inbox-recovery.md](inbox-recovery.md) | Complete operational backup, staging consistency, empty-target restore, crash resumption and the 24-hour recovery point. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, supported HTTP/wire behavior, `brain.db` reads, and versioning rules. |
 
 ## Working on brain-kit itself
@@ -53,7 +60,14 @@ the published template rather than a source checkout.
 | Doc | What's in it |
 | --- | --- |
 | [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
+| [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
+| [audit-capability-investigation.md](audit-capability-investigation.md) | Actual audit suggestion/handler boundaries and keyless repair-capability controls. |
+| [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
+| [job-fit-investigation.md](job-fit-investigation.md) | Actual keyword scoring, private semantic fit/unknown-value controls and the unmeasured live comparison boundary. |
+| [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
+| [mechanical-hygiene-investigation.md](mechanical-hygiene-investigation.md) | Existing hygiene capabilities, a private mechanical-repair prototype and offline runtime/write controls; actual agent savings remain unmeasured. |
+| [opportunity-lifecycle-investigation.md](opportunity-lifecycle-investigation.md) | Explicit job lifecycle events, real file/deadline controls and the remaining comparative evaluation. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
 ## See also

@@ -38,10 +38,11 @@ export function createSessionRuntime(options: {
       const spec = resolveModelSpec(backend, profileId);
       const toolkit = resources.buildToolkit(env.caps);
       if (backend.sessionFactory) {
+        if (env.autonomous) throw new BackendRequestError("Injected session factories do not support nonpersistent turns.");
         const session = await backend.sessionFactory.newSession(profileId, toolkit);
         return { session, turnContext: toolkit.turnContext };
       }
-      const sm = SessionManager.create(brainPath, sessionDir);
+      const sm = env.autonomous ? SessionManager.inMemory(brainPath) : SessionManager.create(brainPath, sessionDir);
       const loaded = await resources.build(toolkit, env);
       // A declared model missing from the catalog fails instead of falling back.
       const model = toModel(spec);

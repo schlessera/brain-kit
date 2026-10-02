@@ -8,8 +8,9 @@
 // `--apply` is what `.github/workflows/project-sync.yml` runs: `--issue` or
 // `--pr` per event (a few GraphQL points), and the full sweep daily (about
 // 520 of the account's 5,000 points per hour, measured 2026-09-24). Run
-// `--apply` from a terminal only when that workflow is not running: two
-// overlapping applies can post the same unblock notice twice.
+// `--apply` through the workflow only: its shared concurrency group serializes
+// all event and sweep paths. A terminal apply bypasses that group and can
+// post a duplicate unblock notice.
 //
 // The project spans the three public repositories that make up the
 // open-source project: `brain-kit`, `brain-template` and
@@ -64,17 +65,17 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   ],
   Hardening: [{ epics: [], also: [38, 152, 251, 282], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736],
     also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591],
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
-    epics: [39],
-    also: [46, 47, 48, 88, 93, 541, 543, 584, 585],
+    epics: [39, 734],
+    also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],
   "Answer quality": [{ epics: [363, 364, 365], also: [50], repo: "schlessera/brain-kit" }],
-  Modules: [{ epics: [32, 524], also: [59, 60, 525, 526, 527, 528], repo: "schlessera/brain-kit" }],
+  Modules: [{ epics: [32, 524, 731, 732, 733], also: [59, 60], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
   Voice: [{ epics: [54], also: [91], repo: "schlessera/brain-kit" }],
   "Contract and 1.0": [{ epics: [56], also: [57, 62], repo: "schlessera/brain-kit" }],
@@ -138,43 +139,63 @@ async function ensureProject(apply: boolean): Promise<Project> {
   return created;
 }
 
-/** What each item currently carries, keyed by issue URL. */
-async function boardValues(
-  projectNumber: number,
-): Promise<Map<string, Record<string, string | undefined>>> {
-  const raw = await gh([
-    "project", "item-list", String(projectNumber), "--owner", OWNER,
-    "--format", "json", "--limit", "500",
-  ]);
-  type Row = { status?: string; priority?: string; track?: string; content?: { url?: string } };
-  return new Map(
-    (JSON.parse(raw).items as Row[])
-      .filter((item) => item.content?.url)
-      .map((item) => [
-        item.content!.url!,
-        { Status: item.status, Priority: item.priority, Track: item.track },
-      ]),
-  );
-}
-
-/** The items actually on the board, keyed by issue URL. */
-async function boardItems(projectNumber: number): Promise<Map<string, string>> {
-  const raw = await gh([
-    "project",
-    "item-list",
-    String(projectNumber),
-    "--owner",
-    OWNER,
-    "--format",
-    "json",
-    "--limit",
-    "500",
-  ]);
-  return new Map(
-    (JSON.parse(raw).items as { id: string; content?: { url?: string } }[])
-      .filter((item) => item.content?.url)
-      .map((item) => [item.content!.url!, item.id]),
-  );
+/** Complete item IDs and managed field values, keyed by repository-qualified issue URL. */
+async function readBoard(
+  project: Project,
+): Promise<Map<string, { itemId: string; current: Record<string, string | undefined> }>> {
+  // Named fields avoid a second, nested field-values pagination. Read both
+  // IDs and values in one traversal so the sweep uses the same snapshot.
+  const query = `query($project: ID!, $after: String) {
+    node(id: $project) {
+      ... on ProjectV2 {
+        items(first: 100, after: $after) {
+          nodes {
+            id
+            content { ... on Issue { url } ... on PullRequest { url } }
+            status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            priority: fieldValueByName(name: "Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            track: fieldValueByName(name: "Track") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  }`;
+  type Value = { name?: string } | null;
+  type Item = { id: string; content?: { url?: string } | null; status?: Value; priority?: Value; track?: Value };
+  type Page = { nodes: (Item | null)[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+  const items = new Map<string, { itemId: string; current: Record<string, string | undefined> }>();
+  const cursors = new Set<string>();
+  let after: string | undefined;
+  for (;;) {
+    const args = ["api", "graphql", "-f", `query=${query}`, "-F", `project=${project.id}`];
+    if (after !== undefined) args.push("-f", `after=${after}`);
+    const response = JSON.parse(await gh(args)) as {
+      data?: { node?: { items?: Page } | null };
+      errors?: { message: string }[];
+    };
+    if (response.errors?.length) {
+      throw new Error(`Cannot read project #${project.number}: ${response.errors.map((error) => error.message).join("; ")}`);
+    }
+    const page = response.data?.node?.items;
+    if (!page || !Array.isArray(page.nodes) || typeof page.pageInfo?.hasNextPage !== "boolean") {
+      throw new Error(`Cannot read project #${project.number}: missing items or page information`);
+    }
+    for (const item of page.nodes) {
+      if (!item?.content?.url) continue;
+      items.set(item.content.url, {
+        itemId: item.id,
+        current: { Status: item.status?.name, Priority: item.priority?.name, Track: item.track?.name },
+      });
+    }
+    if (!page.pageInfo.hasNextPage) return items;
+    const cursor = page.pageInfo.endCursor;
+    if (page.nodes.length === 0 || typeof cursor !== "string" || !cursor || cursors.has(cursor)) {
+      throw new Error(`Cannot read project #${project.number}: pagination did not advance`);
+    }
+    cursors.add(cursor);
+    after = cursor;
+  }
 }
 
 async function listFields(projectNumber: number): Promise<ProjectField[]> {
@@ -487,10 +508,12 @@ function shortRef(ref: string, repo: string): string {
  * the next run retries — and finds the marker, so it removes the label
  * without commenting again. Either order without the marker loses one of the
  * two: removing first strands an issue with no comment if the comment fails,
- * commenting first posts it twice if the removal fails. Runs are assumed not
- * to overlap. The in-memory labels are updated in both modes (after the
- * writes, when applying), so the same run derives the issue's Status from
- * what it now carries, and a dry run reports the Status `--apply` would set.
+ * commenting first posts it twice if the removal fails. The project-sync
+ * workflow serializes all apply paths in one concurrency group; the marker
+ * makes retries safe within that group, but is not a concurrent write lock.
+ * Terminal applies bypass serialization. The in-memory labels are updated in
+ * both modes (after the writes, when applying), so the same run derives Status
+ * from what it now carries, and a dry run reports the Status `--apply` would set.
  */
 export async function reconcileBlocked<T extends BlockableIssue>(
   issues: T[],
@@ -1077,21 +1100,18 @@ export async function main(argv: string[]): Promise<number> {
   const fields = await ensureFields(project.number, apply);
   const byName = new Map(fields.map((field) => [field.name, field]));
 
-  const existing = await boardItems(project.number);
+  const items = await readBoard(project);
 
   const membership = await buildMembership();
   const issues = await openIssues();
   const underReview = await issuesUnderReview();
-  const currentValues = await boardValues(project.number);
 
   const counts: Counts = { added: 0, edited: 0 };
   await sweep(issues, {
     apply,
     tracker: trackerIO,
     board: boardIO(project),
-    items: new Map(
-      issues.map((issue) => [issue.url, { itemId: existing.get(issue.url), current: currentValues.get(issue.url) }]),
-    ),
+    items,
     fields: byName,
     membership,
     underReview,
@@ -1112,7 +1132,7 @@ export async function main(argv: string[]): Promise<number> {
   // item is listable, so an add issued against a stale listing is a silent
   // no-op. Re-running fixes it, which is the point of the whole script being
   // idempotent — but only if it says so rather than claiming success.
-  const onBoard = await boardItems(project.number);
+  const onBoard = await readBoard(project);
   const missing = issues.filter((issue) => !onBoard.has(issue.url));
   if (missing.length > 0) {
     runtime.log(

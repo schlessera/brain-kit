@@ -68,7 +68,7 @@ Two audit checks (category `jobs-stage`, info) flag a `status.md` without a
 ### Index-sync rule
 
 The module contributes the dir anchor `status.md`, so a wiki-link to an
-opportunity directory (`[[career/opportunities/acme]]`) resolves to that dir's
+opportunity directory (`[[career/opportunities/phaeacians]]`) resolves to that dir's
 `status.md`.
 
 ### Cron
@@ -80,12 +80,17 @@ Selected browser boards get Chrome automatically; a host without a usable
 browser loses those boards rather than the whole scrape. Existing user-authored
 schedules are not rewritten.
 
-## The scoring criteria file
+## Scoring settings
 
 Scoring is **not** hard-coded. It is driven by the YAML frontmatter of the
-markdown file named by `criteria` (which stays brain content you own and tune).
+markdown file named by `criteria` until you explicitly move it to
+`settings/jobs.json.scoring`. The criteria file retains your prose.
 Copy [`docs/criteria-template.md`](./docs/criteria-template.md) to that path and
-edit the `scoring:` block. Score breakdowns are keyed by **your** group names.
+edit the legacy `scoring:` block, or preview and move it with
+`brain module settings jobs --migrate --preview --json` followed by
+`--migrate --revision <preview-revision> --json`. Settings → Modules → Jobs
+edits the complete scoring format and sources through validated JSON saves.
+Score breakdowns are keyed by **your** group names.
 
 ```yaml
 scoring:
@@ -126,9 +131,73 @@ marker (or 0 if an excluded marker matches); the compensation dimension compares
 | ------------------ | ---------- | ----------------------------------------------------------- | -------------------------------------------- |
 | `criteria`         | `string`   | *(required)*                                                | Path to the scoring criteria markdown file.  |
 | `opportunitiesDir` | `string`   | `career/opportunities`                                      | Where `scaffold` writes opportunity dirs.    |
-| `boards`           | `string[]` | `["remoteok"]`                                              | Boards scraped when no source is given.      |
+| `boards`           | `string[]` | `["remoteok", "weworkremotely", "workingnomads", "remotelyde"]` | Boards scraped when no source is given.      |
 | `queries`          | `string[]` | `["software engineer", "backend engineer", "platform …"]`   | Search terms for query-driven boards.        |
 | `dbPath`           | `string?`  | `<root>/jobs.db`                                             | Jobs database location (gitignore it).       |
+
+When `boards` is omitted from both brain config and `settings/jobs.json`, jobs
+selects the four curated boards above. Each board's declaration owns its default
+on/off state and any caveat; the schema, settings choices and direct
+`runScrape()` fallback derive from that policy. Browser-dependent, rate-limited
+and robots-restricted boards stay off by default.
+
+An explicit brain config selection replaces those defaults. An explicit
+`boards` array in `settings/jobs.json` replaces the brain config selection;
+JSON that omits `boards` preserves it. The CLI and settings API read the same
+validated effective settings. An explicit empty array selects nothing:
+`settings/jobs.json` containing `{"boards": []}` overrides even a nonempty
+TypeScript selection. Plain manual and scheduled scrapes report “no boards
+selected”, succeed and invoke no adapters or network requests; their existing
+JSON report contains empty `sources` and zero totals. Existing jobs are left
+alone. Use `brain module settings jobs --set 'boards=[]'` to save that choice.
+
+Unknown or retired names are errors, even beside valid names. Settings saves
+validate before writing and create no commit when rejected; hand-edited JSON
+and TypeScript selections receive the same validation at load time. Diagnostics
+name the offending entries and valid choices, with a specific explanation for
+retired boards. Invalid loaded settings can block other module commands until
+corrected. An invalid selection never partially runs or substitutes defaults.
+
+No existing TypeScript configuration is moved
+automatically. See the [board-default decision](../../docs/decisions/jobs-board-defaults.md)
+for the rationale and [module settings](../../docs/modules.md#editable-module-settings)
+for the shared settings workflow.
+
+## MCP tools
+
+Available in 0.40.0+, `jobs_review` reads the review queue through `brain mcp`.
+It calls the same validated operation as `brain jobs review --json`, using
+this module's configured `dbPath`. Missing databases yield `{ jobs: [] }`
+without creating a file. Existing databases retain the CLI's schema
+initialization/migration behavior. The tool reaches no external service.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `status` | `queued` | `pending`, `queued`, `interested`, `starred`, `dismissed`, `archived`, `applied`, or `all`. |
+| `min_score` | Unset | Inclusive minimum relevance score. |
+| `limit` | `20` | Positive integer; values above 50 are clamped to 50. |
+| `source` | Unset | One of `remoteok`, `remotive`, `weworkremotely`, `workingnomads`, `builtin`, `nodesk`, `simplyhired`, `jobgether`, `dice`, `remotelyde`. |
+
+The strict result is `{ jobs: JobSummary[] }`, ordered by descending relevance
+then publication date, excluding duplicates. Each summary contains `id`,
+`title`, `company`, `location`, `remote_type`, `salary_raw`, `salary_min`,
+`salary_max`, `salary_currency`, `source`, `published_at`, `review_status`,
+`relevance_score`, `tags`, and `url`. The location, remote type, salary fields,
+publication date and URL may be null. Tags are a string array; absent or
+invalid stored tags become `[]`. Full descriptions are omitted. Stored source
+labels include historical retired boards; the source input filter accepts
+only the current boards listed above.
+
+Salary bounds are **annual EUR cents**, including annualized hourly listings.
+`salary_currency` retains the source listing's currency label; it does not
+change the denomination of those normalized bounds. Conversion uses the
+configured rates or the documented fallback rates on ingest.
+
+`readOnlyHint: true` and `openWorldHint: false` are client hints. Backend
+permission policy remains separate. This module owns the supported name,
+schemas and behavior under the shared [integration contract](../../docs/integration-contract.md#module-tools):
+additions ship in a minor; breaking changes need the project's ruling and
+versioning procedure.
 
 ## CLI
 
@@ -144,6 +213,11 @@ brain jobs pipeline              # give the opportunities' _index.md its registr
                                  #   spec and regenerate it
 brain jobs show|open|decide|search|gc …
 ```
+
+`brain jobs search <query> [--limit <n>]` defaults to 20 results. An explicit
+limit must be a positive safe integer; a missing or invalid value is refused
+with usage guidance before opening the jobs database. `--json` returns
+`{ query, results }` in full-text search order.
 
 ### Boards that need a browser
 
@@ -252,8 +326,8 @@ anyone who has that permission.
 
 Retired: `remoteineurope`. Its domain now redirects every page to We Work
 Remotely, which is already scraped as `weworkremotely`. A scrape that names it
-is refused with that reason, and a `boards` config that names it gets a warning
-while the other boards still run.
+is refused with that reason and valid choices. A `boards` config that names it
+fails shared validation; remove it or select `weworkremotely` explicitly.
 
 ## ⚠️ Scraping & Terms of Service
 

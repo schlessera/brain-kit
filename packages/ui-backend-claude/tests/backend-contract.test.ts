@@ -142,6 +142,19 @@ function claudeRetryingQuery(script: TurnScript): typeof query {
     })()) as unknown as typeof query;
 }
 
+/** Two observed retries followed by a provider failure, through the real runner. */
+function claudeRetriedFailureQuery(script: TurnScript): typeof query {
+  return (() => (async function* () {
+    yield { type: "system", subtype: "init", session_id: script.sessionId };
+    for (const attempt of [1, 2]) yield { type: "system", subtype: "api_retry", session_id: script.sessionId,
+      attempt, max_retries: 10, retry_delay_ms: 1000, error_status: 429, error: "rate_limit" };
+    yield { type: "assistant", session_id: script.sessionId, parent_tool_use_id: null, error: "rate_limit",
+      message: { model: "<synthetic>", content: [{ type: "text", text: "API Error: 429 Rate limited." }] } };
+    yield { type: "result", subtype: "success", session_id: script.sessionId, is_error: true,
+      api_error_status: 429, result: "API Error: 429 Rate limited.", total_cost_usd: 0, duration_ms: 5, num_turns: 1 };
+  })()) as unknown as typeof query;
+}
+
 const harness: BackendContractHarness = {
   name: "claude",
   permission: claudePermissionProbe,
@@ -157,6 +170,7 @@ const harness: BackendContractHarness = {
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeApiFailureQuery(script) }),
   retrying: (script) =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeRetryingQuery(script) }),
+  retriedFailure: (script) => createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeRetriedFailureQuery(script) }),
   unknownProfileId: "no-such-profile",
 };
 

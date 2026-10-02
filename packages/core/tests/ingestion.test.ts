@@ -79,7 +79,7 @@ describe("ingest", () => {
   test("creates a new file under the type's canonical directory", async () => {
     const root = makeCorpus();
     const db = openDatabase(join(root, "brain.db"));
-    const out = await ingest({ content: "# Trail Notes\n\nSaw an owl.", type: "note" }, db, {
+    const out = await ingest({ content: "# Route Notes\n\nSaw an eagle.", type: "note" }, db, {
       root,
       taxonomy,
     });
@@ -87,29 +87,29 @@ describe("ingest", () => {
 
     expect(out.action).toBe("created");
     expect(out.type).toBe("note");
-    expect(out.path).toBe("notes/trail-notes.md");
+    expect(out.path).toBe("notes/route-notes.md");
     expect(out.indexed).toBe(true);
     const written = readFileSync(join(root, out.path), "utf-8");
-    expect(written).toContain("title: Trail Notes");
-    expect(written).toContain("Saw an owl.");
+    expect(written).toContain("title: Route Notes");
+    expect(written).toContain("Saw an eagle.");
   });
 
   test("appends into an existing append-match document titled the same", async () => {
     const root = makeCorpus({
-      "projects/active/bookshelf.md": doc("Bookshelf", "project", "Original plan."),
+      "projects/active/raft.md": doc("Raft", "project", "Original plan."),
     });
     const db = openDatabase(join(root, "brain.db"));
     // Index so classifyContent can find the existing project by title.
     await indexAll(db, { root, taxonomy, quiet: true });
 
-    const out = await ingest({ content: "Bookshelf\n\nAdded a top shelf." }, db, { root, taxonomy });
+    const out = await ingest({ content: "Raft\n\nAdded a mast support." }, db, { root, taxonomy });
     db.close();
 
     expect(out.action).toBe("appended");
-    expect(out.path).toBe("projects/active/bookshelf.md");
-    const written = readFileSync(join(root, "projects/active/bookshelf.md"), "utf-8");
+    expect(out.path).toBe("projects/active/raft.md");
+    const written = readFileSync(join(root, "projects/active/raft.md"), "utf-8");
     expect(written).toContain("Original plan.");
-    expect(written).toContain("Added a top shelf.");
+    expect(written).toContain("Added a mast support.");
     expect(written).toContain("Update"); // dated append heading
   });
 
@@ -118,22 +118,22 @@ describe("ingest", () => {
       "---",
       "# Kept by hand; brain add must not drop this line.",
       "type: project",
-      'title: "Bookshelf"',
+      'title: "Raft"',
       "created: '2026-01-01' # first sketch",
       "updated: 2026-01-02",
-      "tags: [woodwork, 'home']",
+      "tags: [shipwork, 'home']",
       "---",
     ];
     const original = [...frontmatter, "", "Original plan.", ""].join("\n");
-    const root = makeCorpus({ "projects/active/bookshelf.md": original });
+    const root = makeCorpus({ "projects/active/raft.md": original });
     const db = openDatabase(join(root, "brain.db"));
     await indexAll(db, { root, taxonomy, quiet: true });
 
-    const out = await ingest({ content: "Bookshelf\n\nAdded a top shelf." }, db, { root, taxonomy });
+    const out = await ingest({ content: "Raft\n\nAdded a mast support." }, db, { root, taxonomy });
     db.close();
 
     expect(out.action).toBe("appended");
-    const written = readFileSync(join(root, "projects/active/bookshelf.md"), "utf-8");
+    const written = readFileSync(join(root, "projects/active/raft.md"), "utf-8");
     const date = written.match(/^updated: (\S+)$/m)?.[1] ?? "";
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(date).not.toBe("2026-01-02");
@@ -144,9 +144,9 @@ describe("ingest", () => {
       "",
       `## ${date} Update`,
       "",
-      "Bookshelf",
+      "Raft",
       "",
-      "Added a top shelf.",
+      "Added a mast support.",
       "",
     ].join("\n");
     expect(written).toBe(expected);
@@ -188,29 +188,29 @@ describe("capture collisions", () => {
   });
 
   test("explicit title overrides do not append to the content's classified target", async () => {
-    const original = doc("Bookshelf", "project", "Original plan.");
-    const root = makeCorpus({ "projects/active/bookshelf.md": original });
+    const original = doc("Raft", "project", "Original plan.");
+    const root = makeCorpus({ "projects/active/raft.md": original });
     const db = openDatabase(join(root, "brain.db"));
     try {
       await indexAll(db, { root, taxonomy, quiet: true });
-      const result = await ingest({ content: "Bookshelf\nDifferent project.", title: "Workbench" }, db, { root, taxonomy });
+      const result = await ingest({ content: "Raft\nDifferent project.", title: "Mast Support" }, db, { root, taxonomy });
       expect(result.action).toBe("created");
-      expect(result.path).toBe("projects/active/workbench.md");
-      expect(readFileSync(join(root, "projects/active/bookshelf.md"), "utf8")).toBe(original);
+      expect(result.path).toBe("projects/active/mast-support.md");
+      expect(readFileSync(join(root, "projects/active/raft.md"), "utf8")).toBe(original);
     } finally { db.close(); }
   });
 
   test("a stale classified path cannot append to a renamed document", async () => {
-    const root = makeCorpus({ "projects/active/bookshelf.md": doc("Bookshelf", "project") });
+    const root = makeCorpus({ "projects/active/raft.md": doc("Raft", "project") });
     const db = openDatabase(join(root, "brain.db"));
     try {
       await indexAll(db, { root, taxonomy, quiet: true });
-      const replacement = doc("Workbench", "project", "Do not append here.");
-      writeFileSync(join(root, "projects/active/bookshelf.md"), replacement);
-      const result = await ingest({ content: "Bookshelf\nNew plan." }, db, { root, taxonomy });
+      const replacement = doc("Mast Support", "project", "Do not append here.");
+      writeFileSync(join(root, "projects/active/raft.md"), replacement);
+      const result = await ingest({ content: "Raft\nNew plan." }, db, { root, taxonomy });
       expect(result.action).toBe("created");
-      expect(result.path).toBe("projects/active/bookshelf-2.md");
-      expect(readFileSync(join(root, "projects/active/bookshelf.md"), "utf8")).toBe(replacement);
+      expect(result.path).toBe("projects/active/raft-2.md");
+      expect(readFileSync(join(root, "projects/active/raft.md"), "utf8")).toBe(replacement);
     } finally { db.close(); }
   });
 

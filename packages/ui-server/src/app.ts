@@ -1,3 +1,4 @@
+import { createTrackRoutes } from "./routes/tracks.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
@@ -11,6 +12,8 @@ import { createSessionRoutes } from "./routes/sessions.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
+import { createInboxIntake } from "./inbox/intake.js";
+import { createQueueRoutes } from "./routes/queue.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { createProviderRoutes } from "./routes/providers.js";
@@ -38,7 +41,11 @@ import {
   type PasskeyContext,
 } from "./middleware/passkeys.js";
 import { principalManagementRoutes } from "./middleware/principals.js";
+import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
+import { createInboxStore } from "./inbox/store.js";
+import { createInboxResolver } from "./inbox/resolve.js";
+import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
   getAutoAllowedTools,
@@ -50,6 +57,9 @@ import {
   setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
+import { createInboxRuntime } from "./inbox/runtime.js";
+import { assertInboxRecoveryReady } from "./inbox/recovery-gate.js";
+import { createInboxPokeAuth, createInternalRoutes } from "./routes/internal.js";
 import { readSyncRuntime } from "./activity/sync-runtime.js";
 import { createModelPricing } from "./pricing/model-pricing.js";
 import { createPushRoutes } from "./routes/push.js";
@@ -57,9 +67,12 @@ import {
   assertBackendResolvable,
   probeBackendRuntimes,
   createBackendRegistry,
+  validateBackendVersionRequirements,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
+import type { BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
+import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
 import { WsHost } from "./ws/host.js";
@@ -73,7 +86,15 @@ import type { AppEnv } from "./app-env.js";
 
 export type { AppRenderer };
 
+/** Explicit host minima for independently resolved content and backend runtimes. */
+export interface HostVersionRequirements {
+  brainCli?: string;
+  backends?: Readonly<Record<string, BackendVersionRequirements>>;
+}
+
 export interface CreateAppOptions {
+  /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
+  versionRequirements?: HostVersionRequirements;
   /**
    * Fully-resolved configuration. When omitted, `createApp` resolves it from
    * the process environment ONCE, here at the edge — nothing deeper in the
@@ -180,6 +201,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // guarantee on an unsafe auth configuration.
   assertAuthConfig(authMode, auth, authLog);
   assertPasskeyConfig(config.webauthn);
+  const suppliedRequirements = options.versionRequirements;
+  if (suppliedRequirements !== undefined && (!suppliedRequirements || typeof suppliedRequirements !== "object" || Array.isArray(suppliedRequirements))) {
+    throw new Error("Invalid host versionRequirements during startup: supply a brainCli/backends object.");
+  }
+  for (const key of Object.keys(suppliedRequirements ?? {})) {
+    if (key !== "brainCli" && key !== "backends") throw new Error(`Invalid host versionRequirements.${key} during startup: use brainCli or backends minima.`);
+  }
+  const brainCliMinimum = suppliedRequirements && Object.hasOwn(suppliedRequirements, "brainCli")
+    ? validateVersionMinimum(suppliedRequirements.brainCli, "host versionRequirements.brainCli", "brain CLI during startup")
+    : undefined;
+  const backendRequirements = validateBackendVersionRequirements(config.agent, suppliedRequirements?.backends);
+  if (options.registry && Object.keys(backendRequirements ?? {}).length > 0) {
+    throw new Error(`Cannot verify host versionRequirements.backends during startup through an injected registry: detected identities unknown; declarations ${JSON.stringify(backendRequirements)}. Use the descriptor-backed default registry, or omit explicit backend requirements.`);
+  }
   // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
   // first turn — otherwise /api/health reports healthy while every turn is
   // guaranteed to fail. Descriptor loading and profile validation happen here;
@@ -195,28 +230,37 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // nothing behind. Skipped with an injected registry, like the check above.
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"));
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  await probeBrainCliVersion(config.brainPath, observability.logger("brain"));
+  await probeBrainCliVersion(config.brainPath, observability.logger("brain"), { minimumVersion: brainCliMinimum });
+  // Provision the independently authorized runtime file before opening handles.
+  const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
-  prunePrincipals(db, Date.now());
-  const brain = createBrainClient({ brainPath: config.brainPath });
-  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
-
-  // Model pricing for rollup-time effective cost: constructed here because
-  // the config owns enabled/TTL/brainPath, shared through the activity
-  // runtime. The first refresh warms in the background — ensureFresh never
-  // rejects and no rollup ever waits on the network (resolve() is sync).
+  try { assertInboxRecoveryReady(db); } catch (error) { db.close(); throw error; }
+  // One package-local pricing instance, shared by admission and Activity.
+  // Refresh warms in the background; resolve() is synchronous and rollups
+  // never wait on the network.
   const pricing = createModelPricing({
     brainPath: config.brainPath,
     enabled: config.pricing.enabled,
     ttlMs: config.pricing.ttlMs,
   });
   void pricing.ensureFresh();
+  // Recovery/heartbeat only. Production dispatch is gated by the full-v1
+  // containment, budgets, admission and system proof; no backend is wired here.
+  const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
+    brainRoot: config.brainPath,
+    budget: config.inbox?.budget ? { config: config.inbox.budget, pricing,
+      maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined });
+  prunePrincipals(db, Date.now());
+  const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
+  try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
+  const brain = createBrainClient({ brainPath: config.brainPath, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
+  const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
@@ -234,6 +278,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const registry =
     options.registry ??
     createBackendRegistry({
+      versionRequirements: backendRequirements,
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
@@ -264,9 +309,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     meter: observability.meter("classification"),
   });
   const host = new WsHost({
+    brainPath: config.brainPath,
     registry,
     observability,
     catalog: createSessionCatalog(() => db, dbLog),
+    // Exact-operation approvals remain fail-closed until the full-v1 engine
+    // wires current server authority. Dismiss/cancel/snooze need no grant.
+    inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
+      createInboxResolver(db, { allowedOperations: () => [], timeZone: config.inbox?.budget?.timeZone })),
     classifier,
     scratchPrune: () => scratchPrune.tick(),
     ...(options.appName ? { appName: options.appName } : {}),
@@ -275,6 +325,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       ? { turnTimeoutMs: (options.turnTimeoutMs ?? config.turnTimeoutMs)! }
       : {}),
     maxConcurrentSessions: () => config.maxConcurrentSessions,
+    askUserFormLimits: config.askUserFormLimits,
     wsRate: config.wsRate,
     wsMaxConnections: config.wsMaxConnections,
     isPrincipalValid: (principal) => {
@@ -407,6 +458,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     })
   );
   app.route("/api", passkeyPublicRoutes(authMode, passkeyCtx));
+  app.route("/api", createInternalRoutes({ auth: inboxPokeAuth, runtime: inbox }));
 
   // Auth guard for every other /api/* route. The probe below is intentionally
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
@@ -450,7 +502,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route(
     "/api",
-    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms })
+    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
   // Behind the guard by mount position, like /api/status: the activity
@@ -462,10 +514,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
   );
+  app.route("/api", createQueueRoutes(intake));
+  app.route("/api", createTrackRoutes(config.brainPath));
   app.route(
     "/api",
     createShareRoutes({
       brainRoot: config.brainPath,
+      intake,
       allowedOrigins,
       trustProxy: auth.trustProxy,
       log: observability.logger("share"),
@@ -480,6 +535,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
+  app.route("/api", createModuleRoutes(brain));
   app.route(
     "/api",
     createSkillRoutes({
@@ -555,8 +611,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
     close: async () => {
+      await inbox.close();
       host.close();
       subscription.close();
+      await intake.close();
       await scratchPrune.close();
       activity.close();
       db.close();

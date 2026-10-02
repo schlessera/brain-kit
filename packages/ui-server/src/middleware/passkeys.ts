@@ -508,6 +508,9 @@ export function passkeyManagementRoutes(
         label?: unknown;
       }>(c);
       if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
       body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
@@ -581,6 +584,9 @@ export function passkeyManagementRoutes(
     try {
       const result = await readJsonBody<{ label?: unknown }>(c);
       if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
       body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);

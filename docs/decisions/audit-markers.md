@@ -15,6 +15,10 @@ infos, and `brain audit` and `brain maintain` report both totals beside the
 severity counts, computed by one function (`auditTotals`,
 `packages/core/src/lib/auditor.ts:610-615`).
 
+`brain briefing` shows that must-fix total in Upkeep even without hygiene logs.
+It uses the same current audit pipeline, including enabled modules' hygiene
+checks, and leaves informational findings out of the count.
+
 ## Why a VERIFY marker is informational
 
 A marker is the author's note that a claim has not been checked. It shows no
@@ -62,7 +66,7 @@ link with the resolver and alias fallback `brain validate` uses
 (`function rebuildLinks`, `packages/core/src/lib/indexer/persist.ts:293-313`).
 The message comes from one describer that both commands call
 (`createUnresolvedLinkDescriber`,
-`packages/core/src/lib/indexer/links.ts:94-106`). A second resolver in the
+`packages/core/src/lib/indexer/links.ts:99-111`). A second resolver in the
 auditor would have been a second answer to "is this link broken", and the two
 would drift. `brain stats` already counts the same rows as `brokenLinks`.
 

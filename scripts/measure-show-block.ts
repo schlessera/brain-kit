@@ -673,6 +673,7 @@ async function schemaCost(credential: LiveCredential): Promise<{
     askUser: unreachable as never,
     askUserList: unreachable as never,
     askUserRank: unreachable as never,
+    askUserForm: unreachable as never,
     getLocation: unreachable as never,
     requestMask: unreachable as never,
     queryActivity: unreachable as never,

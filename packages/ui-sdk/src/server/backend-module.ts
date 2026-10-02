@@ -1,6 +1,7 @@
 import type { BillingMode, PricingRoute, ProviderInfo } from "../protocol.js";
 import type { AgentBackend } from "./backend.js";
 import type { ConfirmPatternSource } from "./confirm-patterns.js";
+import type { BackendVersionRequirements } from "./version-requirements.js";
 
 /** @experimental Minimal logging boundary shared by backend modules and hosts. */
 export type BackendLogFn = (
@@ -101,6 +102,8 @@ export interface BackendModuleContext {
   settings: Partial<BackendSettingsReaders>;
   log?: BackendLogFn;
   modelSource?: BackendModelSource | null;
+  /** Explicit host minima, composed with the backend package's own requirements. */
+  versionRequirements?: BackendVersionRequirements;
 }
 
 /**
@@ -109,7 +112,8 @@ export interface BackendModuleContext {
  * @experimental
  */
 export interface BackendRuntimeReport {
-  runtime: {
+  /** Absent for an in-process SDK with no separately spawned executable. */
+  runtime?: {
     name: string;
     version: string;
     /** What a turn would spawn, as the backend's SDK selected it. */
@@ -159,9 +163,8 @@ export interface BackendModule {
   settingsHooks: BackendSettingsHooks;
   modelSource?(context: BackendModuleContext): BackendModelSource | null;
   /**
-   * Probe the runtime a turn would spawn asynchronously, before app resources open. Rejects when
-   * that runtime is missing or will not start, which refuses the boot; returns
-   * what it found otherwise.
+   * Verify the actual SDK and, when applicable, spawned runtime before app resources open.
+   * Rejects missing/incompatible required identities; in-process backends may report SDK only.
    */
   probeRuntime?(context: BackendModuleContext): Promise<BackendRuntimeReport>;
 }

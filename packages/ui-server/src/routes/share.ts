@@ -1,5 +1,7 @@
 import type { Logger } from "@opentelemetry/api-logs";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import type { AppEnv } from "../app-env.js";
+import { IntakeAuthorizationError, type InboxIntake } from "../inbox/intake.js";
 import {
   SHARE_MAX_CONCURRENT_INTAKE,
   SHARE_MAX_TOTAL_BYTES,
@@ -7,6 +9,7 @@ import {
 import { isSameOriginRequest } from "../middleware/origin.js";
 import {
   EmptyShareError,
+  UnsupportedTrackError,
   ShareTooLargeError,
   pruneShareStaging,
   stageShare,
@@ -98,6 +101,8 @@ export interface ShareRoutesDeps {
   trustProxy: boolean;
   /** Where failures are reported; absent means silence. */
   log?: Logger;
+  /** Concrete operational intake used by createApp; standalone staging remains supported. */
+  intake?: InboxIntake;
 }
 
 export function createShareRoutes(deps: ShareRoutesDeps): Hono {
@@ -120,12 +125,13 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
     lastPrune = now;
     // Deliberately not awaited: pruning is housekeeping, and the client is
     // waiting on the staging result, not on it.
-    void pruneShareStaging(brainRoot, Date.now(), log).catch((err) => {
+    void pruneShareStaging(brainRoot, Date.now(), log, deps.intake?.protectedIds()).catch((err) => {
       log?.emit({ severityText: "ERROR", body: "share staging prune failed", attributes: { error: err instanceof Error ? err.message : String(err) } });
     });
   }
 
-  return new Hono().post("/share", async (c) => {
+  const receive = async (c: Context) => {
+  const tracksOnly = c.req.path.endsWith("/track-upload");
   // Keep the same shared policy at the route boundary as defense in depth for
   // embedders that mount this exported route factory outside createApp().
   if (!isSameOriginRequest(c, allowedOrigins, trustProxy)) {
@@ -163,25 +169,34 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
       return c.json({ error: "invalid_form" }, 400);
     }
 
+    // Preserve ignored application metadata, but reject authority overrides.
+    const authorityFields = new Set(["trust", "trustclass", "source", "profile", "profileid", "principal", "principalid", "allowedtools", "targetpath", "enforceallowedtools", "nograntsurface", "capability", "capabilities"]);
+    if ([...form.keys()].some(key => authorityFields.has(key.replace(/[_-]/g, "").toLowerCase()))) {
+      return c.json({ error: "invalid_form" }, 400);
+    }
+
     // Empty parts are what an app sends when it has nothing to attach.
     const files = form
       .getAll("files")
       .filter((value): value is File => value instanceof File && value.size > 0);
 
-    const result = await stageShare(
-      brainRoot,
-      {
-        title: firstString(form, "title"),
-        text: firstString(form, "text"),
-        url: firstString(form, "url"),
-        files,
-      },
-      log
-    );
+    const input = {
+      title: firstString(form, "title"), text: firstString(form, "text"),
+      url: firstString(form, "url"), files, ...(tracksOnly ? { tracksOnly: true, signal: c.req.raw.signal } : {}),
+    };
+    if (tracksOnly && !files.length) return c.json({ error: "unsupported_track", message: "Attach a validated GPX, KML or supported GeoJSON file." }, 422);
+    const principal = (c.var as AppEnv["Variables"]).principal;
+    if (deps.intake && !principal) return c.json({ error: "Unauthorized" }, 401);
+    const result = deps.intake && !tracksOnly
+      ? (await deps.intake.share(input, principal!)).result
+      : await stageShare(brainRoot, input, log);
 
     maybePrune();
     return c.json(result, 201);
   } catch (err) {
+    if (c.req.raw.signal.aborted) return c.json({ error: "upload_cancelled" }, 400);
+    if (err instanceof IntakeAuthorizationError) return c.json({ error: "Unauthorized" }, 401);
+    if (err instanceof UnsupportedTrackError) return c.json({ error: "unsupported_track", message: err.message }, 422);
     if (err instanceof EmptyShareError) {
       return c.json({ error: "empty_share" }, 400);
     }
@@ -193,5 +208,6 @@ export function createShareRoutes(deps: ShareRoutesDeps): Hono {
   } finally {
     inFlight -= 1;
   }
-});
+};
+  return new Hono().post("/share", receive).post("/track-upload", receive);
 }

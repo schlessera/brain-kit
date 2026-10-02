@@ -56,6 +56,10 @@ export "." (./src/index.ts)
   type ModuleContribution
   type ModuleCronEntry
   type ModuleManifest
+  type ModuleSettings
+  type ModuleSettingsField
+  type ModuleSettingsMigrationPlan
+  type ModuleSettingsOption
   type ModuleTool
   type OkfCheckIssue
   type OkfCheckReport
@@ -205,7 +209,42 @@ export "." (./src/index.ts)
   writeFileSafely
   writeScratchFile
 
+export "./internal" (./src/internal.ts)
+  archiveDocument
+  assembleContext
+  hybridSearch
+  indexAll
+  ingest
+  loadVecSupport
+  openDatabase
+
 export "./package.json" (./package.json) [asset]
+
+export "./queries" (./src/queries/index.ts)
+  type Community
+  type Direction
+  type DocumentCandidate
+  type Edge
+  type GraphMeta
+  type LinkWalk
+  type ListedDocument
+  type Maintenance
+  type Node
+  type QueryCode
+  type QueryResult
+  type Root
+  type Snapshot
+  type Subgraph
+  type VoiceVocabulary
+  findIndexDocuments
+  listIndexDocuments
+  readGraphClusters
+  readGraphDiscovery
+  readGraphMaintenance
+  readGraphMeta
+  readGraphNeighborhood
+  readLinkWalk
+  readVoiceVocabulary
 
 export "./testing" (./src/testing/index.ts)
   type AgentRunnerContractHarness
@@ -248,6 +287,13 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         name: string;
         version?: string;
     }
+  Community (packages/core/src/queries/types.ts)
+    export interface Community {
+        community: number;
+        size: number;
+        label: string | null;
+        topTerms: string[];
+    }
   CompletionProvider (packages/core/src/lib/seams.ts)
     export interface CompletionProvider {
         id: string;
@@ -273,6 +319,18 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         kind: "pdf";
         data: Uint8Array;
     };
+  Direction (packages/core/src/queries/types.ts)
+    export type Direction = "in" | "out" | "both";
+  DocumentCandidate (packages/core/src/queries/types.ts)
+    export interface DocumentCandidate {
+        path: string;
+        updated: string | null;
+    }
+  Edge (packages/core/src/queries/types.ts)
+    export interface Edge {
+        source: number;
+        target: number;
+    }
   EmbeddingProvider (packages/core/src/lib/seams.ts)
     export interface EmbeddingProvider {
         id: string;
@@ -283,6 +341,92 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         }): Promise<Float32Array>;
         embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
         embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
+    }
+  GraphMeta (packages/core/src/queries/types.ts)
+    export interface GraphMeta {
+        available: boolean;
+        reason?: "schema" | "not_computed";
+        schemaVersion: number;
+        computedAt: string | null;
+        stale: boolean;
+        nodeCount: number;
+        edgeCount: number;
+        communities: Community[];
+        defaultRoot: {
+            path: string;
+            virtual: boolean;
+        } | null;
+        layoutSkipped?: boolean;
+    }
+  LinkWalk (packages/core/src/queries/types.ts)
+    export interface LinkWalk {
+        edges: {
+            source: string;
+            target: string;
+            resolved: boolean;
+        }[];
+        nodes: {
+            path: string;
+            title: string;
+            type: string;
+            summary: string | null;
+            updated: string | null;
+        }[];
+    }
+  ListedDocument (packages/core/src/queries/types.ts)
+    export interface ListedDocument {
+        path: string;
+        title: string;
+        type: string;
+        relevance: string | null;
+        status: string | null;
+        tags: string | null;
+    }
+  Maintenance (packages/core/src/queries/types.ts)
+    export interface Maintenance {
+        orphans: Node[];
+        unreachable: Node[];
+        brokenLinks: {
+            sourcePath: string;
+            target: string;
+        }[];
+        stale: (Node & {
+            updated: string;
+        })[];
+        staleDays: number;
+    }
+  Node (packages/core/src/queries/types.ts)
+    export interface Node {
+        id: number;
+        path: string;
+        title: string;
+        type: string;
+        inDegree: number;
+        outDegree: number;
+        community?: number;
+        pagerank?: number;
+        x?: number;
+        y?: number;
+        distance?: number;
+        virtual?: boolean;
+    }
+  QueryCode (packages/core/src/queries/types.ts)
+    export type QueryCode = "missing_index" | "incompatible_index" | "corrupt_index" | "busy_index" | "unavailable_index" | "not_computed" | "not_found" | "invalid_input";
+  QueryResult (packages/core/src/queries/types.ts)
+    export type QueryResult<T> = {
+        ok: true;
+        value: T;
+        snapshot: Snapshot;
+    } | {
+        ok: false;
+        error: {
+            code: QueryCode;
+            retryable: boolean;
+        };
+    };
+  Root (packages/core/src/queries/types.ts)
+    export interface Root {
+        brainPath: string;
     }
   SkillEmitter (packages/core/src/lib/seams.ts)
     export interface SkillEmitter {
@@ -301,3 +445,69 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         source: "core" | "module" | "local";
         frontmatter: Record<string, unknown>;
     }
+  Snapshot (packages/core/src/queries/types.ts)
+    export interface Snapshot {
+        schemaVersion: number;
+        newestIndexedAt: string | null;
+    }
+  Subgraph (packages/core/src/queries/types.ts)
+    export interface Subgraph {
+        nodes: Node[];
+        edges: Edge[];
+        truncated: boolean;
+        reachableCount?: number;
+        unreachableCount?: number;
+    }
+  VoiceVocabulary (packages/core/src/queries/types.ts)
+    export interface VoiceVocabulary {
+        terms: string[];
+        extractorVersion: number;
+    }
+  findIndexDocuments (packages/core/src/queries/index.ts)
+    export function findIndexDocuments(opts: Root & {
+        type?: string;
+        excludeStatus?: string;
+        pathSuffix?: string;
+    }): QueryResult<DocumentCandidate[]>;
+  listIndexDocuments (packages/core/src/queries/index.ts)
+    export function listIndexDocuments(opts: Root & {
+        type?: string;
+        tag?: string;
+        status?: string;
+        relevance?: string;
+        limit?: number;
+    }): QueryResult<ListedDocument[]>;
+  readGraphClusters (packages/core/src/queries/index.ts)
+    export function readGraphClusters(opts: Root & {
+        community?: number;
+        includeIsolates?: boolean;
+    }): QueryResult<Subgraph>;
+  readGraphDiscovery (packages/core/src/queries/index.ts)
+    export function readGraphDiscovery(opts: Root & {
+        root?: string;
+        direction?: "out" | "both";
+        maxDepth?: number;
+    }): QueryResult<Subgraph>;
+  readGraphMaintenance (packages/core/src/queries/index.ts)
+    export function readGraphMaintenance(opts: Root & {
+        staleDays?: number;
+        now?: string;
+    }): QueryResult<Maintenance>;
+  readGraphMeta (packages/core/src/queries/index.ts)
+    export function readGraphMeta(opts: Root): QueryResult<GraphMeta>;
+  readGraphNeighborhood (packages/core/src/queries/index.ts)
+    export function readGraphNeighborhood(opts: Root & {
+        center: string;
+        depth?: number;
+        direction?: Direction;
+    }): QueryResult<Subgraph>;
+  readLinkWalk (packages/core/src/queries/index.ts)
+    export function readLinkWalk(opts: Root & {
+        path: string;
+        depth?: number;
+        direction?: "outgoing" | "incoming" | "both";
+    }): QueryResult<LinkWalk>;
+  readVoiceVocabulary (packages/core/src/queries/index.ts)
+    export function readVoiceVocabulary(opts: Root & {
+        limit: number;
+    }): QueryResult<VoiceVocabulary>;

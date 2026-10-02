@@ -672,6 +672,20 @@ describe("bridge-capability tool registration", () => {
     } finally { brain.cleanup(); }
   });
 
+  test("the conditional form refuses a no-grant turn before calling the bridge", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext(); turn.bridge = makeMockBridge().bridge;
+      let called = false;
+      turn.bridge.askUserForm = async () => { called = true; return { answers: { n: "Example" } }; };
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()) }));
+      expect(tools.ask_user_form).toBeDefined();
+      turn.noGrantSurface = true;
+      await expect(tools.ask_user_form!.execute("form", { prompt: "Notes", nodes: [{ id: "n", kind: "text", prompt: "Why?" }] }, undefined, undefined, CTX)).rejects.toThrow(/no way to show anyone a card/);
+      expect(called).toBe(false);
+    } finally { brain.cleanup(); }
+  });
+
   test("risk-class table covers every registered tool", () => {
     const brain = makeEmptyBrain();
     try {

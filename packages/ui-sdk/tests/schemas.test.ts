@@ -28,6 +28,7 @@ describe("clientMessageSchema", () => {
       { type: "session_resume", sessionId: "s1" },
       { type: "ask_user_response", requestId: "r1", answers: { Q: "A" } },
       { type: "ask_user_cancel", requestId: "r1" },
+      { type: "ask_user_form_response", requestId: "r1", answers: { n: "Reason" } },
       { type: "ask_user_rank_response", requestId: "r1", order: ["b", "a"], unchanged: false },
       { type: "ask_user_list_response", requestId: "r1", answers: { a: "loved" }, notes: { b: "later" } },
       {

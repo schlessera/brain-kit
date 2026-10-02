@@ -26,9 +26,9 @@ import { loadVec } from "./vec-fixture";
 const roots: string[] = [];
 afterAll(() => roots.forEach(cleanup));
 
-const OLD = "projects/active/bookshelf/plan.md";
-const NEW = "projects/active/bookshelf/plan-v2.md";
-const QUERY = "dovetails dadoes drawer";
+const OLD = "projects/active/raft/plan.md";
+const NEW = "projects/active/raft/plan-v2.md";
+const QUERY = "auger bulwarks";
 
 /**
  * A revised plan: the old one's text plus a paragraph on finishing, so the
@@ -40,8 +40,8 @@ function brain(supersedes: string | null = `"[[${OLD.replace(/\.md$/, "")}]]"`):
   roots.push(root);
   const old = readFileSync(join(root, OLD), "utf8");
   const revised = old
-    .replace('title: "Bookshelf — Build Plan"', 'title: "Bookshelf — Build Plan, revised"')
-    .replace("## Cut list", "## Finish\n\nTwo coats of hardwax oil on the walnut, the cedar left bare to keep its scent.\n\n## Cut list")
+    .replace('title: "Raft — Build Plan"', 'title: "Raft — Build Plan, revised"')
+    .replace("## Cut list", "## Finish\n\nTwo spare ropes beside the mast; inspect every knot before leaving Ogygia.\n\n## Cut list")
     .replace("relevance: primary", supersedes ? `relevance: primary\nsupersedes: ${supersedes}` : "relevance: primary");
   writeFileSync(join(root, NEW), revised);
   return root;

@@ -8,7 +8,7 @@
  * keyless (FTS-only, deterministic) paths are exercised.
  */
 
-import { cpSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -33,6 +33,37 @@ export function cleanup(dir: string): void {
 }
 
 let binHome: string | null = null;
+let home: string | null = null;
+let commandPath: string | null = null;
+
+/** Host account/configuration discovery must never be part of a CLI fixture. */
+function testHome(): string {
+  if (home === null) {
+    const dir = mkdtempSync(join(tmpdir(), "brain-test-home-"));
+    for (const name of ["claude", "pi", "config", "cache", "data"]) {
+      mkdirSync(join(dir, name));
+    }
+    home = dir;
+    process.on("exit", () => cleanup(dir));
+  }
+  return home;
+}
+
+/** Local CLI/fixture tools only; no ambient Claude, gh or MCP commands. */
+function testCommandPath(): string {
+  if (commandPath === null) {
+    const dir = mkdtempSync(join(tmpdir(), "brain-test-path-"));
+    symlinkSync(process.execPath, join(dir, "bun"));
+    // The sync push-race fixture's git hook records its first invocation with touch.
+    for (const name of ["git", "touch"]) {
+      const executable = Bun.which(name);
+      if (executable) symlinkSync(executable, join(dir, name));
+    }
+    commandPath = dir;
+    process.on("exit", () => cleanup(dir));
+  }
+  return commandPath;
+}
 
 /**
  * One throwaway bin directory per test process. `brain setup` and
@@ -51,7 +82,9 @@ export function testBinHome(): string {
 
 /**
  * Env with API keys stripped → deterministic keyless (FTS-only) behaviour, and
- * XDG_BIN_HOME pointed at `testBinHome()`. A caller can pass its own.
+ * test-owned home/configuration and a PATH containing only bun, git and touch.
+ * XDG_BIN_HOME points at `testBinHome()`. Children share the parent runtime's
+ * calendar; callers can supply explicit fixture shims through `runCli`.
  */
 export function keylessEnv(root: string): Record<string, string> {
   const env: Record<string, string> = {};
@@ -59,7 +92,18 @@ export function keylessEnv(root: string): Record<string, string> {
     if (v !== undefined) env[k] = v;
   }
   env.BRAIN_ROOT = root;
+  env.HOME = testHome();
+  env.CLAUDE_CONFIG_DIR = join(env.HOME, "claude");
+  env.PI_CODING_AGENT_DIR = join(env.HOME, "pi");
+  env.XDG_CONFIG_HOME = join(env.HOME, "config");
+  env.XDG_CACHE_HOME = join(env.HOME, "cache");
+  env.XDG_DATA_HOME = join(env.HOME, "data");
+  env.PATH = testCommandPath();
   env.XDG_BIN_HOME = testBinHome();
+  // With TZ absent, Bun's test and ordinary runtimes can choose different
+  // defaults. Pass the calendar actually used by the parent, including an
+  // explicitly selected non-UTC calendar, rather than the machine's default.
+  env.TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
   delete env.GEMINI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.GOOGLE_API_KEY;
@@ -76,7 +120,7 @@ export interface CliResult {
   code: number;
 }
 
-/** Run the real bin keyless; `env` overrides individual variables (e.g. PATH). */
+/** Run the real bin keyless; overrides (e.g. PATH or HOME) must be test-owned. */
 export async function runCli(root: string, args: string[], env: Record<string, string> = {}): Promise<CliResult> {
   const proc = Bun.spawn(["bun", BRAIN_BIN, ...args], {
     env: { ...keylessEnv(root), ...env },

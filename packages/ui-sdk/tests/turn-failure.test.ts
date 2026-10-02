@@ -49,6 +49,33 @@ describe("the failure payload on the wire", () => {
     expect(out.ok && out.message.type === "result" && out.message.failure).toEqual(FAILURE);
   });
 
+  test("observed attempts and epoch-ms resets survive every failure-bearing frame", () => {
+    const failure = { ...FAILURE, attempts: 2, resetsAt: 1_790_848_800_000 };
+    for (const frame of [{ ...RESULT, failure }, { type: "error", code: "limit", message: "refused", failure },
+      { type: "session_history", sessionId: "s1", messages: [{ role: "assistant", content: "", toolCalls: [], failure }] }]) {
+      const out = parse(frame);
+      expect(out.ok).toBe(true);
+      if (!out.ok) throw new Error(out.error);
+      const actual = out.message.type === "session_history" ? out.message.messages[0]?.failure :
+        out.message.type === "result" || out.message.type === "error" ? out.message.failure : undefined;
+      expect(actual).toEqual(failure);
+    }
+  });
+
+  test("unreadable observations are dropped independently and keep the terminal failure", () => {
+    for (const [key, values] of [["attempts", [0, -1, 1.5, "2", null, Number.MAX_SAFE_INTEGER + 1]],
+      ["resetsAt", [-1, 1.5, "1790848800000", null, Number.MAX_SAFE_INTEGER + 1]]] as const) {
+      for (const value of values) {
+        const out = parse({ ...RESULT, failure: { ...FAILURE, attempts: 2, resetsAt: 1_790_848_800_000, [key]: value } });
+        expect(out.ok).toBe(true);
+        if (!out.ok || out.message.type !== "result") throw new Error("missing terminal");
+        expect(out.message.failure?.message).toBe(FAILURE.message);
+        expect(out.message.failure?.[key]).toBeUndefined();
+        expect(out.message.failure?.[key === "attempts" ? "resetsAt" : "attempts"]).toBe(key === "attempts" ? 1_790_848_800_000 : 2);
+      }
+    }
+  });
+
   test("a newer server's extra failure fields survive", () => {
     const out = parse({ ...RESULT, failure: { ...FAILURE, model: "some-model" } });
     const kept = out.ok && out.message.type === "result" ? (out.message.failure as unknown) : undefined;

@@ -9,6 +9,9 @@ import {
   ASK_USER_RANK_DESCRIPTION,
   ASK_USER_RANK_INPUT_SCHEMA,
   ASK_USER_RANK_TOOL_NAME,
+  ASK_USER_FORM_DESCRIPTION,
+  ASK_USER_FORM_INPUT_SCHEMA,
+  ASK_USER_FORM_TOOL_NAME,
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME,
@@ -24,6 +27,7 @@ import {
   handleAskUser,
   handleAskUserList,
   handleAskUserRank,
+  handleAskUserForm,
   handleGetCurrentLocation,
   handleQueryActivity,
   handleRequestImageMask,
@@ -63,6 +67,7 @@ export function resolveLocationReverseGeocodeConfig(): ReverseGeocodeConfig {
     enabled: env.reverseGeocodeEnabled,
     url: env.nominatimUrl,
     userAgent: env.nominatimUserAgent,
+    publicServiceEligible: env.nominatimPublicServiceEligible,
   };
 }
 
@@ -142,6 +147,29 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
       }
       const parsed = ASK_USER_RANK_INPUT_SCHEMA.parse(input);
       const payload = await handleAskUserRank(parsed, turn.bridge, id);
+      return textResult(JSON.stringify(payload), payload);
+    },
+  } satisfies ToolDefinition;
+
+  const askUserForm = {
+    name: ASK_USER_FORM_TOOL_NAME,
+    label: "Ask user (form)",
+    description: ASK_USER_FORM_DESCRIPTION,
+    parameters: toPiParameters(ASK_USER_FORM_INPUT_SCHEMA),
+    async execute(id: string, input: unknown) {
+      if (!turn.bridge?.askUserForm) {
+        throw new Error("The host does not support ask_user_form in this session.");
+      }
+      // A conditional form needs someone to read and answer it; a turn that
+      // declared it has no one to show a card to cannot use it. Checked here
+      // for the reason the mask editor is: the tool set outlives the turn.
+      if (turn.noGrantSurface) {
+        throw new Error(
+          "This turn has no way to show anyone a card, so ask_user_form cannot be used in it."
+        );
+      }
+      const parsed = ASK_USER_FORM_INPUT_SCHEMA.parse(input);
+      const payload = await handleAskUserForm(parsed, turn.bridge, id);
       return textResult(JSON.stringify(payload), payload);
     },
   } satisfies ToolDefinition;
@@ -244,7 +272,7 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
-  const tools: ToolDefinition[] = [askUser, askUserList, askUserRank, showBlock];
+  const tools: ToolDefinition[] = [askUser, askUserList, askUserRank, askUserForm, showBlock];
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
@@ -261,6 +289,9 @@ export {
   ASK_USER_RANK_DESCRIPTION,
   ASK_USER_RANK_INPUT_SCHEMA,
   ASK_USER_RANK_TOOL_NAME,
+  ASK_USER_FORM_DESCRIPTION,
+  ASK_USER_FORM_INPUT_SCHEMA,
+  ASK_USER_FORM_TOOL_NAME,
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME,

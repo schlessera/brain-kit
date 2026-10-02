@@ -90,7 +90,45 @@ its group killer runs at the deadline, with a 200 ms helper budget. A hung
 helper, child or inherited output pipe cannot hold the returned promise open.
 Warnings distinguish unconfirmed cleanup from a process observed to exit.
 A timed-out Claude probe rejects startup; an unreadable brain version warns
-and continues; a known incompatible brain version rejects startup.
+and continues by default; a known incompatible brain version rejects startup.
+
+## Host version minima
+
+`CreateAppOptions.versionRequirements?: HostVersionRequirements` lets a host
+declare full SemVer minima for the content checkout's CLI and active backends:
+
+```ts
+const app = await createApp({
+  versionRequirements: {
+    brainCli: "0.33.0",
+    backends: { claude: { sdk: "0.3.283", runtime: "2.1.283" } },
+  },
+});
+```
+
+Values must be full ASCII versions such as `1.2.3`, `1.2.3-beta.1` or
+`1.2.3+build.8`; ranges, prefixes, partial versions and blanks are refused.
+The whole configuration is validated before probes or app resources open.
+Unknown/inactive backend ids and requested identities a descriptor cannot
+report are errors. An injected registry cannot verify explicit backend
+requirements and is refused; injection remains supported without them, and
+can still use a verified `brainCli` minimum.
+
+The CLI always retains the server's `0.33.0` floor. An explicit `brainCli`
+minimum makes a failed or unknown version an error and rechecks the selected
+executable before each client invocation, including streaming sync. Direct
+`createBrainClient({ brainPath, minimumVersion, log })` consumers get the same
+explicit check. The packaged executable or legacy script, wrapper, environment
+and working directory are shared by the probe and invocation. A probe cannot
+eliminate a replacement race; keep the executable installation immutable.
+
+Backend minima are checked against the descriptor's actual SDK/runtime
+reports at startup and registry construction, and forwarded unchanged as
+`BackendModuleContext.versionRequirements`. Backend package range enforcement
+and checks before releasing a chat prompt are separate backend work tracked in
+[#643](https://github.com/schlessera/brain-kit/issues/643). Compatibility and the
+pair a backend was measured against stay distinct; this option does not add
+fields to health/status reports or promise every allowed version was measured.
 
 ## Interactive search
 
@@ -101,6 +139,11 @@ that work. Keep the original `Request` when forwarding to `app.fetch` in a
 Bun deployment. Mutating commands retain their existing lifecycle.
 
 ## Cron bin
+
+The package also ships `brain-ui-inbox export` and `brain-ui-inbox restore`
+for a complete operational database/staging backup. Both take explicit
+`--db`, `--brain-root` and `--file` paths and support `--json`.
+See [recovery commands and the 24-hour objective](../../docs/inbox-recovery.md).
 
 The package ships the Bun-only `brain-ui-cron` executable for the container
 crontab. The deployment shell calls this bin instead of carrying loose cron
@@ -174,6 +217,20 @@ brain repository.
   objects (`WsHost`, `TurnCoordinator`, `SessionCatalog`) under `src/ws/`.
 - **Session catalog** — SQLite (WAL) with bundled migrations, applied on first
   open.
+- **Durable Queue and Action storage** — internal transactional operational
+  state, immutable provenance, checkpoints and recovery records. Authenticated
+  Queue/Actions subscriptions on `/ws` send bounded snapshots and frozen deltas,
+  including writes from other database connections; revocation and socket/app
+  close stop delivery. See
+  [storage invariants and ownership](../../docs/inbox-storage.md).
+- **Queue lifecycle and internal poke** — 60-second recovery/heartbeat,
+  protected local HTTP poke and atomic boot token rotation. See the
+  [runtime contract and provisioning](../../docs/inbox-runtime.md).
+  Production autonomous dispatch remains gated by the complete v1 proof.
+- **Autonomous admission budgets** — atomic spend/operation reservations,
+  terminal settlement and conservative crash recovery. The default is $5/day
+  with zero admitted operations until configured. See
+  [accounting and configuration](../../docs/inbox-budget.md).
 - **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
   spawning the `brain` CLI from `BRAIN_PATH`.
 - **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
@@ -184,6 +241,8 @@ brain repository.
   `GET /api/brain/stats` stays the corpus half; the two are merged by the
   caller. Shape: `ActivityRuntimeStats` in `@schlessera/brain-ui-sdk/protocol`,
   documented in [docs/integration-contract.md](../../docs/integration-contract.md).
+  Rollup responses round both cost sums to four decimal places after grouping;
+  stored costs, run detail and runtime stats keep their original precision.
 - **Voice** — Deepgram token minting and keyterm-cache building from the brain
   index.
 - **Render seam** — `POST /api/render` answers 501 unless the deployment
@@ -210,6 +269,16 @@ brain repository.
 Every variable this package reads, and what happens when it is unset.
 `createApp()` configuration wins over the environment where both exist.
 
+Map geometry uses the shared concrete geo client. `BRAIN_GEO_CONFIG_JSON` accepts
+the [canonical configuration](../../docs/configuration.md#geo), overriding legacy
+Overpass service settings; malformed input refuses startup. Relative response-cache
+paths resolve from `BRAIN_PATH`. An explicit `config.coastline.geo` also supplies
+canonical settings. `BRAIN_UI_COASTLINE=false` remains the request privacy switch,
+and `COASTLINE_CACHE_DIR` still controls the separate permanent geometry cache.
+An unset canonical configuration retains the legacy Overpass settings and default
+timeout. Caching reduces traffic but does not establish eligibility or permission
+under the [service terms](../geo/README.md#configuration).
+
 <!-- env:begin -->
 
 | Variable | What it controls | Unset |
@@ -218,9 +287,20 @@ Every variable this package reads, and what happens when it is unset.
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
 | `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
+| `BRAIN_GEO_CONFIG_JSON` | Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup. | — |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
 | `BRAIN_UI_ALLOW_PASSWORD` | Set "1" to keep password login enabled after a passkey exists for the RP (break-glass recovery). | 0 |
+| `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH` | Conditional form maximum depth (roots count as one). Invalid values fail startup. | 3 |
+| `BRAIN_UI_ASK_USER_FORM_MAX_NODES` | Conditional form maximum node count. Invalid values fail startup. | 12 |
+| `BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS` | Conditional form maximum options per choice or scale node. Invalid values fail startup. | 8 |
+| `BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD` | Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS` | Bounded daily emergency autonomous operation reserve. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY` | Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup. | 5 |
+| `BRAIN_UI_AUTONOMOUS_TIMEZONE` | IANA timezone for autonomous admission days; each reservation keeps its admission day. Invalid values fail startup. | UTC |
+| `BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY` | Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup. | 0 |
+| `BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN` | Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup. | 0.01 |
+| `BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` | Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000. | 20000 |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` | Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice. | medium |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
@@ -231,6 +311,7 @@ Every variable this package reads, and what happens when it is unset.
 | `BRAIN_UI_DANGEROUSLY_DISABLE_AUTH` | Set "1" to allow AUTH_MODE=none on a non-loopback host. Every network peer gets full agent access. | 0 |
 | `BRAIN_UI_EXEC_KILLER` | Absolute path to an authorised helper that cancels a wrapped process group, invoked as `<killer> <pgid> <TERM\|KILL\|INT>`. Needed only when the wrapper changes uid: signalling then fails with EPERM however the group is arranged, and an aborted request would keep running. | (none — signal the group directly) |
 | `BRAIN_UI_EXEC_WRAPPER` | Absolute path to an executable every agent and brain-CLI subprocess is launched through, as `<wrapper> <program> <args…>`. Lets a host run those children as another user without this package knowing how. It is an argv[0], never a command line: no shell parses it. Unset, spawns are exactly what they were. | (none — spawn the program directly) |
+| `BRAIN_UI_INBOX_POKE_TOKEN_FILE` | Absolute runtime token-file path for the protected internal inbox poke. Provision a private directory under /run for this app instance. The server atomically writes a new 0600 boot token; unset disables poke authorization. Does not enable autonomous dispatch. | (unset; poke unavailable) |
 | `BRAIN_UI_LOG_LEVEL` | Minimum severity the console log consumer emits: TRACE, DEBUG, INFO, WARN, ERROR or FATAL. Case-insensitive; an unrecognised value falls back to the default rather than silencing the server. | INFO |
 | `BRAIN_UI_MODEL_DISCOVERY` | Model discovery against the Anthropic Models API; "0"/"off"/"false" disables. Defaults ON, except under a test runner (NODE_ENV=test) where it defaults OFF. | on (off under NODE_ENV=test) |
 | `BRAIN_UI_MODEL_TTL_HOURS` | How long a model-discovery result stays fresh, in hours. | 24 |
@@ -253,6 +334,7 @@ Every variable this package reads, and what happens when it is unset.
 | `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the deployment shell also falls back to it (from BRAIN_UI_SYNC_GITHUB_TOKEN) for brain-repo git pushes and gh-based jobs. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
+| `MAX_AUTONOMOUS_RUNS` | Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch. | 2 |
 | `MAX_CONCURRENT_SESSIONS` | Cap on concurrently RUNNING agent sessions. | 3 |
 | `NODE_ENV` | Only consulted for test-runner detection: flips the model-discovery and pricing-discovery defaults to off under bun test. Never gates any security behavior. | (unset) |
 | `OVERPASS_URL` | Overpass endpoint the map geometry is fetched from. | https://overpass-api.de/api/interpreter |
@@ -324,6 +406,10 @@ WebSocket session starts reserve their session id before backend routing.
 Messages received during routing join the bounded follow-up queue; cancellation
 before routing completes drops that queue and prevents the backend from starting.
 New-conversation frames retain the client's `draftId` for reply correlation.
+
+Interactive requests pass the existing collision checks and register their
+pending response before the host emits a card or waiting status. A refused
+duplicate leaves the original request pending for its answer or cancellation.
 
 Wikilink scans visit each canonical directory once, including when directories
 have symlink aliases or cycles. Concurrent refresh requests share a rebuild.
