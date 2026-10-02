@@ -30,3 +30,12 @@ wrapped action rows. The default runner and
 CI include this project; scoped direct invocations use `--project=visual` plus
 `--project=rank-footer-touch`. Separate contexts keep touch media queries from
 changing the fine-pointer hint cases.
+
+`track-intake.visual.tsx` gives each mixed picker its own `navigator.onLine`
+descriptor and restores the previous descriptor in `finally`. Connected cases
+start from a deliberately offline sentinel; separate offline cases retain a
+mixed draft without multipart requests, then resume through the actual Composer
+online event. A failure sentinel checks descriptor restoration after an exception.
+Both picker widths retain image decoding, held-send and nonempty multipart
+assertions. Review captures stay in `.vitest-attachments/track-intake/`; no
+product connectivity policy or matrix-wide online override is involved.

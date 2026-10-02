@@ -11,53 +11,151 @@ import { registerShareTarget, type ShareFetchEvent } from "../../../ui-sdk/src/c
 import { createMemoryShareStoreForTests } from "../../../ui-sdk/src/client/share-store.js";
 import type { ClientChatMessage } from "../../../ui-sdk/src/protocol.js";
 
-for (const width of [390, 1440]) test(`mixed image and track picker preserves the held draft at ${width}px`, async () => {
-  const before = { width: innerWidth, height: innerHeight };
-  const outer = await commands.formViewport(width, 1000);
-  await page.viewport(width, 1000);
-  const previousTheme = document.documentElement.dataset.theme;
-  document.documentElement.dataset.theme = "dark";
-  const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
-  const host = document.createElement("div"); host.style.cssText = "width:100%;padding:20px;box-sizing:border-box;background:var(--bk-color-canvas);color:var(--bk-color-ink)"; document.body.append(host);
-  const source = '{"type":"LineString","coordinates":[[3,2],[3.01,2]]}';
-  let resolveUpload!: (response: Response) => void;
-  let uploaded: File | undefined;
-  const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
-    if (url.endsWith("/track-upload")) {
-      uploaded = (init!.body as FormData).get("files") as File;
-      return new Promise<Response>(resolve => { resolveUpload = resolve; });
-    }
-    return Response.json({ providers: [], sessions: [], entries: [], models: [] });
-  } });
-  ui.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
-  const sent: ClientChatMessage[] = [];
-  const renderer = createRoot(host);
+/** Keep the connectivity gate local; inherit the original property again on every exit. */
+async function withNavigatorOnline(initial: boolean, run: (setOnline: (online: boolean) => void) => Promise<void>) {
+  const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  let online = initial;
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
   try {
-    flushSync(() => renderer.render(<BrainUiProvider root={ui}><Composer send={message => { if (message.type === "chat_message") sent.push(message); return true; }} /></BrainUiProvider>));
-    const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
-    await userEvent.click(field); await userEvent.keyboard("Show the route beside the raft photo");
-    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64; const context = canvas.getContext("2d")!; context.fillStyle = "#3d9b95"; context.fillRect(0,0,64,64); context.fillStyle = "#e4a137"; context.fillRect(10,32,44,12); context.fillStyle = "#f8f4eb"; context.fillRect(30,8,3,24);
-    const image = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/png"));
-    const transfer = new DataTransfer(); transfer.items.add(new File([source], "loop.json", { type: "application/octet-stream" })); transfer.items.add(new File([image], "raft.png", { type: "image/png" }));
-    const input = host.querySelector<HTMLInputElement>('input[accept*=".gpx"]')!;
-    input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
-    expect(uploaded).toBeDefined(); expect(await uploaded!.text()).toBe(source); expect(uploaded!.type).toBe("application/octet-stream");
-    await userEvent.click(field); await userEvent.keyboard("{Enter}");
-    expect(sent).toHaveLength(0); expect(host.textContent).toContain("sends when 1 file finishes");
-    expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
-    await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/held-${width}.png` });
-    resolveUpload(Response.json({ files: [trackView().file] }));
-    await expect.poll(() => sent.length).toBe(1);
-    expect(sent[0]!.text).toBe("Show the route beside the raft photo"); expect(sent[0]!.files).toHaveLength(1); expect(sent[0]!.attachments).toHaveLength(1); expect(sent[0]!.attachments![0]!.data.length).toBeGreaterThan(100);
-    const user = ui.stores.chat.getState().draft!.messages.find(message => message.role === "user");
-    expect(user!.files![0]!.summary!.counts.retained).toBe(129); expect(user!.attachments).toHaveLength(1);
-    await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/ready-${width}.png` });
+    await run(value => {
+      online = value;
+      window.dispatchEvent(new Event(value ? "online" : "offline"));
+    });
   } finally {
-    flushSync(() => renderer.unmount()); ui.dispose(); host.remove(); style.remove();
-    if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme;
-    await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120);
+    if (previous) Object.defineProperty(navigator, "onLine", previous);
+    else Reflect.deleteProperty(navigator, "onLine");
   }
+}
+
+async function mixedPicker(width: number, initiallyOnline: boolean) {
+  await withNavigatorOnline(initiallyOnline, async setOnline => {
+    const before = { width: innerWidth, height: innerHeight };
+    const previousTheme = document.documentElement.dataset.theme;
+    const style = document.createElement("style");
+    const host = document.createElement("div");
+    const source = '{"type":"LineString","coordinates":[[3,2],[3.01,2]]}';
+    const text = "Show the route beside the raft photo";
+    let resolveUpload!: (response: Response) => void;
+    let uploaded: File | undefined;
+    let uploadCount = 0;
+    const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
+      if (url.endsWith("/track-upload")) {
+        uploadCount++;
+        uploaded = (init!.body as FormData).get("files") as File;
+        return new Promise<Response>((resolve, reject) => {
+          const signal = init?.signal;
+          const aborted = () => reject(new DOMException("Fixture upload aborted", "AbortError"));
+          resolveUpload = response => { signal?.removeEventListener("abort", aborted); resolve(response); };
+          if (signal?.aborted) aborted(); else signal?.addEventListener("abort", aborted, { once: true });
+        });
+      }
+      return Response.json({ providers: [], sessions: [], entries: [], models: [] });
+    } });
+    ui.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
+    const sent: ClientChatMessage[] = [];
+    let renderer: ReturnType<typeof createRoot> | undefined;
+    let outer: { width: number; height: number } | undefined;
+    try {
+      outer = await commands.formViewport(width, 1000);
+      await page.viewport(width, 1000);
+      document.documentElement.dataset.theme = "dark";
+      style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+      host.style.cssText = "width:100%;padding:20px;box-sizing:border-box;background:var(--bk-color-canvas);color:var(--bk-color-ink)"; document.body.append(host);
+      const mounted = createRoot(host);
+      renderer = mounted;
+      flushSync(() => mounted.render(<BrainUiProvider root={ui}><Composer send={message => { if (message.type === "chat_message") sent.push(message); return true; }} /></BrainUiProvider>));
+      const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+      await userEvent.click(field); await userEvent.keyboard(text);
+      const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64; const context = canvas.getContext("2d")!; context.fillStyle = "#3d9b95"; context.fillRect(0,0,64,64); context.fillStyle = "#e4a137"; context.fillRect(10,32,44,12); context.fillStyle = "#f8f4eb"; context.fillRect(30,8,3,24);
+      const image = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/png"));
+      const transfer = new DataTransfer(); transfer.items.add(new File([source], "loop.json", { type: "application/octet-stream" })); transfer.items.add(new File([image], "raft.png", { type: "image/png" }));
+      const input = host.querySelector<HTMLInputElement>('input[accept*=".gpx"]')!;
+      input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
+      await expect.poll(() => host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
+      if (!initiallyOnline) {
+        expect(navigator.onLine).toBe(false);
+        expect(uploadCount).toBe(0); expect(uploaded).toBeUndefined();
+        expect(host.textContent).toContain("waiting for connection");
+        expect(host.textContent).toContain("loop.json");
+        expect(field.value).toBe(text);
+        expect(await transfer.files[0]!.text()).toBe(source);
+        expect(transfer.files[0]!.size).toBeGreaterThan(0); expect(transfer.files[1]!.size).toBeGreaterThan(100);
+        await userEvent.click(field); await userEvent.keyboard("{Enter}");
+        expect(sent).toHaveLength(0); expect(host.textContent).toContain("sends when 1 file finishes");
+        expect(field.value).toBe(text); expect(host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
+        setOnline(true);
+        await expect.poll(() => uploaded).toBeDefined();
+        expect(uploadCount).toBe(1);
+      }
+      expect(uploaded).toBeDefined(); expect(await uploaded!.text()).toBe(source); expect(uploaded!.type).toBe("application/octet-stream");
+      if (initiallyOnline) { await userEvent.click(field); await userEvent.keyboard("{Enter}"); }
+      expect(sent).toHaveLength(0); expect(host.textContent).toContain("sends when 1 file finishes");
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      const suffix = initiallyOnline ? `${width}` : `offline-${width}`;
+      await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/held-${suffix}.png` });
+      resolveUpload(Response.json({ files: [trackView().file] }));
+      await expect.poll(() => sent.length).toBe(1);
+      expect(sent[0]!.text).toBe(text); expect(sent[0]!.files).toHaveLength(1); expect(sent[0]!.attachments).toHaveLength(1); expect(sent[0]!.attachments![0]!.data.length).toBeGreaterThan(100);
+      const user = ui.stores.chat.getState().draft!.messages.find(message => message.role === "user");
+      expect(user!.files![0]!.summary!.counts.retained).toBe(129); expect(user!.attachments).toHaveLength(1);
+      await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/ready-${suffix}.png` });
+    } finally {
+      // Sent previews belong to this throwaway chat; unmount only revokes unsent ones.
+      const previews = Array.from(host.querySelectorAll<HTMLImageElement>('img[src^="blob:"]'), image => image.src);
+      try { if (renderer) flushSync(() => renderer!.unmount()); }
+      finally {
+        try { ui.dispose(); }
+        finally {
+          host.remove(); style.remove();
+          for (const preview of previews) URL.revokeObjectURL(preview);
+          if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme;
+          try { await page.viewport(before.width, before.height); }
+          finally { if (outer) await commands.formViewport(outer.width - 100, outer.height - 120); }
+        }
+      }
+    }
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`mixed image and track picker preserves the held draft at ${width}px`, async () => {
+    const original = navigator.onLine;
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    // Deliberately offline before mounting: deleting the inner fixture control
+    // must fail the original nonempty-upload assertion even on an online host.
+    await withNavigatorOnline(false, async () => {
+      const offline = Object.getOwnPropertyDescriptor(navigator, "onLine");
+      await mixedPicker(width, true);
+      // Following offline sentinel: an online override must not leak from the case.
+      expect(navigator.onLine).toBe(false);
+      expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(offline);
+    });
+    expect(navigator.onLine).toBe(original);
+    expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(descriptor);
+  });
+  test(`offline mixed picker keeps its draft and resumes the held upload at ${width}px`, async () => {
+    const original = navigator.onLine;
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    await mixedPicker(width, false);
+    expect(navigator.onLine).toBe(original);
+    expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(descriptor);
+  });
+}
+
+test("connectivity cleanup restores the previous offline descriptor after a failing fixture", async () => {
+  const original = navigator.onLine;
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  await withNavigatorOnline(false, async () => {
+    const offline = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    await expect(withNavigatorOnline(true, async () => {
+      expect(navigator.onLine).toBe(true);
+      throw new Error("intentional fixture failure");
+    })).rejects.toThrow("intentional fixture failure");
+    expect(navigator.onLine).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(offline);
+  });
+  expect(navigator.onLine).toBe(original);
+  expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(descriptor);
 });
 
 test("the documented GPX manifest reaches a real browser multipart handler with nonempty mixed files and original MIME", async () => {
