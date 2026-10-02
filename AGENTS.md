@@ -55,12 +55,15 @@ on, links to or describes them.
 
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
-  Fixtures and examples use a fictional persona, and there are exactly two:
-  "Alex Example" owns `packages/core/fixtures/corpus/`, and Odysseus owns the
-  `packages/ui-kit/fixtures/` design world (D19) that Storybook, screenshots
-  and website copy render against. The two sets share a reference date and
-  nothing else. CI enforces a leakage gate over the whole tree; it has no
-  exempt directories.
+  Odysseus is the sole fictional example world for core/CLI fixtures, CLI and
+  MCP demonstrations, docs, skills, onboarding, renderer examples, UI stories,
+  screenshots and public website assets. Use ancient problems with modern
+  organisational tools, the established cast and the pinned `2026-07-12` date.
+  Core invariant fixtures and UI presentation fixtures may keep separate
+  technical representations; they share the world and canonical facts. See
+  [the corpus decision](docs/decisions/example-corpus.md), which supersedes
+  D18/D19's former persona split. CI enforces a leakage gate over the whole
+  tree; it has no exempt directories.
 - **Contract stability.** The CLI `--json` shapes, MCP tool names and schemas,
   `schema_version`, and frontmatter semantics are the compatibility contract
   (`docs/integration-contract.md`). Changing one means updating that doc in the
@@ -117,7 +120,7 @@ on, links to or describes them.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`).
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`).
   The range starts on the line that contains the anchor. **A PR that moves
   lines under a citation owns that citation**, in source comments and in other
   records as well as the one it is editing. Find them with

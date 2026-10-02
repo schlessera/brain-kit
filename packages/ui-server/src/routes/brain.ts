@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { BrainClient } from "../brain/client.js";
+import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
+import type { Logger } from "@opentelemetry/api-logs";
 import { execConfig, subprocessEnv } from "../config/env.js";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
@@ -17,6 +18,8 @@ import { requireJson } from "../middleware/origin.js";
 const syncingRoots = new Set<string>();
 
 export interface BrainRoutesDeps {
+  brainCliMinimum?: string;
+  log?: Logger;
   brain: BrainClient;
   brainPath: string;
   keyterms: KeytermSettings;
@@ -266,7 +269,11 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // brain.cliCommand() (packaged bin or legacy vendored script), passed to
         // bash as positional args rather than interpolated into the script, so a
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
-        const [cliBin, ...cliArgs] = brain.cliCommand();
+        const command = brain.cliCommand();
+        if (deps.brainCliMinimum !== undefined) {
+          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command });
+        }
+        const [cliBin, ...cliArgs] = command;
         const sync = execConfig();
         const proc = Bun.spawn(
           wrapCommand(
@@ -360,16 +367,29 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
   })
 
   .post("/brain/add", requireJson(), async (c) => {
-    const result = await readJsonBody<{
-      content: string;
-      type?: string;
-      title?: string;
-      tags?: string[];
-    }>(c);
-    if (result instanceof Response) return result;
-    const body = result;
-    if (!body.content) {
+    let body: { content?: unknown; type?: unknown; title?: unknown; tags?: unknown };
+    try {
+      const result = await readJsonBody<typeof body>(c);
+      if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
+      body = result;
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+    if (typeof body.content !== "string" || !body.content) {
       return c.json({ error: "Field 'content' is required" }, 400);
+    }
+    if (body.type !== undefined && typeof body.type !== "string") {
+      return c.json({ error: "Field 'type' must be a string" }, 400);
+    }
+    if (body.title !== undefined && typeof body.title !== "string") {
+      return c.json({ error: "Field 'title' must be a string" }, 400);
+    }
+    if (body.tags !== undefined &&
+        (!Array.isArray(body.tags) || !body.tags.every((tag) => typeof tag === "string"))) {
+      return c.json({ error: "Field 'tags' must be an array of strings" }, 400);
     }
     try {
       const outcome = await brain.add(body.content, {

@@ -7,6 +7,8 @@ import {
   killWrapped,
   wrapCommand,
   probeVersionCommand,
+  assertVersionRequirements,
+  validateVersionMinimum,
   type VersionProbeResult,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -19,6 +21,7 @@ import type {
   BrainAddResult,
 } from "./types.js";
 import { parseSyncResult, syncMessage, type BrainSyncOutput } from "./sync-result.js";
+import type { ConfiguredModule } from "@schlessera/brain-ui-sdk";
 
 /**
  * A `brain sync` that exited non-zero, with its result when stdout held one:
@@ -39,6 +42,9 @@ export class BrainSyncError extends Error {
 export interface BrainClient {
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
+  /** Additive settings support; older injected clients may omit it. */
+  modules?(): Promise<{ enabled: ConfiguredModule[]; available: unknown[] }>;
+  moduleSettings?(name: string, operation: "get" | "save" | "validate" | "preview" | "migrate" | "enable" | "disable" | "action", options?: { values?: Record<string, unknown>; revision?: string; action?: string }): Promise<unknown>;
   search(
     query: string,
     opts?: { type?: string; tag?: string; limit?: number; mode?: string; signal?: AbortSignal }
@@ -100,101 +106,82 @@ export function brainCliCommand(brainPath: string): string[] {
   return ["bun", "scripts/brain-cli.ts"];
 }
 
-interface ParsedVersion {
-  major: number;
-  minor: number;
-  patch: number;
-  prerelease: boolean;
-}
-
-function parseVersion(value: string): ParsedVersion | null {
-  const match = value.match(
-    // Full SemVer 2.0.0 grammar: prerelease and build metadata are
-    // dot-separated NON-EMPTY identifiers. A loose `[0-9A-Za-z.-]+` would
-    // accept "0.32.9-.." and treat garbage as a real prerelease, which the
-    // comparison below would then refuse to boot on instead of warning.
-    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-  );
-  if (!match) return null;
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-    prerelease: match[4] !== undefined,
-  };
-}
-
-function isBelowMinimum(found: ParsedVersion, minimum: ParsedVersion): boolean {
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (found[key] !== minimum[key]) return found[key] < minimum[key];
+/** Probe the selected content CLI, keeping unknown versions warning-only by default. */
+export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal } = {}): Promise<void> {
+  const phase = options.phase ?? "startup";
+  const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
+  if (options.minimumVersion !== undefined) {
+    validateVersionMinimum(options.minimumVersion, "host versionRequirements.brainCli", `brain CLI during ${phase}`);
+    requirements.push({ owner: "host versionRequirements.brainCli", kind: "minimum", declaration: options.minimumVersion });
   }
-  return found.prerelease && !minimum.prerelease;
-}
-
-/** Probe the brain repo's own CLI pin, refusing only known-incompatible versions. */
-export async function probeBrainCliVersion(brainPath: string, log: Logger): Promise<void> {
+  const command = options.command ?? brainCliCommand(brainPath);
+  const action = "bump the brain repo's @schlessera/brain pin to a compatible version before deploying.";
+  function unknown(reason: string, body: string, attributes?: Record<string, string | number>) {
+    if (options.minimumVersion !== undefined) {
+      assertVersionRequirements({ identity: "brain CLI", version: null, requirements, phase, action, unknownReason: reason });
+    }
+    log.emit({ severityText: "WARN", body, attributes: { reason, ...attributes } });
+  }
   let result: VersionProbeResult;
   try {
-    result = await probeVersionCommand([...brainCliCommand(brainPath), "--version"], {
+    result = await probeVersionCommand([...command, "--version"], {
       cwd: brainPath,
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
       exec: execConfig(),
+      signal: options.signal,
     });
   } catch (error) {
-    log.emit({ severityText: "WARN", body: "brain CLI version probe failed; continuing", attributes: {
-      reason: error instanceof Error ? error.message : String(error),
-    } });
+    options.signal?.throwIfAborted();
+    unknown(error instanceof Error ? error.message : String(error), "brain CLI version probe failed; continuing");
     return;
   }
-  for (const warning of result.cleanupWarnings) {
-    log.emit({ severityText: "WARN", body: warning });
-  }
+  for (const warning of result.cleanupWarnings) log.emit({ severityText: "WARN", body: warning });
   if (result.timedOut) {
-    log.emit({ severityText: "WARN", body: "brain CLI did not answer --version within 5 s; continuing" });
+    unknown("did not answer --version within 5 s", "brain CLI did not answer --version within 5 s; continuing");
     return;
   }
-
   if (result.exitCode !== 0) {
-    log.emit({
-      severityText: "WARN",
-      body: "brain CLI version probe failed; continuing",
-      attributes: { "exit.code": result.exitCode },
-    });
+    unknown(`version probe exited ${result.exitCode}: ${result.stderr.trim()}`, "brain CLI version probe failed; continuing", { "exit.code": String(result.exitCode) });
     return;
   }
-
   const foundText = result.stdout.trim();
-  const found = parseVersion(foundText);
-  const minimum = parseVersion(MIN_BRAIN_CLI_VERSION)!;
-  if (!found) {
-    log.emit({
-      severityText: "WARN",
-      body: "brain CLI returned an unparseable version; continuing",
-      attributes: { version: foundText },
-    });
+  // Retain the CLI's historical optional v-prefix, but never accept it in a
+  // host declaration. Identity comes from this executable, not a manifest
+  // belonging to the server's unrelated installation of core.
+  const version = foundText.replace(/^v/, "");
+  try {
+    validateVersionMinimum(version, "detected version", "brain CLI");
+  } catch {
+    unknown(`unparseable version ${JSON.stringify(foundText)}`, "brain CLI returned an unparseable version; continuing", { version: foundText });
     return;
   }
-
-  if (isBelowMinimum(found, minimum)) {
-    throw new Error(
-      `brain CLI version ${foundText} is incompatible: version ${MIN_BRAIN_CLI_VERSION} ` +
-        `or newer is required; bump the brain repo's @schlessera/brain pin before deploying.`
-    );
+  try {
+    assertVersionRequirements({ identity: "brain CLI", version, requirements, phase, action });
+  } catch (error) {
+    throw new Error(`brain CLI version ${foundText} is incompatible: version ${MIN_BRAIN_CLI_VERSION} or newer is required; ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 /** Interactive search must finish or fail within a bounded time. */
 const SEARCH_TIMEOUT_MS = 15_000;
 
-export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: number }): BrainClient {
+export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: number; minimumVersion?: string; log?: Logger }): BrainClient {
   const { brainPath } = opts;
+  const minimumVersion = opts.minimumVersion;
+  if (minimumVersion !== undefined) validateVersionMinimum(minimumVersion, "host versionRequirements.brainCli", "brain CLI during client construction");
+  const log = opts.log ?? { emit() {}, enabled: () => false };
   const searchTimeoutMs = opts.searchTimeoutMs ?? SEARCH_TIMEOUT_MS;
   if (!Number.isFinite(searchTimeoutMs) || searchTimeoutMs <= 0) {
     throw new Error("searchTimeoutMs must be a positive finite number");
   }
 
-  async function execBrain(args: string[], signal?: AbortSignal): Promise<ExecResult> {
+  async function execBrain(args: string[], signal?: AbortSignal, input?: string): Promise<ExecResult> {
     signal?.throwIfAborted();
+    const command = brainCliCommand(brainPath);
+    if (minimumVersion !== undefined) {
+      await probeBrainCliVersion(brainPath, log, { minimumVersion, phase: "invocation", command, signal });
+      signal?.throwIfAborted();
+    }
     // Every brain CLI launch goes through the host's wrapper, not only the
     // agent's tools. The CLI imports the repository's `brain.config.ts` and
     // its repo-resolved modules — agent-writable executable inputs — so a
@@ -202,10 +189,11 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     // does. Leaving these two spawns unwrapped would have left the privilege
     // boundary with a hole the size of the whole read path.
     const exec = execConfig();
-    const proc = Bun.spawn(wrapCommand([...brainCliCommand(brainPath), ...args], exec.wrapper), {
+    const proc = Bun.spawn(wrapCommand([...command, ...args], exec.wrapper), {
       cwd: brainPath,
       stdout: "pipe",
       stderr: "pipe",
+      ...(input !== undefined ? { stdin: new TextEncoder().encode(input) } : {}),
       // Force JSON output when not a TTY
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
       // Only read-only search passes a signal. Kill even a CLI that ignores
@@ -257,6 +245,29 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
   return {
     cliCommand() {
       return brainCliCommand(brainPath);
+    },
+
+    async modules() {
+      return parseJsonOutput(await execBrain(["module", "list", "--json"]));
+    },
+
+    async moduleSettings(name, operation, options = {}) {
+      if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error("Invalid module name");
+      const args = ["module", operation === "enable" || operation === "disable" ? operation : "settings", name, "--json"];
+      if (operation === "save" || operation === "validate") args.push("--stdin");
+      if (operation === "validate") args.push("--preview");
+      if (operation === "preview" || operation === "migrate") args.push("--migrate");
+      if (operation === "preview") args.push("--preview");
+      if (options.revision) args.push("--revision", options.revision);
+      if (operation === "action") {
+        if (!options.action || !/^[a-z][a-z0-9-]*$/.test(options.action)) throw new Error("Invalid module action");
+        args.push("--action", options.action);
+      }
+      const result = await execBrain(args, undefined, (operation === "save" || operation === "validate") ? JSON.stringify(options.values) : undefined);
+      let parsed: unknown;
+      try { parsed = JSON.parse(result.stdout); } catch { return parseJsonOutput(result); }
+      if (result.exitCode !== 0 && !(parsed && typeof parsed === "object" && "status" in parsed)) return parseJsonOutput(result);
+      return parsed;
     },
 
     async search(query, searchOpts) {

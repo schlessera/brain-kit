@@ -47,6 +47,7 @@ export default defineModule({
     taxonomy: {
       types: { finance: { dir: config.clientsDir } },
     },
+    instructions: { text: `## Finance workflow\n\nKeep client ledgers under ${config.clientsDir}/. Invoice, payment and allocation frontmatter is authoritative; balances, aging and tables are derived. Defaults are ${config.currency} and ${config.termsDays} payment-term days. Run brain finance sync to regenerate owned tables, preserving prose outside their regions.` },
     commands: { finance: () => import("./cli.js") },
     hygieneChecks: [checkLedgerBlocksUpToDate],
   }),

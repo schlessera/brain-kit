@@ -72,6 +72,17 @@ as the standalone cards do.
 `ScaleList` also exposes `flagged` and `onComplete`, while `RankList` exposes
 `onMoveChange` so an outer form can guard submission during a move.
 
+## Imported tracks
+
+`TrackMap` draws file-provided lines with start/end shapes, a scale and a full
+summary and waypoint list. Supply one path per usable section, the complete
+track envelope through `fitPoints`, canonical metrics and evidence, and an
+original file name/path. Optional background paths/land carry their attribution.
+Without background geometry it labels the drawing **Track only**. A
+`projectionReason` replaces the drawing while retaining all text and the original.
+The component performs no parsing, measurements or requests. `ui-react` resolves
+staged originals and optional geography before both chat display and static export.
+
 ## Link policy
 
 `@schlessera/brain-ui-kit/links` exports `classifyLink`, the one decision about
@@ -220,3 +231,10 @@ across whatever is being read.
 Pass `announce={false}` to `InlineToast` when a containing live region combines
 the receipt with other feedback. `AskUserFormCard` uses this for one announcement
 of branch reveals, hidden nodes, answers set aside and the remaining count.
+
+## Dictating composer state
+
+`Composer` accepts `state="dictating"` to preserve a read-only draft and
+make Send and Attach unavailable while capture is active. Its mic is labelled
+“Stop dictation” and still calls `onMic`; the consumer owns capture, draining
+and review. Other composer states keep their existing behavior.

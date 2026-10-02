@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:130-222`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:138-229`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -78,8 +78,8 @@ v1 ships the complete loop **and** unattended execution. R28's restricted execut
 is a security-critical build for both first-party backends (tool availability control, scrubbed
 environment, `strictMcpConfig`, real-subprocess containment testing), not a configuration
 change — the current backend auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`,
-and `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`) and automatic SDK permission paths can bypass
-`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`).
+and `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-79`) and automatic SDK permission paths can bypass
+`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`).
 
 Because nothing ships until containment passes, **U14 and U15 are sequenced early** (see
 Sequencing below) rather than in unit order. Discovering a containment problem after the
@@ -125,40 +125,40 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 ### Relevant Code and Patterns
 
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
-  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:808-842`). Reuse the algorithm; the
+  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:810-839`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
 - **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:49-171`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:430`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:466`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:130-222`). Timeout unwind is
-  (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`). Durable escalation must checkpoint
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:138-229`). Timeout unwind is
+  (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:238-244`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
-- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`) closes measured bypasses.
-  (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-87`) is still a broad interactive
+- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`) closes measured bypasses.
+  (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:26-79`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
-- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:173-183`) and
+- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-148`) and
-  (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:75-142`). Built-ins are disabled,
+  (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`) settles after execution;
-  (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) explicitly counts unpriced runs.
+  (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`) and
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1235`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1248`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
-- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`) gates WS starts;
-  (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`) owns tool locks.
-  Neither provides autonomous waiter priority/yield.
+- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:642-652`) gates WS starts;
+  (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
+  Shared-target priority and cooperative yield belong to the keyed lock and backend lifecycle.
 
 ### Institutional Learnings
 
@@ -689,7 +689,7 @@ recovered tick after killing the interval
 **Files:**
 - Create: `packages/ui-server/src/inbox/budget.ts`
 - Create: a new, next-unused migration for reservation state; never rewrite U2's shipped migration
-- Modify: `packages/ui-server/src/activity/recorder.ts` (settlement hook at rollup)
+- Modify: `packages/ui-server/src/activity/store.ts` (settlement in the terminal rollup transaction)
 - Test: `packages/ui-server/tests/inbox-budget.test.ts`
 
 **Approach:**
@@ -698,7 +698,7 @@ recovered tick after killing the interval
 - Two counters: non-subscription effective spend (default $5/day) and autonomous turns/day,
   both against the configured local-day boundary
 - Query filters autonomous origins and preserves `unpricedRuns` rather than dropping them —
-  ignoring the explicit unpriced count at (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:176-187`) is the admission bug being avoided
+  ignoring the explicit unpriced count at (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) is the admission bug being avoided
 - **Unknown cost settles at a pessimistic rate, and files an Action.** A run whose effective
   cost resolves NULL is charged a configured worst-case rate against the counter, so the
   budget errs toward stopping early rather than overspending. It simultaneously raises an
@@ -710,9 +710,14 @@ recovered tick after killing the interval
 - Hard caps with a named emergency reserve; when the reserve is exhausted, everything stops and
   one `fyi` is filed (R43)
 - Every model-bearing operation reserves, including T1 batches (R40)
+- The [October 1 ruling](../decisions/async-collaboration.md#scheduling-budgets-and-evidence)
+  defines a hard admission ledger, using conservative whole-operation estimates.
+  Retain actual overruns and refuse later over-cap work; U4 does not add a
+  transport-enforced invoice ceiling. Count one turn per separately dispatched
+  model-bearing operation; folded compaction is included in its existing call.
 
 **Patterns to follow:** the frozen-at-first-computation discipline of effective cost
-(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:501-643`); env descriptor array for the new configuration values
+(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:502-604`); env descriptor array for the new configuration values
 
 **Test scenarios:**
 - Covers AE11: two claims that would each fit but jointly exceed the cap — the second is
@@ -802,7 +807,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1235`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1248`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -879,7 +884,7 @@ AE3, AE4, AE8
 **Approach:**
 - **Escalation** is one server-side step: capture the checkpoint → create the Action with
   validated effects → transition the Queue item to `blocked` → unwind without parking. The timeout path aborts then drains permissions at
-  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`)
+  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:238-244`)
 - **Resolution** is one transaction: record resolution (unique) → validate the effect against
   its schema again → apply it → transition the blocked item to `superseded` → for `enqueue`
   only, mint one follow-up with `dedup_key` from `(action_id, option_id)`
@@ -1214,18 +1219,18 @@ full-v1 enablement; predicates and schema tests cannot substitute for it.
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:630-640`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:642-652`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
-(`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-108`).
+(`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`).
 
-Three pieces, none of which exist today:
+The hybrid has three pieces:
 - **Waiter priority on the lock** — the lock manager records whether a waiter is interactive
   and how long it has waited
 - **An explicit yield threshold** — at ~20s of the 30s budget (configurable), an interactive
   waiter's continued wait signals the holder. The number is a constant, not a judgement call,
   so both edges are testable
 - **A yield channel into a running autonomous turn** — the signal aborts the holder through
-  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:235-241`), returning its item
+  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:238-244`), returning its item
   to `ready` and releasing its reservation
 
 Below the threshold nothing yields, so the common case costs nothing. Above it, one autonomous

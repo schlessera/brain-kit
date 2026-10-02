@@ -63,7 +63,7 @@ const MAY_NAME_THE_PRIVATE_REPO = [
  */
 const RECORDED: Record<string, string> = {
   "scripts/check-citations.ts": "477b086190156d38",
-  "scripts/sync-project.ts": "c491185e4368cdc2",
+  "scripts/sync-project.ts": "4b5aaec7ab747855",
   "tests/decision-citations.test.ts": "aa6c36c0657d0b6a",
   "tests/project-blockers.test.ts": "84dc8b0154e79476",
   "tests/labels.test.ts": "396f8dde5e38d075",

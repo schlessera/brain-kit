@@ -39,6 +39,13 @@ via `satisfies`. A compile-time equality test checks exact keys, optionality,
 and nested values in both directions so the schemas cannot drift from the
 interfaces. Hosts should never cast a client frame; binary frames are rejected.
 
+Use `parseServerMessage` for inbound server frames. It preserves valid own
+sequence-map entries in Inbox and Activity snapshots, including `__proto__`,
+without changing the map's prototype. It validates these values with the
+existing snapshot rules. Direct parsing with the exported Zod record schemas
+retains upstream Zod's behavior of dropping `__proto__`; the server-frame
+boundary restores that entry safely.
+
 Durable Queue/Actions definitions are additive: `InboxThread`, `InboxItem`,
 `InboxChange`, `InboxSnapshot`, `InboxDelta`, separate Queue/Action statuses,
 and the six-kind `ResolutionEffect`. New `inbox_resolve`, `inbox_snooze`,
@@ -67,12 +74,29 @@ prescribing storage for the transcripts themselves (backends own those).
 
 `BackendModule.probeRuntime?(context): Promise<BackendRuntimeReport>` is the
 optional asynchronous startup check. The host awaits it before opening app
-resources. Descriptor authors migrating from the synchronous signature use
+resources. `BackendRuntimeReport.runtime` is present for separately spawned
+executables; an in-process backend may report only its `sdk` identity. Pi uses
+that SDK-only report without inventing an executable or measurement result. Descriptor authors migrating from the synchronous signature use
 `async probeRuntime(context)` and reject to refuse startup. The shared
 `probeVersionCommand` runs a version argv with the five-second deadline,
 250 ms cleanup budget and explicit `cleanupWarnings`; it does not decide the
-backend's version policy. `killWrapped` accepts optional bounded helper
+backend's version policy. Its optional `signal` lets an invocation check
+share a request's cancellation/deadline, with the same bounded cleanup. `killWrapped` accepts optional bounded helper
 handling for these probes; omitting it retains turn cancellation behavior.
+
+`BackendModuleContext.versionRequirements?: BackendVersionRequirements`
+carries the host's optional `{ sdk?: string; runtime?: string }` full SemVer
+minima to probing and construction. Compose these with package-owned bounds
+using `assertVersionRequirements({ identity, version, requirements, phase,
+action, unknownReason? })`. Each requirement retains its `owner`, original
+`declaration` and `kind: "range" | "minimum"`. The helper rejects invalid
+declarations, conflicting requirements, unknown identities and versions that
+do not satisfy every owner. It preserves range upper bounds, OR grouping,
+build metadata precedence and each declaration's prerelease tuple opt-in.
+`validateVersionMinimum(value, owner, identity)` validates full ASCII minima
+without coercion. Both helpers ship in `./server` with a runtime dependency on
+node-semver; they perform no I/O or package resolution. Resolve the actual SDK
+copy beside the importing backend, and probe the executable that will run.
 
 The supported permission toolkit is `decideToolPermission`,
 `createToolPermissionRequest`, `requestToolPermission`, `checkEditedApproval`
@@ -84,6 +108,33 @@ surface. Bundled defaults and subprocess-policy helpers moved to `/internal`,
 which has no compatibility guarantee. The
 [classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
 names every affected import. Subscription-auth helpers remain protocol API.
+
+The existing coastline geometry helpers/types and `fetchCoastline` under `./server`
+are compatibility exports from [`@schlessera/brain-geo`](../geo). The geometry
+pipeline and result-or-empty shape are preserved; service requests now share its
+disk cache and aggregate operator admission. Existing endpoint/User-Agent/timeout
+settings still work. `CoastlineConfig.geo` can supply canonical endpoint/cache
+settings, and `admissionDir` can select the shared runtime admission path.
+`enabled:false` always prevents requests. The [geo guide](../geo/README.md#coastline-land-and-roads)
+documents bounds, refusal handling, attribution and caller responsibilities.
+
+`reverseGeocode(coords, config)` also uses the shared client and retains its
+`{displayName, summary, address} | null` result. Required `enabled`, `url` and
+`userAgent` settings remain; optional `geo` supplies canonical configuration.
+`enabled:false` always prevents requests. Public Nominatim requires explicit
+`publicServiceEligible:true` (or the canonical geocoding setting), after checking
+the [public-service policy](https://operations.osmfoundation.org/policies/nominatim/).
+This flag grants no permission: bulk/autocomplete/systematic use and generic
+LLM-platform offerings are excluded. Configure a suitable endpoint for such uses.
+Without eligibility, or after a service/validation failure, the wrapper returns
+`null` and the location bridge still returns raw coordinates. Successful responses
+share the endpoint/exact-coordinate disk cache; transient failures are not cached
+as empty locations. Reverse addresses describe a nearby mapped object and have
+unverified accuracy.
+
+`GeoConfig`, `GeoConfigInput` and `geoConfigSchema` are re-exported from `./server`
+for canonical adapter authoring/validation. They are the geo library's concrete
+configuration, with no additional provider seam.
 
 ## Backend contract tests (`./testing`)
 

@@ -56,6 +56,7 @@ export function discoverSkills(
   // Layer 2 — modules in config order (override core; first module wins on a
   // module-vs-module name clash).
   for (const mod of sources.modules) {
+    if (mod.state === "dormant") continue;
     if (!mod.manifest.skills) continue;
     const dir = resolve(mod.dir, mod.manifest.skills);
     for (const skill of readSkillsDir(dir, "module", warnings)) {

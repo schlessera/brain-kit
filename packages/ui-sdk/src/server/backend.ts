@@ -379,6 +379,33 @@ export interface AutonomousTurnOptions {
   allowedTools: readonly string[];
   /** Server-selected prompt configuration; cache/static-prefix work is separate. */
   systemPromptAppend: string;
+  /** Server-only, synchronous checkpoint before cooperative abort. The backend
+   * notifies once per turn when an interactive waiter reaches the threshold. */
+  onYield?: (key: string) => void;
+  yieldAfterMs?: number;
+  /** Server-retained execution receipts, never capability grants. A fresh
+   * attempt refuses automatic replay of these exact completed calls. */
+  completedToolCalls?: readonly CompletedAutonomousToolCall[];
+}
+
+export interface CompletedAutonomousToolCall {
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+/** Order-insensitive JSON input comparison; receipts only restrict authority. */
+export function isCompletedAutonomousToolCall(
+  mode: AutonomousTurnOptions | undefined, toolName: string, input: unknown
+): boolean {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(
+      Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => [key, canonical(entry)])
+    );
+    return value;
+  };
+  const key = JSON.stringify(canonical(input));
+  return mode?.completedToolCalls?.some((call) => call.toolName === toolName && JSON.stringify(canonical(call.input)) === key) ?? false;
 }
 
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */
@@ -456,6 +483,10 @@ export function assertTurnPosture(
         req.autonomous.persistence !== "none" || !Array.isArray(req.autonomous.allowedTools) ||
         !req.autonomous.allowedTools.every((name) => typeof name === "string" && name.length > 0) ||
         typeof req.autonomous.systemPromptAppend !== "string" ||
+        (req.autonomous.onYield !== undefined && typeof req.autonomous.onYield !== "function") ||
+        (req.autonomous.yieldAfterMs !== undefined && (!Number.isFinite(req.autonomous.yieldAfterMs) || req.autonomous.yieldAfterMs <= 0)) ||
+        (req.autonomous.completedToolCalls !== undefined && (!Array.isArray(req.autonomous.completedToolCalls) ||
+          !req.autonomous.completedToolCalls.every((call) => call && typeof call.toolName === "string" && call.input && typeof call.input === "object" && !Array.isArray(call.input)))) ||
         req.enforceAllowedTools !== true || req.noGrantSurface !== true ||
         typeof req.bridge?.checkpointPermission !== "function") {
       throw new BackendRequestError("Autonomous turns require nonpersistence, an explicit tool policy, enforced no-grant posture and a checkpoint bridge; resume is forbidden.");

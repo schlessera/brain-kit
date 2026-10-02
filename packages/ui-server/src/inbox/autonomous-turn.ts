@@ -5,10 +5,13 @@
  */
 import type { Database } from "bun:sqlite";
 import type { AgentBackend, BackendBridge, PermissionRequest, ServerMessage,
-  StartTurnRequest, AskUserQuestion, BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/server";
+  StartTurnRequest, AskUserQuestion, BillingMode, PricingRoute, CompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
+import { acquireInboxBudgetRun } from "./budget.js";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
+import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
+import { acquireInboxRunLifetime } from "./lifetime.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -28,6 +31,7 @@ export interface AutonomousTurnInput {
   allowedTools: readonly string[];
   systemPromptAppend: string;
   signal: AbortSignal;
+  yieldAfterMs?: number;
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
@@ -43,6 +47,7 @@ export interface AutonomousTurnResult {
   runId: string;
   outcome: "success" | "error" | "cancelled";
   escalated: boolean;
+  yielded: boolean;
 }
 
 /** Called only with authority selected by server code, never a parsed client/model payload. */
@@ -59,9 +64,24 @@ export async function runAutonomousTurn(
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+  let lifetime: ReturnType<typeof acquireInboxRunLifetime>;
+  try { lifetime = acquireInboxRunLifetime(deps.db, input.turnId); }
+  catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous attempt ownership failed."); }
+  try {
+    try { acquireInboxBudgetRun(deps.db, input.turnId, principalId); }
+    catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous budget admission failed."); }
+    return await executeAutonomousTurn(deps, input, usable, lifetime);
+  } finally { lifetime.close(); }
+}
+
+async function executeAutonomousTurn(
+  deps: AutonomousTurnDeps,
+  input: AutonomousTurnInput,
+  usable: () => boolean,
+  lifetime: ReturnType<typeof acquireInboxRunLifetime>,
+): Promise<AutonomousTurnResult> {
+  const principalId = input.principalId;
   // Own immutable request policy for the attempt; callbacks cannot widen it.
-  const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const,
-    allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend: input.systemPromptAppend });
   const recorder = createTurnRecorder(deps, { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
     billingMode: input.billingMode, pricingRoute: input.pricingRoute });
@@ -73,6 +93,8 @@ export async function runAutonomousTurn(
   let escalated = false;
   let revoked = false;
   let failed = false;
+  let yielded = false;
+  const tools = new Map<string, CompletedAutonomousToolCall>();
   let stateMd = "";
   let outcome: AutonomousTurnResult["outcome"] = "error";
   let terminal = false;
@@ -95,6 +117,11 @@ export async function runAutonomousTurn(
     if (frame.type === "text_delta" && !escalated && !controller.signal.aborted) {
       stateMd = clipUtf8(stateMd + frame.text, 4096);
     }
+    if (frame.type === "tool_use_complete") tools.set(frame.toolUseId, JSON.parse(JSON.stringify({ toolName: frame.toolName, input: frame.input })) as CompletedAutonomousToolCall);
+    if (frame.type === "tool_result") {
+      const call = tools.get(frame.toolUseId);
+      if (call) { recordCompletedCall(deps.db, input.turnId, frame.toolUseId, call); tools.delete(frame.toolUseId); }
+    }
     if (frame.type === "result") {
       if (terminal) return;
       terminal = true;
@@ -104,6 +131,17 @@ export async function runAutonomousTurn(
     recorder.observeFrame(frame);
     deps.emit?.({ ...frame, turnId: input.turnId } as ServerMessage);
   };
+  const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const,
+    allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend: input.systemPromptAppend,
+    completedToolCalls: Object.freeze(completedCallsForRun(deps.db, input.turnId)),
+    yieldAfterMs: input.yieldAfterMs ?? 20_000,
+    onYield: (key: string): void => {
+      if (closed || terminal || yielded || escalated || controller.signal.aborted || !checkPrincipal()) return;
+      try { checkpointYield(deps.db, input.turnId, key, stateMd); yielded = true; }
+      catch { failed = true; emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
+      finally { controller.abort(); }
+    },
+  });
   const checkpoint = (intent: { kind: "permission"; request: PermissionRequest } |
     { kind: "question"; requestId: string; questions: AskUserQuestion[] }): void => {
     if (closed || escalated || controller.signal.aborted || !checkPrincipal()) return;
@@ -148,7 +186,7 @@ export async function runAutonomousTurn(
       // A Claude failure before runtime identity has a bare error terminal.
       if (!controller.signal.aborted && !failed) failed = true;
     }
-    return { runId: input.turnId, outcome, escalated };
+    return { runId: input.turnId, outcome, escalated, yielded };
   } catch (error) {
     outcome = "error";
     emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: error instanceof Error ? error.message : String(error) });
@@ -157,7 +195,13 @@ export async function runAutonomousTurn(
     closed = true;
     clearInterval(principalCheck);
     input.signal.removeEventListener("abort", abort);
-    recorder.finish(outcome);
+    // The backend has returned. Release its kernel lock under the operational
+    // write lock, then settle before another connection can claim cleanup.
+    deps.db.transaction(() => {
+      lifetime.release();
+      recorder.finish(outcome);
+      if (yielded) finishYield(deps.db, input.turnId);
+    }).immediate();
   }
 }
 

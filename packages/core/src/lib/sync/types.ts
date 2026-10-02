@@ -26,7 +26,7 @@ export interface JudgmentPair {
   id: string;
   /** The file the pair belongs to. */
   path: string;
-  /** Where the passage sits: the heading path, e.g. "Bookshelf > Next action". */
+  /** Where the passage sits: the heading path, e.g. "Raft > Next action". */
   context: string;
   ours: string;
   theirs: string;

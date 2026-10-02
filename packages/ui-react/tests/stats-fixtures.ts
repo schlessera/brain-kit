@@ -1,4 +1,4 @@
-// The two /stats channels as the server sends them (#97), for Alex Example's
+// The two /stats channels as the server sends them (#97), for Odysseus's
 // brain on the fixture reference date. Every figure is chosen so that each
 // health rung fires and each receipt row is non-empty; a test that needs a
 // quieter brain overrides what it covers.

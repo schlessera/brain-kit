@@ -284,15 +284,15 @@ export function createActivityRoutes(deps: {
         const rollups: ActivityRollups = {
           timeZone,
           days: [...byDay.entries()]
-            .map(([key, a]) => ({ day: key, ...a }))
+            .map(([key, a]) => ({ day: key, ...roundAggregateCosts(a) }))
             .sort((a, b) => (a.day < b.day ? 1 : -1)),
           jobs: groupedAggregates(db, since, "job_name").map(({ key, ...a }) => ({
             jobName: key,
-            ...a,
+            ...roundAggregateCosts(a),
           })),
           sessions: groupedAggregates(db, since, "session_id").map(({ key, ...a }) => ({
             sessionId: key,
-            ...a,
+            ...roundAggregateCosts(a),
           })),
         };
         return c.json(rollups);
@@ -402,4 +402,13 @@ function makeDayFormatter(timeZone: string): (ms: number) => string {
     fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", dateStyle: "short" });
   }
   return (ms) => fmt.format(new Date(ms));
+}
+
+/** Round completed response sums; stored costs and runtime stats stay raw. */
+function roundAggregateCosts(a: ActivityAggregate): ActivityAggregate {
+  return {
+    ...a,
+    costUsd: Math.round(a.costUsd * 10_000) / 10_000,
+    effectiveCostUsd: Math.round((a.effectiveCostUsd ?? 0) * 10_000) / 10_000,
+  };
 }

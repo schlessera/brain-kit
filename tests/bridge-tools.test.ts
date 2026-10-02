@@ -611,15 +611,17 @@ describe("bridge tool adapter validation", () => {
 });
 
 describe("bridge tool geocode configuration", () => {
-  test("both adapters pass the same enabled/url/userAgent values", async () => {
+  test("both adapters pass the same endpoint, identification and explicit eligibility", async () => {
     const previous = {
       enabled: process.env.BRAIN_UI_REVERSE_GEOCODE,
       url: process.env.NOMINATIM_URL,
       userAgent: process.env.NOMINATIM_USER_AGENT,
+      eligible: process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE,
     };
     process.env.BRAIN_UI_REVERSE_GEOCODE = "true";
     process.env.NOMINATIM_URL = "https://nominatim.example";
     process.env.NOMINATIM_USER_AGENT = "bridge-test/1";
+    process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE = "true";
     const configs: unknown[] = [];
     const geocode = async (_coords: unknown, config: unknown) => {
       configs.push(config);
@@ -648,11 +650,13 @@ describe("bridge tool geocode configuration", () => {
           enabled: true,
           url: "https://nominatim.example",
           userAgent: "bridge-test/1",
+          publicServiceEligible: true,
         },
         {
           enabled: true,
           url: "https://nominatim.example",
           userAgent: "bridge-test/1",
+          publicServiceEligible: true,
         },
       ]);
     } finally {
@@ -662,6 +666,8 @@ describe("bridge tool geocode configuration", () => {
       else process.env.NOMINATIM_URL = previous.url;
       if (previous.userAgent === undefined) delete process.env.NOMINATIM_USER_AGENT;
       else process.env.NOMINATIM_USER_AGENT = previous.userAgent;
+      if (previous.eligible === undefined) delete process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE;
+      else process.env.NOMINATIM_PUBLIC_SERVICE_ELIGIBLE = previous.eligible;
     }
   });
 });

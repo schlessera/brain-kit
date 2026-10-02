@@ -10,6 +10,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { askUserFormSpec, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
+import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
@@ -28,7 +29,8 @@ export function makeBridge(
    * conversation has no id until then, so anything keyed by the session
    * that must be written for this turn's prompt waits for it here.
    */
-  onSessionNamed?: (sessionId: string) => void
+  onSessionNamed?: (sessionId: string) => void,
+  onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void
 ): BackendBridge {
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -83,10 +85,16 @@ export function makeBridge(
       }
       if (msg.type === "result") {
         catalog.persistSession(msg, promptText, turn.providerId, backendId);
+        if (turn.turnId === turnId && msg.failure && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError))) {
+          onTerminalFailure?.(msg.sessionId, msg.failure);
+        }
         const eligible = msg.failure && ["rate_limit", "overloaded", "server_error", "unknown"].includes(msg.failure.errorClass)
           && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
         if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
-          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")) {
+          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")
+          // File Retry needs a pre-reservation read to verify the exact original.
+          // Older catalogs can still retain their text/image-only requests.
+          && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
           if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
             msg = { ...msg, retryOfTurnId: turnId };
           }

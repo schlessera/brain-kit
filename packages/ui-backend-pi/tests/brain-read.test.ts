@@ -42,24 +42,25 @@ describe("brain_read wrapper", () => {
   });
 
   test("section returns that section and not the one before it", async () => {
-    const text = await read({ path: "me/identity.md", section: "How to Work With Alex" });
-    expect(text.startsWith("## How to Work With Alex\n")).toBe(true);
-    expect(text).toContain("Prefer concrete, checklist-shaped guidance");
+    const text = await read({ path: "me/identity.md", section: "How to Work With Odysseus" });
+    expect(text.startsWith("## How to Work With Odysseus\n")).toBe(true);
+    expect(text).toContain("Name the cost and the next action.");
     expect(text).not.toContain("## Current Identity");
   });
 
   test("max_tokens over the file's size returns the outline with every ## heading, and no body", async () => {
     const text = await read({ path: "me/identity.md", max_tokens: 50 });
     const headings = IDENTITY.split("\n").filter((l) => l.startsWith("## "));
-    expect(headings).toEqual(["## Current Identity", "## How to Work With Alex", "## Reaching Alex"]);
-    expect(text).toContain("- ## Current Identity (~206 tokens)\n- ## How to Work With Alex (~63 tokens)\n");
+    expect(headings).toEqual(["## Current Identity", "## How to Work With Odysseus", "## Reaching Odysseus"]);
+    expect(text).toContain("- ## Current Identity (~173 tokens)\n- ## How to Work With Odysseus (~51 tokens)\n");
     expect(text).toContain('section: "<heading>"');
-    expect(text).not.toContain("Prefer concrete");
+    expect(IDENTITY).toContain("Name the cost and the next action.");
+    expect(text).not.toContain("Name the cost and the next action.");
   });
 
   test("an unknown section is an error naming the headings", async () => {
     await expect(read({ path: "me/identity.md", section: "No Such Heading" })).rejects.toThrow(
-      'available headings: "Current Identity", "How to Work With Alex"'
+      'available headings: "Current Identity", "How to Work With Odysseus"'
     );
   });
 

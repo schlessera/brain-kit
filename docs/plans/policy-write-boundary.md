@@ -30,7 +30,7 @@ Pi creates sessions directly in the server process (`async newSession`,
 initializes extensions (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:31-100`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:75-96`); it cannot interpose arbitrary
+`packages/ui-backend-pi/src/permission-gate.ts:76-100`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment
 loads a real pi inline extension and observes its parent-side initialization
 changing the policy. Sandboxing only its spawned shell cannot repair that.
@@ -42,7 +42,7 @@ distinguishes shell/descendant confinement from built-in file tools and other
 execution paths. A Bash sandbox plus path predicates therefore does not establish
 the requested all-writer boundary. The repository's Bash classifier documents
 indirection as accepted write-lock exposure (`A Bash command the classifier misses`,
-`packages/ui-backend-claude/src/tool-policy.ts:204-209`), rather than containment.
+`packages/ui-backend-claude/src/tool-policy.ts:215-220`), rather than containment.
 
 ## Executable evidence
 

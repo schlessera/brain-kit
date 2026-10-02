@@ -22,7 +22,7 @@
  * from the PreToolUse `mutatingHook`, before any tool grant is considered.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -38,6 +38,12 @@ import { MASK_TOOL_NAME } from "../src/mask-tool";
 import { ASK_USER_LIST_TOOL_NAME } from "../src/ask-user-list-tool";
 import { BRAIN_UPDATE_TOOL } from "../src/tool-policy";
 import { runToolCall } from "./helpers/run-tool-call";
+
+// Hooks belong to a live turn. End every fixture after its tool assertions.
+const finishTurns: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const finish of finishTurns.splice(0)) await finish();
+});
 
 interface Harness {
   options: Options;
@@ -90,10 +96,15 @@ async function startTurn(setup: {
     ...(setup.withListHandler ? { askUserList: async () => ({ answers: {} }) } : {}),
   };
   let captured: Options | undefined;
+  let announce!: () => void, finish!: () => void;
+  const started = new Promise<void>((resolve) => { announce = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
   const queryFn = ((params: { options?: Options }) => {
     captured = params.options!;
+    announce();
     return (async function* () {
       yield { type: "system", subtype: "init", session_id: "s1" };
+      await held;
       yield {
         type: "result",
         subtype: "success",
@@ -110,7 +121,7 @@ async function startTurn(setup: {
     allowedTools: setup.allowedTools,
     log: () => {},
   });
-  await backend.startTurn({
+  const running = backend.startTurn({
     prompt: "speak to me",
     signal: new AbortController().signal,
     bridge,
@@ -119,6 +130,8 @@ async function startTurn(setup: {
       : {}),
     ...(setup.noGrantSurface ? { noGrantSurface: true } : {}),
   });
+  await Promise.race([started, running.then(() => { throw new Error("Fixture ended before SDK admission"); })]);
+  finishTurns.push(async () => { finish(); await running; });
   return { options: captured!, requests, frames, activity };
 }
 

@@ -1,3 +1,5 @@
+import { sharedFileMetaSchema } from "./track-schemas.js";
+export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 // Runtime wire-protocol schemas
 //
@@ -18,7 +20,7 @@
 // ============================================================
 
 import { z } from "zod";
-import { isThinkingLevel } from "./protocol.js";
+import { isThinkingLevel, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -313,6 +315,7 @@ export const clientChatMessageSchema = z
     requestId: id.optional(),
     thinkingLevel: thinkingLevelSchema.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
+    files: z.array(z.object({ kind: z.literal("file"), path: z.string().min(1).max(512) })).max(10).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
@@ -784,6 +787,8 @@ const turnFailureSchema = z.looseObject({
   status: z.number().int().optional(),
   message: z.string(),
   authAction: z.enum(["relogin", "check_account", "check_config"]).optional().catch(undefined),
+  attempts: z.number().int().min(1).optional().catch(undefined),
+  resetsAt: z.number().int().min(0).optional().catch(undefined),
 }) satisfies z.ZodType<TurnFailure>;
 
 const turnRetrySchema = z.looseObject({
@@ -809,6 +814,7 @@ const historyMessageSchema = z.looseObject({
   ),
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
+  files: z.array(sharedFileMetaSchema).max(10).optional(),
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
@@ -1107,6 +1113,7 @@ export const serverLocalExchangeResultSchema = z.looseObject({
 
 export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_receipt"), ...sessionScoped, sessionId: id, requestId: id,
   state: z.enum(["accepted", "refused", "unknown"]), message: z.string().optional(), text: z.string().optional(),
+  files: z.array(sharedFileMetaSchema).max(SHARE_MAX_FILES).optional(),
   attachmentCount: z.number().int().min(0).optional(), source: optionalMessageSource,
   thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerRetryReceipt>;
@@ -1228,7 +1235,27 @@ export function parseServerMessage(
       error: path ? `${path}: ${issue?.message}` : (issue?.message ?? "Frame failed validation"),
     };
   }
-  return { ok: true, message: parsed.data as ServerMessage };
+  const message = parsed.data as ServerMessage;
+  if (message.type === "inbox_snapshot" || message.type === "activity_snapshot") {
+    // Zod records skip __proto__ before validating its value. These scalar
+    // maps carry arbitrary IDs, so validate and restore that own entry at the
+    // wire boundary without changing the exported record schema declarations.
+    // The successful frame parse above has already validated the map's shape.
+    const input = (json as { highWaterSeq: Record<string, unknown> }).highWaterSeq;
+    if (Object.hasOwn(input, "__proto__")) {
+      const valueSchema = message.type === "inbox_snapshot"
+        ? inboxSnapshotSchema.shape.highWaterSeq.valueType
+        : serverActivitySnapshotSchema.shape.highWaterSeq.valueType;
+      const sequence = valueSchema.safeParse(input["__proto__"]);
+      if (!sequence.success) {
+        return { ok: false, error: `highWaterSeq.__proto__: ${sequence.error.issues[0]?.message ?? "Invalid sequence"}` };
+      }
+      Object.defineProperty(message.highWaterSeq, "__proto__", {
+        value: sequence.data, enumerable: true, writable: true, configurable: true,
+      });
+    }
+  }
+  return { ok: true, message };
 }
 
 /** Strict intake input never accepts authority, profile or target overrides. */

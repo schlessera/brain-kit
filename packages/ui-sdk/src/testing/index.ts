@@ -93,6 +93,8 @@ export interface BackendContractHarness {
    * and then plays the script to success (#575).
    */
   retrying?(script: TurnScript): AgentBackend;
+  /** Runtime reports retries 1 and 2, then an HTTP 429 terminal provider failure. */
+  retriedFailure?(script: TurnScript): AgentBackend;
   /** A profileId guaranteed to be unknown to the backend. */
   unknownProfileId: string;
 }
@@ -372,8 +374,11 @@ export function runBackendContract(
       if (result?.type === "result") {
         expect(result.sessionId).toBe("sess-42");
         expect(result.outcome).toBe("success");
-        expect(typeof result.costUsd).toBe("number");
-        expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        // Omitted cost is unknown, including on a cost-reporting backend.
+        if (result.costUsd !== undefined) {
+          expect(typeof result.costUsd).toBe("number");
+          expect(result.costUsd).toBeGreaterThanOrEqual(0);
+        }
         expect(result.isError).toBe(false);
       }
       // The terminal frame must exist by the time the promise resolved —
@@ -497,6 +502,24 @@ export function runBackendContract(
         expect(last.failure?.message ?? "").toMatch(new RegExp(API_FAILURE_DETAIL));
         // One failure, reported once: nothing else in the turn carries it.
         expect(frames.filter((f) => (f as { failure?: unknown }).failure !== undefined)).toHaveLength(1);
+      });
+    }
+
+    if (harness.retriedFailure) {
+      test("exhausted retries → the terminal failure retains two observed attempts", async () => {
+        const backend = harness.retriedFailure!({ sessionId: "retry-fail-1", textDeltas: [] });
+        const { frames, bridge } = makeBridge();
+        await backend.startTurn({ prompt: "hi", signal: new AbortController().signal, bridge });
+        const retries = frames.filter((frame) => frame.type === "status" && frame.retry);
+        expect(retries.map((frame) => frame.type === "status" && frame.retry?.attempt)).toEqual([1, 2]);
+        const last = frames.at(-1);
+        expect(last?.type).toBe("result");
+        if (last?.type !== "result") return;
+        expect(last.failure?.attempts).toBe(2);
+        expect(last.outcome).toBe("error");
+        expect(last.failure?.errorClass).toBe("rate_limit");
+        expect(last.failure?.status).toBe(429);
+        expect(frames.filter((frame) => frame.type === "result")).toHaveLength(1);
       });
     }
 

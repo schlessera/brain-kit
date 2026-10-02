@@ -96,6 +96,8 @@ export async function registerModuleTools(
 ): Promise<string[]> {
   const warnings: string[] = [];
   for (const module of modules) {
+    // Use the startup snapshot; a running process keeps its registered tools.
+    if (module.state === "dormant") continue;
     try {
       const tools = await loadModuleTools(module);
       for (const { name } of tools) {

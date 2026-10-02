@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
-import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain } from "./cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive"];
 const roots: string[] = [];
@@ -18,7 +18,7 @@ afterAll(async () => {
 });
 
 type Mode = "echo" | "bad-output" | "throws" | "cancel" | "missing-output" | "loose-input" | "loose-output" | "legacy-schema" | "bad-annotations" | "unrepresentable" | "import-failure";
-interface Fixture { name: string; owner?: string; tools: Record<string, Mode>; direct?: boolean }
+interface Fixture { name: string; owner?: string; tools: Record<string, Mode>; direct?: boolean; enabled?: boolean; command?: boolean }
 
 function fixtures(specs: Fixture[]): string {
   const root = makeTempBrain({ empty: true });
@@ -28,7 +28,7 @@ function fixtures(specs: Fixture[]): string {
     const key = `./modules/fixture-${index}`;
     const dir = join(root, key);
     mkdirSync(dir, { recursive: true });
-    modules[key] = { owner: spec.owner ?? spec.name, limit: 3 + index };
+    modules[key] = { owner: spec.owner ?? spec.name, limit: 3 + index, ...(spec.enabled === undefined ? {} : { enabled: spec.enabled }) };
     const loaders: string[] = [];
     for (const [local, mode] of Object.entries(spec.tools)) {
       loaders.push(`${JSON.stringify(local)}: async () => ${spec.direct ? `(await import("./${local}.ts")).default` : `import("./${local}.ts")`}`);
@@ -65,7 +65,7 @@ function fixtures(specs: Fixture[]): string {
       export default defineModule({
         name: ${JSON.stringify(spec.name)},
         configSchema: z.strictObject({ owner: z.string(), limit: z.number() }),
-        setup: () => ({ tools: { ${loaders.join(",")} } }),
+        setup: () => ({ tools: { ${loaders.join(",")} }, ${spec.command ? `commands: { ${JSON.stringify(spec.name)}: async () => ({ summary: "Fixture workflow", async run() { console.log("fixture workflow ran"); return 0; } }) },` : ""} }),
       });
     `);
   }
@@ -148,6 +148,93 @@ test("a thrown operation uses the core Error result convention", async () => {
 test("an unregistered name produces the pinned SDK tool error", async () => {
   const result = await call(healthy.client, { name: "removed_echo", arguments: {} });
   expect(result).toEqual({ isError: true, content: [{ type: "text", text: "MCP error -32602: Tool removed_echo not found" }] });
+});
+
+describe("dormant module MCP startup", () => {
+  function dormantFixtures() {
+    return fixtures([
+      { name: "resting", enabled: false, tools: { echo: "echo" }, command: true },
+      { name: "working", tools: { echo: "echo" } },
+    ]);
+  }
+
+  test("tools/list omits only the dormant module and does not import its definitions", async () => {
+    const dormant = dormantFixtures();
+    const definition = join(dormant, "modules/fixture-0/echo.ts");
+    const marker = join(dormant, "dormant-definition-imported");
+    writeFileSync(definition, `await Bun.write(${JSON.stringify(marker)}, "imported");\n` + readFileSync(definition, "utf8"));
+    const server = await connect(dormant);
+    const names = (await server.client.listTools()).tools.map((tool) => tool.name);
+    expect(names).toContain("working_echo");
+    expect(names).toEqual([...CORE, "working_echo"]);
+    expect(existsSync(marker)).toBe(false);
+    const active = await call(server.client, { name: "working_echo", arguments: { message: "active workflow" } });
+    expect(active.isError).not.toBe(true);
+    expect(active.structuredContent).toMatchObject({ message: "active workflow", owner: "working", limit: 4 });
+    expect(server.stderr()).not.toContain("tools unavailable");
+  });
+
+  test("a dormant tool call returns the SDK not-found error while CLI retains its declaration", async () => {
+    const dormant = dormantFixtures();
+    const server = await connect(dormant);
+    const result = await call(server.client, { name: "resting_echo", arguments: { message: "must not run" } });
+    expect(result).toEqual({ isError: true, content: [{ type: "text", text: "MCP error -32602: Tool resting_echo not found" }] });
+    const listed = await runCli(dormant, ["module", "list", "--json"]);
+    expect(listed.code).toBe(0);
+    expect(JSON.parse(listed.stdout)).toMatchObject({ enabled: [
+      { name: "resting", state: "dormant", tools: ["resting_echo"] },
+      { name: "working", state: "active", tools: ["working_echo"] },
+    ] });
+    const workflow = await runCli(dormant, ["resting", "echo"]);
+    expect(workflow.code).toBe(1);
+    expect(workflow.stderr).toContain("module resting is dormant — brain module enable resting");
+    expect(workflow.stdout).not.toContain("fixture workflow ran");
+  });
+
+  test("a dormancy edit preserves registered and in-flight calls until the next process", async () => {
+    const changing = fixtures([
+      { name: "changing", tools: { echo: "echo", pending: "echo" } },
+      { name: "working", tools: { echo: "echo" } },
+    ]);
+    const pendingDefinition = join(changing, "modules/fixture-0/pending.ts");
+    writeFileSync(pendingDefinition, readFileSync(pendingDefinition, "utf8").replace("return {", `
+      await Bun.write(ctx.root + "/pending-started", "started");
+      while (!await Bun.file(ctx.root + "/pending-release").exists()) await Bun.sleep(10);
+      await Bun.write(ctx.root + "/pending-completed", "completed");
+      return {`));
+    const running = await connect(changing);
+    const initialNames = [...CORE, "changing_echo", "changing_pending", "working_echo"];
+    expect((await running.client.listTools()).tools.map((tool) => tool.name)).toEqual(initialNames);
+    const pending = call(running.client, { name: "changing_pending", arguments: { message: "in flight" } });
+    // Observe either outcome immediately while waiting for the operation to enter.
+    const pendingOutcome = pending.then(result => ({ result }), error => ({ error }));
+    await waitForFile(join(changing, "pending-started"));
+    const configPath = join(changing, "brain.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.modules["./modules/fixture-0"].enabled = false;
+    writeFileSync(configPath, JSON.stringify(config));
+    expect((await running.client.listTools()).tools.map((tool) => tool.name)).toEqual(initialNames);
+    const retained = await call(running.client, { name: "changing_echo", arguments: { message: "still registered" } });
+    expect(retained.isError).not.toBe(true);
+    expect(retained.structuredContent).toMatchObject({ message: "still registered", owner: "changing", limit: 3 });
+    expect(running.notifications()).toBe(0);
+    const restarted = await connect(changing);
+    expect((await restarted.client.listTools()).tools.map((tool) => tool.name)).toEqual([...CORE, "working_echo"]);
+    expect(await call(restarted.client, { name: "changing_echo", arguments: { message: "new process" } })).toEqual({
+      isError: true, content: [{ type: "text", text: "MCP error -32602: Tool changing_echo not found" }],
+    });
+    writeFileSync(join(changing, "pending-release"), "release");
+    const completed = await pendingOutcome;
+    expect(completed).not.toHaveProperty("error");
+    if (!("result" in completed)) throw completed.error;
+    expect(completed.result.isError).not.toBe(true);
+    expect(completed.result.structuredContent).toMatchObject({ message: "in flight", signal: true });
+    expect(readFileSync(join(changing, "pending-completed"), "utf8")).toBe("completed");
+    const active = await call(restarted.client, { name: "working_echo", arguments: { message: "still active" } });
+    expect(active.isError).not.toBe(true);
+    expect(active.structuredContent?.message).toBe("still active");
+    expect(restarted.notifications()).toBe(0);
+  });
 });
 
 async function waitForFile(path: string) {

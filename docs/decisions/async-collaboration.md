@@ -45,7 +45,9 @@ credential.
 
 The share-confirmation decision is amended narrowly: unattended triage and
 isolated staging are permitted only once the restricted profile proves it cannot
-write the knowledge base, exceed its reservation or reach unapproved egress.
+write the knowledge base, start work without budget admission or reach
+unapproved egress. The October 1 budget clarification below defines the spend
+guarantee; a reservation is not a provider-enforced invoice limit.
 Filing content and other effects outside that envelope still require the user's
 explicit bounded approval. This does not make every staged share permission
 to act on its contents.
@@ -70,7 +72,7 @@ not a claim of filesystem or network containment.
 The ordinary Claude assembly loads project settings and appends bridge tools
 (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:54-218`).
 Its environment is already filtered (`envSnapshot`,
-`packages/ui-backend-claude/src/config/env.ts:173-183`), with profile credentials
+`packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
 and configuration audience; the old plan's “full host environment” description
 is historical. Preserve subscription billing and the selected runtime identity.
@@ -78,7 +80,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:31-148`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:75-142`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:76-146`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -91,7 +93,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:130-223`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:138-229`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -127,9 +129,22 @@ with one FYI. Unknown API cost consumes a pessimistic reserve and raises one
 suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
-`packages/ui-server/src/activity/store.ts:176-187`) and settles only after execution
+`packages/ui-server/src/activity/store.ts:177-192`) and settles only after execution
 (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`).
 Retrospective totals alone cannot enforce admission.
+
+The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
+chooses **conservative admission reservations**. Caps gate new work against
+charged spend plus active reservations. A running operation can exceed its
+estimate; its observed overrun remains charged in full and stops subsequent
+over-cap admissions. This ruling does not require a backend/transport invoice
+ceiling in U4. Server-selected estimates cover the whole operation; every
+separately dispatched model-bearing operation consumes one turn. SDK-internal
+loops belong in that operation's estimate. Subscription work consumes turns
+and zero dollars only when its billing identity supports that classification.
+Missing receipts retain conservative charges. The [budget accounting guide](../inbox-budget.md)
+records configuration, settlement and recovery semantics. Containment and the
+complete system proof still gate production enablement.
 
 Interactive work reserves capacity. On a shared target, the chosen hybrid yields
 autonomous work only at the explicit denial-risk threshold; below it there is

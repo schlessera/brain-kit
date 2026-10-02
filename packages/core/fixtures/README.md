@@ -1,14 +1,64 @@
 # Fixture corpus — `corpus/`
 
-A complete, self-contained fake brain for the fictional persona **Alex Example**, a
-park ranger who tracks personal **health**, **woodworking projects**, and evening
-**astronomy studies**. It is deliberately *not* a software/speaking persona, so
-tests don't accidentally encode the maintainer's real domains.
+A self-contained, keyless test brain owned by **Odysseus**, on Ogygia after
+ten years returning from Troy. Ancient problems, modern organisational tools:
+raft plans, sail repairs, recovery notes and Calypso's star bearings live in
+Markdown. The cast and canonical chronology match
+[the UI fixture world](../../ui-kit/fixtures/README.md).
 
-This corpus is the shared substrate for the integration and contract test layers:
-index it into a temp DB, then run the retrieval goldens (below) and assert
-the `--json` envelope shapes. All content is invented; no strings from any real
-brain appear here (enforced by the leakage grep in CI).
+The [2026-09-30 corpus ruling](../../../docs/decisions/example-corpus.md)
+requires this same world in CLI/MCP examples, docs, skills, onboarding,
+renderer samples, Storybook, screenshots, measurement harnesses and public
+website assets. These technical representations serve different purposes;
+core runtime code does not depend on UI packages.
+
+This compact corpus retains engineered retrieval and audit cases: exactly
+one non-exempt orphan, two unresolved links, ambiguous basenames, fixed
+staleness windows and intentional fact drift. The dated planning notes stop
+at July 5, before the four-day raft build depicted as complete by the UI's
+July 12 snapshot. An active document is maintained content, not a claim that
+the raft project remains unfinished. The July 29 deadline is the end of the
+seventeen-day passage, matching D19. The long bio deliberately says Troy fell
+in 2015; the canonical FACTS value is 2016, and the fact-drift audit must catch
+it. Do not treat negative cases as alternative canonical facts.
+
+Index a temporary copy for integration, contract and retrieval tests. All
+content is invented; the whole-tree leakage gate applies unchanged.
+
+## A real keyless CLI walkthrough
+
+From a repository checkout after `bun install`, copy the corpus rather than
+writing test state into it. These commands use the real CLI and the existing
+capture clock, which pins the demonstration to July 12, 2026. No provider key
+is needed. The `jq` projections keep timing and score fields out of this
+transcript; they do not change the CLI's JSON envelopes.
+
+```sh
+fixture_root="$(mktemp -d)"
+cp -R packages/core/fixtures/corpus/. "$fixture_root/"
+ln -s "$PWD/node_modules" "$fixture_root/node_modules"
+export BRAIN_ROOT="$fixture_root" TZ=Etc/GMT-2
+unset TYPESAFE_API_KEY GEMINI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY BRAIN_RERANK_MODE
+
+bun --preload ./scripts/captures/clock.ts ./packages/core/src/cli/brain.ts \
+  index --force --json | jq '{total, chunks, embeddings}'
+bun --preload ./scripts/captures/clock.ts ./packages/core/src/cli/brain.ts \
+  add "Tie me to the mast before the Sirens." --title "Sirens reminder" --json
+bun --preload ./scripts/captures/clock.ts ./packages/core/src/cli/brain.ts \
+  search Sirens --mode fts --json | jq '{paths: [.results[].path], warnings}'
+
+rm -r "$fixture_root"
+unset BRAIN_ROOT
+```
+
+The recorded run produced these three results, with empty stderr and exit
+code zero for each CLI invocation:
+
+```json
+{"total":25,"chunks":25,"embeddings":0}
+{"action":"created","path":"notes/sirens-reminder.md","title":"Sirens reminder","type":"note","indexed":true}
+{"paths":["notes/sirens-reminder.md"],"warnings":[]}
+```
 
 ## Reference date and the fixed "now"
 
@@ -56,12 +106,12 @@ This is the contract: each scenario below is present at least once.
 | **Fresh (must NOT flag)** | `health/checkup-log.md` (2026-06-25), all active projects, `context/*` | inside their windows at now=2026-07-12 |
 | **Propagation lag** | `me/basics/short-bio.md` (2026-05-01) vs source `FACTS.md` (2026-06-01) | derivative lags source → finding |
 | **Propagation OK** | `me/basics/long-bio.md` (2026-06-10) vs `FACTS.md` (2026-06-01) | derivative newer than source → no finding |
-| **Index lag** | `projects/active/bookshelf/_index.md` (2026-06-15) vs sibling `status.md` (2026-06-30) | index lags a detail file by 15 d (> 7) |
+| **Index lag** | `projects/active/raft/_index.md` (2026-06-15) vs sibling `status.md` (2026-06-30) | index lags a detail file by 15 d (> 7) |
 | **Orphan (flagged)** | `notes/loose-idea.md` | non-exempt `note`, zero in/out links → orphan |
 | **Orphan-exempt** | `journal/2026-06-15.md`, `journal/2026-07-01.md` | linkless but `journal` is `orphanExempt` → not flagged |
 | **Classifier: health** | `health/checkup-log.md` (blood pressure, appointment, symptom, prescription) | `classify()` → `health` |
-| **Classifier: study** | `studies/telescope-setup.md`, `studies/astronomy/overview.md` (course, lecture, chapter, exercise) | `classify()` → `study` |
-| **Asset title (project photo)** | `projects/active/bookshelf/photos/frame.png` | `assetTitleFor()` → `Build Photo: frame` |
+| **Classifier: study** | `studies/star-bearings.md`, `studies/navigation/overview.md` (course, lecture, chapter, exercise) | `classify()` → `study` |
+| **Asset title (project photo)** | `projects/active/raft/photos/frame.png` | `assetTitleFor()` → `Build Photo: frame` |
 | **Asset title (fallback)** | `me/avatar.png` → `me: avatar`; `studies/star-chart.pdf` → `studies: star-chart` | no rule → `<dir>: <name>` |
 | **`match`-prefix type (dir ≠ dir)** | `projects/archive/one-old-build.md` | under `projects/archive/`, still `typeForPath → project` via `match:["projects/"]` |
 | **`dir: null` type** | any `_index.md` (`index` type) | dir checks skipped; `orphanExempt` |
@@ -74,13 +124,13 @@ This is the contract: each scenario below is present at least once.
 
 | Edge case | Fixture |
 |-----------|---------|
-| `aliases` array | `studies/telescope-setup.md` (`["my scope", "the Dobsonian", "the lightbucket"]`; the last appears nowhere else in the corpus) |
-| `deadline` field | `projects/active/bookshelf/status.md` (`2026-08-15`) |
+| `aliases` array | `studies/star-bearings.md` (`["my bearings", "the Calypso guide", "the bearingbook"]`; the last appears nowhere else in the corpus) |
+| `deadline` field | `projects/active/raft/status.md` (`2026-07-29`) |
 | `next_review` field | `context/current-focus.md`, `context/reading-list.md` |
-| Unicode title (emoji + umlauts) | `studies/astronomy/messier-catalog.md` (`🔭 Messier-Katalog — Deep-Sky Übersicht`) |
+| Unicode title (emoji + umlauts) | `studies/navigation/star-catalog.md` (`🧭 Stern-Katalog — Nächtliche Übersicht`) |
 | Minimal (only `type`/`title`/`created`/`updated`) | `notes/loose-idea.md` (also the orphan) |
-| `[TODO: …]` marker | `notes/quick-note-trailhead.md` |
-| `[VERIFY: …]` marker | `notes/quick-note-owl.md` |
+| `[TODO: …]` marker | `notes/quick-note-water.md` |
+| `[VERIFY: …]` marker | `notes/quick-note-eagle.md` |
 
 ### Wiki-link resolution matrix
 
@@ -88,24 +138,24 @@ Each resolver case is exercised by a real link in the corpus. `now`-independent.
 
 | Case | Link (in file) | Resolves to |
 |------|----------------|-------------|
-| Qualified path | `[[projects/active/bookshelf/plan]]` in `context/current-focus.md` | `projects/active/bookshelf/plan.md` |
-| Unique basename | `[[telescope-setup]]` in `context/current-focus.md` (+ others) | `studies/telescope-setup.md` |
-| Ambiguous → same-dir sibling | `[[overview]]` in `projects/active/bookshelf/_index.md` | `projects/active/bookshelf/overview.md` (not `studies/astronomy/overview.md`) |
-| Unresolved | `[[does-not-exist]]` in `context/current-focus.md` & `notes/quick-note-owl.md` | `null` |
-| Alias | `[[telescope-setup\|my scope]]` in `studies/astronomy/messier-catalog.md` | `studies/telescope-setup.md` (display "my scope") |
-| Directory link | `[[projects/active/bookshelf/]]` in `context/current-focus.md` | `projects/active/bookshelf/_index.md` (`_index.md` anchor) |
+| Qualified path | `[[projects/active/raft/plan]]` in `context/current-focus.md` | `projects/active/raft/plan.md` |
+| Unique basename | `[[star-bearings]]` in `context/current-focus.md` (+ others) | `studies/star-bearings.md` |
+| Ambiguous → same-dir sibling | `[[overview]]` in `projects/active/raft/_index.md` | `projects/active/raft/overview.md` (not `studies/navigation/overview.md`) |
+| Unresolved | `[[does-not-exist]]` in `context/current-focus.md` & `notes/quick-note-eagle.md` | `null` |
+| Alias | `[[star-bearings\|my bearings]]` in `studies/navigation/star-catalog.md` | `studies/star-bearings.md` (display "my bearings") |
+| Directory link | `[[projects/active/raft/]]` in `context/current-focus.md` | `projects/active/raft/_index.md` (`_index.md` anchor) |
 
-The two `overview.md` files (`projects/active/bookshelf/` and `studies/astronomy/`)
+The two `overview.md` files (`projects/active/raft/` and `studies/navigation/`)
 make the basename **ambiguous**; a bare `[[overview]]` resolves only from a sibling
 of one of them. The two `status.md` files are never bare-linked (that would be
-ambiguous). `trail-signage/` deliberately has **no** `_index.md` (only `status.md`),
+ambiguous). `sail-repairs/` deliberately has **no** `_index.md` (only `status.md`),
 so it is never used as a directory-link target — with core-only anchors it wouldn't
 resolve.
 
 > The directory link uses the **trailing-slash** form `[[…/]]`. The ported resolver
 > must strip the trailing slash and resolve to the directory's anchor. The upstream
 > reference resolver (`scripts/lib/incremental-indexer.ts`) handled the *bare* dir
-> name (`[[bookshelf]]`) but not the trailing-slash form — this fixture is the spec for
+> name (`[[raft]]`) but not the trailing-slash form — this fixture is the spec for
 > that behavior.
 
 The only unresolved links in the whole corpus are the two intentional
@@ -117,23 +167,22 @@ resolved in- or out-link except `notes/loose-idea.md` (the orphan).
 | File | Kind | Purpose |
 |------|------|---------|
 | `me/avatar.png` | 1×1 RGB PNG (72 B) | asset pipeline; fallback title `me: avatar` |
-| `projects/active/bookshelf/photos/frame.png` | 1×1 RGB PNG (72 B) | asset pipeline; `Build Photo: frame` via `assetTitleRules` |
+| `projects/active/raft/photos/frame.png` | 1×1 RGB PNG (72 B) | asset pipeline; `Build Photo: frame` via `assetTitleRules` |
 | `studies/star-chart.pdf` | minimal 1-page PDF (`%PDF-1.4`) | non-image asset / file-type detection |
 
 All three are valid enough for extension-based type detection (`file(1)` identifies
-them correctly). Regenerate with the scripts under the session scratchpad if needed;
-they are tiny and deterministic.
+them correctly). They are tiny and deterministic.
 
 ## Retrieval goldens (`corpus/evals/`)
 
 `evals/retrieval.jsonl` is a `brain eval` query set over this corpus, pinned to
 the reference date by its `{"now": "2026-07-12"}` header. It has at least one query per class:
 exact title, natural-language question, paraphrase (inflected words the
-stemmer has to join), alias (one of them, `lightbucket`, appears only in the
+stemmer has to join), alias (one of them, `bearingbook`, appears only in the
 page's `aliases`, so only alias indexing finds it), ambiguous filename (two `status.md`), time
 (a `deadline` and a `next_review` selector), stale-vs-current (`short-bio.md`
 against its source `FACTS.md`), no-answer, multi-hop (`current-focus.md` links
-to the answer), non-English (the Messier page's German title) and recency
+to the answer), non-English (the star catalogue's German title) and recency
 (a fast-decaying `context` note whose rank moves with the date).
 
 `evals/expected-ranks.json` records, per query, the rank of its expected path
@@ -176,23 +225,23 @@ index by default, so nothing that counts corpus files counts them.
 | `me/basics/long-bio.md` | identity | propagation derivative — **OK** (2026-06-10) |
 | `context/current-focus.md` | context | canonical current-focus; wiki-link hub; `next_review` |
 | `context/reading-list.md` | context | second context doc; `next_review` |
-| `notes/quick-note-trailhead.md` | note | inbox; `[TODO: …]` marker |
-| `notes/quick-note-owl.md` | note | inbox; `[VERIFY: …]` marker; unresolved link |
+| `notes/quick-note-water.md` | note | inbox; `[TODO: …]` marker |
+| `notes/quick-note-eagle.md` | note | inbox; `[VERIFY: …]` marker; unresolved link |
 | `notes/loose-idea.md` | note | **orphan** + **minimal frontmatter** |
-| `projects/active/bookshelf/_index.md` | index | registry table; **index-lag** source; `[[overview]]` sibling case |
-| `projects/active/bookshelf/status.md` | project | drives index-lag (2026-06-30); `deadline` field |
-| `projects/active/bookshelf/plan.md` | project | qualified-link target |
-| `projects/active/bookshelf/overview.md` | project | ambiguous-basename target A |
-| `projects/active/bookshelf/photos/frame.png` | asset | `Build Photo` asset-title rule |
-| `projects/active/trail-signage/status.md` | project | `status.md`-led project (no `_index.md`) |
-| `projects/active/trail-signage/materials.md` | project | detail file; second qualified link |
+| `projects/active/raft/_index.md` | index | registry table; **index-lag** source; `[[overview]]` sibling case |
+| `projects/active/raft/status.md` | project | drives index-lag (2026-06-30); `deadline` field |
+| `projects/active/raft/plan.md` | project | qualified-link target |
+| `projects/active/raft/overview.md` | project | ambiguous-basename target A |
+| `projects/active/raft/photos/frame.png` | asset | `Build Photo` asset-title rule |
+| `projects/active/sail-repairs/status.md` | project | `status.md`-led project (no `_index.md`) |
+| `projects/active/sail-repairs/materials.md` | project | detail file; second qualified link |
 | `projects/archive/one-old-build.md` | project | `match:["projects/"]` outside `dir`; `status: archived` |
 | `health/checkup-log.md` | health | fresh; health classifier keywords |
 | `health/knee-injury.md` | health | **staleness (warning)**, > 60 d |
 | `health/sleep-tracking.md` | health | **stale draft**, > 90 d |
-| `studies/telescope-setup.md` | study | unique basename; `aliases`; alias-link target |
-| `studies/astronomy/overview.md` | study | ambiguous-basename target B; study classifier |
-| `studies/astronomy/messier-catalog.md` | study | **unicode title**; alias wiki-link |
+| `studies/star-bearings.md` | study | unique basename; `aliases`; alias-link target |
+| `studies/navigation/overview.md` | study | ambiguous-basename target B; study classifier |
+| `studies/navigation/star-catalog.md` | study | **unicode title**; alias wiki-link |
 | `studies/star-chart.pdf` | asset | minimal PDF |
 | `journal/2026-06-15.md` | journal | orphan-exempt; no wiki-links |
 | `journal/2026-07-01.md` | journal | orphan-exempt; no wiki-links |

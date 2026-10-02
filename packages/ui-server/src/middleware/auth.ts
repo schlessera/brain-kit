@@ -725,6 +725,9 @@ export function authRoutes(
     try {
       const result = await readJsonBody<{ password?: unknown }>(c);
       if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
       body = result;
     } catch {
       return c.json({ error: "Invalid request body" }, 400);

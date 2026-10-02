@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { z } from "zod";
+import { geoConfigSchema } from "@schlessera/brain-geo";
 
 import { resolveEnv } from "../config/env.js";
 
@@ -278,6 +279,8 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     taxonomy: taxonomyConfigSchema.optional(),
+    /** Concrete OSM operations; absent leaves every new service disabled. */
+    geo: geoConfigSchema.extend({ cacheDir: repoRelativePathSchema.optional() }).optional(),
     exclude: excludeConfigSchema.optional(),
     embeddings: z
       .object({
@@ -450,7 +453,7 @@ export const brainConfigSchema = z
   })
   .strict();
 
-export type BrainConfig = z.infer<typeof brainConfigSchema>;
+export type BrainConfig = z.input<typeof brainConfigSchema>;
 
 /** Typed authoring helper for brain.config.ts. Validation happens at load. */
 export function defineConfig(config: BrainConfig): BrainConfig {
@@ -476,7 +479,7 @@ export const DEFAULT_EXCLUDE = {
   // evals: a retrieval query set measures search only if search cannot see
   // it, and a note beside the set quoting its queries would answer them.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals"],
-  files: ["CLAUDE.md", "README.md", "AGENTS.md"],
+  files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };
 
@@ -539,6 +542,8 @@ export interface LoadedConfig {
   /** Absolute path of the loaded file, or null. */
   path: string | null;
   source: "ts" | "json" | null;
+  /** Exact source bytes loaded, for settings revision checks. */
+  content?: string;
 }
 
 /**
@@ -586,8 +591,10 @@ export async function loadUserConfig(root: string): Promise<LoadedConfig> {
   let raw: unknown;
   let path: string;
   let source: "ts" | "json";
+  let content: string;
 
   if (existsSync(tsPath)) {
+    content = await Bun.file(tsPath).text();
     const mod = await import(tsPath);
     raw = mod.default;
     if (raw === undefined) {
@@ -596,7 +603,8 @@ export async function loadUserConfig(root: string): Promise<LoadedConfig> {
     path = tsPath;
     source = "ts";
   } else if (existsSync(jsonPath)) {
-    raw = JSON.parse(await Bun.file(jsonPath).text());
+    content = await Bun.file(jsonPath).text();
+    raw = JSON.parse(content);
     path = jsonPath;
     source = "json";
   } else {
@@ -607,5 +615,6 @@ export async function loadUserConfig(root: string): Promise<LoadedConfig> {
   if (!parsed.success) {
     throw new Error(`Invalid ${path}:\n${formatConfigError(parsed.error)}`);
   }
-  return { config: parsed.data, path, source };
+  if (await Bun.file(path).text() !== content) throw new Error("Brain config changed while loading; retry after reviewing it");
+  return { config: parsed.data, path, source, content };
 }

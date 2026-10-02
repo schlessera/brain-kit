@@ -35,10 +35,10 @@ describe("assess --fix", () => {
     git(root, "add", "credentials.json");
     git(root, "commit", "-qm", "a secret someone committed");
     write(root, "credentials.json", '{"fixture":true}\n');
-    write(root, "debug.log", "trail counter restarted\n");
+    write(root, "debug.log", "route counter restarted\n");
     write(root, ".env.local", "COUNTER_TOKEN=fixture\n");
     write(root, "notes/field-day.md", "# Field day\n");
-    write(root, "survey.xyz", "owl survey grid\n");
+    write(root, "survey.xyz", "eagle survey grid\n");
 
     const { code, body } = await syncJson(root, "assess", "--fix");
     expect(code).toBe(0);
@@ -89,13 +89,13 @@ describe("assess --fix", () => {
 });
 
 describe("commit", () => {
-  const OWL = "notes/quick-note-owl.md";
+  const EAGLE = "notes/quick-note-eagle.md";
   const IDEA = "notes/loose-idea.md";
-  const HYDRATION = "health/ranger-hydration.md";
+  const HYDRATION = "health/sailor-hydration.md";
 
   function edits(root: string): void {
-    for (const file of [OWL, IDEA]) writeFileSync(join(root, file), readFileSync(join(root, file), "utf-8") + "\nSeen again at dusk.\n");
-    write(root, HYDRATION, "---\ntitle: Ranger hydration\ntype: health\n---\n\nTwo litres on patrol days.\n");
+    for (const file of [EAGLE, IDEA]) writeFileSync(join(root, file), readFileSync(join(root, file), "utf-8") + "\nSeen again at dusk.\n");
+    write(root, HYDRATION, "---\ntitle: Sailor hydration\ntype: health\n---\n\nTwo litres on passage days.\n");
   }
 
   test("commits TRACK files by domain and bumps `updated` on the edited notes", async () => {
@@ -105,29 +105,29 @@ describe("commit", () => {
 
     const { code, body } = await syncJson(root, "commit");
     expect(code).toBe(0);
-    expect([...body.bumped].sort()).toEqual([IDEA, OWL]);
-    for (const file of [OWL, IDEA]) expect(readFileSync(join(root, file), "utf-8")).toContain(`updated: ${localDate()}`);
+    expect([...body.bumped].sort()).toEqual([IDEA, EAGLE]);
+    for (const file of [EAGLE, IDEA]) expect(readFileSync(join(root, file), "utf-8")).toContain(`updated: ${localDate()}`);
     const subjects = body.commits.map((c: { subject: string }) => c.subject);
     expect(subjects).toHaveLength(2);
     expect(subjects.some((s: string) => s.startsWith("Update note: "))).toBe(true);
-    expect(subjects.some((s: string) => s.startsWith("Add health: Ranger hydration"))).toBe(true);
+    expect(subjects.some((s: string) => s.startsWith("Add health: Sailor hydration"))).toBe(true);
     for (const c of body.commits) expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(Number(git(root, "rev-list", "--count", "HEAD"))).toBe(before + 2);
-    expect(git(root, "status", "--porcelain", "--", OWL, IDEA, HYDRATION)).toBe("");
+    expect(git(root, "status", "--porcelain", "--", EAGLE, IDEA, HYDRATION)).toBe("");
   });
 
   test("--plan prints the plan and changes nothing, not even `updated`", async () => {
     const { root } = brainWithRemote();
     edits(root);
     const head = git(root, "rev-parse", "HEAD");
-    const owl = readFileSync(join(root, OWL), "utf-8");
+    const eagle = readFileSync(join(root, EAGLE), "utf-8");
 
     const { code, body } = await syncJson(root, "commit", "--plan");
     expect(code).toBe(0);
     const planned = body.commits.flatMap((c: { files: { path: string }[] }) => c.files.map((f) => f.path)).sort();
-    expect(planned).toEqual([HYDRATION, IDEA, OWL]);
+    expect(planned).toEqual([HYDRATION, IDEA, EAGLE]);
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
-    expect(readFileSync(join(root, OWL), "utf-8")).toBe(owl);
+    expect(readFileSync(join(root, EAGLE), "utf-8")).toBe(eagle);
   });
 
   test("--plan-file applies an edited message, and refuses a file outside the TRACK set", async () => {
@@ -145,21 +145,21 @@ describe("commit", () => {
 
     write(root, ".env", "COUNTER_TOKEN=fixture\n");
     edits(root);
-    const owl = readFileSync(join(root, OWL), "utf-8");
+    const eagle = readFileSync(join(root, EAGLE), "utf-8");
     const head = git(root, "rev-parse", "HEAD");
-    writeFileSync(file, JSON.stringify({ commits: [{ domains: ["note"], files: [{ path: ".env", status: "?" }, { path: OWL, status: "M" }], subject: "Sneak a secret in", body: "" }] }));
+    writeFileSync(file, JSON.stringify({ commits: [{ domains: ["note"], files: [{ path: ".env", status: "?" }, { path: EAGLE, status: "M" }], subject: "Sneak a secret in", body: "" }] }));
     const refused = await syncJson(root, "commit", "--plan-file", file);
     expect(refused.code).toBe(1);
     expect(refused.body.commits[0].error).toContain("not in the assessed set");
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
-    expect(readFileSync(join(root, OWL), "utf-8")).toBe(owl);
+    expect(readFileSync(join(root, EAGLE), "utf-8")).toBe(eagle);
   });
 
   test("a file holding conflict markers is left uncommitted, named, and exits 1; a plan naming it is refused", async () => {
     const { root, base } = brainWithRemote();
     const MARKED = "notes/ridge-plan.md";
     write(root, MARKED, "# Ridge plan\n\n<<<<<<< HEAD\nGo at dawn.\n=======\nGo at dusk.\n>>>>>>> origin/main\n");
-    write(root, HYDRATION, "---\ntitle: Ranger hydration\ntype: health\n---\n\nTwo litres on patrol days.\n");
+    write(root, HYDRATION, "---\ntitle: Sailor hydration\ntype: health\n---\n\nTwo litres on passage days.\n");
 
     const plan = (await syncJson(root, "commit", "--plan")).body;
     expect(plan.commits.flatMap((c: { files: { path: string }[] }) => c.files.map((f) => f.path))).toEqual([HYDRATION]);
@@ -181,7 +181,7 @@ describe("commit", () => {
 describe("stash", () => {
   test("an entry the tree already holds is dropped; --dry-run only reports it", async () => {
     const { root } = brainWithRemote();
-    const edited = FIELD_NOTE_TEXT.replace("Boots resoled in March.", "Boots resoled in March; laces replaced.");
+    const edited = FIELD_NOTE_TEXT.replace("Sandals repaired in March.", "Sandals repaired in March; straps replaced.");
     write(root, FIELD_NOTE, edited);
     git(root, "stash", "-q");
     write(root, FIELD_NOTE, edited);
@@ -199,33 +199,33 @@ describe("stash", () => {
 });
 
 describe("resolve", () => {
-  const OWL = "notes/quick-note-owl.md";
+  const EAGLE = "notes/quick-note-eagle.md";
   const CACHE = ".context-cache.jsonl";
-  const LINE = "Hike the ridge loop twice a week.";
+  const LINE = "Walk the Ogygia shore twice a week.";
   const PATROL = "health/patrol-log.md";
   const PATROL_TEXT = "---\ntitle: Patrol log\ntype: health\n---\n\n# Patrol log\n\nRadio check at noon.\n";
 
   /** A merge of `side` into main that conflicts on FIELD_NOTE, a note, a script and the cache. */
   function conflictedMerge(): string {
     const { root } = brainWithRemote();
-    const owl = readFileSync(join(root, OWL), "utf-8");
+    const eagle = readFileSync(join(root, EAGLE), "utf-8");
     // keep-both's first choice of name is taken.
-    write(root, "notes/quick-note-owl-remote.md", "# An older copy\n");
+    write(root, "notes/quick-note-eagle-remote.md", "# An older copy\n");
     write(root, PATROL, PATROL_TEXT);
     git(root, "add", "-A");
     git(root, "commit", "-qm", "base");
     git(root, "switch", "-q", "-c", "side");
     write(root, PATROL, PATROL_TEXT.replace("Radio check at noon.", "Radio check at noon and dusk."));
-    write(root, FIELD_NOTE, FIELD_NOTE_TEXT.replace(LINE, "Hike the ridge loop at dawn, twice a week."));
-    write(root, OWL, owl.replace("---\n\n", "---\n\nTheirs: heard at the north gate.\n\n"));
-    write(root, "scripts/backup.sh", "#!/bin/sh\necho backing up to the ranger station\n");
+    write(root, FIELD_NOTE, FIELD_NOTE_TEXT.replace(LINE, "Walk the Ogygia shore at dawn, twice a week."));
+    write(root, EAGLE, eagle.replace("---\n\n", "---\n\nTheirs: heard at the north gate.\n\n"));
+    write(root, "scripts/backup.sh", "#!/bin/sh\necho backing up to the cave on Ogygia\n");
     write(root, CACHE, '{"k":"side","v":"from side"}\n');
     git(root, "add", "-A");
     git(root, "commit", "-qm", "side");
     git(root, "switch", "-q", "main");
     write(root, PATROL, PATROL_TEXT.replace("Radio check at noon.", "Radio check at noon, channel 4."));
-    write(root, FIELD_NOTE, FIELD_NOTE_TEXT.replace(LINE, "Hike the ridge loop with the dog, twice a week."));
-    write(root, OWL, owl.replace("---\n\n", "---\n\nOurs: heard at the south gate.\n\n"));
+    write(root, FIELD_NOTE, FIELD_NOTE_TEXT.replace(LINE, "Walk the Ogygia shore with a staff, twice a week."));
+    write(root, EAGLE, eagle.replace("---\n\n", "---\n\nOurs: heard at the south gate.\n\n"));
     write(root, "scripts/backup.sh", "#!/bin/sh\necho backing up to the cloud\n");
     write(root, CACHE, '{"k":"main","v":"from main"}\n');
     git(root, "add", "-A");
@@ -247,15 +247,15 @@ describe("resolve", () => {
     expect(field.decisions).toEqual({ jev: 0, default: 1 });
     expect(field.notes).toContain("1 of 1 passage pairs kept both by default (Jev is off)");
     const text = readFileSync(join(root, FIELD_NOTE), "utf-8");
-    expect(text).toContain("Hike the ridge loop with the dog, twice a week.");
-    expect(text).toContain("Hike the ridge loop at dawn, twice a week.");
+    expect(text).toContain("Walk the Ogygia shore with a staff, twice a week.");
+    expect(text).toContain("Walk the Ogygia shore at dawn, twice a week.");
     expect(text).not.toContain("<<<<<<<");
 
-    const owl = body.resolved.find((r: { path: string }) => r.path === OWL);
-    expect(owl.strategy).toBe("keep-both");
-    expect(owl.extraFiles).toEqual(["notes/quick-note-owl-remote-2.md"]);
-    expect(readFileSync(join(root, "notes/quick-note-owl-remote-2.md"), "utf-8")).toContain("Theirs: heard at the north gate.");
-    expect(git(root, "diff", "--cached", "--name-only")).toContain("notes/quick-note-owl-remote-2.md");
+    const eagle = body.resolved.find((r: { path: string }) => r.path === EAGLE);
+    expect(eagle.strategy).toBe("keep-both");
+    expect(eagle.extraFiles).toEqual(["notes/quick-note-eagle-remote-2.md"]);
+    expect(readFileSync(join(root, "notes/quick-note-eagle-remote-2.md"), "utf-8")).toContain("Theirs: heard at the north gate.");
+    expect(git(root, "diff", "--cached", "--name-only")).toContain("notes/quick-note-eagle-remote-2.md");
 
     expect(body.unresolved).toEqual([{ path: "scripts/backup.sh", strategy: "code-merge", reason: expect.stringContaining("code-merge") }]);
     expect(body.skipped).toEqual([{ path: CACHE, reason: expect.stringContaining("derived cache") }]);
@@ -273,8 +273,8 @@ describe("resolve", () => {
     expect(field.decisions).toEqual({ jev: 1, default: 0 });
     expect(result.resolved.find((r) => r.path === PATROL)!.decisions).toEqual({ jev: 1, default: 0 });
     const text = readFileSync(join(root, FIELD_NOTE), "utf-8");
-    expect(text).toContain("Hike the ridge loop with the dog, twice a week.");
-    expect(text).not.toContain("Hike the ridge loop at dawn, twice a week.");
+    expect(text).toContain("Walk the Ogygia shore with a staff, twice a week.");
+    expect(text).not.toContain("Walk the Ogygia shore at dawn, twice a week.");
     expect(jev.requests).toHaveLength(1);
     expect(result.judge.calls).toBe(1);
     expect(result.judge.decided).toBe(2);

@@ -117,7 +117,7 @@ describe("formatStats over fixtures/corpus", () => {
         "    primary: 16",
         "    secondary: 8",
         "    historical: 1",
-        "  Tags: 43",
+        "  Tags: 45",
         "  Links: 37 (2 broken)",
         "  Chunks: 25",
         "",

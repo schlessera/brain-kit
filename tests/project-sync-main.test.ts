@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { REPOS, main, runtime } from "../scripts/sync-project.ts";
+import { REPOS, isOwnNotice, main, runtime } from "../scripts/sync-project.ts";
 
 interface FakeIssue {
   repo: string;
@@ -89,7 +89,8 @@ class FakeGitHub {
     if (a === "project" && b === "field-list") return JSON.stringify({ fields: FIELDS });
     if (a === "project" && b === "item-list") {
       return JSON.stringify({
-        items: this.items.map((i) => ({ id: i.id, status: i.Status, priority: i.Priority, track: i.Track, content: { url: i.url } })),
+        items: this.items.slice(0, Number(at("--limit"))).map((i) => ({ id: i.id, status: i.Status, priority: i.Priority, track: i.Track, content: { url: i.url } })),
+        totalCount: this.items.length,
       });
     }
     if (a === "project" && b === "item-add") {
@@ -129,6 +130,29 @@ class FakeGitHub {
       this.comments.set(key, [...(this.comments.get(key) ?? []), at("--body")]);
       this.writes.push(`comment ${key}`);
       return "";
+    }
+    if (a === "api" && b === "graphql" && args.includes("project=P1")) {
+      const query = args.find((x) => x.startsWith("query="))!.slice(6);
+      const first = /items\(first: (\d+), after: \$after\)/.exec(query);
+      if (!first) throw new Error("fake gh: missing cursor-based items query");
+      const size = Number(first[1]);
+      if (size < 1 || size > 100) throw new Error("fake gh: invalid page size");
+      const after = args.find((x) => x.startsWith("after="))?.slice(6);
+      if (after && !/^cursor:\d+$/.test(after)) throw new Error("fake gh: invalid cursor");
+      const start = after ? Number(after.slice(7)) : 0;
+      const page = this.items.slice(start, start + size);
+      const value = (alias: string, name: string, field?: string) =>
+        query.includes(`${alias}: fieldValueByName(name: "${name}")`) ? { [alias]: field ? { name: field } : null } : {};
+      return JSON.stringify({ data: { node: { items: {
+        nodes: page.map((i) => ({
+          ...(/nodes\s*\{\s*id\b/.test(query) ? { id: i.id } : {}),
+          ...(query.includes("... on Issue { url }") ? { content: { url: i.url } } : {}),
+          ...value("status", "Status", i.Status),
+          ...value("priority", "Priority", i.Priority),
+          ...value("track", "Track", i.Track),
+        })),
+        pageInfo: { hasNextPage: start + size < this.items.length, endCursor: page.length ? `cursor:${start + page.length}` : null },
+      } } } });
     }
     if (a === "api" && b === "graphql") {
       const node = args.find((x) => x.startsWith("node="))!.slice(5);
@@ -280,6 +304,143 @@ describe("the full sweep", () => {
   });
 });
 
+/** Closed public issue items populate earlier pages without expanding the open sweep. */
+function largeBoard() {
+  return new FakeGitHub(
+    [
+      { repo: KIT, number: 731, labels: ["agent-ready", "priority: p2"] },
+      { repo: KIT, number: 732, labels: ["agent-ready", "priority: p2"] },
+      { repo: KIT, number: 733, labels: ["agent-ready", "priority: p2"] },
+      { repo: REPOS[2], number: 731, labels: ["agent-ready", "priority: p2"], parent: { repo: KIT, number: 70 } },
+      { repo: KIT, number: 58, labels: ["agent-ready", "priority: p2"] },
+    ],
+    [
+      ...Array.from({ length: 600 }, (_, i) => ({ id: `closed-${i}`, url: url(KIT, 10000 + i), Status: "Done", Priority: "P3", Track: "Reliability" })),
+      { id: "late-ready", url: url(KIT, 731), Status: "Ready", Priority: "P2", Track: "Modules" },
+      { id: "late-progress", url: url(KIT, 732), Status: "In progress", Priority: "P2", Track: "Modules" },
+      { id: "late-done", url: url(KIT, 733), Status: "Done", Priority: "P2", Track: "Modules" },
+      { id: "late-hosting", url: url(REPOS[2], 731), Status: "Ready", Priority: "P2", Track: "Distribution" },
+      { id: "late-derived", url: url(KIT, 58), Status: "Backlog", Priority: "P2", Track: "Reliability" },
+    ],
+  );
+}
+
+const boardReads = (fake: FakeGitHub) => fake.calls.filter((args) => args[0] === "api" && args[1] === "graphql" && args.includes("project=P1"));
+
+describe("complete board reads", () => {
+  test("recognizes populated later items and edits the existing later item ID only when needed", async () => {
+    const fake = largeBoard();
+    expect(fake.items.length).toBeGreaterThan(500);
+    expect(fake.items[600]).toEqual({ id: "late-ready", url: url(KIT, 731), Status: "Ready", Priority: "P2", Track: "Modules" });
+    const { code, out } = await run(fake, ["--apply"]);
+    // This assertion fails on the original fixed-limit readers, before any
+    // pagination bookkeeping assertion can mask the unnecessary writes.
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(code).toBe(0);
+    expect(fake.calls.filter((args) => args[1] === "item-edit").map((args) => args[args.indexOf("--id") + 1])).toEqual(["late-derived"]);
+    expect(fake.items.find((item) => item.id === "late-progress")!.Status).toBe("In progress");
+    expect(fake.items.find((item) => item.id === "late-done")!.Status).toBe("Done");
+    expect(out).toContain("All 5 open issue(s) are on the board.");
+    expect(out.some((line) => line.includes("did not land"))).toBe(false);
+    // Both initial and final reads traverse all seven pages, with no fixed cap.
+    expect(boardReads(fake)).toHaveLength(14);
+    expect(boardReads(fake).filter((args) => args.includes("after=cursor:600"))).toHaveLength(2);
+    const again = await run(fake, ["--apply"]);
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(again.out).toContain("All 5 open issue(s) are on the board.");
+  });
+
+  test("dry run sees later fields and IDs without changing the populated board", async () => {
+    const fake = largeBoard();
+    const before = JSON.stringify(fake.items);
+    const { out } = await run(fake, []);
+    expect(out.filter((line) => line.startsWith("would add") || line.startsWith("would set"))).toEqual([`would set ${KIT}#58 Status: Backlog -> Ready`]);
+    expect(fake.writes).toEqual([]);
+    expect(JSON.stringify(fake.items)).toBe(before);
+    expect(boardReads(fake)).toHaveLength(7);
+  });
+
+  test("final verification reports only a genuinely absent issue, including after a repeat", async () => {
+    const fake = largeBoard();
+    fake.issues.push({ repo: KIT, number: 69, labels: ["agent-ready", "priority: p2"] });
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      // Model the existing eventual-listing failure: item-add returns an ID
+      // but never makes the new item listable. All other writes are observed.
+      if (args[0] === "project" && args[1] === "item-add") {
+        fake.calls.push(args);
+        fake.writes.push(`add ${args[args.indexOf("--url") + 1]}`);
+        return JSON.stringify({ id: "not-listable" });
+      }
+      if (args[0] === "project" && args[1] === "item-edit" && args.includes("not-listable")) {
+        fake.calls.push(args);
+        fake.writes.push("set not-listable");
+        return "";
+      }
+      return original(args);
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { out } = await run(fake, ["--apply"]);
+      const missing = out.find((line) => line.includes("did not land"));
+      expect(missing).toContain("1 issue(s) did not land");
+      expect(missing!.split("\n").slice(2)).toEqual([`  ${KIT}#69`]);
+    }
+    expect(fake.writes.filter((write) => write.startsWith("add "))).toEqual([`add ${url(KIT, 69)}`, `add ${url(KIT, 69)}`]);
+  });
+});
+
+describe("board pagination failures", () => {
+  test.each([
+    ["GraphQL errors", { errors: [{ message: "fixture denied project" }], data: { node: null } }, "fixture denied project"],
+    ["missing project", { data: { node: null } }, "missing items or page information"],
+    ["missing page info", { data: { node: { items: { nodes: [] } } } }, "missing items or page information"],
+    ["missing cursor", { data: { node: { items: { nodes: [null], pageInfo: { hasNextPage: true, endCursor: null } } } } }, "pagination did not advance"],
+    ["repeated cursor", { data: { node: { items: { nodes: [null], pageInfo: { hasNextPage: true, endCursor: "cursor:100" } } } } }, "pagination did not advance"],
+    ["empty continuing page", { data: { node: { items: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "cursor:200" } } } } }, "pagination did not advance"],
+  ] as const)("%s stops the traversal without any item or tracker write", async (_name, answer, message) => {
+    const fake = largeBoard();
+    const before = JSON.stringify({ issues: fake.issues, items: fake.items });
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      if (args.includes("after=cursor:100")) { fake.calls.push(args); return JSON.stringify(answer); }
+      return original(args);
+    };
+    await expect(run(fake, [])).rejects.toThrow(message);
+    expect(boardReads(fake)).toHaveLength(2);
+    expect(fake.writes).toEqual([]);
+    expect(JSON.stringify({ issues: fake.issues, items: fake.items })).toBe(before);
+  });
+
+  test("a failed later API call propagates without item or tracker writes", async () => {
+    const fake = largeBoard();
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      if (args.includes("after=cursor:100")) { fake.calls.push(args); throw new Error("fixture GitHub access failure"); }
+      return original(args);
+    };
+    await expect(run(fake, [])).rejects.toThrow("fixture GitHub access failure");
+    expect(boardReads(fake)).toHaveLength(2);
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("empty and inaccessible item content does not stop later pages", async () => {
+    const fake = largeBoard();
+    const original = fake.gh;
+    fake.gh = async (args) => {
+      const raw = await original(args);
+      if (args.includes("project=P1") && !args.some((arg) => arg.startsWith("after="))) {
+        const answer = JSON.parse(raw);
+        answer.data.node.items.nodes = [null, { id: "redacted", content: null }, { id: "draft", content: {} }];
+        return JSON.stringify(answer);
+      }
+      return raw;
+    };
+    const { out } = await run(fake, ["--apply"]);
+    expect(fake.writes).toEqual([`set ${url(KIT, 58)} Status=Ready`]);
+    expect(out).toContain("All 5 open issue(s) are on the board.");
+  });
+});
+
 describe("a dry run", () => {
   test("writes nothing, over a board it would change, and says what it would do", async () => {
     const fake = new FakeGitHub(
@@ -372,5 +533,195 @@ describe("the per-event path", () => {
     );
     await run(fake, ["--apply", "--pr", `${KIT}#40`]);
     expect(fake.writes).toEqual([`set ${url(KIT, 11)} Status=In review`]);
+  });
+});
+
+
+interface SyncWorkflow {
+  concurrency: { group: string; queue?: "single" | "max"; "cancel-in-progress": boolean };
+  on: Record<string, unknown>;
+  jobs: { sync: { steps: { name?: string; if?: string; run?: string }[] } };
+}
+type SyncEvent = "issues" | "pull_request" | "schedule" | "workflow_dispatch";
+
+async function syncWorkflow(): Promise<SyncWorkflow> {
+  return Bun.YAML.parse(await Bun.file(new URL("../.github/workflows/project-sync.yml", import.meta.url)).text()) as SyncWorkflow;
+}
+
+/** Evaluate only the group's small event/format expression, including the old
+ * per-target group so reverting the fix reaches the notice-count assertion.
+ * This is a model of GitHub's documented group/queue guarantee, not an Actions
+ * runner. Every scheduled task drives real main() and its tracker/board I/O.
+ */
+function workflowGroup(group: string, event: SyncEvent, target: number): string {
+  return group.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expression: string) => {
+    const github = { event_name: event, event: { issue: { number: target }, pull_request: { number: target } } };
+    const format = (template: string, value: number) => template.replace("{0}", String(value));
+    return String(new Function("github", "format", `return (${expression});`)(github, format));
+  });
+}
+
+/** One running task per resolved group. Default single-pending replacement
+ * and max's bounded queue follow the provider's documented behavior.
+ */
+function workflowQueue(config: SyncWorkflow["concurrency"]) {
+  type Task = { work: () => Promise<number>; resolve: (value: number | "cancelled") => void; reject: (error: unknown) => void };
+  const groups = new Map<string, { busy: boolean; pending: Task[] }>();
+  return (event: SyncEvent, target: number, work: () => Promise<number>) => new Promise<number | "cancelled">((resolve, reject) => {
+    const key = workflowGroup(config.group, event, target);
+    const group = groups.get(key) ?? { busy: false, pending: [] };
+    groups.set(key, group);
+    if (group.busy && config.queue !== "max") {
+      for (const replaced of group.pending.splice(0)) replaced.resolve("cancelled");
+    }
+    if (group.pending.length >= 100) { resolve("cancelled"); return; }
+    group.pending.push({ work, resolve, reject });
+    const next = () => {
+      const task = group.pending.shift();
+      if (!task) { group.busy = false; return; }
+      group.busy = true;
+      void task.work().then(task.resolve, task.reject).finally(next);
+    };
+    if (!group.busy) next();
+  });
+}
+
+/** Use the exact step commands to select main's arguments. Both scheduled and
+ * manual sweeps must still reach the full-board path, rather than a fake sweep.
+ */
+function workflowArgs(workflow: SyncWorkflow, event: SyncEvent, target: number, apply = true): string[] {
+  const step = workflow.jobs.sync.steps.find((s) => s.run && s.if?.includes(`'${event}'`));
+  if (!step?.run) throw new Error(`no sync step for ${event}`);
+  const command = step.run.replace('"$TARGET"', `${KIT}#${target}`);
+  const argv = command.split(/\s+/).slice(2);
+  return apply ? argv : argv.filter((arg) => arg !== "--apply");
+}
+
+const EVENTS: SyncEvent[] = ["issues", "pull_request", "schedule", "workflow_dispatch"];
+const PAIRS: (readonly [SyncEvent, SyncEvent])[] = [
+  ...EVENTS.flatMap((event, i) => EVENTS.slice(i + 1).map((other) => [event, other] as const)),
+  ["issues", "issues"], // Closing the blocker and editing its dependent.
+];
+const NOTICE_MARKER = `<!-- sync-project: unblocked by ${KIT}#566 -->`;
+const dependentFixture = () => new FakeGitHub(
+  [
+    { repo: KIT, number: 566, state: "closed" },
+    { repo: KIT, number: 567, labels: ["agent-ready", "blocked"], body: "Blocked by #566" },
+  ],
+  [{ id: "dependent", url: url(KIT, 567), Status: "Backlog" }],
+  [{ repo: KIT, number: 716, body: "Closes #566" }],
+);
+const targetFor = (event: SyncEvent) => event === "issues" ? 566 : 716;
+
+function connect(fake: FakeGitHub) {
+  const out: string[] = [];
+  Object.assign(runtime, { gh: fake.gh, log: (line: string) => out.push(line), error: (line: string) => out.push(line) });
+  return out;
+}
+
+// A deferred promise gives each independent group the same pre-publication
+// snapshot, with no timing sleeps. Serialized groups see the persisted label
+// or notice on the next run, exactly as a fresh GitHub read would.
+function latch() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => { release = resolve; });
+  return { promise, release };
+}
+
+describe("project-sync workflow publication", () => {
+  test.each(PAIRS)("%s and %s publish one own notice for their shared dependent", async (first, second) => {
+    const workflow = await syncWorkflow();
+    const fake = dependentFixture();
+    // A quoted marker must not suppress a notice. The captured store is
+    // nonempty even before publication, and includes every actual write.
+    fake.comments.set(`${KIT}#567`, [`Example: ${NOTICE_MARKER}`]);
+    connect(fake);
+    const events = [
+      { event: first, target: targetFor(first) },
+      { event: second, target: first === second ? 567 : targetFor(second) },
+    ];
+    const groups = new Set(events.map(({ event, target }) => workflowGroup(workflow.concurrency.group, event, target)));
+    const snapshots = latch();
+    let reads = 0;
+    runtime.gh = async (args) => {
+      const answer = await fake.gh(args);
+      if (args[0] === "api" && args[1] === "--paginate" && args[2] === `repos/${KIT}/issues/567/comments`) {
+        if (++reads === groups.size) snapshots.release();
+        await snapshots.promise;
+      }
+      return answer;
+    };
+    const enqueue = workflowQueue(workflow.concurrency);
+    const results = await Promise.all(events.map(({ event, target }) => enqueue(event, target, () => main(workflowArgs(workflow, event, target)))));
+    // Keep this first: a restored group split must fail on the duplicate
+    // notice, independently of status or harness bookkeeping assertions.
+    expect(fake.comments.get(`${KIT}#567`)!.filter((body) => isOwnNotice(body, NOTICE_MARKER))).toHaveLength(1);
+    expect(results).toEqual([0, 0]);
+    expect(fake.comments.get(`${KIT}#567`)).toHaveLength(2);
+    expect(fake.issues.find((i) => i.number === 567)!.labels).not.toContain("blocked");
+    expect(fake.items[0]!.Status).toBe("Ready");
+    expect(fake.writes).toContain(`set ${url(KIT, 567)} Status=Ready`);
+    for (const event of [first, second]) expect(workflow.on).toHaveProperty(event);
+  });
+
+  test("queued issue, PR and both sweep paths retain unrelated pending work", async () => {
+    const workflow = await syncWorkflow();
+    const fake = dependentFixture();
+    fake.issues.push({ repo: KIT, number: 568, labels: ["agent-ready"] });
+    fake.items.push({ id: "unrelated", url: url(KIT, 568), Status: "Backlog" });
+    connect(fake);
+    const started = latch();
+    const release = latch();
+    let held = false;
+    runtime.gh = async (args) => {
+      if (!held) { held = true; started.release(); await release.promise; }
+      return fake.gh(args);
+    };
+    const enqueue = workflowQueue(workflow.concurrency);
+    const first = enqueue("issues", 566, () => main(workflowArgs(workflow, "issues", 566)));
+    await started.promise;
+    const pending = [
+      enqueue("issues", 568, () => main(workflowArgs(workflow, "issues", 568))),
+      ...EVENTS.slice(1).map((event) => enqueue(event, targetFor(event), () => main(workflowArgs(workflow, event, targetFor(event))))),
+    ];
+    release.release();
+    expect(await Promise.all([first, ...pending])).toEqual([0, 0, 0, 0, 0]);
+    expect(fake.items.find((i) => i.id === "unrelated")!.Status).toBe("Ready");
+    expect(fake.comments.get(`${KIT}#567`)!.filter((body) => isOwnNotice(body, NOTICE_MARKER))).toHaveLength(1);
+    expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+  });
+
+  test.each(EVENTS)("%s retries a failed label removal without another notice", async (event) => {
+    const workflow = await syncWorkflow();
+    const fake = dependentFixture();
+    connect(fake);
+    let failRemoval = true;
+    runtime.gh = async (args) => {
+      if (failRemoval && args[0] === "issue" && args[1] === "edit") {
+        failRemoval = false;
+        throw new Error("fixture label removal failed");
+      }
+      return fake.gh(args);
+    };
+    const enqueue = workflowQueue(workflow.concurrency);
+    await expect(enqueue(event, targetFor(event), () => main(workflowArgs(workflow, event, targetFor(event))))).rejects.toThrow("fixture label removal failed");
+    expect(fake.comments.get(`${KIT}#567`)!).toHaveLength(1);
+    expect(fake.issues.find((i) => i.number === 567)!.labels).toContain("blocked");
+    expect(await enqueue(event, targetFor(event), () => main(workflowArgs(workflow, event, targetFor(event))))).toBe(0);
+    expect(fake.comments.get(`${KIT}#567`)!.filter((body) => isOwnNotice(body, NOTICE_MARKER))).toHaveLength(1);
+    expect(fake.issues.find((i) => i.number === 567)!.labels).not.toContain("blocked");
+    expect(fake.items[0]!.Status).toBe("Ready");
+  });
+
+  test.each(EVENTS)("%s dry run projects Ready without any external mutation", async (event) => {
+    const workflow = await syncWorkflow();
+    const fake = dependentFixture();
+    fake.comments.set(`${KIT}#567`, ["Existing fixture comment"]);
+    const before = JSON.stringify({ issues: fake.issues, items: fake.items, comments: [...fake.comments] });
+    const out = connect(fake);
+    expect(await main(workflowArgs(workflow, event, targetFor(event), false))).toBe(0);
+    expect(fake.writes).toEqual([]);
+    expect(JSON.stringify({ issues: fake.issues, items: fake.items, comments: [...fake.comments] })).toBe(before);
+    expect(out).toContain(`would set ${KIT}#567 Status: Backlog -> Ready`);
   });
 });

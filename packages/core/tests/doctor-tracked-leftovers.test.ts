@@ -26,7 +26,7 @@ function repo(files: Record<string, string>): string {
   const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
   git("init", "-q", "-b", "main");
   git("add", "-A", "--", ".", ":!node_modules");
-  git("-c", "user.name=Alex Example", "-c", "user.email=alex@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
+  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
   return root;
 }
 

@@ -5,7 +5,7 @@
  * it independently: nothing else in either package fails when core changes the
  * shape. A version constant cannot catch a drift that keeps its number, so
  * this test binds the two sides with the real artifact — it runs core's actual
- * indexer over core's fixture corpus (the "Alex Example" park-ranger brain)
+ * indexer over core's fixture corpus (the "Odysseus" voyage brain)
  * and then points every ui-server reader at the database that run produced.
  *
  * Every assertion here is on REAL content, never on "did not throw": both
@@ -143,8 +143,8 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   test("clusters: linked notes with computed metrics, isolates filtered", () => {
     const clusters = getClusters({ brainPath });
     const paths = clusters.nodes.map((n) => n.path);
-    expect(paths, DRIFT).toContain("projects/active/bookshelf/plan.md");
-    expect(paths, DRIFT).toContain("studies/telescope-setup.md");
+    expect(paths, DRIFT).toContain("projects/active/raft/plan.md");
+    expect(paths, DRIFT).toContain("studies/star-bearings.md");
     // loose-idea.md is the corpus's deliberate orphan fixture; the default
     // clusters view excludes isolates, so its absence proves the degree
     // columns are really being read, not COALESCEd to zero across the board.
@@ -153,20 +153,20 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
       "notes/loose-idea.md"
     );
     // Precomputed analytics made it through the join.
-    const plan = clusters.nodes.find((n) => n.path === "projects/active/bookshelf/plan.md");
+    const plan = clusters.nodes.find((n) => n.path === "projects/active/raft/plan.md");
     expect(plan?.pagerank, DRIFT).toBeGreaterThan(0);
     expect(plan?.community, DRIFT).toBeDefined();
     expect((plan?.inDegree ?? 0) + (plan?.outDegree ?? 0), DRIFT).toBeGreaterThan(0);
     expect(clusters.edges.length, DRIFT).toBeGreaterThan(10);
   });
 
-  test("neighborhood: ego graph around telescope-setup", () => {
-    const hood = getNeighborhood({ brainPath, center: "studies/telescope-setup.md", depth: 1 });
+  test("neighborhood: ego graph around star-bearings", () => {
+    const hood = getNeighborhood({ brainPath, center: "studies/star-bearings.md", depth: 1 });
     const byPath = new Map(hood.nodes.map((n) => [n.path, n]));
-    expect(byPath.get("studies/telescope-setup.md")?.distance, DRIFT).toBe(0);
-    // Out-link ([[messier-catalog]]) and in-link (plan.md links back) both land.
-    expect(byPath.get("studies/astronomy/messier-catalog.md")?.distance, DRIFT).toBe(1);
-    expect(byPath.get("projects/active/bookshelf/plan.md")?.distance, DRIFT).toBe(1);
+    expect(byPath.get("studies/star-bearings.md")?.distance, DRIFT).toBe(0);
+    // Out-link ([[star-catalog]]) and in-link (plan.md links back) both land.
+    expect(byPath.get("studies/navigation/star-catalog.md")?.distance, DRIFT).toBe(1);
+    expect(byPath.get("projects/active/raft/plan.md")?.distance, DRIFT).toBe(1);
     expect(hood.edges.length, DRIFT).toBeGreaterThan(0);
   });
 
@@ -181,27 +181,27 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
     expect(root?.outDegree).toBe(2); // [[identity]] and [[current-focus]]
     expect(byPath.get("me/identity.md")?.distance, DRIFT).toBe(1);
     expect(byPath.get("context/current-focus.md")?.distance, DRIFT).toBe(1);
-    // current-focus links onward into the bookshelf project.
-    expect(byPath.get("projects/active/bookshelf/plan.md")?.distance, DRIFT).toBe(2);
+    // current-focus links onward into the raft project.
+    expect(byPath.get("projects/active/raft/plan.md")?.distance, DRIFT).toBe(2);
     expect(view.reachableCount, DRIFT).toBeGreaterThan(5);
     expect(view.unreachableCount, DRIFT).toBeGreaterThan(0);
   });
 
   test("discovery from an explicit root", () => {
-    const view = getDiscovery({ brainPath, root: "projects/active/bookshelf/plan.md", direction: "both" });
+    const view = getDiscovery({ brainPath, root: "projects/active/raft/plan.md", direction: "both" });
     const paths = view.nodes.map((n) => n.path);
-    expect(paths, DRIFT).toContain("projects/active/bookshelf/plan.md");
-    expect(paths, DRIFT).toContain("studies/telescope-setup.md");
+    expect(paths, DRIFT).toContain("projects/active/raft/plan.md");
+    expect(paths, DRIFT).toContain("studies/star-bearings.md");
     expect(view.reachableCount, DRIFT).toBeGreaterThan(5);
   });
 
   test("maintenance: orphans, broken links and unreachable notes are found", () => {
     const findings = getMaintenance({ brainPath });
     expect(findings.orphans.map((n) => n.path), DRIFT).toContain("notes/loose-idea.md");
-    // quick-note-owl.md and current-focus.md both point at [[does-not-exist]].
+    // quick-note-eagle.md and current-focus.md both point at [[does-not-exist]].
     expect(findings.brokenLinks.map((l) => l.target), DRIFT).toContain("does-not-exist");
     // Nothing links INTO the owl note, so the root walk cannot reach it.
-    expect(findings.unreachable.map((n) => n.path), DRIFT).toContain("notes/quick-note-owl.md");
+    expect(findings.unreachable.map((n) => n.path), DRIFT).toContain("notes/quick-note-eagle.md");
   });
 });
 
@@ -219,7 +219,7 @@ describe("keyterm builder returns a real vocabulary from a core-indexed corpus",
     expect(cache.keyterms.length, DRIFT).toBeGreaterThanOrEqual(5);
     // Derived from documents.path under projects/active/ — present in this
     // corpus regardless of scoring changes elsewhere in the extractor.
-    expect(cache.keyterms, DRIFT).toContain("Bookshelf");
-    expect(cache.keyterms, DRIFT).toContain("Trail Signage");
+    expect(cache.keyterms, DRIFT).toContain("Raft");
+    expect(cache.keyterms, DRIFT).toContain("Sail Repairs");
   });
 });

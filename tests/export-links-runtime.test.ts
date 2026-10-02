@@ -1,3 +1,4 @@
+import { trackDisplayFixture } from "../packages/ui-react/tests/track-fixtures.js";
 /** Actual Chrome PDF annotations, rather than predicates about input HTML (#558). */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -261,7 +262,7 @@ describe.skipIf(!chromePath)("bounded PNG disclosure", () => {
 
 describe.skipIf(!chromePath)("approved print blocks with export protection", () => {
   test.each([320, 768])("all block kinds keep their layout and link controls at %d px", async (width) => {
-    const content = shareStyle() + (await Promise.all(Object.values(BLOCKS).map(renderBlockHtml))).join("\n");
+    const content = shareStyle() + (await Promise.all(Object.values(BLOCKS).map(block => renderBlockHtml(block, block.kind === "track" ? trackDisplayFixture() : undefined)))).join("\n");
     const html = buildHtmlDocument({ content, contentType: "html", linkPolicy: "visible-destinations" });
     observations.length = 0;
     const png = await renderer.renderPng({ html, width, linkPolicy: "visible-destinations" });

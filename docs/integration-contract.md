@@ -44,6 +44,119 @@ The synchronous synthetic bridge captures escalation data before no-grant denial
 and aborts without parking. Durable Action transitions, reservation admission,
 containment and full-system enablement remain separate gated tasks.
 
+## Autonomous admission configuration (additive, #678)
+
+`ServerConfig.inbox.budget?` adds `{ spendUsd: number, turns: number,
+emergencySpendUsd: number, emergencyTurns: number, timeZone: string,
+unpricedUsdPerToken: number }`. It remains optional for embedded configurations.
+`resolveServerConfig()` supplies defaults of 5 USD, 0 operations, zero emergency
+capacity, UTC and 0.01 USD per unpriced token. The six `BRAIN_UI_AUTONOMOUS_*`
+environment settings and validation are specified in [the budget guide](inbox-budget.md).
+Omission or zero turns cannot enable autonomous dispatch.
+
+The cap governs new admissions against charged spend plus active conservative
+reservations; observed overruns are retained. It is not a provider-enforced
+invoice ceiling. One separately dispatched model-bearing operation counts one
+turn. Actual billing evidence, unknown-cost charging, frozen admission days and
+crash recovery follow the [async decision](decisions/async-collaboration.md#scheduling-budgets-and-evidence).
+The reservation ledger is internal operational storage. Existing HTTP, wire,
+SDK turn-request, CLI/MCP and content-index shapes remain unchanged; full-v1
+containment and system proof still gate production dispatch.
+
+## Interactive priority and cooperative autonomous yield (additive, #687)
+
+`KeyedLockAcquireOptions` adds optional `priority` (`"interactive"` or
+`"autonomous"`), `signal`, `onYield(key)` and `yieldAfterMs`. Ordinary callers
+remain interactive; equal-priority waiters remain FIFO. Interactive waiters
+precede queued autonomous work. Cancellation removes a waiting acquisition;
+it never forcibly releases an executing body. `createKeyedLock()` optionally
+accepts clock/timer functions for deterministic verification.
+
+`AutonomousTurnOptions` adds optional synchronous `onYield(key)`,
+`yieldAfterMs` and `completedToolCalls` (readonly `{ toolName, input }` execution
+receipts). Both first-party backends notify once per turn after continuous
+same-key interactive contention, checkpoint before abort, then unwind their
+actual writers. Different keys do not yield. Completed receipts only restrict
+replay; they confer no capability and never bypass the current authority gate.
+`isCompletedAutonomousToolCall()` compares exact JSON calls independently of
+object property order. A fresh attempt has no runtime transcript replay.
+
+`ServerConfig.inbox` adds optional `maxAutonomousRuns` and `yieldAfterMs`.
+`MAX_AUTONOMOUS_RUNS` defaults to two and requires a positive integer;
+`BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` defaults to 20000 and requires a positive
+integer below the normal 30000 ms interactive denial bound. Interactive WS
+capacity remains separately reserved. Pool admission occurs atomically with
+budget reservation/claim and counts operations, including batches. Yield
+preserves spent turns and observed cost, releases unused conservative reserves
+after unwind, and recovers work within its existing attempt limit. Exhaustion
+leaves failed work and one durable dead-letter Action. Recovery retains
+checkpoint and completion receipts in the operational UI database.
+
+These server-only additions do not enable production dispatch or change client
+wire, CLI/MCP, content-index or frontmatter contracts. Cooperative unwind must
+finish before the interactive wait bound; a lock is never handed to another
+writer while the first body can still write. Semantically different tool inputs
+are evaluated as new calls under current authority, not deduplicated effects.
+
+## Operational recovery command (additive, #686)
+
+The Bun-only `brain-ui-inbox` bin accepts `export` or `restore` with required
+`--db <file>`, `--brain-root <directory>`, `--file <backup.json>` and optional
+`--json`. Paths are explicit; there are no environment defaults.
+Export protects database/sidecar/staging destinations through aliases. Restore
+accepts a new database/empty staging target, or the unchanged pending target from the identical
+interrupted restore. It never merges a populated target or opens `brain.db`.
+
+With `--json`, stdout contains one JSON object and a newline:
+
+| Outcome | Shape and exit |
+| --- | --- |
+| Export | `{ schema_version: 1, ok: true, command: "export", snapshot: { version: 1, checksum: string, created_at: number, recovery_point_hours: 24 } }`; exit 0. |
+| Restore | `{ schema_version: 1, ok: true, command: "restore", recovered: number, resumed: boolean }`; exit 0. `recovered` counts restored claims released into bounded retry/dead-letter recovery. |
+| Failure | `{ schema_version: 1, ok: false, error: { code: string } }`; exit 2 for `inbox_usage`, otherwise 1. JSON failure reports no private file paths or exception details. |
+
+Consumers tolerate unknown error codes. Supported codes include
+`inbox_snapshot_version`, `inbox_snapshot_checksum`, `inbox_snapshot_schema`,
+`inbox_snapshot_relations`, `inbox_snapshot_projection`,
+`inbox_snapshot_reservation`, `inbox_snapshot_staging`,
+`inbox_snapshot_missing_staging`, `inbox_snapshot_changed`,
+`inbox_snapshot_destination`, `inbox_restore_nonempty`, `inbox_restore_clock`,
+`inbox_restore_staging_changed`, `inbox_restore_pending`,
+`inbox_staging_symlink`, `inbox_staging_directory`, `inbox_staging_file`
+and `inbox_operation_failed` for unclassified schema/SQLite/filesystem failures.
+Without `--json`, success is human text; failures go to stderr.
+
+The private artifact is strict format `"brain-ui-operational-backup"`, version
+`1`: `{ format, version, createdAt, recoveryPointHours: 24, database:
+{ data, sha256 }, directories: string[], files: [{ data, sha256, path }],
+checksum }`. Times are UTC epoch milliseconds. Byte data is canonical base64;
+digests are lowercase SHA-256 hex. Paths are flat files under sorted canonical
+UUID staging directories, or their `.UUID.partial` directories. Directories
+and files are sorted in bytewise path order.
+
+The outer checksum hashes UTF-8 `JSON.stringify` of validated fields excluding
+`checksum`, in the displayed key order; database/file byte objects use
+`data, sha256`, with file `path` last. JSON whitespace and input object-key order
+do not affect validation. SQLite WAL image header bytes 18/19 are normalized
+to rollback mode in the copy for SQLite deserialization; live WAL is unchanged.
+The complete image retains all UI state, including principal/authentication
+records, Activity accounting, inbox relations and completed-call receipts.
+Each staged file is included with its own digest; required references/manifests
+must agree. An exact compatible SQLite schema/migration set is required.
+
+Database publication holds a durable pending gate while staging is restored.
+App/runtime startup, model claim/acquisition and compensation claims fail closed.
+Active budget settlement and old-worker claim recovery commit with the gate
+opening in one immediate transaction, preserving observed/conservative cost,
+admission day, attempts and stable follow-up identities. Receipts restrict
+replay under current authority. This neither enables production dispatch nor
+promises to recover effects newer than the backup.
+
+The [recovery guide](inbox-recovery.md) defines the 24-hour objective, atomic
+export publication, sensitive-artifact handling and same-artifact crash
+resumption. The host must retain a successful complete export at least every
+24 hours; content Markdown remains separately backed up in Git.
+
 ## Consumers
 
 | Consumer | Surfaces used |
@@ -180,8 +293,8 @@ from `@schlessera/brain-ui-sdk/server` now returns
 asynchronous and reject when their required runtime is unavailable. The
 server awaits active backend probes, then the brain CLI version probe, before
 opening its database or starting application services. Injecting a registry
-continues to bypass first-party backend probes, while retaining the brain CLI
-check and configuration validation.
+continues to bypass first-party backend probes without explicit backend
+requirements, while retaining the brain CLI check and configuration validation.
 
 Both built-in version probes run only `--version`, with a five-second deadline
 and up to 250 ms of cleanup, subject to event-loop scheduling. At the deadline
@@ -192,8 +305,28 @@ inherited output pipes or the helper; incomplete cleanup is reported as
 unconfirmed, not as proof that work stopped. Turn cancellation retains its
 existing behavior. Printing a version before timing out does not count as
 success. Claude runtime failure refuses startup; an unknown or unreadable
-brain CLI version warns and continues, and a known incompatible version
-refuses. Compatibility floors and version report shapes are unchanged.
+brain CLI version warns and continues by default, and a known incompatible
+version refuses. Version report shapes and the default CLI floor are unchanged.
+
+**Additive host requirements (#642):** `CreateAppOptions.versionRequirements`
+accepts optional `brainCli` and `backends[backendId].sdk/runtime` full SemVer
+minima. They cannot weaken package constraints. Validation and requested
+identity checks precede app resource creation; unsupported injected backend
+verification refuses startup explicitly. An explicit content-CLI minimum
+refuses unknown versions and revalidates the actual executable before client
+and streaming-sync invocations. Backend minima travel through the existing
+`BackendModuleContext.versionRequirements` to probes and construction. The
+shared server SDK helper retains every owner/declaration, upper bounds, OR
+grouping and normal per-tuple prerelease opt-in. Compatibility remains separate
+from measured status and index schemas; existing wire/report meanings hold. Backend
+factories also accept the optional pair and enforce owning SDK requirements
+on their actual imported copies (#643). Pi's boot entry adds its primary SDK
+identity without a `runtime` or `measured` field: it has no separately spawned
+executable. Existing Claude report fields retain their meanings. With a Claude
+runtime requirement, start/resume re-probe the SDK-selected executable and
+withhold input until the bounded SDK handshake completes. A contradictory
+later init version ends the turn through the existing error/result envelopes;
+compatibility adds no wire fields and changes no measured verdict.
 
 ## HTML renderer budgets
 
@@ -272,7 +405,8 @@ policy. The rationale and measurements are in
 | `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | `{ run, agent }` in machine mode (`--json`, or stdout not a TTY); its text report in human mode (`--human`, or a terminal). With no verb, `sync` runs `brain sync run`. When an agent runner is configured and the run needs one (a conflict no strategy merges, an `UNKNOWN` leftover, or a `MEDIA`/`LARGE` leftover with a terminal attached), it then runs the `/sync` skill and exits `0`. Without an agent runner the exit code is `run`'s: `0` complete, `1` failed, `3` something left for judgment: a conflict no strategy merges (left in progress, nothing pushed) or a file holding conflict markers (left uncommitted, never pushed). An agent run that fails exits `2`, its error on stderr. **Machine mode** prints exactly one JSON document on stdout, whatever the agent did, and nothing else: no report, no progress, no agent text beside it. `run` is the envelope `brain sync run --json` prints (its `status` and `report` are contract; its other fields drive the `/sync` skill and are not). `agent` is `{ invoked: false, reason: "not-needed" \| "no-runner" }` — `no-runner` when the run needed an agent and none was available — or `{ invoked: true, runner: string, outcome: "success" \| "failed", runtime: { name: string, version: string \| null } \| null, text: string \| null, error?: string }`. `runtime` is what that agent run reported about itself while it ran, never probed and never taken from another run: `null` when it reported nothing (a runner that does not report, or a run that ended first), `version: null` when it named itself without a version. The built-in `claude` runner reports `{ name: "claude-code", version }` from the Claude Code session's `system`/`init` event (`claude_code_version`), the field chat records as `runtime_observed`. A failed agent run still prints the result, with `outcome: "failed"`, `text: null`, `error`, and any runtime it reported before failing. Not invoking an agent says nothing about model cost: the sync judge and enrichment can call a model without one. **Human mode** prints the report, then the agent's final text when it ran, with tool progress on stderr. **Breaking in 0.40.0 (#290):** bare `sync` printed its text report in every output mode, so a caller that read stdout as text passes `--human`, or reads `run.report` and `agent.text`. **Breaking in 0.39.0:** it used to run the agent unconditionally, print only the agent's text, and exit `1` when no agent runner was available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` is still the bare form, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`run`, `assess`, `group`, `commit`, `stash`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for the `/sync` skill to drive, are not part of this contract |
-| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }] }], "available": [{ "key", "description", "enabled": false }] }` — `key` is the module's `brain.config` key (a package name or `./path`). `types` and `commands` are the type names and CLI words it contributes. `description` comes from the module's `package.json` and is `null` when it has none. `available` lists `@schlessera/brain-module-*` packages the brain's `package.json` declares but its config does not enable; `description` is `null` there when the package is not installed. `cron` is shape-constrained (see [Guarantees](#guarantees-consumers-may-rely-on)) |
+| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
+| `brain module enable <name> --json` / `disable <name> --json` | `{ "module": string, "state": "active" \| "dormant", "changed": boolean, "context": { "entered": string[], "left": string[] } }` — Toggle a configured manifest name, preserving domain config and documents. Synchronize managed skills and owned instruction regions. Unchanged repeated commands return changed:false. Errors use the existing nonzero-exit/stderr convention. |
 | `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit). Check ids other than `instructions-weight` are not part of this contract, and `detail` is prose. `instructions-weight` (added in 0.38.0, additively) estimates the tokens always loaded into a session (`CLAUDE.md` with its in-brain `@` imports, `AGENTS.md`, model-invocable skill descriptions), and is `warn` above the optional `brain.config` key `instructions.maxTokens` (default `8000`) |
 | `brain init --check` | `{ "bun": { "version", "ok" }, "git": { "repo" }, "hooksPath": { "set", "value" }, "config": { "exists", "valid", "initialized", "path", "error"? }, "contentDirs": { "present", "missing" }, "keys": { "GEMINI_API_KEY", "ANTHROPIC_API_KEY" } }` (new in brain-kit). `bun.version` is `null` when not running under Bun. `git.repo` says whether the root is inside a git work tree. `hooksPath.value` is git's `core.hooksPath`, `null` when unset. `config.path` is `null` when there is no config, and `error` is present only when the config failed to load (`valid: false`). `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0). `contentDirs` splits the core types' directories into those that exist and those that do not. Each `keys` entry is a boolean — whether that variable is set — never the key |
@@ -400,6 +534,9 @@ set as open.
 Added in 0.38.0. The query-set format and how to read the numbers are in
 [evaluating-search.md](evaluating-search.md).
 
+The values below illustrate the envelope. Actual fixture ranks are recorded
+in `packages/core/fixtures/corpus/evals/expected-ranks.json`.
+
 ```jsonc
 {
   "schema_version": 1,           // bumped when a field below changes meaning
@@ -441,13 +578,13 @@ Added in 0.38.0. The query-set format and how to read the numbers are in
       "current_first": null }
   ],
   "per_query": [
-    { "mode": "fts", "id": "dob", "class": "alias", "q": "the Dobsonian",
-      "expected": ["studies/telescope-setup.md"],
+    { "mode": "fts", "id": "calypso-guide", "class": "alias", "q": "the Calypso guide",
+      "expected": ["studies/star-bearings.md"],
       "rank": 2,                 // of the first expected path in the pool; null when absent
       "hit_at": { "1": false, "3": true, "10": true },  // null for no-answer
       "rr": 0.5,                 // 1/rank, 0 below rank 10; null for no-answer
       "top1_score": 4.02,        // null when the search returned nothing
-      "top": ["studies/astronomy/overview.md", "studies/telescope-setup.md"],  // up to max(k) paths
+      "top": ["studies/navigation/overview.md", "studies/star-bearings.md"],  // up to max(k) paths
       "current_first": null }    // with `stale`: the first expected path ranks above
                                  // every stale one, or no stale path is in the top
                                  // max(k); null without `stale` (additive in 0.38.0)
@@ -507,7 +644,7 @@ through the assembler `brain context` uses, at each budget, with the run's
                                   // queries; an even sample's median is the lower middle value
   ],
   "per_query": [                  // one per query and budget
-    { "budget": 1000, "id": "dob", "class": "alias",
+    { "budget": 1000, "id": "calypso-guide", "class": "alias",
       "answer_present": true,     // null for a no-answer query
       "budget_used": 0.97,        // the assembler's estimateTokens(output) / budget
       "sections": { "identity": 1, "focus": 1, "results": 5, "related": 3 } }  // related: documents listed
@@ -1283,9 +1420,14 @@ outputs, errors and specified behavior on supported rows follow the versioning
 rules at the top of this document. The [selection decision](decisions/http-api-boundary.md)
 records #343 Q6; no route redesign or immediate 1.0 freeze is implied.
 
-The detailed stats promises below remain binding. The specification calls out
-observed implementation/client gaps with linked tasks; an implementation gap
-does not revoke a documented guarantee.
+The [runtime coverage matrix](http-api-coverage.md) maps supported operations
+to real app mounting checks and named behavior tests. Its inventory also
+accounts for internal routes, conditional static serving, HEAD dispatch and
+configured CORS preflight without promoting internal payloads to guarantees.
+
+The detailed stats promises below remain binding. The specification records remaining gaps; a gap does not revoke a guarantee.
+Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
+Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
 
 ### Internal Queue poke (additive)
 
@@ -1371,9 +1513,10 @@ Rules a consumer may rely on:
   after `generatedAt`; the lifetime totals still include such a session, since
   it happened.
 - **The route does no rounding or formatting**, while
-  `GET /api/activity/rollups` rounds its cost sums to 4 decimal places. Over
-  the same window the two therefore report `0.299997` and `0.3` for one
-  quantity. Round at render time, identically for both, rather than treating
+  `GET /api/activity/rollups` rounds each completed day/job/session sum on
+  both cost axes to 4 decimal places, only at the response boundary; stored
+  costs retain their original precision. Over the same window the two therefore
+  report `0.299997` and `0.3` for one quantity. Round at render time, identically for both, rather than treating
   either as pre-formatted. This channel stays raw on purpose: rounding a sum
   to 4 dp turns a real sub-$0.0001 cost into a `0` that reads as free.
 - **`lifetime.costUsd` is a floor, and cannot be better than one.** The
@@ -1582,6 +1725,11 @@ keep their existing behavior.
 
 `inbox_snapshot` contains the view/filter, `threads`, `items`, per-thread
 `highWaterSeq`, global `cursor`, and optional `append` for chunk continuation.
+The server-frame parser preserves every own scalar `highWaterSeq` entry,
+including identifiers named `__proto__` or `constructor`, as data properties
+without replacing the map's prototype. Values follow the existing snapshot
+validator: Inbox requires nonnegative safe integers; Activity requires finite
+numbers. Invalid values fail the frame even under a prototype-named key.
 `inbox_delta` contains its view and one `InboxChange`. Changes carry an explicit
 `threadId`, global `changeId` and per-thread `seq`; `upsert_thread` carries the
 thread, `upsert_item` carries `itemId` and the item, `remove_item` carries
@@ -1632,8 +1780,9 @@ are UTC epoch milliseconds. Queue items (`triage`, `execute`,
 `scheduled | ready | claimed | done | blocked | failed | superseded | expired | dropped`.
 Actions (`approve`, `choose`, `fyi`) carry title/detail and stored options,
 and use only `pending | snoozed | resolved | dismissed | expired | dropped`.
-FYIs carry no options. The store owns guarded transitions; defining these
-vocabularies does not implement claims or resolution.
+FYIs carry no options. The store owns guarded transitions, and the concrete
+server engine composes checkpoint/Action/block and final resolution/follow-up
+transactions without an inference call.
 
 Each option carries a closed `ResolutionEffect`:
 
@@ -1667,8 +1816,31 @@ never standing grants. These four new client frame schemas are strict,
 including subscribe/unsubscribe. New server projections preserve unknown keys
 recursively for additive display compatibility; applying any displayed effect
 requires the strict v1 validator again. The actual client/server parsers cover
-all new frame kinds. These definitions enable later server work; they do not
-enable unattended execution, policy formation or session creation.
+all new frame kinds. `createApp()` now handles both decision frames on its
+authenticated WebSocket. It checks durable principal usability and raw stored
+v1 effects, and revalidates the current server-owned exact-operation envelope.
+Absent engine authority is an empty envelope, so operation-bearing approval
+fails closed. Refusal uses the existing error envelope with
+`INBOX_DECISION_REFUSED`; a host lacking a decision handler returns
+`INBOX_UNAVAILABLE`. Committed changes use the existing subscribed deltas.
+
+Final resolution is write-once per Action. Only enqueue creates one follow-up
+identified by Action/option; cancel/dismiss supersede blocked work and create
+no executable item. Matching replay returns the existing result; a different
+option or feedback cannot replace it. Snooze remains nonterminal, creates no
+resolution or model call, and preserves Action/blocked-work retention through
+resurface. Low stakes use 08:00 next weekday; higher stakes use bounded
+one-to-eight-hour backoff. Times remain UTC, using the configured inbox budget
+timezone or UTC by default. Dismissal is valid without a reason.
+
+The default cap is 60 pending/snoozed decisions, excluding non-evictable FYIs.
+Lowest-priority eviction includes the incoming candidate and atomically
+supersedes its blocked work, emits one FYI/suppression and journals staging
+compensation. Expiry, bounded retries and compensation are deterministic
+maintenance. Filesystem removal occurs after commit and is idempotent across
+restart. See [the Action engine](inbox-actions.md) for lifecycle details.
+This behavior enables no unattended dispatcher, policy formation or session
+creation; the full-v1 containment and system-proof gate remains required.
 
 ### Activity stream (rev 3, additive)
 
@@ -1897,7 +2069,7 @@ for every backend (#575). A turn that is retrying a failed call says that
 while it runs.
 
 ```
-TurnFailure = { errorClass, status?, message, authAction? }
+TurnFailure = { errorClass, status?, message, authAction?, attempts?, resetsAt? }
 TurnRetry   = { attempt, maxAttempts?, delayMs?, errorClass?, status? }
 
 result.failure?: TurnFailure                  // on outcome: "error" only
@@ -1919,6 +2091,16 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   `SUBSCRIPTION_AUTH_INSTRUCTIONS` for the wording (exported from
   `@schlessera/brain-ui-sdk/protocol`, and still from `/server`). A profile
   that bills its own API credential never gets one.
+- **`attempts`** is a positive integer of observed retries before the terminal
+  failure, not a guessed total including an initial call. Claude counts the
+  turn's `api_retry` observations; pi keeps the last `auto_retry_start.attempt`
+  it reports. No retry observation means the field is absent, including on
+  unrecorded legacy history. A later successful turn carries no failure.
+- **`resetsAt`** is an observed limit reset in epoch milliseconds (a nonnegative
+  safe integer). Claude reads it only from a rejected `rate_limit_event` in
+  that turn and converts the runtime's epoch seconds to milliseconds. It never
+  derives a reset from retry delays. pi reports no reset time, so omits it.
+  Absent means unknown; a reported past reset remains the observed timestamp.
 - **One failure is reported once.** It rides the turn's terminal frame, and
   no other frame of the turn carries it. A diagnostic `error` sent before the
   `result` does not carry it. A consumer that shows both the diagnostic and the
@@ -1932,16 +2114,26 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   not read `retry`.
 - **Replay** carries `failure` on the assistant message the failure ended,
   after any partial answer, with the failure's text removed from `content`.
-  The Claude backend recognises the runtime's own API-error message by its
-  model (`<synthetic>`) and wording, because its transcript does not keep the
-  class. So a replayed Claude failure has `errorClass: "unknown"` unless the
-  wording names an auth or billing failure, and a status only when the text
-  states one. The pi backend replays its failed answer's text, and does not
-  replay an attempt that pi retried.
+  The host retains the live terminal failure in its own UI database and joins
+  it before inserting local exchanges or classified blocks. The key is the
+  session, backend and assistant ordinal in that backend's normalized history,
+  observed after the turn settles; it is not a text hash or host turn count.
+  An ordered transcript-prefix digest and exact fallback failure text guard
+  the position against changed transcripts. Identical failure texts at separate
+  positions keep their own class, status, message, `authAction`, observed
+  `attempts` and `resetsAt`. Reconnect
+  history waits for the in-flight write; metadata survives host restart.
+  A turn with no new stored assistant, or a read/write failure, retains the
+  backend fallback rather than relabeling an older answer. Sessions without
+  host records also retain that fallback. Claude recognizes its runtime's
+  `<synthetic>` API-error messages by wording: the fallback can be `unknown`,
+  with status/auth action only where the text supplies them. pi replays its
+  failed answer's text and omits attempts that pi retried.
 - **Tolerance.** A client that does not know these fields behaves exactly as
   before. A client that validates with `@schlessera/brain-ui-sdk/schemas`
   drops an unreadable `failure` or `retry` and keeps the frame, because the
-  frame is a turn's terminal.
+  frame is a turn's terminal. An unreadable `attempts` or `resetsAt` is dropped
+  independently while keeping the rest of the failure and its frame.
 
 ### Manual retry receipts (additive in 0.40.0)
 
@@ -2195,6 +2387,130 @@ receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
 above is an exception: it never computes effective configuration or
 serializes evaluated TypeScript. See [modules.md](modules.md).
 
+## Module dormancy (additive, #527)
+
+Each configured module entry gains optional core-owned `enabled: boolean`.
+Omission means active. Core validates the flag and removes it before validating
+the module's domain block; dormant domain config is still validated and retained.
+`LoadedModule.state` is supplied by the loader as `"active" | "dormant"`;
+the optional authoring property preserves constructed legacy contexts, where
+omission means active. CLI, scheduler metadata, skill discovery, classifier
+hints and module hygiene all read that same loaded state. Dormant types,
+directory anchors, exclusions and content rules remain registered.
+
+`ModuleContribution.instructions?: { text: string }` is strictly validated
+authoritative context returned by `setup(validatedConfig)`. Text is nonempty
+and contains no ownership markers. Modules declaring instructions have a
+lowercase name matching `^[a-z][a-z0-9-]{0,30}$`; existing manifests without the
+field retain their naming behavior. The optional manifest
+`canBeDormant?: boolean` defaults to permitted; `false` makes CLI disable refuse
+with `dormancyReason?: string` or a default explanation. A declared reason is
+nonempty. Existing module authoring calls and required fields remain unchanged.
+
+Toggles preflight source edits and all instruction owners before writes. Legacy
+mixed generated regions require explicit migration, preserving personal prose
+outside module-owned spans. No paragraph inference, whole mixed-section deletion
+or saved-prose restoration occurs. The source-preserving writer changes only a
+literal entry's flag; an ambiguous executable target is refused rather than
+serializing its evaluated config. The same-state command can synchronize context
+after an explicitly reviewed manual flag edit. Validation/ownership failures
+leave config, managed links and instruction bytes unchanged. Filesystem or emitter
+failures are reported as failures and require retry; success is not reported for
+an incomplete context sync. See [the format and migration guide](modules.md#instruction-migration).
+
+The list estimate is the sum of characters/4 token estimates of the module's
+discoverable model-invocable skill descriptions under existing precedence and
+its contributed instruction text. It estimates hypothetical active context even
+when dormant, without attributing shared contracts, personal prose or full skill
+bodies. It counts the authoritative contribution once, rather than summing copies
+in different agent entry files. The existing `enabled`/`available` envelope and
+declared fields remain; dormant cron metadata is empty. Namespace execution exits
+1 with `module <name> is dormant — brain module enable <name>` without importing
+or executing the module command. Running sessions keep their loaded state;
+MCP startup registration reads that same loaded state and skips dormant
+modules before importing tool definitions. Dormancy is context control, not
+permission revocation.
+
+## Module settings (additive, #528)
+
+`ModuleManifest.settings?: ModuleSettings<C>` describes a generic editor over
+`configSchema`: data-only fields, choices, nested records, ordered lists and
+record variants, plus optional module CLI actions, computed notes and a pure
+migration planner. Descriptions are validated at module load. The leaf kinds
+are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
+`record`, `list` and `variant` compose them. Unlisted representable schema
+fields appear through the generic renderer. Unsupported fields show their
+complete JSON value read-only; unchanged JSON subtrees retain their bytes.
+Modules do not contribute React implementations. A module using settings has
+a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
+
+Core reads `settings/<module-name>.json`, a JSON object without the reserved
+`enabled` key. Own object keys merge recursively over the domain block in
+brain config; arrays, scalars and null replace. The original `configSchema`
+then parses the combined input and supplies defaults. Both active and dormant
+modules use this path, including ordinary config checks and `brain validate`.
+Invalid hand-edited settings fail validation rather than silently falling back.
+Config reads expose effective validated module blocks. JSON never replaces
+TypeScript logic or rewrites its source. Settings files and their parent may
+not alias another path through symlinks; a symlinked brain root remains valid.
+
+`brain module settings <name> --json` returns:
+
+```text
+{ module, key, state, canBeDormant, dormancyReason,
+  schema, values, inherited, overrides, provenance, inheritedProvenance,
+  revision, notes, ui: { fields, actions, migration } }
+```
+
+`schema` is generated from the declaration's Zod input schema, with
+unrepresentable leaves shown read-only. `values` are effective validated
+settings; `overrides` are the unnormalized JSON source object. `inherited`
+shows values without that JSON, and provenance distinguishes `default`,
+`brain-config`, `saved` and `migrated`. `revision` is an opaque quoted hash of
+the loaded config source and settings bytes. Do not derive meaning from it.
+
+`--set dotted.key=value` parses a JSON value when possible, otherwise a
+string; numeric path components address existing arrays. `--stdin` accepts
+the complete overrides object. Both use the same validated writer as the UI.
+`--revision REV` requires a matching revision; CLI omission uses a freshly
+read revision. `--preview` with `--set` or `--stdin` validates a draft and
+computes module notes without writing. `--action <id>` invokes the declared
+command in its owning module's namespace, using saved config and the existing
+dormancy guard; it cannot be combined with a settings save.
+
+Successful saves add `changed: boolean` and `commit: string | null` to the
+snapshot. A changed save atomically replaces only the module JSON file and
+creates exactly one git commit. Structurally unchanged requests preserve all
+file bytes and produce no commit. The transaction lock serializes revision
+checks, writes and commit. Stale revisions or a busy transaction return 409;
+validation returns 422 with `{ error, status, errors: [{ path, message }] }`
+and writes nothing. Unavailable modules return 404. A write/commit failure
+restores prior files and target index entries, preserving unrelated staged
+work. Pre-staged target changes are refused. These errors exit CLI 1.
+
+`--migrate --preview` runs the module's pure planner and returns its source
+preview, values, paths and revision. `--migrate --revision REV` applies that
+reviewed plan through the same validator and transaction. Changed settings
+and content are committed together once; stale input, validation, write or
+commit failure changes neither source. Jobs moves known scoring keys from
+criteria frontmatter into `settings/jobs.json.scoring`, retaining raw keyword
+casing, flat/tiered forms, coercible numbers, odd match values and absent
+optionals. Unknown scoring keys and unrelated frontmatter/prose stay in the
+document. It proves identical `parseScoringConfig` outputs before writing.
+Legacy frontmatter remains a read fallback until explicitly migrated.
+
+`module list --json` adds `settings`, `canBeDormant` and `dormancyReason` to
+loaded entries in its existing `enabled` array. A malformed module appears as
+an unavailable row with `error`, while valid neighbors remain readable and
+editable; actions still refuse globally invalid config. The Modules editor's
+HTTP routes are listed as internal transport in [http-api.md](http-api.md).
+GET settings supplies ETag; PUT requires If-Match (428 when absent), passes
+through field errors and 409 conflicts, and uses the CLI writer. Every route
+uses the existing authenticated-principal and origin guards. Migration,
+dormancy and actions are separate confirmed requests. Domain saves never
+change the core-owned `enabled` flag, migrate instruction ownership, hot
+unload a module or cancel running sessions.
+
 ## Module tools
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.
@@ -2202,6 +2518,15 @@ serializes evaluated TypeScript. See [modules.md](modules.md).
 eight core tools, in module config order and then declaration order. A loader
 may resolve a `ModuleTool` directly or an object with a `default` tool export.
 Other CLI commands do not import the definitions.
+
+A module dormant at startup contributes no tools: its definitions are not
+imported and its tools are absent from `tools/list`. The filter uses
+`LoadedModule.state`; omission in constructed legacy contexts means active.
+`brain module list --json` still includes dormant modules and their declared
+canonical tool names. Marking a module dormant on disk leaves the running
+process's registered tools callable; the next process omits them. In-flight
+calls are not cancelled and completed effects are not rolled back. Dormancy
+controls context and is not permission revocation.
 
 Core composes each name as `<module>_<local>`, at most 64 characters. Modules
 with nonempty `tools` must match `^[a-z][a-z0-9-]{0,30}$`; `brain` is reserved.
@@ -2482,3 +2807,466 @@ reuse the original staging result; source/principal provenance is server-owned,
 immutable and separated from CLI dedup keys. Queue-backed staging is exempt
 from legacy opportunistic pruning. Standalone staging retains its old lifetime.
 No production autonomous dispatch is enabled by these additive surfaces.
+
+## Shared geo library (additive, #525)
+
+`@schlessera/brain-geo` is a concrete leaf library. Its root export supplies
+`RoutePoint` (`lat`, `lon`, nullable `elevation_m` and ISO `time`), strict
+`parseGpx`, `routePoint`, great-circle `distanceM`, travel-compatible
+`routeMetrics`, `trimRoute`, `quantizeRoute` and `writeGpx`. Existing travel
+commands retain their JSON types, strict rejection, rounding and serialization.
+The [travel metric contract](../packages/module-travel/README.md#route-import)
+continues to apply; metrics/writing require nonempty valid geometry.
+
+`parseTrackGpx(source)` adds recovered file geometry. It returns `segments`,
+`warnings`, `kind` (`track` or `route`), `status` (`ok`, `partial` or `no_line`),
+`partial`, `counts` (`input`, `retained`, `omitted`, `segments`) and `omissions`.
+Each omission names its zero-based selected-source point `index`, primary
+`reason` and all `reasons`: latitude/longitude missing-or-invalid or out-of-range.
+Counts cover the selected track/route geometry, not foreign metadata or waypoints.
+Every omitted point splits the geometry. Valid isolated points stay in the
+returned sections as evidence; `no_line` means no section has two points.
+Track sections take precedence when usable, otherwise usable routes do.
+With neither, track evidence takes precedence over route evidence when present.
+Malformed/unsafe/over-limit inputs throw rather than becoming partial results.
+
+Both parsers use the same guarded XML reader. Recovery never modifies the source,
+bridges gaps, changes optional unknown values or proves recording/travel from file
+metadata. [Shared ownership and recovery](decisions/geo-operations.md) explains
+why the new policy is separate from travel's strict compatibility entry point.
+
+`summarizeTrack(parsed, source)` returns the original counts/status, copied geometry,
+file source, `[west,south,east,north]` bounds, start/end, shape, warnings, `unknown`
+field/reason records and method metadata. Its `measurements` contain `distance`,
+`ascent`, `descent`, `altitudeMin`, `altitudeMax`, `elapsed` and `movingTime`, each
+with `{ value: number | null, unit: "m" | "s", scope: "usable_sections" }`.
+Distance uses unsimplified great-circle edges on a 6,371,008.8 m sphere. Sections
+with fewer than two points remain evidence but do not contribute measurements.
+Known zero remains zero. Elevation requires complete eligible section samples;
+ascent/descent share three-point-median smoothing and 3 m hysteresis. Elapsed
+sums each section's ordered, complete first/last timestamp interval, retaining
+pauses and excluding gaps; absent/invalid/decreasing timestamps remain unknown.
+Moving time is always unknown with `estimator_not_in_scope`. No-line geometry has
+unknown distance rather than a successful zero. Absent bounds/start/end and
+unknown shape carry reasons as well. An optional recording claim retains its
+text and `verified: false`; the library never infers recording from timestamps.
+
+`normalizeTrack(sections, kind?)` accepts arrays of normalized point objects with
+numeric `lat`/`lon`, optional `elevation_m`/`time` and a default `"track"` kind.
+It returns the same `ParsedTrack` recovery/count/omission contract as GPX.
+Malformed structure rejects; invalid coordinates omit/split, never coerce or
+clamp. At most 200,000 points (including omissions) and 200,000 sections are
+accepted. Missing/invalid metadata is unknown; caller input remains unchanged.
+`EARTH_RADIUS_M` is the 6,371,008.8 m sphere used by all distance methods.
+
+`nearestTrackPoint(track, query, toleranceM)` returns status/partial/counts,
+`distance: {value: number | null, unit: "m"}`, closest `point: {lat,lon} | null`,
+`location: {section,index,fraction} | null`, nullable `withinTolerance`, unknown
+reasons and method metadata with `"great_circle_segment"`, radius, tolerance and
+`"retained_geometry"` scope. Minor arcs include interiors; gaps remain absent.
+Retained singletons and repeated points are valid spatial evidence. Empty geometry
+and ambiguous antipodal edges yield unknown; invalid queries/tolerances reject.
+
+`trackCoverage(A, B, {toleranceM, sampleSpacingM?})` returns status/partial, counts
+for both inputs, direction `"A_relative_to_B"`, nullable ratio/covered metres,
+usable metres of A, nullable `{minimumRatio,maximumRatio}` bounds, unknown reasons
+and method parameters. Its `"arc_length_midpoints"` estimate measures only A's
+usable sections within tolerance of B's usable sections. Bounds use distance's
+1-Lipschitz property to expose uncertainty. The default spacing is
+`max(0.1,min(5,toleranceM/4))` metres; explicit spacing is >0 and ≤1,000 m.
+Tolerances are finite, nonnegative and at most Earth's half-circumference.
+100,000 samples / 5,000,000 comparisons bound analysis. Zero usable length in A,
+no usable line in B, ambiguous antipodal geometry and analysis-limit exhaustion
+return null ratio/covered length/bounds with reasons. Partial inputs remain partial;
+no gaps are filled and no denominator is invented. All helpers require validated
+`ParsedTrack` inputs from the shared parser/normalizer.
+
+### Shared geo configuration and server geocoding
+
+The root `geoConfigSchema`, `GeoConfig` and `GeoConfigInput` describe concrete
+configuration. All services are disabled/unconfigured by default; `userAgent`
+defaults empty. Endpoints must be credential-free HTTP(S) URLs without query or
+fragment. Geocoding has `enabled`, optional `url` and `publicServiceEligible`;
+the public Nominatim endpoint requires the latter explicit responsibility flag.
+Routing configuration holds per-mode prepared datasets and an off-by-default
+eligible demo flag; Overpass holds an enabled flag and at most three endpoints.
+Optional `cacheDir`, `cacheTtlMs` (0–30 days, default one day), `timeoutMs` and
+`admissionWaitMs` (100 ms–60 s, defaults 5 s) and `minimumIntervalMs` (0–60 s,
+default 1 s) configure the shared concrete clients. Public operator floors cannot
+be lowered by configuration. No provider registry is added.
+
+`@schlessera/brain-geo/server` exports `GeoClient`, result/candidate/attribution,
+error/source and runtime-option types. `new GeoClient(config?, runtime?)` validates
+configuration. Runtime options accept `fetchImpl` and shared `admissionDir`; they
+default to real fetch and the user's global geo admission directory. The root
+geometry/configuration entry point imports no server I/O.
+
+`geocode(query)` and `reverse(lat,lon)` return `GeoResult<GeocodeCandidate[]>` with
+`status`, nullable `value`/`source`/`error`, `warnings`, `attribution` and candidate
+`counts`. Success is `ok`, multiple matches `ambiguous`, usable mixed replies
+`partial`, and genuine empty matches `no_match`; disabled and failure statuses are
+distinct. A candidate has display/summary/address, numeric point, nullable bounds
+and OSM identity, unknown accuracy and its reason. Inputs validate before dispatch.
+No-match is recognized from an empty search or the exact Nominatim reverse error;
+an unrelated 404 is never fabricated as no-match.
+
+Source reports service/endpoint, `fromCache`, nullable `fetchedAt`/`cacheAgeMs`,
+`requestSent` and `transfer: {data,sent}`. Cache hits preserve fetch age and indicate
+no new transfer. Errors distinguish `disabled`, `configuration`, `ineligible`,
+`capability`, `input`, `timeout`, `network`, `http`, `admission_denied`,
+`admission_timeout`, `bad_response`, `response_limit` and `cache_unavailable`, with
+optional HTTP/retry details. Valid provider data retains attribution and qualified
+accuracy. No transient failure is stored as no-match. Disk caching/admission is
+shared across cooperating processes; the [geo guide](../packages/geo/README.md)
+documents local aggregation, bounds and fail-closed orphan recovery.
+
+### Shared routing results
+
+`GeoClient.route(points, mode)` accepts 2–100 ordered numeric points and a
+`RoutingMode` (`car`/`foot`/`bike`). Configured entries carry `url` through the
+route-service prefix, `profile`, `preparedMode`, `dataset` and `verification`.
+The mode must match the declared prepared dataset. Public FOSSGIS entries also
+require explicit eligible demo configuration and its verified endpoint/profile.
+Otherwise the client returns a capability/eligibility error without transfer.
+
+`RoutingResult` retains `request: {mode,points}` and `attempts` even with no route.
+Its nullable `CalculatedRoute` contains `kind: "calculated"`, unsimplified geometry,
+all requested/snapped waypoints and snap distances, ordered legs with nullable
+distance/duration, unit-bearing aggregate distance (`m`) / duration (`s`), unknown
+reasons and provider-calculation method metadata. Missing/invalid estimates remain
+null and partial; zero remains zero. Geometry/waypoint/leg shape must match the
+request. Calculated duration does not establish movement or recording.
+
+The served source adds dataset name/prepared mode/profile/verification and
+`fallback: {used,reason,primaryEndpoint}`. Cache hits retain these and original
+fetch age. Every attempt lists endpoint/cache status/request transfer and error;
+a cached demo result can follow a newly transmitted primary attempt. Cache identity
+includes prepared dataset/mode metadata. Requested points are snapshotted before
+asynchronous work and are never overwritten with provider-snapped points.
+
+Status is `ok`, `partial`, genuine `no_route`, disabled or error. `NoSegment` has
+error code `no_segment`; OSRM errors retain `serviceCode`. Invalid query/input and
+disabled/capability errors remain distinct from no-route and are never cached as
+it. The demo is off until explicitly enabled and eligible. A missing primary or
+one genuine availability failure can use one matching demo attempt; denial,
+admission/cooldown, invalid/no-segment/no-route and local storage failures cannot.
+An endpoint never retries itself as its own fallback. No geometry is fabricated.
+
+### Shared Overpass POI results
+
+`GeoClient.poi(PoiQuery)` accepts exactly one of `near: {lat,lon}` or
+`alongTrack: ParsedTrack`, `radiusM` (1–5,000) and 1–10 AND tag filters. Values
+are exact strings or `true` for tag presence, never arbitrary QL/regex. Track
+queries retain section gaps, including isolated points, and refuse beyond 2,000
+points, 100 nonempty sections, 64 KiB UTF-8 QL or a radius-expanded 5-degree extent
+on either axis/pole crossing. Wide/date-line track envelopes are spatial-budget
+errors; valid source coordinates are unchanged. No track simplification occurs.
+
+`PoiResult` extends `OverpassResult<PointOfInterest[]>` with query parameters/counts,
+nullable recovered-track metadata (`partial`, original counts/omissions), response
+counts, `truncated` and method/limit metadata. Status is `ok`, `partial`, genuine
+`no_match`, disabled or error. A POI retains OSM identity, nullable name, point,
+`position: node | bounding_box_center`, tags, `openingHours: {value,interpreted:false}`,
+representative-point distance (`m`) to the query point/retained track and unknown
+reasons. Missing/empty opening-hours text is null/`not_mapped`; there is no current
+open/closed interpretation. Selection uses Overpass around geometry. A way/relation
+center is a representative bounding-box center and may lie outside the radius;
+its distance is not the distance to its entrance/full geometry. Distance uses the
+shared sphere/minor arcs, never an invented gap. Empty/undefined track distance
+stays null with a reason.
+
+Responses contain at most 1,000 usable results. A 1,001st sentinel marks a partial
+capped answer with one counted omission and warns that more may exist. More than
+1,001 elements is `response_limit`; invalid/duplicate elements are counted omissions,
+and wholly malformed nonempty responses fail rather than cache as no-match.
+Opening-hours absence alone does not mean malformed data.
+
+`OverpassResult<T>` retains all endpoint/cache/transfer/error attempts and source
+fallback `{used,reason,primaryEndpoint}`. Ordered endpoint configuration is capped
+at three, duplicates are attempted once, and a cached fallback remains visible
+after a primary attempt. Genuine availability failures can fall through; admission,
+cooldown, quota/resource denials and local storage failures cannot, even to a cached
+alternate. HTTP 504 has Overpass resource-admission meaning. JSON resource/quota
+remarks likewise refuse and persist cooldown; incomplete timeout remarks are errors,
+never genuine empty matches. Attribution accompanies usable OSM replies.
+
+### Shared background geometry and SDK adapters
+
+The geo root exports the existing SDK pure coastline helpers/types, without server
+I/O. SDK server exports retain their names/types and alias the shared implementation.
+`CoastlineConfig` additively accepts optional canonical `geo: GeoConfigInput` and
+shared runtime `admissionDir`. Required legacy enabled/url/User-Agent and optional
+timeout/fetch injection remain supported. `fetchCoastline(request, config)` retains
+the exact `CoastlineResult` keys and result-or-empty/partial failure behavior;
+`enabled:false` prevents all requests, including with a canonical config supplied.
+Legacy settings adapt to concrete shared cache/admission without wire changes.
+
+`GeoClient.coastline(CoastlineRequest)` returns `CoastlineServiceResult`, with the
+existing geometry value and per-layer `queries: {layer,result}[]`. Layers are
+`CoastlineLayer` (`coastline`, `roads`, `streets`); each result is
+`OverpassResult<CoastlineLayerGeometry>` (`lines`, input/omitted counts). Its source
+is the latest successful layer, or latest attempted layer if none succeeded; the
+complete query list is authoritative for mixed sources/cache ages/transfers/errors.
+Bounds are finite in-range ordered `[west,south,east,north]`, capped at 5 degrees
+per axis; width is >0 and ≤16,384. Existing detail/tolerance/geometry algorithms
+are preserved. Service geometry is bounded to 10,000 ways/200,000 vertices,
+including malformed entries, and shared body/time budgets. Mixed malformed data
+or failed layers with usable geometry are partial; no usable data after failure
+has null value/error. Genuine empty successful geometry has `no_match` and empty
+value. Refusal/configuration/local storage failures stop later layers. Attribution
+and every layer's endpoint/fallback/attempt evidence remain available.
+
+`reverseGeocode(coords, ReverseGeocodeConfig)` retains exactly
+`{displayName,summary,address} | null`. Required legacy enabled/url/User-Agent
+settings remain; additive optional `publicServiceEligible`, canonical `geo`,
+`fetchImpl` and shared `admissionDir` select the concrete client/runtime.
+Canonical service/cache configuration wins; legacy `enabled:false` still prevents
+requests. Public Nominatim requires explicit informed eligibility, which is never
+inferred from enabled and grants no permission beyond the public-service policy.
+An ineligible public request is an existing nullable failure path, preserving raw
+coordinates in the location tool. First-party backends default
+`NOMINATIM_PUBLIC_SERVICE_ELIGIBLE` to false; only recognized truthy tokens opt in.
+Configured nonpublic endpoints remain available. Responses are validated and
+cached by endpoint/exact coordinates; transient failures are not cached as null.
+No MCP/tool/result/wire shape or protocol revision changes.
+
+### Canonical consumer configuration
+
+`brain.config.ts`/JSON optionally accepts `geo` with the shared `GeoConfigInput`
+shape and defaults. Root omission remains omission: parsing `{}` produces `{}`,
+and new services remain off. `BrainConfig` is the authoring input type so the
+new nested defaults do not require callers to write every optional field.
+`defineConfig` remains a typed identity function; load-time schema validation
+still validates the whole configuration. Core's optional geo response-cache
+directory uses `repoRelativePathSchema` and resolves inside the brain through
+`safeResolve`, including symlink containment.
+
+SDK server additively exports `GeoConfig`, `GeoConfigInput` and `geoConfigSchema`
+from the concrete geo library. UI server `CoastlineConfig.geo` is optional for
+existing explicit configurations; `BRAIN_GEO_CONFIG_JSON` supplies it from the
+environment, validated at startup. Relative response-cache paths resolve from
+`BRAIN_PATH`; invalid/empty/malformed configuration fails rather than silently
+using legacy public endpoints. Canonical service settings take precedence over
+legacy Overpass settings. Legacy disabled prevents requests. Existing permanent
+geometry cache keys/results and 5-degree route bounds remain unchanged.
+The server environment setting is not forwarded to child processes by default.
+
+### Local vector static maps
+
+Geo server additively exports `staticMap(input, client)` and `GeoClient.staticMap`,
+plus `StaticMapInput`, `StaticMapTrack`, `StaticMapPin`, `StaticMapResult`,
+`StaticMapReason`, `StaticMapScale` and the track/pin/leg evidence types. Input has
+optional `tracks: {track:ParsedTrack,source:TrackSource,label?}[]`,
+`pins: {lat,lon,label}[]`, already-calculated `routes: RoutingResult[]`,
+`bbox: [west,south,east,north]`, `title`, `widthPx` and
+`background: "auto" | "none" | CoastlineServiceResult`. Omitted background is auto.
+No routing request is made by a map call. A concrete prefetched background sends
+no background request; `"none"` also sends none.
+
+The result has `status: ok | partial | no_map`, `kind: geometry | track_only | none`,
+nullable `reason`, nullable `png: Uint8Array`/`svg: string`, `widthPx`, nullable
+`heightPx`/`bounds`, complete `text`, `title`, copied `tracks`/`pins`/`legs`/`routes`,
+nullable `background`, `attribution`, `warnings` and `method`. Reasons are
+`unsupported_projection`, `background_extent`, `background_unavailable`,
+`background_omitted`, `no_spatial_input`, `unsupported_text`, `render_budget` and
+`renderer_unavailable`. Every no-map outcome has null images and preserves complete
+text/source/summary evidence. Invalid or oversized input throws.
+
+Track evidence retains one-based index/label, full unsimplified `TrackSummary`, exact
+original omission indices/reasons, and visible/cropped retained-vertex counts.
+Pins retain original coordinates/label, one-based index, `drawn` and nullable reason
+`outside_viewport | no_artifact`. Every requested adjacent route pair has a leg with
+route/index/mode/from/to, `available` and nullable `distanceM`/`durationS`; genuine
+zero remains zero. Route stops not represented by explicit pins gain numbered pins.
+Missing route geometry never creates a line, and imported section gaps remain gaps.
+All stops/legs remain in the full legend, including cropped stops.
+
+The method records `spherical_web_mercator`, `source_vertices_in_mercator`, the
+85.0511287798066-degree latitude limit, `gaps: preserved`, bundled IBM Plex glyph
+outlines and nullable scale `{value,unit:m,lengthPx,latitude,
+method:mercator_at_center_latitude}`. Unsupported polar/date-line/wrapping extents
+preserve source coordinates rather than clamp them. Projectable bounds wider than
+5 degrees per axis skip background querying and produce a plain image. Missing
+background also produces a qualified plain image. Used OSM geometry/calculated
+routes retain attribution; FOSSGIS-derived graphics additionally carry the
+operator's CC BY-SA 2.0 graphics link. No browser, raster tiles, system fonts or
+external resources participate in rendering.
+
+Width is 320–2,048 integer pixels, default 1,024. Maximum inputs are 100 tracks,
+1,000 explicit pins, 100 route results and 200,000 aggregate source-track/route/stop
+points, including track omissions. Prefetched background is bounded to 10,000 ways/
+200,000 vertices. Labels and provenance text are bounded and reject controls. A complete image/legend above
+32 million pixels, 16,384 height, 200,000 text characters, 16 MiB SVG or 64 MiB PNG
+gives a text fallback. Unsupported glyphs and unavailable local rasterization have
+distinct reasons. No stop, leg, omission or attribution is silently truncated.
+
+### Geo CLI envelopes
+
+`brain geo` adds the five subcommands below without changing old CLI/MCP/wire/
+frontmatter contracts. Types are `GeoGeocodeOutput`, `GeoRouteOutput`,
+`GeoPoiOutput`, `GeoTrackOutput` and `GeoMapOutput` in core's geo command. Each
+machine invocation emits one JSON document; usage exceptions remain stderr-only.
+
+| Command | JSON fields |
+|---|---|
+| `geo geocode <query>` | Complete `GeoResult<GeocodeCandidate[]>` plus `operation: geocode`, `request: {query}`. |
+| `geo geocode --reverse lat,lon` | Complete same result plus `operation: reverse`, `request: {lat,lon}`. |
+| `geo route lat,lon... --mode car\|foot\|bike` | Complete `RoutingResult` plus `operation: route`. |
+| `geo poi --near lat,lon \| --along file.gpx --radius-m metres --tag key[=value]...` | Complete `PoiResult` plus `operation: poi`, nullable brain-relative `sourceFile`. |
+| `geo track file.gpx` | Complete `TrackSummary` plus `operation: track`, exact `omissions`, nullable `nearest: NearestTrackPoint` and nullable `comparison: {summary:TrackSummary,omissions,coverage:TrackCoverage}`. |
+| `geo map [file.gpx...] --out file.png` | Complete `StaticMapResult` except `png`/`svg`, plus `operation: map`, nullable `artifact: {path,format:png,bytes}`. |
+
+Coordinates are latitude,longitude in CLI arguments. Bbox order remains west,
+south,east,north. Route mode is required and ordered stops remain intact. POI
+requires exactly one spatial form, explicit radius and 1–10 exact AND filters;
+repeatable bare keys mean presence and duplicate keys refuse. Track nearest/
+comparison requires explicit `--tolerance-m`; optional `--sample-spacing-m` needs
+comparison. Counts, partial status, model, tolerance, direction and unknown reasons
+remain the shared results; originals are never rewritten.
+
+Map accepts repeatable `--pin lat,lon,label` (commas after the first two belong to
+the label), optional repeated routing `--point lat,lon` with required `--mode`,
+`--bbox`, `--title`, `--width` and `--no-background`. Routing resolves before the
+static map operation; this is explicit requested traffic rather than a hidden
+route calculation in rasterization. Output is brain-relative PNG, requires an
+initialized brain and explicit `--out`, and replaces a chosen regular file.
+Containment checks include symlinks and repeat after asynchronous resolution;
+scratch uses its existing genuine/ignored-directory write and pruning rules.
+No-map returns null artifact and does not create its destination. Complete text/
+provenance/omissions remain in the JSON while binary PNG/SVG contents are omitted.
+Aggregate map input counts omitted source points as well as retained geometry.
+
+Human mode prints source, fetch/cache age, all transfer attempts, dataset/fallback,
+unknown estimates and applicable attribution. Exit 0 covers valid/partial results,
+genuine no-match/no-route and documented map/text fallback; input/usage is 1 and a
+failed service command/storage/local renderer is 2. Typed service input errors may
+emit their one JSON result with exit 1; parse/path/usage exceptions print only to
+stderr. `brain render` retains its existing envelope/network-denied behavior:
+callers inline the already-created local PNG as data before invoking export.
+
+### Imported track files in chat (additive)
+
+`ClientChatMessage.files?: { kind: "file"; path: string }[]` references validated
+originals in the existing share staging directory. The host resolves and reparses
+those originals before first, queued, native follow-up and retry dispatch. A client
+cannot supply trusted coordinates, measurements or a replacement source path.
+Images remain in `attachments`; at most `SHARE_MAX_FILES` (10) files and images,
+with `SHARE_MAX_TOTAL_BYTES` (50,000,000) total decoded/original bytes, may accompany
+one message. Existing image-specific limits still apply. Bad references fail as
+`ATTACHMENT_REJECTED`, before a backend runs.
+
+The paired UI transports `POST /api/track-upload` and `GET /api/tracks` are
+[internal HTTP routes](http-api.md#imported-track-ui-transport-526); their
+published socket/block behavior remains this additive contract.
+
+`POST /api/track-upload` uses the existing authenticated, same-origin multipart
+boundary, concurrency and total-body caps. It admits validated GPX, KML 2.2 and
+the supported GeoJSON subset only. `TRACK_MAX_FILE_BYTES` is 20 MiB, matching the
+shared parser; a larger track returns `413 {error:"file_too_large",limit}`.
+Ordinary JSON, PDF, CSV, unsupported formats, malformed or unsafe structures
+return `422 {error:"unsupported_track",message}`. A title/text without a track
+cannot bypass admission. A cancelled uncommitted stage is removed. Originals are
+written unchanged through the existing atomic staging path; no knowledge-base
+content is created. Existing `POST /api/share` retains generic file intake and
+never labels an unvalidated file as a track.
+
+An initial accepted retry receipt can include canonical `files` for the new
+local user row; receipt status queries still disclose no original input.
+
+`SharedFileMeta` additively carries `incomingName?`, `detected?:
+"gpx"|"kml"|"geojson"` and `summary?: TrackFileSummary`. Validated nameless,
+extensionless or generic `.bin`, `.dat`, `.tmp`, `.xml` and `.json` tracks get a
+detected format extension in their sanitized, collision-safe staged name.
+`sha256?` identifies a validated original; exact retries check the original
+before accepting and refuse changed or unavailable files. Incoming display
+name/MIME, detected format and actual staged name/path remain
+separate bounded, inert metadata. `TrackFileSummary` is the shared `TrackSummary`
+without geometry, plus input waypoint count and omitted waypoint count. Replayed
+user messages add `files?: SharedFileMeta[]`; the operational UI database retains
+this metadata, not authoritative content or original bytes. Only a byte-identical
+recorded server context is removed from replay text. User-authored lookalikes
+remain user text.
+
+`GET /api/tracks?path=<staged reference>` returns `TrackFileView`: the shared
+`ImportedTrack` plus canonical `file: SharedFileMeta`, recomputed from the original.
+Unavailable, expired or unsupported originals return `422 {error:
+"track_unavailable",message}`; a missing/overlong path returns 400. Reads enforce
+containment, regular-file/no-symlink checks and actual byte limits.
+
+A custom `SessionCatalog` must implement `peekRetry` to advertise Retry for
+file-backed requests: the server checks original bytes before consuming eligibility.
+Older catalogs retain their existing text/image-only Retry behavior.
+
+`show_block` adds `{kind:"track",source:{path:string},title?:string}`. The source
+is a staged reference only: no model-authored geometry, viewport, metric or
+provenance field. The client resolves the original through the route above.
+The classifier does not infer track blocks from prose. `TrackMap` is a
+presentation-only kit component; `MapView.fitPoints` fits a track envelope
+without extra pins, and `MapPin.marker` distinguishes start/end shapes and their
+`S/E` merge. Existing place-map behavior stays unchanged.
+
+Imports recover invalid coordinates into separate usable sections with exact
+counts/reasons. Every omission and original section boundary breaks both drawing
+and measurement. Valid zero, repeated and polar coordinates remain source
+coordinates. Optional invalid/missing elevation and timestamps remain unknown;
+elapsed includes pauses within sections and excludes gaps, with incomplete or
+non-monotonic required times unknown. Moving time remains unavailable. Elevation
+uses the shared three-point median/3 m hysteresis and complete eligible altitude
+input. Values cover `usable_sections`; recovered values say partial. Formats and
+timestamps never establish recorded travel: coordinates are file-provided.
+
+`parseImportedTrack` in `@schlessera/brain-geo` owns adapters: GPX track/route and
+waypoints; KML LineString, MultiGeometry and Point, with no NetworkLink, Model or
+polygon import; GeoJSON LineString, MultiLineString, Point/MultiPoint and their
+Feature/collection wrappers, with no alternate CRS or polygons. XML is strict,
+UTF-8/ASCII, entity/DTD-free; input is bounded to 20 MiB, 200,000 total line and
+waypoint points and 128 nesting levels. The original is never rewritten. Shared
+measurement input and displayed lines are unsimplified in this cut; all retained
+points remain drawn unless the entire projection is unsupported.
+
+The static map retains a labeled track-only line when background geography is
+unavailable or its drawn envelope exceeds either 5-degree query axis. It sends no
+oversized geography request. A Mercator/padded frame outside the supported
+latitude/longitude range gives a clear reason with the complete summary,
+waypoints and original reference, without clamping/wrapping source points. PNG/PDF
+sharing resolves file and optional geometry before composing static HTML; the
+scriptless renderer performs no network fetch. An expired original refuses track
+export rather than drawing an empty frame.
+
+A host's manifest must advertise MIME types together with extensions. Extend its
+existing generic/image entries with these track entries; use the SDK worker
+handler at the same action. The generated-host change is tracked separately in
+[brain-hosting-template#10](https://github.com/schlessera/brain-hosting-template/issues/10).
+The example is checked through `registerShareTarget` and actual multipart parsing.
+
+<!-- track-share-target-example -->
+```json
+{
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{
+        "name": "files",
+        "accept": [
+          "application/gpx+xml", ".gpx",
+          "application/vnd.google-earth.kml+xml", ".kml",
+          "application/geo+json", ".geojson",
+          "application/json", ".json"
+        ]
+      }]
+    }
+  }
+}
+```
+<!-- /track-share-target-example -->
+
+A `.json` or generic MIME/name is identified by validated contents. Ordinary JSON
+still receives no track summary. See the [GPX schema](https://www.topografix.com/GPX/1/1/),
+[KML reference](https://developers.google.com/kml/documentation/kmlreference) and
+[GeoJSON RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946) for source formats;
+the supported subset and recovery policy above govern this import contract.

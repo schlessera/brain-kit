@@ -4,6 +4,8 @@ import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
 
 import type { BrainContext } from "../../lib/context.js";
 import {
+  auditTotals,
+  auditWithModules,
   findBudgetOverruns,
   findOverdueReviews,
   findPastDates,
@@ -127,15 +129,14 @@ function countOpenEntries(text: string): number {
 }
 
 /**
- * The Upkeep section: when content-hygiene last ran and what it left open,
- * so upkeep that stopped is visible in the briefing. Empty when the brain
- * has no hygiene log.
+ * The Upkeep section: current audit must-fix findings, plus when
+ * content-hygiene last ran and what it left open when the brain keeps logs.
  */
-function upkeepLines(root: string, todayStr: string): string[] {
+function upkeepLines(root: string, todayStr: string, mustFix: number): string[] {
+  const lines = ["\n## Upkeep\n", `- ${mustFix} must-fix audit finding(s) (errors and warnings; brain audit)`];
   const lastRunPath = resolve(root, HYGIENE_LAST_RUN);
   const openPath = resolve(root, HYGIENE_OPEN);
-  if (!existsSync(lastRunPath) && !existsSync(openPath)) return [];
-  const lines = ["\n## Upkeep\n"];
+  if (!existsSync(lastRunPath) && !existsSync(openPath)) return lines;
   // The log is written by hand as much as by the skill: a file that does not
   // parse is reported, never allowed to take the rest of the briefing down.
   let last: string | null = null;
@@ -179,7 +180,7 @@ function upkeepLines(root: string, todayStr: string): string[] {
  * path is unset — essential for a fresh template with no current-focus file.
  * Throws when the index is missing so importers can handle it themselves.
  */
-export function generateBriefing(brain: BrainContext, limit = 15, opts: BriefingOptions = {}): string {
+export async function generateBriefing(brain: BrainContext, limit = 15, opts: BriefingOptions = {}): Promise<string> {
   const reviewLimit = opts.reviewLimit ?? DEFAULT_REVIEW_LIMIT;
   if (!existsSync(brain.dbPath)) {
     throw new Error("Database not found. Run `brain index` first.");
@@ -266,8 +267,10 @@ export function generateBriefing(brain: BrainContext, limit = 15, opts: Briefing
       }
     }
 
-    // 4b. Upkeep: the content-hygiene log, when the brain keeps one.
-    lines.push(...upkeepLines(brain.root, todayStr));
+    // 4b. Upkeep: the same current findings and severity totals as `brain audit`,
+    // including async module checks. Informational markers never inflate must-fix.
+    const { mustFix } = auditTotals(await auditWithModules(db, brain, { now }));
+    lines.push(...upkeepLines(brain.root, todayStr, mustFix));
 
     // 5. Recently active primary docs
     const recent = filterSearch(db, { relevance: "primary", limit });
@@ -332,6 +335,6 @@ export const briefingCommand: CoreCommand = {
       }
     }
     // Briefing is plain text (contract). Errors surface as usage failures.
-    console.log(generateBriefing(cli.brain, limit, { reviewLimit }));
+    console.log(await generateBriefing(cli.brain, limit, { reviewLimit }));
   },
 };

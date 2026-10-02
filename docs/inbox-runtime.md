@@ -7,25 +7,43 @@ Markdown remains content authority and this runtime never opens `brain.db`.
 
 ## Recovery and claims
 
-Boot and each drain pass return expired Queue leases to `ready` through the
-store's guarded transitions. A persisted `inbox-drain` scheduler heartbeat
-records the pass time and committed change cursor. Recovery does not reset
-attempts, grant authority or create an Activity run. Budget recovery and
-failed-attempt/dead-letter policy remain the accounting/effect engine's work.
+A pending [operational restore](inbox-recovery.md) refuses app boot and drain
+startup. Restore completes staging and reconciles the lost workers' reservations
+and claims atomically before allowing normal lifecycle work.
+
+Boot and each drain pass reconcile reserved cost before releasing expired
+leases into bounded retry backoff. Exhausted attempts remain `failed` and
+produce one stable dead-letter Action. A persisted `inbox-drain` scheduler
+heartbeat records the pass time and committed change cursor. Recovery does
+not reset attempts, grant authority or create an Activity run. Due snoozes,
+scheduled work, expiry and staging compensation use deterministic maintenance
+from [the Action engine](inbox-actions.md).
+
+An expired lease remains claimed while its backend actually runs. Each acquired
+attempt holds a kernel SQLite lock in a disposable file under the operational
+database's sibling `<database>.inbox-live/` directory. These locks span backend
+unwind without holding the operational database's write transaction. Process
+death releases ownership even when an open Activity root or old lock file
+remains, allowing conservative accounting and bounded lease recovery. Normal
+completion and staging compensation reap disposable files; operational backups
+do not copy a source worker's ownership.
 
 A pass counts due, unexpired `ready` Queue items below their attempt limit.
 An empty set creates zero model calls and zero Activity runs. Claims select
 and transition under `BEGIN IMMEDIATE`; each receives a ten-minute lease.
 Selection uses the store's current priority order. Work runs after the claim
 transaction ends, and each pass is bounded by its initial eligible count.
-The engine owns checkpointing, completion, backoff and accounting. A failed
-dispatch retains its lease for recovery; it does not silently mark work done.
+The engine owns checkpointing, completion and accounting. Explicit dispatch
+failure releases its claim into backoff and reconciles its reservation; a
+killed process leaves a lease for recovery. Cleanup runs outside SQLite,
+without a model reservation, and never silently marks unfinished work done.
 Tick and poke share one in-flight guard, including synchronous reentry.
 Close cancels the interval, aborts the internal dispatcher signal and waits
 for the active pass before the app closes SQLite.
 
-`createApp` installs no production dispatcher. It updates heartbeats and
-recovers leases, while leaving even a nonempty ready set unclaimed. Internal
+`createApp` installs no production model dispatcher. It updates heartbeats,
+recovers leases and reconciles cleanup, while leaving nonempty model work
+unclaimed. Internal
 tests use a deterministic dispatcher to prove claims and lifecycle behavior.
 Production execution requires the containment, budgets, admission and complete
 system gates in [the async-collaboration decision](decisions/async-collaboration.md)
@@ -103,4 +121,4 @@ host's responsibility. Socket tests exercise the real mounted success path in
 all four auth modes, actual non-loopback refusals with forged forwarding
 headers, boot rotation and persisted lease recovery. Two processes exercise
 one-winner claims and heartbeat contention under the existing five-second
-SQLite busy timeout; the database transaction covers no model/filesystem work.
+SQLite busy timeout; the database transaction covers no model call or staging removal.

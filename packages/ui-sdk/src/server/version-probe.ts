@@ -12,6 +12,8 @@ const CLEANUP_MS = 250;
 const HELPER_TIMEOUT_MS = 200;
 
 export interface VersionProbeOptions {
+  /** Cancel an invocation-time check with its request, using the same bounded cleanup. */
+  signal?: AbortSignal;
   cwd: string;
   env: Record<string, string | undefined>;
   exec: ExecWrapperConfig;
@@ -27,6 +29,7 @@ export interface VersionProbeResult {
 
 /** Run only a version command, with settlement independent of exit, pipe EOF and the killer. */
 export async function probeVersionCommand(argv: readonly string[], options: VersionProbeOptions): Promise<VersionProbeResult> {
+  options.signal?.throwIfAborted();
   const proc = Bun.spawn(wrapCommand(argv, options.exec.wrapper), {
     cwd: options.cwd,
     env: options.env,
@@ -69,7 +72,15 @@ export async function probeVersionCommand(argv: readonly string[], options: Vers
     (): Outcome => ({ timedOut: false }),
     (error: unknown): Outcome => ({ timedOut: false, error })
   );
-  const outcome = await Promise.race([complete, deadline]);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<Outcome>(resolve => {
+    if (!options.signal) return;
+    onAbort = () => resolve({ timedOut: false, error: options.signal!.reason || new Error("Version probe aborted") });
+    options.signal.addEventListener("abort", onAbort, { once: true });
+    if (options.signal.aborted) onAbort();
+  });
+  const outcome = await Promise.race([complete, deadline, aborted]);
+  if (onAbort) options.signal!.removeEventListener("abort", onAbort);
   clearTimeout(timer);
   const cleanupWarnings: string[] = [];
   // Sweep wrapped groups even after a clean exit: descendants may have closed

@@ -27,7 +27,7 @@ injected `ctx.db` uses throughout package source, then traced each connection.
 
 Sources: (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`); graph meta (`getGraphMeta`, `packages/ui-server/src/graph/reader.ts:437-471`), edges (`DISTINCT_EDGES_SQL`, `packages/ui-server/src/graph/reader.ts:253-258`), neighborhood (`getNeighborhood`, `packages/ui-server/src/graph/reader.ts:525-540`),
 discovery (`getDiscovery`, `packages/ui-server/src/graph/reader.ts:542-617`) and maintenance (`getMaintenance`, `packages/ui-server/src/graph/reader.ts:619-673`); voice (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`) and content
-extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`); raw module context (`HygieneContext`, `packages/core/src/lib/module-types.ts:11-16`).
+extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`); raw module context (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`).
 
 > **2026-10-01 — Implementation context (pi inventory above and link-walk
 > comparison below).** The native pi graph and listing described by the audit
@@ -71,7 +71,7 @@ Missing peer becomes query capability unavailability, never a fallback to
 hand-written SQL or a subprocess per click. Match the imported peer identity,
 not a different `brain` binary found on PATH. Version/feature checks precede use.
 
-This edge is not currently allowed (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:86-89`). A maintainer decision must
+This edge is not currently allowed (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:88-91`). A maintainer decision must
 approve the optional peer and its version/capability behavior, or specify a
 concrete alternative. A hard dependency would guarantee the API but install
 core for all server consumers; duplicating SQL or a pluggable query provider

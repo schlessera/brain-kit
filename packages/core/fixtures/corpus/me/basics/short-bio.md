@@ -6,15 +6,15 @@ updated: 2026-05-01
 tags: [identity, bio, short]
 status: active
 relevance: primary
-summary: "One-paragraph public bio for event programs and trail-guide credits"
+summary: "A concise account of the return from Troy"
 derived_from: FACTS.md
 last_derived: 2026-05-01
 ---
 
-Alex Example is a park ranger at Cedar Hollow Wilderness Preserve, where the work
-runs from trail stewardship to seasonal wildlife surveys. Off the clock, Alex
-builds hand-tool furniture and studies practical astronomy. Derived from
-[[FACTS]]; see [[identity]] for the full picture.
+Odysseus is king of Ithaca and a sailor. Penelope holds the household while he tries to
+return from Troy. Alone on Ogygia, he keeps raft plans, health notes and
+navigation instructions. Derived from [[FACTS]]; see [[identity]] for the full
+account.
 
-> Note: this bio was last derived on 2026-05-01, before FACTS.md was updated on
-> 2026-06-01 — it intentionally lags its source for the propagation-audit fixture.
+> This bio was last derived on 2026-05-01, before FACTS.md's 2026-06-01 update.
+> It intentionally lags its source for the propagation-audit fixture.

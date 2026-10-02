@@ -1023,6 +1023,7 @@ export async function auditWithModules(
 ): Promise<AuditIssue[]> {
   const issues = audit(db, brain.taxonomy, { root: brain.root, ...opts });
   for (const mod of brain.modules) {
+    if (mod.state === "dormant") continue;
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {
         const found = await check({ db, root: brain.root, config: mod.config });

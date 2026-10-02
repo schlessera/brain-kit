@@ -36,7 +36,7 @@ looking at a card: the transcript copy in
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
-`docs/decisions/design-kit.md:1842`). A spoken conversation has no card, so
+`docs/decisions/design-kit.md:1850`). A spoken conversation has no card, so
 either the model speaks the request and waits, or voice runs under a posture
 that needs no interactive approval, or voice is read-only.
 
@@ -223,11 +223,18 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain__brain_read` | Read-only, one document. |
 | `mcp__brain__brain_list` | Read-only enumeration. |
 | `mcp__brain__brain_graph` | Read-only. |
+| `mcp__brain__jobs_review` | Read-only query over the owner's local jobs queue, returning at most 50 summaries. No egress: it does not scrape, fetch listing URLs, change review decisions or create a missing database. Admitted 2026-10-01 (#605). |
 | `mcp__brain__brain_add` | Creates a new document. The single most valuable eyes-free action there is — capture. A create destroys nothing: the worst case is a document the user did not want, which appears in Files and is removable. |
 | `mcp__brain__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:573-578`), applied independently (`params.summary !== undefined`, `:597-613`), so **a single call can overwrite all six** — and `tags` is a comma-separated string that replaces the whole tag list rather than merging into it (`tags: z.string()`, `:576`; `params.tags !== undefined`, `:600-602`), while `deadline` and `next_review` take `""` as *delete the field* (`params.deadline !== undefined`, `:604-613`). `updated` is bumped unconditionally (`updates.updated = updated`, `:627`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
 | the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:83-101`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+
+Module tools are admitted only by exact name, never by their own annotations,
+as [module-mcp-tools.md §6](module-mcp-tools.md#6-annotations-and-permissions)
+requires. `jobs_review` reuses the CLI's queue operation; opening an existing
+database retains its schema initialization and migration, as that record's
+§10 states. It does not grant access to `jobs_decide` or any other module tool.
 
 **Excluded, each for its own reason:**
 
@@ -235,7 +242,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | --- | --- |
 | `Bash` | 192 of 192 measured approvals came from it, and its payload is the unspeakable one (median 118 spoken seconds). Removing it removes the problem instead of narrating it. This is the whole of the cost of the voice posture, and it is deliberate. |
 | `Write`, `Edit`, `NotebookEdit` | Raw byte writes to arbitrary paths. The brain document tools cover the legitimate eyes-free write and keep frontmatter and the search index correct; these do not. |
-| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:152-153`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
+| `Agent` | A subagent's own `Bash` / `Edit` / `Write` calls surface under their own names and are gated individually (`A subagent's own`, `tool-policy.ts:156-157`). In a voice turn they would each be denied, one at a time, inside work the user cannot see. A subagent crippled halfway through is worse than no subagent. |
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
 | `mcp__brain__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:50-58`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
@@ -303,9 +310,9 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:179-189`) and is not
+`permission-hooks.ts:189-199`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
-(`Regex sources`, `packages/ui-backend-claude/src/options.ts:49-59`)
+(`Regex sources`, `packages/ui-backend-claude/src/options.ts:51-61`)
 lets a deployment supply its own patterns, which have no phrase when given as
 bare regex sources (the `{ pattern, effect }` form carries one). Both fall
 back to the same payload-free
@@ -360,8 +367,8 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:240` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:351-378`),
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:243` →
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:352-379`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -373,7 +380,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:235`; `drainPendingForTurn`, `:240`),
+(`abortController.abort()`, `run-session.ts:238`; `drainPendingForTurn`, `:243`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right
@@ -388,7 +395,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:338-344`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:368-374`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -397,8 +404,8 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:338-344`, and the lookup computing
-`remembered`, `ws/bridge.ts:144-164`), and 192 of 192 measured
+(the block computing `remembers`, `dispatch.ts:368-374`, and the lookup computing
+`remembered`, `ws/bridge.ts:152-172`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -455,7 +462,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:400-415`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:173-188`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:181-196`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -467,7 +474,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:379-392`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:409-422`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -478,7 +485,7 @@ The mechanism is the one the repo already has: a declared tool allowlist bound
 to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:26`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
-`options.ts:46-47`), resolved into the SDK's `allowedTools` per turn (the
+`options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:83`, and what it
 becomes, `allowedTools: allowed`, `:143`). The voice posture is one
 named entry in that mechanism.
@@ -486,7 +493,7 @@ named entry in that mechanism.
 **#51's U15 originally chose availability control for the same bypass reason.**
 The current plan still specifies *"Tool **availability** control (`tools`) or a
 measured enforced membership"*
-(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1171-1173`).
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1176-1178`).
 The plan is #51's design record. It was written before #141 and #154 measured
 the runtime paths described below; those measurements strengthen the argument
 for removing a tool's availability rather than leaving its execution reachable.
@@ -495,7 +502,7 @@ for removing a tool's availability rather than leaving its execution reachable.
 was trivial is superseded. Its resource loader and inline extension gate expose
 more than the curated tool roster, so both first-party runtimes need executable
 boundary proof
-(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1184-1188`).
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1189-1193`).
 This correction does not choose a second enforcement mechanism or weaken the
 voice/unattended membership requirement below.
 
@@ -574,7 +581,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:18-32`;
   `!mayGrant`, `:71-79`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:340-356`).
+  `const agentHook`, `permission-hooks.ts:365-381`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -584,14 +591,14 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:144-164`,
+  `packages/ui-server/src/ws/bridge.ts:152-172`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:338-344`).
+  `packages/ui-server/src/ws/dispatch.ts:368-374`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`enforcementHook`, `permission-hooks.ts:104-119`) — that is what beats the
+(`enforcementHook`, `permission-hooks.ts:104-127`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
@@ -664,8 +671,8 @@ Bash call through `canUseTool` first: the PreToolUse `mutatingHook` fires
 before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
-`permission-hooks.ts:131-133`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:254-261`). So a
+`permission-hooks.ts:139-141`, and the call in `mutatingHook` that reads it,
+`decideToolPermission`, `:263-270`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about

@@ -37,6 +37,12 @@ import { resetRtkProbe } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeBackend } from "../src/backend";
 import { runToolCall } from "./helpers/run-tool-call";
 
+// Hooks belong to a live turn. End every fixture after its tool assertions.
+const finishTurns: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const finish of finishTurns.splice(0)) await finish();
+});
+
 interface Harness {
   options: Options;
   requests: PermissionRequest[];
@@ -44,9 +50,8 @@ interface Harness {
 }
 
 /**
- * Start one turn and capture the SDK options it built. The turn ends before
- * any hook is fired, which is deliberate: the hooks and `canUseTool` close
- * over per-turn state and that state is what is under test.
+ * Capture one live turn's SDK options; tools run before its terminal result.
+ * Teardown ends the fixture only after its permission assertions.
  */
 async function startTurn(setup: {
   allowedTools: string[];
@@ -63,10 +68,15 @@ async function startTurn(setup: {
     },
   };
   let captured: Options | undefined;
+  let announce!: () => void, finish!: () => void;
+  const started = new Promise<void>((resolve) => { announce = resolve; });
+  const held = new Promise<void>((resolve) => { finish = resolve; });
   const queryFn = ((params: { options?: Options }) => {
     captured = params.options!;
+    announce();
     const stream = (async function* () {
       yield { type: "system", subtype: "init", session_id: "s1", apiKeySource: "none" };
+      await held;
       yield {
         type: "result",
         subtype: "success",
@@ -90,12 +100,14 @@ async function startTurn(setup: {
     allowedTools: setup.allowedTools,
     log: (level, message) => logs.push({ level, message }),
   });
-  await backend.startTurn({
+  const running = backend.startTurn({
     prompt: "enforce the allowlist",
     signal: new AbortController().signal,
     bridge,
     ...(setup.enforceAllowedTools ? { enforceAllowedTools: true } : {}),
   });
+  await Promise.race([started, running.then(() => { throw new Error("Fixture ended before SDK admission"); })]);
+  finishTurns.push(async () => { finish(); await running; });
   return { options: captured!, requests, logs };
 }
 

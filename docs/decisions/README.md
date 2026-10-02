@@ -11,15 +11,19 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D50, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer. |
+| [public-website.md](public-website.md) | Why the product site uses static Astro, canonical Markdown with stable routes and separately authorized repository-controlled GitHub Pages publication. |
 | [feature-captures.md](feature-captures.md) | Why public feature assets use curated real sources, explicit crops and font/build provenance, with separate runtime evidence for behavior claims. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |
 | [container-privilege.md](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (in brain-hosting-template) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. Moved to the hosting template, which builds the container (#303). |
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
 | [async-collaboration.md](async-collaboration.md) | Why Queue and Actions form one complete autonomous v1: containment before enabling, operational/content ownership, reservations, deterministic resolution and the existing Actions destination. |
+| [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
 | [design-feedback.md](design-feedback.md) | The design defects building the kit found, the measurement behind each, and the ruling that settled it. Cited by section number from `packages/ui-kit` source. |
+| [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
@@ -38,8 +42,10 @@ somebody already learn the hard way?*
 | [backend-conformance.md](backend-conformance.md) | Why restricted-turn handling is mandatory for conforming backends, when safe rejection is valid, and how shared permission and descriptor tests prove it. |
 | [exclusion-rules.md](exclusion-rules.md) | Why trailing-slash exact-file exclusions are rejected, and why directory checks apply only directory and segment rules even for programmatic callers. |
 | [module-mcp-tools.md](module-mcp-tools.md) | Why a module may contribute namespaced MCP tools under the same compatibility policy as core's: how they are declared, named, validated and registered, why the tool set is fixed per server process (and what that means for a dormant module), who owes what compatibility, and why `jobs_review` is the first. |
+| [module-instruction-ownership.md](module-instruction-ownership.md) | Why module instructions come from validated contributions with explicit region ownership, and why legacy mixed sections require migration before a toggle changes files. |
 | [site-adapter-adoption.md](site-adapter-adoption.md) | Why all ten job boards use the evolved shared SiteAdapter and runner, with evidence-derived outcomes and domain metadata kept in jobs. |
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
+| [jobs-board-defaults.md](jobs-board-defaults.md) | Why jobs derives curated defaults and settings choices from one board policy, with explicit brain config and per-module JSON selections taking precedence. |
 | [audit-markers.md](audit-markers.md) | Why `brain audit` reports TODO and VERIFY markers as one informational finding per document and kind, what `verification: unverified` means (and why there is no `verified`), why must-fix is errors plus warnings, and why broken links reuse the indexer's resolution. |
 | [document-render.md](document-render.md) | How `brain render` makes a document worth sending: one stylesheet, component classes as the contract, kinds as recipes with skeletons, full documents injected into rather than nested, a footer in CSS margin boxes, a lint on every render, a linear HTML tokenizer, and why chrome-headless-shell is opt-in. |
 | [index-query-api.md](index-query-api.md) | Why supported content-index results replace direct SQL only after reader migration and real-index compatibility coverage. |
@@ -123,7 +129,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-119`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

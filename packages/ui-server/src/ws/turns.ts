@@ -41,6 +41,7 @@ export interface QueuedFollowUp {
   authorization: AuthorizationContext;
   text: string;
   attachments: ChatImageAttachment[];
+  files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
   /** How the user produced the message; absent means typed. */
@@ -63,13 +64,13 @@ export interface QueuedFollowUp {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files">
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
     bytes += attachment.data.length;
   }
-  return bytes;
+  return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 
 /** Total bytes currently parked in a session's follow-up queue. */

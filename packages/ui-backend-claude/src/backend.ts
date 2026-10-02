@@ -17,6 +17,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
 import { listProfiles } from "./profiles.js";
 import { createClaudeTurnRunner } from "./turn-runner.js";
+import { assertClaudeSdk, claudeRuntimeRequirements } from "./version-requirements.js";
 
 const BACKEND_ID = "claude";
 
@@ -49,6 +50,9 @@ export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal
  * routes permission / ask-user / location round-trips through the host bridge.
  */
 export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend {
+  options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}) };
+  assertClaudeSdk(options.versionRequirements, "backend construction");
+  claudeRuntimeRequirements(options.versionRequirements);
   // Resolved per call, not captured: a function source may return more profiles
   // later (discovery refresh). An empty roster falls back to the built-in.
   const resolveProfiles = () => resolveClaudeProfiles(options);

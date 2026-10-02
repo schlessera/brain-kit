@@ -105,10 +105,10 @@ export const PROMPTS = [
   "Compare Bun and Node.js as a runtime for a small CLI tool.",
   "How did the number of notes in this brain trend over the last months? Show me the trend.",
   "Who is the person this brain belongs to?",
-  "What are the steps in the bookshelf project, in order?",
+  "What are the steps in the raft project, in order?",
   "What is coming up in this brain over the next few weeks?",
   "What is the most striking single sentence in the journal? Quote it.",
-  "Summarise the trail signage project: status, materials and who it is for.",
+  "Summarise the sail repairs project: status, materials and who it is for.",
 ];
 
 /** One live turn, as recorded. */
@@ -921,7 +921,7 @@ async function inspectSuggestions(): Promise<void> {
   const { listedTool } = await import("./show-block-schema-forms.ts");
   const claude = createShowBlockTool();
   const pi = createPiBridgeTools({ brainPath: "/tmp/fictional-brain", turn: createTurnContext() }).find((tool) => tool.name === "show_block")!;
-  const input = { block: { kind: "suggestions" as const, items: [{ label: "Plan the bookshelf step" }] } };
+  const input = { block: { kind: "suggestions" as const, items: [{ label: "Plan the raft step" }] } };
   console.log(JSON.stringify({
     claude: await listedTool(claude),
     pi: { description: pi.description, inputSchema: pi.parameters },

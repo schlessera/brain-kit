@@ -22,6 +22,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { dirname, join, normalize, relative, resolve } from "path";
+import { toString } from "mdast-util-to-string";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import { markdownAnchors, markdownLinks, splitLink } from "./markdown-anchors";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -123,6 +126,32 @@ function anchorsOf(path: string): Set<string> {
 }
 
 describe("documentation paths", () => {
+  test("D44 is a parsed heading in the design record", () => {
+    const body = readFileSync(join(ROOT, "docs/decisions/design-kit.md"), "utf8");
+    expect(markdownAnchors(body).has(
+      "2026-09-22--d44-the-bridge-tools-are-always-loaded-not-deferred-behind-tool-search",
+    )).toBe(true);
+  });
+
+  test("D43's reproduction command ends before its explanatory prose", () => {
+    const body = readFileSync(join(ROOT, "docs/decisions/design-kit.md"), "utf8");
+    const { children } = unified().use(remarkParse).parse(body);
+    const index = children.findIndex((node) => node.type === "code"
+      && node.value.startsWith("bun scripts/measure-show-block.ts --always-load"));
+    expect(index).toBeGreaterThanOrEqual(0);
+    const command = children[index];
+    expect(command?.type).toBe("code");
+    if (command?.type !== "code") throw new Error("D43 reproduction command missing");
+    expect(command.lang).toBe("sh");
+    expect(command.value).toBe(String.raw`bun scripts/measure-show-block.ts --always-load --reps 3 --only \
+  compare-short,compare-long,trend,contact,table,steps,quote,bars`);
+    const prose = children[index + 1];
+    expect(prose?.type).toBe("paragraph");
+    expect(toString(prose).replace(/\s+/g, " ")).toBe(
+      "It is a script and not a test: it needs the network and a key, so CI never runs it. Re-run it before changing the brief again.",
+    );
+  });
+
   test("there are docs to check", () => {
     expect(files.length).toBeGreaterThan(10);
   });

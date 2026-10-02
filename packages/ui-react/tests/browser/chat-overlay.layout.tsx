@@ -57,6 +57,8 @@ const sizes = [
   // Check the container-query threshold itself, not just a wide desktop.
   { width: 879, height: 800 },
   { width: 880, height: 800 },
+  { width: 887, height: 800 },
+  { width: 888, height: 800 },
 ];
 
 type Size = (typeof sizes)[number];
@@ -112,10 +114,18 @@ async function mount(size: Size) {
 
 for (const size of sizes) {
   test(`${label(size)}: New chat has a 44×44 target`, async () => {
-    const { target } = await mount(size);
+    const { target, area } = await mount(size);
     const rect = target.getBoundingClientRect();
     expect(rect.width, "target width").toBeGreaterThanOrEqual(44);
     expect(rect.height, "target height").toBeGreaterThanOrEqual(44);
+    expect(rect.width, "existing target width is preserved").toBe(44);
+    expect(rect.height, "existing target height is preserved").toBe(44);
+    const areaRect = area.getBoundingClientRect();
+    expect(areaRect.right - rect.right, "existing right inset").toBe(16);
+    expect(rect.top - areaRect.top, "existing top inset").toBe(10);
+    const disc = target.firstElementChild!.getBoundingClientRect();
+    expect(disc.width, "painted disc width").toBe(32);
+    expect(disc.height, "painted disc height").toBe(32);
   });
 
   for (const [horizontal, vertical] of [
@@ -147,7 +157,7 @@ for (const size of sizes) {
   });
 }
 
-for (const size of sizes.filter(size => size.width === 320)) {
+for (const size of sizes.filter(size => size.width === 320 || size.width === 880 || size.width === 887)) {
   test(`${label(size)}: resting first message content clears New chat`, async () => {
     const { column, target } = await mount(size);
     const content = column.querySelector<HTMLElement>(".chat-message-body")!;
@@ -164,18 +174,19 @@ for (const size of sizes.filter(size => size.width === 320)) {
 }
 
 for (const size of sizes.filter(size => size.width >= 879)) {
-  test(`${label(size)}: container query releases the spacer from 880px`, async () => {
+  test(`${label(size)}: container query releases the spacer from 888px`, async () => {
     const { scroller, area } = await mount(size);
     expect(area.getBoundingClientRect().width).toBe(size.width);
     expect(getComputedStyle(scroller).paddingTop, "actual container-query padding")
-      .toBe(size.width >= 880 ? "0px" : "40px");
+      .toBe(size.width >= 888 ? "0px" : "40px");
   });
 }
 
-for (const size of sizes.filter(size => size.width >= 880)) {
+for (const size of sizes.filter(size => size.width >= 888)) {
   test(`${label(size)}: the wide reading column clears New chat`, async () => {
     const { column, target } = await mount(size);
-    expect(column.getBoundingClientRect().width, "a nonempty reading column is measured").toBeGreaterThan(0);
+    const columnRect = column.getBoundingClientRect();
+    expect(columnRect.width, "the maximum reading-column width is preserved").toBe(768);
     expect(intersects(column.getBoundingClientRect(), target.getBoundingClientRect()),
       `reading column clears target: column=${JSON.stringify(column.getBoundingClientRect().toJSON())}; target=${JSON.stringify(target.getBoundingClientRect().toJSON())}`).toBe(false);
   });

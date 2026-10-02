@@ -179,7 +179,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
           );
+          await host.failureReplay.wait(sid);
           const history = await backend.getHistory(sid);
+          await host.failureReplay.wait(sid);
           if (connection.authorization.valid && history.length > 0) {
             sendSessionHistory(ws, sid, host.prepareHistory(sid, history));
           }

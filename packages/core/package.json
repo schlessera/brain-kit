@@ -66,6 +66,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@schlessera/brain-geo": "workspace:*",
     "@schlessera/brain-render-template": "workspace:*",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
@@ -77,6 +78,7 @@
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "sqlite-vec": "^0.1.9",
+    "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "zod": "^4.4.3"
   },

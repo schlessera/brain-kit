@@ -4,6 +4,8 @@
  * source ac5741eb). Each file was measured in three different layouts.
  * The fixed-deadline suites added in #286 use weights from their five-second
  * waits and bounded cleanup budgets.
+ * Chat focus includes its package-build/browser setup, measured in #765
+ * on CI run 36874037551 (head d4771bb7, test shard 3): 121.627s.
  * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
  * New/renamed tests are discovered on every run and receive the small-file cost.
  */

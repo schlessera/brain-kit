@@ -5,20 +5,20 @@ created: 2026-01-08
 updated: 2026-06-02
 tags: [context, focus]
 status: active
-summary: "What Alex Example is working on this month"
+summary: "What Odysseus is working on this month"
 ---
 
 # Current Focus
 
 ## Health
 
-- Knee rehab: physio exercises three times a week.
+- Knee rehab: recovery exercises three times a week.
 - Sleep: in bed by 22:00 every night during the early-shift rota.
 
-## Woodworking
+## Shipbuilding
 
-- Finish the bookshelf before the family visit.
+- Finish the raft before the departure from Ogygia.
 
-## Astronomy
+## Navigation
 
-- Log Saturn once it clears the ridge.
+- Check the Bear once it clears the cave.

@@ -621,8 +621,8 @@ describe("app wiring — request logging", () => {
       observability,
       registry: createStaticBackendRegistry([backend], backend.id),
     });
-    const unsafeLabel = `\u0001 Alex\u007f ${"x".repeat(300)}`;
-    const expectedLabel = `Alex ${"x".repeat(59)}`;
+    const unsafeLabel = `\u0001 Odysseus\u007f ${"x".repeat(300)}`;
+    const expectedLabel = `Odysseus ${"x".repeat(55)}`;
 
     const response = await wired.fetch(
       new Request("http://localhost/api/vpn-check", {
@@ -664,7 +664,7 @@ describe("app wiring — request logging", () => {
       observability: createObservability({ loggerProvider }),
       registry: createStaticBackendRegistry([backend], backend.id),
     });
-    const label = "Alex status=200 auth.principal.id=forged";
+    const label = "Odysseus status=200 auth.principal.id=forged";
 
     const response = await wired.fetch(
       new Request("http://localhost/api/vpn-check", {
@@ -675,7 +675,7 @@ describe("app wiring — request logging", () => {
     expect(response.status).toBe(200);
     const requestLine = lines.find((line) => line.startsWith("[http] request "));
     expect(requestLine).toMatch(
-      /^\[http\] request method="GET" path="\/api\/vpn-check" status=200 duration\.ms=\d+ auth\.principal\.id="[A-Za-z0-9_-]{22}" auth\.principal\.label="Alex status=200 auth\.principal\.id=forged"$/
+      /^\[http\] request method="GET" path="\/api\/vpn-check" status=200 duration\.ms=\d+ auth\.principal\.id="[A-Za-z0-9_-]{22}" auth\.principal\.label="Odysseus status=200 auth\.principal\.id=forged"$/
     );
     await wired.close();
   });

@@ -304,6 +304,15 @@ lockstep versions and is not a supported query API.
 
 ## Environment
 
+The location tool always retains raw coordinates. Reverse addresses use the
+shared geo client and cache. The default public Nominatim endpoint sends no
+request until `NOMINATIM_PUBLIC_SERVICE_ELIGIBLE=true` explicitly records informed
+eligibility under its [policy](https://operations.osmfoundation.org/policies/nominatim/).
+The flag grants no permission; generic LLM-platform offerings and bulk,
+autocomplete or systematic queries are excluded. Use a suitable `NOMINATIM_URL`
+for those uses and identify the application/operator with `NOMINATIM_USER_AGENT`.
+`BRAIN_UI_REVERSE_GEOCODE=false` prevents requests even when eligible.
+
 Every variable this package reads, and what happens when it is unset. This
 table is generated from the package's env chokepoint — the single file allowed
 to touch `process.env`.
@@ -317,6 +326,7 @@ to touch `process.env`.
 | `BRAIN_UI_REVERSE_GEOCODE` | "0"/"off"/"false" disables reverse geocoding in the location tool (raw coordinates only). | enabled |
 | `BRAIN_UI_SUBPROCESS_ENV_EXTRA` | Comma-separated environment variable names to admit to pi tool subprocesses when an operator integration needs a variable outside the shipped agent allowlist. Names are trimmed; malformed entries are ignored; the control variable itself is never forwarded. | (empty) |
 | `GEMINI_API_KEY` | Default API key gating the brain's embedding provider (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades search to FTS-only. | — |
+| `NOMINATIM_PUBLIC_SERVICE_ELIGIBLE` | Explicit informed public Nominatim eligibility; enabled alone does not qualify. Configure a suitable endpoint for excluded uses. | false |
 | `NOMINATIM_URL` | Reverse-geocoding endpoint. | https://nominatim.openstreetmap.org |
 | `NOMINATIM_USER_AGENT` | Identifying User-Agent for Nominatim (usage-policy requirement). | brain-kit-ui/1.0 |
 
@@ -339,3 +349,22 @@ SDK's supported permission toolkit and their runtime's own policy. The
 [classification](../../docs/decisions/backend-authoring-toolkit.md) records
 these names separately from the supported input formats and turn posture.
 Runtime defaults and permission behavior are unchanged.
+
+
+## SDK requirements
+
+The factory and descriptor validate the actual imported `pi-coding-agent`,
+`pi-agent-core` and `pi-ai` copies against their declarations in this package's
+manifest. That includes nested core/AI copies used by the primary SDK; a valid
+hoisted dependency cannot vouch for them. SDK metadata is read from each
+resolved package's owning manifest and must retain its expected name and full
+SemVer version.
+
+Optional `versionRequirements: { sdk: "0.99.2" }` on `createPiBackend` or the
+module context composes a full SemVer minimum with the primary
+`@earendil-works/pi-coding-agent` constraint. It cannot weaken any package pin.
+The descriptor's asynchronous `probeRuntime` reports `{ sdk: { name, version } }`
+without executing a vendor CLI. Pi runs in process and has no separate runtime
+identity, so a requested `versionRequirements.runtime` refuses with an action
+to use an SDK requirement instead. Inactive Claude configuration does not load
+or probe the Claude backend.

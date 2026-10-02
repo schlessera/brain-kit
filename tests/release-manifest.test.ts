@@ -135,6 +135,15 @@ describe("release manifests", () => {
     expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
   });
 
+  test("ui-server ships the operational recovery bin with a packed runtime check", () => {
+    const uiServer = packages.find(p => p.manifest.name === "@schlessera/brain-ui-server")!;
+    expect(uiServer.manifest.bin?.["brain-ui-inbox"]).toBe("./dist/bin/brain-ui-inbox.js");
+    const source = readFileSync(join(PACKAGES_DIR, uiServer.dir, "src/bin/brain-ui-inbox.ts"), "utf8");
+    expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
+    const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(workflow).toContain("bun scripts/check-inbox-package.ts --root");
+  });
+
   // The packed-install smoke test in CI asserts the bin's usage output. That
   // assertion went stale the moment `crontab` and `environment` were added:
   // it still matched a two-subcommand line, so it failed the build instead of

@@ -2,20 +2,26 @@ import { z } from "zod";
 import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
 
 import { checkOpportunityStages } from "./pipeline.js";
+import { jobsSettings, scoringSourceSchema } from "./settings.js";
+import { SOURCES } from "./types.js";
+import { boardNameSchema } from "./board-selection.js";
 
 /**
  * Config for @schlessera/brain-module-jobs. `criteria` points at a markdown file whose
- * frontmatter defines the weighted scoring rules (see docs/criteria-template.md
+ * frontmatter supplies legacy scoring until moved to settings/jobs.json
+ * (see docs/criteria-template.md
  * and the README); it stays brain content the user owns and tunes.
  */
 export const configSchema = z
   .object({
     /** Path (relative to the brain root) to the scoring criteria markdown file. */
     criteria: repoRelativePathSchema,
+    /** Source-form scoring rules; legacy frontmatter remains a fallback until migrated. */
+    scoring: scoringSourceSchema.optional(),
     /** Canonical directory for opportunity docs (scaffold target). */
     opportunitiesDir: repoRelativePathSchema.default("career/opportunities"),
     /** Boards to scrape by default. */
-    boards: z.array(z.string()).default(["remoteok"]),
+    boards: z.array(boardNameSchema).default([...SOURCES]),
     /** Search terms for the query-driven boards (simplyhired, dice). */
     queries: z
       .array(z.string())
@@ -51,6 +57,7 @@ export type JobsConfig = z.infer<typeof configSchema>;
 export default defineModule({
   name: "jobs",
   configSchema,
+  settings: jobsSettings<JobsConfig>(),
   // Two-phase: the opportunity taxonomy dir follows the configured
   // opportunitiesDir instead of a static literal.
   setup: (config) => ({
@@ -58,6 +65,7 @@ export default defineModule({
       types: { opportunity: { dir: config.opportunitiesDir } },
     },
     skills: "./skills",
+    instructions: { text: `## Jobs workflow\n\nKeep opportunity notes under ${config.opportunitiesDir}, with pipeline state in each status.md. Read scoring rules from the effective jobs settings; ${config.criteria} retains user-owned prose and legacy scoring until explicitly migrated. Review the local queue with brain jobs review. Scraping uses the configured boards and their robots/terms constraints.` },
     commands: { jobs: () => import("./cli.js") },
     tools: { review: () => import("./mcp/review.js") },
     indexRules: { dirAnchors: ["status.md"] },

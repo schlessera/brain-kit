@@ -47,7 +47,9 @@ function fakeTimers() {
   }, clearInterval(timer: Timer) { callbacks.delete(timer); } };
 }
 function runtime(extra: Partial<Parameters<typeof createInboxRuntime>[1]> = {}) {
-  const r = createInboxRuntime(db, { now: () => now, log, timers: fakeTimers(), ...extra });
+  const r = createInboxRuntime(db, { now: () => now, log, timers: fakeTimers(),
+    budget: { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => null } },
+    operation: (item) => ({ runId: `${item.id}-${item.attempts + 1}`, principalId: "fixture", model: "fixture", billingMode: "subscription", purpose: "triage" }), ...extra });
   runtimes.push(r); return r;
 }
 async function ready(file: string) {
@@ -81,6 +83,22 @@ describe("inbox drain lifecycle", () => {
     seed(); const r = runtime();
     expect(await r.tick()).toMatchObject({ claimed: 0, dispatchEnabled: false });
     expect(store().getItem("item-odysseus")).toMatchObject({ status: "ready", attempts: 0 });
+  });
+  test("expired final attempts become failed with one dead-letter Action across repeated recovery", async () => {
+    seed();
+    const s = store();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const item = s.getItem("item-odysseus")!;
+      s.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "claimed", leaseUntil: now + 1 }]);
+      if (attempt < 3) s.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version + 1, to: "ready" }]);
+    }
+    now++;
+    const r = runtime();
+    expect(s.getItem("item-odysseus")).toMatchObject({ status: "failed", attempts: 3 });
+    expect(s.snapshot().items.filter((item) => item.queue === "actions")).toHaveLength(1);
+    await r.tick(); await r.poke();
+    expect(s.snapshot().items.filter((item) => item.queue === "actions")).toHaveLength(1);
+    expect(s.getItem("item-odysseus")).toMatchObject({ status: "failed", attempts: 3 });
   });
 
   test("tick and poke cannot overlap, including synchronous dispatcher reentry", async () => {
@@ -138,7 +156,7 @@ describe("inbox drain lifecycle", () => {
     expect(store().snapshot().items.filter((i) => i.status === "ready")).toHaveLength(1);
   });
 
-  test("dispatch runs outside SQLite transactions and failed work retains a recoverable lease", async () => {
+  test("dispatch runs outside SQLite transactions and failures release their lease with bounded backoff", async () => {
     seed(); const second = createUiDb(path);
     try {
       let wrote = false;
@@ -148,8 +166,9 @@ describe("inbox drain lifecycle", () => {
       } });
       expect((await r.tick()).claimed).toBe(1); expect(wrote).toBe(true);
       const item = store().getItem("item-odysseus")!;
-      expect(item).toMatchObject({ status: "claimed", attempts: 1, claimedAt: now });
-      expect(item.queue === "queue" && item.leaseUntil! > now).toBe(true);
+      expect(item).toMatchObject({ status: "ready", attempts: 1, waitUntil: now + 60_000 });
+      expect(item).not.toHaveProperty("leaseUntil");
+      expect((await r.tick()).claimed).toBe(0);
       await r.close(); now += 600_000;
       runtime(); expect(store().getItem(item.id)).toMatchObject({ status: "ready", attempts: 1 });
     } finally { second.close(); }

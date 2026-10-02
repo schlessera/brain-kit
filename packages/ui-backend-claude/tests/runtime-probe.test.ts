@@ -164,6 +164,7 @@ describe("installedAgentSdkVersion", () => {
   test("reads the version of the SDK copy it resolved, not the measured constant", () => {
     const dir = tempDir("sdk-copy-");
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.999" }));
+    writeFileSync(join(dir, "sdk.mjs"), "");
     expect(installedAgentSdkVersion(join(dir, "sdk.mjs"))).toBe("0.3.999");
   });
 });

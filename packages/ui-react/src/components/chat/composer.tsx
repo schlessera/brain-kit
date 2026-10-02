@@ -1,7 +1,7 @@
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect } from "react";
-import { resolveThinkingLevel, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { resolveThinkingLevel, SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import type { ConnectionError } from "../../stores/connection-state.js";
@@ -22,6 +22,8 @@ import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
+import { createTrackUploads, trackPending, trackReady, type PendingTrack } from "../../lib/track-uploads.js";
+import { apiBaseFor } from "../../lib/backend.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 
 /**
@@ -42,7 +44,7 @@ import { insertSuggestion } from "../../lib/answer-suggestions.js";
  * `ComposerView` draws the field.
  */
 type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: ThinkingLevel };
-type PendingSend = { requestId: string; key: string | null; input: string; review: string; attachments: PendingAttachment[]; effort: DraftEffort; error: ConnectionError | null };
+type PendingSend = { requestId: string; key: string | null; input: string; review: string; attachments: PendingAttachment[]; tracks: PendingTrack[]; effort: DraftEffort; error: ConnectionError | null };
 
 export function Composer({ send }: { send: (msg: ClientMessage) => void | boolean }) {
   const root = useBrainUiRoot();
@@ -63,6 +65,17 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
   const [attachErrors, setAttachErrors] = useState<string[]>([]);
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const trackInputRef = useRef<HTMLInputElement>(null);
+  const [, updateTrackView] = useState(0);
+  const [trackUploads] = useState(() => createTrackUploads(root.request, apiBaseFor(root.config), () => updateTrackView(value => value + 1)));
+  const tracks = trackUploads.files;
+  const [heldSend, setHeldSend] = useState(false);
+  const trackLifetime = useRef({ generation: 0 });
+  useEffect(() => {
+    const lifetime = trackLifetime.current;
+    const generation = ++lifetime.generation;
+    return () => { queueMicrotask(() => { if (generation === lifetime.generation) trackUploads.dispose(); }); };
+  }, [trackUploads]);
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
@@ -84,6 +97,13 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  useEffect(() => {
+    const changed = () => trackUploads.setOnline(wsStatus === "connected" && navigator.onLine !== false);
+    changed();
+    window.addEventListener("online", changed);
+    window.addEventListener("offline", changed);
+    return () => { window.removeEventListener("online", changed); window.removeEventListener("offline", changed); };
+  }, [wsStatus, trackUploads]);
   const chatRequestAck = useConnectionStore((s) => s.chatRequestAck);
   const connectionError = useConnectionStore((s) => s.lastError);
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
@@ -108,6 +128,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     const namedDraft = pendingSend?.key === null && receipt?.state === "accepted" && receipt.sessionId === sessionId;
     setEffort((current) => namedDraft && current !== pendingSend.effort ? { ...current, key: sessionId } : { key: sessionId });
     setEffortNotice("");
+    setHeldSend(false);
     // Receipt changes consume a send below; this runs only when identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -120,13 +141,14 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
       const remaining = attachmentsRef.current.filter((attachment) => !pendingSend.attachments.includes(attachment));
       attachmentsRef.current = remaining;
       setAttachments(remaining);
+      for (const track of pendingSend.tracks) trackUploads.remove(track.id);
       setAttachErrors([]);
       setEffortNotice("");
       setEffort((current) => current === pendingSend.effort ? { key: sessionId } : current);
     }
     root.stores.chat.getState().clearChatReceipt(pendingSend.requestId);
     setPendingSend(null);
-  }, [receipt, pendingSend, sessionId, root]);
+  }, [receipt, pendingSend, sessionId, root, trackUploads]);
 
   useEffect(() => {
     if (!pendingSend || receipt) return;
@@ -225,12 +247,15 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
    * revoked so nothing leaks.
    */
   async function addFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (list.length === 0) return;
+    const incoming = Array.from(files);
+    const list = incoming.filter(file => file.type.startsWith("image/"));
+    const trackErrors = trackUploads.add(incoming.filter(file => !file.type.startsWith("image/")), attachmentsRef.current.length + list.length,
+      attachmentsRef.current.reduce((sum, image) => sum + image.bytes, 0));
+    if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const results = await Promise.all(list.map((f) => fileToAttachment(f)));
     const fresh: PendingAttachment[] = [];
-    const errors: string[] = [];
+    const errors: string[] = [...trackErrors];
     results.forEach((r, i) => {
       if ("error" in r) {
         errors.push(r.error);
@@ -239,10 +264,15 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
       }
     });
 
-    const { accepted } = validateAttachments([
+    const { accepted: imageAccepted } = validateAttachments([
       ...attachmentsRef.current,
       ...fresh,
     ]);
+    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + track.file.size, 0);
+    const accepted = imageAccepted.filter((image, index) => {
+      combinedBytes += image.bytes;
+      return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
+    });
     // Revoke URLs of freshly-decoded images that didn't make the cut.
     for (const f of fresh) {
       if (!accepted.includes(f)) {
@@ -273,8 +303,17 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
 
   function handleSubmit() {
     const text = draftText();
-    const hasAttachments = attachments.length > 0;
+    const currentTracks = trackUploads.files;
+    const hasAttachments = attachments.length > 0 || currentTracks.length > 0;
     if ((!text && !hasAttachments) || wsStatus !== "connected" || pendingSend?.key === sessionId) return;
+
+    if (currentTracks.some(track => track.state === "failed")) {
+      setHeldSend(false);
+      setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
+      return;
+    }
+    if (currentTracks.some(trackPending)) { setHeldSend(true); return; }
+    const readyFiles = currentTracks.filter(trackReady).map(track => track.meta!);
 
     // A send while a question is pending is the ANSWER to it, not a new
     // message (D38 §1): the text binds to the question, the card quotes it,
@@ -304,7 +343,8 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
       text,
       source,
       messageAttachments.length > 0 ? messageAttachments : undefined,
-      requestId ? { requestId, thinkingLevel: selectedEffort } : undefined
+      requestId ? { requestId, thinkingLevel: selectedEffort } : undefined,
+      readyFiles.length ? readyFiles : undefined
     );
     // A send while the session is already streaming is a follow-up — the server
     // queues it or delivers it live; don't pre-start a second assistant bubble
@@ -313,7 +353,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     // Correlate this turn when it is starting a NEW conversation, so its
     // session_info can be told apart from a background turn's.
     const draftId = sessionId ? undefined : chat.startDraftTurn();
-    if (requestId) setPendingSend({ requestId, key: sessionId, input, review: reviewText, attachments, effort, error: connectionError });
+    if (requestId) setPendingSend({ requestId, key: sessionId, input, review: reviewText, attachments, tracks: currentTracks, effort, error: connectionError });
     const sent = send({
       type: "chat_message",
       text,
@@ -330,7 +370,8 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
         sessionId || !providers.some((p) => p.id === selectedProviderId)
           ? undefined
           : selectedProviderId,
-      attachments: hasAttachments
+      ...(readyFiles.length ? { files: readyFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
+      attachments: attachments.length > 0
         ? attachments.map((a) => a.attachment)
         : undefined,
       // Measured per send, not once per session: the same tab can rotate,
@@ -354,13 +395,40 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     // (revoked later by the chat store on clear/resume) — don't revoke here.
     attachmentsRef.current = [];
     setAttachments([]);
+    for (const track of currentTracks) trackUploads.remove(track.id);
     setAttachErrors([]);
   }
 
+  const submitHeldDraft = useRef(handleSubmit);
+  useEffect(() => { submitHeldDraft.current = handleSubmit; });
+
+  // The visible draft remains editable while waiting. Submit its current text,
+  // once, only after every remaining file has a validated ready result.
+  useEffect(() => {
+    if (!heldSend) return;
+    if (tracks.some(track => track.state === "failed")) {
+      setHeldSend(false);
+      setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
+    } else if (!tracks.some(trackPending) && wsStatus === "connected") {
+      setHeldSend(false);
+      submitHeldDraft.current();
+    }
+  }, [heldSend, tracks, wsStatus]);
+
+  function stopDictation() {
+    // Read synchronously: another stop may arrive before React paints the
+    // disabled Done button. The driver owns the drain and review handoff.
+    if (root.stores.voice.getState().draining) return;
+    void dictation.stop(true);
+  }
+
   function handleMicTap() {
-    if (voiceMode === "dictate") {
-      void dictation.stop(true);
+    if (root.stores.voice.getState().mode === "dictate") {
+      stopDictation();
     } else {
+      setAttachMenuOpen(false);
+      setProviderMenuOpen(false);
+      setPaletteDismissed(true);
       // Defensive: blur composer so the keyboard never fights the mic sheet on Android
       frameRef.current?.querySelector("textarea")?.blur();
       // Any existing review text stays put — the new capture appends to it.
@@ -407,7 +475,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
   }
 
   const hasDraft = Boolean(
-    input.trim() || reviewText.trim() || attachments.length > 0
+    input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
   const canSend = hasDraft && wsStatus === "connected" && pendingSend?.key !== sessionId;
@@ -441,13 +509,6 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
 
   return (
     <>
-      {/* Dictation sheet */}
-      <DictationSheet
-        open={voiceMode === "dictate"}
-        onStop={() => dictation.stop(true)}
-        onCancel={() => dictation.cancel()}
-      />
-
       <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
@@ -472,15 +533,21 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
 
         {/* Hidden file inputs for the paperclip / camera buttons */}
         <input ref={libraryInputRef} type="file" accept="image/*" multiple hidden onChange={onFilePick} />
+        <input ref={trackInputRef} type="file" accept=".gpx,application/gpx+xml,.kml,application/vnd.google-earth.kml+xml,.geojson,application/geo+json,.json,application/json" multiple hidden onChange={onFilePick} />
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
 
         <ComposerView
+          dictation={<DictationSheet open={voiceMode === "dictate"}
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
-          // live, offline disables it and keeps the draft.
+          // live, offline disables it and keeps the draft. Dictating keeps the
+          // draft read-only and makes the mic the explicit capture stop.
           state={
-            wsStatus === "connected"
+            voiceMode === "dictate"
+              ? "dictating"
+              : wsStatus === "connected"
               ? isStreaming
                 ? "streaming"
                 : "ready"
@@ -489,7 +556,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
                 : "offline"
           }
           placeholder={
-            wsStatus !== "connected"
+            voiceMode === "dictate" ? "Dictating…" : wsStatus !== "connected"
               ? connectionIssue === "capacity"
                 ? "Server connection limit reached"
                 : connectionIssue === "refused"
@@ -497,7 +564,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
@@ -505,9 +572,12 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
           palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} onSelect={handleCommand} /> : null}
           attachMenuOpen={attachMenuOpen}
           attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
+          tracks={tracks}
+          onRemoveTrack={id => trackUploads.remove(id)}
+          onRetryTrack={id => trackUploads.retry(id)}
           attachErrors={attachErrors}
           provider={
-            showProviderPicker
+            showProviderPicker && voiceMode !== "dictate"
               ? {
                   label: displayProviderLabel,
                   locked: providerLocked,
@@ -525,11 +595,12 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
+            if (voiceMode === "dictate") return;
             setInput(value);
             setPaletteDismissed(false);
           }}
           onSend={() => {
-            if (canSend) handleSubmit();
+            if (voiceMode !== "dictate" && canSend) handleSubmit();
           }}
           onStop={handleCancel}
           onMic={handleMicTap}
@@ -538,6 +609,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
             setAttachMenuOpen(false);
             libraryInputRef.current?.click();
           }}
+          onPickTracks={() => { setAttachMenuOpen(false); trackInputRef.current?.click(); }}
           onPickCamera={() => {
             setAttachMenuOpen(false);
             cameraInputRef.current?.click();

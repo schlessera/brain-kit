@@ -157,7 +157,7 @@ runs in this order:
 1. **Qualified target** (contains `/`): an exact repo-relative path wins.
    Otherwise match by path suffix and apply source-directory disambiguation;
    multiple candidates with no unique local match stay unresolved.
-2. **Unique basename**: `[[acme]]` resolves to the only `acme.md` in the corpus.
+2. **Unique basename**: `[[circe]]` resolves to the only `circe.md` in the corpus.
 3. **Ambiguous basename**: first try a unique match in the source file's
    namesake subdirectory, then walk its ancestor directories from nearest to
    farthest. A scope with multiple matches stays unresolved.

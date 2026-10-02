@@ -1,3 +1,6 @@
+import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
+import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import { estimateDecodedBase64Bytes } from "./attachments.js";
 import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
@@ -88,11 +91,23 @@ export async function handleClientMessage(
         });
         return;
       }
+      let files: SharedFileMeta[];
+      try {
+        files = await resolveChatFiles(host.brainPath, msg.files);
+        const bytes = files.reduce((n, f) => n + f.bytes, 0) + attachmentResult.attachments.reduce((n, f) => n + estimateDecodedBase64Bytes(f.data), 0);
+        if (files.length + attachmentResult.attachments.length > SHARE_MAX_FILES || bytes > SHARE_MAX_TOTAL_BYTES) throw Error("Attached files exceed the message limits.");
+      } catch (error) {
+        host.sendMessage(ws, { type: "error", code: "ATTACHMENT_REJECTED", message: error instanceof Error ? error.message : "Track attachment refused.",
+          ...(msg.requestId ? { requestId: msg.requestId } : {}), ...(msg.sessionId ? { sessionId: msg.sessionId } : {}) });
+        return;
+      }
+      if (!connection.authorization.valid) return;
       await handleChatMessage(host, ws, {
         authorization: connection.authorization,
         text: msg.text,
         sessionId: msg.sessionId,
         attachments: attachmentResult.attachments,
+        ...(files.length ? { files } : {}),
         providerId: msg.providerId,
         client: msg.client,
         source: msg.source,
@@ -131,9 +146,23 @@ export async function handleClientMessage(
         if (coordinator.running.size + coordinator.startingSessions >= host.maxConcurrentSessions()) {
           refuse("The server is busy. Wait for a turn to finish and try again."); return;
         }
-        const reserved = catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId);
+        const original = catalog.peekRetry?.(msg.sessionId);
+        let files: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] | undefined;
+        if (original?.request.files?.length && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
+          try {
+            files = await resolveChatFiles(host.brainPath, original.request.files);
+            if (!original.prompt.includes(withTrackFiles("", files))) { refuse("An original track changed. Start a new message with the current file instead."); return; }
+          } catch { refuse("An original track is unavailable. Attach it again in a new message."); return; }
+          if (!connection.authorization.valid) return;
+          // File reads yield; repeat admission before consuming eligibility.
+          if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.running.size + coordinator.startingSessions >= host.maxConcurrentSessions()) {
+            refuse("The session or server became busy. Try again when it is free."); return;
+          }
+        }
+        const reserved = catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files ? original!.prompt : undefined);
         if (!reserved) { refuse("This server cannot retain the original request for Retry."); return; }
         host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
+          ...(files?.length ? { files } : {}),
           text: reserved.request.text, attachmentCount: reserved.request.attachments?.length ?? 0,
           source: reserved.request.source ?? "typed",
           ...(reserved.request.thinkingLevel !== undefined ? { thinkingLevel: reserved.request.thinkingLevel } : {}),
@@ -142,7 +171,8 @@ export async function handleClientMessage(
           await handleChatMessage(host, ws, {
             ...reserved.request, authorization: connection.authorization,
             requestId: msg.requestId,
-            attachments: reserved.request.attachments ?? [], replayPrompt: reserved.prompt, isRetry: true,
+            attachments: reserved.request.attachments ?? [],
+            files, replayPrompt: reserved.prompt, isRetry: true,
           });
         }
       } catch {
@@ -424,6 +454,17 @@ export async function handleClientMessage(
       break;
     }
 
+    case "inbox_resolve":
+    case "inbox_snooze": {
+      if (connection.closed) break;
+      if (!host.inbox?.handleDecision) {
+        host.sendMessage(ws, { type: "error", code: "INBOX_UNAVAILABLE", message: "Inbox decisions are unavailable on this host." });
+        break;
+      }
+      host.inbox.handleDecision(ws, msg, connection.authorization);
+      break;
+    }
+
     case "inbox_subscribe": {
       if (connection.closed) break;
       if (!host.inbox) {
@@ -474,7 +515,9 @@ export async function handleClientMessage(
 
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
+        await host.failureReplay.wait(msg.sessionId);
         const messages = await backend.getHistory(msg.sessionId);
+        await host.failureReplay.wait(msg.sessionId);
         if (!connection.authorization.valid) return;
         sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
         // A resume of a RUNNING session (reattach) must not report idle: idle

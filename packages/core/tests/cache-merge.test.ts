@@ -33,8 +33,8 @@ function divergedRepo(attributes: string | null): string {
   const root = mkdtempSync(join(tmpdir(), "brain-cache-merge-"));
   dirs.push(root);
   git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   if (attributes !== null) writeFileSync(join(root, ".gitattributes"), attributes);
   writeFileSync(join(root, CACHE), '{"k":"a","v":"base"}\n');
@@ -72,8 +72,8 @@ describe("the stats history (#581)", () => {
     const root = mkdtempSync(join(tmpdir(), "brain-history-merge-"));
     dirs.push(root);
     git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Alex Example");
-    git(root, "config", "user.email", "alex@example.test");
+    git(root, "config", "user.name", "Odysseus");
+    git(root, "config", "user.email", "odysseus@example.test");
     git(root, "config", "commit.gpgsign", "false");
     if (attributes !== null) writeFileSync(join(root, ".gitattributes"), attributes);
     const day = (date: string, at: string, documents: number) => JSON.stringify({ date, at, documents });

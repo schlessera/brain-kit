@@ -116,7 +116,7 @@ describe("runSync", () => {
 
   test(`a push rejected every time fails after ${MAX_PULLS} pulls`, async () => {
     const brain = brainWithRemote();
-    write(brain.root, "notes/owl-count.md", "---\ntitle: Owl count\ntype: note\n---\n\nThree barred owls.\n");
+    write(brain.root, "notes/eagle-count.md", "---\ntitle: Eagle count\ntype: note\n---\n\nThree eagles.\n");
     prePushHook(brain.root, "exit 1");
     const env = await envFor(brain.root, judgeWith(null));
 
@@ -129,7 +129,7 @@ describe("runSync", () => {
 
   test("a merge of origin/main left uncommitted with nothing unmerged is concluded once, then pulled over", async () => {
     const brain = brainWithRemote();
-    commitAndPush(otherClone(brain), { "notes/owl-count.md": "---\ntitle: Owl count\ntype: note\n---\n\nThree barred owls.\n" }, "side");
+    commitAndPush(otherClone(brain), { "notes/eagle-count.md": "---\ntitle: Eagle count\ntype: note\n---\n\nThree eagles.\n" }, "side");
     write(brain.root, "notes/elk-sighting.md", "# Elk sighting\n\nA bull elk at the ford.\n");
     git(brain.root, "add", "-A");
     git(brain.root, "commit", "-qm", "local");
@@ -140,14 +140,14 @@ describe("runSync", () => {
     const run = await runSync(env);
     expect(run.steps.conclude).toEqual([{ outcome: "committed", kind: "merge" }]);
     expect(run.status).toBe("complete");
-    expect(git(brain.remote, "show", "main:notes/owl-count.md")).toContain("Three barred owls.");
+    expect(git(brain.remote, "show", "main:notes/eagle-count.md")).toContain("Three eagles.");
     expect(git(brain.remote, "show", "main:notes/elk-sighting.md")).toContain("bull elk");
   });
 
   test("a merge sync did not start (a local branch origin/main lacks) is not finished: failed, nothing moves", async () => {
     const brain = brainWithRemote();
     git(brain.root, "switch", "-q", "-c", "side");
-    write(brain.root, "notes/owl-count.md", "---\ntitle: Owl count\ntype: note\n---\n\nThree barred owls.\n");
+    write(brain.root, "notes/eagle-count.md", "---\ntitle: Eagle count\ntype: note\n---\n\nThree eagles.\n");
     git(brain.root, "add", "-A");
     git(brain.root, "commit", "-qm", "side");
     git(brain.root, "switch", "-q", "main");
@@ -182,7 +182,7 @@ describe("runSync", () => {
   test("a note whose name only may be a secret's is held back for someone to decide; an unmistakable secret is ignored and named", async () => {
     const brain = brainWithRemote();
     const NOTE = "notes/design_token_ideas.md";
-    write(brain.root, NOTE, "# Design token ideas\n\nColour names for the trail signs.\n");
+    write(brain.root, NOTE, "# Design token ideas\n\nColour names for the route signs.\n");
     write(brain.root, ".env.local", "COUNTER_TOKEN=fixture\n");
     const env = await envFor(brain.root, judgeWith(null));
 
@@ -201,49 +201,49 @@ describe("runSync", () => {
 
   test("a keep-both conflict completes: the sync's own `-remote` copy is committed with the merge and both are pushed", async () => {
     const brain = brainWithRemote();
-    commitAndPush(brain.root, { [OWL_NOTE]: OWL_TEXT }, "owl count");
-    commitAndPush(otherClone(brain), { [OWL_NOTE]: OWL_TEXT.replace("Three", "Four") }, "theirs");
-    write(brain.root, OWL_NOTE, OWL_TEXT.replace("Three", "Five"));
+    commitAndPush(brain.root, { [EAGLE_NOTE]: EAGLE_TEXT }, "eagle count");
+    commitAndPush(otherClone(brain), { [EAGLE_NOTE]: EAGLE_TEXT.replace("Three", "Four") }, "theirs");
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT.replace("Three", "Five"));
     const env = await envFor(brain.root, judgeWith(null));
 
     const run = await runSync(env);
-    expect(run.steps.resolve[0]!.resolved).toEqual([expect.objectContaining({ path: OWL_NOTE, strategy: "keep-both", extraFiles: [OWL_REMOTE] })]);
+    expect(run.steps.resolve[0]!.resolved).toEqual([expect.objectContaining({ path: EAGLE_NOTE, strategy: "keep-both", extraFiles: [EAGLE_REMOTE] })]);
     expect(run.steps.conclude.map((done) => done.outcome)).toEqual(["committed"]);
     expect(run.status).toBe("complete");
     expect(remoteHead(brain)).toBe(head(brain.root));
-    expect(git(brain.remote, "show", `main:${OWL_NOTE}`)).toContain("Five barred owls.");
-    expect(git(brain.remote, "show", `main:${OWL_REMOTE}`)).toContain("Four barred owls.");
+    expect(git(brain.remote, "show", `main:${EAGLE_NOTE}`)).toContain("Five eagles.");
+    expect(git(brain.remote, "show", `main:${EAGLE_REMOTE}`)).toContain("Four eagles.");
   });
 
   test("a keep-both copy `resolve` staged is the sync's own for a later `conclude`, and nothing staged beside it is", async () => {
     const brain = brainWithRemote();
-    commitAndPush(brain.root, { [OWL_NOTE]: OWL_TEXT }, "owl count");
-    commitAndPush(otherClone(brain), { [OWL_NOTE]: OWL_TEXT.replace("Three", "Four") }, "theirs");
-    write(brain.root, OWL_NOTE, OWL_TEXT.replace("Three", "Five"));
+    commitAndPush(brain.root, { [EAGLE_NOTE]: EAGLE_TEXT }, "eagle count");
+    commitAndPush(otherClone(brain), { [EAGLE_NOTE]: EAGLE_TEXT.replace("Three", "Four") }, "theirs");
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT.replace("Three", "Five"));
     git(brain.root, "commit", "-qam", "ours");
     git(brain.root, "fetch", "-q", "origin");
     expect(gitMayFail(brain.root, "merge", "--no-edit", "origin/main")).not.toBe(0);
     const env = await envFor(brain.root, judgeWith(null));
 
     const resolved = await resolveConflicts(env);
-    expect(resolved.resolved.map((file) => file.extraFiles)).toEqual([[OWL_REMOTE]]);
+    expect(resolved.resolved.map((file) => file.extraFiles)).toEqual([[EAGLE_REMOTE]]);
     write(brain.root, "notes/private.md", "# Private\n");
     git(brain.root, "add", "notes/private.md");
     const blocked = conclude(brain.root);
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.detail).toContain("the index stages notes/private.md beside the merge");
-    expect(blocked.detail).not.toContain(OWL_REMOTE);
+    expect(blocked.detail).not.toContain(EAGLE_REMOTE);
 
     git(brain.root, "restore", "--staged", "notes/private.md");
     const done = conclude(brain.root);
     expect(done).toEqual({ outcome: "committed", kind: "merge" });
-    expect(git(brain.root, "show", `HEAD:${OWL_REMOTE}`)).toContain("Four barred owls.");
+    expect(git(brain.root, "show", `HEAD:${EAGLE_REMOTE}`)).toContain("Four eagles.");
   });
 
   test("off main nothing runs", async () => {
     const brain = brainWithRemote();
     git(brain.root, "switch", "-q", "-c", "draft");
-    write(brain.root, "notes/owl-count.md", "# Owl count\n");
+    write(brain.root, "notes/eagle-count.md", "# Eagle count\n");
     const env = await envFor(brain.root, judgeWith(null));
     const run = await runSync(env);
     expect(run.status).toBe("failed");
@@ -262,16 +262,16 @@ function hook(root: string, name: string, body: string): void {
   git(root, "config", "core.hooksPath", hooks);
 }
 
-const OWL_NOTE = "notes/owl-count.md";
-const OWL_TEXT = "---\ntitle: Owl count\ntype: note\n---\n\nThree barred owls.\n";
-const OWL_REMOTE = "notes/owl-count-remote.md";
+const EAGLE_NOTE = "notes/eagle-count.md";
+const EAGLE_TEXT = "---\ntitle: Eagle count\ntype: note\n---\n\nThree eagles.\n";
+const EAGLE_REMOTE = "notes/eagle-count-remote.md";
 const MARKED = "notes/ridge-plan.md";
 const MARKED_TEXT = "# Ridge plan\n\n<<<<<<< HEAD\nGo at dawn.\n=======\nGo at dusk.\n>>>>>>> origin/main\n";
 
 describe("runSync: what it refuses to commit or push", () => {
   test("a TRACK file holding conflict markers is left uncommitted; the rest is pushed; needs-judgment", async () => {
     const brain = brainWithRemote();
-    write(brain.root, OWL_NOTE, OWL_TEXT);
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
     write(brain.root, MARKED, MARKED_TEXT);
     // A setext heading underline alone is no conflict.
     write(brain.root, "notes/heading.md", "Ridge log\n=======\n\nClear skies.\n");
@@ -281,7 +281,7 @@ describe("runSync: what it refuses to commit or push", () => {
     expect(git(brain.root, "status", "--porcelain", "--", MARKED)).toBe(`?? ${MARKED}`);
     expect(run.steps.commit[0]!.conflicted).toEqual([MARKED]);
     expect(gitMayFail(brain.remote, "cat-file", "-e", `main:${MARKED}`)).not.toBe(0);
-    expect(git(brain.remote, "show", `main:${OWL_NOTE}`)).toContain("Three barred owls.");
+    expect(git(brain.remote, "show", `main:${EAGLE_NOTE}`)).toContain("Three eagles.");
     expect(git(brain.remote, "show", "main:notes/heading.md")).toContain("=======");
     expect(run.status).toBe("needs-judgment");
     expect(run.leftovers.unresolved).toEqual([{ path: MARKED, strategy: "keep-both", reason: "holds conflict markers; left uncommitted" }]);
@@ -313,14 +313,14 @@ describe("runSync: what it refuses to commit or push", () => {
   test("markers of another size (conflict-marker-size=10) are conflict markers too: left uncommitted", async () => {
     expect(WIDE_TEXT).toContain(`${"<".repeat(10)} HEAD\n`);
     const brain = brainWithRemote();
-    write(brain.root, OWL_NOTE, OWL_TEXT);
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
     write(brain.root, WIDE, WIDE_TEXT);
     const env = await envFor(brain.root, judgeWith(null));
 
     const run = await runSync(env);
     expect(run.steps.commit[0]!.conflicted).toEqual([WIDE]);
     expect(gitMayFail(brain.remote, "cat-file", "-e", `main:${WIDE}`)).not.toBe(0);
-    expect(git(brain.remote, "show", `main:${OWL_NOTE}`)).toContain("Three barred owls.");
+    expect(git(brain.remote, "show", `main:${EAGLE_NOTE}`)).toContain("Three eagles.");
     expect(run.status).toBe("needs-judgment");
   });
 
@@ -344,7 +344,7 @@ describe("runSync: what it refuses to commit or push", () => {
   test("an index still holding an unmerged path is not pushed", async () => {
     const brain = brainWithRemote();
     commitAndPush(otherClone(brain), { "notes/elk-sighting.md": "# Elk sighting\n\nA bull elk at the ford.\n" }, "later");
-    write(brain.root, OWL_NOTE, OWL_TEXT);
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
     // After pull merges, something leaves the index with an unmerged path.
     hook(
       brain.root,
@@ -370,22 +370,22 @@ describe("runSync: what it refuses to commit or push", () => {
 describe("runSync: a failed step fails the run", () => {
   test("a commit the pre-commit hook rejects: failed, nothing pushed", async () => {
     const brain = brainWithRemote();
-    write(brain.root, OWL_NOTE, OWL_TEXT);
-    hook(brain.root, "pre-commit", 'echo "owl counts are frozen" >&2; exit 1');
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
+    hook(brain.root, "pre-commit", 'echo "eagle counts are frozen" >&2; exit 1');
     const env = await envFor(brain.root, judgeWith(null));
 
     const run = await runSync(env);
     expect(run.status).toBe("failed");
     expect(run.reason).toContain("commit failed");
-    expect(run.reason).toContain("owl counts are frozen");
+    expect(run.reason).toContain("eagle counts are frozen");
     expect(run.steps.push).toEqual([]);
     expect(env.postSyncCalls).toBe(0);
   });
 
   test("a .gitignore commit the hook rejects: failed before anything else is committed", async () => {
     const brain = brainWithRemote();
-    write(brain.root, "debug.log", "trail counter restarted\n");
-    write(brain.root, OWL_NOTE, OWL_TEXT);
+    write(brain.root, "debug.log", "route counter restarted\n");
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
     hook(brain.root, "pre-commit", "exit 1");
     const env = await envFor(brain.root, judgeWith(null));
 
@@ -458,11 +458,11 @@ describe("runSync: a failed step fails the run", () => {
 
   test("what an autostash pop puts back before the push is committed and pushed, not left behind", async () => {
     const brain = brainWithRemote();
-    const LOG = "notes/trail-log.md";
+    const LOG = "notes/route-log.md";
     const lines = Array.from({ length: 12 }, (_, i) => `Day ${i + 1}: quiet.`);
-    commitAndPush(brain.root, { [LOG]: lines.join("\n") + "\n" }, "trail log");
+    commitAndPush(brain.root, { [LOG]: lines.join("\n") + "\n" }, "route log");
     // The autostash changes the first day; the local edit the last.
-    write(brain.root, LOG, ["Day 1: an owl.", ...lines.slice(1)].join("\n") + "\n");
+    write(brain.root, LOG, ["Day 1: an eagle.", ...lines.slice(1)].join("\n") + "\n");
     git(brain.root, "stash", "store", "-m", "autostash", git(brain.root, "stash", "create"));
     git(brain.root, "checkout", "--", LOG);
     write(brain.root, LOG, [...lines.slice(0, 11), "Day 12: an elk."].join("\n") + "\n");
@@ -472,7 +472,7 @@ describe("runSync: a failed step fails the run", () => {
     expect(run.steps.stash[0]!.kept).toHaveLength(1);
     expect(run.steps.stash[1]!.popped).toHaveLength(1);
     const pushed = git(brain.remote, "show", `main:${LOG}`);
-    expect(pushed).toContain("Day 1: an owl.");
+    expect(pushed).toContain("Day 1: an eagle.");
     expect(pushed).toContain("Day 12: an elk.");
     expect(git(brain.root, "status", "--porcelain", "--", LOG)).toBe("");
     expect(run.status).toBe("complete");
@@ -480,7 +480,7 @@ describe("runSync: a failed step fails the run", () => {
 
   test("a stash drop git refuses (refs/stash locked) fails the run instead of counting as kept", async () => {
     const brain = brainWithRemote();
-    const edited = readFileSync(join(brain.root, FIELD_NOTE), "utf-8").replace("Boots resoled in March.", "Boots resoled in April.");
+    const edited = readFileSync(join(brain.root, FIELD_NOTE), "utf-8").replace("Sandals repaired in March.", "Sandals repaired in April.");
     write(brain.root, FIELD_NOTE, edited);
     git(brain.root, "stash", "-q");
     // The tree holds the entry's change again, so the entry is dropped.
@@ -501,10 +501,10 @@ describe("runSync: a failed step fails the run", () => {
 
   test("an autostash pop git refuses before the push fails the run, and nothing is pushed", async () => {
     const brain = brainWithRemote();
-    const LOG = "notes/trail-log.md";
+    const LOG = "notes/route-log.md";
     const lines = Array.from({ length: 12 }, (_, i) => `Day ${i + 1}: quiet.`);
-    commitAndPush(brain.root, { [LOG]: lines.join("\n") + "\n" }, "trail log");
-    write(brain.root, LOG, ["Day 1: an owl.", ...lines.slice(1)].join("\n") + "\n");
+    commitAndPush(brain.root, { [LOG]: lines.join("\n") + "\n" }, "route log");
+    write(brain.root, LOG, ["Day 1: an eagle.", ...lines.slice(1)].join("\n") + "\n");
     git(brain.root, "stash", "store", "-m", "autostash", git(brain.root, "stash", "create"));
     git(brain.root, "checkout", "--", LOG);
     // A local edit keeps the first reconcile from touching the entry.
@@ -526,7 +526,7 @@ describe("runSync: a failed step fails the run", () => {
   // its directory becomes a symlink, and git refuses a path beyond one.
   test("an ignore check git cannot run fails the run instead of counting as a refusal", async () => {
     const brain = brainWithRemote();
-    write(brain.root, "debug.log", "trail counter restarted\n");
+    write(brain.root, "debug.log", "route counter restarted\n");
     write(brain.root, "misc/blob.dat", "unclear\n");
     let swapped = false;
     const jev = fakeJev(() => {
@@ -552,7 +552,7 @@ describe("runSync: a failed step fails the run", () => {
 
   test(`a push rejected every time names the rejection`, async () => {
     const brain = brainWithRemote();
-    write(brain.root, OWL_NOTE, OWL_TEXT);
+    write(brain.root, EAGLE_NOTE, EAGLE_TEXT);
     prePushHook(brain.root, 'echo "pushes are closed today" >&2; exit 1');
     const env = await envFor(brain.root, judgeWith(null));
 
@@ -571,8 +571,8 @@ describe("needsAgent", () => {
     expect(needsAgent(run("failed"), true)).toBe(false);
     expect(needsAgent(run("needs-judgment"), false)).toBe(true);
     expect(needsAgent(run("complete", { unknown: ["misc/blob.dat"] }), false)).toBe(true);
-    expect(needsAgent(run("complete", { media: [{ path: "photos/owl.jpg", bytes: 2048 }] }), false)).toBe(false);
-    expect(needsAgent(run("complete", { media: [{ path: "photos/owl.jpg", bytes: 2048 }] }), true)).toBe(true);
+    expect(needsAgent(run("complete", { media: [{ path: "photos/eagle.jpg", bytes: 2048 }] }), false)).toBe(false);
+    expect(needsAgent(run("complete", { media: [{ path: "photos/eagle.jpg", bytes: 2048 }] }), true)).toBe(true);
   });
 });
 

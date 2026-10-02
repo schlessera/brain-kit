@@ -76,6 +76,29 @@ its children explicitly, including when `TZ` is absent. Fixed-instant sync
 tests cover UTC and calendars on either side of it; production sync still
 uses the user's local calendar.
 
+That harness also supplies a throwaway HOME, Claude/pi/XDG configuration
+directories and a command PATH containing only Bun, git and the sync fixture's
+`touch` utility. Doctor tests cannot
+discover host Claude commands or account configuration. Tests that need external
+discovery provide their own shim and prepend it to `keylessEnv(root).PATH`,
+with explicit overrides pointing only at test fixtures. Do not append the
+host PATH to a doctor fixture. The hostile-sentinel tests exercise both
+`runCli` and direct children using `keylessEnv`, including `doctor --fix`.
+
+The strict CI compiler keeps the full source/test graph in one process with
+`NODE_OPTIONS=--max-old-space-size=4096` (4 GiB of V8 old space). Its log records
+Node/TypeScript versions, the effective heap limit, host/cgroup memory capacity,
+TypeScript's compiler diagnostics and the process's peak resident memory. These
+measurements distinguish a heap exhaustion from a type error and show the
+headroom available on the actual runner. They do not change compiler options,
+source coverage or product runtime memory budgets.
+
+On Linux, the matching compiler command is:
+
+```sh
+NODE_OPTIONS=--max-old-space-size=4096 /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+```
+
 CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
 (then `2/3` and `3/3`), each in one Bun process. This option uses the default
 `packages`/`tests` roots and cannot combine with paths, `--cwd` or native
@@ -103,6 +126,14 @@ Tests and typecheck run from live TS source — no build needed. The
 Tests must stay keyless and deterministic: integration tests run against
 `packages/core/fixtures/corpus/` with FTS-only search. Never add a test that
 needs an API key or the network.
+
+For parameterized tests with unsafe strings, put a readable label in the test
+name and pass the raw value separately. Bun 1.3.14's JUnit reporter can emit
+both a raw NUL and `&#0;` when the name contains NUL; standard XML parsers
+reject that report even when every test passes (#639). Keep the unsafe value
+and its refusal assertion intact. To verify a report, run `bun run test
+--reporter=junit --reporter-outfile=/tmp/brain-tests.xml`, then parse the file
+with a standard XML parser and inspect its testcase names and counts.
 
 ## The rules that will get a PR merged
 
@@ -161,13 +192,13 @@ needs an API key or the network.
 4. **Modules** own content domains (types, skills, one CLI namespace) — see
    `docs/extending/`. Run `brain module lint` before submitting.
 5. **No personal data** in fixtures or examples — the CI leakage gate will
-   reject known private strings; use the "Alex Example" persona.
+   reject known private strings; use the Odysseus world in [the corpus decision](docs/decisions/example-corpus.md).
 6. **No raw control or invisible characters** — write them as escape
    sequences. A single raw NUL byte makes grep and ripgrep classify the file
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all fifteen packages, including packages whose own code did
+   `fixed` group: all sixteen packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line

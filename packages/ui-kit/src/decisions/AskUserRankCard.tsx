@@ -272,12 +272,12 @@ export function RankList(p: RankListProps) {
             </>}
           </div> : null}
           {state === "pending" && !embedded ? <div className="bk-rank-actions" data-rank-actions="">
-            {picked ? <><span>Tap where {name(picked.id)} should go</span><Button label="Cancel" tone="quiet" size="sm" block={false} onClick={cancel} /></> : <>
+            {picked ? <><span>Tap where {name(picked.id)} should go</span><Button label="Cancel" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={cancel} /></> : <>
               {undo ? <InlineToast text="Order reset" tone="teal" icon="confirm" onUndo={() => { apply(undo); setUndo(null); setLive("Previous order restored."); }} /> : null}
               <span className="bk-rank-keys" aria-hidden="true">space pick up · ↑↓ move{p.singleKeys !== false ? " · 1–9 place" : ""}</span>
-              <div className="bk-rank-buttons">{!embedded ? <Button label="Dismiss" tone="quiet" size="sm" block={false} onClick={p.onDismiss} /> : null}
-                {changed ? <Button label="Reset" tone="quiet" size="sm" block={false} onClick={() => { setUndo([...orderRef.current]); apply(initial); setLive("Brain’s order restored. Undo available."); }} /> : null}
-                {!embedded ? <Button label={changed ? "Submit order" : "Keep this order"} tone="affirm" size="sm" block={false} onClick={() => p.onSubmit?.({ order: [...orderRef.current], unchanged: !changed })} /> : null}</div>
+              <div className="bk-rank-buttons">{!embedded ? <Button label="Dismiss" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={p.onDismiss} /> : null}
+                {changed ? <Button label="Reset" tone="quiet" size="sm" block={false} style={rankQuietButtonStyle} onClick={() => { setUndo([...orderRef.current]); apply(initial); setLive("Brain’s order restored. Undo available."); }} /> : null}
+                {!embedded ? <Button label={changed ? "Submit order" : "Keep this order"} tone="affirm" size="sm" block={false} style={rankAffirmButtonStyle} onClick={() => p.onSubmit?.({ order: [...orderRef.current], unchanged: !changed })} /> : null}</div>
             </>}
           </div> : null}
         </>
@@ -286,3 +286,16 @@ export function RankList(p: RankListProps) {
     </div>
   );
 }
+
+// D34: an expanded target measures from border-free paint. The extra padding
+// retains the small Button's original border-box size; the inset hairline uses
+// the same rest/hover palette without changing the shared Button primitive.
+const rankQuietButtonStyle = {
+  border: 0,
+  padding: "7px 13px",
+  boxShadow: `inset 0 0 0 1px var(--hv-rank-hairline, ${color.edge})`,
+};
+const rankAffirmButtonStyle = {
+  ...rankQuietButtonStyle,
+  boxShadow: `inset 0 0 0 1px var(--hv-rank-hairline, ${token("button-border-affirm")})`,
+};

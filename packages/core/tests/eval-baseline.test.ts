@@ -16,14 +16,14 @@ import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 // Four queries, each a known top-1 full-text hit on the fixture.
 const SET = [
-  { id: "scope", q: "telescope setup", class: "exact", expected: ["studies/telescope-setup.md"] },
+  { id: "scope", q: "star guide setup", class: "exact", expected: ["studies/star-bearings.md"] },
   { id: "knee", q: "knee injury", class: "exact", expected: ["health/knee-injury.md"] },
   { id: "sleep", q: "sleep tracking", class: "exact", expected: ["health/sleep-tracking.md"] },
-  { id: "dob", q: "the Dobsonian", class: "alias", expected: ["studies/telescope-setup.md"] },
+  { id: "dob", q: "the Calypso guide", class: "alias", expected: ["studies/star-bearings.md"] },
 ];
 // The same IDs, with two queries' answers moved to documents they miss.
 const SWAPPED = SET.map((q) =>
-  q.id === "knee" ? { ...q, expected: ["notes/quick-note-owl.md"] } : q.id === "sleep" ? { ...q, expected: ["me/identity.md"] } : q
+  q.id === "knee" ? { ...q, expected: ["notes/quick-note-eagle.md"] } : q.id === "sleep" ? { ...q, expected: ["me/identity.md"] } : q
 );
 
 let root: string;

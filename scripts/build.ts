@@ -8,6 +8,7 @@ import { resolve } from "path";
 // scripts/check-dist-types.ts. Dependencies are listed before dependents
 // anyway, so a future resolution change fails loudly instead of subtly.
 const packages = [
+  "geo",
   "render-template",
   "core",
   // Ahead of ui-sdk, whose `show_block` handler classifies links with the

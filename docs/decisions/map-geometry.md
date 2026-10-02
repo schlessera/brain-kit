@@ -323,8 +323,9 @@ that encloses its land.
 A polygon traversed counterclockwise also has its interior on the left. So the
 shore and the land polygon agree about direction, and closing one stops being a
 judgement: follow the shore, then keep going counterclockwise around the
-rectangle until you are back where you started. `closeAgainstViewport` in
-`packages/ui-sdk/src/server/coastline.ts` is that sentence, and the whole of it.
+rectangle until you are back where you started
+(`closeAgainstViewport`, `packages/geo/src/coastline.ts:602-695`).
+The SDK retains compatibility exports.
 
 That single rule also settles the case §2.4's attempt got wrong. A shore that
 enters and leaves through the **same edge** is a peninsula one way round and a
@@ -482,3 +483,45 @@ Nothing here needs a key or the network in a test: the render tests answer
 the route themselves, and the stories draw the committed Vathy and Troy
 geometry.
 
+
+
+## 9. Shared geo ownership — 2026-10-01 (#525)
+
+The existing pure coastline/land/road algorithms moved byte-identical into
+`@schlessera/brain-geo`; SDK server names remain compatibility exports. Static PNG
+exports and the existing place-map consumer share those algorithms without a
+UI dependency in geo. The concrete Overpass client now applies shared disk cache,
+aggregate admission, bounded replies and layer-source evidence before preparation.
+The SDK wrapper preserves its result-or-empty contract. The place-map route's
+5-degree background guard, permanent geometry cache, fixtures and projection rules
+remain as decided above; #525's imported-track drawing policy is separate and is
+recorded in [geo-operations.md](geo-operations.md).
+
+## 10. Imported track evidence — 2026-10-01 (#526)
+
+The settled [track-display ruling](https://github.com/schlessera/brain-kit/issues/525#issuecomment-5930085980)
+separates a drawable line from the background service's 5-degree limit.
+`show_block` names only a staged file path. The server validates the original,
+recomputes its summary and fingerprints its bytes; incoming names/MIME and stored
+summary fields cannot author geometry or metrics
+(`readStagedTrack`, `packages/ui-server/src/tracks/read.ts:9-53`).
+
+The React planner fits the full retained envelope, refuses unsupported Mercator,
+longitude and padded extents without clamping, and requests geography only when
+both drawn axes fit the existing guard
+(`planTrack`, `packages/ui-react/src/lib/track-display.ts:11-25`).
+Missing background or a wider projectable extent retains a labeled track-only
+drawing. This does not change place-map fallback. Each usable section has its own
+path; start/end use distinct shapes, merged endpoints say S/E, and every waypoint
+remains in the text list. This cut draws unsimplified retained points, so source
+endpoints, bends and nearest-waypoint geometry remain present. Shared measurements
+also stay unsimplified. Partial/unknown/true-zero values retain their meanings;
+file timestamps do not establish recorded travel.
+
+`TrackMap` is a prop-driven kit presentation. Original/waypoint evidence remains
+complete when projection fails. Static export resolves the original and optional
+geography before constructing markup
+(`loadTrackDisplay`, `packages/ui-react/src/lib/track-display.ts:80-95`);
+an unavailable original refuses export rather than returning an empty map.
+Synthetic fixtures cover the 10 km loop, recovered gaps, a projectable extent over
+5 degrees and valid polar evidence, in phone/desktop and dark/paper renderings.

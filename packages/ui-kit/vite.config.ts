@@ -12,6 +12,6 @@ export default defineConfig({
   optimizeDeps: {
     // The transcript integration story imports these through ui-react. Bundle
     // them before the browser tests start so discovery cannot reload a play.
-    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge"],
+    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "saxes", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge"],
   },
 });

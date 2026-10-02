@@ -271,3 +271,5 @@ export type { RankListProps } from "./decisions/AskUserRankCard.js";
 
 export { AskUserFormCard } from "./decisions/AskUserFormCard.js";
 export type { AskUserFormCardProps, AskUserFormSubmission, FormNodeBase, FormNode, FormOption, FormAnswer, FormAnswers } from "./decisions/AskUserFormCard.js";
+
+export { TrackMap, type TrackMapProps } from "./blocks/TrackMap.js";

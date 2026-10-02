@@ -2,6 +2,11 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
+import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
+import { failInboxWork, sweepInboxLifecycle } from "./actions.js";
+import { createInboxCleanup } from "./cleanup.js";
+import { assertInboxRecoveryReady } from "./recovery-gate.js";
+import { inboxRunIsLive } from "./lifetime.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -25,34 +30,45 @@ interface DrainResult {
 export function createInboxRuntime(db: Database, deps: {
   log: Logger;
   now?: () => number;
+  brainRoot?: string;
   timers?: Timers;
   /** Internal fixture/engine wiring, never a package extension interface. */
   dispatch?: (item: InboxQueueItem, signal: AbortSignal) => Promise<void>;
+  budget?: Omit<Parameters<typeof createInboxBudget>[1], "now">;
+  /** Server-selected bounds/billing for each concrete model-bearing operation. */
+  operation?: (item: InboxQueueItem) => InboxBudgetOperation;
 }) {
+  assertInboxRecoveryReady(db);
   const now = deps.now ?? Date.now;
   const timers: Timers = deps.timers ?? {
     setInterval: (callback, ms) => setInterval(callback, ms) as Timer,
     clearInterval: (timer) => clearInterval(timer),
   };
   const store = createInboxStore(db, { now });
+  const cleanup = deps.brainRoot ? createInboxCleanup(db, deps.brainRoot, { now }) : undefined;
+  const budget = deps.budget ? createInboxBudget(db, { ...deps.budget, now }) : undefined;
+  const dispatchEnabled = Boolean(deps.dispatch && budget && deps.operation);
   const controller = new AbortController();
   let timer: Timer | undefined;
   let closed = false;
   let active: Promise<DrainResult> | null = null;
   const result = (): DrainResult => ({
-    busy: false, claimed: 0, recovered: 0, dispatchEnabled: Boolean(deps.dispatch),
+    busy: false, claimed: 0, recovered: 0, dispatchEnabled,
   });
 
   function recoverLeases(): number {
     return db.transaction(() => {
+      reconcileInboxBudgets(db, now());
       const rows = db.query(
-        "SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
-      ).all(now()) as { id: string }[];
-      store.commit(rows.map(({ id }) => ({
-        kind: "transition" as const, itemId: id,
-        expectedVersion: store.getItem(id)!.version, to: "ready" as const,
-      })));
-      return rows.length;
+        "SELECT id, run_id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
+      ).all(now()) as { id: string; run_id: string | null }[];
+      let recovered = 0;
+      for (const { id, run_id } of rows) {
+        if (run_id && inboxRunIsLive(db, run_id)) continue;
+        failInboxWork(db, id, store.getItem(id)!.version, now());
+        recovered++;
+      }
+      return recovered;
     }).immediate();
   }
 
@@ -66,22 +82,20 @@ export function createInboxRuntime(db: Database, deps: {
   }
 
   function eligible(item: InboxQueueItem, at: number): boolean {
-    return item.status === "ready" && item.expiresAt > at &&
+    return item.type !== "cleanup_pending" && item.status === "ready" && item.expiresAt > at &&
       (item.waitUntil === undefined || item.waitUntil <= at) && item.attempts < item.maxAttempts;
   }
 
   function claimNext(seen: Set<string>): InboxQueueItem | null {
     return db.transaction(() => {
       const at = now();
-      const candidate = store.orderedItems().find(({ item }) =>
-        item.queue === "queue" && eligible(item, at) && !seen.has(item.id)
-      )?.item;
-      if (!candidate || candidate.queue !== "queue") return null;
-      store.commit([{
-        kind: "transition", itemId: candidate.id, expectedVersion: candidate.version,
-        to: "claimed", leaseUntil: at + LEASE_MS,
-      }]);
-      return store.getItem(candidate.id) as InboxQueueItem;
+      for (const { item } of store.orderedItems()) {
+        if (item.queue !== "queue" || !eligible(item, at) || seen.has(item.id)) continue;
+        seen.add(item.id);
+        const admitted = budget!.claim(item.id, deps.operation!(item), at + LEASE_MS);
+        if (admitted) return admitted.items[0]!;
+      }
+      return null;
     }).immediate();
   }
 
@@ -89,15 +103,19 @@ export function createInboxRuntime(db: Database, deps: {
     const pass = result();
     if (closed) return pass;
     try {
+      assertInboxRecoveryReady(db);
+      await ready;
       pass.recovered = recoverLeases();
+      sweepInboxLifecycle(db, now());
+      await cleanup?.sweep();
       heartbeat();
       const at = now();
       const { count } = db.query(
-        "SELECT COUNT(*) AS count FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'ready' AND expires_at > ? AND (wait_until IS NULL OR wait_until <= ?) AND attempts < max_attempts"
+        "SELECT COUNT(*) AS count FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_pending' AND status = 'ready' AND expires_at > ? AND (wait_until IS NULL OR wait_until <= ?) AND attempts < max_attempts"
       ).get(at, at) as { count: number };
       // Empty ticks never construct a recorder or call inference. An absent
       // dispatcher also leaves ready work untouched until the full-v1 gates.
-      if (count === 0 || !deps.dispatch) return pass;
+      if (count === 0 || !dispatchEnabled) return pass;
       const seen = new Set<string>();
       // Bound each pass by its initial ready set; new arrivals wait for a tick.
       for (let i = 0; i < count && !closed; i++) {
@@ -107,13 +125,20 @@ export function createInboxRuntime(db: Database, deps: {
         pass.claimed++;
         // The immediate claim transaction has ended before any asynchronous
         // work. The engine owns completion/backoff/checkpoints and accounting.
-        await deps.dispatch(item, controller.signal);
+        try { await deps.dispatch!(item, controller.signal); }
+        catch (error) {
+          const current = store.getItem(item.id);
+          if (current?.queue === "queue" && current.status === "claimed" && current.version === item.version)
+            failInboxWork(db, item.id, item.version, now());
+          reconcileInboxBudgets(db, now());
+          throw error;
+        }
       }
     } catch {
       pass.failed = true;
-      // A failed dispatch keeps its committed lease for recovery. Do not log
-      // untrusted item text or arbitrary dispatcher exceptions.
-      deps.log.emit({ severityText: "WARN", body: "inbox drain failed; committed leases remain recoverable" });
+      // Explicit failures schedule backoff; killed workers retain recoverable
+      // leases. Do not log untrusted text or arbitrary dispatcher exceptions.
+      deps.log.emit({ severityText: "WARN", body: "inbox drain failed; retry and cleanup journals remain recoverable" });
     }
     return pass;
   }
@@ -133,9 +158,13 @@ export function createInboxRuntime(db: Database, deps: {
 
   // Boot recovery is deterministic and creates no Activity/model work.
   recoverLeases();
+  sweepInboxLifecycle(db, now());
   heartbeat();
+  const ready = cleanup?.sweep() ?? Promise.resolve(0);
+  void ready.catch(() => deps.log.emit({ severityText: "WARN", body: "inbox cleanup recovery failed; journal retained" }));
   arm();
   return {
+    ready,
     tick,
     async poke() {
       if (closed) return { ...result(), rearmed: false, closed: true };
@@ -150,6 +179,8 @@ export function createInboxRuntime(db: Database, deps: {
       controller.abort();
       if (timer !== undefined) timers.clearInterval(timer);
       await active;
+      await ready.catch(() => {});
+      await cleanup?.close();
     },
   };
 }

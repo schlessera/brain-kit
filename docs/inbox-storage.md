@@ -84,21 +84,28 @@ source or trust. The store starts no inference call.
 | Record | Invariant and owner |
 | --- | --- |
 | Resolutions | One write-once row per Action, with principal, selected option and validated frozen v1 effect. The effect engine composes the transition and deterministic follow-up dedup key in the same transaction; storage executes no effect. |
+| Action contexts | Immutable server-selected class/evidence/suppression/source context and the canonical stored option set, retained for strict resolution and compensation. |
 | Suppressions | One record per class, with evidence boundary, expiry and re-raise condition; admission owns matching and expiry. |
 | Scheduler heartbeat | One record per scheduler name, with last tick and processed change cursor; the drain loop owns updates. |
 | Budget reservations | Unique operation key, item/attempt/purpose/run identity, principal/model/billing mode, admission day, normal/emergency bucket, reserved dollars/turns, observed cost and final charged dollars/turns. Budget admission owns limits, unknown-cost policy and recovery decisions. |
 
-Reservations start active and settle or release once through the store. A
-settlement cannot discard observed spend, and subscription records carry zero
-dollar reserve/charge. The admission day remains fixed even when settlement
+Reservations start active and settle or release once. A settlement cannot
+discard observed spend. Confirmed subscription records carry zero dollars;
+actual API billing evidence overrides an expected subscription classification.
+The [budget ledger](inbox-budget.md) adds admission-time pricing snapshots,
+single backend acquisition and frozen settlement in migration `024_inbox_budget.sql`. The admission day remains fixed even when settlement
 happens on another day. Missing pricing, ceilings, fallback models and Action
 creation are budget policy rather than implicit storage behavior.
 
-`exportState()` takes one consistent read of every operational table, including
+`exportState()` takes one consistent read of the inbox audit tables, including
 deleted projections, checkpoints, resolutions, sequences and reservations.
-Reopening the same UI database recovers these records. Backup and restore
-orchestration owns packaging that export with the brain files and staging;
-this method alone is not a complete backup.
+Migration `027_inbox_actions.sql` adds retained Action contexts to that export.
+The [Action engine](inbox-actions.md) composes these records with guarded
+transitions and performs filesystem compensation after database commit.
+Reopening the same UI database recovers these records. The supported
+[operational recovery command](inbox-recovery.md) packages the whole UI database
+with staging bytes, including principal identities and Activity spend receipts;
+this audit method alone is not a complete backup.
 
 
 Intake adds `inbox_intake_receipts`: server-owned source/principal/content

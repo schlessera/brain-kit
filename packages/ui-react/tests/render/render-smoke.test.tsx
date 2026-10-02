@@ -4218,7 +4218,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Skills", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Skills", "Modules", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -5637,6 +5637,9 @@ describe("New chat on the chat page (#93)", () => {
       const area = scroller.parentElement!;
       expect(button.parentElement === area).toBe(true);
       expect(area.className.split(" ")).toContain("relative");
+      expect(scroller.className.split(" ")).toEqual(
+        expect.arrayContaining(["pt-10", "@min-[888px]:pt-0"])
+      );
       const classes = button.className.split(" ");
       expect(classes).toContain("absolute");
       expect(classes).toContain("right-4");
@@ -5683,5 +5686,141 @@ describe("New chat on the chat page (#93)", () => {
     } finally {
       done();
     }
+  });
+});
+
+import { trackView } from "../track-fixtures.js";
+
+describe("composer track intake", () => {
+  async function mountedTracks() {
+    const upload: Array<{ init: RequestInit; resolve: (response: Response) => void }> = [];
+    const root = createBrainUiRoot({ storage: null, request: async (url, init) => {
+      if (url.endsWith("/track-upload")) return new Promise<Response>(resolve => upload.push({ init: init!, resolve }));
+      return Response.json({ providers: [] });
+    } });
+    root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
+    const sent: Array<import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage> = [];
+    const view = render(<BrainUiProvider root={root}><Composer send={message => { if (message.type === "chat_message") sent.push(message); return true; }} /></BrainUiProvider>);
+    await act(async () => { await Promise.resolve(); });
+    const field = () => view.getByRole("textbox") as HTMLTextAreaElement;
+    const type = (text: string) => { field().focus(); changeControlledInput(field(), text); };
+    const send = () => { field().focus(); fireEvent.keyDown(field(), { key: "Enter" }); };
+    const pick = (names: string[]) => {
+      const input = view.container.querySelector<HTMLInputElement>('input[accept*=".gpx"]');
+      expect(input).not.toBeNull();
+      fireEvent.change(input!, { target: { files: names.map(name => new File(['{"type":"LineString","coordinates":[[3,2],[3.01,2]]}'], name, { type: "application/octet-stream" })) } });
+    };
+    const ready = (index: number, name: string) => {
+      const file = trackView().file; file.incomingName = name; file.name = name + ".geojson"; file.path = file.path.replace("ithaca-loop.geojson", file.name); file.summary!.source.path = file.path;
+      upload[index]!.resolve(Response.json({ files: [file] }));
+    };
+    return { root, view, upload, sent, field, type, send, pick, ready, done() { view.unmount(); root.dispose(); } };
+  }
+
+  test("the real picker holds a mixed draft until all track results are ready and acknowledgement consumes only submitted chips", async () => {
+    const h = await mountedTracks();
+    try {
+      h.type("Show these loops"); h.pick(["Ithaca loop", "Raft route"]);
+      expect(h.upload).toHaveLength(2);
+      expect(h.view.getByRole("button", { name: "Remove Ithaca loop" })).toBeTruthy();
+      h.send(); expect(h.sent).toHaveLength(0); expect(h.view.container.textContent).toContain("sends when 2 files finish");
+      await act(async () => h.ready(0, "Ithaca loop"));
+      expect(h.sent).toHaveLength(0); h.type("Show these loops with a revised draft");
+      await act(async () => h.ready(1, "Raft route"));
+      await waitFor(() => expect(h.sent).toHaveLength(1));
+      expect(h.sent[0]!.text).toBe("Show these loops with a revised draft");
+      expect(h.sent[0]!.files).toHaveLength(2); expect(h.sent[0]!.files![0]!.kind).toBe("file");
+      expect(h.sent[0]!.files![0]!.path).toContain("Ithaca loop.geojson");
+      const user = h.root.stores.chat.getState().draft!.messages.find(message => message.role === "user");
+      expect(user!.files).toHaveLength(2); expect(user!.files![0]!.summary!.measurements.distance.value!).toBeGreaterThan(9900);
+      h.type("Next draft"); h.pick(["Next track"]);
+      await act(async () => h.ready(2, "Next track"));
+      act(() => h.root.stores.chat.getState().setChatReceipt(h.sent[0]!.requestId!, "accepted"));
+      expect(h.field().value).toBe("Next draft");
+      expect(h.view.queryByRole("button", { name: "Remove Ithaca loop" })).toBeNull();
+      expect(h.view.getByRole("button", { name: "Remove Next track" })).toBeTruthy();
+    } finally { h.done(); }
+  });
+
+  test("a failed held track keeps the whole draft; retry does not send until the user asks, and removal aborts", async () => {
+    const h = await mountedTracks();
+    try {
+      h.type("Keep this draft"); h.pick(["bad.json"]); h.send();
+      await act(async () => h.upload[0]!.resolve(Response.json({ error: "unsupported_track" }, { status: 422 })));
+      expect(h.sent).toHaveLength(0); expect(h.field().value).toBe("Keep this draft");
+      expect(h.view.container.textContent).toContain("ordinary JSON"); expect(h.view.container.textContent).toContain("Your draft is kept");
+      fireEvent.click(h.view.getByRole("button", { name: "Retry bad.json" })); expect(h.upload).toHaveLength(2);
+      await act(async () => h.ready(1, "bad.json")); expect(h.sent).toHaveLength(0);
+      h.send(); expect(h.sent).toHaveLength(1);
+      h.pick(["Cancel track"]); expect(h.upload).toHaveLength(3);
+      const signal = h.upload[2]!.init.signal;
+      fireEvent.click(h.view.getByRole("button", { name: "Remove Cancel track" })); expect(signal!.aborted).toBe(true);
+      await act(async () => h.ready(2, "Cancel track")); expect(h.view.queryByRole("button", { name: "Remove Cancel track" })).toBeNull(); expect(h.sent).toHaveLength(1);
+    } finally { h.done(); }
+  });
+});
+
+import { ShareIntake } from "../../src/components/chat/share-card.js";
+import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
+
+describe("track share review", () => {
+  async function mountedShare() {
+    const uploads: Array<{ signal: AbortSignal; resolve: (response: Response) => void }> = [];
+    const sent: import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage[] = [];
+    const root = createBrainUiRoot({ storage: null, request: async (url, init) => {
+      if (url.endsWith("/share")) return new Promise<Response>((resolve, reject) => {
+        const signal = init!.signal!;
+        uploads.push({ signal, resolve });
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      return Response.json({ providers: [] });
+    } });
+    const sendSpy = spyOn(root.connection, "send").mockImplementation(message => { if (message.type === "chat_message") sent.push(message); return true; });
+    root.stores.connection.setState({ wsStatus: "connected" });
+    const record: StoredShare = { id: "synthetic-track-share", receivedAt: Date.now(), text: "Review this synthetic loop", files: [new File(["original route"], "Ithaca loop.gpx", { type: "application/octet-stream" })] };
+    root.stores.share.getState().enqueue(record);
+    const view = render(<BrainUiProvider root={root}><ShareIntake /></BrainUiProvider>);
+    await act(async () => { await Promise.resolve(); });
+    act(() => root.stores.share.getState().setError(null));
+    const ready = (index: number) => { const file = trackView().file; uploads[index]!.resolve(Response.json({ dir: file.path.slice(0, file.path.lastIndexOf("/")), files: [file] })); };
+    return { root, view, uploads, sent, record, ready, done() { view.unmount(); sendSpy.mockRestore(); root.dispose(); } };
+  }
+
+  test("an unseen share stays under review across connection changes, and dismiss cancels a confirmed upload without dispatch", async () => {
+    const h = await mountedShare();
+    try {
+      expect(h.view.container.textContent).toContain("Ithaca loop.gpx"); expect(h.view.container.textContent).toContain("awaiting your review");
+      act(() => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
+      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
+      expect(h.uploads).toHaveLength(0); expect(h.sent).toHaveLength(0);
+      fireEvent.click(h.view.getByRole("button", { name: "Add to brain" }));
+      expect(h.uploads).toHaveLength(1); expect(h.view.container.textContent).toContain("uploading…");
+      fireEvent.click(h.view.getByRole("button", { name: "Dismiss shared files" }));
+      expect(h.uploads[0]!.signal.aborted).toBe(true);
+      await act(async () => h.ready(0));
+      expect(h.sent).toHaveLength(0); expect(h.root.stores.share.getState().queue).toHaveLength(0);
+    } finally { h.done(); }
+  });
+
+  test("only an explicitly confirmed share resumes after an interrupted upload, retaining nonempty canonical file evidence", async () => {
+    const h = await mountedShare();
+    try {
+      fireEvent.click(h.view.getByRole("button", { name: "Add to brain" })); expect(h.uploads).toHaveLength(1);
+      await act(async () => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
+      expect(h.uploads[0]!.signal.aborted).toBe(true); expect(h.sent).toHaveLength(0);
+      expect(h.view.container.textContent).toContain("waiting for connection");
+      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
+      await waitFor(() => expect(h.uploads).toHaveLength(2));
+      await act(async () => h.ready(1));
+      expect(h.sent).toHaveLength(1); expect(h.sent[0]!.files).toHaveLength(1);
+      expect(h.sent[0]!.files![0]!.path).toBe(trackView().file.path);
+      const user = h.root.stores.chat.getState().draft!.messages.find(message => message.role === "user");
+      expect(user!.files![0]!.summary!.counts.retained).toBe(129);
+      expect(h.root.stores.share.getState().queue).toHaveLength(0);
+      act(() => h.root.stores.share.getState().enqueue({ ...h.record, id: "unseen-second-share" }));
+      act(() => h.root.stores.connection.setState({ wsStatus: "disconnected" }));
+      act(() => h.root.stores.connection.setState({ wsStatus: "connected" }));
+      expect(h.uploads).toHaveLength(2); expect(h.sent).toHaveLength(1);
+    } finally { h.done(); }
   });
 });

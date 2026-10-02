@@ -23,6 +23,7 @@ export function resolveLocationReverseGeocodeConfig(): ReverseGeocodeConfig {
     enabled: env.reverseGeocodeEnabled,
     url: env.nominatimUrl,
     userAgent: env.nominatimUserAgent,
+    publicServiceEligible: env.nominatimPublicServiceEligible,
   };
 }
 

@@ -168,6 +168,7 @@ export const backendModule: BackendModule = defineBackendModule({
       // resolved as resolveFromEnv resolves it.
       env: turnEnv(defineProfiles([builtinWithDefaultModel(BUILTIN_PROFILE, context)])[0]!),
       exec: resolveExecConfig(),
+      ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
       ...(context.log ? { log: context.log } : {}),
     });
   },
@@ -265,6 +266,7 @@ export const backendModule: BackendModule = defineBackendModule({
       const claudeCodePath = configString(context, "claudeCodePath");
       const backend = createClaudeBackend({
         brainPath: context.brainPath,
+        ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
         ...(claudeCodePath ? { claudeCodePath } : {}),
         profiles,
         ...(context.confirmBashPatterns !== null

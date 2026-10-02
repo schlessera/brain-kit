@@ -27,7 +27,8 @@ async function waitFor(predicate: () => boolean, budgetMs = 2000): Promise<boole
   return predicate();
 }
 async function start(path: string) {
-  const backend = makeFakeBackend({ id: "fake" });
+  let starts = 0;
+  const backend = makeFakeBackend({ id: "fake", startTurn: async () => { starts++; } });
   const app = await createApp({
     config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash",
       COOKIE_SECRET: SECRET, HOST: "127.0.0.1", DB_PATH: path, BRAIN_PATH: join(path, ".."),
@@ -39,7 +40,7 @@ async function start(path: string) {
   let closed = false;
   const close = async () => { if (closed) return; closed = true; server.stop(true); await app.close(); };
   cleanup.push(close);
-  return { app, url: `ws://127.0.0.1:${server.port}/ws`, close };
+  return { app, url: `ws://127.0.0.1:${server.port}/ws`, close, starts: () => starts };
 }
 async function connect(running: Awaited<ReturnType<typeof start>>) {
   const principal = createPrincipal(running.app.db, { authMethod: "password", label: "Example browser", ttlSeconds: 3600 });
@@ -224,4 +225,43 @@ describe("durable inbox over real authenticated sockets", () => {
     assertConverged(first, foreign); assertConverged(second, foreign);
   });
 
+});
+
+test("two real clients resolve stored work once, converge both views and make zero backend calls", async () => {
+  const path = directory(), running = await start(path), store = createInboxStore(running.app.db);
+  const source = ingest(store, "resolution"), decision = action("decision", source.thread.id);
+  store.commit([{ kind: "item", item: decision }, { kind: "transition", itemId: source.item.id, expectedVersion: 1, to: "claimed", leaseUntil: Date.now() + 600_000 },
+    { kind: "transition", itemId: source.item.id, expectedVersion: 2, to: "blocked", blockedByItemId: decision.id }]);
+  const first = await connect(running), second = await connect(running);
+  bothViews(first); bothViews(second);
+  expect(await waitFor(() => project(first.frames, "actions").items.length === 1 && project(second.frames, "actions").items.length === 1)).toBe(true);
+  expect(decision.options).toHaveLength(1);
+  expect(first.client.send({ type: "inbox_snooze", itemId: decision.id })).toBe(true);
+  expect(await waitFor(() => store.getItem(decision.id)?.status === "snoozed")).toBe(true);
+  expect(store.getItem(source.item.id)).toMatchObject({ status: "blocked" });
+  expect(running.app.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 0 });
+  const msg = { type: "inbox_resolve" as const, itemId: decision.id, optionId: "accept" };
+  expect(first.client.send(msg)).toBe(true); expect(second.client.send(msg)).toBe(true);
+  expect(await waitFor(() => store.getItem(decision.id)?.status === "resolved")).toBe(true);
+  const execute = () => store.snapshot().items.filter(item => item.queue === "queue" && item.type === "execute");
+  expect(execute()).toHaveLength(1);
+  expect(running.app.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 1 });
+  expect(store.getItem(source.item.id)).toMatchObject({ status: "superseded" });
+  expect(running.starts()).toBe(0);
+  expect(await waitFor(() => project(first.frames, "actions").items[0]?.status === "resolved" && project(second.frames, "actions").items[0]?.status === "resolved")).toBe(true);
+  assertConverged(first, store); assertConverged(second, store);
+  expect(first.errors).toEqual([]); expect(second.errors).toEqual([]);
+});
+
+test("mounted decision routing fails closed for exact operations until current server authority is installed", async () => {
+  const path = directory(), running = await start(path), store = createInboxStore(running.app.db);
+  const source = ingest(store, "authority"), decision = action("authority-decision", source.thread.id);
+  decision.options[0]!.effect = { kind: "enqueue", payload: { instruction: "Write the note", operation: { toolName: "write", input: { path: "notes/harbor.md" }, targetPath: "notes/harbor.md" } } };
+  store.commit([{ kind: "item", item: decision }]);
+  const client = await connect(running);
+  expect(client.client.send({ type: "inbox_resolve", itemId: decision.id, optionId: "accept" })).toBe(true);
+  expect(await waitFor(() => client.frames.some(frame => frame.type === "error" && frame.code === "INBOX_DECISION_REFUSED"))).toBe(true);
+  expect(store.getItem(decision.id)).toMatchObject({ status: "pending" });
+  expect(running.app.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 0 });
+  expect(running.starts()).toBe(0);
 });

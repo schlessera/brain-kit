@@ -384,7 +384,7 @@ export function buildTaxonomy(opts: {
     }
   };
   for (const mod of modules) {
-    pushHints(mod.manifest.taxonomy?.classifierHints ?? {}, `module "${mod.manifest.name}"`);
+    if (mod.state !== "dormant") pushHints(mod.manifest.taxonomy?.classifierHints ?? {}, `module "${mod.manifest.name}"`);
   }
   pushHints(user?.taxonomy?.classifierHints ?? {}, "brain.config");
   pushHints(

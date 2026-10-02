@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:132-133`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:135-136`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -41,11 +41,11 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:381-386`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:832`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:402-407`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:903`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:429`), read back as a string
-  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:265-268`)
+  `packages/ui-server/src/agent/backend.ts:488`), read back as a string
+  (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:177-178`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
@@ -60,9 +60,9 @@ next to it.
   spawns it directly.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
-  (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:134-186`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:209`).
+  (`Probe the selected content CLI`,
+  `packages/ui-server/src/brain/client.ts:109-161`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:238`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +71,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:48`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:390`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:419`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,10 +85,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:390`, eight
+  (`optionalDependencies`, `bun.lock:419`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:400`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:429`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -106,7 +106,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:242-247`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:245-250`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -207,7 +207,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:189-194`).
+  `packages/ui-server/src/app.ts:218-223`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -237,8 +237,8 @@ than refuses on a mismatch.**
   at the measured version, and then the CLI number alone looks right while the
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
-  `brain` CLI probe (`Probe the brain repo's own CLI pin`,
-  `packages/ui-server/src/brain/client.ts:134`). The SDK's
+  `brain` CLI probe (`Probe the selected content CLI`,
+  `packages/ui-server/src/brain/client.ts:109`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -312,9 +312,9 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:59`), so bumping the SDK in this repo fails CI until
+  `.github/workflows/ci.yml:82`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:132-133`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
@@ -378,9 +378,9 @@ until re-measured.
 | `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:8-15` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:10-19` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:12-17` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
-| `That third vector is stated here`, `docs/decisions/voice-permission.md:621-631` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:218-231` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2682-2705` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:775,793`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `That third vector is stated here`, `docs/decisions/voice-permission.md:628-638` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:250-263` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit.md:2692-2715` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:79` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:781,799`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
 > The [old harness](https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304-L369)
@@ -445,7 +445,7 @@ into them.
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:138-140`).
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:46-52`,
-  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:173-181`), handed to the SDK
+  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
   whole (`sdkOptions.env = childEnv`, `sdk-options.ts:203`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:115-121`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:122-124`).
@@ -458,7 +458,7 @@ into them.
   billing now stays unknown for every origin; server credentials and an
   observed runtime version cannot establish a child's billing. The recorded
   root-span attribute is the source of truth
-  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:520-521`);
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:521-522`);
   [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
   records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the
@@ -493,7 +493,7 @@ all, and nothing warns: `accountInfo()` still reports the OAuth token as the
 token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
 reaches the CLI for any reason moves every default-profile chat turn to API
 billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
-completion provider reads it (`"anthropic-haiku": "ANTHROPIC_API_KEY"`, `packages/core/src/cli/brain.ts:94`), and so does
+completion provider reads it (`"anthropic-haiku": "ANTHROPIC_API_KEY"`, `packages/core/src/cli/brain.ts:96`), and so does
 model discovery. The cost record then says `api`, which is accurate
 bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
@@ -531,7 +531,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:202`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:205`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not

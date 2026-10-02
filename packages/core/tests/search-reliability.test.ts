@@ -293,22 +293,22 @@ describe("full-text lane over fixtures/corpus", () => {
       .all(expr) as { path: string }[]).map(r => r.path).sort();
 
   test("a question matches the document that holds its content words but not its question words", async () => {
-    const status = "projects/active/bookshelf/status.md";
+    const status = "projects/active/raft/status.md";
     // The premise: "when" is nowhere in the document, so an AND of every
     // word cannot match it.
     expect(readFileSync(join(root, status), "utf8")).not.toMatch(/\bwhen\b/i);
-    expect(rawMatch('"when" "is" "the" "bookshelf" "deadline"')).toEqual([]);
+    expect(rawMatch('"when" "is" "the" "raft" "deadline"')).toEqual([]);
 
-    const { results, warnings } = await fts("when is the bookshelf deadline");
+    const { results, warnings } = await fts("when is the raft deadline");
     expect(warnings).toEqual([]);
     expect(results.map(r => r.path)).toContain(status);
   });
 
   test("an exact multi-word keyword query still ranks the one document holding every word first", async () => {
-    const status = "projects/active/bookshelf/status.md";
-    expect(rawMatch('"carcass" "glue-up"')).toEqual([status]);
+    const status = "projects/active/raft/status.md";
+    expect(rawMatch('"construction" "offers"')).toEqual([status]);
 
-    const { results } = await fts("carcass glue-up");
+    const { results } = await fts("construction offers");
     expect(results.length).toBeGreaterThan(1);
     expect(results[0]!.path).toBe(status);
   });
@@ -327,19 +327,20 @@ describe("full-text lane over fixtures/corpus", () => {
   });
 
   test("a query that is one quoted phrase stays a phrase", async () => {
-    const expected = rawMatch('"face frame"');
+    const expected = rawMatch('"guide case"');
+    expect(expected.length).toBeGreaterThan(0);
     // The phrase is narrower than its words, or this proves nothing.
-    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+    expect(rawMatch('"guide" OR "case"').length).toBeGreaterThan(expected.length);
 
-    const { results } = await fts('"face frame"');
+    const { results } = await fts('"guide case"');
     expect(results.map(r => r.path).sort()).toEqual(expected);
   });
 
   test("a quoted phrase holding FTS5 doubled-quote escapes stays one phrase", async () => {
-    const query = '"face ""frame"""';
+    const query = '"guide ""case"""';
     const expected = rawMatch(query);
     expect(expected.length).toBeGreaterThan(0);
-    expect(rawMatch('"face" OR "frame"').length).toBeGreaterThan(expected.length);
+    expect(rawMatch('"guide" OR "case"').length).toBeGreaterThan(expected.length);
 
     const { results, warnings } = await fts(query);
     expect(results.map(r => r.path).sort()).toEqual(expected);
@@ -348,17 +349,17 @@ describe("full-text lane over fixtures/corpus", () => {
 
   test("a mixed query matches only what its content words match", async () => {
     const all = (query: string) => hybridSearch(corpus, { query, mode: "fts", rerank: "none", limit: 100 }, {});
-    const expected = (await all("bookshelf deadline")).results.map(r => r.path).sort();
+    const expected = (await all("raft deadline")).results.map(r => r.path).sort();
     // The stopwords alone reach documents the content words do not, or this
     // proves nothing.
     expect(rawMatch('"when" OR "is" OR "the"').filter(p => !expected.includes(p)).length).toBeGreaterThan(0);
 
-    const { results } = await all("when is the bookshelf deadline");
+    const { results } = await all("when is the raft deadline");
     expect(results.map(r => r.path).sort()).toEqual(expected);
   });
 
   test("tokens carrying FTS5 syntax characters never raise a syntax error", async () => {
-    for (const query of ['foo"bar', "deadline*", "a:b", "-bookshelf", "(bookshelf", "bookshelf)", "NEAR(bookshelf", "? the", '"unterminated bookshelf']) {
+    for (const query of ['foo"bar', "deadline*", "a:b", "-raft", "(raft", "raft)", "NEAR(raft", "? the", '"unterminated raft']) {
       const { warnings } = await fts(query);
       expect({ query, warnings }).toEqual({ query, warnings: [] });
     }

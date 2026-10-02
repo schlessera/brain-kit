@@ -32,7 +32,7 @@ function taxonomy(embed?: boolean, noteEmbed?: boolean): Taxonomy {
 
 function markdown(type: string, title: string, marker: string, link: string): string {
   return `---\ntitle: ${title}\ntype: ${type}\nstatus: active\ncreated: "2026-07-01"\nupdated: "2026-07-01"\ntags: [fixture]\n---\n` +
-    `## First section\n\n${(marker + " telescope orchard evidence. ").repeat(40)}\n\n[[${link}]]\n\n` +
+    `## First section\n\n${(marker + " star guide orchard evidence. ").repeat(40)}\n\n[[${link}]]\n\n` +
     `## Second section\n\n${(marker + " observatory measurements. ").repeat(40)}\n\n[TODO: confirm the fixture.]\n`;
 }
 
