@@ -1,5 +1,9 @@
 # Visitor paths for public launch
 
+The [durable visitor-path decision](decisions/public-visitor-paths.md) records
+the selected policy and alternatives. This report preserves the dated research
+and its distinction between documented capabilities and exercised behavior.
+
 Comparison for [#616](https://github.com/schlessera/brain-kit/issues/616),
 under [#608](https://github.com/schlessera/brain-kit/issues/608). The maintainer
 selected outbound visitor paths plus email release notifications on
@@ -78,7 +82,7 @@ requires the feature to be enabled on the public repository. Check that
 availability and the policy's usable contact path as part of #615's launch
 review; a committed issue-chooser link alone does not prove it.
 
-If #611 selects GitHub Pages, GitHub describes it as
+The maintainer selected GitHub Pages under #611; GitHub describes it as
 [static hosting](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 and states that it records visitor IP addresses for security. A collection-free
 website application is therefore not a promise that the host stores no data.
@@ -158,16 +162,13 @@ soft-deletion cleanup retaining suppression records and curated manual sending
 are selected. A private contact form and visitor
 analytics were not selected.
 
-Record the durable choice and why the alternatives
-were rejected, reconcile #612's visitor path requirements and #615's access
-checks, and close #616 only when its criteria are met. Outbound links can be
-implemented within those existing children. For the approved signup workflow,
-file a genuinely scoped native child under #608 containing the approved
-fields, destination/owner, consent/lifecycle rules, abuse/accessibility,
-truthful states and keyless verification. Carry the recorded provider,
-presentation, owner, field, consent, cleanup and sending rulings into that
-implementation brief. This investigation authorizes no publication,
-visitor data collection, message delivery, signup or paid account.
+The [durable record](decisions/public-visitor-paths.md) captures why those
+alternatives lost. #612 owns the homepage and outbound paths; #615 owns final
+integration, anonymous access and launch review. The [signup child #899](https://github.com/schlessera/brain-kit/issues/899)
+under #608 owns the form, provider destination, selected lifecycle, accessible
+states and keyless browser proof. Implementation tracking belongs in those
+issues. This investigation authorizes no publication, visitor data collection,
+message delivery, signup or paid account.
 
 ## Mailing-service research and comparison
 
@@ -285,7 +286,7 @@ unsubscribe and deletion access. The existence of vendor-hosted forms is not
 an accessibility certification. No live signup/browser/delivery acceptance is
 claimed here.
 
-### Provider ruling and remaining choices
+### Provider and policy rulings
 
 The maintainer [selected A: Buttondown on 2026-10-01](https://github.com/schlessera/brain-kit/issues/616#issuecomment-5940845881)
 after reviewing the researched options. This selects the service for the
@@ -338,6 +339,7 @@ ranking.
 All maintainer policy choices are recorded above, including provider, signup
 presentation, operating ownership, fields, consent/confirmation, tracking,
 cleanup and sending. Actual account/browser/launch verification follows the
-selected brief. The final durable record and scoped
-native implementation/design child under #608 must carry those actual
-rulings; the comparison does not supply them by implication.
+selected brief. The [durable record](decisions/public-visitor-paths.md) carries
+those actual rulings. The native signup child #899 under #608 and #612/#615
+own implementation and launch verification; the comparison does not supply
+that evidence by implication.
