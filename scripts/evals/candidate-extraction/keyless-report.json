@@ -1,0 +1,325 @@
+{
+  "evidence": "keyless scripted controls; labels/values authored, not independently reviewed; no model-quality or cost comparison",
+  "fixture_sha256": "603432486fe55bbe671d78573624ace5745c53e138b33b8b537acef31fc0851f",
+  "schema_sha256": "7524f717f21e12c85f4377f8e61765f2824a4ab03ef1026eb54d98aa418f7b4a",
+  "prototype_sha256": "0147847cd7f79789272ec29c824f9277110aabdcaaebcb38053de89686b6c8f8",
+  "runtime": "1.3.14",
+  "repetitions": 5,
+  "observations": 120,
+  "tuning_cases": 2,
+  "heldout_cases": 22,
+  "candidate_targets": 42,
+  "candidate_found": 41,
+  "candidate_count": 219,
+  "fields": {
+    "deadline": {
+      "cases": 16,
+      "candidate_targets": 12,
+      "candidate_found": 11,
+      "scripted_selected": 6,
+      "scripted_absent": 1,
+      "scripted_unresolved": 9,
+      "lexical_status_value_matches": 12,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "event_start": {
+      "cases": 16,
+      "candidate_targets": 3,
+      "candidate_found": 3,
+      "scripted_selected": 2,
+      "scripted_absent": 0,
+      "scripted_unresolved": 14,
+      "lexical_status_value_matches": 14,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "event_end": {
+      "cases": 16,
+      "candidate_targets": 3,
+      "candidate_found": 3,
+      "scripted_selected": 2,
+      "scripted_absent": 0,
+      "scripted_unresolved": 14,
+      "lexical_status_value_matches": 15,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "bio_limit": {
+      "cases": 16,
+      "candidate_targets": 4,
+      "candidate_found": 4,
+      "scripted_selected": 3,
+      "scripted_absent": 0,
+      "scripted_unresolved": 13,
+      "lexical_status_value_matches": 16,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "talk_duration": {
+      "cases": 16,
+      "candidate_targets": 3,
+      "candidate_found": 3,
+      "scripted_selected": 3,
+      "scripted_absent": 0,
+      "scripted_unresolved": 13,
+      "lexical_status_value_matches": 16,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "cfp_url": {
+      "cases": 16,
+      "candidate_targets": 2,
+      "candidate_found": 2,
+      "scripted_selected": 2,
+      "scripted_absent": 1,
+      "scripted_unresolved": 13,
+      "lexical_status_value_matches": 15,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "salary": {
+      "cases": 8,
+      "candidate_targets": 7,
+      "candidate_found": 7,
+      "scripted_selected": 3,
+      "scripted_absent": 1,
+      "scripted_unresolved": 4,
+      "lexical_status_value_matches": 6,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "apply_url": {
+      "cases": 8,
+      "candidate_targets": 3,
+      "candidate_found": 3,
+      "scripted_selected": 2,
+      "scripted_absent": 1,
+      "scripted_unresolved": 5,
+      "lexical_status_value_matches": 7,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    },
+    "contact_email": {
+      "cases": 24,
+      "candidate_targets": 5,
+      "candidate_found": 5,
+      "scripted_selected": 5,
+      "scripted_absent": 1,
+      "scripted_unresolved": 18,
+      "lexical_status_value_matches": 22,
+      "live_role_precision": null,
+      "live_normalized_precision": null,
+      "live_absent_field_errors": null,
+      "live_fallback_rate": null
+    }
+  },
+  "local_control_ms": {
+    "p50": 0.08789900000000017,
+    "p95": 0.5205769999999994,
+    "min": 0.031651000000000096,
+    "max": 2.390122,
+    "throughput_per_second": 5733.82084189405,
+    "scope": "prepare, request construction, in-memory transport/real response parser, report-only consumer normalization; excludes fixture setup, golden assertions and lexical comparator; no live latency claim"
+  },
+  "live": {
+    "current_agent": null,
+    "deterministic_baseline": null,
+    "hybrid": null,
+    "calls": null,
+    "all_tokens": null,
+    "billed_cost": null,
+    "effective_cost": null,
+    "cache_retry_fallback_generation_cost": null,
+    "latency": null,
+    "model_state_size_sensitivity": null,
+    "measured_go_no_go": null
+  },
+  "network_model_calls": 0,
+  "cases": [
+    {
+      "id": "cfp-basic",
+      "split": "tuning",
+      "candidates": 9,
+      "targets": 7,
+      "found": 7
+    },
+    {
+      "id": "job-basic",
+      "split": "tuning",
+      "candidates": 5,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "revised-html",
+      "split": "heldout",
+      "candidates": 5,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "quoted-edition",
+      "split": "heldout",
+      "candidates": 5,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "numeric-date",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "missing-zone",
+      "split": "heldout",
+      "candidates": 3,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "zone-abbreviation",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "dst-fold",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "impossible-day",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "leap-offset",
+      "split": "heldout",
+      "candidates": 3,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "date-only",
+      "split": "heldout",
+      "candidates": 2,
+      "targets": 2,
+      "found": 2
+    },
+    {
+      "id": "reversed-range",
+      "split": "heldout",
+      "candidates": 2,
+      "targets": 2,
+      "found": 2
+    },
+    {
+      "id": "absent-cfp",
+      "split": "heldout",
+      "candidates": 0,
+      "targets": 0,
+      "found": 0
+    },
+    {
+      "id": "injection-only",
+      "split": "heldout",
+      "candidates": 2,
+      "targets": 0,
+      "found": 0
+    },
+    {
+      "id": "unexpressible-date",
+      "split": "heldout",
+      "candidates": 0,
+      "targets": 1,
+      "found": 0
+    },
+    {
+      "id": "salary-hourly",
+      "split": "heldout",
+      "candidates": 3,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "salary-missing",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 0,
+      "found": 0
+    },
+    {
+      "id": "salary-locale",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "salary-symbol",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "salary-revised",
+      "split": "heldout",
+      "candidates": 5,
+      "targets": 2,
+      "found": 2
+    },
+    {
+      "id": "salary-backward",
+      "split": "heldout",
+      "candidates": 1,
+      "targets": 1,
+      "found": 1
+    },
+    {
+      "id": "entity-url",
+      "split": "heldout",
+      "candidates": 2,
+      "targets": 2,
+      "found": 2
+    },
+    {
+      "id": "long-irrelevant",
+      "split": "heldout",
+      "candidates": 163,
+      "targets": 3,
+      "found": 3
+    },
+    {
+      "id": "conflicting-editions",
+      "split": "heldout",
+      "candidates": 2,
+      "targets": 0,
+      "found": 0
+    }
+  ]
+}
