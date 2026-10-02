@@ -271,14 +271,22 @@ describe("brain hygiene", () => {
     return root;
   }
   const git = (root: string, ...args: string[]) => {
-    const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-    expect({ args, code: proc.exitCode, stderr: proc.stderr.toString() }).toMatchObject({ args, code: 0 });
+    const proc = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    if (proc.exitCode !== 0) {
+      throw new Error(`git ${args.join(" ")} failed (${proc.exitCode}): ${proc.stderr.toString()}`);
+    }
     return proc.stdout.toString();
   };
   async function reconcileCli(root: string, ...flags: string[]) {
     const { stdout, stderr, code } = await runCli(root, ["hygiene", "reconcile", ...flags, "--json"]);
     return { out: code === 0 ? JSON.parse(stdout) : null, stderr, code };
   }
+
+  test("fixture Git errors report the command, exit and stderr", async () => {
+    const root = await corpusBrain();
+    expect(() => git(root, "--fixture-invalid-option"))
+      .toThrow(/git --fixture-invalid-option failed \(129\):[\s\S]*unknown option/);
+  });
 
   test("the second reconcile writes no file and leaves git status clean", async () => {
     const root = await corpusBrain();
@@ -289,8 +297,14 @@ describe("brain hygiene", () => {
     // A brain ignores its disposable index, as the template's .gitignore does.
     writeFileSync(join(root, ".gitignore"), "brain.db*\nnode_modules\n");
     git(root, "init", "-q");
+    // Require signing with an unavailable fixture signer. Each command's
+    // override must isolate the commit without changing this local preference.
+    git(root, "config", "--local", "commit.gpgsign", "true");
+    git(root, "config", "--local", "gpg.program", "fixture-missing-signer");
+    git(root, "config", "--local", "gpg.format", "openpgp");
     git(root, "add", "-A");
     git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.com", "commit", "-qm", "after the first run");
+    expect(git(root, "config", "--local", "--get", "commit.gpgsign").trim()).toBe("true");
     // Back-date the log, so any write at all, even of the same bytes, shows in the mtimes.
     const names = ["open.md", "snoozed.md", "resolved.md", "_index.md", "last-run.md"];
     const past = new Date("2020-01-01T00:00:00Z");
