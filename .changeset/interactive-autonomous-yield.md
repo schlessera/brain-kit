@@ -1,7 +1,7 @@
 ---
 "@schlessera/brain-ui-sdk": minor
-"@schlessera/brain-ui-backend-claude": minor
-"@schlessera/brain-ui-backend-pi": minor
+"@schlessera/brain-backend-claude": minor
+"@schlessera/brain-backend-pi": minor
 "@schlessera/brain-ui-server": minor
 ---
 
