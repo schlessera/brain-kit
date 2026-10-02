@@ -54,6 +54,24 @@ refresh by hand. `scripts/publish.ts` refuses the release if the pins are stale.
 Bump `template/package.json`'s `@schlessera/brain` pin to that version. A
 forgotten bump is caught by `tests/release-manifest.test.ts`.
 
+Stage the generated changes with `git add -A` before the post-version checks.
+Documentation gates enumerate tracked files with `git ls-files`; until the
+deletions are staged, they still try to read the consumed `.changeset/*.md`
+files and fail with `ENOENT`. Staging also puts new package changelogs under
+those gates. Review the staged diff before committing.
+
+The required lockfile refresh can also move external dependencies. If it moves
+the Claude SDK, run the keyless runtime probe described in
+`docs/decisions/claude-code-runtime.md` before updating `MEASURED_RUNTIME`.
+A failed case is a finding to file, not evidence for a new measured constant.
+Keep the release on the last validated external package resolutions when the
+new runtime fails, while retaining the freshly generated workspace metadata.
+Verify both `bun install --frozen-lockfile` and
+`bun scripts/check-publish-pins.ts`; restoring the old workspace versions would
+reintroduce the stale-pin failure. SDK 0.3.287 / CLI 2.1.287 failed three
+permission-precedence cases during 0.40.0 preparation, so that release retained
+the validated SDK 0.3.283 / CLI 2.1.283 pair.
+
 ```sh
 bunx tsc --noEmit && bun run test && bun run build
 ```

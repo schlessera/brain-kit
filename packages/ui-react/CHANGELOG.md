@@ -1,5 +1,94 @@
 # @schlessera/brain-ui-react
 
+## 0.40.0
+
+### Minor Changes
+
+- b1b83cd: Report deterministic recorded coverage, broken-link and orphan trend verdicts
+  through stats, maintain, briefing and the PWA, with comparison evidence and
+  explicit insufficient, stale and incomparable states.
+- 0575b1b: Add `ask_user_list`, a bridge tool that asks the user to place up to 30 items on one shared scale of 2–8 options in a single card, for rating, triage and sorting. The result maps item ids to the chosen option, lists the skipped ids, and carries optional per-item notes. It ships as new `ask_user_list_request` / `ask_user_list_response` protocol frames, a kit `AskUserListCard` (inline chip grid, "set the rest to …" with undo, a Submit that states what it will send and never silently does nothing), and a transcript binding that replays the answered summary after a reload. Both backends expose it, and withhold it from turns that have no one to show a card to. `ask_user` is unchanged.
+- 830127c: Keep desktop dictation in a bounded panel above the composer, with focused stop controls and an unchanged phone sheet. Add a dictating composer state that preserves the draft and prevents typing or sending until review.
+- 0c0c9df: Add `ask_user_form` for conditional questions answered in one card, with shared scale and ranking controls, configurable depth/node/options limits, visible-answer validation and history replay. Keep the existing ask tools available.
+- c1a1595: Render recoverable failed-turn cards with reviewed diagnostics, subscription auth instructions, and a latest-turn Retry that retains original inputs and checks delivery after reconnect.
+- 60d9690: A `/stats` answer is part of the session (#582): in an existing session it is sent to the host with a plain-text rendering of its figures, so the agent sees them with the next message and a reload or a second device shows the answer again, drawn with the kit. In a draft conversation it is kept with the draft and sent with the message that starts the session. When it cannot be kept (no connection, or the host refused it), the answer still renders and says it was not saved to the conversation.
+- 4503591: Add schema-driven module Settings with per-module JSON overrides, validated revision-guarded saves, explicit source-preserving migrations and separate lifecycle/actions. Jobs exposes its complete scoring format, adapter choices and execution settings, preserving legacy scoring representation during migration and edits.
+- ccdd301: New chat is now an icon-only disc in the top-right corner of the chat's message area, drawn like the scroll-to-bottom disc, instead of a row of its own above the transcript. The transcript gets that height back. The button is a 44px target named "New chat" (label and title), still shown only once a conversation exists, and it still starts a new chat in one activation. While the message area is narrower than 880px, the transcript's content starts 40px lower so the resting first message clears the disc. That space scrolls away with the content.
+- 0064d67: Show observed retries on failed-turn cards and preserve reported future cooldowns across replay. Retry becomes available when the reported reset passes, while pending sends and uncertain delivery retain their existing recovery behavior.
+- a01c389: Add per-message reasoning effort with saved profile defaults for Claude and Pi.
+  Claude defaults to Opus 5.5 at medium; each resumed turn re-reads its default,
+  unsupported levels resolve downward, and retries retain the original override.
+  Expose supported levels and honest requested/confirmed effort metadata. The
+  existing model chip opens a model/effort picker; overrides clear on correlated
+  start or queue acceptance and remain with refused drafts. Older hosts retain
+  their existing send behavior.
+- 35fb78d: Add ask_user_rank: one list ordered by handle drag, taps or keyboard, with explicit kept-order results, optional top-N cutoff, and answered transcript replay.
+- bd19d83: Add a copy control to every raw text block: the run detail's raw trace and pruned rollup, span event payloads, a tool's raw input and its clamped output. The shared copy button stays visible on touch devices instead of only appearing on hover.
+- 878e6cf: Record `brain stats` over time (#581). `brain maintain` gains a `stats` step, run after the index and audit, that keeps the day's figures as one line of `.stats-history.jsonl` at the brain root: the counts, the health figures and the size totals, one snapshot per UTC day (a second run the same day replaces it), every day for 90 days and then one per week. The file is committed with the brain, so `brain index --force` and a fresh clone keep it; nothing indexes, validates or audits it. `brain stats --record` records on demand, and `brain stats --history [--since YYYY-MM-DD] [--json]` reads the snapshots back oldest first, one array per field, with `null` where a snapshot has no figure. `brain stats --json` is unchanged.
+
+  `GET /api/brain/stats/history` passes the history through, and the PWA's /stats answer draws trend charts for documents, orphans, stale documents, embedding coverage and the broken-link rate once two snapshots exist, and nothing with fewer.
+
+- 3f0870d: Attach validated GPX, KML and supported GeoJSON originals in chat, preserving incoming names and MIME separately from detected staged names. Keep server-derived file evidence on queued turns and replay. Draw static track blocks with complete metrics, waypoint evidence, explicit unknown and partial values, separate gaps and original references; resolve assets before PNG/PDF export. Generic share intake remains compatible.
+- efafbb3: A failed turn is shown as soon as it ends, not only after a reload (#575). The assistant row shows the `**Error:**` line it always showed for an error, and for a Claude subscription auth failure the #254 instruction for what to do next. A turn that fails before any text arrives no longer leaves an empty row. A partial answer stays above the error. One failure is shown once, even when a diagnostic error came first. The same turn reads the same after a reload. While the runtime is retrying a failed call, the row says so ("Retrying (attempt 2 of 10) in 5s after rate_limit, HTTP 429") in place of the thinking indicator.
+
+### Patch Changes
+
+- 6267d4f: Add explicit nonpersistent autonomous turns and synchronous escalation capture.
+  Both backends preserve ordinary session behavior while headless attempts keep
+  runtime identity and usage in Activity without saving interactive history. This
+  supplies turn plumbing; autonomous dispatch remains gated on containment,
+  budgets, admission and system verification.
+- 7386b7b: Keep frame validation and rate-limit refusals in connection recovery without adding a false failed assistant message to a running conversation.
+- 3f6c88f: `useDictation` releases capture through one helper shared by Stop/Cancel and its unmount cleanup. No behaviour change: teardown still invalidates the in-flight start, aborts a pending session request and stops the current ASR client, including one started after the hook mounted.
+- cbc683a: Define durable Queue/Action frames and strict v1 effect validation; safely ignore the new frames in clients awaiting subscription wiring.
+- 3829fed: Render multi-question ask_user exchanges in one grouped card, with visible validation, preserved free-text answers, and one answered or dismissed record.
+- 08321a5: Restore the phone dictation sheet's 200ms upward entrance through both CSS entry points, respecting reduced motion.
+- d934fe0: Keep ranking keyboard instructions readable when reordered actions wrap at phone width and preserve 44px touch targets for its footer actions.
+- fa6a62c: Add optional `embed: false` type policies that retain keyword search, links and
+  audit while skipping chunk contexts and Markdown/image/PDF vectors. Ordinary
+  indexing removes existing vectors after a type opts out, even for unchanged
+  files; opting back in takes effect on the next embedding-enabled index.
+
+  Change nullable `health.embedding_coverage` to count only eligible chunks and
+  their vectors. Total chunk/vector inventory fields keep their meaning, and
+  zero eligible chunks remain unmeasured. This is an approved pre-1.0 semantic
+  contract change: consumers should use the supplied ratio rather than divide
+  the total counters. CLI and chat stats wording now names eligible chunks.
+
+- Updated dependencies [0575b1b]
+- Updated dependencies [dee9b10]
+- Updated dependencies [6267d4f]
+- Updated dependencies [96b2339]
+- Updated dependencies [f0b84c0]
+- Updated dependencies [0aaabdd]
+- Updated dependencies [c849bf2]
+- Updated dependencies [830127c]
+- Updated dependencies [a4d5ef0]
+- Updated dependencies [0c0c9df]
+- Updated dependencies [cbc683a]
+- Updated dependencies [f19da8b]
+- Updated dependencies [c1a1595]
+- Updated dependencies [3829fed]
+- Updated dependencies [95865d1]
+- Updated dependencies [48c87e1]
+- Updated dependencies [0506c10]
+- Updated dependencies [60d9690]
+- Updated dependencies [4503591]
+- Updated dependencies [619ee2b]
+- Updated dependencies [a01c389]
+- Updated dependencies [d934fe0]
+- Updated dependencies [35fb78d]
+- Updated dependencies [1eaeba2]
+- Updated dependencies [49bc6b2]
+- Updated dependencies [cf6fee6]
+- Updated dependencies [67c7403]
+- Updated dependencies [d9e64c9]
+- Updated dependencies [3f0870d]
+- Updated dependencies [efafbb3]
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-ui-sdk@0.40.0
+  - @schlessera/brain-ui-kit@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes

@@ -1,5 +1,144 @@
 # @schlessera/brain-ui-server
 
+## 0.40.0
+
+### Minor Changes
+
+- 0575b1b: Add `ask_user_list`, a bridge tool that asks the user to place up to 30 items on one shared scale of 2–8 options in a single card, for rating, triage and sorting. The result maps item ids to the chosen option, lists the skipped ids, and carries optional per-item notes. It ships as new `ask_user_list_request` / `ask_user_list_response` protocol frames, a kit `AskUserListCard` (inline chip grid, "set the rest to …" with undo, a Submit that states what it will send and never silently does nothing), and a transcript binding that replays the answered summary after a reload. Both backends expose it, and withhold it from turns that have no one to show a card to. `ask_user` is unchanged.
+- dee9b10: BREAKING: `createApp`, `probeClaudeRuntime` and `BackendModule.probeRuntime` now return promises; migrate callers to `await`.
+
+  Boot version probes now cancel at their five-second deadline with bounded cleanup.
+
+- 1ffb27b: Add atomic autonomous spend and operation admission budgets with durable reservations, conservative recovery and frozen settlement.
+- 6267d4f: Add explicit nonpersistent autonomous turns and synchronous escalation capture.
+  Both backends preserve ordinary session behavior while headless attempts keep
+  runtime identity and usage in Activity without saving interactive history. This
+  supplies turn plumbing; autonomous dispatch remains gated on containment,
+  budgets, admission and system verification.
+- 0aaabdd: Enforce each backend's actual imported SDK copies against its owning manifest constraints and optional host minima. Direct factories accept `versionRequirements`; Claude holds constrained start/resume prompts until its selected executable probe and SDK handshake pass. Pi reports its primary SDK at boot without a separate executable identity. Preserve measured-pair warnings, provenance, numeric defaults and terminal frames.
+- 0c0c9df: Add `ask_user_form` for conditional questions answered in one card, with shared scale and ranking controls, configurable depth/node/options limits, visible-answer validation and history replay. Keep the existing ask tools available.
+- 4656bfe: Persist escalation checkpoints, Actions and blocked work atomically. Resolve stored v1 decisions exactly once without inference, with authenticated WebSocket handling, deterministic snooze, the 60-decision cap, bounded retries and recoverable staging compensation. Exact-operation approval stays fail-closed until the autonomous engine supplies current server authority.
+- cac8d11: Stream durable Queue and Actions on the authenticated WebSocket with per-subscription snapshots, foreign-write deltas, lossless bounded chunks, and principal revocation checks.
+- f19da8b: Add authenticated `brain queue add` intake with explicit replay keys and scoped
+  principal-cookie transport. Shares now create durable untrusted triage work,
+  deduplicate normalized content, preserve server-owned provenance, and reconcile
+  failed staging/database writes. Queueing does not file content or enable
+  autonomous execution.
+- b333db6: Add internal durable Queue and Action storage with guarded atomic transitions,
+  immutable provenance, append-only checkpoints, cursor replay, lazy projection
+  compaction and recoverable budget, suppression and scheduler records.
+- c1a1595: Render recoverable failed-turn cards with reviewed diagnostics, subscription auth instructions, and a latest-turn Retry that retains original inputs and checks delivery after reconnect.
+- 95865d1: Add optional host SDK/runtime/content-CLI minima, strict shared SemVer constraint composition, descriptor report verification, and explicit content-CLI rechecks before invocation. Preserve package bounds, default unknown-CLI warnings, and existing runtime report meanings.
+- 48c87e1: Reserve interactive capacity while limiting autonomous operations to two by
+  default. Shared locks prioritize interactive waiters and cooperatively yield
+  long autonomous holders after a configurable 20-second wait. Yield checkpoints
+  before abort, drains writers before recovering work, retains completed-call
+  receipts and incurred costs, and bounds repeated interruption with a single
+  dead-letter Action. Production autonomous dispatch remains disabled.
+- 60d9690: The host keeps locally answered commands as part of the session (#582). A `local_exchange` frame, or a draft conversation's `localExchanges` on its first `chat_message`, is stored in a new `local_exchanges` table (migration `018_local_exchanges.sql`) and answered with `local_exchange_result`. The next prompt handed to the backend in that session (a new turn, a queued follow-up or an injected one) carries each pending exchange's `context` in a `<local-answer>` block after the user's text, once. `WsHost.prepareHistory` strips that block from the prompt that carried it, joins sources and blocks as before, and replays the exchange in front of it (or at the end when no prompt has carried it yet). A session without exchanges replays exactly as before. `SessionCatalog` gains optional `recordLocalExchange`, `takePendingLocalExchanges` and `loadLocalExchanges`.
+- 4503591: Add schema-driven module Settings with per-module JSON overrides, validated revision-guarded saves, explicit source-preserving migrations and separate lifecycle/actions. Jobs exposes its complete scoring format, adapter choices and execution settings, preserving legacy scoring representation during migration and edits.
+- a01c389: Add per-message reasoning effort with saved profile defaults for Claude and Pi.
+  Claude defaults to Opus 5.5 at medium; each resumed turn re-reads its default,
+  unsupported levels resolve downward, and retries retain the original override.
+  Expose supported levels and honest requested/confirmed effort metadata. The
+  existing model chip opens a model/effort picker; overrides clear on correlated
+  start or queue acceptance and remain with refused drafts. Older hosts retain
+  their existing send behavior.
+- bcdd3d4: Ship `brain-ui-inbox export/restore` for complete operational database and share-staging backups. Empty-target restoration preserves Activity spend, principal identities, decisions and completion receipts, then atomically reconciles lost workers before opening dispatch. Interrupted restores resume from the same checksummed artifact; the documented host recovery-point objective is 24 hours.
+- 35fb78d: Add ask_user_rank: one list ordered by handle drag, taps or keyboard, with explicit kept-order results, optional top-N cutoff, and answered transcript replay.
+- 10235a5: Breaking change before 1.0: keep cron and other activity rollups unclassified when the root span has no valid recorded billing mode. Server credentials no longer supply a billing guess: billing mode, effective cost and its estimate flag stay unknown, while available list-price accounting remains visible. Explicit subscription/API billing and frozen historical costs retain their existing behavior.
+
+  Consumers that previously relied on environment-derived cron billing must treat missing recorded billing as unknown. Available list-price cost remains a reference rather than an effective spend estimate; no historical backfill is performed.
+
+- a270c46: Add the Queue recovery lifecycle and protected local HTTP poke with atomically rotated runtime tokens; production autonomous dispatch remains gated.
+- 49bc6b2: Pre-1.0 breaking tightening: nonempty `confirmBashPatterns` / `BRAIN_UI_CONFIRM_BASH`
+  lists with no valid regex now fail backend initialization instead of silently
+  disabling confirmation. Repair the reported invalid entries, or explicitly set
+  `[]` to disable confirmation. Missing configuration still uses defaults; mixed
+  lists keep valid patterns and effects while reporting invalid entries. Malformed
+  JSON and structurally unusable environment values retain their existing fallback.
+- 878e6cf: Record `brain stats` over time (#581). `brain maintain` gains a `stats` step, run after the index and audit, that keeps the day's figures as one line of `.stats-history.jsonl` at the brain root: the counts, the health figures and the size totals, one snapshot per UTC day (a second run the same day replaces it), every day for 90 days and then one per week. The file is committed with the brain, so `brain index --force` and a fresh clone keep it; nothing indexes, validates or audits it. `brain stats --record` records on demand, and `brain stats --history [--since YYYY-MM-DD] [--json]` reads the snapshots back oldest first, one array per field, with `null` where a snapshot has no figure. `brain stats --json` is unchanged.
+
+  `GET /api/brain/stats/history` passes the history through, and the PWA's /stats answer draws trend charts for documents, orphans, stale documents, embedding coverage and the broken-link rate once two snapshots exist, and nothing with fewer.
+
+- e977423: **Breaking:** `brain sync` with no verb now prints one JSON result in machine mode (`--json`, or stdout not a TTY), where it used to print its text report whatever the output mode (#290). The result is `{ run, agent }`: `run` is the envelope `brain sync run --json` prints, report included, and `agent` says whether the `/sync` agent was invoked — `{ invoked: false, reason: "not-needed" | "no-runner" }`, or `{ invoked: true, runner, outcome, runtime, text, error? }`, where `runtime` is what that run reported about itself (`{ name, version }`, `version` null when it gave none) and null when it reported nothing. The built-in `claude` runner reports the Claude Code version from the session's `init` event; nothing is ever probed. Human mode (`--human`, or a terminal) is unchanged, and so are the exit codes and when the agent is called. A machine-mode agent failure prints the result as well as its error, and still exits `2`. Migration: a caller that read bare `brain sync` stdout as text passes `--human`, or reads `run.report` and `agent.text` from the result.
+
+  `AgentRunner.run` and `runStreaming` accept an optional `onRuntime` callback, which a runner calls with what executed the run (experimental seam; runners that do not call it keep working).
+
+  The server's sync paths ask for the result and record it on their own run's root span with the attributes chat's `runtime_observed` writes (`brain.runtime.name`/`version`), plus `brain.sync.agent`: the in-process scheduler now writes a root span for each of its runs, and the container cron wrapper reads the result of the base `sync` job only — the crontab line becomes `sh -c 'brain sync --json && brain index >&2'`, and the log still gets the readable report. `/api/status` adds `runtime.sync`: the latest sync run's own invocation state and runtime, and the last run that observed a version, with its run id and times. The UI's manual sync passes `--human`.
+
+- 3f0870d: Attach validated GPX, KML and supported GeoJSON originals in chat, preserving incoming names and MIME separately from detected staged names. Keep server-derived file evidence on queued turns and replay. Draw static track blocks with complete metrics, waypoint evidence, explicit unknown and partial values, separate gaps and original references; resolve assets before PNG/PDF export. Generic share intake remains compatible.
+
+### Patch Changes
+
+- a408a0f: Restore the documented four-decimal list and effective cost sums in activity rollup responses for day, job and session groups. Round only after aggregation; stored costs, run detail and runtime stats retain their original precision.
+- 96b2339: Define the supported backend permission toolkit and record its signatures and reachable types. Permission behavior and runtime policy values are unchanged.
+
+  Breaking before 1.0: SDK `/server` no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS`, `ARCHIVING_UPDATE_REASON`, `archivesDocument`, `bashCommand`, `SubprocessEnvAudience`, `SUBPROCESS_ENV`, `filterSubprocessEnv` or `parseSubprocessEnvExtra`. Claude's root no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS` or `VOICE_ALLOWED_TOOLS`; pi's root no longer exports `DEFAULT_PI_ALLOWED_TOOLS` or `TOOL_RISK`. First-party consumers use the owning package's explicit `/internal` entry at the same lockstep version; those paths have no compatibility guarantee. External authors use the documented `/server` permission operations and configurable policy formats. Subscription-auth helpers remain public protocol API.
+
+- 9c830e4: Frontmatter parsing no longer goes through gray-matter's process-wide cache. Two byte-identical documents parsed in one process now get independent data, so changing one can no longer change what is read for the other. Broken frontmatter is reported as invalid on every parse, not only the first; before, a second parse of the same bytes in a long-lived process read as an empty success. The cache also kept every distinct document string in memory for the life of the process, and that is gone. Frontmatter semantics and formatting are unchanged.
+- 95ed68f: Preserve live turn failure classification, status and authentication actions when replaying recorded session history.
+- a22b04d: Keep Inbox staging and budget reservations intact until the originating backend
+  has finished unwinding. Recover killed attempts conservatively without leaving
+  cleanup or expired Queue leases permanently blocked.
+- 67c7403: Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
+
+  Add configured Nominatim geocoding with qualified candidates, explicit service failures, disk cache/source age and shared operator admission across CLI/server processes.
+
+  Add configured prepared-dataset routing and explicit eligible FOSSGIS fallback, with honest source/transfer/cache metadata and nullable provider estimates.
+
+  Add bounded Overpass POI queries near points or along retained track sections, mapped opening-hours unknowns, ordered fallback and persistent admission refusal handling.
+
+  Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
+
+  Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.
+
+  Add canonical geo configuration to brain config and the UI server adapter, preserving legacy endpoint/privacy switches and keeping disposable response caches separate from permanent geometry caches and global operator admission.
+
+  Add deterministic vector static PNG maps with bundled fonts, preserved track gaps, numbered stops, complete legends and source/attribution evidence. Wide or unavailable backgrounds yield plain maps; unsupported projection, glyphs or image budgets retain complete text without changing source geometry.
+
+  Add brain geo geocode, route, poi, track and map with one-document JSON contracts and qualified human output. Commands share canonical service configuration and cache/admission, retain original track evidence and protect local map writes through brain/scratch containment.
+
+- 976c791: Reject malformed object-only HTTP request bodies before authentication field access, passkey updates or capture CLI dispatch.
+- 6280c38: Register interactive requests before emitting their cards and waiting status, so refused duplicate ids leave the original request intact.
+- 4c1a424: Add an opt-in visible-destination policy for PNG/PDF exports and enable it
+  server-side for all app render requests. Accepted links keep canonical
+  navigation with a validated visible host or mail address; refused links and
+  unavailable repo paths stay inert. Raw/full/bare HTML, SVG targets, shadow
+  content and embedded documents cannot bypass it. Chrome checks final disclosure,
+  and the renderer lazily loads PDF.js to check each finished PDF annotation's own
+  complete destination and print legibility,
+  and refuses an export that still conceals or crops a destination. CLI defaults,
+  classification rules and render isolation stay unchanged. UI-kit link imports
+  re-export the same pure classifier from the template's dependency-safe leaf.
+- Updated dependencies [0575b1b]
+- Updated dependencies [dee9b10]
+- Updated dependencies [6267d4f]
+- Updated dependencies [96b2339]
+- Updated dependencies [f0b84c0]
+- Updated dependencies [0aaabdd]
+- Updated dependencies [c849bf2]
+- Updated dependencies [0c0c9df]
+- Updated dependencies [cbc683a]
+- Updated dependencies [f19da8b]
+- Updated dependencies [c1a1595]
+- Updated dependencies [95865d1]
+- Updated dependencies [48c87e1]
+- Updated dependencies [60d9690]
+- Updated dependencies [4503591]
+- Updated dependencies [a01c389]
+- Updated dependencies [35fb78d]
+- Updated dependencies [49bc6b2]
+- Updated dependencies [cf6fee6]
+- Updated dependencies [67c7403]
+- Updated dependencies [d9e64c9]
+- Updated dependencies [3f0870d]
+- Updated dependencies [efafbb3]
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-ui-sdk@0.40.0
+  - @schlessera/brain-geo@0.40.0
+  - @schlessera/brain-render-template@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes
