@@ -135,13 +135,15 @@ refresh can succeed locally, while a refused remote refresh is only a blocked
 attempt. Record request counts and exact destination assertions, never key
 values. Fixtures do not need provider credentials or external network access.
 
-Temporarily restore raw-catalog selection or omit configured-runtime wiring
-on each new/resume path and show the named configured-destination/count
+Temporarily restore raw-catalog selection on new sessions and substitute an
+unconfigured model lookup/runtime on persisted resumes; show the named destination/count
 assertion fail. Separately force the configured endpoint ahead of native auth
 and show the native-destination assertion fail, including changed/refreshed
 credentials. Remove the saved-model refusal and show its zero-request/refusal
 assertion fail. Restore each mutation and rerun the affected tests; an import
-error or an earlier unrelated failure is not the claimed receipt.
+error or an earlier unrelated failure is not the claimed receipt. Merely
+omitting `modelRuntime` on a resume can still use the SDK's configured default
+and is not a useful mutation when it preserves the required behavior.
 
 Preserve [#675](https://github.com/schlessera/brain-kit/issues/675)
 nonpersistence and existing runtime/tool tests, the
