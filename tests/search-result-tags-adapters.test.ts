@@ -53,10 +53,13 @@ afterAll(async () => {
   if (root) cleanup(root);
 });
 
-test("real CLI search and list preserve nullable tag strings", async () => {
+test("real CLI search preserves nullable tag strings", async () => {
   const search = await runCli(root, ["search", "--mode", "fts", "--rerank", "none", "--json", "nullableprobe"]);
   expect(search.code).toBe(0);
   assertTags(JSON.parse(search.stdout).results);
+});
+
+test("real CLI list preserves nullable tag strings and metadata", async () => {
   const list = await runCli(root, ["list", "--type", "note", "--limit", "100", "--json"]);
   expect(list.code).toBe(0);
   const controls = assertTags(JSON.parse(list.stdout));
@@ -71,19 +74,25 @@ test("real CLI search and list preserve nullable tag strings", async () => {
   }
 });
 
-test("real stdio MCP search and list preserve nullable tag strings", async () => {
+test("real stdio MCP search preserves nullable tag strings", async () => {
   const search = await client.callTool({ name: "brain_search", arguments: { query: "nullableprobe", mode: "fts", rerank: "none" } });
   expect(search.isError).toBeFalsy();
   assertTags((search.structuredContent as { results: Array<Record<string, unknown>> }).results);
+});
+
+test("real stdio MCP list preserves nullable tag strings", async () => {
   const list = await client.callTool({ name: "brain_list", arguments: { type: "note", limit: 100 } });
   expect(list.isError).toBeFalsy();
   assertTags((list.structuredContent as { documents: Array<Record<string, unknown>> }).documents);
 });
 
-test("mounted HTTP routes and real BrainClient preserve CLI search/list fields", async () => {
+test("mounted HTTP search through real BrainClient preserves nullable tag strings", async () => {
   const search = await app.request("/api/brain/search?q=nullableprobe&mode=fts");
   expect(search.status).toBe(200);
   assertTags((await search.json()).results);
+});
+
+test("mounted HTTP list through real BrainClient preserves CLI fields", async () => {
   const list = await app.request("/api/brain/list?type=note&limit=100");
   expect(list.status).toBe(200);
   const controls = assertTags((await list.json()).results);
