@@ -3292,3 +3292,34 @@ still receives no track summary. See the [GPX schema](https://www.topografix.com
 [KML reference](https://developers.google.com/kml/documentation/kmlreference) and
 [GeoJSON RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946) for source formats;
 the supported subset and recovery policy above govern this import contract.
+
+## Pi native endpoint routing (breaking routing migration, #762)
+
+Explicitly declared built-in pi provider/model profiles are validated against
+the supported catalog, then resolved from the same configured native
+`ModelRuntime` used for inference. New ordinary/autonomous turns honor native
+`models.json` endpoint configuration. Ordinary persisted resumes use that runtime
+without overriding their saved model and still refuse native model fallback.
+The brain's transcript directory is independent of native agent-directory
+model/auth/cache discovery. No new profile endpoint field, schema, custom-model
+discovery or provider seam is introduced.
+
+On every inference request, a native authentication-supplied endpoint wins;
+otherwise the configured model endpoint is used. A configured proxy is
+conditional on native authentication not supplying an endpoint. A differing
+native auth endpoint alone is not a configuration refusal. The backend neither
+forces native credentials to a configured URL nor duplicates credential
+discovery/refresh, subscription/account routing or billing ownership. Native
+refresh may contact authentication servers. Selected provider/model identities
+and declared picker profiles stay fixed. A resident session retains its runtime;
+no hot-reload promise for `models.json` is added.
+
+This newly honored routing replaces previously ignored endpoint configuration
+for new sessions. Review native model/auth configuration when adopting the
+change. The [2026-10-03 endpoint policy](decisions/pi-endpoint-routing.md) records
+the prior maintainer ruling and approved migration: `contract`/`breaking`, a
+`CONTRACT:` commit and same-commit backend/contract guidance plus a named minor
+changeset before 1.0 (major from 1.0). No dependency change or release date is
+selected. Autonomous nonpersistence, exact tool authority, loaded-runtime
+compatibility and the containment/dispatch gates remain binding; endpoint
+support does not enable autonomous execution.

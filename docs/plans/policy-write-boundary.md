@@ -26,7 +26,7 @@ handlers are outside a boundary around that child. Their effects must be audited
 and validated separately; this report does not claim they currently write policies.
 
 Pi creates sessions directly in the server process (`async newSession`,
-`packages/ui-backend-pi/src/session-runtime.ts:36-60`). Its resource loader
+`packages/ui-backend-pi/src/session-runtime.ts:37-72`). Its resource loader
 initializes extensions (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:31-100`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
