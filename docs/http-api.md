@@ -186,6 +186,23 @@ required ruling for a public API break. Internal here excludes independent
 raw HTTP consumption, not working published UI functionality. The inventory
 is an input to the public-export audit (#534), not a substitute for it.
 
+The published `health()` helper resolves to `{ status: string; uptime: number;
+timestamp: string }`. Its former `version: string` declaration is removed by
+the approved breaking correction in #693; the public route never supplied
+version. Migrate former version reads to authenticated `status()` when
+software identity is needed. `health()` does not fabricate a value or fetch
+protected status automatically.
+
+`brainSync()` retains `{ success: boolean; message: string }` by consuming the
+actual SSE response through its configured request transport and current base
+getter. Only a complete valid terminal `done` resolves, mapping `success` and
+`text`; terminal false is a completed unsuccessful result. The parser handles
+UTF-8 byte boundaries, LF/CRLF/CR lines, multiline data and keepalive comments.
+Missing/malformed terminal data, premature EOF and transport failure reject as
+incomplete, without establishing job cancellation. Non-2xx responses preserve
+`ApiRequestError`; the helper never implicitly retries the POST or resumes the
+stream. Server admission/reservation/draining semantics below still apply.
+
 ## Common request and response rules
 
 Use the method shown. Paths are origin-relative. Protected rows use the app's
