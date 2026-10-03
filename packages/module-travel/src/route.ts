@@ -174,7 +174,7 @@ export async function runRoute(args: string[], root: string, json: boolean): Pro
     const seen = new Set<string>();
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
-      if (arg === "--json") continue;
+      if (arg === "--json" || arg === "--human") continue;
       if (["--to", "--trim-start-m", "--trim-end-m"].includes(arg)) {
         if (seen.has(arg)) throw new Error(`Duplicate ${arg}.`);
         seen.add(arg); const value = args[++i];
