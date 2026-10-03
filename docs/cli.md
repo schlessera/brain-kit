@@ -239,6 +239,13 @@ merge path runs, keeping conflict stages local as OURS and remote as THEIRS.
 [`sync.pull: "merge"`](configuration.md#sync) selects merge-only pulls for
 `sync pull`, `sync run` and bare `sync`.
 
+`sync group` groups exact root `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` as
+configuration. `sync resolve` leaves conflicts in those exact basenames at
+every depth for judgment, preserving the conflicted text and index stages.
+Nested files retain their taxonomy grouping and content membership; ordinary
+notes, case variants, near-match filenames and clean Git line merges keep their
+existing behavior. See [merge strategies](configuration.md#merge-strategies).
+
 Module packages add ONE namespaced top-level command each (`brain jobs …`,
 `brain finance …`, `brain image …`, `brain travel …`) — see [modules.md](modules.md).
 
