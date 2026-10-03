@@ -374,13 +374,19 @@ The route does not create a second independent taxonomy or ranking policy.
 
 | Supported operation | Inputs/defaults/validation | Success | Errors and behavior |
 | --- | --- | --- | --- |
-| GET `/api/brain/search` | Required nonempty `q`; optional `type`, `tag`, `mode`, `limit` (Number conversion). Mode is fts/vector/hybrid when valid; default mode hybrid, limit 20; archived documents excluded. | `{ results: BrainSearchResult[], warnings: string[] }` | 400 missing q; 504 search deadline (15 seconds by default); other CLI/parsing failures 500 `{ error }`. Request abort cancels the read-only child. Result fields: path, title, type, relevance, score, snippet. Old bare-array CLI responses become results with empty warnings. |
+| GET `/api/brain/search` | Required nonempty `q`; optional `type`, `tag`, `mode`, `limit` (Number conversion). Mode is fts/vector/hybrid when valid; default mode hybrid, limit 20; archived documents excluded. | `{ results: BrainSearchResult[], warnings: string[] }` | 400 missing q; 504 search deadline (15 seconds by default); other CLI/parsing failures 500 `{ error }`. Request abort cancels the read-only child. Result fields include path, title, type, relevance, score, snippet and comma-separated tags (null when none). Old bare-array CLI responses become results with empty warnings. |
 | GET `/api/brain/briefing` | No inputs | `{ content: string }` | CLI briefing stdout, including its formatting; failed command is 500 `{ error }`. |
 | GET `/api/brain/list` | Optional type, tag, status, relevance and Number-converted limit; limit 20 when omitted; archived excluded unless status=archived | `{ results: SearchResult[] }`, the full CLI list result | CLI/subprocess failures are 500 `{ error }`; filter strings are not HTTP enum-validated. Rows include path, title, type, status, relevance, nullable summary, updated, nullable deadline/generatedFrom, comma-separated tags (null when none), score=0 and empty snippet. No created field or tags-array conversion is added by HTTP. |
 | GET `/api/brain/stats` | No inputs | Full `brain stats --json` object | No HTTP wrapping, filtering or formatting; CLI failure 500 `{ error }`. The integration contract owns the complete corpus shape, including unknown values. |
 | GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |
 | POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; nonempty string content and declared optional field types are checked before CLI dispatch; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Malformed/non-object JSON or invalid field types return JSON 400 before CLI dispatch or content writes. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
 | POST `/api/brain/index` | JSON media type required; body ignored | `{ success: true }` | Concurrent retries coalesce per route instance. Failed index is 500 `{ error }`; no captured content is written again. |
+
+The approved nullable declaration correction (#702) preserves these HTTP
+values. TypeScript clients must handle `SearchResult.tags: string | null`;
+`result.tags ?? ""` is a local display fallback. The server list mirror now
+matches the CLI fields above. See [the declaration migration](integration-contract.md#stable---json-shapes)
+and [reranker/provider migration](extending/rerankers.md#nullable-tags-migration).
 
 Search/list payloads are the actual CLI JSON results, not the server's narrower
 TypeScript mirrors. Optional/additive CLI fields are retained. Type/tag/status/
@@ -636,10 +642,6 @@ The supported promises above are not removed to accommodate these observations:
 - The [runtime coverage matrix](http-api-coverage.md) maps every supported
   operation to a real mounting check and named behavior tests (#691).
   Guard-only failures are not proof that a protected handler is mounted.
-- [#702](https://github.com/schlessera/brain-kit/issues/702) resolves nullable
-  CLI result tags versus the public SearchResult type and inaccurate private
-  list mirrors. The HTTP specification preserves actual pass-through values;
-  changing either public types or JSON values needs the ruling recorded there.
 - [#693](https://github.com/schlessera/brain-kit/issues/693) aligns the public
   React health and sync helpers: health currently requires a version absent
   from the intentionally minimal public response; brainSync parses SSE as JSON.
