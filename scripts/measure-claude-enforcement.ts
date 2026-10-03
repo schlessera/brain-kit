@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { resetRtkProbe, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
+import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 import { resultText, scriptedModel } from "./measure-claude-runtime";
 
 const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
@@ -93,7 +94,7 @@ try {
           if (message.type === "result") resultSubtype = message.subtype;
         }
         const profile: InferenceProfile = { id: "probe", label: "Probe", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
-          buildEnv: () => ({ ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
+          buildEnv: () => ({ ...CLEARED_API_CREDENTIALS, ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
         const backend = createClaudeBackend({ brainPath: cwd, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
         await backend.startTurn({ prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: true,
