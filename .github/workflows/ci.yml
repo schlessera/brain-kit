@@ -688,7 +688,7 @@ jobs:
     # what a developer runs locally through `docker run`, and it is what runs
     # here inside the same image, precisely so the two cannot drift.
     #
-    # Two shards, each running all three projects in one vitest call: one call
+    # Two shards, each running all six projects in one vitest call: one call
     # spreads the files over both cores, which a project at a time did not
     # (72s against 99s for the whole suite at 2 CPUs). A third shard saves
     # about 20s more, but `pack` finishes later than that anyway.
