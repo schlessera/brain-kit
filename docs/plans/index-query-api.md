@@ -1,9 +1,12 @@
 # Supported content-index query APIs
 
-Design from [#540](https://github.com/schlessera/brain-kit/issues/540), implementing
-[the approved SQL-boundary ruling](../decisions/index-query-api.md). This is a
-proposed API, not a description of shipped exports. GitHub holds implementation
-and decision work; this document carries no work status. The current
+Consumer-migration design from [#540](https://github.com/schlessera/brain-kit/issues/540),
+reconciled by [#911](https://github.com/schlessera/brain-kit/issues/911) with
+[the approved SQL, package and context boundaries](../decisions/index-query-api.md).
+The standalone [query API specification](../content-index-queries.md) describes
+shipped operations; the server peer and bound module context below describe
+approved migrations, not shipped implementations. GitHub holds open work;
+this document carries no work status. The current
 [SQL guarantees](../integration-contract.md#braindb-direct-sql-reads) still bind.
 
 ## Public-reader inventory — source audit 2026-09-30
@@ -57,128 +60,179 @@ from arbitrary external SQL that will no longer be supported after retirement.
 
 ## Ownership and package access
 
-Core implements a concrete `@schlessera/brain/queries` entry point, with source,
-built JS and declarations under normal conditional exports. No forced Bun
-condition, UI SDK dependency in core, or new package is required. The entry
-point loads only query dependencies; importing it never starts config/module
-loading, an embedding provider, native vector loading, an agent or the CLI.
+The maintainer selected **A, a lazy optional core peer**, on 2026-10-03 in
+[#696's package ruling](https://github.com/schlessera/brain-kit/issues/696#issuecomment-5967816497).
+UI-server consumes the concrete `@schlessera/brain/queries` subpath of package
+`@schlessera/brain`. Core supplies normal source, default JavaScript and type
+exports (`"./queries"`, `packages/core/package.json:45-49`), with no forced
+condition, new package or dependency on the UI protocol. Importing the entry
+initializes neither config/modules nor providers, vectors, agents or the CLI.
 
-The recommended ui-server access is a lazy optional core peer. Resolve the
-module once per application and reuse its functions; **do not cache a native
-connection**. A deployment declaring that capability installs the peer
-explicitly; installing ui-server alone stays supported and other features boot.
-Missing peer becomes query capability unavailability, never a fallback to
-hand-written SQL or a subprocess per click. Match the imported peer identity,
-not a different `brain` binary found on PATH. Version/feature checks precede use.
+#697 declares `@schlessera/brain` in **both** `peerDependencies` and
+`peerDependenciesMeta` with `optional: true`. A host explicitly installs a
+compatible core release for graph and index-derived voice vocabulary;
+otherwise independent server features boot without it. A peer declaration
+alone is insufficient: ordinary peers install by default, while optional
+metadata prevents automatic installation, as specified by
+[npm](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#peerdependenciesmeta)
+and [Bun](https://bun.sh/guides/install/add-peer). This is packaging policy,
+not a packed-install or installation-size measurement.
 
-This edge is not currently allowed (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:88-91`). A maintainer decision must
-approve the optional peer and its version/capability behavior, or specify a
-concrete alternative. A hard dependency would guarantee the API but install
-core for all server consumers; duplicating SQL or a pluggable query provider
-would defeat the ruling. If the decision chooses another boundary, update this
-proposal and its tasks before dependent implementation. Do not widen the edge
-table merely to pass a check. No current package manifest changes in the spike.
+Resolve the module lazily when needed and cache its functions once per app.
+Validate the **actual imported package/subpath identity**, its compatible
+version range and required callable operations before use. Graph requires the
+five `readGraph*` operations below; vocabulary requires `readVoiceVocabulary`.
+Core's exported package metadata (`"./package.json"`, `packages/core/package.json:44`)
+identifies the same resolved installation; a separate `brain` binary on PATH
+cannot establish its identity or capabilities. #697 derives and documents the
+concrete range from releases shipping the required query features, verifies
+those release manifests/exports and packed behavior, and keeps peer metadata,
+edge policy, build order and host guidance consistent. No numeric range is
+selected by this design; a guessed version or a wildcard without feature proof
+is not compatibility evidence.
 
-Core owns plain result types. UI-server maps them to existing SDK graph payloads
-and errors; type/runtime contract checks prove both mappings. This prevents a
-core-to-UI cycle. Module callbacks receive a concrete index-query object bound
-to their root; it is not a provider seam or consumer-supplied implementation.
-The recommended replacement for raw `HygieneContext.db` is `queries`, with only
-result methods and no `.sql`, native DB callback or prepare/execute escape.
-Its removal is a structural public change requiring an explicit context ruling
-coordinated with #537 and #534. The existing field remains until that migration.
+Package capability and index state are different checks:
 
-## Proposed signatures and result contract
+| Condition | Required server behavior |
+| --- | --- |
+| Core absent, wrong identity, incompatible package version, missing subpath or required operation | Graph query capability is unavailable with sanitized diagnostics. Index vocabulary is unavailable/degraded; pronunciation overrides survive, providers without keyterm use remain independent, and unrelated features still boot. Never persist degradation as successful vocabulary. |
+| Usable core returns `missing_index`, `incompatible_index` or another typed index failure | Preserve the established index-specific graph/voice mappings below. Package availability does not imply an available index or a valid empty graph. |
+| Usable core returns a valid empty result | Preserve that success; do not conflate it with capability/index failure. |
 
-All query calls are synchronous after the module resolves. Options explicitly
-name the brain root; a path is resolved under that root, never from ambient
-configuration. This is trusted server/library access, not an auth bypass:
-HTTP/tool callers retain their existing authentication, authorization and
-root-containment checks. Results are detached values; no live iterator escapes.
+UI-server owns HTTP/SDK adaptation, pronunciation files, caches and provider
+selection. Published server declarations must remain usable by independent
+consumers without installing optional core merely to typecheck. #697/#700 prove
+normal packed source/default/types resolution, standalone declarations, absence,
+identity/version/feature skew and actual mounted routes. No handwritten SQL,
+PATH-CLI substitution, query service/provider seam or per-query process fallback.
 
-```ts
-type Direction = "in" | "out" | "both";
-type QueryCode = "missing_index" | "incompatible_index" | "corrupt_index"
-  | "busy_index" | "unavailable_index" | "not_computed" | "not_found" | "invalid_input";
-interface Snapshot {
-  schemaVersion: number; // observed diagnostic, never a caller's SQL floor
-  newestIndexedAt: string | null;
-}
-type QueryResult<T> =
-  | { ok: true; value: T; snapshot: Snapshot }
-  | { ok: false; error: { code: QueryCode; retryable: boolean } };
-interface Root { brainPath: string }
-interface Node {
-  id: number; path: string; title: string; type: string;
-  inDegree: number; outDegree: number;
-  community?: number; pagerank?: number; x?: number; y?: number;
-  distance?: number; virtual?: boolean;
-}
-interface Edge { source: number; target: number }
-interface Community { community: number; size: number; label: string | null; topTerms: string[] }
-interface GraphMeta {
-  available: boolean; reason?: "schema" | "not_computed";
-  schemaVersion: number; computedAt: string | null; stale: boolean;
-  nodeCount: number; edgeCount: number; communities: Community[];
-  defaultRoot: { path: string; virtual: boolean } | null; layoutSkipped?: boolean;
-}
-interface Subgraph {
-  nodes: Node[]; edges: Edge[]; truncated: boolean;
-  reachableCount?: number; unreachableCount?: number;
-}
-interface Maintenance {
-  orphans: Node[]; unreachable: Node[];
-  brokenLinks: { sourcePath: string; target: string }[];
-  stale: (Node & { updated: string })[]; staleDays: number;
-}
-interface LinkWalk {
-  edges: { source: string; target: string; resolved: boolean }[];
-  nodes: { path: string; title: string; type: string;
-    summary: string | null; updated: string | null }[];
-}
-interface ListedDocument {
-  path: string; title: string; type: string; relevance: string | null;
-  status: string | null; tags: string | null;
-}
-interface DocumentCandidate { path: string; updated: string | null }
+The inspected source is the pre-migration baseline: no core server dependency
+or peer (`"dependencies"`, `packages/ui-server/package.json:56-69`;
+`"peerDependencies"`, `packages/ui-server/package.json:70-74`), and no allowed
+server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:92-95`).
+The ruling approves the one-way edge; this document does not implement it.
+Core owns plain results and imports no UI SDK types. Native snapshots and
+connections remain core-owned per operation, never cached with the functions.
 
-function readGraphMeta(opts: Root): QueryResult<GraphMeta>;
-function readGraphClusters(opts: Root & {
-  community?: number; includeIsolates?: boolean;
-}): QueryResult<Subgraph>;
-function readGraphNeighborhood(opts: Root & {
-  center: string; depth?: number; direction?: Direction;
-}): QueryResult<Subgraph>;
-function readGraphDiscovery(opts: Root & {
-  root?: string; direction?: "out" | "both"; maxDepth?: number;
-}): QueryResult<Subgraph>;
-function readGraphMaintenance(opts: Root & {
-  staleDays?: number; now?: string;
-}): QueryResult<Maintenance>;
-function readLinkWalk(opts: Root & {
-  path: string; depth?: number; direction?: "outgoing" | "incoming" | "both";
-}): QueryResult<LinkWalk>;
-function readVoiceVocabulary(opts: Root & {
-  limit: number;
-}): QueryResult<{ terms: string[]; extractorVersion: number }>;
-function listIndexDocuments(opts: Root & {
-  type?: string; tag?: string; status?: string; relevance?: string; limit?: number;
-}): QueryResult<ListedDocument[]>;
-function findIndexDocuments(opts: Root & {
-  type?: string; excludeStatus?: string; pathSuffix?: string;
-}): QueryResult<DocumentCandidate[]>;
-```
+A hard dependency was viable and would simplify automatic setup and version
+resolution. It was rejected because every server install would bring core and
+couple the packages even when neither graph nor vocabulary is used. The chosen
+optional peer gives the host explicit installation/version ownership, with the
+additional absence/skew, declaration and migration obligations above.
 
-Every signature-reachable type is supported and documented with the API. Names
-above are proposed exports; validation and defaults are part of their contract.
-`findIndexDocuments` is a purpose-bounded metadata selection for hygiene: literal
-suffix matching (no SQL LIKE wildcard input), ordered by path, complete in one
-snapshot, no implicit result cap or pagination losses. Null status remains
-excluded when `excludeStatus` is supplied, matching the current jobs predicate.
-It exposes no arbitrary column selection or SQL expression. `listIndexDocuments`
-keeps pi/MCP listing behavior: default 20, maximum 100,
-archived inclusion only when requested, current metadata filters and ordering.
-The two functions do not silently share different defaults.
+## Core-created module hygiene context
+
+The maintainer selected **A, root-bound `ctx.queries`**, and approved raw-db
+removal on 2026-10-03 in
+[#696's context ruling](https://github.com/schlessera/brain-kit/issues/696#issuecomment-5969048668).
+Retain `HygieneContext<C>.root` and the module's validated, parsed `config: C`;
+replace `db` with the concrete query object created by core. The current context
+still exposes `db` (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`);
+#699 migrates the context, every callback/fixture and author guidance together.
+It does not leave an indefinite deprecated raw-db escape.
+
+Core captures the authoritative brain root when constructing the context.
+Every bound operation uses that captured root: JavaScript/unsafe inputs that
+supply `brainPath`, and later changes to `ctx.root`, cannot redirect a query.
+Type-level omission alone does not prove this runtime property. Existing module
+trust and HTTP/tool authentication/root-containment ownership remain unchanged.
+
+The object exposes exactly the nine supported operations, with existing options,
+validation, defaults and detached `QueryResult<T>` values; only caller
+`brainPath` is omitted. It is not a consumer-provided implementation, SQL
+callback, `.sql`/`.prepare`/`.execute` escape or native handle. It holds neither
+a persistent connection nor a transaction spanning callbacks. Each synchronous
+operation opens/closes its own core-owned read snapshot. Module callbacks may
+return synchronously or asynchronously; core keeps awaiting them and reporting
+failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1029-1038`).
+A typed query failure must propagate into that lifecycle rather than being
+converted to an empty candidate list or successful hygiene result.
+
+Explicit supported query imports with `brainPath: ctx.root` were a viable
+alternative: they reuse the standalone functions and keep the context smaller.
+Root-bound queries were selected to centralize binding and reduce repeated
+root wiring in every module. The cost is an additional concrete method/type
+surface and required runtime binding proof; no configurable query backend is
+introduced.
+
+## Supported operations and reachable types
+
+The standalone signatures and full result shapes are defined by the shipped
+[API specification](../content-index-queries.md#types), not a second proposed
+API here. The bound context preserves them except for the captured root.
+Options below are those beyond `brainPath`; standalone functions still require
+that root. Every return is `QueryResult<T>`.
+
+| Method | Bound options | Value type |
+| --- | --- | --- |
+| `readGraphMeta` | None | `GraphMeta` |
+| `readGraphClusters` | `community?: number`, `includeIsolates?: boolean` | `Subgraph` |
+| `readGraphNeighborhood` | Required `center: string`; `depth?: number`, `direction?: Direction` | `Subgraph` |
+| `readGraphDiscovery` | `root?: string`, `direction?: "out" \| "both"`, `maxDepth?: number` | `Subgraph` |
+| `readGraphMaintenance` | `staleDays?: number`, `now?: string` | `Maintenance` |
+| `readLinkWalk` | Required `path: string`; `depth?: number`, `direction?: "outgoing" \| "incoming" \| "both"` | `LinkWalk` |
+| `readVoiceVocabulary` | Required `limit: number` | `VoiceVocabulary` |
+| `listIndexDocuments` | `type?: string`, `tag?: string`, `status?: string`, `relevance?: string`, `limit?: number` | `ListedDocument[]` |
+| `findIndexDocuments` | `type?: string`, `excludeStatus?: string`, `pathSuffix?: string` | `DocumentCandidate[]` |
+
+Source: (`readGraphMeta`, `packages/core/src/queries/index.ts:9-11`), through
+(`findIndexDocuments`, `packages/core/src/queries/index.ts:130-158`); exported
+results (`export type Direction`, `packages/core/src/queries/types.ts:2-109`).
+#534's public export inventory and #537's module-author inventory include the
+bound context and every signature-reachable option/result type, including
+nested results: `QueryResult`, `QueryCode`, `Snapshot`, `Root` (standalone),
+`Direction`, `Node`, `Edge`, `Community`, `GraphMeta`, `Subgraph`, `Maintenance`,
+`LinkWalk`, `VoiceVocabulary`, `ListedDocument` and `DocumentCandidate`.
+Options currently use anonymous structural intersections; their property
+shapes and the root-omitted bound forms belong to the inventory too. Any named
+bound types introduced by #699 must be supported and inventoried there, rather
+than accidentally exporting loader/native bookkeeping. Normal declarations and
+external module-author typing must preserve concrete `config: C`, option
+validation and result/error discrimination.
+
+### Complete jobs selection and source ownership
+
+The existing jobs callback selects `type = 'opportunity'`, `status != 'archived'`
+and `(path = 'status.md' OR path LIKE '%/status.md')`, ordered by path
+(`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+#699 uses complete `findIndexDocuments` metadata with `type: "opportunity"`
+and `excludeStatus: "archived"`, followed by the **module-owned exact former
+path predicate**. Null status remains excluded. Preserve these asymmetric cases:
+
+| Path | Selected by the former predicate |
+| --- | --- |
+| Root `status.md` | Yes |
+| Root `STATUS.MD` or `Status.Md` | No |
+| Nested `roles/status.md`, `roles/STATUS.MD`, `roles/Status.Md` | Yes |
+| Root `notstatus.md` or nested `roles/notstatus.md` | No |
+
+Nested LIKE matching has its established ASCII case behavior; root equality is
+exact. `pathSuffix` is a literal, case-sensitive suffix, not a basename/LIKE
+predicate. `status.md` alone admits near-names; `/status.md` misses the root and
+nested case variants. Neither safely narrows this selection. Do not alter the
+suffix contract or use bounded `listIndexDocuments` (default 20, maximum 100).
+`findIndexDocuments` returns the complete path-ordered set in one snapshot,
+without a cap/pagination loss (`findIndexDocuments`, `packages/core/src/queries/index.ts:130-158`).
+
+Read source frontmatter under the callback root and retain existing stage,
+staleness and taxonomy rules. The module's parsed config and separate jobs
+operational database remain unchanged. Preserve nullable `DocumentCandidate.updated`
+as documented; failures are distinguishable from a valid empty set.
+
+## Approved breaking migrations
+
+[#697](https://github.com/schlessera/brain-kit/issues/697) owns the explicit
+peer-install migration for existing graph/index-vocabulary hosts.
+[#699](https://github.com/schlessera/brain-kit/issues/699) owns raw `db` removal
+and the bound calling convention, migrating every affected callback, fixture
+and module-author guide in the same change. Both have prior dated maintainer
+rulings above. Under [contract versioning](../decisions/contract-versioning.md),
+before 1.0 each break needs `breaking`, `CONTRACT:`, same-commit integration-contract
+and author/host migration documentation, and a **minor changeset naming the
+break**. From 1.0 breaks require majors. An additional unapproved machine
+behavior break still needs its own ruling. These choices select no package
+version, numeric peer range, release date, publication or immediate 1.0 freeze.
+The direct-SQL promises remain binding until #701's separately verified retirement.
 
 `readVoiceVocabulary` owns extraction SQL and the existing normalization,
 proper-noun/content/path scoring, deterministic deduplication and ranking. It
@@ -259,7 +313,7 @@ UI caches. Responses from different requests are not one shared snapshot.
 Errors contain codes/retryability, without SQL text, credentials, arbitrary
 absolute paths or document content. Known graph availability remains a described
 state; failures never read as "no links". Current HTTP `schemaVersion` continues
-as a numeric observed diagnostic. This proposal does not delete/retype it or
+as a numeric observed diagnostic. This design does not delete/retype it or
 claim SQL compatibility based on it. No new HTTP/MCP/CLI result is invented.
 
 ## Interactive cost and required verification
@@ -278,7 +332,19 @@ corpus size and methodology so a reviewer can compare. No network/paid models.
 
 Verification must use the actual CLI-produced fixture index, not a handcrafted
 schema that copies the reader's assumptions (`ui-server's readers run`, `tests/brain-db-contract.test.ts:201-244`). Existing table
-assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) stay until final retirement. Replacement tests cover:
+assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) stay until final retirement.
+
+Verification ownership is explicit; documenting a requirement completes none
+of these implementation criteria:
+
+| Handoff | Required proof |
+| --- | --- |
+| #697 / #700 | Normal packed install and source/default/types resolution; independent standalone declarations without core; actual imported peer identity/range/required-operation skew; real mounted graph/voice behavior and cold/warm route measurements; per-operation native lifetime. |
+| #699 | Real loader with CLI-produced index; nonempty complete jobs selection including every root/nested/case/near-name and null-status case; parsed config/source ownership; captured-root binding against unsafe input and later context mutation; typed missing/incompatible-index failure reporting; intended selection/binding/failure mutations. |
+| #534 / #537 | Public/module-author inventories include every reachable query option/result/bound-context type; normal published declarations and third-party-style module-author typing/lifecycle checks. |
+| #701 | All migration/export/consumer proofs and a fresh public-reader audit before retiring SQL promises; preserve internal compatibility tests and existing result/diagnostic fields. |
+
+Replacement tests cover:
 
 - All five graph results, virtual and absent roots, unresolved targets, duplicate
   and self links, asset exclusion, caps, ordering, explicit/default discovery
@@ -296,8 +362,9 @@ assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) stay un
   including Windows-compatible replacement where the runtime supports it.
 - Real npm consumer source/built resolution and typechecking under normal
   conditions; optional-core absence and matching/incompatible peer identities,
-  once the dependency ruling is approved. Retain CLI/MCP envelopes and keyless
-  retrieval goldens.
+  under the approved optional-peer boundary. Standalone server declarations must
+  typecheck without optional core; package skew and index skew are separate cases.
+  Retain CLI/MCP envelopes and keyless retrieval goldens.
 
 For each runtime guard, break the protected behavior and show the intended
 non-vacuous assertion failing: version check, transaction, per-call open/close,
@@ -306,9 +373,9 @@ Deleting SQL column tests before behavior coverage exists is not verification.
 
 ## Transition boundary
 
-Add supported APIs and their contract documentation while SQL stays supported;
-settle the package/context decisions; migrate actual readers and curated helper
-imports; establish cross-package runtime/package coverage; then retire the SQL
+Keep the supported API and its contract documentation alongside the still-binding
+SQL promises; consume the two approved package/context decisions; migrate actual
+readers and curated helper imports; establish cross-package runtime/package coverage; then retire the SQL
 promise in one explicit breaking-contract change with a migration guide. The
 final issue depends on every migration, compatibility coverage and #534's export
 cleanup. Reaudit all three public repositories at that point. #537 incorporates
@@ -316,11 +383,12 @@ the resolved query context before freezing module authoring.
 
 This plan does not implement those steps, choose a release date, schedule 1.0,
 change markdown semantics, or demand arbitrary external SQL compatibility after
-the completed transition. The ruling authorizes retirement under these
-conditions; it does not authorize a disputed new dependency or silent result
-break. Implementation tasks live under #56 and link this design.
+the completed transition. The rulings authorize the recorded one-way peer/context
+migrations and SQL retirement under its separate conditions; they do not authorize another
+dependency, new provider seam or silent result break. Implementation tasks live
+under #56 and link this design.
 
-Implementation and the unresolved boundary ruling are tracked by
+The scoped API, decision, consumer, compatibility and retirement handoffs are tracked by
 [#695](https://github.com/schlessera/brain-kit/issues/695),
 [#696](https://github.com/schlessera/brain-kit/issues/696),
 [#697](https://github.com/schlessera/brain-kit/issues/697),
