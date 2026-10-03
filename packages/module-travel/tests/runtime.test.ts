@@ -58,12 +58,12 @@ describe("real travel module and CLI", () => {
     ["migrate", ["migrate", "--dry-run"], "Unknown travel argument."],
     ["route", ["route", "recording.gpx", "--to", "routes"], "Unknown route argument: --bogus"],
     ["photo", ["photo", "photo.jpg", "--to", "photos"], "Unknown photo argument: --bogus"],
-  ] as const)("%s still refuses an unknown flag in human mode", async (_sub, args, diagnostic) => {
+  ] as const)("%s still refuses an unknown flag independently", async (_sub, args, diagnostic) => {
     const root = brain();
     const source = readFileSync(join(root, "brain.config.json"), "utf8");
-    const result = await runCli(root, ["travel", ...args, "--human", "--bogus"]);
-    expect(result.code).toBe(1);
+    const result = await runCli(root, ["travel", ...args, "--bogus"]);
     expect(result.stderr).toContain(diagnostic);
+    expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(readFileSync(join(root, "brain.config.json"), "utf8")).toBe(source);
   });
