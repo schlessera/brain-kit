@@ -10,7 +10,9 @@ const HELP = `brain travel — journey, day-trip and place foundations
   travel validate              Check canonical formats, references and assets
   travel migrate [--dry-run]    Move legacy speaking travelParty without changing content
   travel photo <files> --to <dir>  Create reduced JPEG copies without metadata
+              [--name <descriptor>] [--date YYYY-MM-DD] [--force-date]
   travel route <url|file> --to <dir> [--trim-start-m N] [--trim-end-m N]
+              [--name <label>] [--date YYYY-MM-DD]
                                Normalize GPX/Komoot geometry, report metrics, trim distance
 
 Flags: --json  emit the documented envelope; --human  display photo paths and dimensions`;
@@ -49,20 +51,29 @@ const command: CommandModule<TravelConfig> = {
     if (sub === "photo") {
       try {
         const files: string[] = [];
-        let to: string | undefined;
+        let to: string | undefined, name: string | undefined, date: string | undefined, forceDate = false;
+        const seen = new Set<string>();
         for (let i = 1; i < args.length; i++) {
           const arg = args[i];
           if (arg === "--") { files.push(...args.slice(i + 1)); break; }
           if (arg === "--json" || arg === "--human") continue;
-          if (arg === "--to") {
-            if (to !== undefined || !args[i + 1] || args[i + 1].startsWith("-")) throw new Error("photo requires exactly one --to directory.");
-            to = args[++i];
+          if (arg === "--force-date") {
+            if (seen.has(arg)) throw new Error("Duplicate --force-date.");
+            seen.add(arg); forceDate = true;
+          } else if (arg === "--to" || arg === "--name" || arg === "--date") {
+            if (seen.has(arg)) throw new Error(`Duplicate ${arg}.`);
+            seen.add(arg);
+            const value = args[++i];
+            if (!value || value.startsWith("--") || (arg === "--to" && value.startsWith("-"))) throw new Error(`${arg} requires a value.`);
+            if (arg === "--to") to = value;
+            else if (arg === "--name") name = value;
+            else date = value;
           } else if (arg.startsWith("-")) throw new Error("Unknown photo argument: " + arg + ". Use -- before a filename starting with a dash.");
           else files.push(arg);
         }
-        if (!files.length || to === undefined) throw new Error("Usage: brain travel photo <files> --to <dir> [--json]");
+        if (!files.length || to === undefined) throw new Error("Usage: brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] [--json]");
         const { preparePhotos } = await import("./photo.js");
-        const photo = await preparePhotos(ctx.root, files, to);
+        const photo = await preparePhotos(ctx.root, files, to, { name, date, forceDate });
         if (ctx.json) console.log(JSON.stringify({ photo }, null, 2));
         else {
           for (const file of photo.files) console.log(file.source + " → " + file.output + " (" + file.width + "×" + file.height + ")");

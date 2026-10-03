@@ -17,14 +17,14 @@ function brain(): string {
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });
 
 type Reply = { status?: number; body?: string; location?: string };
-async function replayCli(root: string, source: string, replies: Record<string, Reply>, privateHosts: string[] = []) {
+async function replayCli(root: string, source: string, replies: Record<string, Reply>, privateHosts: string[] = [], flags: string[] = []) {
   const log = join(root, "requests.jsonl"), replay = join(root, "replay.json");
   writeFileSync(log, "");
   writeFileSync(replay, JSON.stringify({ replies, privateHosts, log }));
   // The test runner prepends its network guard; this second preload replaces
   // only fetch and DNS with closed replay transports in the real CLI child.
   const proc = Bun.spawn(["bun", "--preload", join(import.meta.dir, "route-http-replay.ts"), BRAIN_BIN,
-    "travel", "route", source, "--to", "routes", "--json"], {
+    "travel", "route", source, "--to", "routes", ...flags, "--json"], {
     env: { ...keylessEnv(root), ROUTE_REPLAY: replay }, stdout: "pipe", stderr: "pipe", stdin: "ignore",
   });
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
@@ -41,6 +41,32 @@ function komootHtml(id: string, status = "public", lat = 0): string {
 }
 
 describe("real route CLI", () => {
+  test("both Komoot kinds use dated descriptors and preserve the legacy control", async () => {
+    for (const kind of ["tour", "smarttour"]) {
+      const root = brain(), url = `https://www.komoot.com/${kind}/42`;
+      const replies = { ...robots("https://www.komoot.com"), [url]: { body: komootHtml("42") } };
+      const original = await replayCli(root, url, replies);
+      expect(original.code).toBe(0);
+      expect(JSON.parse(original.stdout).route).toMatchObject({ gpx: "routes/komoot-42.gpx", date_source: "none" });
+      for (const suffix of ["", "-2"]) {
+        const named = await replayCli(root, url, replies, [], ["--name", "Ferry to Scheria", "--date", "2026-09-27"]);
+        expect(named.code).toBe(0);
+        expect(named.requests.map(r => r.url)).toEqual(["https://www.komoot.com/robots.txt", url]);
+        const saved = JSON.parse(named.stdout).route;
+        expect(saved).toMatchObject({ source_kind: `komoot_${kind}`, gpx: `routes/2026-09-27-ferry-to-scheria${suffix}.gpx`, date_source: "flag" });
+        expect(parseGpx(readFileSync(join(root, saved.gpx), "utf8")).segments[0]!.length).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  test("invalid naming refuses before any remote route or robots dispatch", async () => {
+    const root = brain(), url = "https://www.komoot.com/tour/42";
+    for (const flags of [["--date", "2026-02-30"], ["--name", "Αθήνα"]]) {
+      const result = await replayCli(root, url, {}, [], flags);
+      expect(result.code).toBe(1); expect(result.stderr).toMatch(/calendar date|descriptor/);
+      expect(result.requests).toHaveLength(0); expect(existsSync(join(root, "routes"))).toBe(false);
+    }
+  });
   test("imports a local recording and reports metrics of the written GPX", async () => {
     const root = brain();
     const result = await runCli(root, ["travel", "route", "recordings/odysseus.gpx", "--to", "routes", "--json"]);

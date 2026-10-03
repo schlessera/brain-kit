@@ -6,6 +6,8 @@ import { safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/bra
 import { DEFAULT_USER_AGENT, parseHtml, RobotsCache, ScrapeClient } from "@schlessera/brain-scrape";
 import { MAX_ROUTE_BYTES, parseGpx, quantizeRoute, routeMetrics, routePoint, trimRoute, writeGpx } from "./route-gpx.js";
 import type { RouteGeometry, RouteMetrics } from "./route-gpx.js";
+import { validateOutputNaming } from "./output-naming.js";
+import type { OutputNamingOptions } from "./output-naming.js";
 
 type SourceKind = "local_gpx" | "gpx_url" | "komoot_tour" | "komoot_smarttour";
 export interface ImportedRoute extends RouteMetrics {
@@ -13,6 +15,7 @@ export interface ImportedRoute extends RouteMetrics {
   gpx: string;
   trim: { start_m: number; end_m: number };
   warnings: string[];
+  date_source: "flag" | "none";
 }
 const forbiddenV4 = new BlockList();
 for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
@@ -115,7 +118,8 @@ export function parseKomoot(source: string, expectedId: string): RouteGeometry {
     "Komoot relative t values are not imported as absolute recorded timestamps."] };
 }
 
-export async function importRoute(root: string, source: string, to: string, startM: number, endM: number): Promise<ImportedRoute> {
+export async function importRoute(root: string, source: string, to: string, startM: number, endM: number, options: OutputNamingOptions = {}): Promise<ImportedRoute> {
+  const naming = validateOutputNaming(options);
   const canonicalRoot = safeResolve(root, "."), directory = safeResolve(root, to);
   if (!canonicalRoot || !directory) throw new Error("Route output directory escapes the brain root.");
   if (![startM, endM].every((n) => Number.isFinite(n) && n >= 0)) throw new Error("Trim distances must be finite, nonnegative metres.");
@@ -151,7 +155,9 @@ export async function importRoute(root: string, source: string, to: string, star
   const metrics = routeMetrics(retained);
   if (metrics.distance_km === 0) throw new Error("Retained route is shorter than the 1 mm reporting precision; no file written.");
   const gpx = writeGpx(retained);
-  const stem = basename(name, extname(name)).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "route";
+  const stem = naming.slug === undefined
+    ? basename(name, extname(name)).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "route"
+    : `${naming.date ? naming.date + "-" : ""}${naming.slug}`;
   const warnings = [...geometry.warnings];
   if (metrics.ascent_m === null) warnings.push("Incomplete elevations: ascent and altitude range remain unknown.");
   if (metrics.recorded_duration_s === null) warnings.push("Incomplete or non-monotonic timestamps: recorded duration remains unknown.");
@@ -163,23 +169,26 @@ export async function importRoute(root: string, source: string, to: string, star
     if (!output || safeResolve(root, directory) !== directory) throw new Error("Route output directory changed or escapes the brain root.");
     try { writeFileSafely(output, gpx, { replace: false }); }
     catch (error) { if (error instanceof WriteRefusedError && error.message.startsWith("EEXIST:")) continue; throw error; }
-    return { source_kind: kind, gpx: relative(canonicalRoot, output).replaceAll("\\", "/"), ...metrics, trim: { start_m: startM, end_m: endM }, warnings };
+    return { source_kind: kind, gpx: relative(canonicalRoot, output).replaceAll("\\", "/"), ...metrics, trim: { start_m: startM, end_m: endM }, warnings,
+      date_source: naming.slug !== undefined && naming.date ? "flag" : "none" };
   }
   throw new Error("No unused route output name remains; existing files were preserved.");
 }
 
 export async function runRoute(args: string[], root: string, json: boolean): Promise<number> {
   try {
-    let source: string | undefined, to: string | undefined, start = 0, end = 0;
+    let source: string | undefined, to: string | undefined, name: string | undefined, date: string | undefined, start = 0, end = 0;
     const seen = new Set<string>();
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
       if (arg === "--json") continue;
-      if (["--to", "--trim-start-m", "--trim-end-m"].includes(arg)) {
+      if (["--to", "--trim-start-m", "--trim-end-m", "--name", "--date"].includes(arg)) {
         if (seen.has(arg)) throw new Error(`Duplicate ${arg}.`);
         seen.add(arg); const value = args[++i];
         if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
         if (arg === "--to") to = value;
+        else if (arg === "--name") name = value;
+        else if (arg === "--date") date = value;
         else {
           if (!decimalPattern.test(value)) throw new Error("Trim distances must be finite, nonnegative metres.");
           if (arg === "--trim-start-m") start = Number(value); else end = Number(value);
@@ -187,8 +196,8 @@ export async function runRoute(args: string[], root: string, json: boolean): Pro
       } else if (arg.startsWith("-") || source !== undefined) throw new Error(`Unknown route argument: ${arg}`);
       else source = arg;
     }
-    if (!source || !to) throw new Error("Usage: brain travel route <url|file> --to <dir> [--trim-start-m N] [--trim-end-m N] [--json]");
-    const route = await importRoute(root, source, to, start, end);
+    if (!source || !to) throw new Error("Usage: brain travel route <url|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] [--json]");
+    const route = await importRoute(root, source, to, start, end, { name, date });
     if (json) console.log(JSON.stringify({ route }, null, 2));
     else console.log(`${route.gpx}: ${route.distance_km} km, ascent ${route.ascent_m === null ? "unknown" : `${route.ascent_m} m`}, ${route.shape}.\n${route.warnings.join("\n")}`.trim());
     return 0;

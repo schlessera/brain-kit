@@ -95,7 +95,7 @@ originals, albums or sidecar authority and performs no network requests.
 Sharp supplies real codec decoding, EXIF pixel orientation, bounded resizing
 and mozjpeg encoding. Its default fresh output strips metadata; adding metadata
 back is deliberately absent from the pipeline
-(`preparePhotos`, `packages/module-travel/src/photo.ts:107-135`).
+(`preparePhotos`, `packages/module-travel/src/photo.ts:110-146`).
 The native dependency loads only in the photo command. Bun 1.3.14 on Linux
 loaded Sharp 0.35.5 with bundled libvips 8.18.7 and mozjpeg, and encoded actual
 JPEG bytes. Other supported binaries follow Sharp's [installation requirements](https://sharp.pixelplumbing.com/install/);
@@ -106,15 +106,15 @@ the source container. Camera time is read as written text: constructing it
 through the process timezone would invent an instant when the camera supplied
 none. Calendar validation rejects nonexistent dates, written offsets/fractions
 are retained, and valid zero coordinates survive
-(`captureTime`, `packages/module-travel/src/photo.ts:79-92`;
-`capture`, `packages/module-travel/src/photo.ts:94-105`).
+(`captureTime`, `packages/module-travel/src/photo.ts:82-95`;
+`capture`, `packages/module-travel/src/photo.ts:97-108`).
 
 Completed sibling bytes are published with an exclusive hard link. A rename
 can replace a destination that arrived after an existence check; the exclusive
 operation retains that entry and tries the next numeric suffix. Directory
 identity is checked before publication, symlink destinations are refused, and
 partial writes are removed before any JPEG name appears
-(`writePhotoCopy`, `packages/module-travel/src/photo.ts:16-51`).
+(`writePhotoCopy`, `packages/module-travel/src/photo.ts:19-54`).
 This requires hard-link support. Cleanup after successful publication is
 best effort, so a cleanup error cannot turn an existing completed copy into
 a reported failure.
@@ -135,7 +135,7 @@ introduced. Travel depends on the existing scrape package for this concrete
 HTTP job, sharing its robots/pacing policy rather than adding an adapter or
 browser-driver seam. URL/DNS checks run before every route hop and bounded
 robots redirect; unavailable robots retains the shared permissive policy
-(`RouteRobots`, `packages/module-travel/src/route.ts:65-80`).
+(`RouteRobots`, `packages/module-travel/src/route.ts:68-83`).
 
 **2026-10-01 — Shared ownership.** The #525 ownership ruling moves the
 concrete GPX reader, metrics and trimming to `@schlessera/brain-geo`. Travel
@@ -163,7 +163,7 @@ and duration requires ordered absolute timestamps
 (`routeMetrics`, `packages/geo/src/track.ts:236-252`).
 The package README specifies units, smoothing, shape and serialization
 tolerances. Original inputs and occupied output names remain untouched
-(`importRoute`, `packages/module-travel/src/route.ts:118-169`).
+(`importRoute`, `packages/module-travel/src/route.ts:121-176`).
 
 Outdooractive has a readable public route page, but GPX export requires
 login and its geometry API is covered by its `/api/*` robots disallow.
@@ -172,3 +172,51 @@ site permission before fetching a disallowed path; observing normal browser
 subrequests does not authorize importing through them. Its source criterion
 therefore remains open in #568 with the exact human permission prerequisite.
 The independently usable GPX/Komoot slice does not complete that criterion.
+
+## Descriptive output names — 2026-10-04
+
+The maintainer's [Date A ruling](https://github.com/schlessera/brain-kit/issues/906#issuecomment-5973876272)
+and [Slug B ruling](https://github.com/schlessera/brain-kit/issues/906#issuecomment-5973974551)
+make naming explicit CLI work. Photo and route accept a complete descriptor
+and optional calendar date; photo can explicitly force the visit date over the
+camera date. They still create assets, never attach them to a visit or write
+content records.
+
+`date_source` is provenance of the date actually applied to a requested name,
+not the provenance of every available date. With no descriptor, names remain
+source-derived and the field is `none`, even with valid EXIF or date flags.
+Photo `captured_at` remains original capture metadata when a forced flag wins.
+The selected camera day is taken from validated text rather than converted
+through UTC or a host timezone
+(`preparePhotos`, `packages/module-travel/src/photo.ts:110-146`).
+
+Date B, reporting an available/selected date on every call, would imply a
+naming date even when the legacy filename has none. Replacing capture metadata
+with a forced visit date would erase a distinct fact. Both lose under Date A.
+Route never derives a naming date from track timestamps or reports `exif`.
+
+Slug B normalizes the complete descriptor to NFKD, removes combining marks,
+lowercases, replaces non-ASCII filename runs with hyphens and trims edge
+hyphens. It preserves underscores, folds accents, refuses an empty result and
+never strips an apparent extension or invents a fallback
+(`validateOutputNaming`, `packages/module-travel/src/output-naming.ts:10-23`).
+Legacy source-name normalization is a separate branch. Keeping Unicode
+descriptors or transliterating all scripts would be different policies;
+`Straße` deliberately becomes `stra-e`, while Greek-only text is refused.
+Built-in normalization is sufficient; no dependency or extension seam is added.
+
+Real CLI fixtures use a nonempty camera timestamp near midnight with a written
+`+14:00` offset under Honolulu and Kiritimati process timezones, a conflicting
+visit flag, forced/no-name/undated controls and positive output bytes. They
+check composed/decomposed accents and complete dotted descriptors in photo
+and local-route commands, plus recorded Komoot tour/smarttour replay. Invalid
+dates/empty descriptors fail before output creation or remote dispatch.
+Existing asset and original source bytes survive repeated/batch jobs.
+
+The legacy-result test first failed with `date_source` absent. Mutations then
+reported EXIF for an unnamed photo, a flag for an unnamed route, preferred an
+unforced flag over EXIF, and skipped numeric suffixes. Each failed on its
+intended field/filename assertion rather than a load error. The original
+implementation was restored before the verification suite. These receipts
+protect selected naming/provenance semantics; existing atomic publication and
+containment guards remain the writers' responsibility.
