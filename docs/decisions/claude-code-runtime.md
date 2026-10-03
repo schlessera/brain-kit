@@ -832,3 +832,12 @@ integration tests observe the pending probe before any database exists and
 serve a real health request only after successful startup. Tests allow a
 1.5-second scheduling margin beyond the five-second deadline; production
 cleanup adds at most 250 ms, subject to event-loop scheduling.
+
+### Candidate 2.1.287 comparison (2026-10-03)
+
+The [bounded compatibility measurement](claude-2.1.287-compatibility.md)
+reproduces three raw-probe failures on SDK 0.3.287 / CLI 2.1.287, traces the
+changed omitted-mode semantics, and records passing production enforcement
+controls on both the retained and candidate pair. It leaves measured constants,
+declared requirements and permission policy unchanged. A selected explicit-mode
+control is diagnostic evidence, not permission to skip the full upgrade probe.

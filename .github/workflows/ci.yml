@@ -608,6 +608,14 @@ jobs:
       - name: The probe's report
         if: always()
         run: cat probe.json 2>/dev/null || echo "The probe wrote no report."
+      - name: Probe production Claude enforcement with loopback only
+        timeout-minutes: 5
+        run: >-
+          unshare --user --map-root-user --net
+          sh -c 'ip link set lo up && bun scripts/measure-claude-enforcement.ts --out enforcement-probe.json'
+      - name: The production enforcement report
+        if: always()
+        run: cat enforcement-probe.json 2>/dev/null || echo "The enforcement probe wrote no report."
 
   changeset:
     # A user-visible change without a changeset publishes with no version entry
