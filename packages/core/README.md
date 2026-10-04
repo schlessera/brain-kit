@@ -41,7 +41,8 @@ Reads whose variable *name* is configuration rather than code:
 
 | Name comes from | What the value is used for |
 | --- | --- |
-| brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `reranker.apiKeyEnv` | API key for a built-in provider, read at call time under whatever name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, TYPESAFE_API_KEY). |
+| brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `completions.fallbackApiKeyEnv` / `reranker.apiKeyEnv` | API key for a built-in provider or completion fallback, read at call time under whatever name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, TYPESAFE_API_KEY). |
+| call-time inherited environment snapshot (`inheritedEnv`) | Internal agent-CLI transport: copies the calling process's environment at spawn time and merges explicit overrides last. Unlike the UI's filtered subprocess environment, this snapshot is inherited in full; it does not make every inherited variable supported brain configuration. |
 
 Generated from `packages/core/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
