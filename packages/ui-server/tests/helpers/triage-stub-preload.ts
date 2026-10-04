@@ -8,6 +8,9 @@
  */
 import { plugin } from "bun";
 
+const forbidNetwork = () => { throw new Error("triage exit-code fixture forbids network"); };
+globalThis.fetch = Object.assign(async () => forbidNetwork(), { preconnect: forbidNetwork });
+
 const STUB = new URL("./triage-stub-providers.ts", import.meta.url).pathname;
 
 plugin({
