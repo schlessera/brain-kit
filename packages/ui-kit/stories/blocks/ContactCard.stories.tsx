@@ -55,6 +55,22 @@ export const DerivedInitials = Default.extend({
 
 export const Wide = Default.extend({ parameters: wide });
 
+/** Complete machine fact keys wrap after separators in one aligned column. */
+export const LongFactKey = Default.extend({
+  parameters: { stageWidth: 288 },
+  args: {
+    facts: [
+      ...penelopeFacts,
+      { k: "communication_preference", v: "letters via Eumaeus" },
+      { k: "home", v: "Ithaca" },
+    ],
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("communication_preference")).toBeVisible();
+    await expect(canvas.getByText("letters via Eumaeus")).toBeVisible();
+  },
+});
+
 /**
  * THE ONE PLACE THIS PORT WIDENS THE API. The source draws these buttons and
  * gives no way to operate them — in the design's editor they are wired by hand,
