@@ -127,6 +127,7 @@ export function createJevClient(options: JevClientOptions): JevClient {
   let consecutiveFailures = 0;
   let retryAt: number | null = null;
   let backoffMs = BREAKER_BASE_MS;
+  let probeInFlight = false;
 
   function recordFailure(outcome: JevOutcome): void {
     consecutiveFailures++;
@@ -173,37 +174,44 @@ export function createJevClient(options: JevClientOptions): JevClient {
         return result;
       };
       if (!apiKey) return done("no_key", null);
-      // Open breaker: skip without a call until the backoff has passed; the
-      // first call after that is the probe.
-      if (retryAt !== null && now() < retryAt) return done("circuit_open", null);
-      const body = JSON.stringify(request);
-      // One deadline for the whole call, retry included: the budget is the
-      // reader's, not the vendor's.
-      const signal = AbortSignal.timeout(timeoutMs);
-      let lastStatus: number | undefined;
-      for (let tries = 0; tries < 2; tries++) {
-        if (signal.aborted) break;
-        try {
-          const outcome = await attempt(body, signal);
-          if (outcome.kind === "ok") return done("answered", outcome.answers);
-          if (outcome.kind === "bad") return done("bad_response", null);
-          lastStatus = outcome.status;
-          if (!RETRY_STATUSES.has(outcome.status)) return done("http_error", null, outcome.status);
-          // Retry once, immediately: any backoff long enough to matter would
-          // outlive the budget.
-        } catch (err) {
-          if (signal.aborted) return done("timeout", null);
-          options.log?.emit({
-            severityText: "WARN",
-            body: "classification call failed",
-            attributes: { "error.message": err instanceof Error ? err.message : String(err) },
-          });
-          return done("network_error", null);
+      // Reserve the first call after backoff for the whole logical probe,
+      // including its retry; other calls skip while that probe is pending.
+      if (probeInFlight || (retryAt !== null && now() < retryAt)) return done("circuit_open", null);
+      const isProbe = retryAt !== null;
+      if (isProbe) probeInFlight = true;
+      try {
+        const body = JSON.stringify(request);
+        // One deadline for the whole call, retry included: the budget is the
+        // reader's, not the vendor's.
+        const signal = AbortSignal.timeout(timeoutMs);
+        let lastStatus: number | undefined;
+        for (let tries = 0; tries < 2; tries++) {
+          if (signal.aborted) break;
+          try {
+            const outcome = await attempt(body, signal);
+            if (outcome.kind === "ok") return done("answered", outcome.answers);
+            if (outcome.kind === "bad") return done("bad_response", null);
+            lastStatus = outcome.status;
+            if (!RETRY_STATUSES.has(outcome.status)) return done("http_error", null, outcome.status);
+            // Retry once, immediately: any backoff long enough to matter would
+            // outlive the budget.
+          } catch (err) {
+            if (signal.aborted) return done("timeout", null);
+            options.log?.emit({
+              severityText: "WARN",
+              body: "classification call failed",
+              attributes: { "error.message": err instanceof Error ? err.message : String(err) },
+            });
+            return done("network_error", null);
+          }
         }
+        return signal.aborted && lastStatus === undefined
+          ? done("timeout", null)
+          : done("rate_limited", null, lastStatus);
+      } finally {
+        // A call admitted while closed must not release a later probe.
+        if (isProbe) probeInFlight = false;
       }
-      return signal.aborted && lastStatus === undefined
-        ? done("timeout", null)
-        : done("rate_limited", null, lastStatus);
     },
   };
 }
