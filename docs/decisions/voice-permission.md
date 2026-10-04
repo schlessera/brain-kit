@@ -782,3 +782,15 @@ which would have asked an implementer for a card the posture forbids.
 **Whether the voice posture should also be the phone posture.** A phone in a
 pocket and a phone in a hand are different, and nothing here measures the
 difference. Out of scope for #55.
+
+## All-writer boundary ruling — 2026-10-02
+
+[The all-writer decision](policy-write-boundary.md) applies isolated workers and
+bounded authoritative application to voice as well as ordinary and autonomous
+turns, before any agent writer initializes. Its Linux-first host/refusal ruling
+does not change the browser client's operating-system support. The shared tool
+enforcement mechanism still uses different named voice/unattended memberships;
+raw writes stay excluded from the voice posture, authorized curated edits retain
+existing permissions, and speech can never grant. Unsupported hosts visibly
+refuse before initialization, with no weaker or unsandboxed fallback. These
+approvals supply no containment proof and do not widen the voice posture.
