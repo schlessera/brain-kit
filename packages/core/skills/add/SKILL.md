@@ -46,7 +46,8 @@ Types configured with `appendMatch: true` — for example project logs or per-co
 **append** to an indexed document. Ordinary capture uses the content's first line as its title:
 that line must exactly match the existing title, ignoring case. Put the update below it and leave
 `--type` unset to allow the automatic append. `--title` sets the output title; it does not choose
-an existing append target by itself. When in doubt, search first:
+an existing append target by itself, and an explicit title must also match the target for an append.
+When in doubt, search first:
 
 ```bash
 brain search "<subject>" --json
