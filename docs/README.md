@@ -65,6 +65,7 @@ the published template rather than a source checkout.
 | [audit-capability-investigation.md](audit-capability-investigation.md) | Actual audit suggestion/handler boundaries and keyless repair-capability controls. |
 | [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
 | [job-fit-investigation.md](job-fit-investigation.md) | Actual keyword scoring, private semantic fit/unknown-value controls and the unmeasured live comparison boundary. |
+| [turn-surface-routing-investigation.md](turn-surface-routing-investigation.md) | Actual tool and skill input boundaries, private scripted routing controls and the required live comparison accounting. |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
 | [mechanical-hygiene-investigation.md](mechanical-hygiene-investigation.md) | Existing hygiene capabilities, a private mechanical-repair prototype and offline runtime/write controls; actual agent savings remain unmeasured. |
 | [opportunity-lifecycle-investigation.md](opportunity-lifecycle-investigation.md) | Explicit job lifecycle events, real file/deadline controls and the remaining comparative evaluation. |
