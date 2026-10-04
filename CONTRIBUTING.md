@@ -118,6 +118,11 @@ an isolated root with seeded messages and fixture transports, and checks pixels
 without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
 unit-test discovery does not claim them.
 
+The complete dictation browser fixture has its own `dictation` project so its
+Chromium touch emulation and consumer styles stay outside the shared `visual`
+page. The default browser wrapper includes it in both shards; use
+`node scripts/visual.mjs --project=dictation` for a focused container run.
+
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run
 `bun run build` once before invoking it directly (or use
