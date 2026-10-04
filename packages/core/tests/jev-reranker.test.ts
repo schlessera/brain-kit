@@ -98,6 +98,22 @@ describe("jevReranker", () => {
     expect(ranked[0].item).toBe(cands[1]);
   });
 
+  test("nullable and omitted tags keep empty outbound text and stable ranking", async () => {
+    const { fetch, calls } = stubFetch(() => answer({ C001: 0.2, C002: 0.7, C003: 0.1 }));
+    const cands = [candidate(0, { tags: null }), candidate(1), candidate(2, { tags: undefined })];
+    const ranked = await jevReranker({ apiKeyEnv: KEY_ENV, fetch }).rerank({ query: "match", candidates: cands });
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(String(calls[0].init.body));
+    expect(body.state.candidates).toHaveLength(3);
+    expect(body.state.candidates.map((c: { tags: string }) => c.tags)).toEqual(["", "a, b", ""]);
+    expect(ranked.map(({ item, score }) => [item.id, score])).toEqual([
+      ["docs/1.md", 0.7], ["docs/0.md", 0.2], ["docs/2.md", 0.1],
+    ]);
+    for (const { item } of ranked) expect(cands).toContain(item);
+    expect(cands[0].tags).toBeNull();
+    expect(cands[2].tags).toBeUndefined();
+  });
+
   test("names the source per candidate only when the pool spans several stores", () => {
     const single = buildJevRequest(JEV_MODEL, { query: "q", candidates: [candidate(0), candidate(1)] }).body;
     expect(single.state.candidates.every((c) => !("source" in c))).toBe(true);
