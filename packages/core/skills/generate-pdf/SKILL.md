@@ -170,9 +170,10 @@ it, and a file written outside is invisible to anyone browsing the brain.
 - **To keep:** next to what it describes (`travel/{trip-slug}/`, the project
   directory) or in an exports directory.
 - **For now only** (a preview, a file to share and forget): pass `--scratch`.
-  It lands in `.brain/scratch/`, which the reader can open from a link but
-  which is never committed and is pruned after 7 days or past 1 GB. Link to the
-  path the command prints rather than guessing it.
+  It lands in `.brain/scratch/`, hidden from normal file-tree browsing. Give
+  the reader a direct chat link to the exact repo-relative output path the
+  command prints, including its leading dot, for preview or download. Scratch
+  files are never committed and are pruned after 7 days or past 1 GB.
 
 Never write to `/tmp`: the reader cannot open it, and `brain render` refuses it.
 

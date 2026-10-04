@@ -39,7 +39,8 @@ back.
 2. **Conflicted notes merge by deterministic strategies.** The strategy comes
    from what the file is, first match wins (`strategyFor`,
    `packages/core/src/lib/sync/resolve/strategy.ts:56-68`): a derived cache,
-   code or `CLAUDE.md`/`AGENTS.md`, the type's `mergeStrategy`, an
+   code or exact `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` basenames at every depth,
+   the type's `mergeStrategy`, an
    `_index.md`, a `Timeline` heading, else `synthesize`. The strategies are the
    old skill's table made exact: three-way per frontmatter field, per
    section, then per block, with every block of the output taken verbatim from
