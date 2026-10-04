@@ -15,7 +15,10 @@ import type { ButtonTone } from "../types.js";
  * and disabled is dimmed and inert. The rules themselves live in `theme.css`,
  * because a pseudo-class cannot be expressed in a React `style` object; the
  * per-tone hover values reach them as `--hv-bg` / `--hv-bd` / `--hv-fg` on this
- * element's own inline style. The design uses that indirection because its
+ * element's own inline style. Default rest paint also travels as private
+ * `--hv-rest-*` values, read by the stylesheet rather than applied inline, so
+ * hover can override it. Caller-owned paint stays inline and wins in every
+ * state. The design uses that indirection because its
  * template engine compiles a bound hole to an empty rule. React has no such
  * constraint — it is kept anyway, because it is what makes the hover palette
  * tokens like everything else instead of a second stylesheet.
@@ -174,7 +177,11 @@ export function Button(p: ButtonProps) {
     font: `600 ${fs}px/1.25 ${font.body}`,
     cursor: p.onClick ? "pointer" : "default",
     userSelect: "none",
-    ...skin,
+    ...({
+      "--hv-rest-bg": skin.background,
+      "--hv-rest-border": skin.border,
+      "--hv-rest-fg": skin.color,
+    } as CSSProperties),
     ...(HOVERS[tone] || HOVERS.primary),
     ...(disabled ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" } : null),
     ...p.style,
@@ -216,6 +223,7 @@ export function Button(p: ButtonProps) {
 
   return (
     <div
+      data-bk-button=""
       style={box}
       className={interactive ? "bk-control" : undefined}
       role={interactive ? "button" : undefined}

@@ -178,6 +178,13 @@ The following interaction rules are also covered by stories.
 `onClick` gets no role, no tab stop, no focus ring and no hover — so a static
 row never pretends to be pressable. That is an API contract, not styling.
 
+`Button` reads its default rest paint and per-tone hover palette through the
+kit stylesheet. Its `style` prop is still merged last onto the root: caller
+background, border and colour overrides remain effective during hover as well
+as at rest. Other paint channels retain their tone's hover treatment. A caller
+using `border: "none"` keeps a border-free target, including the rank footer's
+small controls and separate inset hover hairline.
+
 **Roving groups take the arrows, `Home` and `End`.** `FilterRow`, `TabBar`,
 `SideRail`, `CommandPalette`, a `ChoiceOption` radiogroup and a stack of
 `FileRow`s are one tab stop each; the arrows move inside, `Home` / `End` reach
