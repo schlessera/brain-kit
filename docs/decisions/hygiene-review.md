@@ -24,8 +24,8 @@ or a snooze reset by an unrelated edit, makes the owner's decision temporary.
 
 Reuse the existing markdown log and deterministic CLI operations. A candidate
 already carries category, path and stable evidence (`HygieneCandidate`,
-`packages/core/src/lib/hygiene.ts:42-48`), and its ID derives from those fields
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:97-100`). Those primitives do not
+`packages/core/src/lib/hygiene.ts:43-49`), and its ID derives from those fields
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:98-101`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The existing CLI exposes reconciliation and listing
 (`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:80-82`).
@@ -118,7 +118,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:801-804`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:829-832`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

@@ -682,7 +682,7 @@ async function vectorSearch(
       relevance: string;
       status: string;
       summary: string | null;
-      tags: string;
+      tags: string | null;
       updated: string;
       deadline: string | null;
       generatedFrom: string | null;

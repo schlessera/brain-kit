@@ -29,11 +29,13 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # all six projects, in the container
+ *   node scripts/visual.mjs                    # all seven kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
+ *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
+ *   node scripts/visual.mjs --browser.fileParallelism=true  # diagnostic override
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -43,7 +45,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
- * `container:` image in `.github/workflows/ci.yml`, and D10. */
+ * `container:` image in `.depot/workflows/ci.yml`, and D10. */
 const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,11 +56,17 @@ const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArgs = argv.filter((a) => a.startsWith("--project="));
 const shardArg = argv.find((a) => a.startsWith("--shard="));
+const schedulingArgs = argv.filter((a) => a.startsWith("--browser.fileParallelism"));
+if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.fileParallelism=(true|false)$/.test(a))) {
+  console.error("use --browser.fileParallelism=true or --browser.fileParallelism=false once");
+  process.exit(1);
+}
+const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -70,11 +78,12 @@ if (inside) {
   // Already in the image. Vitest is invoked through its own entry rather than
   // through a package script, because a package script would need bun.
   //
-  // One call for every project, not one per project: vitest then spreads the
-  // files of the selected projects over every core, where a project at a time left cores
-  // idle. `--shard` splits that combined file list, so no shard runs empty.
+  // Run selected projects together, with one file per browser project by default.
+  // Vitest 4's browser pools ignore the root maxWorkers control (#853); their
+  // combined CPU-based defaults overcommit startup/capture on the full matrix.
+  // `--shard` still splits the combined file list, keeping both CI shards busy.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
-  const args = ["run", ...projects.map((project) => `--project=${project}`)];
+  const args = ["run", ...projects.map((project) => `--project=${project}`), schedulingArg];
   if (update) args.push("--update");
   if (shardArg) args.push(shardArg);
   process.exit(run(process.execPath, [vitest, ...args], { cwd: resolve(REPO, KIT) }));
@@ -98,6 +107,8 @@ const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
+  // The consumer layout project needs only the in-container Vite server.
+  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",

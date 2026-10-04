@@ -123,8 +123,8 @@ describe("the arms that the two backends actually load", () => {
     expect(rule.piResult.details.block.kind).toBe("suggestions");
     const cost = suggestionSchemaCost(rule.claude.inputSchema as JsonObject);
     expect(cost.descriptionChars).toBe(336);
-    expect(cost.flatChars).toBe(808);
-    expect(cost.sharedChars).toBe(651);
+    expect(cost.flatChars).toBe(866);
+    expect(cost.sharedChars).toBe(709);
   });
 });
 

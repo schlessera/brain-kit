@@ -102,7 +102,7 @@ function packageNameOf(specifier: string): string {
 const packages = publishablePackages();
 const allNames = packages.map((p) => p.manifest.name).sort();
 
-const ciYml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+const ciYml = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
 const nodeNames = new Set(ciImportList(ciYml, "nodePackages").map(packageNameOf));
 const bunNames = new Set(ciImportList(ciYml, "bunApiPackages").map(packageNameOf));
 
@@ -146,6 +146,14 @@ function probeSource(manifest: Manifest): string {
  type ServiceHealth = Assert<Equal<Awaited<ReturnType<BrainApi["health"]>>, Health>>;
  type Sync = Assert<Equal<Awaited<ReturnType<BrainApi["brainSync"]>>, { success: boolean; message: string }>>;
 `);
+  }
+  if (manifest.name === "@schlessera/brain") {
+    lines.push(`import type { SearchResult, RerankCandidate } from "@schlessera/brain";
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type SearchTags = Assert<Equal<SearchResult["tags"], string | null>>;
+type CandidateTags = Assert<Equal<RerankCandidate["tags"], string | null | undefined>>;`);
   }
   return lines.join("\n") + "\n";
 }

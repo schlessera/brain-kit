@@ -30,8 +30,9 @@ records and settings, travels with the same image.
 Every regular file in the canonical share-staging directory is included,
 including metadata, uploaded bytes and interrupted intake's partial directories.
 Required staging references and each manifest's declared file sizes must agree.
-Missing bytes or staging symlinks refuse export. A second database/staging
-comparison refuses concurrent changes during capture. Retry a refused export;
+Missing bytes or staging symlinks refuse export. The export reader waits up to
+five seconds for a temporary SQLite lock before failing. A second
+database/staging comparison refuses concurrent changes during capture. Retry a refused export;
 it leaves the previous published backup intact. Atomic publication syncs a
 private temporary file before replacing the destination. Directory aliases
 cannot bypass protection of the source database, its sidecars or staging.

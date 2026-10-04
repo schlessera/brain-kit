@@ -24,10 +24,10 @@ or grants permission. This investigation proposes no unattended replacement.
 Keyed fact drift already executes in code. It reads configured `taxonomy.facts`,
 the source's frontmatter and regex captures; it excludes source/archived documents,
 ignores captures touching code and respects each document's `facts_ignore` keys
-(`findFactDrift`, `packages/core/src/lib/auditor.ts:388-446`). That path is not
+(`findFactDrift`, `packages/core/src/lib/auditor.ts:412-470`). That path is not
 replaced by this experiment. The existing hygiene reconciliation accepts extra
 `{category, path, evidence, message}` candidates and owns their Markdown state
-(`reconcile`, `packages/core/src/lib/hygiene.ts:704-725`).
+(`reconcile`, `packages/core/src/lib/hygiene.ts:732-753`).
 
 A separate keyless source control found that keyed numeric comparison can collapse
 two distinct quoted values beyond JavaScript's integer precision. The actual
@@ -141,7 +141,7 @@ authorization and recovery evidence.
 
 The candidate uses `category: conflict`, the secondary path and the canonical
 fact text as stable evidence, matching the existing skill. Its ID comes from
-`hygieneId` (`packages/core/src/lib/hygiene.ts:97-100`); no competing lifecycle
+`hygieneId` (`packages/core/src/lib/hygiene.ts:98-101`); no competing lifecycle
 or disposition store is created. Full-file hashes expire an in-flight snapshot,
 while an unrelated heading edit preserves freshly computed finding identity.
 A changed secondary span retains that identity but changes a separate inspection
