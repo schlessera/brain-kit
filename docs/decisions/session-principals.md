@@ -283,3 +283,16 @@ endpoint, so the shipped button (`Sign out everywhere`,
   cron.
 - **Per-request cost:** one primary-key read on local WAL SQLite, plus a
   `last_seen_at` write only when >60s stale.
+
+## Scheduled creator and approval identity — 2026-10-04
+
+The selected [scheduled-work authority](scheduled-tasks.md#approval-is-an-immutable-recurring-envelope)
+uses server-resolved creator and verified operator-approval identities. A model,
+frontmatter principal or ordinary authenticated proposal cannot mint approval.
+Occurrence admission and effectful execution recheck usable creator/approver
+authority; renewal never transfers a grant implicitly. Autonomous revocation/
+expiry denies or aborts/drains that work under the existing autonomous boundary,
+without changing the ordinary interactive queued/running distinction above.
+Attribution and principal checks remain separate from actual credential,
+filesystem and egress containment. Cron's system identity cannot stand in for
+the schedule's creator or approver.
