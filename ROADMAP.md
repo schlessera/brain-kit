@@ -19,8 +19,8 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Sixteen packages version in lockstep under `@schlessera/brain-*`. The travel module
-joins the next release; existing published packages remain independently consumable:
+Sixteen packages version in lockstep under `@schlessera/brain-*`. Published
+packages remain independently consumable:
 
 | Package | What it is |
 | --- | --- |

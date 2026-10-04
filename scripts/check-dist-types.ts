@@ -102,7 +102,7 @@ function packageNameOf(specifier: string): string {
 const packages = publishablePackages();
 const allNames = packages.map((p) => p.manifest.name).sort();
 
-const ciYml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+const ciYml = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
 const nodeNames = new Set(ciImportList(ciYml, "nodePackages").map(packageNameOf));
 const bunNames = new Set(ciImportList(ciYml, "bunApiPackages").map(packageNameOf));
 
@@ -135,6 +135,18 @@ function probeSource(manifest: Manifest): string {
     const specifier = subpath === "." ? manifest.name : manifest.name + subpath.slice(1);
     return `import * as probe${i} from "${specifier}";\nprobe${i};`;
   });
+  if (manifest.name === "@schlessera/brain-ui-react") {
+    // Check the emitted public helper, not the source selected by the bun condition.
+    // Exact keys make a restored phantom version or missing timestamp fail too.
+    lines.push(`import { createBrainApi, type BrainApi } from "@schlessera/brain-ui-react";
+ type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+ type Assert<T extends true> = T;
+ type Health = { status: string; uptime: number; timestamp: string };
+ type FactoryHealth = Assert<Equal<Awaited<ReturnType<ReturnType<typeof createBrainApi>["health"]>>, Health>>;
+ type ServiceHealth = Assert<Equal<Awaited<ReturnType<BrainApi["health"]>>, Health>>;
+ type Sync = Assert<Equal<Awaited<ReturnType<BrainApi["brainSync"]>>, { success: boolean; message: string }>>;
+`);
+  }
   return lines.join("\n") + "\n";
 }
 
