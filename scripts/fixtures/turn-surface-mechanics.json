@@ -947,7 +947,8 @@
                         },
                         "required": [
                           "label"
-                        ]
+                        ],
+                        "additionalProperties": false
                       },
                       "description": "One or two follow-ups grounded in this answer."
                     }
@@ -955,7 +956,8 @@
                   "required": [
                     "kind",
                     "items"
-                  ]
+                  ],
+                  "additionalProperties": false
                 }
               ]
             }
@@ -2219,7 +2221,7 @@
       "full API request and cache boundaries"
     ]
   },
-  "serializedInventoryBytes": 56770,
+  "serializedInventoryBytes": 56828,
   "rows": [
     {
       "arm": "baseline",
