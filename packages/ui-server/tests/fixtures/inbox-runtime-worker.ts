@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createUiDb } from "../../src/db/client.js";
 import { createInboxRuntime } from "../../src/inbox/runtime.js";
@@ -19,7 +19,9 @@ if (mode === "serve") {
     BRAIN_UI_INBOX_POKE_TOKEN_FILE: join(dirname(path!), "process.token"),
   }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch });
-  writeFileSync(ready!, JSON.stringify({ port: server.port }));
+  // The parent parses this receipt as soon as its final path exists.
+  writeFileSync(`${ready!}.partial`, JSON.stringify({ port: server.port }));
+  renameSync(`${ready!}.partial`, ready!);
   while (!existsSync(gate!)) await Bun.sleep(5);
   server.stop(true); await app.close();
   process.exit(0);

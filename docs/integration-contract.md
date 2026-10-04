@@ -429,7 +429,16 @@ policy. The rationale and measurements are in
 | `brain travel route <url\|file> --to <dir> [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
-`SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`, `tags`,
+The nullable tag declaration correction (#702) is an approved pre-1.0
+breaking minor: `SearchResult.tags` is `string | null`, and
+`RerankCandidate.tags` is optional `string | null` (other sources may omit it).
+TypeScript clients and external rerankers must handle null before using
+string methods; for text display, use `result.tags ?? ""` locally. Runtime
+CLI/MCP/HTTP values, injected reranker inputs and built-in Jev requests retain
+their existing behavior. See [provider migration](extending/rerankers.md#nullable-tags-migration).
+
+`SearchResult` fields: `path`, `title`, `type`, `snippet`, `score`,
+`tags` (comma-separated string or `null` when no tags),
 `status`, `relevance`, `updated` (`YYYY-MM-DD`), `summary` (string or
 `null`), `deadline` (`YYYY-MM-DD` or `null`; additive in 0.38.0),
 `generatedFrom` (the document's `generated_from`, string or `null`; additive in
@@ -1349,10 +1358,16 @@ drawing, as a pure function a consumer may rely on:
   says `Positions as given by the brain · the map does not check them`, and
   the OpenStreetMap credit appears once, exactly when OSM geometry is drawn.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
-is dropped rather than rejected. `show_block` is the one payload parsed with
-its **input** schema rather than a loose one: the payload is the model's own
-argument echoed back, so a field the client's schema does not know is dropped
-from the rendered block rather than kept, and the block still renders.
+is dropped rather than rejected. `show_block` payloads discard unknown fields
+from the rendered block rather than keeping them, so otherwise valid stored
+or replayed blocks still render. Its payload schema is separate from new-call
+validation: new `suggestions` calls reject unknown keys at both the block and
+item levels, including an item's unsupported `tone` (#635). Claude and pi
+advertise that restriction and reject such calls with validation errors.
+This tightens accepted input and ships as a pre-1.0 minor. Stored or replayed
+suggestions continue to discard those keys; malformed payloads still fall
+back to the generic tool view. Other block kinds keep their existing input
+and payload parsing behavior.
 
 `suggestions` (additive in 0.39.0, D50) is the one kind that is not part of
 the answer. It is follow-ups the model offers the reader, and a consumer

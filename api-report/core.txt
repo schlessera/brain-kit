@@ -287,6 +287,14 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         name: string;
         version?: string;
     }
+  ChunkMatch (packages/core/src/lib/types.ts)
+    export interface ChunkMatch {
+        path: string;
+        chunk_index: number;
+        heading: string;
+        content: string;
+        score: number;
+    }
   Community (packages/core/src/queries/types.ts)
     export interface Community {
         community: number;
@@ -424,9 +432,38 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             retryable: boolean;
         };
     };
+  RerankCandidate (packages/core/src/lib/seams.ts)
+    export interface RerankCandidate {
+        id: string;
+        source?: string;
+        title: string;
+        type?: string;
+        tags?: string | null;
+        summary?: string | null;
+        excerpt?: string;
+        attributes?: Readonly<Record<string, string | number | boolean | null>>;
+        score?: number;
+    }
   Root (packages/core/src/queries/types.ts)
     export interface Root {
         brainPath: string;
+    }
+  SearchResult (packages/core/src/lib/types.ts)
+    export interface SearchResult {
+        path: string;
+        title: string;
+        type: string;
+        relevance: string;
+        status: string;
+        summary: string | null;
+        tags: string | null;
+        updated?: string;
+        deadline?: string | null;
+        generatedFrom?: string | null;
+        supersededBy?: string;
+        score: number;
+        snippet: string;
+        chunks?: ChunkMatch[];
     }
   SkillEmitter (packages/core/src/lib/seams.ts)
     export interface SkillEmitter {

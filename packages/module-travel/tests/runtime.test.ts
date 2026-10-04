@@ -24,6 +24,50 @@ const place = "---\ntype: place\ntitle: Ithaca\nplace_kind: spot\ncoordinates: n
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });
 
 describe("real travel module and CLI", () => {
+  test("validate accepts --human for nonempty valid travel content", async () => {
+    const root = brain();
+    write(root, "travel/ithaca/itinerary.md", itinerary);
+    write(root, "trips/headland.md", trip);
+    write(root, "places/ithaca.md", place);
+    const corpus = readTravelCorpus(root);
+    expect(corpus.documents.size).toBe(3);
+    expect(corpus.issues).toEqual([]);
+    const result = await runCli(root, ["travel", "validate", "--human"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("3 travel documents valid.\n");
+    expect(result.stderr).not.toContain("brain travel —");
+    expect(readFileSync(join(root, "trips/headland.md"), "utf8")).toBe(trip);
+  });
+
+  test("migrate accepts --human for a nonempty legacy-party dry run without writes", async () => {
+    const root = brain({ [SPEAKING]: { travelParty: party }, [TRAVEL]: {} });
+    write(root, "travel/ithaca/itinerary.md", itinerary);
+    const source = readFileSync(join(root, "brain.config.json"), "utf8");
+    expect(party.length).toBeGreaterThan(0);
+    expect(JSON.parse(source).modules[SPEAKING].travelParty).toEqual(party);
+    const result = await runCli(root, ["travel", "migrate", "--dry-run", "--human"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("Would migrate travelParty in brain.config.json; content paths and bytes are unchanged.\n");
+    expect(result.stderr).not.toContain("brain travel —");
+    expect(readFileSync(join(root, "brain.config.json"), "utf8")).toBe(source);
+    expect(readFileSync(join(root, "travel/ithaca/itinerary.md"), "utf8")).toBe(itinerary);
+  });
+
+  test.each([
+    ["validate", ["validate"], "Unknown travel argument."],
+    ["migrate", ["migrate", "--dry-run"], "Unknown travel argument."],
+    ["route", ["route", "recording.gpx", "--to", "routes"], "Unknown route argument: --bogus"],
+    ["photo", ["photo", "photo.jpg", "--to", "photos"], "Unknown photo argument: --bogus"],
+  ] as const)("%s still refuses an unknown flag independently", async (_sub, args, diagnostic) => {
+    const root = brain();
+    const source = readFileSync(join(root, "brain.config.json"), "utf8");
+    const result = await runCli(root, ["travel", ...args, "--bogus"]);
+    expect(result.stderr).toContain(diagnostic);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(readFileSync(join(root, "brain.config.json"), "utf8")).toBe(source);
+  });
+
   test("travel alone and both modules load and lint without duplicate ownership", async () => {
     for (const modules of [{ [TRAVEL]: {} }, { [SPEAKING]: {}, [TRAVEL]: {} }]) {
       const root = brain(modules);
