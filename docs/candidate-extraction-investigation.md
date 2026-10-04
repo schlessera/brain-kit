@@ -213,3 +213,10 @@ Authorizing provider/account/model and total spend, supplying credential access
 without posting secrets, independently reviewing/freezing the goldens, and running
 the comparison are required before a measured per-field decision. This document
 changes no production contract; #849 remains open until that evidence exists.
+
+The executable source samples use the Odysseus world at reference date
+`2026-07-12`: assemblies, harbour work and estate roles. The future calendar
+values deliberately exercise leap days, timezone folds and conflicting editions;
+they are hypothetical validation inputs rather than additions to the canonical
+voyage chronology. A fresh keyless report supersedes the earlier draft's Alex
+Example and invented-company samples; it does not rename any live measurement.

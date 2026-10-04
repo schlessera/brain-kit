@@ -64,7 +64,7 @@ describe("private exact-span extraction controls", () => {
     const fixture = fixtures[0]; const prepared = prepare(fixture.source, fixture.domain);
     const result = await scriptedResult(prepared, authoredChoices(fixture, prepared));
     expect(resolve(prepared, result).deadline!.status).toBe("selected");
-    const changed = fixture.source.replace("Aster Forum", "Aster VOID!");
+    const changed = fixture.source.replace("Ithaca Assembly", "ITHACA Assembly");
     expect(changed).not.toBe(fixture.source);
     expect(changed.length).toBe(fixture.source.length);
     expect(resolve(prepared, result, changed).deadline).toEqual({ status: "unresolved", value: null, provenance: null, reason: "stale_or_unissued_source" });
