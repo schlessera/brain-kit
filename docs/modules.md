@@ -417,10 +417,13 @@ for canonical formats and the complete upgrade path.
   envelopes. Route import supports local/direct GPX and public Komoot pages,
   with optional distance trimming. Outdooractive requires site permission
   under #568.
-- **Migration:** install/enable travel, preview/apply migration, restart and
-  sync skills. Documents keep their paths, types, links and bytes. Conflicts
-  and ambiguous TypeScript construction are reported without writes. Existing
-  module settings JSON files require explicit review with the settings path.
+- **Migration:** install/enable travel; preview/apply the source-only command
+  when neither speaking nor travel has saved settings, otherwise use the
+  README's reviewed manual upgrade. Travel has no shared settings migration
+  planner. Restart, validate and sync skills afterward. Documents keep their
+  paths, types, links and bytes; conflicts and ambiguous source targets refuse
+  without writes. Saved JSON overrides the config block, and party arrays
+  replace in full rather than merging members.
 - **History:** visit IDs belong to their canonical journey/trip document;
   place references deduplicate that pair. Unknown dates/coordinates remain
   unknown, and counts/date bounds derive from visits rather than stored totals.
