@@ -94,6 +94,14 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
 const done = () => [...host!.querySelectorAll<HTMLButtonElement>("button")].find(el => /^(Done|Finalizing…)$/u.test(el.textContent?.trim() ?? ""))!;
 const panel = () => done().parentElement!.parentElement!;
 
+/** Entrance translation can round rect edges independently; measure the exact cap at rest. */
+async function expectSettledHeightCap(maximum: number) {
+  const sheet = panel();
+  await expect.poll(() => sheet.getAnimations().every(animation => animation.playState === "finished")).toBe(true);
+  expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity, "height cap is measured without entrance translation").toBe(true);
+  expect(sheet.getBoundingClientRect().height, "settled dictation sheet respects height cap").toBeLessThanOrEqual(maximum);
+}
+
 for (const theme of ["dark", "light"]) for (const [width, height] of [[1280, 800], [1920, 1080]]) {
   test(`dictation desktop ${width} ${theme}: bounded above composer with an 8px gap`, async () => {
     const { frame, listen } = await mount(width, height, theme);
@@ -104,7 +112,7 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[1280, 800
     expect(rect.width).toBeLessThanOrEqual(768);
     expect(rect.bottom, "panel sits 8px above the composer").toBeCloseTo(anchor.top - 8, 1);
     expect(rect.height, "no viewport-fraction floor").toBeLessThan(height * 0.4);
-    expect(rect.height).toBeLessThanOrEqual(Math.min(height * 0.6, 512));
+    await expectSettledHeightCap(Math.min(height * 0.6, 512));
     const transcript = panel().querySelector<HTMLElement>("[data-dictation-transcript]")!;
     const css = getComputedStyle(transcript);
     const paragraph = transcript.querySelector("p")!;
@@ -177,7 +185,7 @@ for (const theme of ["dark", "light"]) {
     const rect = panel().getBoundingClientRect();
     expect(rect.width).toBe(320);
     expect(rect.height).toBeGreaterThanOrEqual(320);
-    expect(rect.height).toBeLessThanOrEqual(480);
+    await expectSettledHeightCap(480);
     const css = getComputedStyle(panel());
     expect(css.position).toBe("fixed");
     expect(css.animationName, "phone entrance is supplied by shipped CSS").not.toBe("none");
@@ -279,12 +287,29 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
   });
 }
 
+test("dictation cap waits for translated entrance before exact rendered measurement", async () => {
+  await commands.dictationMotion("no-preference");
+  const { listen } = await mount(320, 800);
+  await listen("Odysseus remembers the harbour. ".repeat(200));
+  expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
+  const sheet = panel();
+  const animation = sheet.getAnimations()[0];
+  expect(animation).toBeDefined();
+  animation.pause();
+  // Replay the translating frame measured in #973's pinned Chromium diagnosis.
+  animation.currentTime = 99.98599999342117;
+  expect(getComputedStyle(sheet).height).toBe("480px");
+  expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity).toBe(false);
+  animation.play();
+  await expectSettledHeightCap(480);
+});
+
 for (const [width, height] of [[320, 800], [1280, 600], [1920, 1080]]) {
   test(`dictation long transcript ${width}: capped, internally scrolled to newest words`, async () => {
     const { client, listen } = await mount(width, height);
     await listen("Odysseus remembers the harbour. ".repeat(200));
     expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
-    expect(panel().getBoundingClientRect().height).toBeLessThanOrEqual(width < 900 ? height * 0.6 : Math.min(height * 0.6, 512));
+    await expectSettledHeightCap(width < 900 ? height * 0.6 : Math.min(height * 0.6, 512));
     await expect.poll(() => transcript().scrollHeight - transcript().scrollTop - transcript().clientHeight).toBeLessThanOrEqual(1);
     transcript().scrollTop = 0;
     flushSync(() => client.options.onEvent({ type: "partial", text: "Newest words at the end" }));
