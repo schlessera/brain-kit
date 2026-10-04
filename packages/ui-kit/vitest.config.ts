@@ -88,7 +88,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles },
+              commands: { formViewport, formConsumerStyles, rankFooterFonts },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "chromium" }],
