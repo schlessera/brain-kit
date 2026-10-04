@@ -58,13 +58,13 @@ test("the default browser wrapper includes isolated dictation in each sharded in
     expect(argv, "the default matrix cannot silently omit 65 incumbent dictation cases").toEqual([
       "run", "--project=storybook", "--project=storybook-light", "--project=visual",
       "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation",
-      "--update", `--shard=${shard}`,
+      "--browser.fileParallelism=false", "--update", `--shard=${shard}`,
     ]);
   }
 });
 
 test("a scoped dictation wrapper invocation retains its project and shard", async () => {
   expect(await wrapper("--project=dictation", "--shard=2/2")).toEqual([
-    "run", "--project=dictation", "--shard=2/2",
+    "run", "--project=dictation", "--browser.fileParallelism=false", "--shard=2/2",
   ]);
 });
