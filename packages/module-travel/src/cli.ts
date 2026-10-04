@@ -84,7 +84,7 @@ const command: CommandModule<TravelConfig> = {
     }
     if (sub === "route") return (await import("./route.js")).runRoute(args.slice(1), ctx.root, ctx.json);
     if (sub !== "validate" && sub !== "migrate") { console.error(HELP); return 1; }
-    if (args.slice(1).some((arg) => arg !== "--json" && !(sub === "migrate" && arg === "--dry-run"))) {
+    if (args.slice(1).some((arg) => arg !== "--json" && arg !== "--human" && !(sub === "migrate" && arg === "--dry-run"))) {
       console.error(`Unknown travel argument.\n${HELP}`); return 1;
     }
     if (sub === "validate") {

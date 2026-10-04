@@ -19,7 +19,7 @@ export interface RerankCandidate {
   source?: string;       // "brain", "calendar", … — source + id is the identity
   title: string;
   type?: string;
-  tags?: string;
+  tags?: string | null;
   summary?: string | null;
   excerpt?: string;      // the passage the retriever matched
   attributes?: Readonly<Record<string, string | number | boolean | null>>;
@@ -69,6 +69,21 @@ The contract, in order of what matters:
 
 The contract suite is `runRerankerContract` in `@schlessera/brain/testing`;
 `packages/core/tests/seam-contracts.test.ts` runs the built-in through it.
+
+## Nullable tags migration
+
+The approved pre-1.0 breaking minor in #702 corrects the public declaration:
+brain candidates have a comma-separated tag string or `null` when untagged.
+Candidates from other sources may still omit `tags`. External providers must
+handle both absence and null before string operations, for example
+`const tags = candidate.tags ?? ""` when building text. Keep the candidate
+object itself unchanged when returning it by reference.
+
+`SearchResult.tags` likewise declares `string | null`; module and library
+consumers can use `result.tags ?? ""` for local display text. This changes
+TypeScript checking, while existing retrieval JSON and reranker inputs stay
+the same. The built-in Jev provider already clips absent/null tags to empty
+outbound text, so its request values and ranking are unchanged.
 
 ## Built-ins
 

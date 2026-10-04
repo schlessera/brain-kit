@@ -67,6 +67,18 @@ describe("real route CLI", () => {
       expect(result.requests).toHaveLength(0); expect(existsSync(join(root, "routes"))).toBe(false);
     }
   });
+  test("route accepts --human and imports a nonempty recording with human metrics", async () => {
+    const root = brain();
+    expect(parseGpx(fixture).segments[0]).toHaveLength(4);
+    const result = await runCli(root, ["travel", "route", "recordings/odysseus.gpx", "--to", "routes", "--human"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("routes/odysseus.gpx: 0.333585 km, ascent 20 m, one_way.\n");
+    expect(result.stderr).not.toContain("brain travel —");
+    const written = parseGpx(readFileSync(join(root, "routes/odysseus.gpx"), "utf8"));
+    expect(written.segments[0]).toHaveLength(4);
+    expect(readFileSync(join(root, "recordings/odysseus.gpx"), "utf8")).toBe(fixture);
+  });
+
   test("imports a local recording and reports metrics of the written GPX", async () => {
     const root = brain();
     const result = await runCli(root, ["travel", "route", "recordings/odysseus.gpx", "--to", "routes", "--json"]);

@@ -29,8 +29,9 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # all six projects, in the container
+ *   node scripts/visual.mjs                    # all seven kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
+ *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
@@ -43,7 +44,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
- * `container:` image in `.github/workflows/ci.yml`, and D10. */
+ * `container:` image in `.depot/workflows/ci.yml`, and D10. */
 const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,7 +59,7 @@ const shardArg = argv.find((a) => a.startsWith("--shard="));
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -98,6 +99,8 @@ const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
+  // The consumer layout project needs only the in-container Vite server.
+  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",

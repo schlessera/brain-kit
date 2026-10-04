@@ -186,7 +186,7 @@ describe("show_block", () => {
     ]);
   });
 
-  test("the payload is the input: a valid block round-trips, a wrong one is null", () => {
+  test("a valid block round-trips as a payload, a wrong one is null", () => {
     const block = {
       kind: "comparison" as const,
       columns: [{ label: "Ithaca", recommended: true }, { label: "Pylos" }],
