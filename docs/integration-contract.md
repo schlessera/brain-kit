@@ -1,8 +1,11 @@
 # brain-kit Integration Contract
 
-The machine-readable surface other systems (primarily **brain-ui**) may depend
-on. Anything NOT listed here is an internal implementation detail and can
-change without notice. Contract changes require a `CONTRACT:` commit prefix and a
+The machine-readable surface and deliberately supported user inputs other
+systems and brain owners may depend on. The [supported-input policy](supported-inputs.md)
+includes brain configuration, documented environment inputs, per-module JSON
+settings and canonical module content, with field references delegated to their
+owners. Internal implementation details outside these listed or delegated
+promises may change without notice. Contract changes require a `CONTRACT:` commit prefix and a
 same-commit update of this file. How they are versioned:
 
 - **Additive** — a new field, a new optional input, a new tool, a
@@ -244,7 +247,8 @@ The [decision](decisions/travel-module.md) explains the boundary.
 **Additive CLI contract (#567):** `brain travel photo <files> --to <dir> --json`
 returns `{photo: {files, errors}}`. Each file has `source: string`,
 `output: string`, `width: number`, `height: number`, `bytes: number`,
-`captured_at: string | null`, and `location: {lat: number, lon: number} | null`.
+`captured_at: string | null`, `location: {lat: number, lon: number} | null`, and
+`date_source: "exif" | "flag" | "none"`.
 `source` is the unchanged input argument; `output` is a root-relative path with
 forward slashes. Dimensions and byte length describe the completed JPEG.
 Each error has `{source: string, message: string}`; messages are prose.
@@ -266,6 +270,24 @@ GPS, XMP, ICC, IPTC and comments are removed. Unsupported raster codecs,
 vector documents and animated/multi-page images produce input errors.
 
 Names use the source basename with `.jpg`, then `-2.jpg`, `-3.jpg`, etc.
+With `--name <descriptor>`, use `<date>-<slug>.jpg`: the validated EXIF
+camera calendar date wins over `--date YYYY-MM-DD`, then a valid flag supplies
+the date, otherwise use `undated`. Photo-only `--force-date` makes a valid
+`--date` win. Original `captured_at` remains unchanged. `date_source` describes
+only the date applied to the requested name: `exif`, `flag`, or `none` for
+`undated`; without `--name`, it is always `none` and valid date flags do not
+rename anything. Never shift the camera date through UTC or the host timezone.
+
+Photo and route descriptor slugs normalize the complete descriptor to NFKD,
+remove Unicode combining marks, lowercase, replace runs outside ASCII
+`[a-z0-9_-]` with `-`, and trim edge hyphens. This folds accents without full
+transliteration or stripping extensions: `Café in Ithaca` → `cafe-in-ithaca`,
+`Straße` → `stra-e`, and `Plan.v2` → `plan-v2`; Greek-only and punctuation-only
+descriptors are refused if the result is empty. All supplied date flags must
+be real `YYYY-MM-DD` calendar dates (years 0001–9999). Invalid dates, empty
+slugs and photo `--force-date` without a valid `--date` refuse before creating
+outputs, even without `--name`.
+
 Exclusive publication of completed bytes preserves every existing destination,
 including a source already in the output directory. Hard-link support is
 required. Temporary cleanup failure after publication does not misreport a
@@ -425,8 +447,8 @@ policy. The rationale and measurements are in
 | `brain hygiene list [--state open\|snoozed\|resolved] --json` | `{ "entries": [{ "id", "state": "open"\|"snoozed"\|"resolved", "path", "issue", "firstSeen", "lastSeen", "until", "resolvedBy", "resolvedOn" }] }`, the log as the files hold it; a field the entry does not carry is `null` (additive in 0.38.0) |
 | `brain travel validate --json` | `{ "validation": { "valid": boolean, "files": number, "issues": [{ "file", "level": "error", "message" }] } }` — read-only canonical format, reference and asset checks. `files` counts successfully parsed travel/trip/place documents. Exit `0` when valid, `1` on domain errors. File paths are root-relative; messages are prose |
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
-| `brain travel photo <files> --to <dir> --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null }], "errors": [{ "source", "message" }] } }` — [photo contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
-| `brain travel route <url\|file> --to <dir> [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
+| `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null, "date_source": "exif" \| "flag" \| "none" }], "errors": [{ "source", "message" }] } }` — [photo and naming contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
+| `brain travel route <url\|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "date_source": "flag" \| "none", "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — With `--name`, the stem is `[<date>-]<slug(label)>`; dates come only from a valid flag, never GPX timestamps. `date_source` is `flag` only when that date is applied to a requested name, otherwise `none`. Without `--name`, legacy names stay unchanged. Naming validation follows the [photo rules](#travel-photo-copies). `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 The nullable tag declaration correction (#702) is an approved pre-1.0
@@ -3307,3 +3329,546 @@ still receives no track summary. See the [GPX schema](https://www.topografix.com
 [KML reference](https://developers.google.com/kml/documentation/kmlreference) and
 [GeoJSON RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946) for source formats;
 the supported subset and recovery policy above govern this import contract.
+
+## Pi native endpoint routing (breaking routing migration, #762)
+
+Explicitly declared built-in pi provider/model profiles are validated against
+the supported catalog, then resolved from the same configured native
+`ModelRuntime` used for inference. New ordinary/autonomous turns honor native
+`models.json` endpoint configuration. Ordinary persisted resumes use that runtime
+without overriding their saved model and still refuse native model fallback.
+The brain's transcript directory is independent of native agent-directory
+model/auth/cache discovery. No new profile endpoint field, schema, custom-model
+discovery or provider seam is introduced.
+
+On every inference request, a native authentication-supplied endpoint wins;
+otherwise the configured model endpoint is used. A configured proxy is
+conditional on native authentication not supplying an endpoint. A differing
+native auth endpoint alone is not a configuration refusal. The backend neither
+forces native credentials to a configured URL nor duplicates credential
+discovery/refresh, subscription/account routing or billing ownership. Native
+refresh may contact authentication servers. Selected provider/model identities
+and declared picker profiles stay fixed. A resident session retains its runtime;
+no hot-reload promise for `models.json` is added.
+
+This newly honored routing replaces previously ignored endpoint configuration
+for new sessions. Review native model/auth configuration when adopting the
+change. The [2026-10-03 endpoint policy](decisions/pi-endpoint-routing.md) records
+the prior maintainer ruling and approved migration: `contract`/`breaking`, a
+`CONTRACT:` commit and same-commit backend/contract guidance plus a named minor
+changeset before 1.0 (major from 1.0). No dependency change or release date is
+selected. Autonomous nonpersistence, exact tool authority, loaded-runtime
+compatibility and the containment/dispatch gates remain binding; endpoint
+support does not enable autonomous execution.
+
+## Scheduled-task contract preparation (#913)
+
+**Selected design, not an available machine surface.** The [scheduled-tasks
+record](decisions/scheduled-tasks.md) supplies the six approved policies and this
+bounded specification for #914–#917. No listed command, route, tool, field,
+permission grant or dispatch is implemented by this documentation change.
+Consumers must not infer availability from these examples. Implementation adds
+its actual schemas/exports/routes/receipts, compatibility tests and minor
+changesets in `CONTRACT:` commits; #689 still gates production execution.
+Existing contract shapes above are unchanged.
+
+### Shared definition and response types
+
+All new request/nested objects are strict: reject unknown fields, duplicate
+JSON/YAML keys, nonfinite numbers, invalid UTF-8 and NUL. Decoded control
+characters are rejected in IDs, paths, origins, names, operation and cursor;
+textual prompt/tool-input values may contain LF/TAB. IDs and keys match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`;
+IDs are host-minted and keys are caller-chosen per authenticated principal/root/
+operation. Date values are valid offset/Z ISO instants, normalized to UTC `Z`;
+responses use integer milliseconds for durations such as `attemptTimeoutMs`
+and integer counts for counters, not interchangeable date/string values.
+
+The JSON request definition is exactly:
+
+```ts
+type ScheduleDefinitionInput = {
+  prompt: string;
+  when: { kind: "at"; at: string; timeZone?: string }
+      | { kind: "cron"; cron: string; timeZone?: string; endAt?: string | null };
+  scope: {
+    operation: string;
+    tools: { name: string; inputs: JsonObject }[];
+    targets: string[];
+    egress: string[];
+    variableInputs: {
+      pointer: string;
+      bound: { kind: "enum"; values: JsonScalar[] }
+          | { kind: "string"; maxBytes: number }
+          | { kind: "number"; min: number; max: number };
+    }[];
+  };
+  limits?: { attemptTimeoutMs: number; maxOperations: number };
+  notifyOnSuccess?: boolean;
+};
+```
+
+`JsonScalar` is null/boolean/string/finite number; `JsonObject` is bounded JSON
+with no prototype/authority fields and recursively validated against the selected
+registered tool's actual input schema. Max JSON nesting is 8, arrays 32 members,
+objects 32 own keys. Scope is at most 8 KiB serialized; prompt is nonempty after
+whitespace validation and at most 16 KiB UTF-8. Preserve its approved text.
+Operation is nonempty, at most 256 UTF-8 bytes. At most 16 tools, 32 exact
+brain-relative target paths (256 bytes each), 16 exact normalized tool-egress
+origins (256 bytes each), and 32 variable leaves are allowed. No command/template
+interpolation or arbitrary executable schemas. A variable pointer names an
+existing tool-input leaf; enum contains 1–32 bounded scalars, strings have a
+positive maxBytes <= 16384, numeric min/max are finite and ordered. It cannot
+change tool names, target paths, egress, timing, limits, actor or authority.
+All undeclared leaves retain exact approved values. Reject duplicates and
+unregistered/unsupported inputs; string bounds do not bypass tool validation.
+
+`when` is an exclusive union, with the validated/resolved IANA zone persisted
+on both forms. CLI can supply a validated client zone explicitly; the bridge
+obtains its fallback zone from verified turn `ClientEnvironment`, never model
+text. If neither is usable, disclose UTC. An explicit invalid zone is an error.
+Optional recurring endAt is a future offset/Z instant at first publication;
+omission materializes to null. It is an immutable scheduling window, not a
+live-attempt stop: at now >= endAt invalidate future/unstarted work and stale
+continuations, report configuration expired, and retain a started attempt under
+its original authority/deadline/freshness. Due eligibility also requires
+evaluatedAt < endAt when set. Cron is <= 128 bytes and follows the record's five-field numeric grammar,
+including Sunday 0/7 and bounded lists/ranges/positive star/range steps. If either
+day field begins with `*`, both day predicates must match, including its step;
+otherwise either may match. Reject extra fields, impossible calendars and
+unsupported extensions.
+First creation requires a future offset/Z one-off. A matched recorded retry
+returns its original receipt even after that date passes.
+
+Missing limits materialize to `{attemptTimeoutMs:600000,maxOperations:3}`;
+provided values are positive safe integers with timeout <= 600000 and
+maxOperations <= 3. Missing notifyOnSuccess materializes to false. These values
+are reviewed and immutable. They grant neither budget capacity nor execution.
+Definition files have exactly `schedule_schema:1`, host `id`, materialized `when`,
+`scope`, `limits`, `notifyOnSuccess` as frontmatter and `prompt` as the body.
+Max file size is 32 KiB; the canonical fingerprint covers all materialized fields,
+exact prompt, host root/creator and the approved host-selected execution policy.
+The file carries no actor/approval/runtime/control-state authority. Task definition
+is the retained approved snapshot, not a claim that a drifted raw file is approved;
+definition_drift/missing-file status quarantines it without silently rewriting it.
+
+`executionPolicy` is server-owned `{backendId:string, profileId:string|null,
+inferenceOrigins:string[]}` (each ID <= 128 bytes, at most 16 normalized origins).
+Operator review sees it alongside scope; callers cannot select its fields, prices,
+billing identity or emergency reserve. Runtime/profile changes cannot widen the
+approved tool/input/target/audience bounds. Current backend availability,
+conservative billing evidence and daily admission still apply.
+
+```ts
+type ScheduleDefinition = Omit<ScheduleDefinitionInput, "when" | "limits" | "notifyOnSuccess"> & {
+  when: { kind: "at"; at: string; timeZone: string }
+      | { kind: "cron"; cron: string; timeZone: string; endAt: string | null };
+  limits: { attemptTimeoutMs: number; maxOperations: number };
+  notifyOnSuccess: boolean;
+};
+type OccurrenceState = "queued" | "running" | "unwinding" | "waiting_for_action"
+  | "retrying" | "completed" | "failed" | "cancelled" | "expired" | "unknown";
+type ScheduleResult = { state: "available" | "pruned" | "unavailable";
+  text: string | null }; // UTF-8 text <= 4096 bytes; available implies text != null
+// pruned/unavailable require text == null; a reference is not result availability.
+type ScheduleOccurrence = { id: string; taskId: string; dueAt: string;
+  expiresAt: string; state: OccurrenceState; operationsUsed: number;
+  maxOperations: number; runIds: string[]; result: ScheduleResult };
+type BlockedReason = "dispatch_disabled" | "budget_disabled" | "capacity"
+  | "authority_unusable" | "definition_drift" | "backend_unavailable"
+  | "unknown_effect" | "occurrence_limit" | "restore_pending";
+type ScheduleTask = { id: string; definition: ScheduleDefinition;
+  creatorPrincipalId: string; createdAt: string;
+  zoneSource: "explicit" | "client" | "utc_fallback";
+  state: "publishing" | "active" | "paused" | "cancelled" | "completed" | "failed" | "expired";
+  executionAvailable: boolean; blockedReason: BlockedReason | null;
+  nextDueAt: string | null; lastOccurrence: ScheduleOccurrence | null;
+  compensationPending: boolean };
+type DueCandidate = { taskId: string; occurrenceId: string; dueAt: string;
+  expiresAt: string; admittable: boolean; blockedReason: BlockedReason | null };
+```
+
+Returned `definition` includes all defaults/resolved zone, not optional omissions.
+Host-owned zoneSource reports the original resolution, including disclosed UTC fallback.
+A `publishing` task cannot dispatch. `active` describes a valid enabled definition,
+not successful/available execution. `paused` includes unknown-effect/drift refusal;
+completed/failed/expired are terminal one-off states; expired also records an
+ended recurring configuration without inventing a successful occurrence. Recurring occurrence failure does
+not erase future configuration; unknown effects pause it. Cancelled tombstones
+remain inspectable. `nextDueAt` is null when no future occurrence is eligible;
+`lastOccurrence` is null before an actual durable occurrence. `operationsUsed`
+is an integer 0..maxOperations and runIds contains at most three real attempt IDs;
+unstarted scheduling facts do not fabricate Activity roots. Only running/unwinding
+states describe a started attempt. Request keys, task IDs, original-due occurrence
+IDs, Queue item IDs and run IDs remain distinct.
+
+Due candidates are read-only computed eligibility at `evaluatedAt`, not claims,
+persisted occurrences or a promise of execution. The same unconsumed candidate
+can recur in successive queries. One outstanding occurrence suppresses a new
+candidate; otherwise choose the latest unconsumed due instant with
+`dueAt <= evaluatedAt < expiresAt` (expiresAt = dueAt + 24h). Authority/budget/
+backend/restore refusal is visible in admittable/blockedReason. Querying due
+never advances the scheduler cursor, changes counters or creates model work.
+
+List/due requests accept limit (default 25, integer 1..100) and optional opaque
+cursor <= 1024 bytes. List supports only state (one Task state) and id (exact task
+ID); due supports only the paging inputs. Responses are bounded to 512 KiB; a
+page may stop before its requested limit to respect that byte cap, with a cursor
+that advances past the last returned row. One entry must fit; never return an
+unchanged cursor/empty page that cannot progress. Stable ordering is createdAt/id
+for list, dueAt/taskId for due. Host-signed cursors bind root, authorized actor,
+operation/filters, initial creation cutoff/evaluatedAt and last ordering tuple,
+with 15-minute expiry. Invalid/mismatched cursors fail; no client SQL/offset.
+State/authority may change between pages and must be revalidated for mutations;
+pagination does not promise a frozen operational snapshot.
+
+Exact response field types are:
+
+```ts
+type AddScheduleResult = { ok: true; created: boolean; task: ScheduleTask };
+type ListSchedulesResult = { ok: true; tasks: ScheduleTask[]; nextCursor: string | null };
+type CancelScheduleResult = { ok: true; changed: boolean; task: ScheduleTask;
+  runningOccurrences: ScheduleOccurrence[] }; // at most one started occurrence
+type DueSchedulesResult = { ok: true; due: DueCandidate[]; evaluatedAt: string;
+  nextCursor: string | null };
+type StopOccurrenceResult = { ok: true; requested: boolean; occurrence: ScheduleOccurrence };
+```
+
+Proposal success is `{ok:true,proposal:ScheduleProposal}` (the exact fields/types
+specified below, including materialized ScheduleDefinition); approval success is `{ok:true,approvalId:string}`. All success
+booleans above are literal/boolean as shown; no additional opaque transport
+wrapper. runningOccurrences contains only actually started running/unwinding
+work, even if the task is now cancelled.
+
+### Approval, endpoints and receipts
+
+Creation has proposal, verified review and publication stages in the same host.
+A proposal stores no authoritative definition and enables no execution. Proposed
+supported HTTP endpoints are all mounted behind normal auth/root/principal checks:
+
+| Method/path | Exact input | Exact success |
+| --- | --- | --- |
+| POST /api/schedules/proposals | `{key, definition}` | `{ok:true,proposal}`; 201 new, 200 matched replay. |
+| POST /api/schedules/proposals/:id/approve | `{fingerprint,decision:"approve"}` | `{ok:true,approvalId}`; 200. |
+| POST /api/schedules | `{proposalId,approvalId}` | `{ok:true,created,task}`; 201 new, 200 matched replay. |
+| GET /api/schedules | list paging/filter query | `{ok:true,tasks,nextCursor}`; 200. |
+| POST /api/schedules/:id/cancel | `{key}` | `{ok:true,changed,task,runningOccurrences}`; 200. |
+| GET /api/schedules/due | due paging query | `{ok:true,due,evaluatedAt,nextCursor}`; 200. |
+| POST /api/schedules/occurrences/:id/stop | `{key}` | `{ok:true,requested,occurrence}`; 200. |
+
+`proposal` is exactly `{id,taskId,key,definition,zoneSource,executionPolicy,fingerprint,expiresAt,
+approvalState}`; fingerprint is 64 lowercase hex, expiry is 15 minutes from initial
+proposal, approvalState is pending/approved. Proposal id and its reserved future taskId are
+distinct host-minted IDs; neither is execution. The fingerprint
+uses the materialized stored definition `{schedule_schema:1,id:taskId,prompt,when,
+scope,limits,notifyOnSuccess}`, rootIdentity, creatorPrincipalId and executionPolicy. Canonical inputs/key are bound to the
+authenticated creator/root before approval. Matched retries return the original
+resolved definition/zone/expiry; changed payload conflicts. Expired unconsumed
+proposals require a new request/approval, without reviving a retired task.
+
+Only a verified operator decision may create approvalId: normal auth alone,
+agent credentials, a fingerprint, or an "approved" payload is insufficient.
+The approve route enforces the existing server-resolved operator authority
+(owner-kind for principal-cookie mode, the configured operator in ambient modes),
+checks current proposal/creator, and records actor/channel/time and the immutable
+fingerprint/nonce. Bridge requests obtain this record through the trusted host
+permission/Action path, not a model-visible approve tool. CLI explicit review
+uses its operator credential and confirmed exact fingerprint; a delegated
+credential can propose/query but cannot self-approve. Stored receipt/provenance,
+not a claimed input channel or User-Agent, decides eligibility. Unavailable
+operator provenance refuses approval honestly.
+
+approvalId is opaque (ID bounds above), linked to that exact proposal/root/creator/
+operator/fingerprint, expires with an unconsumed proposal and is consumed once
+by publication. The host rechecks current actor authority and matching definition/
+execution policy before publishing, including first-publication future one-off
+and recurring endAt validation.
+Concurrent uses return the one original
+receipt or conflict; no broad reusable grant. No prompt/actor/profile/trust/billing
+field is accepted on publish/cancel/stop. Replay reads the original publication
+receipt before consumed-token/past-date checks, still under current authentication.
+It returns the task's current retained state; never recreates a cancelled file,
+resets counters or transfers creator authority to a replacement credential.
+
+Cancel keys bind exact task/action within caller/root. Repeated matching cancel
+returns changed:false and current retained task/runningOccurrences; a changed
+payload conflicts. Cancellation atomically invalidates future/unstarted work
+and stale Action continuations, journals retirement and keeps receipts. Started
+attempts retain their approved snapshot and current authority/expiry limits; an
+authorized move of unchanged definition bytes is not drift or a running stop. It
+returns started running/unwinding occurrences honestly, not "agent stopped".
+Stop keys separately bind an occurrence/action; requested means cancellation
+requested, not backend drained or prior effects undone. Query until terminal;
+release only after actual unwind. Pending future cancellation is independent.
+
+### CLI and tool mapping
+
+Prepared core syntax (all use explicit --server, optional --credential-file and
+--json; argument flags are strict):
+
+```text
+brain schedule add --key KEY --prompt TEXT (--at ISO|--cron EXPR)
+  [--time-zone ZONE] [--client-time-zone ZONE] [--end-at ISO] --scope-file FILE
+  [--attempt-timeout-ms N] [--max-operations N] [--notify-success] [--approve]
+brain schedule list [--id ID] [--state STATE] [--limit N] [--cursor CURSOR]
+brain schedule cancel ID --key KEY
+brain schedule due [--limit N] [--cursor CURSOR]
+```
+
+--end-at is accepted only with --cron. scope-file contains the strict scope object, at most 8 KiB, is a regular
+non-symlink file and grants nothing. CLI add submits a proposal; --approve displays
+the entire materialized envelope/execution policy/fingerprint and requires explicit
+operator confirmation before the authenticated approval request. No TTY/affirmative
+operator confirmation means no automatic grant. A pre-approved matching proposal
+can publish on a later add retry without --approve; pending proposals return
+approval_required with the bounded proposal ID in the message, allowing the
+operator to identify its stored review; no approval secret is exposed. A terminal prompt does not replace the host's operator checks.
+JSON successful add is `{ok:true,created:boolean,task:ScheduleTask}`; list/cancel/
+due use the exact endpoint envelopes. Creation is not execution.
+
+Credential audience/private-file/no-redirect/10-second request rules follow
+[queue intake](#durable-share-and-cli-intake-additive-679), with a 512 KiB response
+bound for these new schedule responses. No provider key, ambient cookie variable,
+raw DB, local runner or offline-activation fallback. A store-capable host may
+accept an approved future schedule while reporting executionAvailable:false;
+an unavailable store/unsupported approval cannot falsely return created success.
+
+The three future tools are `mcp__brain-ui__schedule_task`,
+`mcp__brain-ui__list_scheduled_tasks`, `mcp__brain-ui__cancel_scheduled_task`.
+Both actual backend registrations share strict SDK schemas and eager attached
+executors. schedule_task input is `{key,definition}`; the host supplies fallback
+client zone, proposal/approval identity and verified creator. The model cannot
+supply approvalId, actor, executionPolicy, profile, trust, billing or wider granted
+membership. Description: write a self-contained future prompt; propose exact
+bounded scope; creation needs operator approval and does not execute work.
+list_scheduled_tasks takes only the list query inputs and is read class;
+cancel_scheduled_task takes `{id,key}` and is confirm class, reporting future-only
+cancellation and actual runningOccurrences. schedule_task is confirm class and
+not auto-allowed in voice or no-grant/unattended membership. CLI/tool/PWA mutation
+responses observe the same authoritative records; tool results/errors and model
+text never become approval. The PWA consumes list/cancel/detail data and the
+separate authenticated stop where supported, within its reviewed design.
+
+Shared errors are `{ok:false,error:{code:string,message:string}}`, with bounded
+message <= 1024 bytes and no credential/prompt/tool/SQL echo. Closed codes:
+invalid_request (400), invalid_cursor (400), credential_file_invalid (CLI only),
+unauthorized (401/403), not_found (404), key_conflict (409), approval_required (409),
+approval_expired (409), definition_conflict (409), server_unavailable (503 or CLI
+transport), invalid_response (CLI/schema), unsupported_capability (503).
+No undocumented success-shaped error. Query success, including empty due and
+inspection of a failed/pruned outcome, exits 0. Validation/auth/conflict/not-found
+exits 1. Unavailable/unsupported/invalid response/timeout/redirect/5xx exits 2.
+JSON argument errors use invalid_request/exit 1, not an absent envelope. Retry
+writes with the original key, never a new key after an ambiguous response.
+
+Complete fictional examples use the pinned Odysseus reference date, 2026-07-12. They
+are interface examples, not actual CLI/host receipts. The CLI obtains one stored
+proposal, explicit operator review, then publication through the routes above:
+
+```text
+brain schedule add --server https://scheduler.example --credential-file ./operator.json
+  --key ithaca-review-01 --prompt "Read notes/ithaca.md and report outstanding checks. Do not change files or use network tools."
+  --cron "0 7 * * 1-5" --time-zone Europe/Athens --scope-file ./scope.json --approve --json
+```
+
+The scope file is exactly the scope in this complete add response. JSON mode
+keeps review/confirmation on the terminal/stderr and emits one result on stdout.
+The corresponding schedule_task input is `{key:"ithaca-review-01",definition}`
+with this complete definition; approval/proposal IDs are obtained by the host,
+not supplied by the model. Successful creation still reports disabled execution:
+
+```json
+{
+  "ok": true,
+  "created": true,
+  "task": {
+    "id": "task_ithaca_review",
+    "definition": {
+      "prompt": "Read notes/ithaca.md and report outstanding checks. Do not change files or use network tools.",
+      "when": {
+        "kind": "cron",
+        "cron": "0 7 * * 1-5",
+        "timeZone": "Europe/Athens",
+        "endAt": null
+      },
+      "scope": {
+        "operation": "Report outstanding Ithaca checks",
+        "tools": [
+          {
+            "name": "brain_read",
+            "inputs": {
+              "path": "notes/ithaca.md"
+            }
+          }
+        ],
+        "targets": [
+          "notes/ithaca.md"
+        ],
+        "egress": [],
+        "variableInputs": []
+      },
+      "limits": {
+        "attemptTimeoutMs": 600000,
+        "maxOperations": 3
+      },
+      "notifyOnSuccess": false
+    },
+    "creatorPrincipalId": "principal_example_operator",
+    "createdAt": "2026-07-12T06:00:00.000Z",
+    "state": "active",
+    "executionAvailable": false,
+    "blockedReason": "dispatch_disabled",
+    "nextDueAt": "2026-07-13T04:00:00.000Z",
+    "lastOccurrence": null,
+    "compensationPending": false,
+    "zoneSource": "explicit"
+  }
+}
+```
+
+A subsequent list reads the same record:
+
+```json
+{
+  "ok": true,
+  "tasks": [
+    {
+      "id": "task_ithaca_review",
+      "definition": {
+        "prompt": "Read notes/ithaca.md and report outstanding checks. Do not change files or use network tools.",
+        "when": {
+          "kind": "cron",
+          "cron": "0 7 * * 1-5",
+          "timeZone": "Europe/Athens",
+          "endAt": null
+        },
+        "scope": {
+          "operation": "Report outstanding Ithaca checks",
+          "tools": [
+            {
+              "name": "brain_read",
+              "inputs": {
+                "path": "notes/ithaca.md"
+              }
+            }
+          ],
+          "targets": [
+            "notes/ithaca.md"
+          ],
+          "egress": [],
+          "variableInputs": []
+        },
+        "limits": {
+          "attemptTimeoutMs": 600000,
+          "maxOperations": 3
+        },
+        "notifyOnSuccess": false
+      },
+      "creatorPrincipalId": "principal_example_operator",
+      "createdAt": "2026-07-12T06:00:00.000Z",
+      "state": "active",
+      "executionAvailable": false,
+      "blockedReason": "dispatch_disabled",
+      "nextDueAt": "2026-07-13T04:00:00.000Z",
+      "lastOccurrence": null,
+      "compensationPending": false,
+      "zoneSource": "explicit"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Cancelling before any attempt started retains the task and invalidates future
+work. Repeating this key returns changed:false and the same retained identity:
+
+```json
+{
+  "ok": true,
+  "changed": true,
+  "task": {
+    "id": "task_ithaca_review",
+    "definition": {
+      "prompt": "Read notes/ithaca.md and report outstanding checks. Do not change files or use network tools.",
+      "when": {
+        "kind": "cron",
+        "cron": "0 7 * * 1-5",
+        "timeZone": "Europe/Athens",
+        "endAt": null
+      },
+      "scope": {
+        "operation": "Report outstanding Ithaca checks",
+        "tools": [
+          {
+            "name": "brain_read",
+            "inputs": {
+              "path": "notes/ithaca.md"
+            }
+          }
+        ],
+        "targets": [
+          "notes/ithaca.md"
+        ],
+        "egress": [],
+        "variableInputs": []
+      },
+      "limits": {
+        "attemptTimeoutMs": 600000,
+        "maxOperations": 3
+      },
+      "notifyOnSuccess": false
+    },
+    "creatorPrincipalId": "principal_example_operator",
+    "createdAt": "2026-07-12T06:00:00.000Z",
+    "state": "cancelled",
+    "executionAvailable": false,
+    "blockedReason": null,
+    "nextDueAt": null,
+    "lastOccurrence": null,
+    "compensationPending": false,
+    "zoneSource": "explicit"
+  },
+  "runningOccurrences": []
+}
+```
+
+Empty due and explicit approval failure retain their exact envelopes:
+
+```json
+{
+  "ok": true,
+  "due": [],
+  "evaluatedAt": "2026-07-12T06:00:00.000Z",
+  "nextCursor": null
+}
+```
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "approval_required",
+    "message": "Review the stored schedule proposal before creation."
+  }
+}
+```
+
+### Activity, notification and recovery compatibility
+
+The implementation adds optional scheduleId/occurrenceId correlation to actual
+autonomous Activity roots/rollups and authenticated result links, without changing
+existing origin or outcome meanings. Original-due identity links up to three
+attempts/continuations. Pruning must leave an honest result/link state and retained
+occurrence outcome/counters; no invented run for unstarted/skipped work.
+
+Success completion intents default off per schedule; failure/stuck/Actions keep
+existing semantics. Deduplicate final occurrence notices across intermediate
+roots/restarts, preserve generic push payloads and durable authenticated results.
+Existing 20-intents/hour suppression and three failed attempts/five-minute retry
+backoff remain. Intent/provider acceptance never claims receipt or reading.
+Coordinated Git plus operational backup retains all new relations/approval/
+compensation/receipt/counter/result/notice state and validates it before gated
+restore/admission. Existing backup version/schema checks must cover those added
+relations; old tests/images are not schedule recovery proof. Matching restored
+bytes alone cannot disprove later cancellation/revocation: require authoritative
+later receipts or verified operator reconciliation and keep uncertain tasks paused. The 24-hour recovery
+point and unknown-effect investigation remain binding.

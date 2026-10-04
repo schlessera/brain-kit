@@ -43,7 +43,7 @@ const TRACKABLE_EXTS = new Set([
  * without this line sync would leave it behind as a file it cannot classify.
  */
 const CONFIG_FILES = new Set([
-  ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
+  ".gitignore", "CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md", "package.json", "bun.lock", "bun.lockb", "tsconfig.json",
   STATS_HISTORY_FILE,
 ]);
 

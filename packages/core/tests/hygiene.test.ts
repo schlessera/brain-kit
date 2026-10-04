@@ -37,8 +37,8 @@ afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
-function tempRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), "brain-hygiene-"));
+function tempRoot(prefix = "brain-hygiene-"): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   dirs.push(dir);
   return dir;
 }
@@ -801,7 +801,7 @@ describe("detection", () => {
       ({ key: name, dir: "/", config: {}, manifest: { name, hygieneChecks: [check] } }) as unknown as LoadedModule;
     const brain = {
       taxonomy,
-      root: mkdtempSync(join(tmpdir(), "brain-hygiene-empty-")),
+      root: tempRoot("brain-hygiene-empty-"),
       modules: [
         mod("moods", () => [
           { path: "context/hygiene/open.md", severity: "info", category: "mood-drift", message: "in the log" },

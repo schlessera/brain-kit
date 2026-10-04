@@ -3,7 +3,7 @@
  * request, one budget, and never a throw.
  *
  * A self-contained twin of ui-server's client
- * (`createJevClient`, `packages/ui-server/src/classification/jev-client.ts:94-209`),
+ * (`createJevClient`, `packages/ui-server/src/classification/jev-client.ts:94-217`),
  * because core imports neither ui-server nor ui-sdk. Two differences follow
  * from `brain sync` being a one-shot CLI rather than a server answering turns:
  * there is no breaker, since there is no next turn to protect, and the default

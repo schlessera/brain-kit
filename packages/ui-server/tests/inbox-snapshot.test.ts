@@ -365,24 +365,72 @@ test("a pending gate stops a live drain and compensation before changing ledgers
   expect(readFileSync(file)).toEqual(bytes); expect(f.store.exportState()).toEqual(before);
 });
 
-test.each(["export", "restore-image", "staging", "reconcile", "committed"])("SIGKILL at %s leaves a usable backup or a resumable closed restore", async mode => {
+const crashBoundaries = ["export", "restore-image", "staging", "reconcile", "committed"];
+const crashPublications = crashBoundaries.flatMap(mode => ["complete", "empty", "partial"].map(publication => [mode, publication] as const));
+
+async function waitForCrashBoundary(child: Bun.Subprocess<"ignore", "pipe", "pipe">, ready: string, mode: string, timeoutMs = 10_000, observed?: string) {
+  const deadline = performance.now() + timeoutMs;
+  const incomplete = new Set<string>();
+  let token: string | undefined;
+  while (true) {
+    try { token = readFileSync(ready, "utf8"); }
+    catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      token = undefined;
+    }
+    const exited = child.exitCode !== null || child.signalCode !== null;
+    if (exited || performance.now() >= deadline) {
+      const reason = exited ? "child exited" : "deadline exceeded";
+      if (!exited) child.kill("SIGKILL");
+      const exit = await child.exited;
+      throw new Error(`Crash boundary ${mode} not reached (${reason}; token=${JSON.stringify(token) ?? "missing"}; exit=${exit}; signal=${child.signalCode}): ${await new Response(child.stderr).text()}`);
+    }
+    if (token === mode) return incomplete;
+    if (token !== undefined) {
+      incomplete.add(token);
+      if (observed) writeFileSync(observed, token);
+    }
+    await Bun.sleep(10);
+  }
+}
+
+test.each(["empty", "wrong", "missing"])("crash readiness rejects %s publication at the deadline and reaps the child", async publication => {
+  const ready = join(directory(), "ready"), mode = "reconcile";
+  const script = publication === "missing" ? "" : `require('node:fs').writeFileSync(process.argv[1], ${JSON.stringify(publication === "empty" ? "" : "export")});`;
+  const child = Bun.spawn([process.execPath, "-e", `${script} console.error('readiness-control'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);`, ready],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  cleanup.push(async () => { if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; });
+  const error = await waitForCrashBoundary(child, ready, mode, 1_000).then(() => undefined, (error: unknown) => error);
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toContain(`Crash boundary reconcile not reached (deadline exceeded; token=${publication === "missing" ? "missing" : JSON.stringify(publication === "empty" ? "" : "export")}`);
+  expect((error as Error).message).toContain("exit=137; signal=SIGKILL): readiness-control");
+  expect(await child.exited).toBe(137);
+  expect(child.signalCode).toBe("SIGKILL");
+});
+
+test.each(["exit", "signal"])("crash readiness reports a child stopped by %s, its token, exit code and stderr", async failure => {
+  const ready = join(directory(), "ready");
+  const stop = failure === "exit" ? "process.exit(23)" : "process.kill(process.pid, 'SIGKILL')";
+  const child = Bun.spawn([process.execPath, "-e", `require('node:fs').writeFileSync(process.argv[1], 'reconcile'); console.error('boundary child failed'); ${stop};`, ready],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  await child.exited;
+  const exit = failure === "exit" ? 23 : 137, signal = failure === "exit" ? "null" : "SIGKILL";
+  await expect(waitForCrashBoundary(child, ready, "reconcile")).rejects.toThrow(`Crash boundary reconcile not reached (child exited; token="reconcile"; exit=${exit}; signal=${signal}): boundary child failed`);
+  expect(await child.exited).toBe(exit);
+});
+
+test.each(crashPublications)("SIGKILL at %s with %s readiness leaves a usable backup or a resumable closed restore", async (mode, publication) => {
   const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT), output = join(directory(), "backup.json");
   writeFileSync(output, JSON.stringify(snapshot));
   const previous = readFileSync(output), source = f.store.exportState();
   const target = directory(), path = join(target, "ui.sqlite"), ready = join(target, "ready");
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/inbox-snapshot-worker.ts"), mode,
-    mode === "export" ? f.path : path, mode === "export" ? f.root : target, output, ready, String(AT)],
-    { stdout: "pipe", stderr: "pipe" });
+    mode === "export" ? f.path : path, mode === "export" ? f.root : target, output, ready, String(AT), publication],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   cleanup.push(async () => { if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; });
-  const deadline = performance.now() + 10_000;
-  while (!existsSync(ready)) {
-    if (child.exitCode !== null || performance.now() > deadline) {
-      child.kill("SIGKILL"); await child.exited;
-      throw new Error(`Crash boundary ${mode} not reached: ${await new Response(child.stderr).text()}`);
-    }
-    await Bun.sleep(10);
-  }
+  const incomplete = await waitForCrashBoundary(child, ready, mode, 10_000, publication === "complete" ? undefined : `${ready}.observed`);
   expect(readFileSync(ready, "utf8")).toBe(mode);
+  if (publication !== "complete") expect(incomplete.has(publication === "empty" ? "" : mode.slice(0, -1))).toBe(true);
   child.kill("SIGKILL"); await child.exited;
   expect(child.signalCode).toBe("SIGKILL");
   expect(f.store.exportState()).toEqual(source);

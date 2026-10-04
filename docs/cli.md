@@ -33,6 +33,12 @@ Usage: brain <command> [args] [flags]
 
 ### Rendering
 
+`--scratch` writes transient output into `.brain/scratch/`, which stays hidden
+from normal file-tree browsing. Link the exact repo-relative `output` path
+returned by the command, including its leading dot, in chat to open the preview
+or download the file. Scratch files are never committed and remain subject to
+the scratch prune policy.
+
 `brain render` wraps content in the same document shell the UI's `/api/render`
 uses ([`@schlessera/brain-render-template`](../packages/render-template)), so a
 page shared from the app and a PDF produced here are identical for identical
@@ -238,6 +244,13 @@ report `rebased` on success. A stopped rebase is aborted before the existing
 merge path runs, keeping conflict stages local as OURS and remote as THEIRS.
 [`sync.pull: "merge"`](configuration.md#sync) selects merge-only pulls for
 `sync pull`, `sync run` and bare `sync`.
+
+`sync group` groups exact root `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` as
+configuration. `sync resolve` leaves conflicts in those exact basenames at
+every depth for judgment, preserving the conflicted text and index stages.
+Nested files retain their taxonomy grouping and content membership; ordinary
+notes, case variants, near-match filenames and clean Git line merges keep their
+existing behavior. See [merge strategies](configuration.md#merge-strategies).
 
 Module packages add ONE namespaced top-level command each (`brain jobs …`,
 `brain finance …`, `brain image …`, `brain travel …`) — see [modules.md](modules.md).

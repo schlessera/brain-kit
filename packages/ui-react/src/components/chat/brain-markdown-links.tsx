@@ -136,10 +136,13 @@ export function DirLink({ path, children }: { path: string; children?: React.Rea
 //  - files:     "notes/projects/foo.md"           — ends with .ext
 //  - dirs:      "notes/projects/post-templates/"  — ends with /
 //  - wikilinks: "[[slug]]" or "[[slug|Display]]"  — obsidian-style
+// Include a dot-directory and optional ./ in the whole token. A word boundary
+// alone starts after the dot in .brain, silently changing the link's target.
+// Refuse suffix matches inside traversal, absolute paths, URLs and prose words.
 const BARE_FILE_RE =
-  /\b([a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\.[a-z0-9]{1,8})\b/gi;
+  /(?<![\w./-])((?:\.\/)?\.?[a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\.[a-z0-9]{1,8})\b/gi;
 const BARE_DIR_RE =
-  /\b([a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\/)(?=$|[\s,;:!?)\]])/gi;
+  /(?<![\w./-])((?:\.\/)?\.?[a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\/)(?=$|[\s,;:!?)\]])/gi;
 const WIKILINK_RE = /\[\[([^\[\]\n|]+?)(?:\|([^\[\]\n]+?))?\]\]/g;
 
 interface PathMatch {
@@ -159,22 +162,24 @@ function scanBarePaths(text: string): PathMatch[] {
   BARE_FILE_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = BARE_FILE_RE.exec(text)) !== null) {
-    if (isInternalRepoPath(m[1])) {
+    const path = m[1].replace(/^\.\//, "");
+    if (isInternalRepoPath(path)) {
       out.push({
         start: m.index,
         end: BARE_FILE_RE.lastIndex,
-        path: m[1],
+        path,
         kind: "file",
       });
     }
   }
   BARE_DIR_RE.lastIndex = 0;
   while ((m = BARE_DIR_RE.exec(text)) !== null) {
-    if (isInternalRepoDir(m[1])) {
+    const path = m[1].replace(/^\.\//, "");
+    if (isInternalRepoDir(path)) {
       out.push({
         start: m.index,
         end: BARE_DIR_RE.lastIndex,
-        path: m[1],
+        path,
         kind: "dir",
       });
     }
@@ -214,13 +219,13 @@ export function renderBarePathsInText(text: string): React.ReactNode[] {
     if (m.kind === "file" && m.path) {
       nodes.push(
         <FileLink key={`p${key++}`} path={m.path}>
-          {m.path}
+          {text.slice(m.start, m.end)}
         </FileLink>
       );
     } else if (m.kind === "dir" && m.path) {
       nodes.push(
         <DirLink key={`p${key++}`} path={m.path.replace(/\/+$/, "")}>
-          {m.path}
+          {text.slice(m.start, m.end)}
         </DirLink>
       );
     } else if (m.kind === "wikilink" && m.target) {
