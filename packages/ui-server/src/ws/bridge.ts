@@ -91,7 +91,10 @@ export function makeBridge(
         const eligible = msg.failure && ["rate_limit", "overloaded", "server_error", "unknown"].includes(msg.failure.errorClass)
           && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
         if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
-          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")) {
+          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")
+          // File Retry needs a pre-reservation read to verify the exact original.
+          // Older catalogs can still retain their text/image-only requests.
+          && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
           if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
             msg = { ...msg, retryOfTurnId: turnId };
           }

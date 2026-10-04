@@ -37,6 +37,8 @@ export interface MapPin {
    * map and the list name a place the same way.
    */
   n?: number;
+  /** Imported track endpoints; names and shapes survive their merge. */
+  marker?: "start" | "end" | "start_end";
 }
 
 /** A merge the drawing made: which pins sit under one mark. */
@@ -80,6 +82,8 @@ export interface MapViewProps {
   pinLabel?: string;
   pins?: MapPin[];
   paths?: MapPath[];
+  /** Extra positions to fit, without drawing additional pins (track envelope). */
+  fitPoints?: { lat: number; lon: number }[];
   /** Minimum span in kilometres. The view widens past it to fit the pins. */
   spanKm?: number;
   /**
@@ -458,13 +462,14 @@ export function MapView(p: MapViewProps) {
     label: pin.label,
     meta: pin.meta,
     tone: pin.tone || ("amber" as Tone),
+    marker: "marker" in pin ? pin.marker : undefined,
     n: "n" in pin && typeof pin.n === "number" ? pin.n : undefined,
   }));
 
   // THE SPAN RULE lives in `mapViewBounds`, so a container that has to
   // fetch geometry for this drawing can ask what it will cover.
   const accM = Math.max(0, Number(p.accuracyM) || 0);
-  const { mw, me, yTop, yBot, latTop, latBot, midLat } = mapViewBounds(src, {
+  const { mw, me, yTop, yBot, latTop, latBot, midLat } = mapViewBounds(p.fitPoints?.length ? [...src, ...p.fitPoints] : src, {
     width: W,
     height: H,
     spanKm: p.spanKm,
@@ -508,6 +513,7 @@ export function MapView(p: MapViewProps) {
     n?: number;
     members: number[];
     letter?: string;
+    marker?: MapPin["marker"];
   }[] = [];
   for (const pin of src) {
     const x = px(pin.lon);
@@ -515,6 +521,7 @@ export function MapView(p: MapViewProps) {
     const host = placed.find((q) => Math.hypot(q.x - x, q.y - y) < clusterPx);
     if (host) {
       host.extra += 1;
+      if (host.marker && pin.marker && host.marker !== pin.marker) { host.marker = "start_end"; host.label = "S/E"; }
       if (pin.n !== undefined) host.members.push(pin.n);
       continue;
     }
@@ -523,6 +530,7 @@ export function MapView(p: MapViewProps) {
       y,
       extra: 0,
       tone: pin.tone,
+      marker: pin.marker,
       label: pin.label,
       meta: pin.meta,
       n: pin.n,
@@ -605,6 +613,7 @@ export function MapView(p: MapViewProps) {
       .join(" "),
     stroke: MARKS[path.tone || "teal"] || MARKS.teal,
     width: path.width || 2,
+    single: path.coords?.length === 1 && src.some(pin => pin.marker),
   }));
 
   // Metres per pixel at the view's own latitude, which is what makes the scale
@@ -614,7 +623,8 @@ export function MapView(p: MapViewProps) {
   const mPerPx = ((me - mw) * 111320 * Math.cos((midLat * Math.PI) / 180)) / W;
   const target = W * 0.22;
   const rawM = mPerPx * target;
-  const niceM = NICE_METRES.reduce((a, b) => (Math.abs(b - rawM) < Math.abs(a - rawM) ? b : a), 50);
+  const distances = src.some(pin => pin.marker) ? [...NICE_METRES, 10_000, 20_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000] : NICE_METRES;
+  const niceM = distances.reduce((a, b) => (Math.abs(b - rawM) < Math.abs(a - rawM) ? b : a), 50);
 
   // The uncertainty ring, in the SVG's own coordinate space: `mPerPx` is
   // metres per viewBox unit, and the viewBox is the measured width, so this
@@ -720,7 +730,7 @@ export function MapView(p: MapViewProps) {
               vectorEffect="non-scaling-stroke"
             />
           ) : null}
-          {paths.map((path, i) => (
+          {paths.map((path, i) => path.single ? <circle key={`p${i}`} cx={path.points.split(",")[0]} cy={path.points.split(",")[1]} r={2.5} fill={path.stroke} /> : (
             <polyline
               key={`p${i}`}
               points={path.points}
@@ -775,7 +785,7 @@ export function MapView(p: MapViewProps) {
             );
           }
           const named = pin.n !== undefined && pin.label ? `${pin.n} ${pin.label}` : pin.label;
-          const label = pin.extra ? `${named || "here"} +${pin.extra}` : named;
+          const label = pin.marker === "start_end" ? "S/E" : pin.extra ? `${named || "here"} +${pin.extra}` : named;
           const meta = x <= W * 0.7 && !pin.extra ? pin.meta : undefined;
           // A label on a pin in the right-hand third would run off the edge, so
           // the row reverses and the label sits to the left of its own dot.
@@ -814,10 +824,12 @@ export function MapView(p: MapViewProps) {
               }}
             >
               <span
+                data-track-marker={pin.marker}
                 style={{
                   width: DOT,
                   height: DOT,
-                  borderRadius: "50%",
+                  borderRadius: pin.marker === "end" || pin.marker === "start_end" ? 1 : "50%",
+                  ...(pin.marker === "start" ? { clipPath: "polygon(50% 0, 100% 100%, 0 100%)" } : {}),
                   flex: "none",
                   background: c,
                   boxShadow: `0 0 0 3px ${token("map-halo")}, 0 0 0 5px ${RINGS[pin.tone] || RINGS.amber}`,

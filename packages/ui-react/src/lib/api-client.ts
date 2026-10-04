@@ -1,4 +1,13 @@
 import { apiBase } from "./backend.js";
+import { readSyncResult } from "./sync-stream.js";
+import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly errors: Array<{ path: string; message: string }> = []) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
 import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
@@ -300,7 +309,7 @@ export function createBrainApi(
   getBase: () => string,
   request: (url: string, init?: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
 ) {
-  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  async function fetchResponse(path: string, init?: RequestInit): Promise<Response> {
     const res = await request(`${getBase()}${path}`, {
       ...init,
       headers: {
@@ -310,14 +319,18 @@ export function createBrainApi(
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(body.error || `HTTP ${res.status}`);
+      throw new ApiRequestError(body.error || `HTTP ${res.status}`, res.status, body.errors ?? []);
     }
-    return res.json();
+    return res;
+  }
+
+  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await fetchResponse(path, init)).json();
   }
 
   return {
     health: () =>
-      fetchJson<{ status: string; uptime: number; version: string }>("/health"),
+      fetchJson<{ status: string; uptime: number; timestamp: string }>("/health"),
 
     vpnCheck: () => fetchJson<{ vpn: boolean }>("/vpn-check"),
 
@@ -380,10 +393,17 @@ export function createBrainApi(
     /** The corpus figures over time, for the /stats trends. An older server 404s. */
     brainStatsHistory: () => fetchJson<CorpusStatsHistory>("/brain/stats/history"),
 
-    brainSync: () =>
-      fetchJson<{ success: boolean; message: string }>("/brain/sync", {
-        method: "POST",
-      }),
+    /** Complete SSE terminal result; a lost stream rejects without retrying the POST. */
+    brainSync: async (): Promise<{ success: boolean; message: string }> => {
+      let response: Response;
+      try {
+        response = await fetchResponse("/brain/sync", { method: "POST", headers: { Accept: "text/event-stream" } });
+      } catch (cause) {
+        if (cause instanceof ApiRequestError) throw cause;
+        throw new Error("Sync result incomplete: request failed", { cause });
+      }
+      return readSyncResult(response);
+    },
 
     brainAdd: (content: string, opts?: { type?: string; title?: string; tags?: string[] }) =>
       fetchJson<{ success: boolean; path?: string; indexed?: boolean; indexError?: string }>("/brain/add", {
@@ -477,6 +497,15 @@ export function createBrainApi(
 
     /** Custom + built-in skills, as managed from Settings → Skills. */
     skillsList: () => fetchJson<{ skills: SkillEntry[] }>("/skills"),
+
+    modulesList: () => fetchJson<{ enabled: ConfiguredModule[]; available: unknown[] }>("/modules"),
+    moduleSettings: (name: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings`),
+    moduleSettingsPreview: (name: string, values: Record<string, unknown>) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings/preview`, { method: "POST", body: JSON.stringify({ values }) }),
+    moduleSettingsSave: (name: string, values: Record<string, unknown>, revision: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/settings`, { method: "PUT", headers: { "If-Match": revision }, body: JSON.stringify({ values }) }),
+    moduleMigrationPreview: (name: string) => fetchJson<ModuleSettingsMigrationPreview>(`/modules/${encodeURIComponent(name)}/migration/preview`, { method: "POST", body: "{}" }),
+    moduleMigrationApply: (name: string, revision: string) => fetchJson<ModuleSettingsSnapshot>(`/modules/${encodeURIComponent(name)}/migration`, { method: "POST", headers: { "If-Match": revision }, body: "{}" }),
+    moduleState: (name: string, state: "active" | "dormant") => fetchJson<{ module: string; state: "active" | "dormant"; changed: boolean; context: { entered: string[]; left: string[] } }>(`/modules/${encodeURIComponent(name)}/state`, { method: "POST", body: JSON.stringify({ state }) }),
+    moduleAction: (name: string, id: string) => fetchJson<unknown>(`/modules/${encodeURIComponent(name)}/actions/${encodeURIComponent(id)}`, { method: "POST", body: "{}" }),
 
     /** One skill's SKILL.md and file list (builtins read-only). */
     skillGet: (name: string) =>

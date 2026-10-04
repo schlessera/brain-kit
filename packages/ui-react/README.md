@@ -28,6 +28,26 @@ both stylesheet entry points. Both forms keep the provider disclosure,
 transcript scrolling and review flow. The composer preserves its draft and
 prevents typing or sending while capture or its final drain is active.
 
+## Track files
+
+The composer accepts validated GPX, KML and supported GeoJSON alongside images
+and text. A `.json` must contain supported GeoJSON; ordinary files receive an
+inline refusal. Each track chip shows upload, reading, waiting, failure or ready
+state, with Retry/Remove controls. Sending while files are pending holds the
+editable draft; all must validate before a single message is sent. Failed files
+keep the draft, and an acknowledgement removes only that message's files.
+
+System shares remain under review until **Add to brain** is tapped. Dismiss
+cancels an in-flight upload. A previously confirmed share may resume when the
+connection returns; a share the reader has not confirmed never starts itself.
+Generic share intake still retains ordinary originals without track labeling.
+
+`show_block`'s `track` kind names only a staged `source.path`. The server parses
+the original and provides canonical summary/geometry. File timestamps never
+prove travel. Drawing retains every usable point and separate gaps; unsupported
+projections retain the full text, waypoints and original. PNG/PDF sharing resolves
+the original and background before producing scriptless markup.
+
 ## React compatibility
 
 The `react` and `react-dom` peer range remains `>=18`: React 18 and the current
@@ -217,6 +237,21 @@ uses backend URLs and browser credentials rather than the injected transport.
 Separate roots do not establish a browser security boundary. One root serves
 all agent backends on the same brain server; separate roots are only needed
 for distinct application instances.
+
+### Health and sync helpers
+
+`root.api` and the exported `createBrainApi()` share the configured request
+transport. `health()` returns `{ status, uptime, timestamp }`. Its former
+`version: string` declaration is removed as an approved breaking correction:
+the public route never returned that field. For software identity, request
+authenticated `status()` explicitly instead of reading `health().version`.
+
+`brainSync()` consumes the SSE response and resolves its terminal result as
+`{ success, message }`; `success: false` is a completed unsuccessful sync.
+A missing/malformed terminal event or lost stream rejects as incomplete.
+Non-2xx responses retain `ApiRequestError`. No POST retry or stream resumption
+is automatic; disconnect does not cancel the server job or release its
+repository reservation before the child exits.
 
 ## Registries
 

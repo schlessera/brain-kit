@@ -81,7 +81,7 @@ describe("module tool lint rules through the real CLI", () => {
       expect(result.body.errors).toBe(1);
       expect(result.code).toBe(1);
       const list = await runCli(root, ["module", "list", "--json"]);
-      expect(JSON.parse(list.stdout).enabled).toEqual([]);
+      expect(JSON.parse(list.stdout).enabled).toEqual([{ name, key: "./modules/fixture", description: null, settings: false, state: "unavailable", error: expect.stringContaining("invalid manifest") }]);
       expect(list.code).toBe(0);
     });
   }

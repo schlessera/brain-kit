@@ -57,7 +57,7 @@ export "./module" (./src/module.ts)
 export "./package.json" (./package.json) [asset]
 
 signatures (the seams in docs/extending/README.md and the types they are made of)
-  ALL_SOURCES (packages/module-jobs/src/types.ts)
+  ALL_SOURCES (packages/module-jobs/src/boards.ts)
     const ALL_SOURCES: readonly ["remoteok", "remotive", "weworkremotely", "workingnomads", "builtin", "nodesk", "simplyhired", "jobgether", "dice", "remotelyde"];
   AdapterResult (packages/scrape/src/adapter/types.ts)
     export interface AdapterResult<T> {

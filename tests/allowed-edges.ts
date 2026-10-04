@@ -85,8 +85,12 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // are optional peers — a hard dependency on either would ship that agent SDK
   // to every install regardless of AGENT_BACKEND. The consumer (a deployment)
   // declares the backend it actually deploys.
+  // #526 validates staged track originals itself through #525's shared geo
+  // parser. This concrete intake is always installed, independent of optional
+  // agent backends; a direct hard edge names that ownership without relying
+  // on the SDK's transitive dependency or adding a second measurement stack.
   "@schlessera/brain-ui-server": {
-    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
   },
 };

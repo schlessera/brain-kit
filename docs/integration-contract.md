@@ -1429,6 +1429,28 @@ The detailed stats promises below remain binding. The specification records rema
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
 
+### Published React health and sync helpers (breaking health correction)
+
+`@schlessera/brain-ui-react` exports `createBrainApi` and `BrainApi`; the
+embedding service `root.api` uses the same helpers. `health()` resolves to
+`{ status: string; uptime: number; timestamp: string }`, matching the minimal
+public route. The previously declared `version: string` never existed in that
+response and is removed under the [maintainer's #693 ruling](https://github.com/schlessera/brain-kit/issues/693#issuecomment-5961143224).
+This is an approved pre-1.0 breaking correction shipping in a minor. Migrate
+`health().version` reads to authenticated `status()` when software identity is
+needed; health never fabricates identity or requests protected status.
+
+`brainSync()` POSTs through its configured base getter/request transport and
+consumes complete SSE events. A valid terminal `done` maps `success` and `text`
+to the existing `{ success: boolean; message: string }` result; terminal false
+resolves as a completed unsuccessful sync. Progress and keepalive comments
+are not completion. Missing/malformed terminal data, premature EOF and
+transport failure reject as incomplete; non-2xx responses retain
+`ApiRequestError`. No automatic POST retry or stream resumption is added.
+Disconnect does not establish cancellation: the server continues draining and
+reserves the canonical repository until its child exits, as specified in
+[the HTTP sync contract](http-api.md#corpus-queries-capture-and-sync).
+
 ### Internal Queue poke (additive)
 
 The supported `POST /api/internal/inbox/poke` operation uses an independent
@@ -2431,6 +2453,86 @@ MCP startup registration reads that same loaded state and skips dormant
 modules before importing tool definitions. Dormancy is context control, not
 permission revocation.
 
+## Module settings (additive, #528)
+
+`ModuleManifest.settings?: ModuleSettings<C>` describes a generic editor over
+`configSchema`: data-only fields, choices, nested records, ordered lists and
+record variants, plus optional module CLI actions, computed notes and a pure
+migration planner. Descriptions are validated at module load. The leaf kinds
+are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
+`record`, `list` and `variant` compose them. Unlisted representable schema
+fields appear through the generic renderer. Unsupported fields show their
+complete JSON value read-only; unchanged JSON subtrees retain their bytes.
+Modules do not contribute React implementations. A module using settings has
+a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
+
+Core reads `settings/<module-name>.json`, a JSON object without the reserved
+`enabled` key. Own object keys merge recursively over the domain block in
+brain config; arrays, scalars and null replace. The original `configSchema`
+then parses the combined input and supplies defaults. Both active and dormant
+modules use this path, including ordinary config checks and `brain validate`.
+Invalid hand-edited settings fail validation rather than silently falling back.
+Config reads expose effective validated module blocks. JSON never replaces
+TypeScript logic or rewrites its source. Settings files and their parent may
+not alias another path through symlinks; a symlinked brain root remains valid.
+
+`brain module settings <name> --json` returns:
+
+```text
+{ module, key, state, canBeDormant, dormancyReason,
+  schema, values, inherited, overrides, provenance, inheritedProvenance,
+  revision, notes, ui: { fields, actions, migration } }
+```
+
+`schema` is generated from the declaration's Zod input schema, with
+unrepresentable leaves shown read-only. `values` are effective validated
+settings; `overrides` are the unnormalized JSON source object. `inherited`
+shows values without that JSON, and provenance distinguishes `default`,
+`brain-config`, `saved` and `migrated`. `revision` is an opaque quoted hash of
+the loaded config source and settings bytes. Do not derive meaning from it.
+
+`--set dotted.key=value` parses a JSON value when possible, otherwise a
+string; numeric path components address existing arrays. `--stdin` accepts
+the complete overrides object. Both use the same validated writer as the UI.
+`--revision REV` requires a matching revision; CLI omission uses a freshly
+read revision. `--preview` with `--set` or `--stdin` validates a draft and
+computes module notes without writing. `--action <id>` invokes the declared
+command in its owning module's namespace, using saved config and the existing
+dormancy guard; it cannot be combined with a settings save.
+
+Successful saves add `changed: boolean` and `commit: string | null` to the
+snapshot. A changed save atomically replaces only the module JSON file and
+creates exactly one git commit. Structurally unchanged requests preserve all
+file bytes and produce no commit. The transaction lock serializes revision
+checks, writes and commit. Stale revisions or a busy transaction return 409;
+validation returns 422 with `{ error, status, errors: [{ path, message }] }`
+and writes nothing. Unavailable modules return 404. A write/commit failure
+restores prior files and target index entries, preserving unrelated staged
+work. Pre-staged target changes are refused. These errors exit CLI 1.
+
+`--migrate --preview` runs the module's pure planner and returns its source
+preview, values, paths and revision. `--migrate --revision REV` applies that
+reviewed plan through the same validator and transaction. Changed settings
+and content are committed together once; stale input, validation, write or
+commit failure changes neither source. Jobs moves known scoring keys from
+criteria frontmatter into `settings/jobs.json.scoring`, retaining raw keyword
+casing, flat/tiered forms, coercible numbers, odd match values and absent
+optionals. Unknown scoring keys and unrelated frontmatter/prose stay in the
+document. It proves identical `parseScoringConfig` outputs before writing.
+Legacy frontmatter remains a read fallback until explicitly migrated.
+
+`module list --json` adds `settings`, `canBeDormant` and `dormancyReason` to
+loaded entries in its existing `enabled` array. A malformed module appears as
+an unavailable row with `error`, while valid neighbors remain readable and
+editable; actions still refuse globally invalid config. The Modules editor's
+HTTP routes are listed as internal transport in [http-api.md](http-api.md).
+GET settings supplies ETag; PUT requires If-Match (428 when absent), passes
+through field errors and 409 conflicts, and uses the CLI writer. Every route
+uses the existing authenticated-principal and origin guards. Migration,
+dormancy and actions are separate confirmed requests. Domain saves never
+change the core-owned `enabled` flag, migrate instruction ownership, hot
+unload a module or cancel running sessions.
+
 ## Module tools
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.
@@ -3063,3 +3165,130 @@ failed service command/storage/local renderer is 2. Typed service input errors m
 emit their one JSON result with exit 1; parse/path/usage exceptions print only to
 stderr. `brain render` retains its existing envelope/network-denied behavior:
 callers inline the already-created local PNG as data before invoking export.
+
+### Imported track files in chat (additive)
+
+`ClientChatMessage.files?: { kind: "file"; path: string }[]` references validated
+originals in the existing share staging directory. The host resolves and reparses
+those originals before first, queued, native follow-up and retry dispatch. A client
+cannot supply trusted coordinates, measurements or a replacement source path.
+Images remain in `attachments`; at most `SHARE_MAX_FILES` (10) files and images,
+with `SHARE_MAX_TOTAL_BYTES` (50,000,000) total decoded/original bytes, may accompany
+one message. Existing image-specific limits still apply. Bad references fail as
+`ATTACHMENT_REJECTED`, before a backend runs.
+
+The paired UI transports `POST /api/track-upload` and `GET /api/tracks` are
+[internal HTTP routes](http-api.md#imported-track-ui-transport-526); their
+published socket/block behavior remains this additive contract.
+
+`POST /api/track-upload` uses the existing authenticated, same-origin multipart
+boundary, concurrency and total-body caps. It admits validated GPX, KML 2.2 and
+the supported GeoJSON subset only. `TRACK_MAX_FILE_BYTES` is 20 MiB, matching the
+shared parser; a larger track returns `413 {error:"file_too_large",limit}`.
+Ordinary JSON, PDF, CSV, unsupported formats, malformed or unsafe structures
+return `422 {error:"unsupported_track",message}`. A title/text without a track
+cannot bypass admission. A cancelled uncommitted stage is removed. Originals are
+written unchanged through the existing atomic staging path; no knowledge-base
+content is created. Existing `POST /api/share` retains generic file intake and
+never labels an unvalidated file as a track.
+
+An initial accepted retry receipt can include canonical `files` for the new
+local user row; receipt status queries still disclose no original input.
+
+`SharedFileMeta` additively carries `incomingName?`, `detected?:
+"gpx"|"kml"|"geojson"` and `summary?: TrackFileSummary`. Validated nameless,
+extensionless or generic `.bin`, `.dat`, `.tmp`, `.xml` and `.json` tracks get a
+detected format extension in their sanitized, collision-safe staged name.
+`sha256?` identifies a validated original; exact retries check the original
+before accepting and refuse changed or unavailable files. Incoming display
+name/MIME, detected format and actual staged name/path remain
+separate bounded, inert metadata. `TrackFileSummary` is the shared `TrackSummary`
+without geometry, plus input waypoint count and omitted waypoint count. Replayed
+user messages add `files?: SharedFileMeta[]`; the operational UI database retains
+this metadata, not authoritative content or original bytes. Only a byte-identical
+recorded server context is removed from replay text. User-authored lookalikes
+remain user text.
+
+`GET /api/tracks?path=<staged reference>` returns `TrackFileView`: the shared
+`ImportedTrack` plus canonical `file: SharedFileMeta`, recomputed from the original.
+Unavailable, expired or unsupported originals return `422 {error:
+"track_unavailable",message}`; a missing/overlong path returns 400. Reads enforce
+containment, regular-file/no-symlink checks and actual byte limits.
+
+A custom `SessionCatalog` must implement `peekRetry` to advertise Retry for
+file-backed requests: the server checks original bytes before consuming eligibility.
+Older catalogs retain their existing text/image-only Retry behavior.
+
+`show_block` adds `{kind:"track",source:{path:string},title?:string}`. The source
+is a staged reference only: no model-authored geometry, viewport, metric or
+provenance field. The client resolves the original through the route above.
+The classifier does not infer track blocks from prose. `TrackMap` is a
+presentation-only kit component; `MapView.fitPoints` fits a track envelope
+without extra pins, and `MapPin.marker` distinguishes start/end shapes and their
+`S/E` merge. Existing place-map behavior stays unchanged.
+
+Imports recover invalid coordinates into separate usable sections with exact
+counts/reasons. Every omission and original section boundary breaks both drawing
+and measurement. Valid zero, repeated and polar coordinates remain source
+coordinates. Optional invalid/missing elevation and timestamps remain unknown;
+elapsed includes pauses within sections and excludes gaps, with incomplete or
+non-monotonic required times unknown. Moving time remains unavailable. Elevation
+uses the shared three-point median/3 m hysteresis and complete eligible altitude
+input. Values cover `usable_sections`; recovered values say partial. Formats and
+timestamps never establish recorded travel: coordinates are file-provided.
+
+`parseImportedTrack` in `@schlessera/brain-geo` owns adapters: GPX track/route and
+waypoints; KML LineString, MultiGeometry and Point, with no NetworkLink, Model or
+polygon import; GeoJSON LineString, MultiLineString, Point/MultiPoint and their
+Feature/collection wrappers, with no alternate CRS or polygons. XML is strict,
+UTF-8/ASCII, entity/DTD-free; input is bounded to 20 MiB, 200,000 total line and
+waypoint points and 128 nesting levels. The original is never rewritten. Shared
+measurement input and displayed lines are unsimplified in this cut; all retained
+points remain drawn unless the entire projection is unsupported.
+
+The static map retains a labeled track-only line when background geography is
+unavailable or its drawn envelope exceeds either 5-degree query axis. It sends no
+oversized geography request. A Mercator/padded frame outside the supported
+latitude/longitude range gives a clear reason with the complete summary,
+waypoints and original reference, without clamping/wrapping source points. PNG/PDF
+sharing resolves file and optional geometry before composing static HTML; the
+scriptless renderer performs no network fetch. An expired original refuses track
+export rather than drawing an empty frame.
+
+A host's manifest must advertise MIME types together with extensions. Extend its
+existing generic/image entries with these track entries; use the SDK worker
+handler at the same action. The generated-host change is tracked separately in
+[brain-hosting-template#10](https://github.com/schlessera/brain-hosting-template/issues/10).
+The example is checked through `registerShareTarget` and actual multipart parsing.
+
+<!-- track-share-target-example -->
+```json
+{
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{
+        "name": "files",
+        "accept": [
+          "application/gpx+xml", ".gpx",
+          "application/vnd.google-earth.kml+xml", ".kml",
+          "application/geo+json", ".geojson",
+          "application/json", ".json"
+        ]
+      }]
+    }
+  }
+}
+```
+<!-- /track-share-target-example -->
+
+A `.json` or generic MIME/name is identified by validated contents. Ordinary JSON
+still receives no track summary. See the [GPX schema](https://www.topografix.com/GPX/1/1/),
+[KML reference](https://developers.google.com/kml/documentation/kmlreference) and
+[GeoJSON RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946) for source formats;
+the supported subset and recovery policy above govern this import contract.

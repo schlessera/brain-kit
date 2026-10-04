@@ -36,7 +36,7 @@ describe("module manifest", () => {
   test("configSchema requires criteria and fills defaults", () => {
     const cfg = configSchema.parse({ criteria: "career/opportunities/search-criteria.md" });
     expect(cfg.opportunitiesDir).toBe("career/opportunities");
-    expect(cfg.boards).toEqual(["remoteok"]);
+    expect(cfg.boards).toEqual(["remoteok", "weworkremotely", "workingnomads", "remotelyde"]);
     expect(cfg.queries.length).toBeGreaterThan(0);
     expect(() => configSchema.parse({})).toThrow(); // criteria is required
   });

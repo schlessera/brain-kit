@@ -61,8 +61,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:105-157`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:236`).
+  `packages/ui-server/src/brain/client.ts:109-161`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:238`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +71,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:48`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:416`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:419`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,10 +85,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:416`, eight
+  (`optionalDependencies`, `bun.lock:419`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:426`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:429`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -207,7 +207,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:216-221`).
+  `packages/ui-server/src/app.ts:218-223`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -238,7 +238,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:105`). The SDK's
+  `packages/ui-server/src/brain/client.ts:109`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands

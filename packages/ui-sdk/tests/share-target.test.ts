@@ -421,3 +421,37 @@ describe("readShareLaunchParams", () => {
     expect(readShareLaunchParams("not a url")).toEqual({});
   });
 });
+
+test("the documented track manifest reaches the registered worker and stashes nonempty original GPX with mixed content", async () => {
+  const doc = await Bun.file(new URL("../../../docs/integration-contract.md", import.meta.url)).text();
+  const example = doc.split("<!-- track-share-target-example -->")[1]?.split("<!-- /track-share-target-example -->")[0];
+  expect(example).toBeDefined();
+  const json = example!.match(/```json\n([\s\S]+?)\n```/)?.[1]; expect(json).toBeDefined();
+  const target = JSON.parse(json!).share_target;
+  for (const pair of [["application/gpx+xml", ".gpx"], ["application/vnd.google-earth.kml+xml", ".kml"], ["application/geo+json", ".geojson"]]) for (const value of pair) expect(target.params.files[0].accept).toContain(value);
+  expect(target.method).toBe("POST"); expect(target.enctype).toBe("multipart/form-data");
+  const store = createMemoryShareStoreForTests();
+  let listener!: (event: ShareFetchEvent) => void;
+  registerShareTarget({ path: target.action, store }, { addEventListener(_type, callback) { listener = callback; } });
+  const gpx = '<gpx version="1.1"><trk><trkseg><trkpt lat="2" lon="3"/><trkpt lat="2" lon="3.01"/></trkseg></trk></gpx>';
+  // Serialize real multipart bytes: Bun's in-memory FormData Request shortcut
+  // drops part MIME types. The Chrome intake test covers MIME preservation.
+  const boundary = "synthetic-track-share";
+  const request = new Request(`${ORIGIN}${target.action}`, { method: target.method,
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    body: Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${target.params.text}"\r\n\r\nOdysseus shared a synthetic route.\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${target.params.files[0].name}"; filename="shared-1"\r\nContent-Type: application/octet-stream\r\n\r\n${gpx}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${target.params.files[0].name}"; filename="raft.png"\r\nContent-Type: image/png\r\n\r\n`),
+      Buffer.from([1,2,3]), Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  });
+  let response!: Promise<Response>;
+  listener({ request, respondWith(value) { response = Promise.resolve(value); } });
+  expect(response).toBeDefined();
+  const result = redirectTarget(await response);
+  const records = await store.list(); expect(records).toHaveLength(1); expect(result.searchParams.get(SHARE_QUERY_PARAM)).toBe(records[0]!.id);
+  expect(records[0]!.files).toHaveLength(2); expect(records[0]!.files[0]!.size).toBeGreaterThan(0);
+  expect(await records[0]!.files[0]!.text()).toBe(gpx); expect(records[0]!.files[0]!.name).toBe("shared-1");
+  expect(records[0]!.text).toBe("Odysseus shared a synthetic route."); expect(new Uint8Array(await records[0]!.files[1]!.arrayBuffer())).toEqual(new Uint8Array([1,2,3]));
+});

@@ -54,7 +54,7 @@ interface PointCollection { segments: RoutePoint[][]; input: number; omissions: 
 
 /** One XML reader; recovery is an explicit policy and never relaxes structural guards. */
 function readGpx(source: string, recovery: boolean): ParsedTrack {
-  if (Buffer.byteLength(source) > MAX_ROUTE_BYTES) throw new Error("Route input exceeds 20 MiB.");
+  if (new TextEncoder().encode(source).byteLength > MAX_ROUTE_BYTES) throw new Error("Route input exceeds 20 MiB.");
   const parser = new SaxesParser({ xmlns: true });
   const frames: { local: string; uri: string; text: string }[] = [];
   const tracks: PointCollection = { segments: [], input: 0, omissions: [] };

@@ -15,6 +15,7 @@ export interface ShareIntakeState {
   queue: StoredShare[];
   /** An upload or send is in flight; no second share may start. */
   busy: boolean;
+  phase: "review" | "uploading" | "parsing" | "paused";
   /** Something the user needs to see rather than a silent failure. */
   error: string | null;
   /** Non-fatal notes about the last confirm (images over the vision cap, …). */
@@ -22,6 +23,7 @@ export interface ShareIntakeState {
 
   enqueue: (record: StoredShare) => void;
   remove: (id: string) => void;
+  setPhase: (phase: ShareIntakeState["phase"]) => void;
   setBusy: (busy: boolean) => void;
   setError: (error: string | null) => void;
   setNotes: (notes: string[]) => void;
@@ -31,6 +33,7 @@ export function createShareStore() {
   return createStore<ShareIntakeState>((set) => ({
     queue: [],
     busy: false,
+    phase: "review",
     error: null,
     notes: [],
 
@@ -44,7 +47,8 @@ export function createShareStore() {
     remove: (id) =>
       set((state) => ({ queue: state.queue.filter((queued) => queued.id !== id) })),
 
-    setBusy: (busy) => set({ busy }),
+    setPhase: phase => set({ phase }),
+    setBusy: (busy) => set({ busy, ...(!busy ? { phase: "review" as const } : {}) }),
     setError: (error) => set({ error }),
     setNotes: (notes) => set({ notes }),
   }));

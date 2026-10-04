@@ -1,5 +1,122 @@
 # @schlessera/brain
 
+## 0.40.0
+
+### Minor Changes
+
+- b1b83cd: Report deterministic recorded coverage, broken-link and orphan trend verdicts
+  through stats, maintain, briefing and the PWA, with comparison evidence and
+  explicit insufficient, stale and incomparable states.
+- e977423: **Breaking (pre-1.0, ruled on #394):** `brain audit` reports TODO and VERIFY markers as one finding per document and kind instead of one per marker, and a `verify` finding is `info` instead of `warning`. Each carries `count` (the markers of that kind in the document) and `examples` (the first three, in source order). A document with both kinds has two findings. A consumer that counted `todo` or `verify` issues to count markers should sum `count`; one that treated `verify` as must-fix should read it as informational. `brain hygiene` keys `todo` and `verify` entries on the document, so an existing log resolves its per-marker entries once and opens one entry per document and kind.
+
+  Additive:
+
+  - The optional frontmatter `verification: unverified` declares a whole document unverified: exactly one `verify` finding, inline markers or not. There is no `verified` value, and a document without the field is not thereby verified. `brain validate` warns on any other value.
+  - A `broken-link` warning for each wiki-link that resolves to nothing, resolved exactly as `brain validate` resolves it (paths, basenames, directory anchors, `#heading`, `|label`, aliases) and worded the same, with the target in `target`.
+  - `brain audit --json` gains `mustFix` (errors plus warnings) and `informational` (infos). `brain maintain`'s audit step appends `; <n> must-fix, <n> informational` to its counts.
+
+  **Schema 15.** `brain.db` gains the nullable `documents.verification` column; the next `brain index` fills it.
+
+- fe5c751: Add the supported `@schlessera/brain/queries` entry for graph modes, link walks,
+  voice vocabulary, bounded listing and complete hygiene metadata selection. Each
+  operation reads a validated read-only snapshot and returns detached results or
+  safe typed errors. Existing CLI/MCP behavior and SQL guarantees remain unchanged.
+- c926d42: Skip dormant modules when registering MCP tools at server startup, without importing their tool definitions. Keep declared tools visible in module listings and preserve the registered tool set until the running server restarts.
+- f19da8b: Add authenticated `brain queue add` intake with explicit replay keys and scoped
+  principal-cookie transport. Shares now create durable untrusted triage work,
+  deduplicate normalized content, preserve server-owned provenance, and reconcile
+  failed staging/database writes. Queueing does not file content or enable
+  autonomous execution.
+- 22ed27c: Breaking: configuration loading now rejects `exclude.files` entries ending in `/`; replace `files: ["drafts/"]` with `dirs: ["drafts"]` to exclude the directory. Directory checks ignore exact-file rules, keeping stats consistent with indexing and preventing OKF output from remaining indexable.
+- c8e81ad: Add module dormancy, context estimates and source-preserving CLI toggles with explicit instruction ownership and legacy migration checks.
+- a39b7bc: Let modules contribute namespaced MCP tools with typed contexts, strict input
+  and output schemas, and startup validation that isolates a module's definition
+  failures while keeping core and other modules available.
+- 4503591: Add schema-driven module Settings with per-module JSON overrides, validated revision-guarded saves, explicit source-preserving migrations and separate lifecycle/actions. Jobs exposes its complete scoring format, adapter choices and execution settings, preserving legacy scoring representation during migration and edits.
+- fb992c8: List declared canonical module MCP tool names in `brain module list --json`,
+  validate tool definitions and author documentation in `brain module lint`,
+  and guide module authors through shared CLI/MCP operations.
+- 2898ef1: BREAKING: `Enrichment.describeAsset` now returns `Promise<string | null>`.
+  No vision capability or empty/whitespace completion output returns `null`
+  instead of an asset title; callers must handle `null`, and custom enrichment
+  implementations should return it when no description was produced. The shipped
+  completion contract suite now asserts these results and zero calls for no vision.
+
+  Undescribed images and PDFs keep searchable placeholders, stay out of description
+  caches and embeddings, and retry on later indexing runs without file changes.
+  Real non-empty descriptions may equal the title. Historical cache strings remain
+  untouched; regenerate a known bad entry with `brain index --forget-cache <path>`
+  followed by `brain index --embeddings` to reset both sidecar and database state.
+
+- 2480efe: Move pi graph and listing reads to supported core query results with safe index errors, and route remaining native-handle helpers through the unsupported core internal entry.
+- d981938: BREAKING: model search reranking now requires `reranker.enabled: true` in canonical brain config. Omitted or false keeps judgment off even with credentials, a custom provider, `--rerank jev` or `BRAIN_RERANK_MODE=jev`. Add the boolean to retain former credential-triggered ordering; turning it off preserves provider settings. Direct `hybridSearch` injection also requires `rerankerEnabled: true`. Explicit disabled model requests warn and use local heuristic results, while eval refuses to score flag/environment fallback. Dry-run previews remain available while disabled or keyless and send nothing.
+- ac34a83: Sync pulls rebase unpublished local commits by default, falling back to merge after aborting any stopped attempt; set `sync.pull: "merge"` for merge-only history.
+- 67c7403: Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
+
+  Add configured Nominatim geocoding with qualified candidates, explicit service failures, disk cache/source age and shared operator admission across CLI/server processes.
+
+  Add configured prepared-dataset routing and explicit eligible FOSSGIS fallback, with honest source/transfer/cache metadata and nullable provider estimates.
+
+  Add bounded Overpass POI queries near points or along retained track sections, mapped opening-hours unknowns, ordered fallback and persistent admission refusal handling.
+
+  Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
+
+  Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.
+
+  Add canonical geo configuration to brain config and the UI server adapter, preserving legacy endpoint/privacy switches and keeping disposable response caches separate from permanent geometry caches and global operator admission.
+
+  Add deterministic vector static PNG maps with bundled fonts, preserved track gaps, numbered stops, complete legends and source/attribution evidence. Wide or unavailable backgrounds yield plain maps; unsupported projection, glyphs or image budgets retain complete text without changing source geometry.
+
+  Add brain geo geocode, route, poi, track and map with one-document JSON contracts and qualified human output. Commands share canonical service configuration and cache/admission, retain original track evidence and protect local map writes through brain/scratch containment.
+
+- 878e6cf: Record `brain stats` over time (#581). `brain maintain` gains a `stats` step, run after the index and audit, that keeps the day's figures as one line of `.stats-history.jsonl` at the brain root: the counts, the health figures and the size totals, one snapshot per UTC day (a second run the same day replaces it), every day for 90 days and then one per week. The file is committed with the brain, so `brain index --force` and a fresh clone keep it; nothing indexes, validates or audits it. `brain stats --record` records on demand, and `brain stats --history [--since YYYY-MM-DD] [--json]` reads the snapshots back oldest first, one array per field, with `null` where a snapshot has no figure. `brain stats --json` is unchanged.
+
+  `GET /api/brain/stats/history` passes the history through, and the PWA's /stats answer draws trend charts for documents, orphans, stale documents, embedding coverage and the broken-link rate once two snapshots exist, and nothing with fewer.
+
+- e977423: **Breaking:** `brain sync` with no verb now prints one JSON result in machine mode (`--json`, or stdout not a TTY), where it used to print its text report whatever the output mode (#290). The result is `{ run, agent }`: `run` is the envelope `brain sync run --json` prints, report included, and `agent` says whether the `/sync` agent was invoked — `{ invoked: false, reason: "not-needed" | "no-runner" }`, or `{ invoked: true, runner, outcome, runtime, text, error? }`, where `runtime` is what that run reported about itself (`{ name, version }`, `version` null when it gave none) and null when it reported nothing. The built-in `claude` runner reports the Claude Code version from the session's `init` event; nothing is ever probed. Human mode (`--human`, or a terminal) is unchanged, and so are the exit codes and when the agent is called. A machine-mode agent failure prints the result as well as its error, and still exits `2`. Migration: a caller that read bare `brain sync` stdout as text passes `--human`, or reads `run.report` and `agent.text` from the result.
+
+  `AgentRunner.run` and `runStreaming` accept an optional `onRuntime` callback, which a runner calls with what executed the run (experimental seam; runners that do not call it keep working).
+
+  The server's sync paths ask for the result and record it on their own run's root span with the attributes chat's `runtime_observed` writes (`brain.runtime.name`/`version`), plus `brain.sync.agent`: the in-process scheduler now writes a root span for each of its runs, and the container cron wrapper reads the result of the base `sync` job only — the crontab line becomes `sh -c 'brain sync --json && brain index >&2'`, and the log still gets the readable report. `/api/status` adds `runtime.sync`: the latest sync run's own invocation state and runtime, and the last run that observed a version, with its run id and times. The UI's manual sync passes `--human`.
+
+- 502d6d9: Add standalone travel with canonical journey, day-trip and place formats and a lossless configuration migration.
+
+  Pre-1.0 break: speaking stops contributing travel taxonomy and plan-travel. Install and enable the matching travel module, migrate travelParty with `brain travel migrate`, then restart and sync skills; existing document paths, types and links are preserved.
+
+- fa6a62c: Add optional `embed: false` type policies that retain keyword search, links and
+  audit while skipping chunk contexts and Markdown/image/PDF vectors. Ordinary
+  indexing removes existing vectors after a type opts out, even for unchanged
+  files; opting back in takes effect on the next embedding-enabled index.
+
+  Change nullable `health.embedding_coverage` to count only eligible chunks and
+  their vectors. Total chunk/vector inventory fields keep their meaning, and
+  zero eligible chunks remain unmeasured. This is an approved pre-1.0 semantic
+  contract change: consumers should use the supplied ratio rather than divide
+  the total counters. CLI and chat stats wording now names eligible chunks.
+
+### Patch Changes
+
+- 113fa0a: Show the current audit must-fix count in briefing, including module findings and excluding informational markers, even without hygiene logs.
+- 6b311b2: Finish CLI stdout and stderr writes before exiting so large piped responses remain complete, while unrelated provider sockets and timers cannot delay a finished command.
+- eac3e7a: Correct the brain_context tool description to explain existing source-section expansion, per-hit limits and snippet fallback within the estimated token budget.
+- 5df68f6: Resolve same-document heading wiki-links so index, validate, stats and audit no longer report them as broken.
+- 9c830e4: Frontmatter parsing no longer goes through gray-matter's process-wide cache. Two byte-identical documents parsed in one process now get independent data, so changing one can no longer change what is read for the other. Broken frontmatter is reported as invalid on every parse, not only the first; before, a second parse of the same bytes in a long-lived process read as an empty success. The cache also kept every distinct document string in memory for the life of the process, and that is gone. Frontmatter semantics and formatting are unchanged.
+- 36ad7da: Give Gemini the installed brain agent contract in GEMINI.md during skills sync,
+  replacing the redundant legacy Skills index. Preserve all text outside managed
+  blocks, refuse ambiguous markers, and refresh the contract after package upgrades
+  without rewriting unchanged files.
+- 523ffa8: Exclude root GEMINI.md instructions from content indexing and validation by default.
+- 619ee2b: Use the Odysseus world consistently in fixture corpora, package guidance and examples.
+- a4cc575: Preserve concurrently created destinations when file replacement is disabled.
+- 56a9005: Preserve arriving scratch destinations when replacement is disabled.
+- a5e1ecf: Reject unknown and retired job boards before execution or settings writes; honor explicit empty selections and retain settings diagnostics during CLI dispatch.
+- 17146c4: Keep heading text visible when exporting bare same-document wiki-links to OKF, while preserving explicit labels and heading fragments.
+- Updated dependencies [67c7403]
+- Updated dependencies [3f0870d]
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-geo@0.40.0
+  - @schlessera/brain-render-template@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes

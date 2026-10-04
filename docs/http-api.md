@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake and poke mounted by `createApp`: 87 unique declared
+The inventory includes the additive Queue intake and poke mounted by `createApp`: 97 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -78,6 +78,14 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/models/pricing` | I | Read pricing-table freshness | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
 | POST | `/api/models/refresh` | S | Force model discovery refresh | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/thinking` | I | Replace reasoning-effort overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
+| GET | `/api/modules` | I | List configured modules, including unavailable neighbors | React module settings; CLI module/settings contracts remain binding. |
+| GET | `/api/modules/:name/settings` | I | Read schema, values, provenance and revision | React module settings; CLI module/settings contracts remain binding. |
+| PUT | `/api/modules/:name/settings` | I | Validate and commit JSON overrides with If-Match | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/settings/preview` | I | Validate a draft and compute module notes without writing | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration/preview` | I | Preview a module-owned content migration | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/migration` | I | Apply the reviewed migration atomically | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/state` | I | Activate or park a configured workflow | React module settings; CLI module/settings contracts remain binding. |
+| POST | `/api/modules/:name/actions/:id` | I | Run a declared module CLI action using saved settings | React module settings; CLI module/settings contracts remain binding. |
 | POST | `/api/pi-auth/login` | I | Start configured vendor OAuth flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | DELETE | `/api/pi-auth/login/:id` | I | Cancel vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
 | GET | `/api/pi-auth/login/:id` | I | Poll vendor login flow | Pi settings UI; configured-vendor-specific administrative transport, not brain session authentication. |
@@ -102,6 +110,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
+| GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | GET | `/api/voice/keyterms` | S | Read or rebuild domain keyterms | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
@@ -120,7 +130,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 87 declared endpoints are mounted regardless of backend, renderer or
+All 97 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -175,6 +185,23 @@ while preserving the public function's supported behavior, or obtaining the
 required ruling for a public API break. Internal here excludes independent
 raw HTTP consumption, not working published UI functionality. The inventory
 is an input to the public-export audit (#534), not a substitute for it.
+
+The published `health()` helper resolves to `{ status: string; uptime: number;
+timestamp: string }`. Its former `version: string` declaration is removed by
+the approved breaking correction in #693; the public route never supplied
+version. Migrate former version reads to authenticated `status()` when
+software identity is needed. `health()` does not fabricate a value or fetch
+protected status automatically.
+
+`brainSync()` retains `{ success: boolean; message: string }` by consuming the
+actual SSE response through its configured request transport and current base
+getter. Only a complete valid terminal `done` resolves, mapping `success` and
+`text`; terminal false is a completed unsuccessful result. The parser handles
+UTF-8 byte boundaries, LF/CRLF/CR lines, multiline data and keepalive comments.
+Missing/malformed terminal data, premature EOF and transport failure reject as
+incomplete, without establishing job cancellation. Non-2xx responses preserve
+`ApiRequestError`; the helper never implicitly retries the POST or resumes the
+stream. Server admission/reservation/draining semantics below still apply.
 
 ## Common request and response rules
 
@@ -662,3 +689,13 @@ receipts are included in the existing audit-only operational export; they do
 not turn it into a filesystem backup. The CLI never accesses UI SQLite or
 `brain.db` for this operation, and intake does not file markdown or dispatch
 production autonomous work before its containment/system gates.
+
+## Imported track UI transport (#526)
+
+The paired UI uses authenticated `POST /api/track-upload` multipart intake and
+`GET /api/tracks?path=<staged reference>` to validate originals and resolve track
+blocks. These are internal HTTP transports under the selection policy; published
+SDK file-reference frames, `show_block` and kit props retain their ordinary
+contracts. The [imported-track behavior](integration-contract.md#imported-track-files-in-chat-additive)
+describes validation, limits, outcomes and static export. They do not file
+knowledge-base content or narrow existing generic `/api/share` intake.

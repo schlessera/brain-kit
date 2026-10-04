@@ -1,3 +1,4 @@
+import { loadTrackDisplay } from "../../lib/track-display.js";
 import type { BrainUiRoot } from "../../root.js";
 import type { RefObject } from "react";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
@@ -20,7 +21,7 @@ export function buildMessageShareOptions(root: BrainUiRoot, { message, renderedR
   // the print theme (#46). The render page runs no JavaScript, so mermaid
   // fences are pre-rendered to inline SVG and blocks to static HTML here.
   const rendered = () =>
-    shareMarkdown(message, { renderBlock: renderBlockHtml, inlineMermaid: (md) => inlineMermaidDiagrams(md) });
+    shareMarkdown(message, { renderBlock: async block => renderBlockHtml(block, block.kind === "track" ? await loadTrackDisplay(root, block.source.path, block.title) : undefined), inlineMermaid: (md) => inlineMermaidDiagrams(md) });
 
   return [
     {

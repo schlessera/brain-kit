@@ -35,7 +35,9 @@ export interface SessionCatalog {
   getStoredProviderId(sessionId: string): string | null;
   saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
   clearRetryRequest?(sessionId: string): void;
-  reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string };
+  /** Required to advertise Retry for file-backed requests; reads precede reservation. */
+  peekRetry?(sessionId: string): retries.RetainedRetry | null;
+  reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string };
   refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt;
   retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
   attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
@@ -66,7 +68,7 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string }): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
@@ -128,7 +130,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
     // Retry reads/consumption must fail closed: unlike accounting, an
     // unsuccessful invalidation cannot permit an obsolete prompt to run.
     clearRetryRequest(sessionId) { retries.clearRetryRequest(db(), sessionId); },
-    reserveRetry(sessionId, turnId, requestId, principalId) { return retries.reserveRetry(db(), sessionId, turnId, requestId, principalId); },
+    peekRetry(sessionId) { return retries.retained(db(), sessionId); },
+    reserveRetry(sessionId, turnId, requestId, principalId, expectedPrompt) { return retries.reserveRetry(db(), sessionId, turnId, requestId, principalId, expectedPrompt); },
     refuseRetry(sessionId, requestId, principalId, message) { return retries.refuseRetry(db(), sessionId, requestId, principalId, message); },
     retryReceipt(sessionId, requestId, principalId) { return retries.retryReceipt(db(), sessionId, requestId, principalId); },
     attachRetryRequest(sessionId, messages) {

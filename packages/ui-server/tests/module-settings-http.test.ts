@@ -1,0 +1,194 @@
+import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
+import { SettingsFields } from "../../ui-react/src/components/settings/module-settings-fields";
+import { createModuleSettingsSession, savedDraft } from "../../ui-react/src/components/settings/module-settings-state";
+import { generateSignedCookie } from "hono/cookie";
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { BRAIN_BIN } from "../../core/tests/cli-harness";
+import { createPrincipal } from "../src/db/principals";
+import { httpContractApp } from "./helpers/http-contract-app";
+
+const SECRET = "module-settings-fixture-secret-0123456789";
+function git(root: string, args: string[]): string {
+  const p = Bun.spawnSync(["git", "-C", root, ...args]);
+  expect(p.exitCode, new TextDecoder().decode(p.stderr)).toBe(0);
+  return new TextDecoder().decode(p.stdout).trim();
+}
+
+test("mounted module settings use the real CLI, authenticated principals, validator, revision and one-file commit", async () => {
+  const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: SECRET, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
+  try {
+    symlinkSync(resolve(import.meta.dir, "../../../node_modules/zod"), join(t.brainPath, "node_modules/zod"));
+    mkdirSync(join(t.brainPath, "modules/catalog"), { recursive: true });
+    writeFileSync(join(t.brainPath, "modules/catalog/module.ts"), `import {z} from "zod";
+export default {name:"catalog",configSchema:z.object({limit:z.number().int().positive("Limit must be positive")}),setup:()=>({commands:{catalog:async()=>({summary:"Fixture action",run:(_args,cli)=>console.log(JSON.stringify({limit:cli.config.limit}))})}}),settings:{fields:[],actions:[{id:"report",label:"Report",help:"Read saved settings",command:["catalog"],confirm:"Report?"}]}};`);
+    const config = JSON.stringify({ modules: { "./modules/catalog": { limit: 3 } } });
+    writeFileSync(join(t.brainPath, "brain.config.json"), config);
+    writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
+    git(t.brainPath, ["init", "--initial-branch=main"]);
+    git(t.brainPath, ["config", "user.name", "Alex Example"]);
+    git(t.brainPath, ["config", "user.email", "alex@example.com"]);
+    git(t.brainPath, ["config", "commit.gpgsign", "false"]);
+    git(t.brainPath, ["add", "brain.config.json", "modules"]);
+    git(t.brainPath, ["commit", "-m", "fixture"]);
+    const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Fixture owner", ttlSeconds: 3600 });
+    const agent = createPrincipal(t.app.db, { authMethod: "delegated", createdBy: owner.id, label: "Fixture agent", ttlSeconds: 3600 });
+    const cookie = (await generateSignedCookie("brain_ui_session", agent.id, SECRET)).split(";")[0]!;
+    const request = (method: string, body?: unknown, revision?: string, origin?: string): RequestInit => ({ method, headers: { cookie, "content-type": "application/json", ...(revision ? { "If-Match": revision } : {}), ...(origin ? { origin } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const path = "/api/modules/catalog/settings";
+    expect((await t.fetch(path)).status).toBe(401);
+    const list = await t.fetch("/api/modules", request("GET"));
+    expect(list.status).toBe(200);
+    expect((await list.json()).enabled).toMatchObject([{ name: "catalog", settings: true, state: "active" }]);
+    const read = await t.fetch(path, request("GET"));
+    expect(read.status).toBe(200);
+    const snapshot = await read.json();
+    expect(snapshot.values).toEqual({ limit: 3 });
+    expect(read.headers.get("etag")).toBe(snapshot.revision);
+    const preview = await t.fetch(path + "/preview", request("POST", { values: { limit: 11 } }));
+    expect(preview.status).toBe(200);
+    expect((await preview.json()).values).toEqual({ limit: 11 });
+    expect(existsSync(join(t.brainPath, "settings/catalog.json"))).toBe(false);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("1");
+    expect((await t.fetch(path, request("PUT", { values: { limit: 7 } }))).status).toBe(428);
+    expect((await t.fetch(path, request("PUT", { values: { limit: 7 } }, snapshot.revision, "https://foreign.example"))).status).toBe(403);
+    const invalid = await t.fetch(path, request("PUT", { values: { limit: -1 } }, snapshot.revision));
+    expect(invalid.status).toBe(422);
+    expect((await invalid.json()).errors).toEqual([{ path: "limit", message: "Limit must be positive" }]);
+    expect(existsSync(join(t.brainPath, "settings/catalog.json"))).toBe(false);
+    const saved = await t.fetch(path, request("PUT", { values: { limit: 7 } }, snapshot.revision));
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ changed: true, values: { limit: 7 } });
+    const bytes = readFileSync(join(t.brainPath, "settings/catalog.json"), "utf8");
+    const stale = await t.fetch(path, request("PUT", { values: { limit: 9 } }, snapshot.revision));
+    expect(stale.status).toBe(409);
+    expect(readFileSync(join(t.brainPath, "settings/catalog.json"), "utf8")).toBe(bytes);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
+    expect(git(t.brainPath, ["show", "--pretty=", "--name-only", "HEAD"])).toBe("settings/catalog.json");
+    expect(readFileSync(join(t.brainPath, "brain.config.json"), "utf8")).toBe(config);
+    const action = await t.fetch("/api/modules/catalog/actions/report", request("POST", {}));
+    expect(action.status).toBe(200);
+    expect(await action.json()).toEqual({ limit: 7 });
+    const noMigration = await t.fetch("/api/modules/catalog/migration/preview", request("POST", {}));
+    expect(noMigration.status).toBe(404);
+    expect((await noMigration.json()).error).toBe("This module has no migration");
+    const dormant = await t.fetch("/api/modules/catalog/state", request("POST", { state: "dormant" }));
+    expect(dormant.status).toBe(200);
+    expect(await dormant.json()).toMatchObject({ module: "catalog", state: "dormant" });
+    expect((await t.fetch(path, request("GET"))).status).toBe(200);
+    expect(readFileSync(join(t.brainPath, "settings/catalog.json"), "utf8")).toBe(bytes);
+    const dormantAction = await t.fetch("/api/modules/catalog/actions/report", request("POST", {}));
+    expect(dormantAction.status).toBe(500);
+    expect((await dormantAction.json()).error).toContain("dormant");
+    const active = await t.fetch("/api/modules/catalog/state", request("POST", { state: "active" }));
+    expect(active.status).toBe(200);
+    expect(await active.json()).toMatchObject({ state: "active" });
+    t.app.db.query("UPDATE principals SET revoked_at = 1 WHERE id = ?").run(agent.id);
+    expect((await t.fetch(path, request("PUT", { values: { limit: 9 } }, snapshot.revision))).status).toBe(401);
+    expect(readFileSync(join(t.brainPath, "settings/catalog.json"), "utf8")).toBe(bytes);
+  } finally { await t.close(); }
+});
+
+
+test("mounted jobs migration preserves scores and prose, rolls back failed writes and refuses legacy dormancy before effects", async () => {
+  const t = await httpContractApp({ env: { BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
+  try {
+    symlinkSync(resolve(import.meta.dir, "../../../node_modules/@schlessera"), join(t.brainPath, "node_modules/@schlessera"));
+    mkdirSync(join(t.brainPath, "career"));
+    const criteriaPath = join(t.brainPath, "career/criteria.md");
+    const original = readFileSync(resolve(import.meta.dir, "../../module-jobs/tests/fixtures/criteria.md"), "utf8");
+    writeFileSync(criteriaPath, original);
+    const configPath = join(t.brainPath, "brain.config.json");
+    const config = JSON.stringify({ modules: { "@schlessera/brain-module-jobs": { criteria: "career/criteria.md" } } });
+    writeFileSync(configPath, config);
+    writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
+    git(t.brainPath, ["init", "--initial-branch=main"]);
+    git(t.brainPath, ["config", "user.name", "Alex Example"]);
+    git(t.brainPath, ["config", "user.email", "alex@example.com"]);
+    git(t.brainPath, ["config", "commit.gpgsign", "false"]);
+    git(t.brainPath, ["add", "brain.config.json", "career"]);
+    git(t.brainPath, ["commit", "-m", "fixture"]);
+    const request = (body: unknown, revision?: string): RequestInit => ({ method: "POST", headers: { "content-type": "application/json", ...(revision ? { "If-Match": revision } : {}) }, body: JSON.stringify(body) });
+    const path = "/api/modules/jobs/migration";
+    const previewResponse = await t.fetch(path + "/preview", request({}));
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json();
+    expect(preview.parserEquivalent).toBe(true);
+    expect(preview.moved.groups).toHaveLength(2);
+    expect(preview.summary).toContain("2 groups");
+    expect(readFileSync(criteriaPath, "utf8")).toBe(original);
+    expect(existsSync(join(t.brainPath, "settings/jobs.json"))).toBe(false);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("1");
+    writeFileSync(criteriaPath, original + "\nKeep new prose.\n");
+    const changedCriteria = readFileSync(criteriaPath, "utf8");
+    const stale = await t.fetch(path, request({}, preview.revision));
+    expect(stale.status).toBe(409);
+    expect(readFileSync(criteriaPath, "utf8")).toBe(changedCriteria);
+    expect(existsSync(join(t.brainPath, "settings/jobs.json"))).toBe(false);
+    const fresh = await (await t.fetch(path + "/preview", request({}))).json();
+    const hook = join(t.brainPath, ".git/hooks/pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n"); chmodSync(hook, 0o755);
+    const failedCommit = await t.fetch(path, request({}, fresh.revision));
+    expect(failedCommit.status).toBe(500);
+    expect(readFileSync(criteriaPath, "utf8")).toBe(changedCriteria);
+    expect(existsSync(join(t.brainPath, "settings/jobs.json"))).toBe(false);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("1");
+    unlinkSync(hook);
+    // A real filesystem failure must also leave the second migration target alone.
+    const settingsDirectory = join(t.brainPath, "settings");
+    const { rmdirSync } = await import("node:fs");
+    rmdirSync(settingsDirectory);
+    writeFileSync(settingsDirectory, "Keep the blocking file.\n");
+    const failedWrite = await t.fetch(path, request({}, fresh.revision));
+    expect(failedWrite.status).toBe(500);
+    expect(readFileSync(settingsDirectory, "utf8")).toBe("Keep the blocking file.\n");
+    expect(readFileSync(criteriaPath, "utf8")).toBe(changedCriteria);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("1");
+    unlinkSync(settingsDirectory);
+    const migrated = await t.fetch(path, request({}, fresh.revision));
+    expect(migrated.status).toBe(200);
+    const result = await migrated.json();
+    expect(result.changed).toBe(true);
+    expect(result.values.scoring.groups).toEqual(preview.moved.groups);
+    expect(result.provenance["scoring.groups"]).toBe("migrated");
+    expect(readFileSync(criteriaPath, "utf8")).toContain("Keep new prose.\n");
+    expect(git(t.brainPath, ["show", "--pretty=", "--name-only", "HEAD"]).split("\n").sort()).toEqual(["career/criteria.md", "settings/jobs.json"]);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
+    const settingsPath = join(t.brainPath, "settings/jobs.json");
+    // Existing source spelling can differ from the writer's canonical output.
+    writeFileSync(settingsPath, readFileSync(settingsPath, "utf8").replace("{\n", "{   \n"));
+    const settings = readFileSync(settingsPath, "utf8");
+    const migratedCriteria = readFileSync(criteriaPath, "utf8");
+    // GET -> the real generic form/session -> unchanged PUT must preserve the
+    // existing JSON bytes, rather than normalize the displayed source values.
+    const formSnapshot = await (await t.fetch("/api/modules/jobs/settings")).json() as ModuleSettingsSnapshot;
+    const formStore = createModuleSettingsSession();
+    formStore.setState({ snapshot: formSnapshot, draft: formSnapshot.overrides });
+    const formHtml = renderToStaticMarkup(createElement(SettingsFields, { snapshot: formSnapshot, session: formStore.getState(), store: formStore }));
+    expect(formHtml).toContain('id="module-setting-scoring.groups.0.name"');
+    expect(formHtml).toContain('id="module-setting-scoring.groups.0.tiers.0.points"');
+    const formDraft = JSON.parse(JSON.stringify(savedDraft(formStore.getState())));
+    expect(formDraft.scoring.groups).toHaveLength(2);
+    const noOp = await t.fetch("/api/modules/jobs/settings", { ...request({ values: formDraft }, formSnapshot.revision), method: "PUT" });
+    expect(noOp.status).toBe(200);
+    expect(await noOp.json()).toMatchObject({ changed: false, commit: null });
+    expect(readFileSync(join(t.brainPath, "settings/jobs.json"), "utf8")).toBe(settings);
+    expect(readFileSync(criteriaPath, "utf8")).toBe(migratedCriteria);
+    expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
+    const legacy = "Keep the author's prose.\n<!-- brain:generated:conventions -->\nMixed workflow instructions.\n<!-- /brain:generated:conventions -->\n";
+    for (const file of ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]) writeFileSync(join(t.brainPath, file), legacy);
+    for (const state of ["dormant", "active"]) {
+      const refused = await t.fetch("/api/modules/jobs/state", request({ state }));
+      expect(refused.status).toBe(500);
+      expect((await refused.json()).error).toContain("Explicitly migrate mixed generated sections");
+      expect(readFileSync(configPath, "utf8")).toBe(config);
+      expect(readFileSync(join(t.brainPath, "settings/jobs.json"), "utf8")).toBe(settings);
+      expect(readFileSync(criteriaPath, "utf8")).toBe(migratedCriteria);
+      for (const file of ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]) expect(readFileSync(join(t.brainPath, file), "utf8")).toBe(legacy);
+      expect(git(t.brainPath, ["rev-list", "--count", "HEAD"])).toBe("2");
+    }
+  } finally { await t.close(); }
+});

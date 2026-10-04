@@ -37,7 +37,7 @@ places.
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
    reads markdown. The jobs review queue is not markdown. It lives in the
    module's own SQLite file (`const dbPath`,
-   `packages/module-jobs/src/cli.ts:57`). "Anything new in my job queue
+   `packages/module-jobs/src/cli.ts:58`). "Anything new in my job queue
    above 70?" therefore has no answer by voice. The agent can say it cannot
    help, or it can make something up.
 2. **In a client with no shell at all.** [mcp.md](../mcp.md) names desktop
@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:116-142`).
+`packages/core/src/lib/module-types.ts:117-143`).
 
 ## Alternatives rejected
 
@@ -63,7 +63,7 @@ hygiene checks, index rules, excludes and cron, but no tools
   tool's name. A module cannot choose its prefix.
 - **Expose every CLI subcommand automatically.** The CLI's argument parsing
   is not a schema (`function makeArgs`,
-  `packages/module-jobs/src/cli.ts:86-105`), and its human output is not a
+  `packages/module-jobs/src/cli.ts:87-106`), and its human output is not a
   result. An automatic bridge would ship interactive commands (`jobs
   triage`), mutating ones and TTY-only ones with no schema and no
   annotations. A tool is declared one at a time, deliberately.
@@ -79,7 +79,7 @@ hygiene checks, index rules, excludes and cron, but no tools
 - **Unload or hide a tool when its module goes dormant, mid-process.** #527
   excludes runtime unloading. `brain.config.ts` is loaded with a dynamic
   `import()` (`const mod = await import(tsPath)`,
-  `packages/core/src/lib/config.ts:594`), and a process caches that import,
+  `packages/core/src/lib/config.ts:598`), and a process caches that import,
   so a running server cannot reliably see a config change anyway. Promising
   it would be promising something the loader cannot deliver.
 
@@ -168,7 +168,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
   produces `mcp__brain__jobs_review`, so 64 leaves headroom under 128.
 - **Collisions are impossible by construction and still checked.** Module
   names are unique at load (`if (seenNames.has(manifest.name))`,
-  `packages/core/src/lib/module-loader.ts:101-104`), local names are keys of
+  `packages/core/src/lib/module-loader.ts:104-107`), local names are keys of
   one record, and `brain` is reserved. Registration nevertheless checks
   every composed name against the names already registered, core's first,
   then modules in config order. On a duplicate it fails with
@@ -181,7 +181,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:23-79`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
 | `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`const toolWarnings`, `packages/core/src/mcp-server.ts:185-189`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
@@ -315,7 +315,7 @@ A module that stops shipping a documented tool is making a breaking change.
 ### 9. Lint and documentation checks
 
 `brain module lint <name>` gains these checks
-(`function moduleLint`, `packages/core/src/cli/commands/module.ts:68-118`):
+(`function moduleLint`, `packages/core/src/cli/commands/module.ts:104-154`):
 
 - `tool-load`: every declared tool imports, and its definition passes §1
   and §3.
@@ -339,7 +339,7 @@ first-party tool gets a row.
 
 **The workflow it enables.** A brain owner has enabled `module-jobs` and uses
 the hosted PWA by voice. The daily cron has already scraped and scored
-(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:69`). They
+(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:76`). They
 ask "anything new in my job queue above 70?". The voice turn calls
 `mcp__brain__jobs_review` with `{ min_score: 70 }` and reads back titles,
 companies and scores. The same call works from a desktop MCP client with no
@@ -347,7 +347,7 @@ shell.
 
 **The operation it shares.** `brain jobs review --json` parses flags,
 calls the shared `reviewJobs` operation, and prints `{ jobs }`
-(`function cmdReview`, `packages/module-jobs/src/cli.ts:320-357`). The query
+(`function cmdReview`, `packages/module-jobs/src/cli.ts:300-337`). The query
 is `getReviewQueue` (`export function getReviewQueue`,
 `packages/module-jobs/src/review.ts:12-49`). The exported operation
 (`export function reviewJobs`,
@@ -372,7 +372,7 @@ once, for both surfaces:
 | | |
 | --- | --- |
 | Annotations | `readOnlyHint: true`, `openWorldHint: false` |
-| Inputs | `status?`: one of `REVIEW_STATUSES` or `"all"`, default `"queued"` (`export const REVIEW_STATUSES`, `packages/module-jobs/src/types.ts:75-83`). `min_score?`: a number. `limit?`: an integer from 1, default 20, capped at 50. `source?`: one of `ALL_SOURCES`. |
+| Inputs | `status?`: one of `REVIEW_STATUSES` or `"all"`, default `"queued"` (`export const REVIEW_STATUSES`, `packages/module-jobs/src/types.ts:29-37`). `min_score?`: a number. `limit?`: an integer from 1, default 20, capped at 50. `source?`: one of `ALL_SOURCES`. |
 | Result | `{ jobs: JobSummary[] }`, the same rows in the same order as `brain jobs review --json` for the same filters, each projected to the fields a spoken or chat answer uses: `id`, `title`, `company`, `location`, `remote_type`, `salary_raw`, `salary_min`, `salary_max`, `salary_currency`, `source`, `published_at`, `review_status`, `relevance_score`, `tags` (parsed to `string[]`), `url`. |
 
 The projection is the one exception to "same envelope". A row carries the

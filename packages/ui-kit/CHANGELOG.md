@@ -1,5 +1,44 @@
 # @schlessera/brain-ui-kit
 
+## 0.40.0
+
+### Minor Changes
+
+- 0575b1b: Add `ask_user_list`, a bridge tool that asks the user to place up to 30 items on one shared scale of 2–8 options in a single card, for rating, triage and sorting. The result maps item ids to the chosen option, lists the skipped ids, and carries optional per-item notes. It ships as new `ask_user_list_request` / `ask_user_list_response` protocol frames, a kit `AskUserListCard` (inline chip grid, "set the rest to …" with undo, a Submit that states what it will send and never silently does nothing), and a transcript binding that replays the answered summary after a reload. Both backends expose it, and withhold it from turns that have no one to show a card to. `ask_user` is unchanged.
+- 830127c: Keep desktop dictation in a bounded panel above the composer, with focused stop controls and an unchanged phone sheet. Add a dictating composer state that preserves the draft and prevents typing or sending until review.
+- 0c0c9df: Add `ask_user_form` for conditional questions answered in one card, with shared scale and ranking controls, configurable depth/node/options limits, visible-answer validation and history replay. Keep the existing ask tools available.
+- c1a1595: Render recoverable failed-turn cards with reviewed diagnostics, subscription auth instructions, and a latest-turn Retry that retains original inputs and checks delivery after reconnect.
+- 3829fed: Render multi-question ask_user exchanges in one grouped card, with visible validation, preserved free-text answers, and one answered or dismissed record.
+- a01c389: Add per-message reasoning effort with saved profile defaults for Claude and Pi.
+  Claude defaults to Opus 5.5 at medium; each resumed turn re-reads its default,
+  unsupported levels resolve downward, and retries retain the original override.
+  Expose supported levels and honest requested/confirmed effort metadata. The
+  existing model chip opens a model/effort picker; overrides clear on correlated
+  start or queue acceptance and remain with refused drafts. Older hosts retain
+  their existing send behavior.
+- 35fb78d: Add ask_user_rank: one list ordered by handle drag, taps or keyboard, with explicit kept-order results, optional top-N cutoff, and answered transcript replay.
+- 3f0870d: Attach validated GPX, KML and supported GeoJSON originals in chat, preserving incoming names and MIME separately from detected staged names. Keep server-derived file evidence on queued turns and replay. Draw static track blocks with complete metrics, waypoint evidence, explicit unknown and partial values, separate gaps and original references; resolve assets before PNG/PDF export. Generic share intake remains compatible.
+
+### Patch Changes
+
+- a4d5ef0: Restore composer focus after inline approvals and ask-user list, rank, and form submissions.
+- 0506c10: Correct the README's UI-root isolation, component coverage and hit-target descriptions.
+- 619ee2b: Use the Odysseus world consistently in fixture corpora, package guidance and examples.
+- d934fe0: Keep ranking keyboard instructions readable when reordered actions wrap at phone width and preserve 44px touch targets for its footer actions.
+- 1eaeba2: `Receipt`: a key wider than its column no longer runs into its value. The key column is sized once per receipt, to the widest key, never narrower than `keyWidth` and never wider than 90px; a key past 90px wraps inside the column and is never cut. Receipts whose keys already fit render as before.
+- 4c1a424: Add an opt-in visible-destination policy for PNG/PDF exports and enable it
+  server-side for all app render requests. Accepted links keep canonical
+  navigation with a validated visible host or mail address; refused links and
+  unavailable repo paths stay inert. Raw/full/bare HTML, SVG targets, shadow
+  content and embedded documents cannot bypass it. Chrome checks final disclosure,
+  and the renderer lazily loads PDF.js to check each finished PDF annotation's own
+  complete destination and print legibility,
+  and refuses an export that still conceals or crops a destination. CLI defaults,
+  classification rules and render isolation stay unchanged. UI-kit link imports
+  re-export the same pure classifier from the template's dependency-safe leaf.
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-render-template@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes

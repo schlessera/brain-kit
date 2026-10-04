@@ -26,6 +26,7 @@
  * it; `sessionId` is optional for wire compatibility with single-session
  * servers, but multi-session servers MUST set it on every scoped frame.
  */
+import type { ImportedTrack, TrackFormat, TrackSummary } from "@schlessera/brain-geo";
 import type { AskUserFormSpec } from "./tool-contracts/form.js";
 import type { Block } from "./tool-contracts/blocks.js";
 
@@ -123,6 +124,8 @@ export interface ClientChatMessage {
    */
   providerId?: string;
   attachments?: ChatImageAttachment[];
+  /** Server validates these staged file references and derives their measurements. */
+  files?: ChatFileAttachment[];
   /** Reasoning effort for this message only; absent uses the current profile default. */
   thinkingLevel?: ThinkingLevel;
   /** Correlates acceptance/refusal of this message, including queued follow-ups. */
@@ -350,6 +353,7 @@ export interface ServerRetryReceipt extends SessionScoped {
   message?: string;
   /** Original user text for the accepted new turn's local row. */
   text?: string;
+  files?: SharedFileMeta[];
   attachmentCount?: number;
   source?: MessageSource;
   thinkingLevel?: ThinkingLevel;
@@ -426,6 +430,8 @@ export type MessagePart =
   | { kind: "tool"; toolIndex: number };
 
 export interface SessionHistoryMessage {
+  /** Validated staged-file metadata recorded by the host, without original contents. */
+  files?: SharedFileMeta[];
   role: "user" | "assistant";
   content: string;
   thinking?: string;
@@ -1232,6 +1238,9 @@ export const SHARE_MAX_FILES = 10;
  */
 export const SHARE_MAX_FILE_BYTES = 25_000_000;
 
+/** Validated track input cap, matching the shared geo parser. */
+export const TRACK_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
 /** Cap across every file in one share. */
 export const SHARE_MAX_TOTAL_BYTES = 50_000_000;
 
@@ -1273,7 +1282,21 @@ export const SHARE_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const SHARE_STASH_TTL_MS = SHARE_STAGING_TTL_MS;
 
+/** Unit-bearing shared measurements, without the potentially large display geometry. */
+export type TrackFileSummary = Omit<TrackSummary, "geometry"> & { waypointCount: number; waypointOmitted: number };
+
+export interface TrackFileView extends ImportedTrack { file: SharedFileMeta }
+
+export interface ChatFileAttachment { kind: "file"; path: string }
+
 export interface SharedFileMeta {
+  /** Bounded, visible incoming display name; separate from the sanitized stored name. */
+  incomingName?: string;
+  /** SHA-256 of a validated original; exact retries refuse changed files. */
+  sha256?: string;
+  /** Format established from validated contents, never from a name or MIME claim. */
+  detected?: TrackFormat;
+  summary?: TrackFileSummary;
   /** File name as stored, after sanitizing whatever the sharing app supplied. */
   name: string;
   /** Repo-relative path, e.g. `.brain-ui/inbox/<id>/photo.jpg`. */

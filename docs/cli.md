@@ -220,6 +220,7 @@ preserved without checking whether the heading exists.
 | `skills sync` | Materialize core + module skills into `.agents/skills/`, run emitters | extra emitters via config `skills.emitters` |
 | `skills lint` | Lint all skills (agent-agnostic rules) | unparseable SKILL.md frontmatter = error; exit 1 on errors |
 | `module list` | Configured + available modules with one-liners | `--json` adds active/dormant state and estimated active context tokens; dormant cron metadata is empty |
+| `module settings <name>` | Read or save validated per-module JSON settings | `--set dotted.key=value`, `--stdin` complete overrides, `--revision REV`, `--preview` without writing; `--migrate [--preview]` reviews/applies declared content migration; `--action id` uses saved settings |
 | `module lint <name>` | Validate a module: manifest, skills, collisions, configSchema | quality gate for `/new-module` |
 | `module enable\|disable <name>` | Reactivate or park a configured workflow, synchronize skills and owned instructions | preserves domain config and content; refuses legacy mixed instruction sections before writes; see [migration](modules.md#instruction-migration) |
 | `config check` | Validate config, print effective taxonomy summary | |

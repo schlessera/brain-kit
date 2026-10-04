@@ -12,6 +12,7 @@
  * A message with no blocks sends exactly what it sent before this existed:
  * its `content`, mermaid diagrams inlined. Nothing about the common case moves.
  */
+import type { TrackDisplay } from "../../lib/track-display.js";
 import { printThemeCss } from "@schlessera/brain-ui-kit";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type Block } from "@schlessera/brain-ui-sdk/client";
 
@@ -71,10 +72,11 @@ export function shareSegments(message: Pick<ChatMessage, "parts" | "toolCalls" |
  * in the block's text (LF, CRLF, and a bare CR, which `marked` also reads as
  * one) becomes the equivalent character reference.
  */
-export async function renderBlockHtml(block: Block): Promise<string> {
+export async function renderBlockHtml(block: Block, trackDisplay?: TrackDisplay): Promise<string> {
+  if (block.kind === "track" && !trackDisplay) throw Error("Resolve the original track before export.");
   // Loaded on share, not with the chat: it is only ever needed here.
   const { renderToStaticMarkup } = await import("react-dom/server");
-  return renderToStaticMarkup(<BlockCard block={block} isStatic />).replace(/\r\n?|\n/g, "&#10;");
+  return renderToStaticMarkup(<BlockCard block={block} isStatic trackDisplay={trackDisplay} />).replace(/\r\n?|\n/g, "&#10;");
 }
 
 /** The print tokens, and the layout a block needs on a page. */

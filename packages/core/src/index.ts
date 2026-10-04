@@ -42,6 +42,7 @@ export type { RegistryRun, RegistrySpec } from "./lib/index-registry.js";
 
 // Modules
 export { defineModule, defineModuleTool } from "./lib/module-types.js";
+export type { ModuleSettings, ModuleSettingsField, ModuleSettingsOption, ModuleSettingsMigrationPlan } from "./lib/module-settings-types.js";
 export type {
   ModuleManifest,
   ModuleContribution,

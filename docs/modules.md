@@ -38,7 +38,8 @@ Manifest fields:
 | Field          | Type       | Purpose                                                              |
 | -------------- | ---------- | -------------------------------------------------------------------- |
 | `name`         | `string`   | The module's short name. Required.                                   |
-| `configSchema` | zod schema | Validates the user's config block. Load fails hard on a rejected block. |
+| `configSchema` | zod schema | Validates the brain-config block merged with `settings/<name>.json`. Load fails hard on a rejected block. |
+| `settings` | `ModuleSettings<C>` | Optional data-only editor description, module actions, notes and explicit migration planner. |
 | `setup`        | `(config) => Contribution` | Builds the contribution from the validated config. Required. |
 | `canBeDormant` | `boolean?` | Defaults to permitted; `false` makes CLI disable refuse. |
 | `dormancyReason` | `string?` | Nonempty explanation for that refusal. |
@@ -91,6 +92,40 @@ and a cast would hide the contract regressing back to `unknown`.
 How the contribution merges into the taxonomy — collisions, ordering,
 overrides — is covered in
 [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
+
+## Editable module settings
+
+Settings → Modules lists configured workflows, including dormant modules and
+unavailable entries with their error. Its forms use the declaration's Zod
+schema and optional `settings` labels, help, choices and nested descriptions.
+New schema fields appear without a UI change; unsupported JSON values remain
+read-only and are preserved on save. A module supplies data and CLI actions,
+never React components.
+
+Values are stored in `settings/<name>.json`. Objects merge per key over the
+brain-config domain block; arrays and scalars replace. The same schema checks
+load, `brain validate`, CLI saves and UI saves. Defaults remain in the schema,
+and untouched optional inputs stay absent. TypeScript retains runners and
+other logic. Inherited values require an explicit Override; Reset removes a
+saved override. Save/Discard protects edits across closing, section changes
+and responsive resizing. A stale revision requires choosing between the local
+and saved values before resubmission. Actions and dormancy changes require a
+separate confirmation and use saved settings.
+
+```sh
+brain module settings jobs --json
+brain module settings jobs --set scoring.queueThreshold=65 --json
+brain module settings jobs --set scoring.groups.0.tiers.0.points=20 --json
+brain module settings jobs --migrate --preview --json
+brain module settings jobs --migrate --revision '<preview revision>' --json
+```
+
+Jobs' explicit migration previews its complete legacy scoring source, proves
+parser equivalence, and moves known scoring keys into JSON in one commit.
+Unrelated frontmatter, unknown scoring keys and prose stay in the criteria
+file. No migration happens merely by opening Settings. The source format and
+transaction envelopes are specified in the
+[integration contract](integration-contract.md#module-settings-additive-528).
 
 ## Authoring MCP tools
 
@@ -311,7 +346,7 @@ opportunity notes.
 - **Types contributed:** `opportunity` → `career/opportunities/` (dir anchor
   `status.md`).
 - **Config:** `criteria` (required — path to a scoring-criteria markdown file
-  whose frontmatter defines weighted, named scoring groups), `opportunitiesDir`,
+  whose frontmatter supplies legacy scoring until explicitly migrated to JSON), `opportunitiesDir`,
   `boards`, `queries`, `dbPath`. Scoring is *not* hard-coded — it is driven by
   the criteria file, which stays brain content you own and tune.
 - **Skills:** `jobs-review` (triage the scraped queue in dialogue),
@@ -332,7 +367,11 @@ opportunity notes.
   adds browser boards to the configured selection; `--browser-only` selects
   only browser boards. Selected adapters receive Chrome automatically.
 - **Cron:** advisory `scrape` daily at 06:00 runs plain `jobs scrape`, following
-  the same effective module settings as a manual run without adding boards.
+  the same effective module settings as a manual run without adding boards. Omitted
+  boards use curated defaults; explicit `boards: []` selects nothing and
+  succeeds without scrape requests. Unknown or retired names reject the whole
+  selection through the shared load/save validator. See the
+  [selection decision](decisions/jobs-board-defaults.md).
 - **Caveat:** scraping may violate a board's Terms of Service — review each
   board's ToS and `robots.txt`, keep volume low, and prefer official feeds. See
   the module README.

@@ -64,6 +64,8 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  /** Concrete contained staging root for track attachments; absent refuses the new path. */
+  brainPath?: string;
   askUserFormLimits?: Partial<AskUserFormLimits>;
   /** Backend registry resolving profiles/sessions to agent backends. */
   registry: BackendRegistry;
@@ -163,6 +165,7 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * module-level default host, so two apps coexist without sharing state.
  */
 export class WsHost {
+  readonly brainPath?: string;
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
   readonly coordinator = new TurnCoordinator();
@@ -203,6 +206,7 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
 
   constructor(options: WsHostOptions) {
+    this.brainPath = options.brainPath;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Runs `packages/ui-kit`'s browser test projects inside the pinned Playwright
- * image — the storybook project (interaction + accessibility) and the visual
- * project (screenshot baselines).
+ * image — both story themes, curated visual/subject baselines, and the isolated
+ * ranking-footer and module-settings comparisons.
  *
  * ## Why the container, and why it is not optional
  *
@@ -29,8 +29,8 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # both projects, in the container
- *   node scripts/visual.mjs --project=visual   # one project
+ *   node scripts/visual.mjs                    # all six projects, in the container
+ *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
@@ -52,11 +52,13 @@ const KIT = "packages/ui-kit";
 const argv = process.argv.slice(2);
 const inside = argv.includes("--inside");
 const update = argv.includes("--update");
-const projectArg = argv.find((a) => a.startsWith("--project="));
+const projectArgs = argv.filter((a) => a.startsWith("--project="));
 const shardArg = argv.find((a) => a.startsWith("--shard="));
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
-// isolated coarse-pointer context. Touch emulation must not affect fine-pointer cases.
-const projects = projectArg ? [projectArg.slice("--project=".length)] : ["storybook", "storybook-light", "visual", "rank-footer-touch"];
+// isolated coarse-pointer context, and module Settings' consumer integration.
+// Subject baselines also have their own browser so another file's failure
+// screenshot cannot change their used monospace fallback (#879).
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });

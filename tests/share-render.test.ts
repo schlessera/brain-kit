@@ -1,3 +1,4 @@
+import { trackDisplayFixture } from "../packages/ui-react/tests/track-fixtures.js";
 /**
  * A shared answer, end to end, in REAL Chrome (#46): the markdown the client
  * composes, the document shell the server wraps it in, and the network-denied,
@@ -35,7 +36,7 @@ if (!chromePath && process.env.BRAIN_REQUIRE_CHROME === "1") {
 
 const SHOW_BLOCK = visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude");
 const KINDS = Object.keys(BLOCKS) as AnswerBlockKind[];
-const noMermaid = { renderBlock: renderBlockHtml, inlineMermaid: async (md: string) => md };
+const noMermaid = { renderBlock: (block: import("@schlessera/brain-ui-sdk/client").Block) => renderBlockHtml(block, block.kind === "track" ? trackDisplayFixture() : undefined), inlineMermaid: async (md: string) => md };
 
 /**
  * One pixel, inlined the way a shared image is: the renderer may fetch this
