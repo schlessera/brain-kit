@@ -3607,7 +3607,7 @@ exits 1. Unavailable/unsupported/invalid response/timeout/redirect/5xx exits 2.
 JSON argument errors use invalid_request/exit 1, not an absent envelope. Retry
 writes with the original key, never a new key after an ambiguous response.
 
-Complete fictional examples use the shared September 30 reference date. They
+Complete fictional examples use the pinned Odysseus reference date, 2026-07-12. They
 are interface examples, not actual CLI/host receipts. The CLI obtains one stored
 proposal, explicit operator review, then publication through the routes above:
 
@@ -3660,11 +3660,11 @@ not supplied by the model. Successful creation still reports disabled execution:
       "notifyOnSuccess": false
     },
     "creatorPrincipalId": "principal_example_operator",
-    "createdAt": "2026-09-30T06:00:00.000Z",
+    "createdAt": "2026-07-12T06:00:00.000Z",
     "state": "active",
     "executionAvailable": false,
     "blockedReason": "dispatch_disabled",
-    "nextDueAt": "2026-10-01T04:00:00.000Z",
+    "nextDueAt": "2026-07-13T04:00:00.000Z",
     "lastOccurrence": null,
     "compensationPending": false,
     "zoneSource": "explicit"
@@ -3711,11 +3711,11 @@ A subsequent list reads the same record:
         "notifyOnSuccess": false
       },
       "creatorPrincipalId": "principal_example_operator",
-      "createdAt": "2026-09-30T06:00:00.000Z",
+      "createdAt": "2026-07-12T06:00:00.000Z",
       "state": "active",
       "executionAvailable": false,
       "blockedReason": "dispatch_disabled",
-      "nextDueAt": "2026-10-01T04:00:00.000Z",
+      "nextDueAt": "2026-07-13T04:00:00.000Z",
       "lastOccurrence": null,
       "compensationPending": false,
       "zoneSource": "explicit"
@@ -3765,7 +3765,7 @@ work. Repeating this key returns changed:false and the same retained identity:
       "notifyOnSuccess": false
     },
     "creatorPrincipalId": "principal_example_operator",
-    "createdAt": "2026-09-30T06:00:00.000Z",
+    "createdAt": "2026-07-12T06:00:00.000Z",
     "state": "cancelled",
     "executionAvailable": false,
     "blockedReason": null,
@@ -3784,7 +3784,7 @@ Empty due and explicit approval failure retain their exact envelopes:
 {
   "ok": true,
   "due": [],
-  "evaluatedAt": "2026-09-30T06:00:00.000Z",
+  "evaluatedAt": "2026-07-12T06:00:00.000Z",
   "nextCursor": null
 }
 ```

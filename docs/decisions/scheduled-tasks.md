@@ -17,7 +17,7 @@ name future interfaces, not capabilities of the installed packages.
 
 ## Existing mechanics and the evidence boundary
 
-Source inspected at `8cd8faaf7f615efad11b9cafe5a5ae044a86d50b`:
+Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
 
 - Queue lifecycle promotes an existing scheduled item at its due time
   (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:176-177`).

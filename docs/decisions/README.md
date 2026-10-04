@@ -22,7 +22,6 @@ somebody already learn the hard way?*
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
 | [async-collaboration.md](async-collaboration.md) | Why Queue and Actions form one complete autonomous v1: containment before enabling, operational/content ownership, reservations, deterministic resolution and the existing Actions destination. |
 | [scheduled-tasks.md](scheduled-tasks.md) | Why scheduled work uses one Queue path, bounded recurring approval, Markdown definitions with host-owned runtime state, occurrence limits, catch-up/recovery and authenticated consumer contracts. |
-
 | [policy-write-boundary.md](policy-write-boundary.md) | Why every agent writer enters an isolated worker before initialization, authoritative edits use bounded server validation with existing approvals, and initial backend hosting requires verified Linux or qualifying WSL2 profiles. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
