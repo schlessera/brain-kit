@@ -154,6 +154,7 @@ the file is missing, which is why fresh templates work.
 | `currentFocus` | `context/current-focus.md`   |
 
 Set a key to `""` to disable it. You may add your own canonical keys.
+Unset keys return no path, including names inherited from the object prototype.
 
 ```ts
 taxonomy: { canonical: { currentFocus: "" } }   // disable the current-focus lookups
