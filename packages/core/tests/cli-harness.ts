@@ -36,6 +36,17 @@ let binHome: string | null = null;
 let home: string | null = null;
 let commandPath: string | null = null;
 
+/** Called after the whole test run by its preload, or on ordinary Bun exit. */
+export function cleanupCliUtilities(): void {
+  for (const dir of [home, commandPath, binHome]) {
+    if (dir !== null) cleanup(dir);
+  }
+  home = null;
+  commandPath = null;
+  binHome = null;
+}
+process.on("exit", cleanupCliUtilities);
+
 /** Host account/configuration discovery must never be part of a CLI fixture. */
 function testHome(): string {
   if (home === null) {
@@ -44,7 +55,6 @@ function testHome(): string {
       mkdirSync(join(dir, name));
     }
     home = dir;
-    process.on("exit", () => cleanup(dir));
   }
   return home;
 }
@@ -60,7 +70,6 @@ function testCommandPath(): string {
       if (executable) symlinkSync(executable, join(dir, name));
     }
     commandPath = dir;
-    process.on("exit", () => cleanup(dir));
   }
   return commandPath;
 }
@@ -75,7 +84,6 @@ export function testBinHome(): string {
   if (binHome === null) {
     const dir = mkdtempSync(join(tmpdir(), "brain-test-bin-"));
     binHome = dir;
-    process.on("exit", () => cleanup(dir));
   }
   return binHome;
 }
