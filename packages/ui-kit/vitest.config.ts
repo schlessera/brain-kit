@@ -56,6 +56,22 @@ export default mergeConfig(
   defineConfig({
     test: {
       projects: [
+        {
+          extends: true,
+          test: {
+            name: "ui-react-layout",
+            // Measurements of the real consumer, kept out of Bun's test glob.
+            include: ["../ui-react/tests/browser/**/*.layout.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { formViewport, formConsumerStyles },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
         storyProject("storybook", "dark"),
         storyProject("storybook-light", "light"),
         {
@@ -67,12 +83,29 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx"],
+            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
               commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, dictationPointer, dictationThemeStyles, dictationMotion },
+              provider: playwright({}),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            // A failure screenshot in another file changes Chromium's used
+            // monospace fallback even after that file restores its DOM/viewport.
+            // Keep incumbent subject pixels in a separate browser process (#879).
+            name: "subjects",
+            include: ["tests/visual/subjects.visual.tsx"],
+            browser: {
+              enabled: true,
+              commands: { formViewport },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

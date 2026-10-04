@@ -342,11 +342,35 @@ function factText(value: unknown): string | null {
   return null;
 }
 
-/** Equal after trimming; as numbers when both parse as numbers. */
+/**
+ * An exact numeric value as a signed decimal coefficient and a power of ten.
+ * Keep the existing nonempty, finite Number-string admission boundary, but
+ * never use its rounded result for equality. Exponents stay symbolic, so an
+ * underflow such as 1e-999999999999999999999 does not expand or become zero.
+ */
+function exactFactNumber(value: string): string | null {
+  if (value === "" || !Number.isFinite(Number(value))) return null;
+  // Number admits unsigned hex/binary/octal integers too; BigInt converts
+  // their digits exactly before the shared decimal normalization below.
+  const decimal = /^0[xob]/i.test(value) ? BigInt(value).toString() : value;
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(decimal);
+  if (!match) return null;
+  const fraction = match[3] ?? match[4] ?? "";
+  const digits = ((match[2] ?? "") + fraction).replace(/^0+/, "");
+  // Both signed zeros and all exponent spellings of zero are equivalent.
+  if (digits === "") return "0";
+  const coefficient = digits.replace(/0+$/, "");
+  const exponent = BigInt(match[5] ?? "0") - BigInt(fraction.length) + BigInt(digits.length - coefficient.length);
+  return `${match[1] === "-" ? "-" : ""}${coefficient}e${exponent}`;
+}
+
+/** Equal after trimming; exact numeric values when both are admitted numbers. */
 function sameFact(a: string, b: string): boolean {
   const x = a.trim();
   const y = b.trim();
-  if (x !== "" && y !== "" && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) return Number(x) === Number(y);
+  const exactX = exactFactNumber(x);
+  const exactY = exactFactNumber(y);
+  if (exactX !== null && exactY !== null) return exactX === exactY;
   return x === y;
 }
 
