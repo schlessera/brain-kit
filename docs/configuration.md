@@ -795,13 +795,19 @@ asking for the rest of that run.
 
 ### Merge strategies
 
+`brain sync group` groups exact root `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`
+as configuration. Same-named nested files keep their taxonomy grouping and
+content/index membership; the root-relative content exclusions are unchanged.
+
 `brain sync resolve` (and `brain sync run`) picks one strategy for each
 conflicted file. The first match wins:
 
 1. A derived cache (`.context-cache.jsonl`, `.asset-cache.jsonl`) is
    `cache-union`. `brain sync pull` has already unioned it.
-2. A file that is not markdown, and `CLAUDE.md` or `AGENTS.md`, is
-   `code-merge`.
+2. A file that is not markdown, or whose exact basename is `CLAUDE.md`,
+   `AGENTS.md` or `GEMINI.md` at any depth, is `code-merge`. Conflicted
+   instructions and their Git index stages stay intact for agent/person
+   judgment. No instruction synthesis or remote-copy resolution occurs.
 3. The document's type sets `mergeStrategy`. The type is the one its
    frontmatter `type` names (ours, then theirs, then base), else the type
    whose directory holds the file.
@@ -818,6 +824,9 @@ conflicted file. The first match wins:
 | `latest-wins-additive` | Per section, the side with the later `updated`; a section either side added is kept. |
 | `code-merge` | Not merged by rule. Left in conflict for the agent. |
 | `cache-union` | Handled by `brain sync pull`, never by `resolve`. |
+
+Instruction filename matching is case-sensitive; ordinary notes and near-match
+filenames keep their existing strategies. Clean Git line merges are unchanged.
 
 Every strategy merges frontmatter the same way: a field only one side changed
 takes that side; when both changed it, `updated` is the later date, `created`
