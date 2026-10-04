@@ -49,7 +49,7 @@ export interface SearchResult {
   relevance: string;
   status: string;
   summary: string | null;
-  tags: string;
+  tags: string | null;
   updated?: string;
   deadline?: string | null;
   /** The source a generated document is produced from (`generated_from`), or null. */

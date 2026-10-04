@@ -147,6 +147,14 @@ function probeSource(manifest: Manifest): string {
  type Sync = Assert<Equal<Awaited<ReturnType<BrainApi["brainSync"]>>, { success: boolean; message: string }>>;
 `);
   }
+  if (manifest.name === "@schlessera/brain") {
+    lines.push(`import type { SearchResult, RerankCandidate } from "@schlessera/brain";
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type SearchTags = Assert<Equal<SearchResult["tags"], string | null>>;
+type CandidateTags = Assert<Equal<RerankCandidate["tags"], string | null | undefined>>;`);
+  }
   return lines.join("\n") + "\n";
 }
 

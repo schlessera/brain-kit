@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,33 +26,51 @@ let host: HTMLElement | undefined;
 let style: HTMLStyleElement | undefined;
 let previousOverflow: string | undefined;
 let previousTheme: string | undefined;
+let previousBodyOverflow: string;
+let previousMotion: "reduce" | "no-preference";
 let touchEnabled = false;
-let frameBefore: { width: number; height: number };
-let outerBefore: { width: number; height: number };
-afterEach(async () => {
-  if (renderer) flushSync(() => renderer!.unmount());
-  ui?.dispose();
-  host?.remove();
-  style?.remove();
-  renderer = undefined; ui = undefined; host = undefined; style = undefined;
-  vi.unstubAllGlobals();
-  if (previousOverflow !== undefined) document.body.style.overflow = previousOverflow;
-  if (previousTheme === undefined) delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = previousTheme;
-  if (touchEnabled) await commands.dictationPointer(false);
-  touchEnabled = false;
-  await commands.dictationMotion("no-preference");
-  if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height);
-  if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
+let frameBefore: { width: number; height: number } | undefined;
+let outerBefore: { width: number; height: number } | undefined;
+beforeEach(() => {
+  frameBefore = { width: innerWidth, height: innerHeight };
+  previousTheme = document.documentElement.dataset.theme;
+  previousBodyOverflow = document.body.style.overflow;
+  previousMotion = matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference";
 });
 
+async function cleanup() {
+  try { if (renderer) flushSync(() => renderer!.unmount()); }
+  finally {
+    try { ui?.dispose(); }
+    finally {
+      host?.remove(); style?.remove();
+      renderer = undefined; ui = undefined; host = undefined; style = undefined;
+      vi.unstubAllGlobals();
+      document.body.style.overflow = previousBodyOverflow;
+      if (previousTheme === undefined) delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = previousTheme;
+      try { if (touchEnabled) await commands.dictationPointer(false); }
+      finally {
+        touchEnabled = false;
+        try { await commands.dictationMotion(previousMotion); }
+        finally {
+          try { if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height); }
+          finally {
+            try { if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120); }
+            finally { frameBefore = undefined; outerBefore = undefined; }
+          }
+        }
+      }
+    }
+  }
+}
+afterEach(cleanup);
+
 async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "precompiled" | "theme" = "precompiled") {
-  frameBefore = { width: innerWidth, height: innerHeight };
+  previousOverflow = document.body.style.overflow;
   outerBefore = await commands.formViewport(width, height);
   await page.viewport(width, height);
-  previousTheme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = theme;
-  previousOverflow = document.body.style.overflow;
   style = document.createElement("style");
   style.textContent = cssEntry === "theme" ? await commands.dictationThemeStyles() : await commands.formConsumerStyles();
   document.head.append(style);
@@ -394,11 +412,38 @@ test("dictation desktop error: existing error replaces disclosure and controls s
   expect(document.body.style.overflow).toBe(previousOverflow);
 });
 
-// Touch cases run last: Chromium changes its primary pointer to none when
-// touch emulation is disabled. This test page/context is disposed by Vitest.
+// The intentional renderer failure must not prevent later real-browser cleanup.
+// This and the incumbent touch cases stay after every fine-pointer case.
+test("dictation cleanup: renderer failure still releases touch, motion and document state", async () => {
+  expect(matchMedia("(any-pointer: fine)").matches).toBe(true);
+  const before = { width: innerWidth, height: innerHeight, overflow: document.body.style.overflow,
+    theme: document.documentElement.dataset.theme, reduce: matchMedia("(prefers-reduced-motion: reduce)").matches };
+  touchEnabled = true;
+  await commands.dictationPointer(true);
+  expect(matchMedia("(any-pointer: fine)").matches).toBe(false);
+  expect(matchMedia("(pointer: coarse)").matches).toBe(true);
+  await commands.dictationMotion(before.reduce ? "no-preference" : "reduce");
+  const { listen } = await mount(320); await listen();
+  const mountedHost = host!, mountedStyle = style!, root = renderer!;
+  const unmount = root.unmount.bind(root);
+  root.unmount = () => { unmount(); throw new Error("intentional renderer cleanup failure"); };
+  await expect(cleanup()).rejects.toThrow("intentional renderer cleanup failure");
+  expect(mountedHost.isConnected).toBe(false); expect(mountedStyle.isConnected).toBe(false);
+  expect(document.body.style.overflow).toBe(before.overflow);
+  expect(document.documentElement.dataset.theme).toBe(before.theme);
+  expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(before.reduce);
+  expect({ width: innerWidth, height: innerHeight }).toEqual({ width: before.width, height: before.height });
+  expect(matchMedia("(pointer: coarse)").matches, "touch input is released even when unmount throws").toBe(false);
+  console.info("dictation failure cleanup pointer", {
+    fine: matchMedia("(any-pointer: fine)").matches, coarse: matchMedia("(pointer: coarse)").matches,
+  });
+});
+
+// Chromium may leave pointer:none after touch is disabled. The complete file
+// belongs to the dictation-only project; no successor kit file uses this page.
 for (const action of ["Done", "mic", "Cancel"] as const) {
   test(`dictation wide touch-only: ${action} has a real 44px touch target`, async () => {
-    await commands.dictationPointer(true); touchEnabled = true;
+    touchEnabled = true; await commands.dictationPointer(true);
     const { client, listen, mic } = await mount(); await listen();
     expect(matchMedia("(any-pointer: fine)").matches).toBe(false);
     expect(matchMedia("(pointer: coarse)").matches).toBe(true);

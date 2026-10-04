@@ -951,39 +951,88 @@ produces exactly one executable item
 
 ### U9. Escalation notifications (ui-server)
 
-**Goal:** One push for three decisions, deep-linked, quiet-hours aware.
+**Goal:** Counted Action notices with client-local timing and durable episode/device
+coverage, deep-linked into the existing Actions destination.
 
-**Requirements:** R50 (origin R50); AE14
+**Requirements:** R50 (origin R50), F9/R13; AE14. The
+[2026-10-02 Action notification decision](../decisions/action-notifications.md)
+records the selected policy, alternatives and complete verification examples.
 
-**Dependencies:** U7
+**Dependencies:** U7; the full-autonomous enablement gate remains binding.
 
 **Files:**
-- Create: `packages/ui-server/migrations/<next>_inbox_notifications.sql`
+- Create: `packages/ui-server/migrations/<next>_inbox_notifications.sql`, using the
+  next unused migration for authoritative operational records
 - Modify: `packages/ui-server/src/activity/notify.ts`,
-  `packages/ui-server/src/activity/push-sender.ts`
-- Test: `packages/ui-server/tests/inbox-notify.test.ts`
+  `packages/ui-server/src/activity/push-sender.ts`, the existing digest/registration
+  integration and authenticated client-zone metadata lifecycle
+- Modify: `packages/ui-react/src/lib/push-registration.ts` and client reconnect,
+  foreground and detected-zone-change refresh paths
+- Test: `packages/ui-server/tests/inbox-notify.test.ts` and relevant client lifecycle
+  tests; retain operational export/restore and restart coverage
 
 **Approach:**
-- `notification_intents` cannot carry this as shaped: `kind` is CHECK-constrained to
-  `failure|completion|stuck`, `run_id` is required, coalescing drops a later same-tag intent
-  without updating a count, and the sender emits one push per pending row
-- Add an Actions-aware **aggregate row**: group key, count, max priority, quiet-hours
-  eligibility, Actions deep link. Reuse subscriptions, retry budget, and delivery status
-- Define explicitly: the coalescing window, how the count updates after send, what a later
-  arrival does (new aggregate vs. amend), and which component intents count as delivered
-
-**Patterns to follow:** the retry-budget/backoff discipline added in `009_activity_followups`
+- Existing activity intents cannot carry this as shaped: their kind is constrained to
+  `failure|completion|stuck`, they require `run_id`, same-tag coalescing drops rather
+  than counts a later intent, and delivery history is not Action episode/device history
+- Reuse concrete subscriptions, principal authorization/revocation, bounded backoff and
+  the existing Actions/in-app digest destinations. Add Actions-aware aggregate,
+  constituent episode, per-destination attempt/known-success and client-context coverage
+  records; no new channel, seam or daemon
+- First eligibility starts a fixed 60,000 ms window. Later arrivals join without moving
+  its deadline; arrivals after dispatch start another aggregate. Group across threads by
+  recipient principal + existing channel + delivery class, retaining constituent threads
+- Push otherwise eligible pending approve/choose decisions at score >=12 using the
+  existing formula and zero Action attempts. Keep lower-priority work and FYIs
+  digest-only, with no piggyback into a push; Actions are immediately available
+- Validate/persist each client's local IANA zone under authenticated client/destination
+  ownership; refresh registration/rebind, reconnect, foreground and zone changes.
+  Missing usable metadata leaves new timed notices visibly pending for refresh, with
+  no server-zone fallback. Inactive clients have only their last reported zone
+- Evaluate each destination independently: strict quiet hours [22:00, 08:00), no
+  deadline exception, at every attempt/retry; in-app digest refreshes 09:00 and 17:00.
+  Persist UTC instants and retain server clocks for leases/retries/authority. Budget-day
+  and snooze zone rules and global activity coverage/retention remain unchanged
+- Digest B includes only unreported eligible below-cutoff pending episodes in the current
+  client context. New pending Actions and explicit snooze reactivation start episodes;
+  clocks/version/retry/restart do not. FYIs are separate new-only updates under F9/R13
+- Recompute current state/score/authority/counts transactionally for digest selection and
+  every device attempt. Preserve the payload/count actually submitted in immutable
+  history. Consolidate only due unsent deferred constituents after each device's quiet
+  interval, keeping original window deadlines; not-yet-due work waits
+- At most one known successful push submission per episode/destination; first push after
+  later promotion to 12 remains possible after digest inclusion. No recurring unresolved
+  push reminders. Retry only components without known success, within bounded backoff,
+  rechecking quiet status/current eligibility/authority. Distinguish ambiguous outcomes
+  from known success and submission from display/read
+- Store one current catch-up summary after missed generations. Atomically commit durable
+  client-context episode/FYI coverage with it; failures/races cannot consume unreported
+  work without a result. Include older unreported eligible waiting work without copying
+  the activity digest's first-run 24-hour window
 
 **Test scenarios:**
-- Covers AE14: three escalations inside the window → one push reading "3 actions waiting" with
-  a working deep link; a fourth after the window follows the stated later-arrival rule
-- Edge: below-threshold priority never pushes and appears only in the digest
-- Edge: quiet hours defer rather than drop
-- Edge: send failure retries within budget and does not resend the already-delivered
-  components
+- 0/20/50-second same/cross-thread arrivals count three at 60 seconds; post-dispatch
+  arrivals start a new window; no principal/class mixing. Exercise actual score 11/12
+  and the selected 8/10/12 examples; FYIs never enter the waiting count
+- 22:00/08:00 boundaries, overnight deadline without exception, window crossing 22:00,
+  and due-only 08:00 consolidation after one decision resolves. A 07:59:45 arrival
+  waits until 08:00:45
+- Two client zones, offset/day changes, missing/invalid/refreshed zones, client clock
+  skew, authenticated rebind/revocation, and every named lifecycle refresh path
+- 09:00 coverage omits unchanged episodes at 17:00; new 10:00 work appears then.
+  Snooze reactivation creates an episode. Older unreported work survives missed
+  generations/first run; atomic coverage survives generation failure/races and restart
+- Partial-device success freezes earlier history; retry only remaining unsent current
+  constituents. Promotion after digest permits a first push, not a reminder; retry,
+  restart and version changes never create episodes. Preserve export/restore state
 
-**Verification:** notify suite green; a real push on a registered device shows the aggregate
-text and deep-links into Actions
+**Verification:** real notifier/sender with local captured transport, multiple authorized
+subscriptions and controlled clocks; mutations fail their intended aggregation, zone,
+current-state/authority, receipt/retry and atomic-coverage assertions. The decision's
+complete examples bind these checks. A separately authorized registered-device push
+check must show the count and working Actions deep link; submission alone is not display
+or read proof. Recording the policy supplies neither runtime nor live-device evidence
+and never enables autonomy.
 
 ---
 
@@ -1417,3 +1466,16 @@ the scorer/judge coverage; do not file a second harness implementation
 - Related: [`../decisions/agent-observability.md`](../decisions/agent-observability.md) (the layer this
   builds on), [`../decisions/cost-tracking.md`](../decisions/cost-tracking.md) (the accounting this
   enforces against)
+
+## U10 architecture clarification — 2026-10-02
+
+[The all-writer decision](../decisions/policy-write-boundary.md) records the
+subsequently approved worker, editing/application and supported-host choices
+requested by U10. Both first-party adapters must enter isolation before SDK or
+extension initialization, with read-only authoritative brain views and separate
+scratch. Ordinary shell/extension changes require explicit bounded server
+application; permitted interactive edits use existing approvals. Only verified
+Linux and qualifying WSL2 backend profiles may run, with visible pre-initialization
+refusal otherwise. U10's executable proof and U15's separate complete containment
+gate remain required. No runtime or autonomous enablement follows from this
+documentation ruling.
