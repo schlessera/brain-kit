@@ -3,7 +3,7 @@
  * first match wins.
  *
  * 1. a derived cache → `cache-union` (pull already unions them);
- * 2. not markdown, or `CLAUDE.md` / `AGENTS.md` → `code-merge`;
+ * 2. not markdown, or `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` → `code-merge`;
  * 3. its taxonomy type sets `mergeStrategy` → that;
  * 4. an `_index.md` → `table-union`;
  * 5. any side has a `Timeline` heading → `timeline-append`;
@@ -25,7 +25,7 @@ export interface MergeSides {
   theirs: string | null;
 }
 
-const CODE_MARKDOWN = new Set(["CLAUDE.md", "AGENTS.md"]);
+const CODE_MARKDOWN = new Set(["CLAUDE.md", "AGENTS.md", "GEMINI.md"]);
 
 /**
  * The file's taxonomy type: the `type` its frontmatter declares (OURS, then
