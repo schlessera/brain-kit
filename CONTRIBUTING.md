@@ -221,9 +221,15 @@ before `bun install` stays dependency-free.
 
 ## Contract checks
 
+CI runs on Depot CI from `.depot/workflows/`, including the contract gate
+below. These are the authoritative workflows; update them directly when
+adding or changing a check. See [AGENTS.md](AGENTS.md#depot-ci) for commands
+to find a PR's runs, diagnose failures, export logs and download artifacts.
+Project-board sync stays on GitHub Actions to retain issue-event triggers.
+
 Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 
-**The contract gate** (`.github/workflows/contract.yml`, rule in
+**The contract gate** (`.depot/workflows/contract.yml`, rule in
 `scripts/check-contract-pr.ts`) runs on every pull request and again whenever
 its title or labels change. A PR whose diff touches
 `docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`

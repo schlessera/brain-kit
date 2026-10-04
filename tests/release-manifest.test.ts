@@ -63,7 +63,7 @@ function packageNameOf(specifier: string): string {
   return specifier.split("/").slice(0, 2).join("/");
 }
 
-const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+const CI_YML = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
 
 /** The `for package in \ ... do` loop the pack job drives. */
 function ciPackLoop(): string[] {
@@ -146,7 +146,7 @@ describe("release manifests", () => {
     expect(uiServer.manifest.bin?.["brain-ui-inbox"]).toBe("./dist/bin/brain-ui-inbox.js");
     const source = readFileSync(join(PACKAGES_DIR, uiServer.dir, "src/bin/brain-ui-inbox.ts"), "utf8");
     expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
-    const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    const workflow = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
     expect(workflow).toContain("bun scripts/check-inbox-package.ts --root");
   });
 
@@ -169,7 +169,7 @@ describe("release manifests", () => {
     const subcommands = [...usage.matchAll(/brain-ui-cron (\w+)/g)].map((m) => m[1]);
     expect(subcommands.length).toBeGreaterThan(1);
 
-    const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+    const workflow = readFileSync(join(ROOT, ".depot", "workflows", "ci.yml"), "utf8");
     const smokeTest = workflow.slice(workflow.indexOf("CRON_USAGE="));
     expect(smokeTest).not.toBe("");
     for (const sub of subcommands) {
