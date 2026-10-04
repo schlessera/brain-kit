@@ -1,8 +1,11 @@
 # brain-kit Integration Contract
 
-The machine-readable surface other systems (primarily **brain-ui**) may depend
-on. Anything NOT listed here is an internal implementation detail and can
-change without notice. Contract changes require a `CONTRACT:` commit prefix and a
+The machine-readable surface and deliberately supported user inputs other
+systems and brain owners may depend on. The [supported-input policy](supported-inputs.md)
+includes brain configuration, documented environment inputs, per-module JSON
+settings and canonical module content, with field references delegated to their
+owners. Internal implementation details outside these listed or delegated
+promises may change without notice. Contract changes require a `CONTRACT:` commit prefix and a
 same-commit update of this file. How they are versioned:
 
 - **Additive** — a new field, a new optional input, a new tool, a
