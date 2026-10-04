@@ -29,7 +29,7 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # all six kit projects, in the container
+ *   node scripts/visual.mjs                    # all seven kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
  *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
  *   node scripts/visual.mjs --update           # rewrite the baselines
@@ -59,7 +59,7 @@ const shardArg = argv.find((a) => a.startsWith("--shard="));
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });

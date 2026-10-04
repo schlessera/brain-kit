@@ -12,9 +12,10 @@ export const dictationPointer: BrowserCommand<[boolean]> = async (ctx, touch) =>
     sessions.set(ctx.page, session);
   }
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: touch, maxTouchPoints: 1 });
-  // Detaching resets Chromium to pointer:none. The page owns the session;
-  // disabling emulation releases the injected touch input. Vitest disposes
-  // this page/context after its final touch cases.
+  // Disabling emulation releases touch input but does not restore a fine
+  // pointer; detaching also leaves pointer:none. The dictation-only project
+  // owns this page/session until its provider closes. Never use this command
+  // on the shared visual project's page.
 };
 
 declare module "vitest/browser" {

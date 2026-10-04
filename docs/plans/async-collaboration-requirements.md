@@ -389,8 +389,30 @@ Stated before the requirements because five of them derive from it.
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`), and the sender emits one push per
   pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
-  eligibility, and an Actions deep link. Define the coalescing window, how the count updates
-  after send, what a later arrival does, and which component intents count as delivered.
+  eligibility, and an Actions deep link. The
+  [2026-10-02 Action notification decision](../decisions/action-notifications.md)
+  selects a fixed 60,000 ms window from first eligibility, cross-thread grouping by
+  recipient principal + existing channel + delivery class, inclusive push cutoff 12
+  with the existing score/zero Action attempts, and immediately visible Actions.
+  Strict quiet hours [22:00, 08:00) and in-app digest refreshes 09:00 and 17:00 use each
+  client's validated, last reported IANA zone under authenticated ownership/refresh;
+  missing usable metadata leaves new timed notices pending, without server-zone fallback.
+  Digest B reports only unreported eligible lower-priority waiting episodes in that
+  client context. New pending Actions and explicit snooze reactivation start episodes;
+  clocks, ordinary version changes, retries and restart do not. FYIs remain separate
+  new-only digest updates under F9/R13 and their existing validity/retention rules,
+  never waiting-count constituents. Recompute state/score/authority and counts
+  transactionally for each selection/attempt; retain constituent episodes and immutable
+  per-destination attempts/known-success receipts. Consolidate only due unsent deferred
+  work after each destination's quiet interval, preserving original deadlines. A later
+  score promotion may receive its first push after digest inclusion; unresolved work
+  alone causes no repeat push. Retry only components without known success, using
+  bounded backoff and current checks. One current catch-up summary atomically commits
+  durable client-context episode/FYI coverage without a first-run 24-hour loss. Keep
+  global activity coverage/retention and budget/snooze timing independent and unchanged.
+  Provider acceptance is not display/read proof; ambiguous outcomes are distinct from
+  known success. The decision's timing, two-zone, partial-device and restart examples
+  bind implementation verification; this requirement is not delivery evidence.
 - R51. `resolve_action` is a defined tool (schema, idempotency, authorization, session-to-
   action binding), not a name mentioned in a flow.
 - R52. The agent reads its queues through `mcp__brain-ui__inbox_*`, alongside
