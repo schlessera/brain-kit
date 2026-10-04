@@ -508,7 +508,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "VOICE_PROVIDER",
     description:
-      'Speech provider: "deepgram" or "webspeech" (opt-in only — Chromium streams audio to Google). Unset auto-detects deepgram when its key is present.',
+      'Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present.',
     default: "(auto-detect)",
     required: false,
   },

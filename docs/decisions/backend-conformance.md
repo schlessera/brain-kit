@@ -26,9 +26,9 @@ explains why both fields and both request kinds exist.
 ## The executable baseline
 
 The shared published suite exercises these restrictions for every backend
-(`runBackendContract`, `packages/ui-sdk/src/testing/index.ts:183-291`). A
+(`runBackendContract`, `packages/ui-sdk/src/testing/index.ts:189-297`). A
 required runtime probe observes acquisition, attempted tools and the actual
-tool-body effect (`PermissionProbe`, `packages/ui-sdk/src/testing/index.ts:57-66`).
+tool-body effect (`PermissionProbe`, `packages/ui-sdk/src/testing/index.ts:63-72`).
 Denial and approval use the same tool body: an allowing host must make the
 effect observable, so an empty or permanently disabled script cannot prove
 that denial prevented execution. A runtime-shortcut scenario tests the
@@ -46,7 +46,7 @@ of an upstream runtime's permission precedence.
 The descriptor suite parses a nonempty valid profile roster and resolves it
 through `defineBackendModule`, preserving the declared profile ids under
 default and disabled confirmation-pattern settings
-(`runBackendModuleContract`, `packages/ui-sdk/src/testing/index.ts:114-151`).
+(`runBackendModuleContract`, `packages/ui-sdk/src/testing/index.ts:120-157`).
 It also checks typed invalid-JSON errors and occupied-id collisions.
 
 ## Alternatives rejected

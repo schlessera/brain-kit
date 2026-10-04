@@ -5,6 +5,7 @@ import type {
   VoiceSessionResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { VoiceConfig } from "../config/env.js";
+import type { SpeechProvider, SpeechSession } from "@schlessera/brain-ui-sdk/server";
 import { mintDeepgramToken } from "../voice/deepgram-token.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
 import { pickSpeechProvider } from "../voice/speech-providers.js";
@@ -12,27 +13,31 @@ import { pickSpeechProvider } from "../voice/speech-providers.js";
 export interface VoiceRoutesDeps {
   voice: VoiceConfig;
   keyterms: KeytermSettings;
+  speechProvider?: SpeechProvider;
 }
 
 export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono {
-  const { voice, keyterms } = deps;
+  const { voice, keyterms, speechProvider } = deps;
 
   return new Hono()
     .post("/voice/session", async (c) => {
       try {
-        const provider = pickSpeechProvider(voice);
+        const provider = pickSpeechProvider(voice, speechProvider);
+        const providerId = provider.id;
+        const capabilities = { ...provider.capabilities };
         // Only fetch domain keyterms when the provider can use them.
-        const terms = provider.capabilities.keyterms
+        const terms = capabilities.keyterms
           ? getKeyterms(keyterms, false).keyterms
           : [];
         const session = await provider.createSession({ keyterms: terms });
+        assertSpeechSession(session);
         const body: VoiceSessionResponse = {
-          providerId: provider.id,
+          providerId,
           url: session.url,
           ...(session.token !== undefined ? { token: session.token } : {}),
           ...(session.params !== undefined ? { params: session.params } : {}),
           expiresAt: session.expiresAt,
-          capabilities: provider.capabilities,
+          capabilities,
         };
         return c.json(body);
       } catch (err) {
@@ -87,4 +92,22 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono {
         );
       }
     });
+}
+
+/** Local/browser sessions may use an empty URL and zero expiry. */
+function assertSpeechSession(session: SpeechSession): void {
+  const invalid = (field: string): never => { throw new Error(`Invalid SpeechSession: ${field}.`); };
+  if (!session || typeof session !== "object") invalid("expected an object");
+  if (typeof session.url !== "string") invalid("url must be a string");
+  if (typeof session.expiresAt !== "number" || !Number.isFinite(session.expiresAt) || session.expiresAt < 0) {
+    invalid("expiresAt must be a finite nonnegative number");
+  }
+  if (session.token !== undefined && typeof session.token !== "string") invalid("token must be a string when supplied");
+  if (session.params !== undefined) {
+    if (!session.params || typeof session.params !== "object" || Array.isArray(session.params) ||
+        ![Object.prototype, null].includes(Object.getPrototypeOf(session.params)) ||
+        Object.values(session.params).some((value) => typeof value !== "string")) {
+      invalid("params must be a string record when supplied");
+    }
+  }
 }

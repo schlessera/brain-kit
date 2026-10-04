@@ -347,7 +347,7 @@ under the [service terms](../geo/README.md#configuration).
 | `TYPESAFE_API_KEY` | TypeSafe AI key for the classification pass that draws markdown the model typed as kit blocks (D42). Absent = pass disabled; the answer renders as markdown either way. | — |
 | `VOICE_CACHE_DIR` | Directory holding the keyterm cache JSON. | $BRAIN_PATH/.brain-ui |
 | `VOICE_KEYTERM_LIMIT` | Maximum custom-vocabulary terms built from the brain database. | 500 |
-| `VOICE_PROVIDER` | Speech provider: "deepgram" or "webspeech" (opt-in only — Chromium streams audio to Google). Unset auto-detects deepgram when its key is present. | (auto-detect) |
+| `VOICE_PROVIDER` | Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present. | (auto-detect) |
 | `WEBAUTHN_ORIGINS` | Comma-separated extra origins allowed for WebAuthn ceremonies. | (empty) |
 | `WEBAUTHN_RP_ID` | Relying-party id override for proxies that rewrite Host. | (derived from the request origin) |
 | `WEBAUTHN_RP_NAME` | Relying-party display name shown by authenticators. | Brain UI |

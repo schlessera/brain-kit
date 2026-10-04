@@ -25,6 +25,12 @@ import type { AgentBackend, BackendActivityEvent, BackendBridge, PermissionReque
 import { BackendBusyError, BackendRequestError } from "../server/backend.js";
 import { defineBackendModule, type BackendModule, type BackendModuleContext } from "../server/backend-module.js";
 
+export { runSpeechProviderContract, runAsrClientContract } from "./speech-contract.js";
+export type {
+  SpeechProviderContractProbe, SpeechProviderContractHarness,
+  AsrClientContractProbe, AsrClientContractHarness,
+} from "./speech-contract.js";
+
 interface ContractMatchers {
   toBe(expected: unknown): void;
   toEqual(expected: unknown): void;

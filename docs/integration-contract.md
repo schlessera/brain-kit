@@ -2339,7 +2339,7 @@ These ten seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
 own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
-`SpeechSession`, `AsrClientOptions`, `AdapterResult`, `ScrapeContext`,
+`SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `AdapterResult`, `ScrapeContext`,
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
 `AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
@@ -2367,6 +2367,51 @@ compatibility guarantees follow the contract-versioning rules above.
 
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
+
+### Dictation speech integration and conformance
+
+The [speech stability ruling](https://github.com/schlessera/brain-kit/issues/347#issuecomment-5866348379)
+selects `SpeechProvider` and `AsrClient`, including their reachable authoring
+types, for stability at the actual 1.0 transition. They remain experimental
+before that transition. The [decision](decisions/dictation-speech.md) preserves
+dictation's current meaning beside the separately registered future live
+conversation interface; no TTS or speech-side tool/permission authority is added.
+
+`CreateAppOptions.speechProvider?: SpeechProvider` in
+`@schlessera/brain-ui-server` accepts an implementation by value. It takes
+precedence over automatic Deepgram discovery; an explicit
+`config.voice.provider` must equal the supplied id. Without a value, existing
+built-in rules remain, including opt-in browser speech and failure when no
+provider is configured. The mounted protected `POST /api/voice/session` uses
+the supplied implementation. It validates a nonempty trimmed lowercase id,
+four boolean capabilities and callable `createSession` before invoking it.
+The returned `SpeechSession` has a string URL, finite nonnegative expiry,
+optional string token and optional string-record params. Empty URL/zero expiry
+remain supported for browser/local sessions. Validation, mismatch and provider
+failures return the existing 500 `{ error }` envelope without fallback.
+The deprecated token route remains Deepgram-specific.
+
+The route builds keyterms only when supported, snapshots provider identity and
+capabilities, and publishes `VoiceSessionResponse` with connection material.
+The client's matching `AsrClientFactory` receives that whole session through
+an `AsrClientRegistry`; UI applications register on their root's `asr` before
+mounting. Unknown ids throw rather than select another client. External ids
+should be distinct from the UI's installed built-in factories. A provider using
+a built-in id must remain compatible with that built-in client's protocol.
+`AsrClientOptions`, `AsrEvent`/`AsrPartial`/`AsrFinal`, `VoiceSessionResponse`,
+`SpeechCapabilities` and `SpeechSession` remain reachable public authoring
+types. The signature inventory includes the client factory and registry.
+
+`runSpeechProviderContract` and `runAsrClientContract` are published from
+`@schlessera/brain-ui-sdk/testing` with their probe/harness types and the
+existing injected `ContractTestPrimitives`. Keyless probes exercise actual
+session transports and capture/recognizer state: complete shapes, supported
+nonempty keyterms, provider failures, transcript/error callbacks, hard stop,
+and a buffered final delivered before graceful drain resolves and capture
+closes. These suites are the conformance floor; an adapter must also cover
+its protocol-specific authentication, capture and failure behavior. The
+[authoring guide](extending/speech.md) supplies complete public server/client
+examples and points to executable harnesses and real route/Chrome integration.
 
 ### SiteAdapter conformance and migration
 

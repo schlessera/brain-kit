@@ -1443,14 +1443,20 @@ export "./sw-policy" (./src/client/sw-policy.ts)
 
 export "./testing" (./src/testing/index.ts)
   API_FAILURE_DETAIL
+  type AsrClientContractHarness
+  type AsrClientContractProbe
   type BackendContractHarness
   type BackendModuleContractHarness
   type ContractTestPrimitives
   type PermissionProbe
   type PermissionScenario
+  type SpeechProviderContractHarness
+  type SpeechProviderContractProbe
   type TurnScript
+  runAsrClientContract
   runBackendContract
   runBackendModuleContract
+  runSpeechProviderContract
 
 export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_CONTRACT
@@ -1834,6 +1840,33 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         start(): Promise<void>;
         stop(): void;
         drainAndStop(): Promise<void>;
+    }
+  AsrClientFactory (packages/ui-sdk/src/client/asr.ts)
+    export type AsrClientFactory = (opts: AsrClientOptions) => AsrClient;
+  AsrClientOptions (packages/ui-sdk/src/client/asr.ts)
+    export interface AsrClientOptions {
+        session: VoiceSessionResponse;
+        onEvent: (event: AsrEvent) => void;
+        onError: (error: Error) => void;
+    }
+  AsrClientRegistry (packages/ui-sdk/src/client/asr.ts)
+    export interface AsrClientRegistry {
+        register: (providerId: string, factory: AsrClientFactory) => void;
+        create: (opts: AsrClientOptions) => AsrClient;
+        reset: () => void;
+    }
+  AsrEvent (packages/ui-sdk/src/protocol.ts)
+    export type AsrEvent = AsrPartial | AsrFinal;
+  AsrFinal (packages/ui-sdk/src/protocol.ts)
+    export interface AsrFinal {
+        type: "final";
+        text: string;
+        endsTurn: boolean;
+    }
+  AsrPartial (packages/ui-sdk/src/protocol.ts)
+    export interface AsrPartial {
+        type: "partial";
+        text: string;
     }
   AutonomousTurnOptions (packages/ui-sdk/src/server/backend.ts)
     export interface AutonomousTurnOptions {
@@ -3088,6 +3121,15 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   TurnUsage (packages/ui-sdk/src/protocol.ts)
     export interface TurnUsage extends ModelUsage {
         perModel?: Record<string, ModelUsage>;
+    }
+  VoiceSessionResponse (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceSessionResponse {
+        providerId: string;
+        url: string;
+        token?: string;
+        params?: Record<string, string>;
+        expiresAt: number;
+        capabilities: SpeechCapabilities;
     }
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;

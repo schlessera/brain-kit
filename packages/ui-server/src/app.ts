@@ -71,7 +71,7 @@ import {
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
-import type { BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
+import type { BackendVersionRequirements, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
@@ -123,6 +123,13 @@ export interface CreateAppOptions {
    * the route answers 501.
    */
   renderer?: AppRenderer;
+  /**
+   * External dictation provider, used ahead of automatic built-in discovery.
+   * An explicit config.voice.provider must match its id; failures never select
+   * another provider. Register a matching AsrClient in the client UI root.
+   * @experimental Part of the SpeechProvider seam until 1.0.
+   */
+  speechProvider?: SpeechProvider;
   /** Per-turn timeout in ms (default 10 minutes). */
   turnTimeoutMs?: number;
   /** Backend registry override (tests/embedders); default is built from config. */
@@ -509,7 +516,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender }));
-  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms }));
+  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })

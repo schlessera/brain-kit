@@ -8,7 +8,9 @@
  *                 work, so it returns empty url/token.
  *
  * VOICE_PROVIDER selects the provider; default is deepgram when
- * DEEPGRAM_API_KEY is set, else webspeech. Both arrive here as the resolved
+ * DEEPGRAM_API_KEY is set, otherwise selection fails. An external value takes
+ * precedence over auto-detection and must match an explicit VOICE_PROVIDER.
+ * Both arrive here as the resolved
  * {@link VoiceConfig} — this module reads no environment.
  */
 
@@ -91,8 +93,15 @@ export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
  * Deepgram key goes missing. Every other unresolved case throws so the caller
  * 500s loudly instead of quietly degrading to third-party egress.
  */
-export function pickSpeechProvider(voice: VoiceConfig): SpeechProvider {
+export function pickSpeechProvider(voice: VoiceConfig, supplied?: SpeechProvider): SpeechProvider {
   const configured = voice.provider;
+  if (supplied !== undefined) {
+    assertSpeechProvider(supplied);
+    if (configured && configured !== supplied.id) {
+      throw new Error(`VOICE_PROVIDER="${configured}" does not match supplied SpeechProvider "${supplied.id}".`);
+    }
+    return supplied;
+  }
   if (configured === "webspeech") return webspeechSpeechProvider;
   if (configured === "deepgram") {
     if (!voice.deepgramApiKey) {
@@ -112,4 +121,20 @@ export function pickSpeechProvider(voice: VoiceConfig): SpeechProvider {
       'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +
       "(which streams audio to Google on Chromium)."
   );
+}
+
+/** Validate a by-value implementation before invoking it or building keyterms. */
+function assertSpeechProvider(provider: SpeechProvider): void {
+  if (!provider || typeof provider !== "object" || typeof provider.id !== "string" ||
+      !provider.id || provider.id !== provider.id.trim().toLowerCase()) {
+    throw new Error("Invalid SpeechProvider: id must be a nonempty, trimmed, lowercase string.");
+  }
+  for (const capability of ["streaming", "interimResults", "keyterms", "endpointing"] as const) {
+    if (typeof provider.capabilities?.[capability] !== "boolean") {
+      throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.${capability} must be boolean.`);
+    }
+  }
+  if (typeof provider.createSession !== "function") {
+    throw new Error(`Invalid SpeechProvider "${provider.id}": createSession must be a function.`);
+  }
 }

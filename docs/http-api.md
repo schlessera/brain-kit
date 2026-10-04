@@ -597,7 +597,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 
 | Supported operation | Inputs/defaults | Success | Errors and behavior |
 | --- | --- | --- | --- |
-| POST `/api/voice/session` | No inputs; configured active speech provider | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing) | 500 `{ error }` for unavailable provider/minting. Keyterms are included only when supported by the provider; browser/local sessions can omit token. |
+| POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
 | GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure. |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
