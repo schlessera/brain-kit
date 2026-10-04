@@ -413,3 +413,25 @@ test.each(["export", "restore-image", "staging", "reconcile", "committed"])("SIG
     for (const file of snapshot.files) expect(hash(readFileSync(join(target, SHARE_STAGING_DIR, file.path)))).toBe(file.sha256);
   }
 });
+
+
+test("recovery export CLI waits for a short exclusive database lock", async () => {
+  const root = directory(), path = join(root, "ui.sqlite"), output = join(root, "backup.json"), db = connect(path);
+  db.query("INSERT INTO inbox_scheduler_heartbeats VALUES ('Odysseus', ?, 7)").run(AT);
+  db.exec("PRAGMA journal_mode = DELETE; BEGIN EXCLUSIVE");
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/bin/brain-ui-inbox.ts"),
+    "export", "--db", path, "--brain-root", root, "--file", output, "--json"], { stdout: "pipe", stderr: "pipe" });
+  cleanup.push(async () => { if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; });
+  await Bun.sleep(250);
+  const earlyExit = child.exitCode;
+  db.exec("COMMIT");
+  const [exit, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ exit, err, result: JSON.parse(out) }).toMatchObject({ exit: 0, err: "", result: { schema_version: 1, ok: true, command: "export" } });
+  expect(earlyExit).toBeNull();
+  const snapshot = JSON.parse(readFileSync(output, "utf8"));
+  expect(snapshot.database.data.length).toBeGreaterThan(0);
+  const restoredRoot = directory(), restoredPath = join(restoredRoot, "ui.sqlite");
+  expect(await restoreInboxSnapshot(snapshot, restoredPath, restoredRoot, snapshot.createdAt)).toEqual({ recovered: 0, resumed: false });
+  expect(connect(restoredPath).query("SELECT * FROM inbox_scheduler_heartbeats").all())
+    .toEqual([{ name: "Odysseus", tick_at: AT, change_cursor: 7 }]);
+});

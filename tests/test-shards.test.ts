@@ -62,6 +62,8 @@ describe("balanced shards run the root command for real", () => {
       for (const script of ["test.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts"]) {
         cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
       }
+      mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
+      cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
       for (const file of files) addTest(dir, file);
       for (const excluded of ["other/entry.test.ts", "packages/.hidden/entry.test.ts", "packages/a/node_modules/entry.test.ts"]) {
         addTest(dir, excluded);

@@ -24,6 +24,9 @@ try {
   if (command === "export") {
     const db = new Database(dbPath, { readonly: true });
     try {
+      // Opening a fresh reader can overlap a writer or WAL cleanup. Use the
+      // same bounded lock wait as the app before the first recovery query.
+      db.exec("PRAGMA busy_timeout = 5000");
       const snapshot = await writeInboxSnapshot(db, brainRoot, file);
       result = { snapshot: { version: snapshot.version, checksum: snapshot.checksum,
         created_at: snapshot.createdAt, recovery_point_hours: snapshot.recoveryPointHours } };
