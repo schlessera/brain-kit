@@ -493,7 +493,7 @@ named entry in that mechanism.
 **#51's U15 originally chose availability control for the same bypass reason.**
 The current plan still specifies *"Tool **availability** control (`tools`) or a
 measured enforced membership"*
-(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1176-1178`).
+(`- Tool **availability** control`, `docs/plans/async-collaboration.md:1225-1227`).
 The plan is #51's design record. It was written before #141 and #154 measured
 the runtime paths described below; those measurements strengthen the argument
 for removing a tool's availability rather than leaving its execution reachable.
@@ -502,7 +502,7 @@ for removing a tool's availability rather than leaving its execution reachable.
 was trivial is superseded. Its resource loader and inline extension gate expose
 more than the curated tool roster, so both first-party runtimes need executable
 boundary proof
-(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1189-1193`).
+(`**Pi needs its own executable proof.**`, `docs/plans/async-collaboration.md:1238-1242`).
 This correction does not choose a second enforcement mechanism or weaken the
 voice/unattended membership requirement below.
 
