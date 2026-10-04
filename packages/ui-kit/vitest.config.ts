@@ -83,12 +83,29 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx"],
+            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, dictationPointer, dictationThemeStyles, dictationMotion },
+              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles },
+              provider: playwright({}),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            // Chromium's touch-emulation disable does not restore a fine
+            // pointer. Keep this complete consumer fixture in its own provider
+            // lifetime, even when files in another project reuse their page.
+            name: "dictation",
+            include: ["tests/visual/dictation-panel.visual.tsx"],
+            browser: {
+              enabled: true,
+              commands: { formViewport, formConsumerStyles, dictationPointer, dictationThemeStyles, dictationMotion, rankTouch },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],
