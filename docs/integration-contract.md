@@ -247,7 +247,8 @@ The [decision](decisions/travel-module.md) explains the boundary.
 **Additive CLI contract (#567):** `brain travel photo <files> --to <dir> --json`
 returns `{photo: {files, errors}}`. Each file has `source: string`,
 `output: string`, `width: number`, `height: number`, `bytes: number`,
-`captured_at: string | null`, and `location: {lat: number, lon: number} | null`.
+`captured_at: string | null`, `location: {lat: number, lon: number} | null`, and
+`date_source: "exif" | "flag" | "none"`.
 `source` is the unchanged input argument; `output` is a root-relative path with
 forward slashes. Dimensions and byte length describe the completed JPEG.
 Each error has `{source: string, message: string}`; messages are prose.
@@ -269,6 +270,24 @@ GPS, XMP, ICC, IPTC and comments are removed. Unsupported raster codecs,
 vector documents and animated/multi-page images produce input errors.
 
 Names use the source basename with `.jpg`, then `-2.jpg`, `-3.jpg`, etc.
+With `--name <descriptor>`, use `<date>-<slug>.jpg`: the validated EXIF
+camera calendar date wins over `--date YYYY-MM-DD`, then a valid flag supplies
+the date, otherwise use `undated`. Photo-only `--force-date` makes a valid
+`--date` win. Original `captured_at` remains unchanged. `date_source` describes
+only the date applied to the requested name: `exif`, `flag`, or `none` for
+`undated`; without `--name`, it is always `none` and valid date flags do not
+rename anything. Never shift the camera date through UTC or the host timezone.
+
+Photo and route descriptor slugs normalize the complete descriptor to NFKD,
+remove Unicode combining marks, lowercase, replace runs outside ASCII
+`[a-z0-9_-]` with `-`, and trim edge hyphens. This folds accents without full
+transliteration or stripping extensions: `Café in Ithaca` → `cafe-in-ithaca`,
+`Straße` → `stra-e`, and `Plan.v2` → `plan-v2`; Greek-only and punctuation-only
+descriptors are refused if the result is empty. All supplied date flags must
+be real `YYYY-MM-DD` calendar dates (years 0001–9999). Invalid dates, empty
+slugs and photo `--force-date` without a valid `--date` refuse before creating
+outputs, even without `--name`.
+
 Exclusive publication of completed bytes preserves every existing destination,
 including a source already in the output directory. Hard-link support is
 required. Temporary cleanup failure after publication does not misreport a
@@ -428,8 +447,8 @@ policy. The rationale and measurements are in
 | `brain hygiene list [--state open\|snoozed\|resolved] --json` | `{ "entries": [{ "id", "state": "open"\|"snoozed"\|"resolved", "path", "issue", "firstSeen", "lastSeen", "until", "resolvedBy", "resolvedOn" }] }`, the log as the files hold it; a field the entry does not carry is `null` (additive in 0.38.0) |
 | `brain travel validate --json` | `{ "validation": { "valid": boolean, "files": number, "issues": [{ "file", "level": "error", "message" }] } }` — read-only canonical format, reference and asset checks. `files` counts successfully parsed travel/trip/place documents. Exit `0` when valid, `1` on domain errors. File paths are root-relative; messages are prose |
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
-| `brain travel photo <files> --to <dir> --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null }], "errors": [{ "source", "message" }] } }` — [photo contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
-| `brain travel route <url\|file> --to <dir> [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
+| `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null, "date_source": "exif" \| "flag" \| "none" }], "errors": [{ "source", "message" }] } }` — [photo and naming contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
+| `brain travel route <url\|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "date_source": "flag" \| "none", "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — With `--name`, the stem is `[<date>-]<slug(label)>`; dates come only from a valid flag, never GPX timestamps. `date_source` is `flag` only when that date is applied to a requested name, otherwise `none`. Without `--name`, legacy names stay unchanged. Naming validation follows the [photo rules](#travel-photo-copies). `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 The nullable tag declaration correction (#702) is an approved pre-1.0

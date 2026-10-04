@@ -142,7 +142,7 @@ or comments; ordinary JPEG structural headers remain. Animated and multi-page
 images, vector documents and unsupported codecs are refused. Available codecs
 depend on the installed Sharp/libvips build; HEIC support is not guaranteed.
 
-Copies use the source basename with `.jpg`. An occupied name receives `-2`,
+Copies use the source basename with `.jpg` unless `--name` is supplied. An occupied name receives `-2`,
 `-3` and so on, including when the source already sits in the output directory.
 A completed temporary sibling is published with an exclusive hard link, so an
 arriving destination cannot be overwritten and readers never see partial bytes.
@@ -160,6 +160,7 @@ a hidden sibling may remain.
 | `output` | Brain-root-relative JPEG path, using forward slashes. |
 | `width`, `height`, `bytes` | Actual encoded dimensions and byte length. |
 | `captured_at` | Original EXIF camera time as ISO text, or `null`. |
+| `date_source` | Date applied to a requested filename: `exif`, `flag` or `none`; always `none` without `--name`. |
 | `location` | Original EXIF `{lat, lon}` in decimal degrees, or `null`. |
 
 Capture time retains a written fractional second and UTC offset. Without an
@@ -168,6 +169,30 @@ never supplies one. Missing or impossible dates remain `null`. Coordinates
 require a finite latitude/longitude pair within their normal ranges; zero is
 valid. These values are returned separately, never embedded in the copy or
 written to a sidecar.
+
+For dated descriptive names, use:
+
+```sh
+brain travel photo camera/IMG_4711.jpg --to trips/scheria/photos --name "Ferry to Scheria" --date 2026-09-27 --json
+```
+
+The stem is `<date>-<slug(descriptor)>`. A valid EXIF camera calendar date
+wins over `--date`; without usable EXIF, the flag supplies the date, otherwise
+the prefix is `undated` and `date_source` is `none`. Add `--force-date` to make
+the flag win over EXIF; it requires a valid `--date`, including without a name.
+The original `captured_at` is still reported independently. Camera dates are
+never shifted through the host timezone. Multiple inputs with one descriptor
+use the same non-overwriting numeric suffixes.
+
+Descriptors use the complete text: NFKD normalization, combining-mark removal,
+lowercase, runs outside ASCII letters/digits/underscore/hyphen replaced with
+`-`, then edge hyphens trimmed. `Café in Ithaca` and its decomposed accent both
+become `cafe-in-ithaca`, `Straße` becomes `stra-e`, and `Plan.v2` becomes
+`plan-v2`. This is accent folding, not full transliteration. Empty results
+(for example, Greek-only or punctuation-only descriptors) and nonexistent
+calendar dates are refused before any output directory/file is created.
+Dates must be `YYYY-MM-DD`, years 0001–9999. Valid date flags without `--name`
+keep legacy filenames and report `date_source: "none"`.
 
 Errors contain `{source, message}`, with the original input argument and a prose
 diagnostic. Inputs are processed in argument order; a failed input does not
@@ -278,7 +303,7 @@ they do not supply a missing automatic settings migration.
 ## CLI and library
 
 - `brain travel route <url|file> --to <dir> [--trim-start-m N]
-  [--trim-end-m N] [--json]`: imports GPX or public Komoot geometry and
+  [--trim-end-m N] [--name <label>] [--date YYYY-MM-DD] [--json]`: imports GPX or public Komoot geometry and
   writes a new normalized GPX. See [route import](#route-import) below.
 - `brain travel validate [--json]`: `{validation: {valid, files, issues}}`,
   with issues `{file, level: "error", message}`. Exit 0 means valid, 1 means
@@ -286,7 +311,8 @@ they do not supply a missing automatic settings migration.
 - `brain travel migrate [--dry-run] [--json]`: `{migration: {path, changed,
   dry_run}}`. `changed` reports whether the migration has an edit; dry run
   leaves the file untouched. Refusals exit 1 with an actionable stderr message.
-- `brain travel photo <files> --to <dir> [--json]`: `{photo: {files, errors}}`;
+- `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD]
+  [--force-date] [--json]`: `{photo: {files, errors}}`;
   see [Photo copies](#photo-copies) for fields, failure behavior and output rules.
 - The root export supplies the manifest/config schema, content schemas,
   `parseTravelDocument`, `readTravelCorpus` and `summarizePlaceVisits` with
@@ -300,6 +326,7 @@ Day-trip/place workflows and generated registries are covered by
 ```sh
 brain travel route recordings/odysseus.gpx --to routes --json
 brain travel route recordings/odysseus.gpx --to routes --trim-start-m 100 --trim-end-m 100 --json
+brain travel route recordings/odysseus.gpx --to routes --name "Ferry to Scheria" --date 2026-09-27 --json
 ```
 
 Input and output paths are relative to the brain root (absolute contained
@@ -307,6 +334,15 @@ paths also work). The original stays untouched. An occupied output name
 gets `-2`, `-3`, and so on; an existing file is never replaced. Output paths
 in the response are relative to the brain root. Importing a recording does
 not attach it to a trip or change a Markdown document.
+
+With `--name`, local GPX, direct URLs and Komoot use `[<date>-]<slug(label)>.gpx`,
+with the same [descriptor validation](#photo-copies) as photos. The date is
+optional and comes only from `--date`, never the recording timestamps. Every
+successful route result has `date_source: "flag"` when a date is applied to a
+requested name, otherwise `"none"`; routes never report `"exif"`. Without
+`--name`, source-derived names are unchanged even if a valid date is supplied.
+Route has no `--force-date` option. Invalid dates/descriptors refuse before
+fetching a remote route or writing an output.
 
 Supported inputs are local GPX 1.0/1.1 files, direct HTTP(S) GPX URLs, and
 public `komoot.com/tour/<id>` or `komoot.com/smarttour/<id>` pages, including

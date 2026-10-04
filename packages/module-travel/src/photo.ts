@@ -5,10 +5,13 @@ import { basename, extname, join, relative, resolve, sep } from "path";
 import { safeResolve } from "@schlessera/brain";
 import sharp from "sharp";
 import * as exifr from "exifr";
+import { validateOutputNaming } from "./output-naming.js";
+import type { DateSource, OutputNamingOptions } from "./output-naming.js";
 
 export interface PhotoResult {
   source: string; output: string; width: number; height: number; bytes: number;
   captured_at: string | null; location: { lat: number; lon: number } | null;
+  date_source: DateSource;
 }
 export interface PhotoReport { files: PhotoResult[]; errors: { source: string; message: string }[] }
 
@@ -104,7 +107,8 @@ async function capture(exif: Buffer | undefined): Promise<Pick<PhotoResult, "cap
   return { captured_at: captureTime(tags), location };
 }
 
-export async function preparePhotos(root: string, sources: string[], to: string): Promise<PhotoReport> {
+export async function preparePhotos(root: string, sources: string[], to: string, options: OutputNamingOptions & { forceDate?: boolean } = {}): Promise<PhotoReport> {
+  const naming = validateOutputNaming(options, options.forceDate);
   const files: PhotoResult[] = [], errors: PhotoReport["errors"] = [];
   const directory = photoDirectory(root, to);
   for (const source of sources) {
@@ -122,12 +126,19 @@ export async function preparePhotos(root: string, sources: string[], to: string)
         .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
         .flatten({ background: "#ffffff" }).toColourspace("srgb")
         .jpeg({ quality: 80, mozjpeg: true }).toBuffer({ resolveWithObject: true });
-      const name = basename(input, extname(input));
+      // captureTime already validates camera text. Its calendar day is not
+      // an instant to convert through UTC or the CLI process timezone.
+      const exifDate = provenance.captured_at?.slice(0, 10);
+      const date = !options.forceDate && exifDate ? exifDate : naming.date;
+      const dateSource: DateSource = naming.slug === undefined ? "none" :
+        !options.forceDate && exifDate ? "exif" : naming.date ? "flag" : "none";
+      const name = naming.slug === undefined ? basename(input, extname(input)) : `${date ?? "undated"}-${naming.slug}`;
       if (/[\u0000-\u001f\u007f\\]/.test(name)) throw new Error("Source name cannot create a portable photo filename");
       const output = writePhotoCopy(directory, name, encoded.data);
       files.push({
         source, output: relative(realpathSync(root), output).split(sep).join("/"),
         width: encoded.info.width, height: encoded.info.height, bytes: encoded.data.length, ...provenance,
+        date_source: dateSource,
       });
     } catch (error) { errors.push({ source, message: (error as Error).message }); }
   }
