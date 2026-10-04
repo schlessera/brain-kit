@@ -33,17 +33,18 @@ the table:
 
 | exit | meaning |
 |---|---|
-| 0 | every selected configuration was judged and passed |
-| 1 | a selected configuration failed the gate |
+| 0 | every selected repetition was fully judged and passed |
+| 1 | a selected repetition failed the gate, even if other requests were unavailable |
 | 2 | refused to start: `BRAIN_UI_LIVE_EVALS` unset, or `--model`/`--effort` matched nothing |
-| 3 | a selected configuration was not judged, and none failed |
+| 3 | a selected configuration was not fully judged, and no observed repetition failed |
 
-**Not judged is not a pass.** `NO DATA` means no call succeeded — a depleted
-quota or an unreachable endpoint — so the configuration was never measured; an
-effort the endpoint rejected, or a job that crashed, is the same thing. A gate
-that exits 0 in that state has silently stopped testing anything, which is why
-it gets its own code: exit 3 says "fix the keys, the quota or the roster and
-rerun", exit 1 says "the model failed".
+**Incomplete coverage is not a pass.** `NO DATA` means no call succeeded. A
+configuration with some successful responses and some unavailable requests is
+`INCOMPLETE`; exit 3 requires fixing provider access or supported effort selection
+and rerunning. If any observed repetition fails the quality gate, exit 1 takes
+precedence while the report retains both the failure and the unavailable coverage.
+Malformed successful responses are judged as lost rows and fail, rather than
+being classified as unavailable.
 
 The exit code judges **this invocation's selection**, not the stored matrix.
 The table still prints every row on disk, and most of the roster fails by
@@ -55,6 +56,11 @@ high` exits 0 when that configuration passes, whatever the rows around it say.
 **`gpt-5.6-luna` at effort `high`** is the recorded preferred triage model (see `preferred` in
 `benchmarks.json`). Over 12 reps it is the only configuration measured at 100% recall, 100%
 worst-pass recall, zero missed escalations, zero lost rows and 100% filing accuracy.
+
+The committed matrix is historical aggregate evidence. Rows without
+`repetitions` cannot prove that every repetition passed or that every request
+was judged. This runner repair adds that evidence to new runs; it does not
+remeasure the preference or authorize production enablement.
 
 **The effort level is part of the choice, not a knob.** The same model fails at `medium` and
 `low` (3 missed escalations each) and at `none` (88.5% filing). Change one without re-running
@@ -76,10 +82,27 @@ amount of accuracy elsewhere compensates. False escalations are reported because
 they cost queue space against the Actions cap, but they are recoverable and do
 not veto.
 
-`worst` in the output is the weakest single pass, not the mean. Single runs
-mislead badly here: one model produced 0 and 8 lost rows on consecutive runs of
-the same configuration, and 100% then 95.2% accuracy. "Met the bar every time" is
-the only useful form of the claim.
+Each repetition must independently meet these rules. Aggregate percentages are
+reported for comparison, but cannot rescue a failing repetition: filing 7/8
+(87.5%) then 8/8 (100%) still fails despite an aggregate 15/16 (93.8%).
+`worst` remains the weakest observed recall percentage; on incomplete coverage,
+that number cannot establish complete recall.
+
+New result rows retain a `repetitions` array with the one-based repetition,
+raw scoring counters (including filing and agent numerators and denominators),
+`requestedIds`, `judgedIds`, `unavailableIds`, `unavailableBatches`, `complete`
+and the observed quality `gate`. Successful responses judge every requested ID
+in their batch, including malformed or missing returned rows. Unavailable batches
+record their IDs, transport or unsupported reason, and whether a call was
+attempted. After an unsupported effort, remaining batches and repetitions stay
+explicitly unavailable rather than losing earlier measurements.
+
+An accuracy axis with no observations because its requests were unavailable
+has no quality verdict. The coverage gate still forbids PASS; observed axes
+retain the same 90% floors and all hard vetoes. Top-level `incomplete` and
+`observedFailure` distinguish unavailable evidence from measured failure.
+Historical rows remain unchanged when other configurations are rerun, and the
+exit code uses only newly selected results.
 
 ## Keyless tests
 
@@ -101,6 +124,12 @@ Malformed output scores as lost rows and fails the gate; it is never an
 exception, and it is not `NO DATA` — that label is reserved for a configuration
 where no call succeeded, because a model that answered with garbage was judged
 and a provider that could not be reached was not.
+
+`tests/triage-eval-exit-code.test.ts` also launches the real runner with a
+keyless provider stub over all 20 real items, disposable benchmark outputs and
+network access forbidden. It covers per-repetition floors, unavailable batches,
+late unsupported efforts, hard vetoes and the selected-versus-stored distinction.
+These controls are harness verification, not live model benchmarks.
 
 ## Adding items
 
