@@ -623,6 +623,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Validate all pending changeset package names
+        run: bun scripts/check-changeset-packages.ts
       - name: Require a changeset for shipped package changes
         # What "shipped" means is derived from each package's own `files` field
         # rather than hardcoded here, so skills/, migrations/, templates/ and
@@ -668,6 +671,22 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
+  ui-react-layout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Build the consumer exports and Tailwind stylesheet
+        run: bun run build
+      - name: Chat overlay geometry in the pinned offline Chromium image
+        # The shared runner starts Docker with --network=none for this project.
+        # Only the in-container Vite server is reachable; no keys are forwarded.
+        run: bun run test:layout
+
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
     # they are allowed to run in.
@@ -685,7 +704,7 @@ jobs:
     # what a developer runs locally through `docker run`, and it is what runs
     # here inside the same image, precisely so the two cannot drift.
     #
-    # Two shards, each running all three projects in one vitest call: one call
+    # Two shards, each running all six projects in one vitest call: one call
     # spreads the files over both cores, which a project at a time did not
     # (72s against 99s for the whole suite at 2 CPUs). A third shard saves
     # about 20s more, but `pack` finishes later than that anyway.

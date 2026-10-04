@@ -1,5 +1,71 @@
 # @schlessera/brain-module-jobs
 
+## 0.40.0
+
+### Minor Changes
+
+- 3991148: Add the read-only jobs_review MCP tool, sharing validated queue access with the CLI and leaving missing databases uncreated.
+- c8e81ad: Add module dormancy, context estimates and source-preserving CLI toggles with explicit instruction ownership and legacy migration checks.
+- 4503591: Add schema-driven module Settings with per-module JSON overrides, validated revision-guarded saves, explicit source-preserving migrations and separate lifecycle/actions. Jobs exposes its complete scoring format, adapter choices and execution settings, preserving legacy scoring representation during migration and edits.
+- 14bacbb: BREAKING before 1.0: browser loads now enforce robots.txt and Crawl-delay on main-frame navigation, including redirects, and use the package User-Agent by default. Share HTTP/browser policy state per run, add an origin-scoped per-call permission override, and include policy waits in the page budget while preserving jobs JSON/status shapes.
+- 3811290: Approved pre-1.0 breaking SiteAdapter migration (#344/#545): AdapterResult now
+  requires an evidence-derived status (ok, empty, unparseable or not_run).
+  ok([]) reports diagnostic unparseable rather than implying confirmed empty.
+  All ten jobs boards now implement the shared SiteAdapter and execute through
+  runAdapters in selection order, with owned-browser cleanup and isolated source
+  failures. The jobs CLI report/status/cursor semantics remain unchanged.
+
+  Embedding migration: replace jobs ScraperAdapter with JobAdapter and jobs
+  ScrapeResult with brain-scrape AdapterResult<RawJob>; replace
+  bind(ctx).scrape(opts) with scrape(ctx, options), lastCursor with cursor and
+  result.jobs with result.items. Source identity comes from the adapter's
+  id/source or the runner outcome's id. Job-specific metadata, PageLedger,
+  enrichment, persistence and scoring remain in module-jobs.
+
+### Patch Changes
+
+- a52371d: Use the four curated job boards when board settings are omitted, deriving schema, settings choices and scraper defaults from each board's declared policy. Preserve explicit brain config selections and per-key JSON overrides.
+- 9c830e4: Frontmatter parsing no longer goes through gray-matter's process-wide cache. Two byte-identical documents parsed in one process now get independent data, so changing one can no longer change what is read for the other. Broken frontmatter is reported as invalid on every parse, not only the first; before, a second parse of the same bytes in a long-lived process read as an empty success. The cache also kept every distinct document string in memory for the life of the process, and that is gone. Frontmatter semantics and formatting are unchanged.
+- adcf1f9: Make the contributed daily scrape follow configured boards without adding every board or browser board. Existing user-authored schedules are not rewritten.
+- 96e845e: Reject missing or invalid jobs-search limits with usage guidance before opening the database.
+- 619ee2b: Use the Odysseus world consistently in fixture corpora, package guidance and examples.
+- a5e1ecf: Reject unknown and retired job boards before execution or settings writes; honor explicit empty selections and retain settings diagnostics during CLI dispatch.
+- Updated dependencies [b1b83cd]
+- Updated dependencies [e977423]
+- Updated dependencies [113fa0a]
+- Updated dependencies [6b311b2]
+- Updated dependencies [fe5c751]
+- Updated dependencies [eac3e7a]
+- Updated dependencies [5df68f6]
+- Updated dependencies [c926d42]
+- Updated dependencies [f19da8b]
+- Updated dependencies [22ed27c]
+- Updated dependencies [9c830e4]
+- Updated dependencies [36ad7da]
+- Updated dependencies [523ffa8]
+- Updated dependencies [c8e81ad]
+- Updated dependencies [a39b7bc]
+- Updated dependencies [4503591]
+- Updated dependencies [fb992c8]
+- Updated dependencies [2898ef1]
+- Updated dependencies [619ee2b]
+- Updated dependencies [2480efe]
+- Updated dependencies [14bacbb]
+- Updated dependencies [a4cc575]
+- Updated dependencies [d981938]
+- Updated dependencies [ac34a83]
+- Updated dependencies [56a9005]
+- Updated dependencies [67c7403]
+- Updated dependencies [3811290]
+- Updated dependencies [878e6cf]
+- Updated dependencies [a5e1ecf]
+- Updated dependencies [e977423]
+- Updated dependencies [502d6d9]
+- Updated dependencies [fa6a62c]
+- Updated dependencies [17146c4]
+  - @schlessera/brain@0.40.0
+  - @schlessera/brain-scrape@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes

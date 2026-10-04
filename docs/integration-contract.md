@@ -1435,6 +1435,28 @@ The detailed stats promises below remain binding. The specification records rema
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
 
+### Published React health and sync helpers (breaking health correction)
+
+`@schlessera/brain-ui-react` exports `createBrainApi` and `BrainApi`; the
+embedding service `root.api` uses the same helpers. `health()` resolves to
+`{ status: string; uptime: number; timestamp: string }`, matching the minimal
+public route. The previously declared `version: string` never existed in that
+response and is removed under the [maintainer's #693 ruling](https://github.com/schlessera/brain-kit/issues/693#issuecomment-5961143224).
+This is an approved pre-1.0 breaking correction shipping in a minor. Migrate
+`health().version` reads to authenticated `status()` when software identity is
+needed; health never fabricates identity or requests protected status.
+
+`brainSync()` POSTs through its configured base getter/request transport and
+consumes complete SSE events. A valid terminal `done` maps `success` and `text`
+to the existing `{ success: boolean; message: string }` result; terminal false
+resolves as a completed unsuccessful sync. Progress and keepalive comments
+are not completion. Missing/malformed terminal data, premature EOF and
+transport failure reject as incomplete; non-2xx responses retain
+`ApiRequestError`. No automatic POST retry or stream resumption is added.
+Disconnect does not establish cancellation: the server continues draining and
+reserves the canonical repository until its child exits, as specified in
+[the HTTP sync contract](http-api.md#corpus-queries-capture-and-sync).
+
 ### Internal Queue poke (additive)
 
 The supported `POST /api/internal/inbox/poke` operation uses an independent

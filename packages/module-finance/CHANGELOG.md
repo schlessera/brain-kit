@@ -1,5 +1,48 @@
 # @schlessera/brain-module-finance
 
+## 0.40.0
+
+### Minor Changes
+
+- c8e81ad: Add module dormancy, context estimates and source-preserving CLI toggles with explicit instruction ownership and legacy migration checks.
+
+### Patch Changes
+
+- 1e725f3: Correct the finance directory relocation guide: `clientsDir` alone configures the module's type directory, commands and hygiene check. Remove the redundant taxonomy override and describe ledger/dashboard paths relative to the configured directory.
+- 9c830e4: Frontmatter parsing no longer goes through gray-matter's process-wide cache. Two byte-identical documents parsed in one process now get independent data, so changing one can no longer change what is read for the other. Broken frontmatter is reported as invalid on every parse, not only the first; before, a second parse of the same bytes in a long-lived process read as an empty success. The cache also kept every distinct document string in memory for the life of the process, and that is gone. Frontmatter semantics and formatting are unchanged.
+- Updated dependencies [b1b83cd]
+- Updated dependencies [e977423]
+- Updated dependencies [113fa0a]
+- Updated dependencies [6b311b2]
+- Updated dependencies [fe5c751]
+- Updated dependencies [eac3e7a]
+- Updated dependencies [5df68f6]
+- Updated dependencies [c926d42]
+- Updated dependencies [f19da8b]
+- Updated dependencies [22ed27c]
+- Updated dependencies [9c830e4]
+- Updated dependencies [36ad7da]
+- Updated dependencies [523ffa8]
+- Updated dependencies [c8e81ad]
+- Updated dependencies [a39b7bc]
+- Updated dependencies [4503591]
+- Updated dependencies [fb992c8]
+- Updated dependencies [2898ef1]
+- Updated dependencies [619ee2b]
+- Updated dependencies [2480efe]
+- Updated dependencies [a4cc575]
+- Updated dependencies [d981938]
+- Updated dependencies [ac34a83]
+- Updated dependencies [56a9005]
+- Updated dependencies [67c7403]
+- Updated dependencies [878e6cf]
+- Updated dependencies [a5e1ecf]
+- Updated dependencies [e977423]
+- Updated dependencies [502d6d9]
+- Updated dependencies [fa6a62c]
+- Updated dependencies [17146c4]
+  - @schlessera/brain@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes
