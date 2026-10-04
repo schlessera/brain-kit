@@ -1290,6 +1290,16 @@
  * static list never pretends to be clickable.
  */
 
+/* Button's default rest paint has stylesheet priority so native hover can
+ * replace it. Caller-owned inline styles still win, including border:none
+ * on the rank footer's expanded targets. Decorative Buttons need rest paint
+ * too, but never receive the handler-gated interaction class. */
+[data-bk-button] {
+  background: var(--hv-rest-bg);
+  border: var(--hv-rest-border);
+  color: var(--hv-rest-fg);
+}
+
 .bk-control:hover {
   background: var(--hv-bg);
   border-color: var(--hv-bd);
