@@ -57,7 +57,7 @@ test("the default browser wrapper includes isolated dictation in each sharded in
     const argv = await wrapper(`--shard=${shard}`, "--update");
     expect(argv, "the default matrix cannot silently omit 65 incumbent dictation cases").toEqual([
       "run", "--project=storybook", "--project=storybook-light", "--project=visual",
-      "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation",
+      "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation", "--project=rail-fine", "--project=rail-coarse", "--project=rail-mixed",
       "--browser.fileParallelism=false", "--update", `--shard=${shard}`,
     ]);
   }

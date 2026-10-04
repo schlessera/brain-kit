@@ -29,7 +29,7 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # all seven kit projects, in the container
+ *   node scripts/visual.mjs                    # all ten kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
  *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
  *   node scripts/visual.mjs --update           # rewrite the baselines
@@ -66,7 +66,7 @@ const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
