@@ -100,16 +100,6 @@ function transcripts(path: string): string[] {
   return readdirSync(path, { recursive: true }).filter((name) => typeof name === "string" && name.endsWith(".jsonl")) as string[];
 }
 const url = `http://127.0.0.1:${server.port}`;
-// Substitute only the lowest inference transport. The backend resolves pi's
-// builtin model object, whose native URL does not inherit models.json's URL.
-// Everything above fetch (real AgentSession, gate and SessionManager) runs.
-const guardedFetch = globalThis.fetch;
-globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-  const request = new Request(input, init);
-  const destination = new URL(request.url);
-  return guardedFetch(destination.hostname === "api.anthropic.com"
-    ? new Request(url + destination.pathname + destination.search, request) : request);
-}, guardedFetch);
 // Isolated runtime config and bogus credential. The surrounding namespace has
 // no external network; no saved credential or provider endpoint is reachable.
 writeFileSync(join(piDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url, apiKey: "offline-fixture" } } }));
