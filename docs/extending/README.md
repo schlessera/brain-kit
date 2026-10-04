@@ -86,6 +86,15 @@ classification does not freeze the seams immediately or schedule 1.0; see the
 
 ## The seams
 
+The [live-conversation decision](../decisions/live-conversation.md) selects
+Gemini Live and OpenAI GPT-Live as two intended implementations of one future
+conversation interface. Its [specification](../live-conversation-investigation.md)
+keeps host-owned tools, permissions, correlation and playback authority. That
+interface is not exported or registered yet, and is not an eleventh shipped
+seam. It does not replace dictation's `SpeechProvider` / `AsrClient` or introduce
+a standalone TTS provider. Future implementation must document its additive
+SDK/configuration/wire contract before changing this inventory.
+
 There are ten. This table is the list; the integration contract's
 "Extension interfaces" table names the same ten, and `tests/seam-list.test.ts`
 fails when the two or the `@experimental` tags in the source disagree.

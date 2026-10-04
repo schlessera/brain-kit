@@ -33,6 +33,9 @@ async function run(args: string[], env: Record<string, string> = {}) {
       for (const helper of ["test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts"]) {
         cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
       }
+      // The actual preload also owns cleanup for the shared CLI harness.
+      mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
+      cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
     }
     for (const where of FIXTURES) {
       mkdirSync(join(dir, where), { recursive: true });

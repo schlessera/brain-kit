@@ -156,8 +156,8 @@ Important precedence boundaries:
 ### Dynamically named families
 
 Literal tables cannot enumerate these supported name sources and transport
-boundaries. This inventory follows the current readers, including families that
-package descriptor metadata does not yet enumerate.
+boundaries. This inventory follows the current readers and the package-owned dynamic-family
+metadata. Supported name sources remain distinct from internal transport snapshots.
 
 | Owner and name source | Meaning and boundary |
 | --- | --- |

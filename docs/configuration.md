@@ -158,6 +158,7 @@ the file is missing, which is why fresh templates work.
 | `currentFocus` | `context/current-focus.md`   |
 
 Set a key to `""` to disable it. You may add your own canonical keys.
+Unset keys return no path, including names inherited from the object prototype.
 
 ```ts
 taxonomy: { canonical: { currentFocus: "" } }   // disable the current-focus lookups
@@ -231,12 +232,28 @@ facts: { troy_fell: 2016 }
 | `patterns` | `string[]` | Regular expressions, matched case-insensitively, each with exactly one capture group: the value. |
 
 Every non-archived markdown document other than the source is scanned outside
-its code. A captured value that differs from the canonical one (compared after
-trimming, and as numbers when both are numbers) is a `fact-drift` warning, once
-per document per fact. A document that is right to state an old value, such as
-a retrospective, lists the key under `facts_ignore: [troy_fell]`. A pattern
-that does not compile, or that has other than one capture group, fails config
-load with a message naming the fact. Drift is reported, never rewritten.
+its code. A captured value that differs from the canonical one is a
+`fact-drift` warning, once per document per fact. Comparison trims surrounding
+whitespace and compares numeric values exactly, preserving significant digits
+rather than rounding them to JavaScript numbers.
+
+The existing numeric admission boundary is a nonempty string whose JavaScript
+`Number` conversion is finite: signed decimal integers/fractions (including
+`.5` and `12.`), decimal exponents, and unsigned hexadecimal (`0x`), binary
+(`0b`) and octal (`0o`) integers. Leading/trailing zeros, equivalent exponent
+spellings and signed zero remain equivalent. Nonzero underflows remain distinct
+from zero and from one another; exponents are kept symbolic without expanding
+decimal places. Values whose conversion overflows, `Infinity`, `NaN`, numeric
+separators, `n` suffixes and signed base-prefixed integers retain trimmed,
+case-sensitive text comparison. Empty captures also remain text.
+
+Quote high-precision canonical facts in YAML, for example
+`facts: { count: "9007199254740993" }`. Unquoted numeric scalars may already
+lose precision during YAML parsing; comparison cannot recover those digits.
+A document that is right to state an old value, such as a retrospective, lists
+the key under `facts_ignore: [troy_fell]`. A pattern that does not compile, or
+that has other than one capture group, fails config load with a message naming
+the fact. Drift is reported, never rewritten.
 
 ### `taxonomy.assetTitleRules`
 
