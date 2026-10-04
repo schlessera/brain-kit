@@ -138,7 +138,7 @@ describe("real travel module and CLI", () => {
     expect(readFileSync(join(root, "travel/ithaca/itinerary.md"), "utf8")).toBe(itinerary);
   });
 
-  test("conflicts and future saved settings write nothing through the real CLI", async () => {
+  test("conflicts and saved settings write nothing through the real CLI", async () => {
     const root = brain({ [SPEAKING]: { travelParty: party }, [TRAVEL]: { travelParty: [{ name: "Telemachus" }] } });
     const original = readFileSync(join(root, "brain.config.json"), "utf8");
     const conflict = await runCli(root, ["travel", "migrate", "--json"]);
@@ -152,6 +152,52 @@ describe("real travel module and CLI", () => {
     expect(readFileSync(join(root, "brain.config.json"), "utf8")).toBe(original);
     expect(JSON.parse(readFileSync(join(root, "settings/travel.json"), "utf8")).travelParty).toEqual(party);
   });
+
+  for (const module of ["speaking", "travel"]) {
+    for (const empty of [false, true]) {
+      const filename = `settings/${module}.json`;
+      const label = `${filename} (${empty ? "empty" : "nonempty"})`;
+      const refusalFixture = () => {
+        const fullParty = party.map((member, index) => ({ ...member, role: index === 0 ? "traveler" : "partner" }));
+        expect(fullParty).toHaveLength(2);
+        expect(fullParty[1]!.requirementsDoc).toBe("people/penelope.md");
+        const root = brain({ [SPEAKING]: { travelParty: fullParty }, [TRAVEL]: {} });
+        write(root, filename, empty ? "{}\n" : JSON.stringify({ travelParty: fullParty }, null, 2) + "\n");
+        write(root, "travel/ithaca/itinerary.md", itinerary);
+        write(root, "people/penelope.md", "---\ntype: person\ntitle: Penelope\n---\nTravel requirements fixture.\n");
+        const paths = ["brain.config.json", filename, "travel/ithaca/itinerary.md", "people/penelope.md"];
+        const snapshot = () => paths.map((path) => [path, readFileSync(join(root, path))]);
+        return { root, snapshot };
+      };
+
+      test(`${label} migration refusal preserves config, settings and content bytes`, async () => {
+        const { root, snapshot } = refusalFixture();
+        const before = snapshot();
+        expect(before).toHaveLength(4);
+        for (const flags of [[], ["--dry-run"]]) {
+          const result = await runCli(root, ["travel", "migrate", ...flags, "--json"]);
+          expect(result.code).toBe(1);
+          expect(result.stderr).toContain(filename);
+          expect(result.stderr).toContain("no changes made");
+          expect(result.stdout).toBe("");
+          expect(snapshot()).toEqual(before);
+        }
+      });
+
+      test(`${label} refusal names the reviewed manual upgrade instead of an unavailable planner`, async () => {
+        const { root } = refusalFixture();
+        const result = await runCli(root, ["travel", "migrate", "--json"]);
+        // Assert the corrected action separately: filename and refusal already
+        // worked before this diagnostic repair and cannot prove its guidance.
+        expect(result.stderr).toContain("Review canonical config and saved settings precedence");
+        expect(result.stderr).toContain("manual upgrade");
+        expect(result.stderr).toContain("packages/module-travel/README.md");
+        expect(result.stderr).toContain("Upgrade from speaking");
+        expect(result.stderr).not.toContain("module-settings migration");
+        expect(result.stderr).not.toContain("brain module settings travel --migrate");
+      });
+    }
+  }
 
   test("an in-root config symlink is refused without overwriting its target", async () => {
     const root = brain({ [SPEAKING]: { travelParty: party }, [TRAVEL]: {} });
