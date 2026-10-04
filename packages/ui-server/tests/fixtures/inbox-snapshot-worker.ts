@@ -6,9 +6,26 @@ import * as fs from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import { restoreInboxSnapshot, writeInboxSnapshot } from "../../src/inbox/snapshot.js";
 
-const [mode, dbPath, brainRoot, backup, ready, at] = process.argv.slice(2);
+const [mode, dbPath, brainRoot, backup, ready, at, publication = "complete"] = process.argv.slice(2);
 Date.now = () => Number(at);
 function barrier() {
+  if (publication !== "complete") {
+    // Hold incomplete bytes until the parent actually observes them, so the
+    // regression controls do not depend on process scheduling or a delay.
+    const token = publication === "empty" ? "" : mode!.slice(0, -1);
+    writeFileSync(ready!, token);
+    const deadline = performance.now() + 10_000;
+    while (true) {
+      let observed: string | undefined;
+      try { observed = readFileSync(`${ready}.observed`, "utf8"); }
+      catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      }
+      if (observed === token) break;
+      if (performance.now() >= deadline) throw new Error(`Parent did not observe incomplete ${mode} readiness`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
   writeFileSync(ready!, mode!);
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
   throw new Error("Crash barrier unexpectedly resumed");

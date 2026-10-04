@@ -27,6 +27,10 @@ A brand-new brain works with an almost-empty config: the four core types
 (`identity`, `context`, `note`, `index`) are built in, so `defineConfig({})` is
 valid. Everything below is optional and additive.
 
+The [supported-input policy](supported-inputs.md) defines compatibility for these
+keys, package environment inputs and canonical module formats, including precedence
+and migration obligations.
+
 ## `profile`
 
 Cosmetic identity for the CLI.
@@ -590,6 +594,14 @@ modes remain available. The approved behavior change is recorded in
 [decisions/reranker-activation.md](decisions/reranker-activation.md). See [extending/rerankers.md](extending/rerankers.md) for the
 interface, the measurements and how to add your own.
 
+## `graph`
+
+`graph.root` is a repository-relative document path from which the knowledge
+graph measures distances. Omission uses `AGENTS.md`, then `CLAUDE.md`; an
+index-excluded instruction file can be a virtual root. This config controls
+graph traversal, not a search-ranking boost. See the
+[graph decision](decisions/graph-ranking-signal.md).
+
 ## `skills`
 
 Controls which agent formats `brain skills sync` emits skills for. The `claude`
@@ -795,13 +807,19 @@ asking for the rest of that run.
 
 ### Merge strategies
 
+`brain sync group` groups exact root `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`
+as configuration. Same-named nested files keep their taxonomy grouping and
+content/index membership; the root-relative content exclusions are unchanged.
+
 `brain sync resolve` (and `brain sync run`) picks one strategy for each
 conflicted file. The first match wins:
 
 1. A derived cache (`.context-cache.jsonl`, `.asset-cache.jsonl`) is
    `cache-union`. `brain sync pull` has already unioned it.
-2. A file that is not markdown, and `CLAUDE.md` or `AGENTS.md`, is
-   `code-merge`.
+2. A file that is not markdown, or whose exact basename is `CLAUDE.md`,
+   `AGENTS.md` or `GEMINI.md` at any depth, is `code-merge`. Conflicted
+   instructions and their Git index stages stay intact for agent/person
+   judgment. No instruction synthesis or remote-copy resolution occurs.
 3. The document's type sets `mergeStrategy`. The type is the one its
    frontmatter `type` names (ours, then theirs, then base), else the type
    whose directory holds the file.
@@ -818,6 +836,9 @@ conflicted file. The first match wins:
 | `latest-wins-additive` | Per section, the side with the later `updated`; a section either side added is kept. |
 | `code-merge` | Not merged by rule. Left in conflict for the agent. |
 | `cache-union` | Handled by `brain sync pull`, never by `resolve`. |
+
+Instruction filename matching is case-sensitive; ordinary notes and near-match
+filenames keep their existing strategies. Clean Git line merges are unchanged.
 
 Every strategy merges frontmatter the same way: a field only one side changed
 takes that side; when both changed it, `updated` is the later date, `created`
@@ -871,16 +892,19 @@ the capability you need and read its command's requirements.
 | `OPENAI_API_KEY` | images | OpenAI image generation. Mask, transparency, output-format and exact-size requirements route by capability; see the [images reference](../packages/module-images/README.md). |
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
-| `GOOGLE_API_KEY` | embeddings, completions | Not read as a key — temporarily unset around Gemini SDK calls to suppress its dual-key warning. Set it for other tooling if you like; brain-kit will not use it. |
+| `GOOGLE_API_KEY` | upstream Gemini SDK | Not a brain-kit key input. Providers pass their selected key explicitly; the SDK may emit a cosmetic dual-key warning. The variable is not temporarily unset. |
 | `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
-| `CHROME_CDP_URL` | `brain jobs scrape --browser` | Headless-Chrome DevTools endpoint. Default `http://127.0.0.1:9222`. |
+| `CHROME_CDP_URL` | jobs scraping | Retained alias for `SCRAPE_CHROME_URL`; the latter wins when both are set. Without an endpoint the shared scraper can launch its own browser. |
 | `PUPPETEER_EXECUTABLE_PATH`, `BRAIN_UI_CHROME_PATH` | `brain render` | Where to find Chrome, when it is not on a well-known path. `chrome-headless-shell` is also supported. |
 | `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX` | `brain render` | `=1` launches Chrome without its sandbox. Required when running as root, as in a container; strictly weaker, so it is opt-in. |
 | `OPENAI_BASE_URL`, `GEMINI_BASE_URL` | images | Point a provider at a proxy or a compatible endpoint. |
+
+For the complete package-owned literal and dynamically named inventory, parsing
+rules and precedence boundaries, see [environment inputs](supported-inputs.md#environment-inputs).
 
 Two notes that have cost people time:
 
