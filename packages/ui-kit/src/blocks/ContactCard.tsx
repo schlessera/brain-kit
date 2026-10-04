@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties } from "react";
 
 import { Cue } from "../internal/cue.js";
 import { warnOnce } from "../internal/dev.js";
@@ -59,6 +59,11 @@ export interface ContactCardProps {
   actions?: ContactAction[];
   /** Derived from `label` when absent. */
   initials?: string;
+  /** Minimum shared fact-key column width in pixels. Finite positive values
+   * are honored; absent, invalid or nonfinite values use 84. The column grows
+   * to the widest key, capped at max(92, minimum), then complete keys wrap.
+   * A supplied minimum above 92 is not clamped; oversized widths are the
+   * caller's responsibility and may overflow a narrow card. */
   keyWidth?: number;
 }
 
@@ -123,6 +128,10 @@ export function ContactCard(p: ContactCardProps) {
       .join("")
       .toUpperCase();
   const facts = p.facts || FALLBACK_FACTS;
+  const keyFloor = typeof p.keyWidth === "number" && Number.isFinite(p.keyWidth) && p.keyWidth > 0
+    ? p.keyWidth : 84;
+  // 288px card - 26px border/padding - 10px gutter - 160px value track.
+  const keyCap = Math.max(92, keyFloor);
   // `actions` is genuinely optional: an entity card with nothing to do about it
   // is a normal card, so an absent or empty list renders no row at all.
   const actions = p.actions && p.actions.length ? p.actions : null;
@@ -152,8 +161,6 @@ export function ContactCard(p: ContactCardProps) {
     font: `600 12.5px/1 ${font.body}`,
     color: ink,
   };
-  const factRow: CSSProperties = { display: "flex", gap: 10, font: `500 10.5px/1.5 ${font.mono}` };
-
   return (
     <div style={box}>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -193,9 +200,10 @@ export function ContactCard(p: ContactCardProps) {
       {facts.length ? (
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 5,
+            display: "grid",
+            gridTemplateColumns: `minmax(${keyFloor}px, max-content) minmax(0, 1fr)`,
+            gap: "5px 10px",
+            font: `500 10.5px/1.5 ${font.mono}`,
             paddingTop: 10,
             borderTop: `1px solid ${color.line}`,
           }}
@@ -206,17 +214,19 @@ export function ContactCard(p: ContactCardProps) {
             const factTone = f.tone || "dim";
             const cue = VALUE_CUE[factTone];
             return (
-              <div key={i} style={factRow}>
+              <div key={i} style={{ display: "contents" }}>
                 <span
-                  style={{ width: Number(p.keyWidth) || 84, flex: "none", color: accent.neutral.ink }}
+                  style={{ maxWidth: keyCap, minWidth: 0, overflowWrap: "anywhere", color: accent.neutral.ink }}
                 >
-                  {f.k}
+                  {f.k.split(/(?<=[_\-./])/).map((part, index) => (
+                    <Fragment key={index}>{part}<wbr /></Fragment>
+                  ))}
                 </span>
                 <span
                   data-tone={factTone}
                   style={{
-                    flex: 1,
                     minWidth: 0,
+                    overflowWrap: "anywhere",
                     color: FACT_INKS[factTone] || FACT_INKS.dim,
                     fontWeight: 500,
                   }}
