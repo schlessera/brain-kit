@@ -23,7 +23,7 @@ if (!process.env[CHILD_MARKER]) {
     const output = `${stdout}${stderr}`;
     if (exitCode !== 0) throw new Error(`Isolated PDF previewer tests failed (${exitCode})\n${output}`);
     // A child that registered no tests also exits 0.
-    expect(output).toMatch(/\b15 pass\b/);
+    expect(output).toMatch(/\b16 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -42,10 +42,13 @@ if (!process.env[CHILD_MARKER]) {
 
   /** IntersectionObserver whose entries the test decides. */
   const observed = new Map<Element, (near: boolean) => void>();
+  let registerObservation = (el: Element, callback: (near: boolean) => void) => {
+    observed.set(el, callback);
+  };
   globalThis.IntersectionObserver = class {
     constructor(private readonly callback: IntersectionObserverCallback) {}
     observe(el: Element) {
-      observed.set(el, (near) => this.callback([{ isIntersecting: near, target: el } as IntersectionObserverEntry], this as never));
+      registerObservation(el, (near) => this.callback([{ isIntersecting: near, target: el } as IntersectionObserverEntry], this as never));
     }
     disconnect() {}
     unobserve() {}
@@ -128,6 +131,7 @@ if (!process.env[CHILD_MARKER]) {
   const pageButton = (container: HTMLElement, n: number, total: number) =>
     container.querySelector<HTMLButtonElement>(`button[aria-label="Page ${n} of ${total}, open zoomed"]`)!;
   async function setNear(el: Element, near: boolean) {
+    await waitFor(() => expect(observed.has(el)).toBe(true));
     await act(async () => {
       observed.get(el)!(near);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -145,6 +149,7 @@ if (!process.env[CHILD_MARKER]) {
     draws = [];
     closed = [];
     observed.clear();
+    registerObservation = (el, callback) => { observed.set(el, callback); };
     holdDraws = false;
   });
 
@@ -169,6 +174,32 @@ if (!process.env[CHILD_MARKER]) {
       // At full device pixels this page would be 1170 x 17205 = 20,129,850 pixels.
       expect(width * height).toBeGreaterThan(0);
       expect(width * height).toBeLessThanOrEqual(16_777_216);
+    });
+
+    test("delayed observer registration still draws the target page inside its canvas budget", async () => {
+      const pending = new Map<Element, (near: boolean) => void>();
+      registerObservation = (el, callback) => { pending.set(el, callback); };
+      const { container } = await opened(fakeDoc([{ width: 612, height: 9000 }]), 1);
+      const page = pageButton(container, 1, 1);
+      await waitFor(() => expect(pending.has(page)).toBe(true));
+      // An unrelated registration cannot make this target ready.
+      observed.set(document.createElement("div"), () => {});
+      expect(observed.has(page)).toBe(false);
+      expect(draws).toHaveLength(0);
+
+      const drawing = setNear(page, true).catch((error: unknown) => error);
+      // Keep the target withheld while a readiness poll completes.
+      await waitFor(() => {
+        expect(observed.has(page)).toBe(false);
+        expect(draws).toHaveLength(0);
+      });
+      observed.set(page, pending.get(page)!);
+      expect(await drawing).toBeUndefined();
+
+      expect(draws).toHaveLength(1);
+      expect(draws[0]!.page).toBe(1);
+      expect(draws[0]!.width * draws[0]!.height).toBeGreaterThan(0);
+      expect(draws[0]!.width * draws[0]!.height).toBeLessThanOrEqual(16_777_216);
     });
 
     test("leaving the viewport cancels the draw and gives the canvas's pixels back", async () => {

@@ -84,3 +84,13 @@ Two alternatives were rejected:
 - **Use a revision bump as permission to break compatibility.** A connection
   handshake determines applicable rules, not release versioning. Removing a
   documented guarantee still needs the breaking-contract process.
+
+## Supported input classification — 2026-09-28
+
+The scope sentence above predates the [question 8 ruling](https://github.com/schlessera/brain-kit/issues/343#issuecomment-5866106215).
+The [supported-input decision](supported-inputs.md) clarifies that deliberately
+supported brain config, environment inputs, per-module JSON settings and canonical
+module formats are covered through the integration contract's delegated owner
+references. Their meaning, validation, precedence, defaults and migration promises
+bind changes even when the complete field reference lives in a module README.
+Implementation details remain internal; the versioning rules above are unchanged.
