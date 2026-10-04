@@ -69,6 +69,9 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64; const context = canvas.getContext("2d")!; context.fillStyle = "#3d9b95"; context.fillRect(0,0,64,64); context.fillStyle = "#e4a137"; context.fillRect(10,32,44,12); context.fillStyle = "#f8f4eb"; context.fillRect(30,8,3,24);
       const image = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/png"));
       const transfer = new DataTransfer(); transfer.items.add(new File([source], "loop.json", { type: "application/octet-stream" })); transfer.items.add(new File([image], "raft.png", { type: "image/png" }));
+      // Composer resets the picker after consuming it, which also clears this live FileList.
+      const originals = Array.from(transfer.files);
+      expect(originals).toHaveLength(2);
       const input = host.querySelector<HTMLInputElement>('input[accept*=".gpx"]')!;
       input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
       await expect.poll(() => host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
@@ -78,8 +81,8 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
         expect(host.textContent).toContain("waiting for connection");
         expect(host.textContent).toContain("loop.json");
         expect(field.value).toBe(text);
-        expect(await transfer.files[0]!.text()).toBe(source);
-        expect(transfer.files[0]!.size).toBeGreaterThan(0); expect(transfer.files[1]!.size).toBeGreaterThan(100);
+        expect(await originals[0]!.text()).toBe(source);
+        expect(originals[0]!.size).toBeGreaterThan(0); expect(originals[1]!.size).toBeGreaterThan(100);
         await userEvent.click(field); await userEvent.keyboard("{Enter}");
         expect(sent).toHaveLength(0); expect(host.textContent).toContain("sends when 1 file finishes");
         expect(field.value).toBe(text); expect(host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);

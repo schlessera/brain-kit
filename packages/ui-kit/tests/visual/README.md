@@ -37,5 +37,7 @@ start from a deliberately offline sentinel; separate offline cases retain a
 mixed draft without multipart requests, then resume through the actual Composer
 online event. A failure sentinel checks descriptor restoration after an exception.
 Both picker widths retain image decoding, held-send and nonempty multipart
-assertions. Review captures stay in `.vitest-attachments/track-intake/`; no
+assertions. Original File references are saved before Composer clears the live
+picker FileList, so offline input evidence remains available after processing.
+Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
