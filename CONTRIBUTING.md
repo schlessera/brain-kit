@@ -110,6 +110,14 @@ weight. Refresh the weights when suite changes make the actual CI timings
 uneven; #629 records the profiling commands, timings and coverage evidence.
 The browser/visual job keeps its separate two-shard layout.
 
+`bun run test:layout` runs the real ui-react chat overlay measurements after
+`bun run build`. It uses the existing Vitest browser runner and the same pinned
+Playwright image as the visual suite, with Docker networking disabled. CI runs
+this project separately on every PR. It reads `ui-react/dist/styles.css`, uses
+an isolated root with seeded messages and fixture transports, and checks pixels
+without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
+unit-test discovery does not claim them.
+
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run
 `bun run build` once before invoking it directly (or use

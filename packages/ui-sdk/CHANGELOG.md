@@ -1,5 +1,105 @@
 # @schlessera/brain-ui-sdk
 
+## 0.40.0
+
+### Minor Changes
+
+- 0575b1b: Add `ask_user_list`, a bridge tool that asks the user to place up to 30 items on one shared scale of 2–8 options in a single card, for rating, triage and sorting. The result maps item ids to the chosen option, lists the skipped ids, and carries optional per-item notes. It ships as new `ask_user_list_request` / `ask_user_list_response` protocol frames, a kit `AskUserListCard` (inline chip grid, "set the rest to …" with undo, a Submit that states what it will send and never silently does nothing), and a transcript binding that replays the answered summary after a reload. Both backends expose it, and withhold it from turns that have no one to show a card to. `ask_user` is unchanged.
+- dee9b10: BREAKING: `createApp`, `probeClaudeRuntime` and `BackendModule.probeRuntime` now return promises; migrate callers to `await`.
+
+  Boot version probes now cancel at their five-second deadline with bounded cleanup.
+
+- 6267d4f: Add explicit nonpersistent autonomous turns and synchronous escalation capture.
+  Both backends preserve ordinary session behavior while headless attempts keep
+  runtime identity and usage in Activity without saving interactive history. This
+  supplies turn plumbing; autonomous dispatch remains gated on containment,
+  budgets, admission and system verification.
+- 96b2339: Define the supported backend permission toolkit and record its signatures and reachable types. Permission behavior and runtime policy values are unchanged.
+
+  Breaking before 1.0: SDK `/server` no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS`, `ARCHIVING_UPDATE_REASON`, `archivesDocument`, `bashCommand`, `SubprocessEnvAudience`, `SUBPROCESS_ENV`, `filterSubprocessEnv` or `parseSubprocessEnvExtra`. Claude's root no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS` or `VOICE_ALLOWED_TOOLS`; pi's root no longer exports `DEFAULT_PI_ALLOWED_TOOLS` or `TOOL_RISK`. First-party consumers use the owning package's explicit `/internal` entry at the same lockstep version; those paths have no compatibility guarantee. External authors use the documented `/server` permission operations and configurable policy formats. Subscription-auth helpers remain public protocol API.
+
+- 0aaabdd: Enforce each backend's actual imported SDK copies against its owning manifest constraints and optional host minima. Direct factories accept `versionRequirements`; Claude holds constrained start/resume prompts until its selected executable probe and SDK handshake pass. Pi reports its primary SDK at boot without a separate executable identity. Preserve measured-pair warnings, provenance, numeric defaults and terminal frames.
+- c849bf2: Tighten pre-1.0 backend conformance: the published testing harness now requires
+  a permission probe and checks denied mutations, enforced allowlists, no-grant
+  turns and rejection before runtime execution. Backends that silently ignore
+  requested restrictions no longer conform, and existing harnesses must implement
+  `permission(scenario)`. Add the published `runBackendModuleContract` descriptor
+  suite for profile parsing and resolution. Ordinary-turn defaults are unchanged.
+- 0c0c9df: Add `ask_user_form` for conditional questions answered in one card, with shared scale and ranking controls, configurable depth/node/options limits, visible-answer validation and history replay. Keep the existing ask tools available.
+- cbc683a: Define durable Queue/Action frames and strict v1 effect validation; safely ignore the new frames in clients awaiting subscription wiring.
+- f19da8b: Add authenticated `brain queue add` intake with explicit replay keys and scoped
+  principal-cookie transport. Shares now create durable untrusted triage work,
+  deduplicate normalized content, preserve server-owned provenance, and reconcile
+  failed staging/database writes. Queueing does not file content or enable
+  autonomous execution.
+- c1a1595: Render recoverable failed-turn cards with reviewed diagnostics, subscription auth instructions, and a latest-turn Retry that retains original inputs and checks delivery after reconnect.
+- 95865d1: Add optional host SDK/runtime/content-CLI minima, strict shared SemVer constraint composition, descriptor report verification, and explicit content-CLI rechecks before invocation. Preserve package bounds, default unknown-CLI warnings, and existing runtime report meanings.
+- 48c87e1: Reserve interactive capacity while limiting autonomous operations to two by
+  default. Shared locks prioritize interactive waiters and cooperatively yield
+  long autonomous holders after a configurable 20-second wait. Yield checkpoints
+  before abort, drains writers before recovering work, retains completed-call
+  receipts and incurred costs, and bounds repeated interruption with a single
+  dead-letter Action. Production autonomous dispatch remains disabled.
+- 60d9690: A command the client answers itself (`/stats`) can be kept as part of its session (#582). New `local_exchange` client frame (`{ sessionId, exchange: LocalExchange }`), new `local_exchange_result` server frame (`{ sessionId, exchangeId, saved, reason? }`), optional `ClientChatMessage.localExchanges` for a draft conversation's exchanges, and optional `SessionHistoryMessage.localAnswer` (`{ exchangeId, command, answer }`) on replayed assistant messages. `LocalExchange` is `{ id, command, prompt, answer, context }`; the schema bounds `context` to `MAX_LOCAL_CONTEXT_CHARS` and refuses one containing `LOCAL_ANSWER_CLOSE`. All additive: a peer that does not know them ignores them, and a `localAnswer` this build cannot read is dropped rather than failing the history.
+- 4503591: Add schema-driven module Settings with per-module JSON overrides, validated revision-guarded saves, explicit source-preserving migrations and separate lifecycle/actions. Jobs exposes its complete scoring format, adapter choices and execution settings, preserving legacy scoring representation during migration and edits.
+- a01c389: Add per-message reasoning effort with saved profile defaults for Claude and Pi.
+  Claude defaults to Opus 5.5 at medium; each resumed turn re-reads its default,
+  unsupported levels resolve downward, and retries retain the original override.
+  Expose supported levels and honest requested/confirmed effort metadata. The
+  existing model chip opens a model/effort picker; overrides clear on correlated
+  start or queue acceptance and remain with refused drafts. Older hosts retain
+  their existing send behavior.
+- 35fb78d: Add ask_user_rank: one list ordered by handle drag, taps or keyboard, with explicit kept-order results, optional top-N cutoff, and answered transcript replay.
+- 49bc6b2: Pre-1.0 breaking tightening: nonempty `confirmBashPatterns` / `BRAIN_UI_CONFIRM_BASH`
+  lists with no valid regex now fail backend initialization instead of silently
+  disabling confirmation. Repair the reported invalid entries, or explicitly set
+  `[]` to disable confirmation. Missing configuration still uses defaults; mixed
+  lists keep valid patterns and effects while reporting invalid entries. Malformed
+  JSON and structurally unusable environment values retain their existing fallback.
+- d9e64c9: Preserve observed retry counts and known rate-limit reset timestamps on terminal failures and durable replay.
+- 3f0870d: Attach validated GPX, KML and supported GeoJSON originals in chat, preserving incoming names and MIME separately from detected staged names. Keep server-derived file evidence on queued turns and replay. Draw static track blocks with complete metrics, waypoint evidence, explicit unknown and partial values, separate gaps and original references; resolve assets before PNG/PDF export. Generic share intake remains compatible.
+- efafbb3: A turn whose model call failed now says so on the wire (#575). `result` and a bare turn-ending `error` gain an optional `failure` (`TurnFailure`: `errorClass`, `status?`, `message`, `authAction?`), replayed assistant messages gain the same `failure`, and a `status: "thinking"` frame gains an optional `retry` (`TurnRetry`) while the runtime backs off from a failed call. All additive: the schemas drop an unreadable `failure` or `retry` rather than the frame. `describeRetry` gives every backend and client one wording for a retry. `SubscriptionAuthAction`, `SUBSCRIPTION_AUTH_INSTRUCTIONS`, `SUBSCRIPTION_RELOGIN_PROCEDURE` and `subscriptionAuthAction` are now exported from `/protocol` as well as `/server`, so a client can show the #254 instructions. The shared backend contract suite gains optional `apiFailure` and `retrying` harness cases.
+
+### Patch Changes
+
+- f0b84c0: Accept omitted unknown costs in the published backend lifecycle suite while validating reported numeric, nonnegative costs.
+- cf6fee6: Preserve and validate prototype-named snapshot sequence entries in the server-frame parser.
+- 67c7403: Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
+
+  Add configured Nominatim geocoding with qualified candidates, explicit service failures, disk cache/source age and shared operator admission across CLI/server processes.
+
+  Add configured prepared-dataset routing and explicit eligible FOSSGIS fallback, with honest source/transfer/cache metadata and nullable provider estimates.
+
+  Add bounded Overpass POI queries near points or along retained track sections, mapped opening-hours unknowns, ordered fallback and persistent admission refusal handling.
+
+  Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
+
+  Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.
+
+  Add canonical geo configuration to brain config and the UI server adapter, preserving legacy endpoint/privacy switches and keeping disposable response caches separate from permanent geometry caches and global operator admission.
+
+  Add deterministic vector static PNG maps with bundled fonts, preserved track gaps, numbered stops, complete legends and source/attribution evidence. Wide or unavailable backgrounds yield plain maps; unsupported projection, glyphs or image budgets retain complete text without changing source geometry.
+
+  Add brain geo geocode, route, poi, track and map with one-document JSON contracts and qualified human output. Commands share canonical service configuration and cache/admission, retain original track evidence and protect local map writes through brain/scratch containment.
+
+- Updated dependencies [0575b1b]
+- Updated dependencies [830127c]
+- Updated dependencies [a4d5ef0]
+- Updated dependencies [0c0c9df]
+- Updated dependencies [c1a1595]
+- Updated dependencies [3829fed]
+- Updated dependencies [0506c10]
+- Updated dependencies [619ee2b]
+- Updated dependencies [a01c389]
+- Updated dependencies [d934fe0]
+- Updated dependencies [35fb78d]
+- Updated dependencies [1eaeba2]
+- Updated dependencies [67c7403]
+- Updated dependencies [3f0870d]
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-ui-kit@0.40.0
+  - @schlessera/brain-geo@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes
