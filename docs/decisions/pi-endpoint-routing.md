@@ -8,7 +8,8 @@ bind endpoint selection for explicitly declared built-in pi profiles.
 [Documentation prerequisite #938](https://github.com/schlessera/brain-kit/issues/938)
 records the policy; [#762](https://github.com/schlessera/brain-kit/issues/762)
 owns implementation and its routing migration. This record describes the
-approved target, not a claim that the adapter fix already ships.
+approved target. The implementation in #762 wires that runtime into new and
+resumed sessions; its required proof is specified below.
 
 ## Routing and ownership
 
@@ -66,13 +67,13 @@ documents session configuration. Use the installed public SDK surface:
   The [version-matched upstream implementation](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/src/core/model-runtime.ts)
   is additional source evidence, not permission to call private internals.
 
-The concrete adapter integration points, rechecked at that main revision, are:
+The concrete adapter integration points are:
 
 | Existing boundary | Required integration |
 | --- | --- |
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
-| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/session-runtime.ts:36-60`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. Keep ordinary disk storage and autonomous `SessionManager.inMemory`. |
-| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/session-runtime.ts:62-101`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
+| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/session-runtime.ts:37-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. Keep ordinary disk storage and autonomous `SessionManager.inMemory`. |
+| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/session-runtime.ts:74-114`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
 | Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:73-100`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime
