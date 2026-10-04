@@ -28,6 +28,7 @@ import { topLevelBlocks } from "./document-parts.js";
 import { editFrontmatter } from "./frontmatter-edit.js";
 import { generatedRegionSpan } from "./generated-regions.js";
 import { planRegistry, REGISTRY_REGION } from "./index-registry.js";
+import { createWikiLinkResolver, extractWikiLinks } from "./indexer/links.js";
 import type { LoadedModule } from "./module-types.js";
 import { writeExclusive } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -198,19 +199,18 @@ interface MdNode {
 const markdown = unified().use(remarkParse).use(remarkGfm);
 
 /**
- * Every GFM table in `content`, as rows of raw cell source (trimmed, `\|`
- * unescaped). GFM splits a cell at any unescaped pipe, a wiki-link's
- * `[[target|label]]` included, so those pipes are escaped before parsing and
- * the link reads back whole.
+ * Every GFM table in `content`, as rows of trimmed raw cell source. GFM
+ * splits wiki-link display pipes too, so mask them in the parser copy with
+ * a single code unit. Offsets still address the original, unmodified text.
  */
 function tables(content: string): string[][][] {
-  const source = content.replace(/\[\[[^\]\n]*\]\]/g, (link) => link.replace(/(?<!\\)\|/g, "\\|"));
+  const source = content.replace(/\[\[[^\]\n]*\]\]/g, (link) => link.replace(/(?<!\\)\|/g, "\uFF5C"));
   const cellText = (cell: MdNode) => {
     const kids = cell.children ?? [];
     const start = kids[0]?.position?.start.offset;
     const end = kids[kids.length - 1]?.position?.end.offset;
     if (start === undefined || end === undefined) return "";
-    return source.slice(start, end).trim().replace(/\\\|/g, "|");
+    return content.slice(start, end).trim();
   };
   const out: string[][][] = [];
   const walk = (node: MdNode) => {
@@ -240,13 +240,34 @@ function dayIn(cell: string): string | null {
   return /\d{4}-\d{2}-\d{2}/.exec(cell)?.[0] ?? null;
 }
 
+/** Indexed targets from the full corpus, including null for unresolved/ambiguous links. */
+type ResolvedWikiLinks = ReadonlyMap<string, ReadonlyMap<string, string | null>>;
+
+/** Reuse the indexer's wiki-link/alias result, built with the configured directory anchors. */
+function indexedWikiLinks(db: Database): ResolvedWikiLinks {
+  const links = new Map<string, Map<string, string | null>>();
+  const rows = db.query(`SELECT source.path AS sourcePath, l.target, target.path AS targetPath
+    FROM links l JOIN documents source ON source.id = l.source_id
+    LEFT JOIN documents target ON target.id = l.target_id`).all() as
+    { sourcePath: string; target: string; targetPath: string | null }[];
+  for (const row of rows) {
+    const targets = links.get(row.sourcePath) ?? new Map<string, string | null>();
+    targets.set(row.target, row.targetPath);
+    links.set(row.sourcePath, targets);
+  }
+  return links;
+}
+
 /**
- * The document a row links to: the first markdown link or wiki-link in the
- * row, resolved against the index's directory. A link to a directory means
- * its `status.md`, else its `_index.md`. A wiki-link is matched by file name.
+ * The first markdown or wiki-link a row names. Markdown links retain their
+ * index-directory semantics; wiki-links use the index document as source.
  */
-function linkedDetail(row: string[], indexDir: string, byPath: Map<string, AuditDoc>): AuditDoc | null {
-  for (const cell of row) {
+function linkedDetail(
+  row: string[], indexDir: string, indexPath: string, byPath: Map<string, AuditDoc>,
+  resolveWiki: (target: string, sourcePath: string) => string | null
+): AuditDoc | null {
+  for (const rawCell of row) {
+    const cell = rawCell.replace(/\\\|/g, "|");
     const md = /\[[^\]]*\]\(([^)\s]+)[^)]*\)/.exec(cell)?.[1];
     if (md && !/^[a-z]+:/i.test(md) && !md.startsWith("#")) {
       let href = md.split("#")[0];
@@ -265,14 +286,10 @@ function linkedDetail(row: string[], indexDir: string, byPath: Map<string, Audit
       }
       return null;
     }
-    const wiki = /\[\[([^\]|#]+)/.exec(cell)?.[1]?.trim();
+    const wiki = extractWikiLinks(rawCell)[0];
     if (wiki) {
-      const name = wiki.replace(/\.md$/, "").toLowerCase();
-      for (const doc of byPath.values()) {
-        const base = doc.path.split("/").pop()!.replace(/\.md$/, "").toLowerCase();
-        if (base === name || doc.path.replace(/\.md$/, "").toLowerCase() === name) return doc;
-      }
-      return null;
+      const target = resolveWiki(wiki, indexPath);
+      return target ? byPath.get(target) ?? null : null;
     }
   }
   return null;
@@ -284,8 +301,17 @@ function linkedDetail(row: string[], indexDir: string, byPath: Map<string, Audit
  * row's Updated date. Rows whose detail is missing are skipped (orphan and
  * structure checks cover them). The evidence is the row's first cell.
  */
-export function indexTableLag(docs: AuditDoc[], registryIndexes: ReadonlySet<string> = new Set()): HygieneCandidate[] {
+export function indexTableLag(
+  docs: AuditDoc[], registryIndexes: ReadonlySet<string> = new Set(), resolvedLinks?: ResolvedWikiLinks
+): HygieneCandidate[] {
   const byPath = new Map(docs.map((d) => [d.path, d]));
+  // Corpus-only callers share basename/path resolution. Production supplies
+  // the indexer's complete result, including real aliases and custom anchors.
+  // Never retry a missing/null indexed target against the filtered doc set:
+  // excluding the hygiene log from detection must not resolve an ambiguity.
+  const resolveWiki = resolvedLinks
+    ? (target: string, sourcePath: string) => resolvedLinks.get(sourcePath)?.get(target) ?? null
+    : createWikiLinkResolver(new Map(docs.map((d) => [d.path, d.title])));
   const out: HygieneCandidate[] = [];
   for (const index of docs) {
     if (index.type !== "index" && !index.path.endsWith("_index.md")) continue;
@@ -296,9 +322,11 @@ export function indexTableLag(docs: AuditDoc[], registryIndexes: ReadonlySet<str
       const updatedCol = header.findIndex((h) => h.includes("updated"));
       const statusCol = header.findIndex((h) => h.includes("status"));
       if (updatedCol === -1) continue;
-      for (const row of rows) {
+      for (const rawRow of rows) {
+        // Preserve displayed evidence/IDs while resolving wiki targets as indexed.
+        const row = rawRow.map((cell) => cell.replace(/\\\|/g, "|"));
         const rowUpdated = dayIn(row[updatedCol] ?? "");
-        const detail = linkedDetail(row, indexDir === "." ? "" : indexDir, byPath);
+        const detail = linkedDetail(rawRow, indexDir === "." ? "" : indexDir, index.path, byPath, resolveWiki);
         if (!detail || !rowUpdated || !(detail.updated > rowUpdated)) continue;
         const first = plain(row[0] ?? "") || row[0] || "";
         const rowStatus = statusCol === -1 ? null : (row[statusCol] ?? "").trim();
@@ -355,7 +383,7 @@ export async function detectCandidates(
   const registryIndexes = new Set(
     existsSync(brain.root) ? planRegistry(brain.root, brain.taxonomy, isoDay(now.getTime())).indexes.map((i) => i.path) : []
   );
-  const table = indexTableLag(docs, registryIndexes);
+  const table = indexTableLag(docs, registryIndexes, indexedWikiLinks(db));
   // A row-level finding is more specific than audit's whole-file index-lag.
   const tableIndexes = new Set(table.map((c) => c.path));
   const failed = new Set<string>();
