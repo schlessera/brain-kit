@@ -216,3 +216,14 @@ the repository-wide conversion is #625, not an extra task here.
 - **Enable trusted-only autonomy if containment slips.** This was an old risk-table
   suggestion, not the approved full v1. A scope fallback requires a new maintainer
   ruling; a green surface suite cannot substitute for containment evidence.
+
+## All-writer architecture ruling — 2026-10-02
+
+[The all-writer decision](policy-write-boundary.md) records the three approved
+choices for isolated workers, authoritative application using existing approvals,
+and verified Linux/qualifying WSL2 hosts with visible refusal before writer
+initialization. It supplements this record's authority and containment section:
+ordinary shell/extension writes must stage exact changes for bounded server
+application rather than directly editing authoritative files. R33/R35 and R31
+remain binding; the separate credentials/configuration/egress proof is unchanged.
+Approval does not prove containment or enable the autonomous system.
