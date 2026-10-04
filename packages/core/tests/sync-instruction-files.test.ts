@@ -41,8 +41,8 @@ function fixture(): string {
   save(root, "brain.config.ts", config.replace("  taxonomy: {", '  sync: { judge: "off" },\n  taxonomy: {'));
   save(root, ".gitignore", "node_modules\nbrain.db\nbrain.db-*\n");
   git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Alex Example");
-  git(root, "config", "user.email", "alex@example.test");
+  git(root, "config", "user.name", "Odysseus");
+  git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "core.hooksPath", "/dev/null");
   return root;
