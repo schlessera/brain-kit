@@ -6,7 +6,11 @@ Discovery for [#942](https://github.com/schlessera/brain-kit/issues/942), supply
 to the design, not a navigation amendment or an implemented recovery contract.
 The [navigation ruling](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5973564827)
 and later [parallel-session ruling](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5973572791)
-provide the projected placements. The latter takes precedence.
+provide the projected placements. The latter takes precedence. The later
+maintainer decisions in [#929](https://github.com/schlessera/brain-kit/issues/929)
+select authoritative host recovery A and per-session host-backed draft storage C.
+They supersede the earlier discard-confirm proposal; the measurements below
+describe incumbent behavior, and the selected contracts still require implementation.
 
 ## Evidence boundary and reproduction
 
@@ -256,8 +260,9 @@ Recommended minimal truthful strategy:
    Merely selecting a session or reaching the bottom of an unrelated replay
    does not establish this proof.
 
-For full cold latest-turn semantics, #943 must approve executable proof or an
-honest unknown boundary. A concrete additive candidate is a read-only
+For full cold latest-turn semantics, selected recovery A requires executable
+identity proof while retaining honest unknown states when evidence is absent.
+#943 supplies the exact design and durable amendment; #964 implements the selected read-only
 `GET /api/sessions/:id/recovery` envelope with:
 
 ```ts
@@ -281,7 +286,7 @@ honest unknown boundary. A concrete additive candidate is a read-only
 }
 ```
 
-This is a proposal, not an existing endpoint. Latest/revision provenance must be
+This is selected future scope under recovery A, not an existing endpoint. Latest/revision provenance must be
 host acceptance plus the coordinator and durable catalog/Activity records;
 backend mtime is insufficient. Unknown remains explicit after lost queue state
 or uncorrelated imported history. Successful `session_history` messages need an
@@ -311,12 +316,14 @@ The ordinary draft cases run at 390/coarse and 900/fine; each starts with `Unsen
 | Actions or Graph and back | Empty / 0 | A's store survives; this composition remounts Composer |
 
 The store's clearMessages does not clear Composer's useState input/images and
-does not clear pendingDraftId. Therefore current New chat is not accurately
-pictured as discarding an ordinary unsent local draft. #943/#951 must define
-what the proposed confirmation actually discards, including retained attachment
-ownership, pending send and view-unmount paths. Preserved content must not be
-labelled as already lost. Session selection also retains text that can subsequently
-be sent to B; that ownership transition needs an explicit rule.
+does not clear pendingDraftId. Current New chat therefore does not discard an
+ordinary unsent local draft, while session selection can carry its text into B.
+The later maintainer choice replaces discard confirmation with a separate draft
+per session: New chat saves A and opens empty; returning to A restores its text
+and attachments. #943 supplies exact restore/delete/focus behavior, #951 owns
+composer/send correlation, and #979 owns selected authenticated host storage C
+with revision/idempotency, durable attachment bytes and cross-device conflict handling.
+Preserved content must not be labelled lost or described as saved before acceptance.
 
 The delayed-frame probe holds actual host frames after a first Composer send:
 
@@ -327,13 +334,13 @@ The delayed-frame probe holds actual host frames after a first Composer send:
 | New chat, then local stats creates a draft | Old matching announcement adopts the recreated stats draft and selects the old session, undoing New chat; newer text remains |
 | Attempt another send while acknowledgement is held | Pending-send guard prevents a second dispatch; it is not evidence of two simultaneous first sends |
 
-A confirmation must coordinate local input lifetime, accepted versus unconfirmed
-send ownership, correlation invalidation and receipt consumption. Preserve an
+The selected per-session draft lifecycle must coordinate local input lifetime,
+accepted versus unconfirmed send ownership, correlation invalidation and receipt consumption. Preserve an
 unknown send for review rather than silently resending it. A background result
-cannot own a new draft. Cancellation/Escape should keep the exact input and
-session, while confirming should clear only the content named by the approved
-copy. No streaming-only confirmation or backend cancel is justified by this
-measurement.
+cannot own a new draft. Explicit draft removal and accepted-send consumption must target the matching
+identity/revision, retaining newer unsent edits and another session's attachments.
+No discard confirmation for preserved drafts or streaming-only backend cancel
+is selected by the later ruling.
 
 ## Source anchors
 
@@ -358,7 +365,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:528-544`).
 
-- Root namespace: (`const prefix = options.storagePrefix ?? `brain-ui:${crypto.randomUUID()}`;`, `packages/ui-react/src/root.ts:54-62`).
+- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:54-62`).
 
 - Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1182-1191`).
 
@@ -396,10 +403,12 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 ## Bounded follow-up ownership
 
-[#964](https://github.com/schlessera/brain-kit/issues/964) scopes the candidate
-latest-turn/replay proof and pending-approval recovery after #943 adopts it.
+[#964](https://github.com/schlessera/brain-kit/issues/964) implements the selected
+latest-turn/replay proof and pending-approval recovery after #943 supplies its exact design.
 [#910](https://github.com/schlessera/brain-kit/issues/910) retains the four ask
 recovery paths; #951 retains New chat draft/receipt coordination.
 [#965](https://github.com/schlessera/brain-kit/issues/965) records the currently
 unnamed Files drawer close button found while measuring dismissal. These scopes
-do not approve machine fields or extend this report into implementation.
+consume the later recovery A and draft-storage C rulings in #929. This report
+implements neither contract and does not waive their separate design, compatibility
+or runtime proof requirements.
