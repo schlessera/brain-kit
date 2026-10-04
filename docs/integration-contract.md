@@ -1349,10 +1349,16 @@ drawing, as a pure function a consumer may rely on:
   says `Positions as given by the brain · the map does not check them`, and
   the OpenStreetMap credit appears once, exactly when OSM geometry is drawn.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
-is dropped rather than rejected. `show_block` is the one payload parsed with
-its **input** schema rather than a loose one: the payload is the model's own
-argument echoed back, so a field the client's schema does not know is dropped
-from the rendered block rather than kept, and the block still renders.
+is dropped rather than rejected. `show_block` payloads discard unknown fields
+from the rendered block rather than keeping them, so otherwise valid stored
+or replayed blocks still render. Its payload schema is separate from new-call
+validation: new `suggestions` calls reject unknown keys at both the block and
+item levels, including an item's unsupported `tone` (#635). Claude and pi
+advertise that restriction and reject such calls with validation errors.
+This tightens accepted input and ships as a pre-1.0 minor. Stored or replayed
+suggestions continue to discard those keys; malformed payloads still fall
+back to the generic tool view. Other block kinds keep their existing input
+and payload parsing behavior.
 
 `suggestions` (additive in 0.39.0, D50) is the one kind that is not part of
 the answer. It is follow-ups the model offers the reader, and a consumer
@@ -1428,6 +1434,28 @@ configured CORS preflight without promoting internal payloads to guarantees.
 The detailed stats promises below remain binding. The specification records remaining gaps; a gap does not revoke a guarantee.
 Login, passkey registration/rename and capture refuse malformed/non-object JSON with JSON 400 errors.
 Capture validates content/type/title/tags before CLI dispatch; valid object defaults and pre-handler authentication/owner checks remain binding.
+
+### Published React health and sync helpers (breaking health correction)
+
+`@schlessera/brain-ui-react` exports `createBrainApi` and `BrainApi`; the
+embedding service `root.api` uses the same helpers. `health()` resolves to
+`{ status: string; uptime: number; timestamp: string }`, matching the minimal
+public route. The previously declared `version: string` never existed in that
+response and is removed under the [maintainer's #693 ruling](https://github.com/schlessera/brain-kit/issues/693#issuecomment-5961143224).
+This is an approved pre-1.0 breaking correction shipping in a minor. Migrate
+`health().version` reads to authenticated `status()` when software identity is
+needed; health never fabricates identity or requests protected status.
+
+`brainSync()` POSTs through its configured base getter/request transport and
+consumes complete SSE events. A valid terminal `done` maps `success` and `text`
+to the existing `{ success: boolean; message: string }` result; terminal false
+resolves as a completed unsuccessful sync. Progress and keepalive comments
+are not completion. Missing/malformed terminal data, premature EOF and
+transport failure reject as incomplete; non-2xx responses retain
+`ApiRequestError`. No automatic POST retry or stream resumption is added.
+Disconnect does not establish cancellation: the server continues draining and
+reserves the canonical repository until its child exits, as specified in
+[the HTTP sync contract](http-api.md#corpus-queries-capture-and-sync).
 
 ### Internal Queue poke (additive)
 

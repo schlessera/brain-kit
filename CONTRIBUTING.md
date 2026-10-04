@@ -110,6 +110,14 @@ weight. Refresh the weights when suite changes make the actual CI timings
 uneven; #629 records the profiling commands, timings and coverage evidence.
 The browser/visual job keeps its separate two-shard layout.
 
+`bun run test:layout` runs the real ui-react chat overlay measurements after
+`bun run build`. It uses the existing Vitest browser runner and the same pinned
+Playwright image as the visual suite, with Docker networking disabled. CI runs
+this project separately on every PR. It reads `ui-react/dist/styles.css`, uses
+an isolated root with seeded messages and fixture transports, and checks pixels
+without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
+unit-test discovery does not claim them.
+
 Tests and typecheck run from live TS source — no build needed. The
 `node_modules/.bin/brain` bin, however, points at the compiled CLI, so run
 `bun run build` once before invoking it directly (or use
@@ -213,9 +221,15 @@ before `bun install` stays dependency-free.
 
 ## Contract checks
 
+CI runs on Depot CI from `.depot/workflows/`, including the contract gate
+below. These are the authoritative workflows; update them directly when
+adding or changing a check. See [AGENTS.md](AGENTS.md#depot-ci) for commands
+to find a PR's runs, diagnose failures, export logs and download artifacts.
+Project-board sync stays on GitHub Actions to retain issue-event triggers.
+
 Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 
-**The contract gate** (`.github/workflows/contract.yml`, rule in
+**The contract gate** (`.depot/workflows/contract.yml`, rule in
 `scripts/check-contract-pr.ts`) runs on every pull request and again whenever
 its title or labels change. A PR whose diff touches
 `docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`

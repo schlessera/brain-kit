@@ -61,13 +61,16 @@ the published template rather than a source checkout.
 | --- | --- |
 | [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
 | [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
+| [visitor-feedback-investigation.md](visitor-feedback-investigation.md) | Dated visitor-path and mailing-service comparison behind the public website's release-signup policy. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [audit-capability-investigation.md](audit-capability-investigation.md) | Actual audit suggestion/handler boundaries and keyless repair-capability controls. |
 | [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
+| [candidate-extraction-investigation.md](candidate-extraction-investigation.md) | Exact-span research extraction, Unicode/duration controls and the remaining per-field comparison. |
 | [job-fit-investigation.md](job-fit-investigation.md) | Actual keyword scoring, private semantic fit/unknown-value controls and the unmeasured live comparison boundary. |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Source discovery and keyless controls for evaluating note disposition; live model results remain unmeasured. |
 | [mechanical-hygiene-investigation.md](mechanical-hygiene-investigation.md) | Existing hygiene capabilities, a private mechanical-repair prototype and offline runtime/write controls; actual agent savings remain unmeasured. |
 | [opportunity-lifecycle-investigation.md](opportunity-lifecycle-investigation.md) | Explicit job lifecycle events, real file/deadline controls and the remaining comparative evaluation. |
+| [speaking-lifecycle-investigation.md](speaking-lifecycle-investigation.md) | Speaking state and projection inventory, private lifecycle controls and draft classifier fixtures; live accuracy and savings remain unmeasured. |
 | [plans/README.md](plans/README.md) | Design for work that is not built yet. Normally at most one. |
 
 ## See also

@@ -53,10 +53,11 @@ const rates = { input: 0.003, output: 0.003, cacheRead: 0.003, cacheWrite: 0.003
 const start = Date.UTC(2026, 9, 1, 12);
 function fixture(overrides: Partial<Parameters<typeof createInboxBudget>[1]["config"]> = {}, price: PricingRates | null = rates) {
   const db = createUiDb(":memory:"); let at = start;
-  const store = createInboxStore(db, { now: () => at });
+  const now = () => at;
+  const store = createInboxStore(db, { now });
   const config = { spendUsd: 5, turns: 10, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01, ...overrides };
   const pricing = { resolve: () => price };
-  const budget = createInboxBudget(db, { config, pricing, now: () => at });
+  const budget = createInboxBudget(db, { config, pricing, now });
   const activity = createActivityStore(db, { pricing });
   function seed(id: string) { store.ingest({ threadId: id, itemId: id, dedupKey: id, stagingId: id, source: "share", stakes: 2, expiresAt: at + 86_400_000 }); }
   function operation(id: string, changes: Partial<InboxBudgetOperation> = {}): InboxBudgetOperation {
@@ -73,7 +74,7 @@ function fixture(overrides: Partial<Parameters<typeof createInboxBudget>[1]["con
     activity.rollupRun(runId);
   }
   const row = (id: string) => db.query("SELECT * FROM inbox_budget_reservations WHERE run_id = ?").get(`run-${id}`) as Record<string, unknown>;
-  return { db, store, config, pricing, budget, activity, seed, operation, claim, receipt, row, setTime: (value: number) => { at = value; } };
+  return { db, store, config, pricing, budget, activity, seed, operation, claim, receipt, row, now, setTime: (value: number) => { at = value; } };
 }
 
 describe("durable budget settlement", () => {
@@ -180,8 +181,9 @@ describe("durable budget settlement", () => {
       expect(f.claim("reserve-deferred", { emergency: true })).toBeNull();
       expect(f.budget.totals()).toMatchObject({ normal: { cost: 3_000_000, turns: 1 }, emergency: { cost: 3_000_000, turns: 1 } });
       expect(f.store.snapshot().items.filter((item) => item.queue === "actions" && item.type === "fyi")).toHaveLength(1);
-      const restarted = createInboxBudget(f.db, { config: f.config, pricing: f.pricing });
-      expect(restarted.claim("reserve-deferred", f.operation("later", { emergency: true }), Date.now() + 600_000)).toBeNull();
+      const restarted = createInboxBudget(f.db, { config: f.config, pricing: f.pricing, now: f.now });
+      expect(restarted.totals()).toMatchObject({ normal: { cost: 3_000_000, turns: 1 }, emergency: { cost: 3_000_000, turns: 1 } });
+      expect(restarted.claim("reserve-deferred", f.operation("later", { emergency: true }), f.now() + 600_000)).toBeNull();
       expect(f.store.snapshot().items.filter((item) => item.queue === "actions" && item.type === "fyi")).toHaveLength(1);
     } finally { f.db.close(); }
   });
@@ -367,14 +369,17 @@ test("all contributors to per-model API usage are counted without double-countin
   } finally { f.db.close(); }
 });
 
-test("runtime without admission plumbing refuses nonempty work before dispatch", async () => {
+test.each([start, Date.UTC(2000, 0, 1), Date.UTC(2100, 0, 1)])("runtime without admission plumbing refuses nonempty work before dispatch at %i", async (at) => {
   const f = fixture(); let starts = 0;
+  f.setTime(at);
   f.seed("odysseus");
-  const runtime = createInboxRuntime(f.db, { log: { emit() {}, enabled: () => false }, dispatch: async () => { starts++; } });
+  expect(f.store.getItem("odysseus")).toMatchObject({ status: "ready", attempts: 0, createdAt: at, expiresAt: at + 86_400_000 });
+  const runtime = createInboxRuntime(f.db, { now: f.now, log: { emit() {}, enabled: () => false }, dispatch: async () => { starts++; } });
   try {
     expect(await runtime.tick()).toMatchObject({ claimed: 0, dispatchEnabled: false });
     expect(starts).toBe(0);
     expect(f.store.getItem("odysseus")).toMatchObject({ status: "ready", attempts: 0 });
+    expect(f.db.query("SELECT tick_at FROM inbox_scheduler_heartbeats WHERE name = 'inbox-drain'").get()).toEqual({ tick_at: at });
   } finally { await runtime.close(); f.db.close(); }
 });
 
