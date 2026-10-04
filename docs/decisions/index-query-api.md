@@ -135,7 +135,7 @@ options and later context-root mutation. Each operation retains its own
 core-owned read snapshot/native lifetime. There is no persistent handle,
 transaction spanning callbacks, consumer-supplied provider, SQL callback or
 prepare/execute escape. Keep awaited sync/async callback execution and existing
-failed-check reporting (`const found = await check`, `packages/core/src/lib/auditor.ts:1029-1038`).
+failed-check reporting (`const found = await check`, `packages/core/src/lib/auditor.ts:1053-1062`).
 Typed failure remains distinct from an empty valid result or successful check.
 The current raw context stays in source until #699 migrates every callback,
 fixture and author guide together; the ruling approves removal in that change,
