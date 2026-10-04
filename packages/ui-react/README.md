@@ -238,6 +238,21 @@ Separate roots do not establish a browser security boundary. One root serves
 all agent backends on the same brain server; separate roots are only needed
 for distinct application instances.
 
+### Health and sync helpers
+
+`root.api` and the exported `createBrainApi()` share the configured request
+transport. `health()` returns `{ status, uptime, timestamp }`. Its former
+`version: string` declaration is removed as an approved breaking correction:
+the public route never returned that field. For software identity, request
+authenticated `status()` explicitly instead of reading `health().version`.
+
+`brainSync()` consumes the SSE response and resolves its terminal result as
+`{ success, message }`; `success: false` is a completed unsuccessful sync.
+A missing/malformed terminal event or lost stream rejects as incomplete.
+Non-2xx responses retain `ApiRequestError`. No POST retry or stream resumption
+is automatic; disconnect does not cancel the server job or release its
+repository reservation before the child exits.
+
 ## Registries
 
 Tool renderers and ASR clients register synchronously on first render into the
