@@ -321,6 +321,33 @@ for (const [mode, build] of MODES) {
       }
     });
 
+    test("stored extra fields are discarded while otherwise valid suggestions still render", async () => {
+      const page = await mount();
+      const raw = JSON.stringify({ block: { kind: "suggestions", extra: "block-sentinel", items: [{ label: "Who was on watch then?", tone: "amber" }] } });
+      try {
+        expect(raw).toContain("block-sentinel");
+        expect(raw).toContain("amber");
+        build(page, { calls: [raw] });
+        expect(page.chips().map(chip => chip.textContent)).toEqual(["Who was on watch then?"]);
+        expect(page.group()!.textContent).not.toContain("block-sentinel");
+        expect(page.group()!.textContent).not.toContain("amber");
+        expect(page.turnFrames()).toEqual([]);
+      } finally { page.done(); }
+    });
+
+    test("malformed stored suggestions keep their generic trace fallback", async () => {
+      const page = await mount();
+      const raw = JSON.stringify({ block: { kind: "suggestions", extra: "block-sentinel", items: [{ label: "x", tone: "amber" }] } });
+      try {
+        build(page, { calls: [raw] });
+        expect(page.shown()).toBe(false);
+        fireEvent.click(page.view.getByRole("button", { name: /1 step/ }));
+        fireEvent.click(page.view.getByRole("button", { name: "Block" }));
+        expect(page.view.container.textContent).toContain('"kind":"suggestions"');
+        expect(page.turnFrames()).toEqual([]);
+      } finally { page.done(); }
+    });
+
     test("the last valid call in the turn wins", async () => {
       const page = await mount();
       try {

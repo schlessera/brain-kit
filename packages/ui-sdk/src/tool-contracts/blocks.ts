@@ -531,8 +531,18 @@ export const SUGGESTIONS_MAX_ITEMS = 2;
  * lifts the turn's last valid call to the answer's closing row (D50), and a
  * chip fills the composer; it never sends.
  */
-const suggestionsBlock = (f: BlockFields) =>
-  z.object({
+const suggestionsBlock = (f: BlockFields, rejectUnknown = false) => {
+  const item = z.object({
+    label: z
+      .string()
+      .trim()
+      .min(SUGGESTION_MIN_LENGTH)
+      .max(SUGGESTION_MAX_LENGTH)
+      .regex(/^[^\r\n]*$/, "one line")
+      .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
+    icon: f.icon,
+  });
+  const block = z.object({
     kind: z.literal("suggestions"),
     label: z
       .string()
@@ -542,27 +552,17 @@ const suggestionsBlock = (f: BlockFields) =>
       .optional()
       .describe('The uppercase mono line above the chips. Omit for the default, "Ask next".'),
     items: z
-      .array(
-        z.object({
-          label: z
-            .string()
-            .trim()
-            .min(SUGGESTION_MIN_LENGTH)
-            .max(SUGGESTION_MAX_LENGTH)
-            .regex(/^[^\r\n]*$/, "one line")
-            .describe("The follow-up as the reader would type it; one line, at most 80 characters."),
-          icon: f.icon,
-        })
-      )
+      .array(rejectUnknown ? item.strict() : item)
       .min(1)
       .max(SUGGESTIONS_MAX_ITEMS)
       .apply(f.restated, "One or two follow-ups grounded in this answer."),
   });
+  return rejectUnknown ? block.strict() : block;
+};
 
 export const SUGGESTIONS_BLOCK_SCHEMA = suggestionsBlock(SHIPPED_FIELDS);
 
-/** The union the tool's `block` argument carries. */
-export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
+const OTHER_BLOCK_SCHEMAS = [
   COMPARISON_BLOCK_SCHEMA,
   STATS_BLOCK_SCHEMA,
   TREND_BLOCK_SCHEMA,
@@ -577,6 +577,11 @@ export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
   MAP_BLOCK_SCHEMA,
   TRACK_BLOCK_SCHEMA,
   LINK_BLOCK_SCHEMA,
+] as const;
+
+/** Rendered block data: discard unknown fields, including on stored suggestions. */
+export const BLOCK_SCHEMA = z.discriminatedUnion("kind", [
+  ...OTHER_BLOCK_SCHEMAS,
   SUGGESTIONS_BLOCK_SCHEMA,
 ]);
 
@@ -611,7 +616,10 @@ export const SHOW_BLOCK_DESCRIPTION = [
 ].join("\n");
 
 export const SHOW_BLOCK_INPUT_SCHEMA = z.object({
-  block: BLOCK_SCHEMA,
+  block: z.discriminatedUnion("kind", [
+    ...OTHER_BLOCK_SCHEMAS,
+    suggestionsBlock(SHIPPED_FIELDS, true),
+  ]),
 });
 
 export type ShowBlockInput = z.infer<typeof SHOW_BLOCK_INPUT_SCHEMA>;
@@ -653,7 +661,7 @@ export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLO
         TRACK_BLOCK_SCHEMA,
         // No tone, icon or restated field, so every form shares the one schema.
         LINK_BLOCK_SCHEMA,
-        suggestionsBlock(f),
+        suggestionsBlock(f, true),
       ]),
     });
     FORMS.set(key, schema);
@@ -662,16 +670,14 @@ export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLO
 }
 
 /**
- * The payload is the input: the handler validates and echoes. That makes this
- * the one payload parsed with a strict tree (`z.object` strips unknown keys)
- * rather than a loose one: the payload is the model's own argument, so there
- * is no server-added field to preserve, and an older client parsing a newer
- * variant field drops it from the rendered block and still renders. Stated
- * in `docs/integration-contract.md` next to the additive-payload rule.
+ * Render echoed arguments by discarding unknown fields. Keep this separate
+ * from new-call validation: suggestions reject extras on new calls (#635),
+ * while otherwise valid stored/replayed suggestions still render. Other
+ * block kinds retain their existing parsing behavior in both paths.
  */
-export const SHOW_BLOCK_PAYLOAD_SCHEMA = SHOW_BLOCK_INPUT_SCHEMA;
+export const SHOW_BLOCK_PAYLOAD_SCHEMA = z.object({ block: BLOCK_SCHEMA });
 
-export type ShowBlockPayload = ShowBlockInput;
+export type ShowBlockPayload = z.infer<typeof SHOW_BLOCK_PAYLOAD_SCHEMA>;
 
 export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   name: SHOW_BLOCK_TOOL_NAME,
