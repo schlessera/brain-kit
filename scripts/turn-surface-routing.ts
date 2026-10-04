@@ -98,7 +98,7 @@ export interface RoutingOptions {
 }
 export interface RoutingResult {
   turn: ClaudeSdkTurn;
-  outcome: JevOutcome | "off" | "low_confidence";
+  outcome: JevOutcome | "off" | "low_confidence" | "unsupported_input";
   durationMs: number;
   tools: string[];
   skills: string[];
@@ -115,13 +115,14 @@ export async function routePreparedTurn(turn: ClaudeSdkTurn, opts: RoutingOption
   if (!opts.enabled || opts.arm === "baseline") return fallback("off");
   if (!opts.client.enabled) return fallback("no_key");
   if (opts.client.breaker().open) return fallback("circuit_open");
+  if (typeof turn.prompt !== "string") return fallback("unsupported_input");
   const budgetMs = opts.budgetMs ?? 2000;
   const threshold = opts.threshold ?? 0.6; // Test setting; no calibrated policy.
   if (!Number.isFinite(budgetMs) || budgetMs <= 0 || !Number.isFinite(threshold) || threshold <= 0.5 || threshold > 1) {
     throw new Error("invalid preparation budget or confidence threshold");
   }
   const tools = Object.values(opts.peers).flatMap(peer => peer.tools);
-  const request = routingRequest(typeof turn.prompt === "string" ? turn.prompt : "", opts.previousTail ?? "", tools, opts.skills);
+  const request = routingRequest(turn.prompt, opts.previousTail ?? "", tools, opts.skills);
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The transport already has a single HTTP deadline/retry/breaker. This
   // assembly deadline also covers a transport that ignores AbortSignal.

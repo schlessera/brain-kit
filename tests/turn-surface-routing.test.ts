@@ -67,9 +67,17 @@ for (const posture of ["normal", "no-grant", "autonomous"] as const) {
         expect(result.turn.options.env).toBe(prepared.turn.options.env);
         expect(fixture.skillFiles()).toEqual(skillBytes);
         expect(result.pruneFixtureSkills).toBe(false);
-        const { tools } = await prepared.peer.client.listTools();
-        expect(tools.length).toBeGreaterThan(0);
-        expect(JSON.stringify(tools)).toBe(JSON.stringify(prepared.peer.tools.map(({ id: _id, serverName: _serverName, ...tool }) => tool)));
+        const server = result.turn.options.mcpServers!["brain-ui"];
+        if (server.type !== "sdk") throw new Error("missing returned turn server");
+        // Connecting this actual returned entry also catches an inventory
+        // probe that has already occupied the baseline's transport.
+        const connection = connectSurface("brain-ui", server);
+        await expect(connection).resolves.toHaveProperty("tools");
+        const observed = await connection;
+        try {
+          expect(observed.tools.length).toBeGreaterThan(0);
+          expect(JSON.stringify(observed.tools)).toBe(JSON.stringify(prepared.peer.tools));
+        } finally { await observed.client.close(); }
         if (["off", "no_key", "circuit_open"].includes(failure)) expect(calls).toBe(requestsBefore);
         if (failure === "timeout") expect(result.durationMs).toBeLessThan(250);
       } finally { await prepared.close(); fixture.close(); }
@@ -92,12 +100,10 @@ for (const arm of ["hint", "load-set", "hard-prune"] as Arm[]) {
       expect(result.turn.options.canUseTool).toBe(prepared.turn.options.canUseTool);
       expect(result.turn.options.hooks).toBe(prepared.turn.options.hooks);
       expect(result.turn.options.env).toBe(prepared.turn.options.env);
-      let peer = prepared.peer;
-      if (arm !== "hint") {
-        const server = result.turn.options.mcpServers!["brain-ui"];
-        if (server.type !== "sdk") throw new Error("missing SDK server");
-        peer = routed = await connectSurface("brain-ui", server);
-      } else {
+      const server = result.turn.options.mcpServers!["brain-ui"];
+      if (server.type !== "sdk") throw new Error("missing SDK server");
+      const peer = routed = await connectSurface("brain-ui", server);
+      if (arm === "hint") {
         expect(result.turn.options.mcpServers).toBe(prepared.turn.options.mcpServers);
         const original = prepared.turn.options.systemPrompt;
         const altered = result.turn.options.systemPrompt;
@@ -179,6 +185,20 @@ test("D44 scoring excludes invalid arguments, subagent calls and incomplete turn
     { parent_tool_use_id: "delegated", calls: [{ name: BLOCK, input: quote }] }];
   expect(scoreCalls(frames, true)).toEqual({ included: true, valid: [BLOCK], rejected: 1 });
   expect(scoreCalls(frames, false)).toEqual({ included: false, valid: [], rejected: 0 });
+});
+
+test("a production attachment stream preserves the turn instead of classifying an empty request", async () => {
+  const fixture = createFixture();
+  const prepared = await fixtureTurn(fixture.root, "Describe the vessel.", "normal", [{ data: "fixture-image-data", mediaType: "image/png" }]);
+  let calls = 0;
+  const client = createJevClient({ apiKey: "fixture", fetch: async () => { calls++; return Response.json({ answers: {} }); } });
+  try {
+    expect(typeof prepared.turn.prompt).not.toBe("string");
+    const result = await routePreparedTurn(prepared.turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    expect(calls).toBe(0);
+    expect(result.outcome).toBe("unsupported_input");
+    expect(result.turn).toBe(prepared.turn);
+  } finally { await prepared.close(); fixture.close(); }
 });
 
 test("four arms share six frozen nonempty cases and expose scripted false-negative controls without live metrics", async () => {

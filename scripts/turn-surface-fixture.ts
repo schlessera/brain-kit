@@ -39,7 +39,7 @@ export function createFixture() {
   };
 }
 
-export async function fixtureTurn(root: string, prompt: string, posture: "normal" | "no-grant" | "autonomous" = "normal") {
+export async function fixtureTurn(root: string, prompt: string, posture: "normal" | "no-grant" | "autonomous" = "normal", attachments?: StartTurnRequest["attachments"]) {
   const never = async () => { throw new Error("unexpected host interaction in fixture"); };
   let askUserCalls = 0;
   const bridge: BackendBridge = { emit: () => {}, checkpointPermission: () => {}, requestPermission: never,
@@ -48,20 +48,28 @@ export async function fixtureTurn(root: string, prompt: string, posture: "normal
     getLocation: never, requestMask: never, queryActivity: never };
   const abortController = new AbortController();
   const req: StartTurnRequest = {
-    prompt, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",
+    prompt, attachments, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",
     enforceAllowedTools: posture !== "normal", signal: abortController.signal,
     ...(posture === "autonomous" ? { autonomous: { origin: "autonomous" as const, persistence: "none" as const, allowedTools: ["Read"], systemPromptAppend: "Use only the server-authorized tools." } } : {}),
   };
-  const turn = assembleTurn({ backend: { brainPath: root }, req,
+  const input: Parameters<typeof assembleTurn>[0] = { backend: { brainPath: root }, req,
     profile: { id: "fixture", label: "Fixture", requiredEnvKeys: [], billing: "subscription", buildEnv: () => ({}) },
     abortController, allowedTools: posture === "autonomous" ? ["Read"] : ["Read", "Bash"],
     confirmPatterns: [/rm/], turnLock: { acquire: async () => {}, release: () => {} } as never, log: () => {},
-  });
-  const server = turn.options.mcpServers?.["brain-ui"];
+  };
+  const turn = assembleTurn(input);
+  // Inventory owns a separate real production instance. It must not occupy
+  // the returned turn's transport before the SDK is able to connect to it.
+  const inventoryTurn = assembleTurn(input);
+  const server = inventoryTurn.options.mcpServers?.["brain-ui"];
   if (!server || server.type !== "sdk") throw new Error("production assembly did not supply its bridge server");
   const peer = await connectSurface("brain-ui", server);
   if (!peer.tools.length) throw new Error("production bridge listed no tools");
-  return { turn, peer, askUserCalls: () => askUserCalls, close: async () => { await peer.client.close(); await server.instance.close(); } };
+  return { turn, peer, askUserCalls: () => askUserCalls, close: async () => {
+    await peer.client.close(); await server.instance.close();
+    const original = turn.options.mcpServers?.["brain-ui"];
+    if (original?.type === "sdk") await original.instance.close();
+  } };
 }
 
 /** Version files beside the entry resolved from the backend, not root hoisting. */

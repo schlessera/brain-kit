@@ -49,10 +49,9 @@ async function measureCase(arm: Arm, sample: typeof FROZEN_CASES.cases[number]) 
     const result = await routePreparedTurn(prepared.turn, { enabled: true, arm, client,
       peers: { "brain-ui": prepared.peer }, skills: fixture.skills, previousTail: "Odysseus is planning the next leg.", budgetMs: 2000 });
     if (result.pruneFixtureSkills) fixture.pruneSkills(result.skills);
-    let peer = prepared.peer;
     const server = result.turn.options.mcpServers?.["brain-ui"];
     if (!server || server.type !== "sdk") throw new Error("missing routed bridge");
-    if (result.turn !== prepared.turn && arm !== "hint") peer = routedPeer = await connectSurface("brain-ui", server);
+    const peer = routedPeer = await connectSurface("brain-ui", server);
     const available = peer.tools.map(tool => tool.id);
     let invoked = false;
     if (sample.neededTool && available.includes(sample.neededTool)) {
