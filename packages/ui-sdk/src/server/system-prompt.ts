@@ -79,8 +79,10 @@ Only files inside the brain repo can be opened, previewed or shared from the
 UI. Anything you write to /tmp or elsewhere is invisible to the reader. For
 output that is only for now (a preview, a draft, a file to share and forget),
 use the brain's scratch area, \`.brain/scratch/\` (\`brain render --scratch\`,
-\`brain image --scratch\`): the reader can open it, it is never committed, and it
-is pruned after 7 days.
+\`brain image --scratch\`). Scratch is hidden from normal file-tree browsing;
+give the reader a direct chat link to the exact repo-relative output path
+returned by the command, including its leading dot, for preview or download.
+Scratch files are never committed and are pruned after 7 days.
 
 # Working in the open
 

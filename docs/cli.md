@@ -33,6 +33,12 @@ Usage: brain <command> [args] [flags]
 
 ### Rendering
 
+`--scratch` writes transient output into `.brain/scratch/`, which stays hidden
+from normal file-tree browsing. Link the exact repo-relative `output` path
+returned by the command, including its leading dot, in chat to open the preview
+or download the file. Scratch files are never committed and remain subject to
+the scratch prune policy.
+
 `brain render` wraps content in the same document shell the UI's `/api/render`
 uses ([`@schlessera/brain-render-template`](../packages/render-template)), so a
 page shared from the app and a PDF produced here are identical for identical
