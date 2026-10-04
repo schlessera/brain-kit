@@ -80,7 +80,7 @@ A push with nothing to send is `{ status: "up-to-date" }`.
 ## Step 2 — Conflicts `run` could not merge
 
 `leftovers.unresolved` lists each one as `{ path, strategy, reason }`. The reason says why:
-`code-merge` (code, config, `CLAUDE.md`, `AGENTS.md`), a binary side, a side over 100 KB,
+`code-merge` (code, config, exact `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` basenames at any depth), a binary side, a side over 100 KB,
 markdown that does not parse, or a file that holds conflict markers (never committed or pushed;
 remove the markers, then run again). Every other conflicted file is already merged and staged.
 
@@ -169,7 +169,7 @@ passage choices Jev made and how many took the default. The strategy comes from 
 | File kind | Strategy |
 |---|---|
 | sidecar caches (`.context-cache.jsonl`, `.asset-cache.jsonl`) | **cache-union** (done by `pull`) |
-| not markdown, or `CLAUDE.md` / `AGENTS.md` | **code-merge** (left to you) |
+| not markdown, or exact `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` basename at any depth | **code-merge** (left to you) |
 | a type with `mergeStrategy` in the taxonomy | that strategy |
 | any `_index.md` | **table-union** |
 | a document with a `Timeline` heading | **timeline-append** |

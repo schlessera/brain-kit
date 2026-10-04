@@ -5,6 +5,12 @@ optionally a CLI command — so you can turn a whole area of your life on with o
 config entry. The first-party modules are listed below; `/new-module` helps
 you author your own.
 
+Module configuration, JSON settings and canonical content follow the shared
+[supported-input policy](supported-inputs.md). Each module's linked reference
+owns its domain field meanings, validation, defaults and migrations. The
+[first-party inventory](supported-inputs.md#first-party-module-inventory) identifies
+all five domains and distinguishes canonical files from internal storage.
+
 ## What a module is
 
 A module is an npm package (or a local directory referenced by path) whose entry

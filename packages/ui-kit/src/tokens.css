@@ -1290,6 +1290,16 @@
  * static list never pretends to be clickable.
  */
 
+/* Button's default rest paint has stylesheet priority so native hover can
+ * replace it. Caller-owned inline styles still win, including border:none
+ * on the rank footer's expanded targets. Decorative Buttons need rest paint
+ * too, but never receive the handler-gated interaction class. */
+[data-bk-button] {
+  background: var(--hv-rest-bg);
+  border: var(--hv-rest-border);
+  color: var(--hv-rest-fg);
+}
+
 .bk-control:hover {
   background: var(--hv-bg);
   border-color: var(--hv-bd);
@@ -1359,6 +1369,30 @@
  *
  * Gated on a handler, like every other rule in this file: a row with no
  * `onClick` carries no class, so it gets no hover, no ring and no tab stop. */
+
+/* Rail destinations scroll within short viewports. Hiding the scrollbar keeps
+ * the collapsed column's full hit width; native panning and roving focus still
+ * scroll the list. Ordinary mouse geometry stays at its 36px default. */
+.bk-side-rail[data-expanded="false"] { padding-inline: 8px; }
+.bk-side-rail [role="tab"] { min-height: 36px; }
+.bk-side-rail > [role="tablist"] {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* Scroll metrics round to whole pixels. Leave the final row a pixel of
+   * trailing room so its full target clears a fractional scrollport edge. */
+  padding-bottom: 1px;
+}
+@media (any-pointer: coarse) {
+  .bk-side-rail [role="tab"] { min-height: 44px; }
+  /* 60px includes a 1px border: 7.5px insets leave a real 44px row. */
+  .bk-side-rail[data-expanded="false"] { padding-inline: 7.5px; }
+  .bk-side-rail [role="tab"] { position: relative; }
+  /* The round paint otherwise cuts the inset-corner hit tests out of the box.
+   * Transparent rectangular reach stays inside the row, with the 3px gap
+   * untouched, so adjacent destinations cannot steal each other's targets. */
+  .bk-side-rail [role="tab"]::before { content: ""; position: absolute; inset: 0; }
+}
 
 .bk-row:hover {
   /* The `transparent` fallback is not decoration. `.bk-row-fg` below exists

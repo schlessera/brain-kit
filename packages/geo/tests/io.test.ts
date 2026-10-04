@@ -122,32 +122,84 @@ describe("shared geo request admission and cache",()=>{
     expect(requests).toBe(0);
   });
 
-  test("malformed, oversized and stalled bodies give bounded distinct failures and do not cache",async()=>{
-    let requests=0;
-    const {io,root}=await setup(async()=>{
-      requests++;
-      if (requests===1) return Response.json({wrong:"shape"});
-      if (requests===2) return new Response("x".repeat(5*1024*1024+1));
-      return new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode("{"));}}));
-    },{timeoutMs:100});
-    expect((await ask(io)).error!.code).toBe("bad_response");
-    expect((await ask(io)).error!.code).toBe("response_limit");
-    expect((await ask(io)).error!.code).toBe("timeout");
-    expect(requests).toBe(3);
-    expect((await readdir(root)).includes("responses")).toBe(false);
-  });
+  // Classification must reach its body guard, even after slow real admission
+  // persistence. The deliberately short timeout belongs to the stalled case.
+  for (const admissionDelayMs of [0,150]) {
+    for (const subject of [
+      {name:"malformed JSON",body:"{",code:"bad_response"},
+      {name:"wrong-shape JSON",body:JSON.stringify({wrong:"shape"}),code:"bad_response"},
+      {name:"oversized body",body:"x".repeat(5*1024*1024+1),code:"response_limit"},
+    ] as const) {
+      test(`${subject.name} keeps its classification after ${admissionDelayMs}ms admission persistence`,async()=>{
+        const requests: string[]=[], writes: string[]=[];
+        const {io,root}=await setup(async(url)=>{
+          requests.push(url);
+          return new Response(subject.body);
+        },{timeoutMs:5_000});
+        // Instance-local observation of the existing private writer, retaining
+        // its fsync/rename. No mock persistence or production injection seam.
+        const instrumented=io as unknown as {writeAtomic(path:string,value:unknown):Promise<void>};
+        const persist=instrumented.writeAtomic.bind(io);
+        let delayedWriteCompleted=false;
+        instrumented.writeAtomic=async(path,value)=>{
+          writes.push(path);
+          if(writes.length===2) await Bun.sleep(admissionDelayMs);
+          await persist(path,value);
+          if(writes.length===2) delayedWriteCompleted=true;
+        };
+        expect(Buffer.byteLength(subject.body)).toBeGreaterThan(0);
+        const result=await ask(io);
+        expect(result.error?.code).toBe(subject.code);
+        expect(result.value).toBeNull();
+        expect(result.source).toMatchObject({requestSent:true,fromCache:false});
+        expect(requests).toEqual([endpoint+"/search?q=one"]);
+        expect(writes).toHaveLength(2);
+        expect(writes[1]).toBe(writes[0]);
+        expect(delayedWriteCompleted).toBe(true);
+        const admission=JSON.parse(await readFile(writes[1]!,"utf8"));
+        expect(admission.nextStart).toBeGreaterThan(0);
+        expect(admission.blockedUntil).toBe(0);
+        expect((await readdir(join(root,"admission"))).filter(x=>x.endsWith(".lock"))).toEqual([]);
+        expect((await readdir(root)).includes("responses")).toBe(false);
+      });
+    }
+  }
 
-  test("the timeout bounds response-body consumption as well as response headers",async()=>{
-    let cancelled=false;
-    const {io}=await setup(async()=>new Response(new ReadableStream({
-      start(controller){
-        controller.enqueue(new TextEncoder().encode("{"));
-        setTimeout(()=>{if(!cancelled) controller.close();},300);
-      },cancel(){cancelled=true;},
-    })),{timeoutMs:100});
-    const result=await Promise.race([ask(io),Bun.sleep(200).then(()=>({error:{code:"unsettled_after_budget"}}))]);
-    expect(result.error).toMatchObject({code:"timeout"});
-    expect(cancelled).toBe(true);
+  test("a stalled nonempty body times out, cancels its reader and does not cache",async()=>{
+    const timeoutMs=500, watchdogHeadroomMs=1_500;
+    const requests: string[]=[];
+    let cancelled=false, bodyReads=0;
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const bytes=new TextEncoder().encode("{");
+    const {io,root}=await setup(async(url)=>{
+      requests.push(url);
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller){streamController=controller;controller.enqueue(bytes);},
+        pull(){bodyReads++;},cancel(){cancelled=true;},
+      },{highWaterMark:0}));
+    },{timeoutMs});
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    const started=performance.now(), pending=ask(io);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result=await Promise.race([pending,new Promise<{error:{code:string}}>(resolve=>{
+        watchdog=setTimeout(()=>resolve({error:{code:"unsettled_after_budget"}}),timeoutMs+watchdogHeadroomMs);
+      })]);
+      expect(result.error?.code).toBe("timeout");
+      expect(cancelled).toBe(true);
+      expect(bodyReads).toBeGreaterThan(0);
+      expect(performance.now()-started).toBeLessThan(timeoutMs+watchdogHeadroomMs);
+      expect(requests).toEqual([endpoint+"/search?q=one"]);
+      expect("value" in result && result.value).toBeNull();
+      expect("source" in result && result.source).toMatchObject({requestSent:true,fromCache:false});
+      expect((await readdir(root)).includes("responses")).toBe(false);
+    } finally {
+      clearTimeout(watchdog);
+      // A removed body-timeout/cancellation guard must fail its assertion and
+      // still release the real request before afterEach removes its directory.
+      try { streamController.close(); } catch { /* Already cancelled. */ }
+      await pending;
+    }
   });
 
   test("separate processes share one connection and the aggregate public allowance",async()=>{
