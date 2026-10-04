@@ -338,6 +338,10 @@ run/job/attempt IDs and inspect the actual failing step and assertion. Prefer
 an attempt ID for logs: a job/run shortcut resolves the latest attempt and
 can select different evidence after a retry. Use `logs --follow` only for a
 bounded live inspection; finite exports keep monitoring responsive.
+Limit concurrent log exports to four. If Depot reports `resource_exhausted:
+Too many active log streams for this token`, let exports finish and retry
+sequentially; the preceding `Not found` fallback messages do not prove that
+the attempt is missing.
 
 For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
 uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
