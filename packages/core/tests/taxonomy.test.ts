@@ -288,6 +288,41 @@ describe("collisions and overrides", () => {
     expect(tax.canonicalPath("identity")).toBe("me/identity.md");
   });
 
+  test.each(["constructor", "toString", "hasOwnProperty", "valueOf", "__proto__"])(
+    "an unset inherited canonical key %s returns null without throwing",
+    (key) => {
+      const tax = buildTaxonomy({ user: brainConfigSchema.parse({}) });
+      expect(() => tax.canonicalPath(key)).not.toThrow();
+      expect(tax.canonicalPath(key)).toBeNull();
+    }
+  );
+
+  test("configured prototype-named canonical keys keep normalized paths", () => {
+    const config = brainConfigSchema.parse({
+      taxonomy: {
+        canonical: {
+          constructor: "./notes//raft.md",
+          hasOwnProperty: "notes/./voyage.md",
+          identity: "",
+          voyage: "./journeys//home.md",
+        },
+      },
+    });
+    expect(Object.entries(config.taxonomy!.canonical!)).toEqual([
+      ["constructor", "./notes//raft.md"],
+      ["hasOwnProperty", "notes/./voyage.md"],
+      ["identity", ""],
+      ["voyage", "./journeys//home.md"],
+    ]);
+    const tax = buildTaxonomy({ user: config });
+    expect(tax.canonicalPath("constructor")).toBe("notes/raft.md");
+    expect(tax.canonicalPath("hasOwnProperty")).toBe("notes/voyage.md");
+    expect(tax.canonicalPath("identity")).toBeNull();
+    expect(tax.canonicalPath("voyage")).toBe("journeys/home.md");
+    expect(tax.canonicalPath("currentFocus")).toBe("context/current-focus.md");
+    expect(tax.canonicalPath("unset")).toBeNull();
+  });
+
   test("a canonical path comes back in the index's spelling", () => {
     const tax = buildTaxonomy({
       user: brainConfigSchema.parse({
