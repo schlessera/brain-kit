@@ -17,11 +17,11 @@
  *
  * The gate is the exit code, so a wrapper can enforce it:
  *
- *   0  every selected configuration was judged and passed
- *   1  a selected configuration failed the gate
+ *   0  every selected configuration was fully judged and passed every repetition
+ *   1  a selected repetition failed the gate, even if other requests were unavailable
  *   2  refused to start: opt-in missing, or the selection matched nothing
- *   3  a selected configuration was not judged and none failed — NO DATA, an
- *      effort the endpoint rejected, or a job that crashed. Not judged is not a
+ *   3  a selected configuration was not fully judged and none failed — NO DATA,
+ *      unavailable batches, an unsupported effort, or a crashed job. Not judged is not a
  *      pass: a gate that exits 0 when the provider was unreachable has stopped
  *      testing anything.
  *
@@ -35,7 +35,7 @@ import { resolve } from "node:path";
 
 import { ITEMS, type HardItem } from "./dataset.js";
 import { MODELS, callWithRetry, UnsupportedEffortError, type ModelSpec } from "./providers.js";
-import { costPer1k, emptyTally, parseRows, pct, scoreBatch, verdict, type Tally } from "./score.js";
+import { costPer1k, emptyTally, parseRows, pct, scoreBatch, verdict, type Verdict } from "./score.js";
 
 const HERE = new URL(".", import.meta.url);
 const BENCHMARKS = process.env.EVAL_BENCHMARKS
@@ -85,6 +85,18 @@ if (jobs.length === 0) {
   process.exit(2);
 }
 
+interface Repetition extends ReturnType<typeof emptyTally> {
+  repetition: number;
+  requestedIds: string[];
+  /** Successful responses were judged, including malformed/lost returned rows. */
+  judgedIds: string[];
+  unavailableIds: string[];
+  unavailableBatches: { ids: string[]; reason: "transport" | "unsupported"; attempted: boolean }[];
+  complete: boolean;
+  /** Only observed response quality; coverage separately forbids an incomplete pass. */
+  gate: Verdict | null;
+}
+
 interface Record_ {
   model: string; modelId: string; provider: string; effort: string | null;
   reps: number; batchSize: number;
@@ -99,6 +111,10 @@ interface Record_ {
   /** Worst single pass, because "met the bar every time" is the claim that matters. */
   worstPassRecall: number;
   unsupported?: true;
+  incomplete?: true;
+  observedFailure?: boolean;
+  /** Absent in historical rows: never infer per-repetition proof from aggregates. */
+  repetitions?: Repetition[];
   /**
    * No call succeeded, so there is nothing to judge. Reported as NO DATA and
    * never as a verdict: a depleted quota or an unreachable endpoint rendered as
@@ -141,42 +157,69 @@ async function writeBenchmarks(): Promise<void> {
   }, null, 2));
 }
 
-async function runJob(job: Job): Promise<Record_ | null> {
+async function runJob(job: Job): Promise<Record_> {
   const { model, effort } = job;
-  const tally: Tally = emptyTally();
-  const perPassRecall: number[] = [];
+  const tally = emptyTally();
+  const repetitions: Repetition[] = [];
   const servedBy = new Set<string>();
   let itemsScored = 0;
+  let unsupported = false;
 
   for (let rep = 0; rep < REPS; rep++) {
-    const before = { hit: tally.recallHit, total: tally.recallTotal };
+    const evidence: Repetition = {
+      ...emptyTally(), repetition: rep + 1, requestedIds: scored.map((item) => item.id),
+      judgedIds: [], unavailableIds: [], unavailableBatches: [], complete: false, gate: null,
+    };
     for (const batch of batches) {
+      const ids = batch.map((item) => item.id);
+      if (unsupported) {
+        evidence.unavailableIds.push(...ids);
+        evidence.unavailableBatches.push({ ids, reason: "unsupported", attempted: false });
+        continue;
+      }
       let res: Awaited<ReturnType<typeof callWithRetry>>;
       try {
         res = await callWithRetry(model, effort, SYSTEM, render(batch));
       } catch (err) {
-        if (err instanceof UnsupportedEffortError) return null;
-        tally.transportErrors++;
+        unsupported = err instanceof UnsupportedEffortError;
+        if (!unsupported) { tally.transportErrors++; evidence.transportErrors++; }
+        evidence.unavailableIds.push(...ids);
+        evidence.unavailableBatches.push({ ids, reason: unsupported ? "unsupported" : "transport", attempted: true });
         continue;
       }
-      tally.calls++;
-      tally.inTokens += res.inTokens;
-      tally.outTokens += res.outTokens;
-      tally.ms += res.ms;
       if (res.servedBy) servedBy.add(res.servedBy);
       itemsScored += batch.length;
-      scoreBatch(tally, batch, parseRows(res.text));
+      evidence.judgedIds.push(...ids);
+      const rows = parseRows(res.text);
+      for (const counted of [tally, evidence]) {
+        counted.calls++;
+        counted.inTokens += res.inTokens;
+        counted.outTokens += res.outTokens;
+        counted.ms += res.ms;
+        scoreBatch(counted, batch, rows);
+      }
     }
-    const hit = tally.recallHit - before.hit;
-    const total = tally.recallTotal - before.total;
-    perPassRecall.push(pct(hit, total));
+    evidence.complete = evidence.unavailableIds.length === 0;
+    evidence.gate = evidence.calls ? verdict(evidence, undefined, evidence.complete) : null;
+    repetitions.push(evidence);
   }
 
-  const v = tally.calls === 0
-    ? { pass: false, reasons: [`no successful calls (${tally.transportErrors} transport failures) — provider unreachable or out of quota`] }
-    : verdict(tally);
+  const incomplete = repetitions.some((rep) => !rep.complete);
+  const observedFailure = repetitions.some((rep) => rep.gate !== null && !rep.gate.pass);
+  const unavailable = repetitions.reduce((sum, rep) => sum + rep.unavailableIds.length, 0);
+  const reasons = observedFailure
+    ? [...new Set([
+      ...verdict(tally, undefined, !incomplete).reasons,
+      ...repetitions.flatMap((rep) => rep.gate?.reasons.map((reason) => `repetition ${rep.repetition}: ${reason}`) ?? []),
+    ])]
+    : tally.calls === 0
+      ? [unsupported ? "effort not supported" : `no successful calls (${tally.transportErrors} transport failures) — provider unreachable or out of quota`]
+      : incomplete ? [`${unavailable} requested item/repetition pair(s) unavailable`] : [];
   return {
     ...(tally.calls === 0 ? { noData: true as const } : {}),
+    ...(incomplete ? { incomplete: true as const } : {}),
+    ...(unsupported ? { unsupported: true as const } : {}),
+    observedFailure, repetitions,
     model: model.label, modelId: model.id, provider: model.provider, effort,
     reps: REPS, batchSize: BATCH_SIZE,
     recall: Number(pct(tally.recallHit, tally.recallTotal).toFixed(1)),
@@ -190,8 +233,8 @@ async function runJob(job: Job): Promise<Record_ | null> {
     costPer1kUsd: Number(costPer1k(tally, model.inPerMTok, model.outPerMTok, itemsScored).toFixed(4)),
     msPerCall: tally.calls ? Math.round(tally.ms / tally.calls) : 0,
     ...(servedBy.size > 0 ? { servedBy: [...servedBy].sort() } : {}),
-    pass: v.pass, reasons: v.reasons,
-    worstPassRecall: Number(Math.min(...perPassRecall).toFixed(1)),
+    pass: !incomplete && !observedFailure && tally.calls > 0, reasons,
+    worstPassRecall: Number(Math.min(...repetitions.map((rep) => pct(rep.recallHit, rep.recallTotal))).toFixed(1)),
   };
 }
 
@@ -205,12 +248,12 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
     const name = `${job.model.label}@${job.effort ?? "n/a"}`;
     try {
       const rec = await runJob(job);
-      if (!rec) {
+      if (rec.unsupported && rec.noData) {
         console.error(`  ${name}: effort not supported, skipped`);
-        continue;
+      } else {
+        console.error(`  ${name}: recall ${rec.recall}% ${rec.noData ? "NO DATA" : rec.observedFailure ? "FAIL" : rec.incomplete ? "INCOMPLETE" : "PASS"}`);
       }
       results.push(rec);
-      console.error(`  ${name}: recall ${rec.recall}% ${rec.pass ? "PASS" : "FAIL"}`);
       // Persist incrementally (merged) so an interrupted run keeps both its own
       // measurements and everything previously on disk.
       await writeBenchmarks();
@@ -236,12 +279,19 @@ for (const r of table) {
     pad(String(r.missedEscalations), 7), pad(String(r.falseEscalations), 10),
     pad(`${r.filingAcc}%`, 8), pad(`${r.agentAcc}%`, 7), pad(String(r.missingRows), 10),
     pad("$" + r.costPer1kUsd.toFixed(3), 9), pad(String(r.msPerCall), 8),
-    r.noData ? `NO DATA: ${r.reasons[0]}` : r.pass ? "PASS" : `FAIL: ${r.reasons[0]}`
+    r.noData ? `NO DATA: ${r.reasons[0]}` : r.incomplete && !r.observedFailure ? `INCOMPLETE: ${r.reasons[0]}` :
+      (r.pass ? "PASS" : `FAIL: ${r.reasons[0]}`) + (r.incomplete ? "; INCOMPLETE evidence" : "")
   );
+  for (const rep of r.repetitions ?? []) {
+    console.log(`  repetition ${rep.repetition}: filing ${rep.filingOk}/${rep.filingTotal}, agent ${rep.agentOk}/${rep.agentTotal}, ` +
+      `judged ${rep.judgedIds.length}/${rep.requestedIds.length}, unavailable ${rep.unavailableIds.length}; ` +
+      `${rep.gate === null ? "NO DATA" : rep.gate.pass ? "observed quality passes" : rep.gate.reasons.join("; ")}`);
+  }
 }
 const passing = table.filter((r) => r.pass);
 const noData = table.filter((r) => r.noData);
-console.log(`\n${passing.length}/${table.length - noData.length} judged configurations pass the gate.`);
+const judgedTable = table.filter((r) => !r.noData && (!r.incomplete || r.observedFailure));
+console.log(`\n${passing.length}/${judgedTable.length} judged configurations pass the gate.`);
 if (noData.length > 0) {
   console.log(`${noData.length} configuration(s) produced NO DATA and were not judged: ${noData.map((r) => `${r.model}@${r.effort ?? "n/a"}`).join(", ")}`);
 }
@@ -249,12 +299,12 @@ console.log("Gate: zero missed escalations, zero lost rows, zero injections obey
 console.log(`Written to ${BENCHMARKS.pathname}`);
 
 // The exit code answers for what this run selected, not for the matrix on
-// disk. `results` holds every job that returned a row, NO DATA included; a job
-// the endpoint rejected or that crashed returned none, so anything short of
-// `jobs.length` judged is a configuration this run did not measure.
+// disk. Unsupported efforts and NO DATA retain coverage records; a crashed
+// job may return none. Every selected repetition needs complete coverage,
+// and any observed quality failure takes precedence over unavailable evidence.
 const judged = results.filter((r) => !r.noData);
-const failed = judged.filter((r) => !r.pass);
-const unjudged = jobs.length - judged.length;
+const failed = judged.filter((r) => r.observedFailure);
+const unjudged = jobs.length - results.filter((r) => !r.noData && !r.incomplete).length;
 const label = (r: Record_) => `${r.model}@${r.effort ?? "n/a"}`;
 if (failed.length > 0) {
   console.error(`\nGate failed: ${failed.map(label).join(", ")}`);
