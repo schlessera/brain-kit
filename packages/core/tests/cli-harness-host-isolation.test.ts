@@ -1,11 +1,76 @@
 /** Exercise the real CLI boundary with hostile, entirely fictional host state (#660). */
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CliResult } from "./cli-harness";
 
 const HARNESS = join(import.meta.dir, "cli-harness.ts");
+const ROOT = join(import.meta.dir, "../../..");
+
+for (const mode of ["success", "failure", "shared", "standalone"] as const) {
+  test(`CLI utility cleanup after ${mode} subprocess execution`, async () => {
+    const fixture = mkdtempSync(join(tmpdir(), "brain-cli-cleanup-"));
+    try {
+      const ownedTemp = join(fixture, "temps");
+      mkdirSync(ownedTemp);
+      const keep = join(ownedTemp, "keep.txt");
+      writeFileSync(keep, "unrelated fixture data\n");
+      const body = `
+        const root = makeTempBrain({empty: true});
+        try {
+          const env = keylessEnv(root);
+          const dirs = [env.HOME, env.PATH, env.XDG_BIN_HOME];
+          expect(dirs).toHaveLength(3);
+          expect(dirs.every(existsSync)).toBe(true);
+          const result = await runCli(root, ["--help"]);
+          expect(result.stdout).toContain("brain");
+          console.log("CLI_UTILITY_RECEIPT=" + JSON.stringify({dirs, code: result.code}));
+          expect(result.code).toBe(${mode === "failure" ? 123 : 0});
+        } finally { cleanup(root); }
+      `;
+      const imports = `
+        import {expect${mode === "standalone" ? "" : ", test"}} from "bun:test";
+        import {existsSync} from "node:fs";
+        import {cleanup, keylessEnv, makeTempBrain, runCli} from ${JSON.stringify(HARNESS)};
+      `;
+      const files: string[] = [];
+      for (const name of mode === "shared" ? ["first", "second"] : [mode]) {
+        const file = join(fixture, `${name}.test.ts`);
+        writeFileSync(file, imports + (mode === "standalone" ? body : `
+          test("fixture ${name} CLI behavior", async () => { ${body} });
+        `));
+        files.push(file);
+      }
+      const proc = Bun.spawn(
+        mode === "standalone" ? [process.execPath, files[0]!] : [process.execPath, "run", "test", ...files],
+        { cwd: ROOT, env: { PATH: process.env.PATH!, TMPDIR: ownedTemp }, stdout: "pipe", stderr: "pipe" }
+      );
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited,
+      ]);
+      expect(code, stdout + stderr).toBe(mode === "failure" ? 1 : 0);
+      if (mode === "failure") {
+        expect(stderr).toContain("fixture failure CLI behavior");
+        expect(stderr).toContain("Expected: 123");
+        expect(stderr).toContain("Received: 0");
+      }
+      const receipts = stdout.split("\n")
+        .filter(line => line.startsWith("CLI_UTILITY_RECEIPT="))
+        .map(line => JSON.parse(line.slice("CLI_UTILITY_RECEIPT=".length)) as { dirs: string[]; code: number });
+      expect(receipts).toHaveLength(mode === "shared" ? 2 : 1);
+      for (const receipt of receipts) {
+        expect(receipt.code).toBe(0);
+        expect(receipt.dirs).toHaveLength(3);
+        for (const dir of receipt.dirs) expect(dir.startsWith(`${ownedTemp}/`)).toBe(true);
+      }
+      if (mode === "shared") expect(receipts[1]!.dirs).toEqual(receipts[0]!.dirs);
+      expect(existsSync(keep), "cleanup must preserve unrelated temporary entries").toBe(true);
+      expect(readFileSync(keep, "utf8")).toBe("unrelated fixture data\n");
+      expect(readdirSync(ownedTemp), "utility directories must be gone after the child exits").toEqual(["keep.txt"]);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+}
 
 for (const entry of ["runCli", "keylessEnv"] as const) {
   test(`${entry}: doctor never starts the outer Claude sentinel`, async () => {
