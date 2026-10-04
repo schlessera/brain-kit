@@ -10,8 +10,12 @@ The timings, controls and interruption rules below are proposed choices for
 review. They are not a maintainer ruling, a shipped capability or a provider
 selection. The approved permission rules come from
 [voice-permission.md](../decisions/voice-permission.md). Architecture, providers
-and any extension seam remain for #317. Implementation issues consume the
-reviewed design and that later ruling.
+and the future common conversation interface were selected by the maintainer's
+October 3 ruling, recorded in [live-conversation.md](../decisions/live-conversation.md).
+The [two-engine qualification](../live-conversation-investigation.md) specifies
+capabilities and evidence limits. Implementation issues consume the reviewed
+interaction design and that architecture record separately; the ruling does
+not approve the proposed timings or controls below.
 
 ## Job and existing boundaries
 
@@ -456,7 +460,12 @@ belongs to the kit's fictional Odysseus world.
 
 ## Architecture requirements for #317
 
-This compares obligations, not measured products. Neither column is selected.
+This compares obligations, not measured products. At the proposal's creation,
+neither column was selected. The maintainer's October 3 ruling subsequently
+selected the integrated direction with both engines behind one interface;
+see [the architecture record](../decisions/live-conversation.md). The table
+remains requirements input, with actual capability limits recorded in the
+[qualification](../live-conversation-investigation.md).
 An integrated session must explain how its speech/model execution maps to the
 existing backend turn and permission authority. A cascade must explain how
 its stages preserve the same identity and cancellation. Neither can introduce
