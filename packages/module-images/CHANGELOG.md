@@ -1,5 +1,58 @@
 # @schlessera/brain-module-images
 
+## 0.40.0
+
+### Minor Changes
+
+- eb8e42c: `brain image --dry-run` now prices a GPT Image 2.5 request when you give a quality and a size. The size can come from `--size`, or from an `--aspect` the command turns into pixels. The estimate comes from the output-token calculator in OpenAI's image generation guide, which covers both Sunburst and Flare, and does not include input tokens. With `auto` quality or no size, `estimatedCostUsd` stays `null`.
+
+  A `--size` that is not `WIDTHxHEIGHT` or `auto`, such as `big` or `1024x`, is now refused before the provider is called. Previously it went to the API unchecked.
+
+- 9ee9482: `brain image` now defaults to `gpt-image-2.5-sunburst` and supports `gpt-image-2.5-flare` by name (`--model` or `preferredModels`). Both models take transparent backgrounds on png or webp, masks, custom sizes and the new `xhigh` and `max` quality tiers. A transparent request stays on the selected model, and an explicit Flare stays Flare. `--quality xhigh|max` is sent as given, never lowered to `high`.
+
+  **Retired models:** `gpt-image-2` and `gpt-image-1.5` are no longer supported, and nothing falls back to them. Naming either in `--model`, `preferredModels` or `disabledModels` fails before any request with an error that names both replacements. To migrate, replace `gpt-image-2` with `gpt-image-2.5-sunburst` (or `gpt-image-2.5-flare` for speed). Remove any `gpt-image-1.5` pin, because transparency no longer needs a separate model. A retired ID in `disabledModels` no longer hides anything, so replace it with the 2.5 model you mean to hide.
+
+  A transparent JPEG, an unknown `--quality` or `--format`, and a custom `--size` outside OpenAI's rules (16px grid, 3840px edge, 3:1 ratio, 0.65-8.3MP) are now refused before the provider is called.
+
+  Cost: OpenAI publishes no per-image price for the 2.5 models and bills them per token. Before a call, their cost is unknown: `approxCostUsd1K` in `brain image models --json` and `estimatedCostUsd` in a `--dry-run` are `null` for them. After a call, `costUsd` is computed from the token usage the API reported at the published rates, and is `null` when the reply carries no usage. The JSON envelopes keep their keys. `ModelCapabilities.approxCostUsd1K` is now `number | null`. The package export `estimateOpenAiCost` is replaced by `openAiCostFromUsage`. `brain image` output is not part of the integration contract.
+
+- c8e81ad: Add module dormancy, context estimates and source-preserving CLI toggles with explicit instruction ownership and legacy migration checks.
+
+### Patch Changes
+
+- Updated dependencies [b1b83cd]
+- Updated dependencies [e977423]
+- Updated dependencies [113fa0a]
+- Updated dependencies [6b311b2]
+- Updated dependencies [fe5c751]
+- Updated dependencies [eac3e7a]
+- Updated dependencies [5df68f6]
+- Updated dependencies [c926d42]
+- Updated dependencies [f19da8b]
+- Updated dependencies [22ed27c]
+- Updated dependencies [9c830e4]
+- Updated dependencies [36ad7da]
+- Updated dependencies [523ffa8]
+- Updated dependencies [c8e81ad]
+- Updated dependencies [a39b7bc]
+- Updated dependencies [4503591]
+- Updated dependencies [fb992c8]
+- Updated dependencies [2898ef1]
+- Updated dependencies [619ee2b]
+- Updated dependencies [2480efe]
+- Updated dependencies [a4cc575]
+- Updated dependencies [d981938]
+- Updated dependencies [ac34a83]
+- Updated dependencies [56a9005]
+- Updated dependencies [67c7403]
+- Updated dependencies [878e6cf]
+- Updated dependencies [a5e1ecf]
+- Updated dependencies [e977423]
+- Updated dependencies [502d6d9]
+- Updated dependencies [fa6a62c]
+- Updated dependencies [17146c4]
+  - @schlessera/brain@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes
