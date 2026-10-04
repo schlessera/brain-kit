@@ -341,7 +341,11 @@ bounded live inspection; finite exports keep monitoring responsive.
 
 For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
 uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
-A local dispatch does not establish PR-event or main-push behavior. Before
+The CLI's `api` event has no PR/push changeset base, so select runtime jobs
+instead of the `changeset` gate. With CLI 2.102.12, injected local patches
+also require `jq` in the job container before checkout; the pinned Playwright
+image lacks it. Push browser changes and inspect the automatic PR run.
+A local API run does not establish PR-event or main-push behavior. Before
 merging, verify automatic PR runs for the current head and live base, including
 the checkout SHA in test/browser logs. After merging, verify the squash commit
 is on main and inspect Depot's push run for that SHA. Missing runs, cancelled
