@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const roots: string[] = [];
 const node = Bun.which("node");
 if (!node) throw new Error("visual runner tests require Node, as does the pinned browser image");
-const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings"];
+const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation"];
 type Call = { command: string; args: string[]; cwd: string };
 
 afterEach(async () => {
