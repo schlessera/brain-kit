@@ -782,3 +782,13 @@ which would have asked an implementer for a card the posture forbids.
 **Whether the voice posture should also be the phone posture.** A phone in a
 pocket and a phone in a hand are different, and nothing here measures the
 difference. Out of scope for #55.
+
+## Scheduled work and recurring approval — 2026-10-04
+
+The selected [schedule-specific recurring envelope](scheduled-tasks.md#approval-is-an-immutable-recurring-envelope)
+requires explicit authenticated operator review of future operations and their
+exact bounds. A spoken request may propose a schedule; it cannot grant recurring
+authority or add schedule creation to auto-allowed voice membership. Visual/
+authenticated operator approval remains necessary. The voice/unattended named
+memberships keep one containment mechanism; no general always-allow grant,
+unattended permission promise or widened voice posture follows from scheduling.

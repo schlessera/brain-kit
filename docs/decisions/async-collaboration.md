@@ -216,3 +216,17 @@ the repository-wide conversion is #625, not an extra task here.
 - **Enable trusted-only autonomy if containment slips.** This was an old risk-table
   suggestion, not the approved full v1. A scope fallback requires a new maintainer
   ruling; a green surface suite cannot substitute for containment evidence.
+
+## Scheduled recurring authority — 2026-10-04
+
+The maintainer's six [scheduled-work rulings](scheduled-tasks.md) narrowly add
+an explicitly approved immutable recurring operation/tool/input/target/egress
+envelope. Each occurrence intersects it with current creator/approver authority
+and the same Queue admission, containment and lifetime boundaries. This is not
+a general standing grant, a dismissal policy, `context/policies/` activation or
+a second dispatcher. Additional permission/answers still checkpoint to an
+Action and unwind; a separately admitted continuation retains the same
+occurrence's counters and freshness. Shared daily caps remain conservative;
+schedules receive no privileged emergency reserve. #689's full-v1 production
+proof remains required. Definitions live in Markdown; approvals/occurrences/
+compensation/receipts remain operational, with coordinated gated restore.

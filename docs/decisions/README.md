@@ -21,6 +21,7 @@ somebody already learn the hard way?*
 | [container-privilege.md](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (in brain-hosting-template) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. Moved to the hosting template, which builds the container (#303). |
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
 | [async-collaboration.md](async-collaboration.md) | Why Queue and Actions form one complete autonomous v1: containment before enabling, operational/content ownership, reservations, deterministic resolution and the existing Actions destination. |
+| [scheduled-tasks.md](scheduled-tasks.md) | Why scheduled work uses one Queue path, bounded recurring approval, Markdown definitions with host-owned runtime state, occurrence limits, catch-up/recovery and authenticated consumer contracts. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
