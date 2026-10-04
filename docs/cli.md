@@ -24,7 +24,7 @@ Usage: brain <command> [args] [flags]
 
 | Command | Does | Notes |
 |---|---|---|
-| `add "text"` | Quick capture: classify (heuristics + your classifier hints), title, tag, file into the taxonomy, reindex | content titled exactly after an existing doc of an `appendMatch` type appends to it; `--type/--title/--tags` override; `--smart` routes through the configured agent runner |
+| `add "text"` | Quick capture: classify (heuristics + your classifier hints), title, tag, file into the taxonomy, reindex | ordinary capture supports `--type/--title/--tags`; without `--type`, a content first line matching an indexed `appendMatch` document's title can append to it; `--smart` delegates only content to the configured agent runner and does not forward those flags |
 | `read <path>` | Print a document | |
 | `list` | List/browse documents | `--type/--tag/--status`, `--json` = bare array |
 | `process` | Assimilate an inbox note into proper brain content | uses the configured completions provider; degrades keyless |
