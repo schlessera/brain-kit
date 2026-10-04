@@ -15,6 +15,12 @@ scratch filesystem. Applying that shape requires a ruling on worker isolation
 and how interactive edits reach the authoritative brain. This is a recommendation,
 not that ruling, a shipping guard, or production containment evidence.
 
+**2026-10-02 ruling:** [The durable decision](../decisions/policy-write-boundary.md)
+records the subsequently approved worker architecture, editing/application policy
+and Linux-first host/refusal scope. The result above and the recommendation below
+describe the experiment before those rulings; their measurements and proof limits
+remain unchanged. Approval is not production containment evidence.
+
 ## Why a tool hook or child-only wrapper is insufficient
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
@@ -117,6 +123,12 @@ domains or undo earlier opens/mappings. This investigation does not endorse that
 as an in-process pi solution.
 
 ## Architecture ruling required for implementation
+
+**2026-10-02 correction:** the three choices requested by this historical section
+are now recorded in [the decision](../decisions/policy-write-boundary.md). Its
+approved read-only workers and validated application route bind implementation;
+the unproved direct-write alternative below remains rejected. GitHub owns
+implementation dependencies and completion evidence.
 
 Recommend a concrete worker boundary shared by both adapters, managed inside the
 existing server lifecycle. Pi SDK sessions and extension initialization/execution

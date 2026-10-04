@@ -1349,10 +1349,16 @@ drawing, as a pure function a consumer may rely on:
   says `Positions as given by the brain · the map does not check them`, and
   the OpenStreetMap credit appears once, exactly when OSM geometry is drawn.
 `icon` fields are the kit's semantic icon keys; a key the kit does not know
-is dropped rather than rejected. `show_block` is the one payload parsed with
-its **input** schema rather than a loose one: the payload is the model's own
-argument echoed back, so a field the client's schema does not know is dropped
-from the rendered block rather than kept, and the block still renders.
+is dropped rather than rejected. `show_block` payloads discard unknown fields
+from the rendered block rather than keeping them, so otherwise valid stored
+or replayed blocks still render. Its payload schema is separate from new-call
+validation: new `suggestions` calls reject unknown keys at both the block and
+item levels, including an item's unsupported `tone` (#635). Claude and pi
+advertise that restriction and reject such calls with validation errors.
+This tightens accepted input and ships as a pre-1.0 minor. Stored or replayed
+suggestions continue to discard those keys; malformed payloads still fall
+back to the generic tool view. Other block kinds keep their existing input
+and payload parsing behavior.
 
 `suggestions` (additive in 0.39.0, D50) is the one kind that is not part of
 the answer. It is follow-ups the model offers the reader, and a consumer
