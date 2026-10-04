@@ -228,13 +228,28 @@ describe("brain tags --apply", () => {
     expect(code).toBe(0);
     return JSON.parse(stdout);
   }
-  const git = (root: string, ...args: string[]) =>
-    Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+  const git = (root: string, ...args: string[]) => {
+    // Signing is irrelevant to disposable fixtures; leave the host policy alone.
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], {
+      cwd: root, stdout: "pipe", stderr: "pipe",
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(`fixture git ${args.join(" ")} exited ${result.exitCode}: ${result.stderr.toString()}`);
+    }
+    return result.stdout.toString();
+  };
 
   // Two byte-identical documents: gray-matter's own cache would hand both the
   // same parsed object (#142), and a rewrite through parsed data would then
   // migrate only one.
   const TWIN = "---\ntitle: Twin\ntype: note\ntags: [routes, sailing]\n---\n\nbody\n";
+
+  test("fixture Git failures report the command, exit code and stderr", () => {
+    const root = makeBrain();
+    expect(() => git(root, "fixture-invalid-command")).toThrow(
+      /fixture git fixture-invalid-command exited 1:[\s\S]*not a git command/
+    );
+  });
 
   test("byte-identical documents both migrate, and every other document keeps its own tags", async () => {
     const root = makeBrain({ aliases: { routes: "route" } }, {
@@ -310,8 +325,12 @@ describe("brain tags --apply", () => {
   test("--dry-run reports the changes and leaves git status clean", async () => {
     const root = makeBrain({ aliases: { routes: "route" } });
     git(root, "init", "-q");
+    git(root, "config", "commit.gpgsign", "true");
+    git(root, "config", "gpg.format", "openpgp");
+    git(root, "config", "gpg.program", "fixture-missing-signer");
     git(root, "add", "-A");
     git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.com", "commit", "-qm", "fixture");
+    expect(git(root, "config", "--local", "--get", "commit.gpgsign")).toBe("true\n");
     const out = await apply(root, "--dry-run");
     expect(out.files).toEqual([{ path: "notes/b.md", from: ["routes", "sailing"], to: ["route", "sailing"] }]);
     expect(git(root, "status", "--porcelain")).toBe("");
