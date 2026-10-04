@@ -16,15 +16,26 @@ let browser: Browser | undefined, app: HttpContractApp | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined, speechServer: ReturnType<typeof Bun.serve<{ audio: number }>> | undefined;
 let origin = "", sessionRequests = 0, audioBytes = 0, gracefulFinishes = 0, turns = 0;
 
+/** Relay subprocess progress while retaining failure and execution receipts. */
+async function relay(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let output = "";
+  for await (const chunk of stream) {
+    output += decoder.decode(chunk, { stream: true });
+    process.stderr.write(chunk);
+  }
+  return output + decoder.decode();
+}
+
 if (worker) {
   beforeAll(async () => {
     if (!executablePath) return;
     const repo = resolve(import.meta.dir, "../../..");
-    console.info("[external-speech] building packages");
+    process.stderr.write("[external-speech] building packages\n");
     const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+    const [out, err, code] = await Promise.all([relay(build.stdout), relay(build.stderr), build.exited]);
     if (code !== 0) throw new Error(`Speech fixture package build failed: ${out}\n${err}`);
-    console.info("[external-speech] constructing local speech and application servers");
+    process.stderr.write("[external-speech] constructing local speech and application servers\n");
     speechServer = Bun.serve<{ audio: number }>({ hostname: "127.0.0.1", port: 0,
       fetch(request, server) { return server.upgrade(request, { data: { audio: 0 } }) ? undefined : new Response("Upgrade required", { status: 400 }); },
       websocket: {
@@ -54,9 +65,9 @@ if (worker) {
     const startTurn = backend.startTurn.bind(backend);
     backend.startTurn = (request) => { turns++; return startTurn(request); };
     app = await httpContractApp({ staticRoot: true, env: { VOICE_PROVIDER: provider.id }, speechProvider: provider, registry: createStaticBackendRegistry([backend]) });
-    console.info("[external-speech] bundling public browser client");
+    process.stderr.write("[external-speech] bundling public browser client\n");
     const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/external-speech-browser.ts"), app.staticRoot], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
+    const [bundleOut, bundleErr, bundleCode] = await Promise.all([relay(bundle.stdout), relay(bundle.stderr), bundle.exited]);
     if (bundleCode !== 0) throw new Error(`Speech fixture client build failed: ${bundleOut}\n${bundleErr}`);
     for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
       await writeFile(resolve(app.staticRoot, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
@@ -64,7 +75,7 @@ if (worker) {
     await writeFile(resolve(app.staticRoot, "index.html"), '<!doctype html><html><head><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
     server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.app.fetch, websocket: app.app.websocket });
     origin = `http://127.0.0.1:${server.port}`;
-    console.info("[external-speech] launching real Chrome");
+    process.stderr.write("[external-speech] launching real Chrome\n");
     browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   }, 180_000);
 
@@ -136,7 +147,9 @@ else test.skipIf(!executablePath)("external speech: actual browser audio drains 
     env: { ...process.env, BRAIN_EXTERNAL_SPEECH_WORKER: "1" },
     stdin: "ignore", stdout: "pipe", stderr: "pipe",
   });
-  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  // Keep stage evidence even if the runner times out before the child exits.
+  // Console output inside Bun hooks may otherwise stay buffered until failure.
+  const [stdout, stderr, code] = await Promise.all([relay(child.stdout), relay(child.stderr), child.exited]);
   if (code !== 0) throw new Error(`Isolated external speech runtime failed (${code})\n${stdout}${stderr}`);
   // Successful module loading with no registered tests is not runtime proof.
   expect(`${stdout}${stderr}`).toMatch(/\b2 pass\b/);
