@@ -1,5 +1,6 @@
 import {
   createAgentSession,
+  ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
@@ -42,10 +43,20 @@ export function createSessionRuntime(options: {
         const session = await backend.sessionFactory.newSession(profileId, toolkit);
         return { session, turnContext: toolkit.turnContext };
       }
+      // A declared model missing from the catalog fails instead of falling back.
+      const declaredModel = toModel(spec);
       const sm = env.autonomous ? SessionManager.inMemory(brainPath) : SessionManager.create(brainPath, sessionDir);
       const loaded = await resources.build(toolkit, env);
-      // A declared model missing from the catalog fails instead of falling back.
-      const model = toModel(spec);
+      // Native discovery owns models/auth/cache paths and per-request auth.
+      // Select from the SAME configured runtime that performs inference.
+      const modelRuntime = await ModelRuntime.create();
+      const model = declaredModel ? modelRuntime.getModel(declaredModel.provider, declaredModel.id) : undefined;
+      if (declaredModel && (!model || model.provider !== declaredModel.provider || model.id !== declaredModel.id)) {
+        throw new BackendRequestError(
+          `Cannot resolve configured model "${declaredModel.provider}/${declaredModel.id}". ` +
+            "Restore the declared built-in model in pi's native configuration."
+        );
+      }
       const { session } = await createAgentSession({
         cwd: brainPath,
         noTools: "builtin",
@@ -53,6 +64,7 @@ export function createSessionRuntime(options: {
         sessionManager: sm,
         resourceLoader: loaded.loader,
         settingsManager: loaded.settingsManager,
+        modelRuntime,
         ...(model ? { model } : {}),
         ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       });
@@ -72,6 +84,7 @@ export function createSessionRuntime(options: {
       }
       const sm = SessionManager.open(info.path, sessionDir);
       const loaded = await resources.build(toolkit, env);
+      const modelRuntime = await ModelRuntime.create();
       const { session, modelFallbackMessage } = await createAgentSession({
         cwd: brainPath,
         noTools: "builtin",
@@ -79,6 +92,7 @@ export function createSessionRuntime(options: {
         sessionManager: sm,
         resourceLoader: loaded.loader,
         settingsManager: loaded.settingsManager,
+        modelRuntime,
       });
       // Resumed sessions stay pinned to their saved model — no model override.
       // pi otherwise silently substitutes another configured model when the
