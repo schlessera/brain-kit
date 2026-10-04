@@ -76,6 +76,8 @@ export interface AsrClientContractProbe {
   client: AsrClient;
   /** Observe microphone tracks/recognizer state, rather than a method-call count. */
   captureActive(): boolean;
+  /** Observe the socket/recognizer lifecycle independently of microphone tracks. */
+  connectionActive(): boolean;
   /** Deliver a transport result and wait for callbacks queued by that result. */
   deliver(event: AsrEvent): void | Promise<void>;
   /** Deliver a transport failure; it must reach onError as an Error. */
@@ -109,6 +111,7 @@ export function runAsrClientContract(
         expect(probe.captureActive()).toBe(false);
         await probe.client.start();
         expect(probe.captureActive()).toBe(true);
+        expect(probe.connectionActive()).toBe(true);
         if (harness.session.capabilities.interimResults) {
           await probe.deliver({ type: "partial", text: "At the" });
           expect(events).toEqual([{ type: "partial", text: "At the" }]);
@@ -129,6 +132,7 @@ export function runAsrClientContract(
         expect(probe.captureActive()).toBe(true);
         probe.client.stop();
         expect(probe.captureActive()).toBe(false);
+        expect(probe.connectionActive()).toBe(false);
         expect(events).toHaveLength(0);
       } finally { probe.client.stop(); await probe.dispose(); }
     });
@@ -149,6 +153,7 @@ export function runAsrClientContract(
         await draining;
         expect(events).toEqual([final]);
         expect(probe.captureActive()).toBe(false);
+        expect(probe.connectionActive()).toBe(false);
       } finally { probe.client.stop(); await probe.dispose(); }
     });
   });

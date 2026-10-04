@@ -2405,7 +2405,7 @@ types. The signature inventory includes the client factory and registry.
 `runSpeechProviderContract` and `runAsrClientContract` are published from
 `@schlessera/brain-ui-sdk/testing` with their probe/harness types and the
 existing injected `ContractTestPrimitives`. Keyless probes exercise actual
-session transports and capture/recognizer state: complete shapes, supported
+session transports, capture/recognizer state and connection closure: complete shapes, supported
 nonempty keyterms, provider failures, transcript/error callbacks, hard stop,
 and a buffered final delivered before graceful drain resolves and capture
 closes. These suites are the conformance floor; an adapter must also cover

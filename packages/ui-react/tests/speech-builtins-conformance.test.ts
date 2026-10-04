@@ -33,6 +33,7 @@ const webspeech: AsrClientContractHarness = {
     const deliver = (event: AsrEvent) => recognitions[0]!.onresult?.({ resultIndex: 0, results: [{ isFinal: event.type === "final", 0: { transcript: event.text } }] });
     return {
       client: new WebSpeechClient(options), captureActive: () => recognitions[0]?.active ?? false,
+      connectionActive: () => recognitions[0]?.active ?? false,
       deliver, fail: () => { recognitions[0]!.onerror?.({ error: "fixture-recognition-failure" }); },
       finishDrain(event) { expect(recognitions[0]!.flushing).toBe(true); deliver(event); recognitions[0]!.onend?.(); }, dispose,
     };
@@ -68,6 +69,7 @@ const deepgram: AsrClientContractHarness = {
     return {
       client: new DeepgramClient({ url: options.session.url, token: options.session.token!, onEvent: options.onEvent, onError: options.onError }),
       captureActive: () => track.active, deliver, fail: () => { sockets[0]!.onerror?.(); },
+      connectionActive: () => sockets[0]?.readyState === 1,
       finishDrain(event) {
         expect(sent).toEqual([JSON.stringify({ type: "Finalize" }), JSON.stringify({ type: "CloseStream" })]);
         deliver(event);

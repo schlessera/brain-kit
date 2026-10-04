@@ -58,7 +58,7 @@ server/client examples. `@schlessera/brain-ui-sdk/testing` publishes
 `runSpeechProviderContract` and `runAsrClientContract`, using injected test
 primitives and keyless transport probes. The provider probe observes supported
 nonempty keyterms, session/capability shapes and real session failure. The
-client probe observes actual capture state, transcript/error callbacks, hard
+client probe observes actual capture and connection state, transcript/error callbacks, hard
 stop and a held graceful final before drain resolution. Probe drivers must
 exercise the implementation's transport rather than inventing method results.
 

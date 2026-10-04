@@ -8,12 +8,13 @@ const session: VoiceSessionResponse = {
   capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false },
 };
 
-function create(options: AsrClientOptions): AsrClientContractProbe {
+function create(options: AsrClientOptions): AsrClientContractProbe & { sent: Array<string | Blob>; tailSizes: number[] } {
   const descriptors = new Map(["navigator", "WebSocket", "MediaRecorder"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const track = { readyState: "live", stop() { this.readyState = "ended"; } };
   let acquired = false;
   const sockets: FakeSocket[] = [];
   const sent: Array<string | Blob> = [];
+  const tailSizes: number[] = [];
   class FakeSocket {
     static OPEN = 1;
     readyState = 1;
@@ -33,7 +34,9 @@ function create(options: AsrClientOptions): AsrClientContractProbe {
     stop() {
       this.state = "inactive";
       queueMicrotask(() => {
-        this.ondataavailable?.({ data: new Blob(["nonempty captured audio tail"]) });
+        const tail = new Blob(["nonempty captured audio tail"]);
+        tailSizes.push(tail.size);
+        this.ondataavailable?.({ data: tail });
         this.onstop?.();
       });
     }
@@ -44,6 +47,8 @@ function create(options: AsrClientOptions): AsrClientContractProbe {
   return {
     client: new ExternalSpeechClient(options),
     captureActive: () => acquired && track.readyState === "live",
+    connectionActive: () => sockets[0]?.readyState === 1,
+    sent, tailSizes,
     deliver: (event: AsrEvent) => { sockets[0]!.onmessage?.({ data: JSON.stringify(event) }); },
     fail: () => { sockets[0]!.onerror?.(); },
     finishDrain: (event) => {
@@ -78,6 +83,9 @@ test("the external adapter consumes its supplied session URL and discards the re
     expect(events).toHaveLength(1);
     probe.client.stop();
     await Promise.resolve();
+    expect(probe.tailSizes).toHaveLength(1);
+    expect(probe.tailSizes[0]).toBeGreaterThan(0);
+    expect(probe.sent).toHaveLength(0);
     expect(probe.captureActive()).toBe(false);
     expect(events).toEqual([{ type: "final", text: "At the harbor", endsTurn: false }]);
   } finally { probe.client.stop(); await probe.dispose(); }

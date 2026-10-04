@@ -49,8 +49,8 @@ All capabilities are boolean. `streaming` describes streaming recognition,
 `interimResults` controls partial display, `keyterms` controls domain-term
 building, and `endpointing` distinguishes automatic utterance-end evidence from
 manual Done. Capabilities do not confer permissions or confidence/provenance
-that the event format does not carry. `createSession` receives nonempty domain
-terms only when keyterms is supported, otherwise `[]`.
+that the event format does not carry. `createSession` receives domain terms when keyterms is supported (possibly
+`[]` when no terms are available), otherwise `[]`.
 
 `SpeechSession` carries a string URL, finite nonnegative epoch-millisecond
 `expiresAt`, optional string `token`, and optional `Record<string, string>`
@@ -197,7 +197,9 @@ Set `failing: null` explicitly only for a provider with no fallible session
 transport, such as the built-in browser session; that failure case is not
 registered, rather than reported as a passing transport test.
 `keyterms()` observes what its transport received when support is declared.
-The client probe observes microphone tracks or recognizer state and drives
+The client probe observes microphone tracks or recognizer state through
+`captureActive()` and socket/recognizer connection state through
+`connectionActive()`, and drives
 real transcript/error callbacks. `finishDrain(final)` delivers a held buffered
 final and completion only after the adapter requested a flush; it must not
 fabricate an event when that request is missing. The suite requires the drain
