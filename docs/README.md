@@ -64,6 +64,7 @@ the published template rather than a source checkout.
 | [visitor-feedback-investigation.md](visitor-feedback-investigation.md) | Dated visitor-path and mailing-service comparison behind the public website's release-signup policy. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [audit-capability-investigation.md](audit-capability-investigation.md) | Actual audit suggestion/handler boundaries and keyless repair-capability controls. |
+| [live-conversation-investigation.md](live-conversation-investigation.md) | Two-engine live voice qualification, the unshipped common interface, keyless scheduling evidence and bounded live verification. |
 | [canonical-conflict-investigation.md](canonical-conflict-investigation.md) | Source/evidence boundaries and report-only controls for unkeyed canonical conflicts; live comparison remains unmeasured. |
 | [candidate-extraction-investigation.md](candidate-extraction-investigation.md) | Exact-span research extraction, Unicode/duration controls and the remaining per-field comparison. |
 | [job-fit-investigation.md](job-fit-investigation.md) | Actual keyword scoring, private semantic fit/unknown-value controls and the unmeasured live comparison boundary. |
