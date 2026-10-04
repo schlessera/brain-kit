@@ -7,8 +7,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
+import { tmpdir } from "os";
+import { pendingChangesetPackageErrors } from "../scripts/check-changeset-packages";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
@@ -96,6 +98,10 @@ function ciImportList(variable: string): string[] {
 }
 
 describe("release manifests", () => {
+  test("every pending changeset names actual workspace packages", async () => {
+    expect(await pendingChangesetPackageErrors(ROOT)).toEqual([]);
+  });
+
   test("there are packages to check", () => {
     expect(packages.length).toBeGreaterThan(5);
   });
@@ -286,6 +292,69 @@ describe("release manifests", () => {
     // The fixed group guarantees this after a release; a drift here means a
     // hand-edited manifest and a release that will not do what it appears to.
     expect(new Set(packages.map((p) => p.manifest.version)).size).toBe(1);
+  });
+});
+
+describe("pending changeset package gate", () => {
+  function withFixture(run: (root: string) => void): void {
+    const root = mkdtempSync(join(tmpdir(), "changeset-packages-"));
+    try {
+      mkdirSync(join(root, "packages", "engine"), { recursive: true });
+      mkdirSync(join(root, ".changeset"));
+      writeFileSync(join(root, "package.json"), JSON.stringify({
+        name: "fixture-workspace", private: true, workspaces: ["packages/*"],
+      }));
+      writeFileSync(join(root, "packages", "engine", "package.json"), JSON.stringify({
+        name: "@fixture/actual-engine", version: "0.1.0",
+      }));
+      run(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function gate(root: string) {
+    const result = Bun.spawnSync(["bun", join(ROOT, "scripts/check-changeset-packages.ts"), root]);
+    return { code: result.exitCode, stderr: new TextDecoder().decode(result.stderr) };
+  }
+
+  test("accepts actual manifest names and empty changesets through the executable", () => {
+    withFixture(root => {
+      writeFileSync(join(root, ".changeset", "valid.md"), "---\n'@fixture/actual-engine': minor\n---\n\nA release.\n");
+      writeFileSync(join(root, ".changeset", "empty.md"), "---\n{}\n---\n\nDocumentation.\n");
+      expect(gate(root)).toEqual({ code: 0, stderr: "" });
+    });
+  });
+
+  test("rejects all unknown names with file diagnostics through the executable", () => {
+    withFixture(root => {
+      writeFileSync(join(root, ".changeset", "bad.md"), "---\n'@fixture/actual-engine': minor\n'@fixture/missing-one': minor\n'@fixture/missing-two': patch\n---\n\nA release.\n");
+      const result = gate(root);
+      expect(result.stderr).toContain('.changeset/bad.md: unknown workspace package "@fixture/missing-one"');
+      expect(result.stderr).toContain('.changeset/bad.md: unknown workspace package "@fixture/missing-two"');
+      expect(result.code).toBe(1);
+    });
+  });
+
+  test("parser failures cannot report a passing gate", () => {
+    withFixture(root => {
+      writeFileSync(join(root, ".changeset", "broken.md"), "---\n'@fixture/actual-engine': [\n---\n\nInvalid YAML.\n");
+      const result = gate(root);
+      expect(result.stderr).toContain("Cannot validate pending changeset packages:");
+      expect(result.code).toBe(1);
+    });
+  });
+
+  test("CI validates the full pending set after a frozen install", () => {
+    const workflow = Bun.YAML.parse(CI_YML) as {
+      jobs: { changeset: { steps: { run?: string }[] } };
+    };
+    const commands = workflow.jobs.changeset.steps.map(step => step.run ?? "");
+    const install = commands.indexOf("bun install --frozen-lockfile");
+    const validate = commands.indexOf("bun scripts/check-changeset-packages.ts");
+    expect(install).toBeGreaterThanOrEqual(0);
+    expect(validate).toBeGreaterThan(install);
+    expect(commands.slice(validate + 1).join("\n")).toContain("bun scripts/check-changeset.ts");
   });
 });
 

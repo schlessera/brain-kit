@@ -66,8 +66,8 @@ The CLI path above works before the interview; live agent onboarding still
   [client receivables](packages/module-finance/README.md), and
   [image generation and editing](packages/module-images/README.md).
   Each has its own setup and provider requirements; enable only what you need.
-  The separate [travel module](packages/module-travel/README.md) has content
-  schemas and migration implemented in source; its package is not published yet.
+  The separate [travel module](packages/module-travel/README.md) covers journeys,
+  day trips and visited places, with migration from the speaking module.
 
 ## Optional chat UI
 
@@ -123,7 +123,7 @@ packages/module-images       @schlessera/brain-module-images — image generatio
                              between OpenAI and Gemini models by capability
 packages/module-jobs         @schlessera/brain-module-jobs — job-search scraping/scoring module
 packages/module-speaking     @schlessera/brain-module-speaking — talks/conferences module
-packages/module-travel       @schlessera/brain-module-travel — journeys/day trips/visited places (not published yet)
+packages/module-travel       @schlessera/brain-module-travel — journeys/day trips/visited places
 packages/module-finance      @schlessera/brain-module-finance — client ledger / AR module
 packages/ui-sdk              @schlessera/brain-ui-sdk — chat-UI wire protocol + runtime schemas,
                              AgentBackend/SpeechProvider seams, renderer/ASR registries

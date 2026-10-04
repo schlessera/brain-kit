@@ -1,7 +1,7 @@
 {
   "name": "@schlessera/brain-module-speaking",
-  "version": "0.39.0",
-  "description": "brain-kit module: speaking \u2014 talks, conferences and CFP pipeline",
+  "version": "0.40.0",
+  "description": "brain-kit module: speaking — talks, conferences and CFP pipeline",
   "license": "MIT",
   "keywords": [
     "brain-kit",
