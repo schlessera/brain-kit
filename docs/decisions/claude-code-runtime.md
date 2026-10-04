@@ -312,7 +312,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:82`), so bumping the SDK in this repo fails CI until
+  `.depot/workflows/ci.yml:82`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
@@ -741,6 +741,18 @@ GitHub Actions so agents can inspect failed checks through GitHub's log
 surfaces. This supersedes the workflow location above; the keyless probe and
 its network namespace remain the same. The migration findings and verification
 are recorded in #618.
+
+## 2026-10-04 — CI moves to Depot with CLI observability (#983)
+
+The maintainer requested Depot CI again, with `depot` instructions for agents
+to monitor runs and inspect failures. The current CI workflow is migrated from
+the latest main, including its newer runtime and packaging gates, rather than
+restoring the historical Depot copy. `.depot/workflows/ci.yml` becomes the
+authoritative workflow for the unchanged keyless runtime probe. AGENTS.md
+documents status, diagnosis, attempt logs and artifact downloads. Project sync
+retains GitHub Actions because Depot CI does not support issue events and Depot
+Actions runners cannot serve a personal-account repository. This supersedes
+the provider choice in #618; it does not alter the probe or its isolation.
 
 ## 2026-09-30 — What a sync ran is observed per run, not probed (#290)
 
