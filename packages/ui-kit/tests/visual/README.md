@@ -41,3 +41,9 @@ assertions. Original File references are saved before Composer clears the live
 picker FileList, so offline input evidence remains available after processing.
 Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
+
+The dictation height-cap checks wait for the phone entrance animation to finish
+and require an identity transform before comparing the exact rendered height.
+Chromium can round translated rect edges independently while the layout box
+still obeys its cap. The regression replays a measured translating frame; the
+60vh/32rem limits, motion coverage and newest-word scrolling checks remain exact.
