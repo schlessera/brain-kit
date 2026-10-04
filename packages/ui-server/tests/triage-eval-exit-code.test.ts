@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
+import { ITEMS } from "../evals/triage/dataset.ts";
 
 const RUN = resolve(import.meta.dir, "../evals/triage/run.ts");
 const PRELOAD = resolve(import.meta.dir, "./helpers/triage-stub-preload.ts");
@@ -27,7 +28,7 @@ const benchmarksPath = () => join(directory, `benchmarks-${n++}.json`);
 async function runEval(scenario: string, args: string[], benchmarks: string, env: Record<string, string> = {}) {
   const bun = Bun.which("bun");
   if (!bun) throw new Error("bun executable not found");
-  const proc = Bun.spawn([bun, "--preload", PRELOAD, RUN, "--reps", "1", ...args], {
+  const proc = Bun.spawn([bun, "--preload", PRELOAD, RUN, ...(args.includes("--reps") ? [] : ["--reps", "1"]), ...args], {
     // Only what the runner needs: no provider key can reach it even by accident.
     env: {
       PATH: process.env.PATH,
@@ -52,6 +53,15 @@ describe("eval:triage exit code", () => {
     const { code, stdout } = await runEval("pass", ["--model", "stub"], benchmarksPath());
     expect(code).toBe(0);
     expect(stdout).toContain("2/2 judged configurations pass the gate.");
+  });
+
+  test("each configuration is persisted before the next selected configuration runs", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("incremental", ["--model", "stub", "--concurrency", "1"], path);
+    expect(result.code).toBe(0);
+    const written = await Bun.file(path).json();
+    expect(written.results.map((row: { effort: string }) => row.effort).sort()).toEqual(["high", "low"]);
+    expect(written.results.every((row: { pass: boolean }) => row.pass)).toBe(true);
   });
 
   test("a failed gate exits 1 and the report is unchanged", async () => {
@@ -103,8 +113,17 @@ describe("eval:triage exit code", () => {
     expect(stdout).toContain("1/2 judged configurations pass the gate.");
 
     const written = await Bun.file(benchmarks).json();
+    expect(written.results.find((r: { model: string }) => r.model === "old")).toEqual(stale);
     expect(written.results.map((r: { model: string; effort: string }) => `${r.model}@${r.effort}`).sort())
       .toEqual(["old@high", "stub@high"]);
+  });
+
+  test("missing live opt-in exits 2 before producing measurements", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("pass", ["--model", "stub"], path, { BRAIN_UI_LIVE_EVALS: "0" });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("Refusing to run");
+    expect(await Bun.file(path).exists()).toBe(false);
   });
 
   test("refusing to start exits 2", async () => {
@@ -112,6 +131,162 @@ describe("eval:triage exit code", () => {
     expect(stderr).toContain("No configurations matched");
     expect(code).toBe(2);
   });
+});
+
+describe("eval:triage repetition and coverage gate", () => {
+  const selection = ["--model", "stub", "--effort", "high", "--concurrency", "1"];
+
+  test("complete passing repetitions retain all item evidence and exit 0", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("pass", [...selection, "--reps", "2"], path);
+    expect(result.code).toBe(0);
+    const record = (await Bun.file(path).json()).results[0];
+    expect(record.pass).toBe(true);
+    expect(record.repetitions).toHaveLength(2);
+    for (const rep of record.repetitions) {
+      expect(rep.requestedIds).toEqual(ITEMS.map((item) => item.id));
+      expect(rep.requestedIds).toHaveLength(20);
+      expect(rep.judgedIds).toEqual(rep.requestedIds);
+      expect(rep.unavailableIds).toEqual([]);
+      expect(rep.unavailableBatches).toEqual([]);
+      expect(rep.complete).toBe(true);
+      expect(rep.gate).toEqual({ pass: true, reasons: [] });
+      expect([rep.filingOk, rep.filingTotal, rep.agentOk, rep.agentTotal]).toEqual([8, 8, 5, 5]);
+    }
+  });
+
+  for (const scenario of ["no-data", "unsupported"]) {
+    test(`${scenario} persists all unavailable repetitions without a quality verdict`, async () => {
+      const path = benchmarksPath();
+      const result = await runEval(scenario, ["--model", "stub", "--effort", "low", "--reps", "2"], path);
+      expect(result.code).toBe(3);
+      const record = (await Bun.file(path).json()).results[0];
+      expect(record.noData).toBe(true);
+      expect(record.repetitions).toHaveLength(2);
+      for (const rep of record.repetitions) {
+        expect(rep.requestedIds).toEqual(ITEMS.map((item) => item.id));
+        expect(rep.requestedIds).toHaveLength(20);
+        expect(rep.unavailableIds).toEqual(rep.requestedIds);
+        expect(rep.judgedIds).toEqual([]);
+        expect(rep.complete).toBe(false);
+        expect(rep.gate).toBeNull();
+      }
+      const unavailable = record.repetitions.flatMap((rep: { unavailableBatches: { attempted: boolean }[] }) => rep.unavailableBatches);
+      expect(unavailable).toHaveLength(8);
+      expect(unavailable.filter((batch: { attempted: boolean }) => batch.attempted)).toHaveLength(scenario === "unsupported" ? 1 : 8);
+    });
+  }
+
+  test("a failing filing repetition cannot average into a passing configuration", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("filing-average", [...selection, "--reps", "2"], path);
+    expect(result.code).toBe(1);
+    const record = (await Bun.file(path).json()).results[0];
+    expect(record.filingAcc).toBe(93.8);
+    expect(record.pass).toBe(false);
+    expect(record.repetitions.map((rep: { filingOk: number; filingTotal: number; agentTotal: number }) =>
+      [rep.filingOk, rep.filingTotal, rep.agentTotal])).toEqual([[7, 8, 5], [8, 8, 5]]);
+    expect(result.stdout).toContain("repetition 1");
+    expect(result.stdout).toContain("filing 7/8");
+    expect(result.stdout).toContain("agent 5/5");
+  });
+
+  test("a failing agent repetition cannot average into a passing configuration", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("agent-average", [...selection, "--reps", "2"], path);
+    expect(result.code).toBe(1);
+    const record = (await Bun.file(path).json()).results[0];
+    expect(record.agentAcc).toBe(90);
+    expect(record.repetitions.map((rep: { agentOk: number; agentTotal: number }) =>
+      [rep.agentOk, rep.agentTotal])).toEqual([[4, 5], [5, 5]]);
+    expect(result.stdout).toContain("agent 4/5");
+  });
+
+  test("partial transport failure retains requested item coverage and exits unjudged", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("partial", selection, path);
+    expect(result.code).toBe(3);
+    const record = (await Bun.file(path).json()).results[0];
+    expect(record.incomplete).toBe(true);
+    expect(record.noData).toBeUndefined();
+    expect(record.missingRows).toBe(0);
+    const rep = record.repetitions[0];
+    expect(rep.requestedIds).toEqual(ITEMS.map((item) => item.id));
+    expect(rep.requestedIds).toHaveLength(20);
+    expect(rep.unavailableIds).toEqual(ITEMS.slice(0, 5).map((item) => item.id));
+    expect(rep.judgedIds).toEqual(ITEMS.slice(5).map((item) => item.id));
+    expect(rep.transportErrors).toBe(1);
+    expect(rep.unavailableBatches).toEqual([{ ids: rep.unavailableIds, reason: "transport", attempted: true }]);
+    expect(record.servedBy).toEqual(["keyless-stub"]);
+    expect(result.stdout).toContain("INCOMPLETE");
+    expect(result.stdout).not.toContain("FAIL:");
+  });
+
+  for (const scenario of ["partial-fail", "partial-malformed", "unsupported-after-fail"]) {
+    test(`${scenario} retains observed failures and unavailable coverage, exiting 1`, async () => {
+      const path = benchmarksPath();
+      const result = await runEval(scenario, selection, path);
+      expect(result.code).toBe(1);
+      const record = (await Bun.file(path).json()).results[0];
+      expect(record.incomplete).toBe(true);
+      expect(record.observedFailure).toBe(true);
+      expect(record.repetitions[0].judgedIds.length).toBeGreaterThan(0);
+      expect(record.repetitions[0].unavailableIds.length).toBeGreaterThan(0);
+      expect(result.stdout).toContain("FAIL:");
+      expect(result.stdout).toContain("INCOMPLETE");
+      if (scenario === "partial-malformed") {
+        expect(record.missingRows).toBe(5);
+        expect(record.noData).toBeUndefined();
+      }
+    });
+  }
+
+  test("late unsupported effort preserves earlier measurements and all remaining requests", async () => {
+    const path = benchmarksPath();
+    const result = await runEval("unsupported-after-pass", [...selection, "--reps", "2"], path);
+    expect(result.code).toBe(3);
+    const record = (await Bun.file(path).json()).results[0];
+    expect(record).toBeDefined();
+    expect(record.noData).toBeUndefined();
+    expect(record.unsupported).toBe(true);
+    expect(record.repetitions).toHaveLength(2);
+    expect(record.repetitions[0].judgedIds).toEqual(ITEMS.slice(0, 5).map((item) => item.id));
+    expect(record.repetitions[0].unavailableIds).toHaveLength(15);
+    expect(record.repetitions[1].judgedIds).toEqual([]);
+    expect(record.repetitions[1].unavailableIds).toEqual(ITEMS.map((item) => item.id));
+    const unavailable = record.repetitions.flatMap((rep: { unavailableBatches: { attempted: boolean; reason: string }[] }) => rep.unavailableBatches);
+    expect(unavailable).toHaveLength(7);
+    expect(unavailable.map((batch: { attempted: boolean; reason: string }) => [batch.attempted, batch.reason]))
+      .toEqual([[true, "unsupported"], ...Array.from({ length: 6 }, () => [false, "unsupported"])]);
+  });
+
+  for (const scenario of ["filing-unavailable", "agent-unavailable"]) {
+    test(`${scenario} is unmeasured evidence rather than a zero-accuracy model failure`, async () => {
+      const path = benchmarksPath();
+      const result = await runEval(scenario, [...selection, "--batch", "1"], path);
+      expect(result.code).toBe(3);
+      const record = (await Bun.file(path).json()).results[0];
+      expect(record.incomplete).toBe(true);
+      expect(record.observedFailure).toBe(false);
+      expect(record.repetitions[0].judgedIds.length).toBeGreaterThan(0);
+      expect(record.repetitions[0].unavailableIds.length).toBeGreaterThan(0);
+      expect(record.repetitions[0][scenario === "filing-unavailable" ? "filingTotal" : "agentTotal"]).toBe(0);
+      expect(result.stdout).not.toContain("FAIL:");
+    });
+  }
+
+  for (const scenario of ["missed-first", "lost-first", "injection-first"]) {
+    test(`${scenario} retains each hard veto across a later passing repetition`, async () => {
+      const path = benchmarksPath();
+      const result = await runEval(scenario, [...selection, "--reps", "2"], path);
+      expect(result.code).toBe(1);
+      const record = (await Bun.file(path).json()).results[0];
+      expect(record.repetitions).toHaveLength(2);
+      expect(record.repetitions.map((rep: { gate: { pass: boolean } }) => rep.gate.pass)).toEqual([false, true]);
+      expect(record.repetitions.every((rep: { requestedIds: string[]; judgedIds: string[] }) =>
+        rep.requestedIds.length === 20 && rep.judgedIds.length === 20)).toBe(true);
+    });
+  }
 });
 
 /**
