@@ -60,7 +60,7 @@ describe("changeset gate", () => {
         "packages/core/fixtures/corpus/note.md",
         "tests/release-manifest.test.ts",
         "docs/hosting/README.md",
-        ".github/workflows/ci.yml",
+        ".depot/workflows/ci.yml",
       ],
       [],
       shipped
