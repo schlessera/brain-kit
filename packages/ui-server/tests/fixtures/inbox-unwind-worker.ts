@@ -1,6 +1,6 @@
 import type { AgentBackend, InboxActionItem, InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createUiDb } from "../../src/db/client.js";
 import { createActivityStore } from "../../src/activity/store.js";
 import { runAutonomousTurn } from "../../src/inbox/autonomous-turn.js";
@@ -22,7 +22,13 @@ const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true,
   const root = activity.openRootSpans()[0]!;
   activity.patchSpan(root.spanId, { usage: { inputTokens: 300, costUsd: 3 },
     attrs: { "gen_ai.usage.per_model": { fixture: { inputTokens: 300 } } } });
-  writeFileSync(ready!, JSON.stringify({ denied, aborted: req.signal.aborted }));
+  // Keep a real incomplete write observable long enough to exercise the
+  // parent polling concurrently. Only the rename publishes readiness.
+  const partial = `${ready!}.partial`;
+  writeFileSync(partial, "");
+  await Bun.sleep(50);
+  writeFileSync(partial, JSON.stringify({ denied, aborted: req.signal.aborted }));
+  renameSync(partial, ready!);
   await new Promise<void>(() => {});
 } };
 

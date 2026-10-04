@@ -21,10 +21,13 @@ export interface BrainDocument {
   type: string;
   status: string;
   relevance: string;
-  tags: string[];
-  created: string;
+  tags: string | null;
   updated: string;
-  summary?: string;
+  summary: string | null;
+  deadline: string | null;
+  generatedFrom: string | null;
+  score: number;
+  snippet: string;
 }
 
 export interface BrainStats {

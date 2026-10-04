@@ -216,3 +216,27 @@ the repository-wide conversion is #625, not an extra task here.
 - **Enable trusted-only autonomy if containment slips.** This was an old risk-table
   suggestion, not the approved full v1. A scope fallback requires a new maintainer
   ruling; a green surface suite cannot substitute for containment evidence.
+
+## All-writer architecture ruling — 2026-10-02
+
+[The all-writer decision](policy-write-boundary.md) records the three approved
+choices for isolated workers, authoritative application using existing approvals,
+and verified Linux/qualifying WSL2 hosts with visible refusal before writer
+initialization. It supplements this record's authority and containment section:
+ordinary shell/extension writes must stage exact changes for bounded server
+application rather than directly editing authoritative files. R33/R35 and R31
+remain binding; the separate credentials/configuration/egress proof is unchanged.
+Approval does not prove containment or enable the autonomous system.
+
+## Action notification policy (2026-10-02)
+
+The maintainer's [settled #683 policy](action-notifications.md) binds R50/U9:
+fixed 60-second cross-thread batches, inclusive push cutoff 12, strict
+client-local [22:00, 08:00) quiet hours, and client-local 09:00 and 17:00 in-app
+digests of new or reawakened waiting episodes. Its client-time amendment
+supersedes the server-zone notification proposal without changing budget or
+snooze rules. The record defines authenticated zone refresh, transactional
+current counts/authority, per-destination receipts, due-only overnight
+consolidation and atomic catch-up coverage. These are selected requirements;
+they do not establish delivery, resolve an Action or weaken the complete
+autonomous-v1 enablement gate.
