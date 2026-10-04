@@ -19,7 +19,7 @@ jobs:
   typecheck:
     # Split out of `test` so the 30s typecheck runs beside the test shards
     # rather than ahead of them.
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -69,7 +69,7 @@ jobs:
     # an allowlist. New files receive a small default weight.
     # Bun's --parallel workers imply --isolate; the existing suite does not
     # survive that mode, so keep one process per shard.
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -129,7 +129,7 @@ jobs:
           BRAIN_REQUIRE_CHROME: "1"
 
   pack:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     env:
       GEMINI_API_KEY: ""
       ANTHROPIC_API_KEY: ""
@@ -583,7 +583,7 @@ jobs:
     # that the probe needs no network. Ubuntu's AppArmor blocks unprivileged
     # user namespaces by default; the sysctl lifts that for this job only,
     # where the knob exists.
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     # A CLI that stalls inside the namespace must not hold the runner for
     # hours; the probe takes about a minute.
     timeout-minutes: 15
@@ -615,7 +615,7 @@ jobs:
     # prose does not fail a build, and a review caught exactly this omission on
     # the commit that made ui-server's exports breaking. Runs on push to main
     # too: a direct push used to bypass the gate entirely.
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -646,7 +646,7 @@ jobs:
           fi
 
   feature-captures:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -671,6 +671,22 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
+  ui-react-layout:
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Build the consumer exports and Tailwind stylesheet
+        run: bun run build
+      - name: Chat overlay geometry in the pinned offline Chromium image
+        # The shared runner starts Docker with --network=none for this project.
+        # Only the in-container Vite server is reachable; no keys are forwarded.
+        run: bun run test:layout
+
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
     # they are allowed to run in.
@@ -692,7 +708,7 @@ jobs:
     # spreads the files over both cores, which a project at a time did not
     # (72s against 99s for the whole suite at 2 CPUs). A third shard saves
     # about 20s more, but `pack` finishes later than that anyway.
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -741,7 +757,7 @@ jobs:
           include-hidden-files: true
 
   leakage:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

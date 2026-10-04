@@ -121,11 +121,19 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
   {
-    source: "brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `reranker.apiKeyEnv`",
+    source: "brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `completions.fallbackApiKeyEnv` / `reranker.apiKeyEnv`",
     description:
-      "API key for a built-in provider, read at call time under whatever " +
+      "API key for a built-in provider or completion fallback, read at call time under whatever " +
       "name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, " +
       "TYPESAFE_API_KEY).",
+  },
+  {
+    source: "call-time inherited environment snapshot (`inheritedEnv`)",
+    description:
+      "Internal agent-CLI transport: copies the calling process's environment " +
+      "at spawn time and merges explicit overrides last. Unlike the UI's " +
+      "filtered subprocess environment, this snapshot is inherited in full; " +
+      "it does not make every inherited variable supported brain configuration.",
   },
 ];
 

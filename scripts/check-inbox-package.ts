@@ -15,15 +15,23 @@ mkdirSync(source); mkdirSync(target);
 const path = join(source, "ui.sqlite"), backup = join(root, "backup.json");
 const db = createUiDb(path);
 db.query("INSERT INTO inbox_scheduler_heartbeats VALUES ('Odysseus', ?, 7)").run(Date.UTC(2026, 6, 12));
-db.close();
-async function run(command, dbPath, brainRoot, code = 0) {
+async function run(command, dbPath, brainRoot, code = 0, releaseLock) {
   const child = Bun.spawn([${JSON.stringify(join(consumer, "node_modules/.bin/brain-ui-inbox"))}, command,
     "--db", dbPath, "--brain-root", brainRoot, "--file", backup, "--json"], { stdout: "pipe", stderr: "pipe" });
+  let earlyExit;
+  const unlock = releaseLock ? Bun.sleep(1000).then(() => { earlyExit = child.exitCode; releaseLock(); }) : Promise.resolve();
   const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (exit !== code || err !== "") throw new Error("Packed inbox command failed: " + out + err);
+  await unlock;
+  if (exit !== code || err !== "") throw new Error("Packed inbox command failed: " + JSON.stringify({ command, exit, expectedExit: code, stdout: out, stderr: err }));
+  if (releaseLock && earlyExit !== null) throw new Error("Packed export finished before its lock was released");
   return JSON.parse(out);
 }
-const exported = await run("export", path, source);
+// A short exclusive lock deterministically exercises the export reader's
+// busy handler, including the installed bin and bundled schema migrations.
+db.exec("PRAGMA journal_mode = DELETE; BEGIN EXCLUSIVE");
+const exported = await run("export", path, source, 0, () => {
+  db.exec("COMMIT"); db.close();
+});
 if (exported.schema_version !== 1 || !exported.ok || exported.command !== "export" ||
     exported.snapshot.version !== 1 || exported.snapshot.recovery_point_hours !== 24 ||
     !/^[a-f0-9]{64}$/.test(exported.snapshot.checksum)) throw new Error("Packed export contract mismatch");

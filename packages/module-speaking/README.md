@@ -52,11 +52,15 @@ retains `talk` and `conference`. This is an approved pre-1.0 breaking
 ownership change: existing travel paths, types and links remain intact,
 but travel must be enabled explicitly after upgrading.
 
-Install and enable the matching travel package, then run
-`brain travel migrate --dry-run --json` and `brain travel migrate --json`.
+Install and enable the matching travel package. When neither speaking nor travel
+has a saved settings file, run `brain travel migrate --dry-run --json` and
+`brain travel migrate --json`; otherwise use the travel README's reviewed
+manual upgrade path. The shared JSON settings writer is available, but travel
+has no shared settings migration planner.
 Review the config edit, restart the session and sync skills. The deprecated
 speaking `travelParty` field remains accepted during the transition and is
 retained until migrated; a nonempty legacy value produces an actionable warning.
 The migration preserves every member, role and requirements-document path,
 refuses conflicting or ambiguous values, and is a no-op after completion.
-See the travel README for complete JSON/TypeScript and saved-settings handling.
+See the [travel upgrade guide](../module-travel/README.md#upgrade-from-speaking)
+for complete JSON/TypeScript, settings precedence and saved-settings handling.
