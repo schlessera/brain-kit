@@ -1417,3 +1417,16 @@ the scorer/judge coverage; do not file a second harness implementation
 - Related: [`../decisions/agent-observability.md`](../decisions/agent-observability.md) (the layer this
   builds on), [`../decisions/cost-tracking.md`](../decisions/cost-tracking.md) (the accounting this
   enforces against)
+
+## U10 architecture clarification — 2026-10-02
+
+[The all-writer decision](../decisions/policy-write-boundary.md) records the
+subsequently approved worker, editing/application and supported-host choices
+requested by U10. Both first-party adapters must enter isolation before SDK or
+extension initialization, with read-only authoritative brain views and separate
+scratch. Ordinary shell/extension changes require explicit bounded server
+application; permitted interactive edits use existing approvals. Only verified
+Linux and qualifying WSL2 backend profiles may run, with visible pre-initialization
+refusal otherwise. U10's executable proof and U15's separate complete containment
+gate remain required. No runtime or autonomous enablement follows from this
+documentation ruling.
