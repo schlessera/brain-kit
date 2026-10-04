@@ -27,6 +27,36 @@ Model credentials are **not** managed here — pi resolves them from its own aut
 storage (`~/.pi/agent/auth.json`) and provider env vars, exactly as the `pi` CLI
 does.
 
+## Native endpoint routing
+
+For an explicitly declared built-in provider/model, the backend validates the
+built-in identity and selects its configured model from the native
+`ModelRuntime` performing inference. Pi's normal agent-directory discovery
+(including `PI_CODING_AGENT_DIR`) owns `models.json`, authentication and model
+cache paths. The brain's `sessionDir` controls transcripts, not native config.
+
+On **each request**, a native authentication-supplied endpoint takes precedence;
+otherwise the configured model endpoint is used. A `models.json` proxy is
+therefore conditional on native authentication not supplying an endpoint.
+The backend preserves native credential discovery/refresh, subscription/account
+routing and billing ownership. It does not reject a supported configuration
+solely because those endpoints differ or force native credentials to a proxy.
+Native credential refresh may contact authentication servers.
+
+This is a routing migration: new ordinary and autonomous turns now honor native
+configured endpoints that a raw catalog model could previously ignore. Review
+existing native endpoint/authentication configuration when adopting the change.
+Model/provider identity and explicit picker profiles stay fixed; no custom-model
+discovery or profile endpoint field is added. Ordinary disk resumes use native
+configured lookup without overriding their saved model and still refuse fallback
+to another model. A resident session retains its runtime; this adds no hot-reload
+promise for edits to `models.json`.
+
+Autonomous turns remain nonpersistent with the existing tool authority and
+runtime compatibility checks. Endpoint routing does not enable autonomous
+dispatch or replace its containment gate. The binding policy and verification
+boundaries are in the [endpoint-routing decision](../../docs/decisions/pi-endpoint-routing.md).
+
 ## GPT-6 profiles
 
 The pinned catalog supports `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and
