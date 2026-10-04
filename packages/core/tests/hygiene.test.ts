@@ -224,6 +224,51 @@ describe("index table lag", () => {
     ]);
   });
 
+  const wikiTable = (cell: string) => `| Item | Updated |\n| --- | --- |\n| ${cell} | 2026-03-11 |\n`;
+
+  test("wiki detail resolution chooses the same-directory sibling regardless of document order", () => {
+    const index = doc("a/_index.md", "index", "2026-06-30", wikiTable("[[bio]]"));
+    const sibling = doc("a/bio.md", "note", "2026-06-11");
+    const unrelated = doc("b/x/bio.md", "note", "2026-06-20", "", "archived");
+    for (const docs of [[unrelated, index, sibling], [sibling, unrelated, index], [index, sibling, unrelated]]) {
+      expect(indexTableLag(docs)).toEqual([
+        expect.objectContaining({ evidence: "[[bio]]", message: expect.stringContaining("; a/bio.md has updated 2026-06-11") }),
+      ]);
+    }
+  });
+
+  test("an up-to-date wiki sibling is not a false lag against an unrelated newer basename", () => {
+    const index = doc("a/_index.md", "index", "2026-06-30", wikiTable("[[bio]]"));
+    const sibling = doc("a/bio.md", "note", "2026-03-11");
+    const unrelated = doc("b/x/bio.md", "note", "2026-06-11");
+    expect(indexTableLag([unrelated, index, sibling])).toEqual([]);
+    expect(indexTableLag([sibling, index, unrelated])).toEqual([]);
+  });
+
+  test("ambiguous and unresolved wiki rows do not select a detail", () => {
+    const docs = [doc("a/_index.md", "index", "2026-06-30", wikiTable("[[bio]]") + "\n" + wikiTable("[[absent]]")),
+      doc("b/x/bio.md", "note", "2026-06-11"), doc("b/y/bio.md", "note", "2026-06-20")];
+    expect(indexTableLag(docs)).toEqual([]);
+    expect(indexTableLag([...docs].reverse())).toEqual([]);
+  });
+
+  test.each([
+    ["[[guide]]", "a/registry/guide.md"],
+    ["[[b/x/guide]]", "b/x/guide.md"],
+    ["[[a/guide.md]]", "a/guide.md"],
+    ["[[guide#Overview|Odysseus guide]]", "a/registry/guide.md"],
+    ["[[route]]", "a/_route.md"],
+  ])("wiki detail %s preserves indexer precedence and syntax", (cell, expectedPath) => {
+    const docs = [doc("a/registry.md", "index", "2026-06-30", wikiTable(cell)),
+      ...["b/x/guide.md", "a/guide.md", "a/registry/guide.md", "b/x/_route.md", "a/_route.md"]
+        .map((path) => doc(path, "note", "2026-06-11"))];
+    for (const ordered of [docs, [...docs].reverse()]) {
+      expect(indexTableLag(ordered)).toEqual([
+        expect.objectContaining({ evidence: cell, message: expect.stringContaining(`; ${expectedPath} has updated 2026-06-11`) }),
+      ]);
+    }
+  });
+
   test("a generated registry table of an index that opts in is left to brain registry; the rest is diffed", () => {
     const table = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Alpha](alpha.md) | active | 2026-05-01 |\n";
     const outside = "| Item | Status | Updated |\n| --- | --- | --- |\n| [Beta](beta.md) | active | 2026-05-01 |\n";
@@ -287,6 +332,72 @@ describe("brain hygiene", () => {
     expect(() => git(root, "--fixture-invalid-option"))
       .toThrow(/git --fixture-invalid-option failed \(129\):[\s\S]*unknown option/);
   });
+
+  for (const [name, cell, link, expectedPath] of [
+    ["same-directory sibling", "[[bio]]", "bio", "a/bio.md"],
+    ["namesake before sibling and alias", "[[guide]]", "guide", "a/registry/guide.md"],
+    ["exact repository path", "[[b/x/bio]]", "b/x/bio", "b/x/bio.md"],
+    ["heading and display text", "[[bio#Overview|Odysseus bio]]", "bio#Overview", "a/bio.md"],
+    ["frontmatter alias", "[[profile]]", "profile", "a/person.md"],
+    ["escaped wiki display pipe", "[[bio\\|Odysseus bio]]", "bio\\", null],
+    ["escaped alias display pipe", "[[profile\\|Odysseus profile]]", "profile\\", null],
+    ["underscore basename", "[[route]]", "route", "a/_route.md"],
+    ["configured directory anchor", "[[harbor/]]", "harbor/", "a/harbor/landing.md"],
+    ["same-document heading", "[[#Overview]]", "#Overview", "a/registry.md"],
+    ["ambiguous basename", "[[ambiguous]]", "ambiguous", null],
+    ["unresolved target", "[[absent]]", "absent", null],
+    ["hygiene-log basename ambiguity", "[[collision]]", "collision", null],
+    ["hygiene-log alias ambiguity", "[[log-profile]]", "log-profile", null],
+  ] as const) {
+    test(`real CLI wiki detail parity: ${name}`, async () => {
+      const root = makeTempBrain({ empty: true });
+      brains.push(root);
+      writeFileSync(join(root, "brain.config.json"), JSON.stringify({ taxonomy: { dirAnchors: ["landing.md"] } }));
+      const sourcePath = "a/registry.md";
+      const body = `| Item | Updated |\n| --- | --- |\n| ${cell} | 2026-03-11 |\n\nSee [[bio]] and [[profile]].\n`;
+      const sources = new Map<string, string>();
+      const writeDoc = (path: string, aliases: string[] = []) => {
+        const index = path === sourcePath;
+        const source = `---\ntitle: Odysseus ${path}\ntype: ${index ? "index" : "note"}\ncreated: 2026-03-01\nupdated: ${index ? "2026-06-30" : "2026-06-11"}\nstatus: active\ntags: [links]\naliases: ${JSON.stringify(aliases)}\n---\n${index ? body : "# Overview\nOdysseus keeps this reference.\n"}`;
+        mkdirSync(join(root, path.split("/").slice(0, -1).join("/")), { recursive: true });
+        writeFileSync(join(root, path), source);
+        sources.set(path, source);
+      };
+      for (const path of [sourcePath, "a/bio.md", "b/x/bio.md", "a/guide.md", "a/registry/guide.md", "b/x/guide.md",
+        "a/_route.md", "b/x/_route.md", "a/harbor/landing.md", "b/harbor/landing.md", "b/x/ambiguous.md", "b/y/ambiguous.md", "b/x/collision.md"])
+        writeDoc(path);
+      writeDoc("a/person.md", [" Profile ", "guide"]);
+      writeDoc("b/x/person.md", ["PROFILE", "log-profile"]);
+      writeDoc("context/hygiene/collision.md", ["log-profile"]);
+
+      const indexed = await runCli(root, ["index", "--force", "--json"]);
+      expect(indexed.code).toBe(0);
+      const database = openDatabase(join(root, "brain.db"));
+      try {
+        const target = database.query(`SELECT target.path AS targetPath FROM links l
+          JOIN documents source ON source.id = l.source_id
+          LEFT JOIN documents target ON target.id = l.target_id WHERE source.path = ? AND l.target = ?`)
+          .get(sourcePath, link) as { targetPath: string | null } | null;
+        expect(target).toEqual({ targetPath: expectedPath });
+        const aliases = database.query(`SELECT f.aliases FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE d.path = ?`)
+          .get("a/person.md") as { aliases: string };
+        expect(aliases.aliases).toContain("Profile");
+        expect(aliases.aliases.trim().length).toBeGreaterThan(0);
+      } finally { database.close(); }
+
+      const result = await reconcileCli(root, "--dry-run");
+      expect(result.code).toBe(0);
+      const finding = result.out.detected.find((candidate: { id: string }) => candidate.id === hygieneId("index-lag", sourcePath, cell));
+      if (expectedPath) {
+        expect(finding).toEqual(expect.objectContaining({
+          category: "index-lag", path: sourcePath, message: expect.stringContaining(`; ${expectedPath} has updated `),
+        }));
+      } else expect(result.out.detected.filter((candidate: { category: string; path: string }) =>
+        candidate.category === "index-lag" && candidate.path === sourcePath)).toEqual([]);
+      expect(existsSync(log(root, "open.md"))).toBe(false);
+      for (const [path, source] of sources) expect(readFileSync(join(root, path), "utf8")).toBe(source);
+    });
+  }
 
   test("the second reconcile writes no file and leaves git status clean", async () => {
     const root = await corpusBrain();

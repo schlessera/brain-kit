@@ -1,6 +1,6 @@
 // Writes a checked-in report of every package's public API surface —
 // the exported names per export subpath, split into runtime values and
-// type-only exports — and, for the frozen set (`SEAMS` below), the declared
+// type-only exports — and, for the signature-tracked set (`SEAMS` below), the declared
 // signature of each declaration.
 //
 // Why: core's `.` export grew to 136 lines of re-exports one reasonable PR at
@@ -39,7 +39,7 @@ const REPORT_DIR = join(ROOT, "api-report");
  */
 export const SEAMS: Record<string, Record<string, string[]>> = {
   core: {
-    ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter"],
+    ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter", "SearchResult", "RerankCandidate"],
     "./queries": ["readGraphMeta", "readGraphClusters", "readGraphNeighborhood", "readGraphDiscovery", "readGraphMaintenance", "readLinkWalk", "readVoiceVocabulary", "listIndexDocuments", "findIndexDocuments"],
   },
   scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },
