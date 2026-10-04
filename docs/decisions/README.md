@@ -30,6 +30,7 @@ somebody already learn the hard way?*
 | [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
+| [live-conversation.md](live-conversation.md) | Why Gemini Live and OpenAI GPT-Live share one conversation interface while the host retains tools, permissions, correlation and output authority; qualification does not certify live readiness. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
 | [confirm-patterns.md](confirm-patterns.md) | Why a nonempty confirmation-pattern list with no valid regex rejects backend initialization, while explicit empty lists and mixed valid/invalid lists retain their meaning. |
 | [claude-code-runtime.md](claude-code-runtime.md) | Which Claude Code binary the Claude backend runs (the one the Agent SDK ships, pinned by the lockfile), why the server records the version that ran, and how the behaviours measured against one version are re-checked when it moves. |
