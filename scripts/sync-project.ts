@@ -70,7 +70,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
-    epics: [39, 734],
+    epics: [39, 734, 929],
     also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],
