@@ -3,11 +3,12 @@
 This investigation supports [#587](https://github.com/schlessera/brain-kit/issues/587)
 and its parent [#365](https://github.com/schlessera/brain-kit/issues/365).
 Source was inspected on 2026-10-04 at
-`f2000d008a653deea4e6dade68348875a697260d`. The committed
+`91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a`. The committed
 [mechanics output](../scripts/fixtures/turn-surface-mechanics.json) comes from
 the installed Agent SDK 0.3.283 and bundled Claude Code 2.1.283. Neither
 Claude nor Jev ran. D44's historical token counts remain historical. The
-refreshed inventory includes the current strict suggestion schemas; two
+refreshed inventory includes the current strict suggestion schemas and the
+current direct-link scratch guidance in the prompt; two
 independent commands reproduce its complete JSON byte-for-byte.
 
 ## Reproduction and scope
