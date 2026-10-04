@@ -13,7 +13,7 @@ first three markers as `examples`, in source order. Severity stays the only
 classification: must-fix means errors plus warnings, informational means
 infos, and `brain audit` and `brain maintain` report both totals beside the
 severity counts, computed by one function (`auditTotals`,
-`packages/core/src/lib/auditor.ts:610-615`).
+`packages/core/src/lib/auditor.ts:634-639`).
 
 `brain briefing` shows that must-fix total in Upkeep even without hygiene logs.
 It uses the same current audit pipeline, including enabled modules' hygiene
@@ -61,7 +61,7 @@ rather than silently read as one.
 
 The same change added `broken-link` warnings to the audit. They come from the
 `links` rows the indexer wrote with no target (`findBrokenLinks`,
-`packages/core/src/lib/auditor.ts:582-594`), and the indexer resolves each
+`packages/core/src/lib/auditor.ts:606-618`), and the indexer resolves each
 link with the resolver and alias fallback `brain validate` uses
 (`function rebuildLinks`, `packages/core/src/lib/indexer/persist.ts:293-313`).
 The message comes from one describer that both commands call

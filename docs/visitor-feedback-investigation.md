@@ -59,10 +59,10 @@ acceptance checks for the eventual pages, not tracking events to collect.
 
 ## Source and platform evidence
 
-Read-only repository metadata on 2026-10-01 reports Issues and Discussions
-enabled, Pages absent, and the repository currently private. The Releases API
-returns no releases. Those facts explain why an anonymous public-visitor
-walkthrough cannot currently establish working public source/feedback links.
+Read-only repository metadata checked on 2026-10-01 reported Issues and
+Discussions enabled, Pages absent, and the repository private. The Releases
+API returned no releases. At that time, an anonymous public-visitor
+walkthrough could not establish working public source/feedback links.
 Intended open-source status is not public accessibility. #611/#615 must verify
 source/destination access and the selected host before launch; no visibility
 or settings change is performed here.

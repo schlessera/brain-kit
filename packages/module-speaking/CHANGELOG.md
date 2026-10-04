@@ -1,5 +1,49 @@
 # @schlessera/brain-module-speaking
 
+## 0.40.0
+
+### Minor Changes
+
+- c8e81ad: Add module dormancy, context estimates and source-preserving CLI toggles with explicit instruction ownership and legacy migration checks.
+- 502d6d9: Add standalone travel with canonical journey, day-trip and place formats and a lossless configuration migration.
+
+  Pre-1.0 break: speaking stops contributing travel taxonomy and plan-travel. Install and enable the matching travel module, migrate travelParty with `brain travel migrate`, then restart and sync skills; existing document paths, types and links are preserved.
+
+### Patch Changes
+
+- Updated dependencies [b1b83cd]
+- Updated dependencies [e977423]
+- Updated dependencies [113fa0a]
+- Updated dependencies [6b311b2]
+- Updated dependencies [fe5c751]
+- Updated dependencies [eac3e7a]
+- Updated dependencies [5df68f6]
+- Updated dependencies [c926d42]
+- Updated dependencies [f19da8b]
+- Updated dependencies [22ed27c]
+- Updated dependencies [9c830e4]
+- Updated dependencies [36ad7da]
+- Updated dependencies [523ffa8]
+- Updated dependencies [c8e81ad]
+- Updated dependencies [a39b7bc]
+- Updated dependencies [4503591]
+- Updated dependencies [fb992c8]
+- Updated dependencies [2898ef1]
+- Updated dependencies [619ee2b]
+- Updated dependencies [2480efe]
+- Updated dependencies [a4cc575]
+- Updated dependencies [d981938]
+- Updated dependencies [ac34a83]
+- Updated dependencies [56a9005]
+- Updated dependencies [67c7403]
+- Updated dependencies [878e6cf]
+- Updated dependencies [a5e1ecf]
+- Updated dependencies [e977423]
+- Updated dependencies [502d6d9]
+- Updated dependencies [fa6a62c]
+- Updated dependencies [17146c4]
+  - @schlessera/brain@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes

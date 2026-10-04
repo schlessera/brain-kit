@@ -1,5 +1,8 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { api } from "../src/lib/api-client.js";
+import { api, createBrainApi, ApiRequestError } from "../src/lib/api-client.js";
+
+import { Database } from "bun:sqlite";
+import { createHealthRoutes } from "../../ui-server/src/routes/health.js";
 
 /**
  * Drive the real client with a stubbed fetch, so the asserted URLs are the ones
@@ -166,17 +169,29 @@ describe("API error response handling", () => {
 });
 
 describe("API client response shape contracts", () => {
-  test("health response shape", () => {
-    const response = {
-      status: "healthy",
-      uptime: 60000,
-      version: "abc123",
-      timestamp: new Date().toISOString(),
-    };
-    expect(response.status).toBe("healthy");
-    expect(typeof response.uptime).toBe("number");
-    expect(typeof response.version).toBe("string");
-    expect(() => new Date(response.timestamp)).not.toThrow();
+  test("health reads the real minimal route without fetching protected status", async () => {
+    const db = new Database(":memory:");
+    const app = createHealthRoutes({ db });
+    const urls: string[] = [];
+    const client = createBrainApi(() => "/api", async (url, init) => {
+      urls.push(url);
+      return app.request(url.slice(4), init);
+    });
+    try {
+      const response = await client.health();
+      expect(Object.keys(response).sort()).toEqual(["status", "timestamp", "uptime"]);
+      expect(response.status).toBe("healthy");
+      expect(typeof response.uptime).toBe("number");
+      expect(Number.isFinite(Date.parse(response.timestamp))).toBe(true);
+      expect(urls).toEqual(["/api/health"]);
+      db.close();
+      const error = await client.health().catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(ApiRequestError);
+      expect(error).toMatchObject({ status: 503 });
+      expect(urls).toEqual(["/api/health", "/api/health"]);
+    } finally {
+      db.close();
+    }
   });
 
   test("stats response shape", () => {

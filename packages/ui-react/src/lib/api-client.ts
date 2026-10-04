@@ -1,4 +1,5 @@
 import { apiBase } from "./backend.js";
+import { readSyncResult } from "./sync-stream.js";
 import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -308,7 +309,7 @@ export function createBrainApi(
   getBase: () => string,
   request: (url: string, init?: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
 ) {
-  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  async function fetchResponse(path: string, init?: RequestInit): Promise<Response> {
     const res = await request(`${getBase()}${path}`, {
       ...init,
       headers: {
@@ -320,12 +321,16 @@ export function createBrainApi(
       const body = await res.json().catch(() => ({ error: res.statusText }));
       throw new ApiRequestError(body.error || `HTTP ${res.status}`, res.status, body.errors ?? []);
     }
-    return res.json();
+    return res;
+  }
+
+  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await fetchResponse(path, init)).json();
   }
 
   return {
     health: () =>
-      fetchJson<{ status: string; uptime: number; version: string }>("/health"),
+      fetchJson<{ status: string; uptime: number; timestamp: string }>("/health"),
 
     vpnCheck: () => fetchJson<{ vpn: boolean }>("/vpn-check"),
 
@@ -388,10 +393,17 @@ export function createBrainApi(
     /** The corpus figures over time, for the /stats trends. An older server 404s. */
     brainStatsHistory: () => fetchJson<CorpusStatsHistory>("/brain/stats/history"),
 
-    brainSync: () =>
-      fetchJson<{ success: boolean; message: string }>("/brain/sync", {
-        method: "POST",
-      }),
+    /** Complete SSE terminal result; a lost stream rejects without retrying the POST. */
+    brainSync: async (): Promise<{ success: boolean; message: string }> => {
+      let response: Response;
+      try {
+        response = await fetchResponse("/brain/sync", { method: "POST", headers: { Accept: "text/event-stream" } });
+      } catch (cause) {
+        if (cause instanceof ApiRequestError) throw cause;
+        throw new Error("Sync result incomplete: request failed", { cause });
+      }
+      return readSyncResult(response);
+    },
 
     brainAdd: (content: string, opts?: { type?: string; title?: string; tags?: string[] }) =>
       fetchJson<{ success: boolean; path?: string; indexed?: boolean; indexError?: string }>("/brain/add", {
