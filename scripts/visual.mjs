@@ -29,8 +29,9 @@
  * node ESM that bun also runs unchanged.
  *
  * Usage:
- *   node scripts/visual.mjs                    # all six projects, in the container
+ *   node scripts/visual.mjs                    # all six kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
+ *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
@@ -98,6 +99,8 @@ const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
+  // The consumer layout project needs only the in-container Vite server.
+  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",
