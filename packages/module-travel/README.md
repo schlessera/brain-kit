@@ -184,15 +184,18 @@ and [mozjpeg options](https://sharp.pixelplumbing.com/api-output/#jpeg).
 ## Upgrade from speaking
 
 This release moves travel taxonomy, planning and configuration out of
-speaking. Before indexing an upgraded speaking-only brain:
+speaking. Before indexing an upgraded speaking-only brain, install the matching
+travel package and add `"@schlessera/brain-module-travel": {}` to `modules`.
+Keep speaking enabled if you use its workflows. Then choose the upgrade path
+below based on the files already present.
 
-1. Install the matching travel package when this release is available.
-2. Add `"@schlessera/brain-module-travel": {}` to `modules`, keeping speaking
-   enabled if you use its workflows.
-3. Run `brain travel migrate --dry-run --json`, then `brain travel migrate
-   --json`. Review and commit the changed config.
-4. Start a fresh process/session and run `brain module lint travel`,
-   `brain validate`, `brain travel validate`, and `brain skills sync`.
+### Source-only upgrade
+
+When neither `settings/speaking.json` nor `settings/travel.json` exists, run
+`brain travel migrate --dry-run --json` to check the reported config path and
+whether an edit is needed. Dry run reports that result, not a full source diff.
+Review the legacy and target party values, then run `brain travel migrate
+--json`. Review and commit the changed config.
 
 Migration moves the complete legacy `travelParty` value, including roles and
 requirements-document paths. It leaves the speaking entry and all content
@@ -209,11 +212,68 @@ instructions. Preserve the complete value when migrating those configurations
 by hand. Symlinked configs are refused; replacement is atomic and retains
 the file's permissions.
 
-[Module settings #528](https://github.com/schlessera/brain-kit/issues/528) owns per-module JSON settings and their shared CLI/API writer. Until
-that path ships, this migration operates on the existing canonical config.
-If `settings/speaking.json` or `settings/travel.json` already exists, it
-refuses the migration so their precedence can be reviewed explicitly; it
-never overwrites those files.
+### Settings precedence and reviewed manual upgrade
+
+[Module settings #528](https://github.com/schlessera/brain-kit/issues/528) has
+delivered per-module JSON settings and the shared validated CLI/API writer.
+For each module, the loader merges `settings/<name>.json` over its domain block
+in `brain.config.ts` or `brain.config.json`, then validates with the module's
+schema and applies defaults. Objects merge per key; arrays and scalars replace.
+Thus a saved `travelParty` replaces the entire configured array, including when
+the saved array is empty. An absent party defaults to `[]`. Module enablement
+stays in the brain-config entry, outside these domain settings. See the
+[shared settings guide](../../docs/modules.md#editable-module-settings).
+
+`brain travel migrate` remains a **source-only** command. It refuses if either
+speaking or travel already has a settings file, even an empty one, and never
+overwrites those files. Travel declares no shared settings migration planner:
+`brain module settings travel --migrate` is not an upgrade path. Use the
+following reviewed manual path for existing settings files or source layouts
+the source-only command refuses:
+
+1. Preserve the original config and both settings files in version control or
+   a backup. Review every `travelParty` present in the speaking/travel config
+   blocks and settings files, including values hidden by saved overrides.
+   `brain module settings speaking --json` and `brain module settings travel
+   --json` show `values`, `inherited`, `overrides`, provenance and revision.
+   Compare every member, `role` and `requirementsDoc` string. Resolve differing
+   complete values explicitly; do not blindly concatenate arrays or discard
+   hidden members. Keep the originals while that review is unresolved.
+2. Put the reviewed **complete array** in the travel config block or save it
+   as a travel JSON override. If choosing the config block, remove only any
+   saved travel `travelParty` override that would mask it. Preserve all other
+   config logic, keys and settings. To use the shared writer, prepare
+   `/tmp/travel-settings.reviewed.json` from travel's current `overrides`,
+   replacing only `travelParty` with the complete reviewed array. `--stdin`
+   supplies the whole overrides object, so retain every unrelated saved key;
+   do not copy schema defaults or the whole settings response into that file.
+   Preview, then save using the revision from the reviewed travel snapshot:
+
+   ```sh
+   brain module settings travel --stdin --preview --json < /tmp/travel-settings.reviewed.json
+   brain module settings travel --stdin --revision '<reviewed revision>' --json < /tmp/travel-settings.reviewed.json
+   ```
+
+   Preview validates without writing. A save validates with the original
+   module schema and commits changed settings in the initialized brain Git
+   repository; it does not edit the config or remove speaking's legacy field.
+   A stale revision requires a fresh snapshot and review before saving again.
+3. In a fresh process, confirm `brain module settings travel --json` reports
+   the complete intended party and requirements-document strings. Only then
+   remove the deprecated `travelParty` property from the speaking config block
+   and `settings/speaking.json`, wherever present. Remove just that property,
+   preserving unrelated source, settings and content; do not replace a whole
+   file or set the party to `null`. Review and commit any manual file edits.
+
+### Reload and validate
+
+After either path, start a fresh process/session. Recheck the effective travel
+party with `brain module settings travel --json`, then run `brain module lint
+travel`, `brain validate`, `brain travel validate` and `brain skills sync`.
+Review the diff to confirm every intended member, role and requirements-document
+path survived, unrelated config/settings stayed intact and no journey, trip or
+place document was rewritten. These commands validate/reload the configuration;
+they do not supply a missing automatic settings migration.
 
 ## CLI and library
 
