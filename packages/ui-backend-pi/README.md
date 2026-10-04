@@ -335,6 +335,7 @@ Reads whose variable *name* is configuration rather than code:
 | Name comes from | What the value is used for |
 | --- | --- |
 | brain.config `embeddings.apiKeyEnv` | API key presence check for the configured embedding provider, read at call time under whatever name the config declares (default: GEMINI_API_KEY). |
+| filtered environment snapshot (`subprocessEnv`) | At each tool spawn, forwards the SDK agent allowlist plus valid operator names from BRAIN_UI_SUBPROCESS_ENV_EXTRA and explicitly admitted per-spawn names. The control variable itself is never forwarded. This is internal transport, not unrestricted inheritance or additional supported configuration. |
 | web-search provider catalog (`WEB_SEARCH_PROVIDERS`) | Presence check for each web-search provider's API key (EXA_API_KEY, PERPLEXITY_API_KEY, BRAVE_API_KEY, …), so a provider configured by environment rather than by `web-search.json` is not reported as unusable. Values are never read out. |
 
 Generated from `packages/ui-backend-pi/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
