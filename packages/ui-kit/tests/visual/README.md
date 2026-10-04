@@ -47,3 +47,15 @@ and require an identity transform before comparing the exact rendered height.
 Chromium can round translated rect edges independently while the layout box
 still obeys its cap. The regression replays a measured translating frame; the
 60vh/32rem limits, motion coverage and newest-word scrolling checks remain exact.
+
+The complete `dictation-panel.visual.tsx` file runs in the `dictation` project,
+with its own Playwright provider/page lifetime. Its desktop, motion and capture
+cases precede touch emulation, which Chromium does not reliably undo to a fine
+pointer. The shared `visual` project excludes this file and has no dictation
+emulation commands. `bun run test:browser` and both CI shards include the project;
+scope it with `--project=dictation`. Fixture cleanup restores document, viewport
+and motion state through failure paths. The intentional renderer-failure case
+records real pointer media state after releasing touch; it does not claim that
+disabling touch restores a fine pointer. Runtime boundary proof must retain
+dictation-before-ranking order and a reused visual page; isolated/ranking-first
+passes alone do not verify #878, nor diagnose #879's screenshot differences.
