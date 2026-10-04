@@ -110,6 +110,25 @@ weight. Refresh the weights when suite changes make the actual CI timings
 uneven; #629 records the profiling commands, timings and coverage evidence.
 The browser/visual job keeps its separate two-shard layout.
 
+`bun run test:browser` runs every configured browser project in the pinned
+Playwright image. The shared `scripts/visual.mjs` runner defaults to
+`--browser.fileParallelism=false`, including CI's `--inside` path: one file
+per project can run at a time, while separate projects still run concurrently.
+The project, update and shard arguments retain their existing meaning. To
+compare the CPU-based browser pool defaults during diagnosis, use
+`bun run test:browser --browser.fileParallelism=true`; the same explicit
+boolean control works with `--inside`. Supply it at most once.
+
+This default follows the [combined-run investigation (#853)](https://github.com/schlessera/brain-kit/issues/853).
+With Vitest 4.1.11, root `--maxWorkers=4` left each of five browser pools at
+12 workers, dispatching up to 38 unfinished files; the sequential-file
+control peaked at five. The print subject's capture command/transport await
+took 6,376ms, exceeding its unchanged 5,000ms stability deadline, while PNG
+decoding took 10ms. The control took 92ms/4ms respectively. Browser
+launch/connection and dispatch-to-collection delays also fell. This evidence
+supports reducing load; it does not isolate every timeout's cause, promise
+faster total runs, or establish the cause of [#559](https://github.com/schlessera/brain-kit/issues/559).
+
 `bun run test:layout` runs the real ui-react chat overlay measurements after
 `bun run build`. It uses the existing Vitest browser runner and the same pinned
 Playwright image as the visual suite, with Docker networking disabled. CI runs
