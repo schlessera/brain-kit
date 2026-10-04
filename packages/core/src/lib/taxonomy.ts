@@ -175,12 +175,12 @@ export class Taxonomy {
   }
 
   isValidType(type: string): boolean {
-    return type in this.types;
+    return Object.hasOwn(this.types, type);
   }
 
   /** Canonical creation directory for a type; null = any directory. */
   dirForType(type: string): string | null {
-    return this.types[type]?.dir ?? null;
+    return this.isValidType(type) ? this.types[type].dir : null;
   }
 
   /**
@@ -199,7 +199,7 @@ export class Taxonomy {
    * null = dir checks are skipped for this type (dir: null, no match list).
    */
   expectedPrefixesFor(type: string): string[] | null {
-    const spec = this.types[type];
+    const spec = this.isValidType(type) ? this.types[type] : undefined;
     if (!spec) return null;
     return spec.prefixes.length > 0 ? spec.prefixes : null;
   }
@@ -266,7 +266,7 @@ export class Taxonomy {
   }
 
   isOrphanExempt(type: string): boolean {
-    return this.types[type]?.orphanExempt ?? false;
+    return this.isValidType(type) && (this.types[type].orphanExempt ?? false);
   }
 
   /** First classifier hint whose pattern matches, or null. */
@@ -323,7 +323,7 @@ export function buildTaxonomy(opts: {
 
   for (const mod of modules) {
     for (const [name, spec] of Object.entries(mod.manifest.taxonomy?.types ?? {})) {
-      const existing = types[name];
+      const existing = Object.hasOwn(types, name) ? types[name] : undefined;
       if (existing) {
         throw new Error(
           `Taxonomy collision: module "${mod.manifest.name}" defines type "${name}" already owned by ${existing.owner}`
@@ -334,7 +334,7 @@ export function buildTaxonomy(opts: {
   }
 
   for (const [name, spec] of Object.entries(user?.taxonomy?.types ?? {})) {
-    const existing = types[name];
+    const existing = Object.hasOwn(types, name) ? types[name] : undefined;
     types[name] = existing
       ? { ...existing, ...spec, owner: "user", prefixes: [] }
       : { ...spec, owner: "user", prefixes: [] };
@@ -369,7 +369,7 @@ export function buildTaxonomy(opts: {
   const hintOrder: string[] = [];
   const pushHints = (hints: Record<string, string[]>, origin: string) => {
     for (const [type, phrases] of Object.entries(hints)) {
-      if (!(type in types)) {
+      if (!Object.hasOwn(types, type)) {
         throw new Error(`${origin} declares classifierHints for unknown type "${type}"`);
       }
       if (phrases.length === 0) continue;
@@ -389,7 +389,7 @@ export function buildTaxonomy(opts: {
   }
   pushHints(user?.taxonomy?.classifierHints ?? {}, "brain.config");
   pushHints(
-    Object.fromEntries(Object.entries(CORE_CLASSIFIER_HINTS).filter(([t]) => t in types)),
+    Object.fromEntries(Object.entries(CORE_CLASSIFIER_HINTS).filter(([t]) => Object.hasOwn(types, t))),
     "core"
   );
   const classifierRules: ClassifierRule[] = hintOrder.map((type) =>

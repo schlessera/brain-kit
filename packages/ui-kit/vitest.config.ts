@@ -10,6 +10,7 @@ import { formViewport, formConsumerStyles } from "./tests/visual/form-browser.ts
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
+import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { rankTouch } from "./tests/visual/rank-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import viteConfig from "./vite.config.ts";
@@ -113,7 +114,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles },
+              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

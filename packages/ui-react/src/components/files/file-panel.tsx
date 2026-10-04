@@ -100,6 +100,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close Files"
             className="rounded-lg p-2.5 md:p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
           >
             <X className="h-5 w-5 md:h-4 md:w-4" />
