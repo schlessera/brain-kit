@@ -2921,7 +2921,7 @@ That `schedule` miss carries one fact worth having before #157 is worked. The
 clause the model failed to follow is stated **twice**, in near-identical words:
 the brief says "`schedule` for what is coming", and the description says
 "schedule: what is coming, grouped by day" (`schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, where it sits in the same
+`packages/ui-sdk/src/tool-contracts/blocks.ts:610`, where it sits in the same
 sentence as the `timeline` clause). The model drew the wrong one 4 of 4 with
 both surfaces saying nearly the same thing. **Saying it twice did not fix the
 miss** — which is evidence for the description-overlap arm on #157 and against
@@ -3348,7 +3348,7 @@ That clause is worth naming precisely, because it bears on whether the brief's
 enumeration earns its tokens now that the tools are always loaded (#157). The
 brief says "a `timeline` for what happened when; a `schedule` for what is
 coming". The tool's own description already says, at `schedule: what is coming`,
-`packages/ui-sdk/src/tool-contracts/blocks.ts:605`, "timeline: what happened
+`packages/ui-sdk/src/tool-contracts/blocks.ts:610`, "timeline: what happened
 when, oldest first … schedule: what is coming, grouped by day". The model drew
 the wrong one of the two 4 times out of 4 **with both surfaces in the prompt
 saying nearly the same words**. So for this pair the brief duplicates the
@@ -3567,7 +3567,7 @@ separate checks.
 
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
-`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:565-581`).
+`$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:583-586`).
 #155 asked where those characters go, whether a shared-definition form is
 reachable through the path the schema actually takes, and what a reduction
 would do to D44's arithmetic. This entry is keyless: no `count_tokens` call and
@@ -4346,12 +4346,19 @@ does a replayed session show?
    two suggestions per answer. None is a valid answer, and generic filler is
    not offered.
 2. **The payload is the kit's data, minus tone.** The schema
-   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:534-560`) carries the row's
+   (`suggestionsBlock`, `packages/ui-sdk/src/tool-contracts/blocks.ts:534-561`) carries the row's
    `label` and `items[1..2]{label, icon?}`: `SuggestionItem` without `onClick`,
    which is a callback, and without `tone`, because a suggestion carries no
    effect and so is never amber. `packages/ui-react/tests/block-contract.test-d.ts`
    asserts the keys equal in both directions. Adding `tone` to the schema turns
-   that test red, and the PR that added it recorded the mutation.
+   that test red, and the PR that added it recorded the mutation. The
+   maintainer's 2026-10-02 ruling on #635 makes new calls reject unknown
+   fields at both the suggestions block and item levels, including `tone`;
+   both backends advertise and enforce the restriction. Stored and replayed
+   payloads instead discard unknown fields so otherwise valid suggestions
+   keep rendering. Malformed payloads keep the generic fallback. Other
+   block kinds are unchanged. This accepted-input tightening is a breaking
+   change shipped as a pre-1.0 minor.
 3. **A separate app component draws it.** `AnswerSuggestions` in ui-react uses
    the kit's `Icon`, its untoned chip colours and `.bk-control`. It adds what
    the kit's welcome chip lacks: a real `<button>`, a 44px target, and text
@@ -4452,6 +4459,11 @@ below measures the description and variant separately against the same tool
 name. The schema without the variant is only a token-count baseline, never a
 live arm. These character counts and their provenance do not establish a live
 rate or a keep/change/remove verdict.
+
+After #635's two `additionalProperties: false` declarations, the same
+keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
+after the definitions transform; the description remains **336** characters.
+These updated counts do not supply the live measurements reserved for #550.
 
 Reproduction commands (live commands require authorized API use):
 

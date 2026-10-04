@@ -284,6 +284,7 @@ export class Taxonomy {
    * the key is unset or disabled.
    */
   canonicalPath(key: string): string | null {
+    if (!Object.hasOwn(this.canonical, key)) return null;
     const value = this.canonical[key];
     return value ? posix.normalize(value).replace(/^\.\//, "") : null;
   }
