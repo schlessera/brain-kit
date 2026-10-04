@@ -53,6 +53,11 @@ A record mapping a **type name** to its spec. Type names must match
 
 You can add new types and override core/module types here.
 
+Only configured own entries of the effective core/module/user taxonomy are valid
+types and classifier-hint targets. Inherited object names do not define a type or
+a module owner. A schema-valid name such as `constructor` works when explicitly
+configured, including module contributions and user overrides.
+
 ```ts
 taxonomy: {
   types: {
