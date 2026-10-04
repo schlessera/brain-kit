@@ -51,6 +51,28 @@ const storyProject = (name: string, theme: string) => ({
   },
 });
 
+// Chromium's pointer settings are bit fields: coarse=2, fine=4. Keep each
+// input scene in its own browser; the tests assert the actual media queries
+// before measuring CSS or dispatching native touch input (no matchMedia mock).
+const railProject = (mode: "fine" | "coarse" | "mixed") => ({
+  extends: true,
+  test: {
+    name: `rail-${mode}`,
+    include: ["tests/visual/side-rail-targets.visual.tsx"],
+    provide: { railPointer: mode },
+    browser: {
+      enabled: true,
+      commands: { rankTouch, formViewport },
+      provider: playwright({
+        launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
+        contextOptions: { reducedMotion: "reduce" },
+      }),
+      headless: true,
+      instances: [{ browser: "chromium" }],
+    },
+  },
+});
+
 export default mergeConfig(
   viteConfig,
   defineConfig({
@@ -74,6 +96,9 @@ export default mergeConfig(
         },
         storyProject("storybook", "dark"),
         storyProject("storybook-light", "light"),
+        railProject("fine"),
+        railProject("coarse"),
+        railProject("mixed"),
         {
           extends: true,
           test: {
@@ -83,7 +108,7 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx"],
+            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from
