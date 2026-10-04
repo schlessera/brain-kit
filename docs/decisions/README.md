@@ -22,6 +22,9 @@ somebody already learn the hard way?*
 | [session-principals.md](session-principals.md) | Why a session carries a named, revocable identity instead of one global cookie epoch. |
 | [async-collaboration.md](async-collaboration.md) | Why Queue and Actions form one complete autonomous v1: containment before enabling, operational/content ownership, reservations, deterministic resolution and the existing Actions destination. |
 | [scheduled-tasks.md](scheduled-tasks.md) | Why scheduled work uses one Queue path, bounded recurring approval, Markdown definitions with host-owned runtime state, occurrence limits, catch-up/recovery and authenticated consumer contracts. |
+
+| [policy-write-boundary.md](policy-write-boundary.md) | Why every agent writer enters an isolated worker before initialization, authoritative edits use bounded server validation with existing approvals, and initial backend hosting requires verified Linux or qualifying WSL2 profiles. |
+| [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
@@ -29,6 +32,7 @@ somebody already learn the hard way?*
 | [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
+| [live-conversation.md](live-conversation.md) | Why Gemini Live and OpenAI GPT-Live share one conversation interface while the host retains tools, permissions, correlation and output authority; qualification does not certify live readiness. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
 | [confirm-patterns.md](confirm-patterns.md) | Why a nonempty confirmation-pattern list with no valid regex rejects backend initialization, while explicit empty lists and mixed valid/invalid lists retain their meaning. |
 | [claude-code-runtime.md](claude-code-runtime.md) | Which Claude Code binary the Claude backend runs (the one the Agent SDK ships, pinned by the lockfile), why the server records the version that ran, and how the behaviours measured against one version are re-checked when it moves. |
@@ -52,7 +56,7 @@ somebody already learn the hard way?*
 | [jobs-board-defaults.md](jobs-board-defaults.md) | Why jobs derives curated defaults and settings choices from one board policy, with explicit brain config and per-module JSON selections taking precedence. |
 | [audit-markers.md](audit-markers.md) | Why `brain audit` reports TODO and VERIFY markers as one informational finding per document and kind, what `verification: unverified` means (and why there is no `verified`), why must-fix is errors plus warnings, and why broken links reuse the indexer's resolution. |
 | [document-render.md](document-render.md) | How `brain render` makes a document worth sending: one stylesheet, component classes as the contract, kinds as recipes with skeletons, full documents injected into rather than nested, a footer in CSS margin boxes, a lint on every render, a linear HTML tokenizer, and why chrome-headless-shell is opt-in. |
-| [index-query-api.md](index-query-api.md) | Why supported content-index results replace direct SQL only after reader migration and real-index compatibility coverage. |
+| [index-query-api.md](index-query-api.md) | Why supported query results, a lazy optional core peer and root-bound hygiene queries replace direct SQL only after verified consumer migration. |
 | [document-renderer-adapter.md](document-renderer-adapter.md) | Why core's DocumentRenderer is an internal adapter for its one optional Puppeteer dependency rather than a public renderer seam, with public rendering behavior and the Puppeteer API unaffected. |
 | [renderer-budgets.md](renderer-budgets.md) | Why queue waiting, browser acquisition and rendering have separate deadlines, the cold-start measurements behind their defaults, and who owns late resources and shutdown. |
 | [travel-module.md](travel-module.md) | Why travel owns journeys, trips and places, canonical visit identity and unknown values, and the explicit lossless speaking configuration migration. |

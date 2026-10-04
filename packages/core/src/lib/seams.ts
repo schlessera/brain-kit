@@ -114,7 +114,7 @@ export interface RerankCandidate {
   source?: string;
   title: string;
   type?: string;
-  tags?: string;
+  tags?: string | null;
   summary?: string | null;
   excerpt?: string;
   /**
