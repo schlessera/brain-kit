@@ -53,10 +53,14 @@ without executing or serializing configuration logic. Symlinked config files
 are refused and successful writes use the existing atomic writer.
 
 [Module settings #528](https://github.com/schlessera/brain-kit/issues/528)
-owns future per-module JSON precedence and the shared CLI/API writer. This
-migration uses today's canonical config and refuses when either travel or
-speaking already has a saved settings file; it never guesses that future
-precedence. Normal commands continue using validated context configuration.
+delivered per-module JSON precedence and the shared validated CLI/API writer
+in #836. **2026-10-02 clarification (#860):** travel's migration remains a
+source-only edit and refuses when either travel or speaking has a saved
+settings file. Saved JSON overrides the config domain block before schema
+validation/defaults; arrays replace in full. Travel declares no shared settings
+migration planner. Existing settings require the [reviewed manual upgrade](../../packages/module-travel/README.md#settings-precedence-and-reviewed-manual-upgrade),
+preserving complete party values and unrelated source/settings. Normal commands
+continue using validated context configuration.
 The approved pre-1.0 ownership break and upgrade instructions are recorded in
 the [integration contract](../integration-contract.md#travel-ownership-and-canonical-content).
 

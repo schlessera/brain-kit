@@ -26,8 +26,8 @@ async function migrate(root: string, dryRun: boolean): Promise<{ path: string; c
   if (lstatSync(original).isSymbolicLink()) throw new Error("Config is a symlink; no changes made. Migrate the actual config explicitly.");
   const path = safeResolve(root, name);
   if (!path) throw new Error("Config escapes the brain root; no changes made.");
-  // #528 owns the future JSON settings precedence and validated writer. Refuse
-  // to guess when those sources are already present, and never overwrite them.
+  // #528 shipped JSON settings precedence and the shared validated writer.
+  // This source-only migration still refuses saved settings; never overwrite them.
   for (const module of ["speaking", "travel"]) {
     if (existsSync(join(root, "settings", `${module}.json`))) {
       throw new Error(`settings/${module}.json already exists; no changes made. Review it with the module-settings migration before moving canonical configuration.`);
