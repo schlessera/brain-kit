@@ -320,9 +320,9 @@ export function ChatPage() {
         ) : (
           // The top padding keeps the resting first message's text below the
           // New chat target (54px down; a message pads its own 16px). From
-          // 880px the 768px column is centred clear of the target's 60px, so
+          // 888px the 768px column is centred clear of the target's 60px, so
           // the padding goes. It scrolls away with the content either way.
-          <div ref={scrollRef} className="h-full overflow-y-auto px-4 pt-10 md:px-6 @min-[880px]:pt-0">
+          <div ref={scrollRef} className="h-full overflow-y-auto px-4 pt-10 md:px-6 @min-[888px]:pt-0">
             {/* Tagged so the client-environment probe reports the width text
                 actually renders into, not the whole window. */}
             <div

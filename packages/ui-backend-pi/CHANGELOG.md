@@ -1,5 +1,121 @@
 # @schlessera/brain-backend-pi
 
+## 0.40.0
+
+### Minor Changes
+
+- 0575b1b: Add `ask_user_list`, a bridge tool that asks the user to place up to 30 items on one shared scale of 2–8 options in a single card, for rating, triage and sorting. The result maps item ids to the chosen option, lists the skipped ids, and carries optional per-item notes. It ships as new `ask_user_list_request` / `ask_user_list_response` protocol frames, a kit `AskUserListCard` (inline chip grid, "set the rest to …" with undo, a Submit that states what it will send and never silently does nothing), and a transcript binding that replays the answered summary after a reload. Both backends expose it, and withhold it from turns that have no one to show a card to. `ask_user` is unchanged.
+- 6267d4f: Add explicit nonpersistent autonomous turns and synchronous escalation capture.
+  Both backends preserve ordinary session behavior while headless attempts keep
+  runtime identity and usage in Activity without saving interactive history. This
+  supplies turn plumbing; autonomous dispatch remains gated on containment,
+  budgets, admission and system verification.
+- 96b2339: Define the supported backend permission toolkit and record its signatures and reachable types. Permission behavior and runtime policy values are unchanged.
+
+  Breaking before 1.0: SDK `/server` no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS`, `ARCHIVING_UPDATE_REASON`, `archivesDocument`, `bashCommand`, `SubprocessEnvAudience`, `SUBPROCESS_ENV`, `filterSubprocessEnv` or `parseSubprocessEnvExtra`. Claude's root no longer exports `DEFAULT_CONFIRM_BASH_PATTERNS` or `VOICE_ALLOWED_TOOLS`; pi's root no longer exports `DEFAULT_PI_ALLOWED_TOOLS` or `TOOL_RISK`. First-party consumers use the owning package's explicit `/internal` entry at the same lockstep version; those paths have no compatibility guarantee. External authors use the documented `/server` permission operations and configurable policy formats. Subscription-auth helpers remain public protocol API.
+
+- 0aaabdd: Enforce each backend's actual imported SDK copies against its owning manifest constraints and optional host minima. Direct factories accept `versionRequirements`; Claude holds constrained start/resume prompts until its selected executable probe and SDK handshake pass. Pi reports its primary SDK at boot without a separate executable identity. Preserve measured-pair warnings, provenance, numeric defaults and terminal frames.
+- d2a710a: Support GPT-6.1 Sol profiles on OpenAI and OpenAI Codex by updating all three pi SDK pins to 0.99.2. Preserve upstream Responses transport and model metadata, existing configured profile identities, ordering and defaults, and support for GPT-6 Astra, Sol and Luna.
+- 0c0c9df: Add `ask_user_form` for conditional questions answered in one card, with shared scale and ranking controls, configurable depth/node/options limits, visible-answer validation and history replay. Keep the existing ask tools available.
+- 48c87e1: Reserve interactive capacity while limiting autonomous operations to two by
+  default. Shared locks prioritize interactive waiters and cooperatively yield
+  long autonomous holders after a configurable 20-second wait. Yield checkpoints
+  before abort, drains writers before recovering work, retains completed-call
+  receipts and incurred costs, and bounds repeated interruption with a single
+  dead-letter Action. Production autonomous dispatch remains disabled.
+- a01c389: Add per-message reasoning effort with saved profile defaults for Claude and Pi.
+  Claude defaults to Opus 5.5 at medium; each resumed turn re-reads its default,
+  unsupported levels resolve downward, and retries retain the original override.
+  Expose supported levels and honest requested/confirmed effort metadata. The
+  existing model chip opens a model/effort picker; overrides clear on correlated
+  start or queue acceptance and remain with refused drafts. Older hosts retain
+  their existing send behavior.
+- 35fb78d: Add ask_user_rank: one list ordered by handle drag, taps or keyboard, with explicit kept-order results, optional top-N cutoff, and answered transcript replay.
+- 49bc6b2: Pre-1.0 breaking tightening: nonempty `confirmBashPatterns` / `BRAIN_UI_CONFIRM_BASH`
+  lists with no valid regex now fail backend initialization instead of silently
+  disabling confirmation. Repair the reported invalid entries, or explicitly set
+  `[]` to disable confirmation. Missing configuration still uses defaults; mixed
+  lists keep valid patterns and effects while reporting invalid entries. Malformed
+  JSON and structurally unusable environment values retain their existing fallback.
+- d9e64c9: Preserve observed retry counts and known rate-limit reset timestamps on terminal failures and durable replay.
+- efafbb3: A pi turn whose provider call failed now ends with `outcome: "error"` (#575). pi does not throw for one: the turn's last answer ends with `stopReason: "error"`, and the backend used to report that turn as a success. The terminal `result` carries a `failure` with the provider's text, the status the text opens with, and the class that status implies. A thrown runtime error carries one too. `auto_retry_start` becomes a `status: "thinking"` frame with a `retry`. On reload, a failed answer carries its `failure`, and an attempt pi retried is no longer replayed.
+
+### Patch Changes
+
+- 2480efe: Move pi graph and listing reads to supported core query results with safe index errors, and route remaining native-handle helpers through the unsupported core internal entry.
+- bdf9d07: Remove the unused direct gray-matter runtime dependency.
+- 67c7403: Add the shared geo library with explicit GPX recovery and unit-bearing track summaries, normalized-track recovery and directional proximity measurements while retaining strict travel parsing and measurements.
+
+  Add configured Nominatim geocoding with qualified candidates, explicit service failures, disk cache/source age and shared operator admission across CLI/server processes.
+
+  Add configured prepared-dataset routing and explicit eligible FOSSGIS fallback, with honest source/transfer/cache metadata and nullable provider estimates.
+
+  Add bounded Overpass POI queries near points or along retained track sections, mapped opening-hours unknowns, ordered fallback and persistent admission refusal handling.
+
+  Share the existing SDK coastline/land/road geometry through geo, keeping compatibility exports/result-or-empty behavior while adding canonical configuration, cached layer sources and shared admission.
+
+  Route SDK reverse geocoding through the shared client while retaining its nullable address result. Public Nominatim now requires explicit informed eligibility; the location tool keeps raw coordinates when eligibility is absent. Both first-party backends expose the opt-in setting.
+
+  Add canonical geo configuration to brain config and the UI server adapter, preserving legacy endpoint/privacy switches and keeping disposable response caches separate from permanent geometry caches and global operator admission.
+
+  Add deterministic vector static PNG maps with bundled fonts, preserved track gaps, numbered stops, complete legends and source/attribution evidence. Wide or unavailable backgrounds yield plain maps; unsupported projection, glyphs or image budgets retain complete text without changing source geometry.
+
+  Add brain geo geocode, route, poi, track and map with one-document JSON contracts and qualified human output. Commands share canonical service configuration and cache/admission, retain original track evidence and protect local map writes through brain/scratch containment.
+
+- Updated dependencies [b1b83cd]
+- Updated dependencies [0575b1b]
+- Updated dependencies [dee9b10]
+- Updated dependencies [e977423]
+- Updated dependencies [6267d4f]
+- Updated dependencies [96b2339]
+- Updated dependencies [f0b84c0]
+- Updated dependencies [0aaabdd]
+- Updated dependencies [c849bf2]
+- Updated dependencies [113fa0a]
+- Updated dependencies [6b311b2]
+- Updated dependencies [0c0c9df]
+- Updated dependencies [fe5c751]
+- Updated dependencies [eac3e7a]
+- Updated dependencies [5df68f6]
+- Updated dependencies [c926d42]
+- Updated dependencies [cbc683a]
+- Updated dependencies [f19da8b]
+- Updated dependencies [22ed27c]
+- Updated dependencies [c1a1595]
+- Updated dependencies [9c830e4]
+- Updated dependencies [36ad7da]
+- Updated dependencies [523ffa8]
+- Updated dependencies [95865d1]
+- Updated dependencies [48c87e1]
+- Updated dependencies [60d9690]
+- Updated dependencies [c8e81ad]
+- Updated dependencies [a39b7bc]
+- Updated dependencies [4503591]
+- Updated dependencies [fb992c8]
+- Updated dependencies [2898ef1]
+- Updated dependencies [619ee2b]
+- Updated dependencies [a01c389]
+- Updated dependencies [2480efe]
+- Updated dependencies [a4cc575]
+- Updated dependencies [d981938]
+- Updated dependencies [35fb78d]
+- Updated dependencies [ac34a83]
+- Updated dependencies [49bc6b2]
+- Updated dependencies [cf6fee6]
+- Updated dependencies [56a9005]
+- Updated dependencies [67c7403]
+- Updated dependencies [878e6cf]
+- Updated dependencies [a5e1ecf]
+- Updated dependencies [e977423]
+- Updated dependencies [d9e64c9]
+- Updated dependencies [3f0870d]
+- Updated dependencies [502d6d9]
+- Updated dependencies [efafbb3]
+- Updated dependencies [fa6a62c]
+- Updated dependencies [17146c4]
+  - @schlessera/brain@0.40.0
+  - @schlessera/brain-ui-sdk@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes
