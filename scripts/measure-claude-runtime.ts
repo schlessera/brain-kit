@@ -139,7 +139,7 @@ export function resultText(content: unknown): string {
 }
 
 /** A loopback Messages API that plays one planned tool call per turn. */
-function scriptedModel(): {
+export function scriptedModel(): {
   url: string;
   plan(call: PlannedCall | null): ModelLog;
   stop(): void;
@@ -229,6 +229,9 @@ interface HookRecorder {
 }
 
 interface TurnObservation {
+  planned: PlannedCall & { sent: boolean };
+  /** Scratch witnesses inspected before cleanup (only included with --observations). */
+  files?: Record<string, boolean>;
   claudeCodeVersion: string | undefined;
   /** The CLI emitted the planned tool_use, with its id, in the main loop. */
   toolUseSeen: boolean;
@@ -289,6 +292,8 @@ async function runTurn(
     cwd,
     settingSources: ["project"],
     maxTurns: 3,
+    // Diagnostic control only; absence preserves the installed SDK's default.
+    ...(flag("--permission-mode") === "default" ? { permissionMode: "default" as const } : {}),
     allowedTools: setup.allowedTools ?? [],
     canUseTool,
     env: {
@@ -351,6 +356,7 @@ async function runTurn(
     error = e instanceof Error ? e.message : String(e);
   }
   return {
+    planned: { ...setup.call, sent: log.callSent },
     claudeCodeVersion,
     toolUseSeen,
     callbackCalls,
@@ -445,6 +451,7 @@ const consulted = (o: TurnObservation, name: string) => o.callbackCalls.some((c)
  * call, and every installed hook fired FOR THAT CALL.
  */
 function premises(o: TurnObservation, label: string): string | null {
+  if (!o.planned.sent) return `${label}: the scripted model never sent the planned tool call`;
   if (!o.claudeCodeVersion) return `${label}: no init message${o.error ? ` (${o.error})` : ""}`;
   if (o.error) return `${label}: the turn failed (${o.error})`;
   if (o.resultSubtype !== "success") return `${label}: the turn ended ${o.resultSubtype ?? "without a result"}`;
@@ -495,7 +502,10 @@ async function measure(
       result.detail = failed.map(([, d]) => d).join("; ");
     }
   }
-  for (const sc of Object.values(scratches)) {
+  for (const [label, sc] of Object.entries(scratches)) {
+    observations[label]!.files = Object.fromEntries(
+      ["marker", "settings-hook-ran", "a", "b", "slow", "fast"].map((name) => [name, existsSync(sc.path(name))])
+    );
     rmSync(sc.cwd, { recursive: true, force: true });
     rmSync(sc.home, { recursive: true, force: true });
   }
@@ -975,7 +985,10 @@ if (import.meta.main) {
       agentSdk: installedSdkVersion(),
       claudeCode: [...versions].join(", "),
       constant: MEASURED_RUNTIME,
-      cases: cases.map(({ name, claim, sites, verdict, detail }) => ({ name, claim, sites, verdict, ...(detail ? { detail } : {}) })),
+      cases: cases.map(({ name, claim, sites, verdict, detail, observations }) => ({
+        name, claim, sites, verdict, ...(detail ? { detail } : {}),
+        ...(process.argv.includes("--observations") ? { observations } : {}),
+      })),
       credentials: credentials.map(({ row, apiKeySource, tokenSource, auth, ending, verdict, detail }) => ({
         row,
         apiKeySource,
