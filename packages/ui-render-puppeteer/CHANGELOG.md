@@ -1,5 +1,26 @@
 # @schlessera/brain-render-puppeteer
 
+## 0.40.0
+
+### Minor Changes
+
+- 67e40c7: Breaking before 1.0: `renderTimeoutMs` now covers page creation/rendering only; queue waiting and browser acquisition have separate `queueTimeoutMs` (30 s) and `browserTimeoutMs` (60 s) bounds, with cancellation-safe cleanup and bounded shutdown.
+- 4c1a424: Add an opt-in visible-destination policy for PNG/PDF exports and enable it
+  server-side for all app render requests. Accepted links keep canonical
+  navigation with a validated visible host or mail address; refused links and
+  unavailable repo paths stay inert. Raw/full/bare HTML, SVG targets, shadow
+  content and embedded documents cannot bypass it. Chrome checks final disclosure,
+  and the renderer lazily loads PDF.js to check each finished PDF annotation's own
+  complete destination and print legibility,
+  and refuses an export that still conceals or crops a destination. CLI defaults,
+  classification rules and render isolation stay unchanged. UI-kit link imports
+  re-export the same pure classifier from the template's dependency-safe leaf.
+
+### Patch Changes
+
+- Updated dependencies [4c1a424]
+  - @schlessera/brain-render-template@0.40.0
+
 ## 0.39.0
 
 ## 0.38.0
