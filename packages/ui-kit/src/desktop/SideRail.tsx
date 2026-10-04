@@ -123,13 +123,14 @@ export function SideRail(p: SideRailProps) {
     display: "flex",
     flexDirection: "column",
     gap: 16,
-    padding: expanded ? "16px 12px" : "16px 8px",
+    paddingBlock: 16,
+    paddingInline: expanded ? 12 : undefined,
     background: token("rail-bg"),
     borderRight: `1px solid ${color.line}`,
   };
 
   return (
-    <div style={rail}>
+    <div style={rail} className="bk-side-rail" data-expanded={expanded}>
       <div
         style={{
           display: "flex",
@@ -191,7 +192,7 @@ export function SideRail(p: SideRailProps) {
             display: "flex",
             alignItems: "center",
             gap: 11,
-            minHeight: 36,
+            minHeight: act ? undefined : 36,
             padding: expanded ? "8px 11px" : "8px 0",
             justifyContent: expanded ? "flex-start" : "center",
             borderRadius: 10,
@@ -223,7 +224,7 @@ export function SideRail(p: SideRailProps) {
             >
               <Icon icon={it.icon} size={17} />
               {expanded ? (
-                <span style={{ flex: 1, minWidth: 0, font: `${on ? 600 : 500} 12.5px/1 ${font.body}` }}>
+                <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", font: `${on ? 600 : 500} 12.5px/1 ${font.body}` }}>
                   {it.label}
                 </span>
               ) : null}
