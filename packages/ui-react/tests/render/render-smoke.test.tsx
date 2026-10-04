@@ -5637,6 +5637,9 @@ describe("New chat on the chat page (#93)", () => {
       const area = scroller.parentElement!;
       expect(button.parentElement === area).toBe(true);
       expect(area.className.split(" ")).toContain("relative");
+      expect(scroller.className.split(" ")).toEqual(
+        expect.arrayContaining(["pt-10", "@min-[888px]:pt-0"])
+      );
       const classes = button.className.split(" ");
       expect(classes).toContain("absolute");
       expect(classes).toContain("right-4");

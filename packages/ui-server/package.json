@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-ui-server",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "brain-kit chat-UI server: Hono app factory, WebSocket turn coordinator, auth (password/passkeys/tailscale/proxy), session catalog, and brain/files/voice routes",
   "license": "MIT",
   "keywords": [
