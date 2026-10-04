@@ -355,6 +355,13 @@ under the [service terms](../geo/README.md#configuration).
 | `WEBAUTHN_USER_NAME` | WebAuthn user name shown by authenticators. | owner |
 | `XDG_CONFIG_HOME` | Second-precedence anchor for the pi config dir ($XDG_CONFIG_HOME/pi). | — |
 
+Reads whose variable *name* is configuration rather than code:
+
+| Name comes from | What the value is used for |
+| --- | --- |
+| filtered environment snapshot (`subprocessEnv`) | At call time, filters by the requested SDK agent, brainCli or cron audience (agent when omitted), admitting valid operator names from BRAIN_UI_SUBPROCESS_ENV_EXTRA and explicit per-spawn extraNames. Explicit extra overrides merge last; the control variable is excluded from the filtered snapshot. Internal transport does not make every inherited variable supported server configuration. |
+| web-search provider catalog (`WEB_SEARCH_PROVIDERS`) | Presence checks for catalog-declared API-key names when reporting web-search provider availability. Credentials are not returned over the API, logged or copied into web-search.json. |
+
 Generated from `packages/ui-server/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
 
