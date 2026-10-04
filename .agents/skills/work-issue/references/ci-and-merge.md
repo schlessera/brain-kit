@@ -35,10 +35,10 @@ tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
 
-Read the checked-out `.github/workflows/`, any enabled `.depot/workflows/`
-and merge requirements for expected checks and the active provider. The repo
-currently uses GitHub Actions; do not require a Depot run while Depot is
-disabled. GitHub checks/statuses may include additional gates. No rows,
+Read the checked-out `.depot/workflows/`, `.github/workflows/project-sync.yml`
+and merge requirements for expected checks. CI and contract checks use Depot
+CI; project-sync uses GitHub Actions because Depot does not support issue
+events and its Actions runners require an organization-owned repository. GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
 Skipped/neutral checks count only where actual workflow/branch rules
 intentionally exclude them; unavailable required runtimes/tests are not

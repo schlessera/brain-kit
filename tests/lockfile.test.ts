@@ -33,9 +33,9 @@ const ROOT = resolve(import.meta.dir, "..");
  */
 const SUPPORTED_LOCKFILE_VERSIONS = [0, 1];
 
-/** The bun `.github/workflows/ci.yml` installs for every job. */
+/** The bun `.depot/workflows/ci.yml` installs for every job. */
 function pinnedBunVersions(): string[] {
-  const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  const workflow = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
   return [...workflow.matchAll(/bun-version:\s*"([^"]+)"/g)].map((match) => match[1]!);
 }
 

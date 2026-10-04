@@ -305,6 +305,50 @@ different commit from the one you mean:
     --jq '.check_runs[] | "\(.name) \(.status) \(.conclusion)"'
   ```
 
+### Depot CI
+
+CI and contract checks run from `.depot/workflows/`. Edit those files as the
+source of truth; do not restore a stale GitHub workflow or maintain a second
+copy. Preserve all gates, shard matrices, action versions, the pinned browser
+image and diagnostic artifacts when changing workflows. Project sync remains
+in `.github/workflows/project-sync.yml`: Depot CI does not support `issues`
+events, and Depot's GitHub Actions runners require an organization-owned repo.
+
+Use the installed `depot` CLI to monitor CI and investigate failed checks.
+Check `depot ci <command> --help` before assuming flags. Prefix commands with
+`rtk proxy` as required by the session's RTK instructions. For a PR, get its
+current head SHA with `gh pr view`, then query that PR and SHA explicitly:
+
+```sh
+rtk proxy depot ci workflow list --repo schlessera/brain-kit \
+  --pr <pr-number> --sha <head-sha> --output json -n 200
+rtk proxy depot ci status <run-id> --output json
+rtk proxy depot ci diagnose --run <run-id> --output json
+rtk proxy depot ci logs <attempt-id> --timestamps --output-file /tmp/ci-attempt.log
+rtk proxy depot ci artifacts list <run-id> --output json
+rtk proxy depot ci artifacts download <artifact-id> --output-file /tmp/ci-artifact.zip
+```
+
+`depot ci run list` defaults to queued/running runs. Pass `--status failed`
+to find failures or `--status finished` for completed runs, with `--repo`,
+`--pr` and `--sha` as appropriate. Workflow listings include completed runs
+without a status filter. Read each expected job and its current attempt;
+`finished` alone is not proof that every required job passed. Record the
+run/job/attempt IDs and inspect the actual failing step and assertion. Prefer
+an attempt ID for logs: a job/run shortcut resolves the latest attempt and
+can select different evidence after a retry. Use `logs --follow` only for a
+bounded live inspection; finite exports keep monitoring responsive.
+
+For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
+uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
+A local dispatch does not establish PR-event or main-push behavior. Before
+merging, verify automatic PR runs for the current head and live base, including
+the checkout SHA in test/browser logs. After merging, verify the squash commit
+is on main and inspect Depot's push run for that SHA. Missing runs, cancelled
+jobs and older green attempts leave verification unfinished. Use GitHub checks
+to discover check links, then Depot for CI logs; `gh run` applies to the
+project-sync exception.
+
 ## Repo-local skills
 
 They live in `.agents/skills/` and are symlinked into `.claude/skills/`.
