@@ -2,7 +2,7 @@ import { PROTOCOL_REV, isFailureOutcome, type ActivitySpan, type SystemStatus } 
 
 import type { ActivityRunRollup, ActivityRunSummary } from "./api-client.js";
 import { formatDuration } from "../components/chat/tool-views.js";
-import { providerMessageInclusion } from "./turn-failure.js";
+import { INCLUDED_TEXT_CAP, providerMessageInclusion, redactProviderMessage } from "./turn-failure.js";
 
 /**
  * The Activity bug report's generated text (#598). Every line is an
@@ -100,9 +100,15 @@ export function failureReasonInclusion(run: ReportRun, spans: ActivitySpan[] | n
   return providerMessageInclusion("Failure reason", run.failureReason ?? root?.outcomeReason ?? null);
 }
 
-/** The opt-in job name, for cron runs that have one. */
+/**
+ * The opt-in job name, for cron runs that have one. A name is operator text,
+ * so it gets the failure reason's best-effort redaction and visible cap.
+ */
 export function jobNameInclusion(run: ReportRun): string | null {
-  return run.origin === "cron" && run.jobName ? `job: ${run.jobName}` : null;
+  if (run.origin !== "cron" || !run.jobName || !run.jobName.trim()) return null;
+  const redacted = redactProviderMessage(run.jobName);
+  const shown = redacted.slice(0, INCLUDED_TEXT_CAP);
+  return `job: ${shown}${redacted.length > shown.length ? `\n[${redacted.length - shown.length} characters not included]` : ""}`;
 }
 
 /** A rollup as the report's run fields. */

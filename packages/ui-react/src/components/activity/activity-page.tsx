@@ -207,9 +207,10 @@ export function ActivityPage() {
   const known = new Set([...restHistory.map((r) => r.runId)]);
   const ended = [...settled.values()]
     .filter((span) => !known.has(span.runId))
-    .map((span) => settledSummary(span, runs?.live.find((r) => r.runId === span.runId)))
-    .sort((a, b) => b.startedAt - a.startedAt);
-  const history = [...ended, ...restHistory];
+    .map((span) => settledSummary(span, runs?.live.find((r) => r.runId === span.runId)));
+  // Newest first, as the API orders history; a promoted run that started
+  // before rows already listed takes its place among them, not the top.
+  const history = [...ended, ...restHistory].sort((a, b) => b.startedAt - a.startedAt);
 
   function openRun(row: {
     runId: string;

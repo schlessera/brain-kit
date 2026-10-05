@@ -168,4 +168,13 @@ describe("opt-in inclusions", () => {
     expect(jobNameInclusion({ ...run, origin: "session" })).toBeNull();
     expect(jobNameInclusion({ ...run, jobName: null })).toBeNull();
   });
+
+  test("a job name is operator text: redacted and visibly capped like the reason", () => {
+    const named = jobNameInclusion({ ...run, jobName: `sync ${PATH} via ${HOST} token=${SECRET}` })!;
+    expect(named.startsWith("job: sync [redacted path]")).toBe(true);
+    for (const leak of [PATH, HOST, SECRET]) expect(named).not.toContain(leak);
+    const long = jobNameInclusion({ ...run, jobName: "Scylla ".repeat(600).trim() })!;
+    expect(long.split("\n")[0]!.length).toBe("job: ".length + INCLUDED_TEXT_CAP);
+    expect(long).toMatch(/\n\[\d+ characters not included\]$/);
+  });
 });

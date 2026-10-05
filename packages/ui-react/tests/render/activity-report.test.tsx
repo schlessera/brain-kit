@@ -68,7 +68,7 @@ const realOpen = window.open;
 
 beforeEach(() => {
   calls = []; opened = []; clipboard = []; clipboardFails = false; detailGate = null; statusOk = true; liveRuns = [];
-  useActivityStore.setState({ spans: {}, events: {}, inbox: [] });
+  useActivityStore.setState({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {}, inbox: [] });
   useChatStore.setState({ activeSessionId: null });
   useUIStore.setState({ activeView: "activity" });
   useConnectionStore.setState({ wsStatus: "connected" });
@@ -189,6 +189,21 @@ describe("eligibility", () => {
     fireEvent.click([...page.container.querySelectorAll<HTMLElement>("[role=tab]")].find((t) => (t.textContent ?? "").startsWith("done"))!);
     await waitFor(() => expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-sirens"));
     expect(calls.filter((c) => c.url.includes("/activity/runs?")).length).toBe(runsFetched);
+  });
+});
+
+describe("history order", () => {
+  test("a promoted run takes its place by start time, not the top", async () => {
+    const older = span({ spanId: "o-root", runId: "run-older", name: "cron:Lotus census", jobName: "Lotus census", startedAt: T0 - 3_600_000 });
+    useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [older], events: [], highWaterSeq: { "run-older": 1 } });
+    const page = render(<ActivityPage />);
+    await page.findByText("Running now", undefined, { timeout: 5000 });
+    act(() => {
+      useActivityStore.getState().applyDelta({ type: "activity_delta", runId: "run-older", seq: 2, span: { ...older, outcome: "error", endedAt: T0 + 60_000 } });
+    });
+    fireEvent.click([...page.container.querySelectorAll<HTMLElement>("[role=tab]")].find((t) => (t.textContent ?? "").startsWith("done"))!);
+    await waitFor(() => expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-older"));
+    expect(reportButtons(page).map((b) => b.dataset.reportRun)).toEqual(["run-harbour", "run-loom", "run-storm", "run-older"]);
   });
 });
 
@@ -378,6 +393,27 @@ describe("focus", () => {
 });
 
 describe("run detail", () => {
+  test("a failure seen before the detail read settles does not freeze a partial record", async () => {
+    let release!: () => void;
+    detailGate = new Promise((resolve) => { release = resolve; });
+    const root = { ...HARBOUR_SPANS[0]!, outcome: undefined, endedAt: undefined };
+    useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [root], events: [], highWaterSeq: { "run-harbour": 1 } });
+    window.location.hash = "#/activity/run-harbour";
+    try {
+      const page = render(<ActivityPage />);
+      await waitFor(() => expect(page.container.querySelector("[data-run-detail-heading]")).toBeTruthy(), { timeout: 5000 });
+      act(() => {
+        useActivityStore.getState().applyDelta({ type: "activity_delta", runId: "run-harbour", seq: 2, span: { ...HARBOUR_SPANS[0]! } });
+      });
+      await waitFor(() => expect(detailButton(page)).toBeTruthy());
+      fireEvent.click(detailButton(page)!);
+      await waitFor(() => expect(dialog()).toBeTruthy());
+      expect(field("Exact outgoing text").value).not.toContain("record: retained");
+      await act(async () => { release(); await new Promise((r) => setTimeout(r, 0)); });
+      await waitFor(() => expect(field("Exact outgoing text").value).toContain("record: retained · 3 steps\nfailed steps: Bash"));
+    } finally { window.location.hash = ""; }
+  });
+
   test("a failed cron run's detail offers the button under the receipt, with its record", async () => {
     window.location.hash = "#/activity/run-harbour";
     try {

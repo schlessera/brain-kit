@@ -59,11 +59,14 @@ export function RunDetail({
   // "not-found" is a 404; any other failure is a record this view could not read.
   const [missing, setMissing] = useState<false | "not-found" | "unreadable">(false);
   const [rawOpen, setRawOpen] = useState(false);
+  // Until the detail read settles, the mirror may hold only the index's root.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
     setPruned(null);
     setRollup(null);
+    setLoaded(false);
     setMissing(false);
     setRawOpen(false);
     api
@@ -72,6 +75,7 @@ export function RunDetail({
       .activityRun(runId, { includePayloads: true })
       .then((detail) => {
         if (!active) return;
+        setLoaded(true);
         if (detail.rollup) setRollup(detail.rollup);
         if (detail.detailPruned) {
           setPruned(detail.rollup ?? {});
@@ -124,7 +128,9 @@ export function RunDetail({
       ? { origin: root.origin, outcome, durationMs: root.endedAt !== undefined ? root.endedAt - root.startedAt : null,
           failureReason: root.outcomeReason ?? null, jobName: root.jobName ?? null, detailPruned: false }
       : null;
-  const record: ReportRecord = pruned ? { state: "pruned" } : missing === "not-found" ? { state: "not-found" } : missing ? { state: "unloaded", offline: typeof navigator !== "undefined" && navigator.onLine === false } : { state: "retained", spans: streamed };
+  // A record still being read is not handed over: the sheet reads it itself
+  // rather than freezing a partial mirror as "retained".
+  const record: ReportRecord | undefined = !loaded && !missing ? undefined : pruned ? { state: "pruned" } : missing === "not-found" ? { state: "not-found" } : missing ? { state: "unloaded", offline: typeof navigator !== "undefined" && navigator.onLine === false } : { state: "retained", spans: streamed };
   // Announce once, and only for a run this view watched fail.
   const sawRunning = useRef(false);
   const [announced, setAnnounced] = useState(false);
