@@ -28,19 +28,19 @@ alone does not excuse changing the documented results or error behavior.
 ## Why SQL cannot remain the supported interface
 
 Two packages currently own graph SQL. UI-server opens a short-lived read-only
-connection (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`), interprets graph availability (`getGraphMeta`, `packages/ui-server/src/graph/reader.ts:437-471`) and walks raw links for
-interactive neighborhoods (`getNeighborhood`, `packages/ui-server/src/graph/reader.ts:525-540`). Core has its own cluster query (`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:181-204`).
+connection (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`), interprets graph availability ([pre-migration `getGraphMeta`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437-L471)) and walks raw links for
+interactive neighborhoods ([pre-migration `getNeighborhood`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525-L540)). Core has its own cluster query (`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:181-204`).
 Their defaults and responses differ. A wrapper around one existing helper is
 not automatically a behavior-preserving replacement for the other.
 
 Voice extracts terms from tags, titles, paths, link text and markdown content,
 then degrades an old schema to empty vocabulary while retaining overrides
-(`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`). The audited pi backend duplicated link walking in its [native-handle graph implementation](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367). A module hygiene callback
+([pre-migration `buildKeyterms`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L390-L437)). The audited pi backend duplicated link walking in its [native-handle graph implementation](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367). A module hygiene callback
 received a raw database ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)); jobs used it for opportunity metadata ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
-columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) and actual consumers against a CLI-produced index
-(`ui-server's readers run`, `tests/brain-db-contract.test.ts:201-244`). Those proofs must be replaced with result and runtime coverage,
+columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:56-69`) and actual consumers against a CLI-produced index
+(`ui-server's readers run`, `tests/brain-db-contract.test.ts:208-251`). Those proofs must be replaced with result and runtime coverage,
 not deleted to make a schema change pass.
 
 > **2026-10-01 — Implementation context (pi reader audit above).** Pi's graph
@@ -67,7 +67,7 @@ open the replacement. No database handle or live statement escapes a result.
 > are now selected by the dated rulings below; this paragraph preserves the
 > pre-ruling context, not a current prerequisite or an unapproved edge.
 >
-> The current dependency table excludes a ui-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:92-95`).
+> The current dependency table excludes a ui-server-to-core edge ([pre-migration `"@schlessera/brain-ui-server"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92-L95)).
 > An optional, lazily resolved core peer is the recommendation, **not an approved
 > edge change**. The decision task must settle that edge and the supported
 > replacement for `HygieneContext.db` before dependent implementation. The
@@ -90,9 +90,9 @@ from one build (`"./queries"`, `packages/core/package.json:45-49`).
 Resolve/cache functions lazily once per app; core owns short-lived native
 connections and snapshots per operation. The one-way server-to-core edge is
 approved, with no core-to-UI protocol dependency. At the inspected baseline,
-server has no core dependency/peer (`"dependencies"`, `packages/ui-server/package.json:56-69`;
-`"peerDependencies"`, `packages/ui-server/package.json:70-74`) and the allowed
-edge row still excludes it (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:92-95`).
+server has no core dependency/peer ([pre-migration `"dependencies"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L56-L69);
+[pre-migration `"peerDependencies"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L70-L74)) and the allowed
+edge row still excludes it ([pre-migration `"@schlessera/brain-ui-server"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92-L95)).
 #697 implements that migration; approval and this record do not constitute
 manifest, packed-install or route-runtime proof.
 
@@ -115,6 +115,19 @@ including those using neither feature. The optional peer leaves compatible
 installation with the host, at the cost of explicit migration, standalone
 absence/type checks and more skew handling. Both were viable concrete edges;
 neither justified a service or configurable query-provider seam.
+
+> **2026-10-05 — Implementation context (#697).** UI-server now declares the
+> optional peer and resolves the entry lazily, once per app
+> (`createCoreQueryAccess`, `packages/ui-server/src/core-queries.ts:187-220`). The
+> source-backed range is `>=0.40.0 <1.0.0`: the published 0.40.0 manifest is the
+> first to export `./queries`, its declarations name all nine operations and its
+> query source matches the source the server was migrated against; 0.39.0 has no
+> entry. Graph and voice routes keep their mappings as recorded in the
+> [integration contract](../integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697).
+> The UI-server citations in this record that predate the migration link the
+> pre-migration commit; a frozen copy of those readers under
+> `tests/helpers/legacy-ui/` remains the parity and measurement baseline until
+> #701. The direct-SQL promise still binds.
 
 ## Module context — root-bound queries and db removal, 2026-10-03
 

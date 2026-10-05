@@ -417,7 +417,9 @@ concurrent attempts get 409 `{ error }` before SSE starts. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
 child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
-is progress text and does not turn successful sync into failure. A canonical
+is progress text and does not turn successful sync into failure. A degraded
+rebuild (no usable core peer, or an index core cannot read) is reported as
+progress text and not cached. A canonical
 root-resolution failure before admission can use the common 500. No idempotency
 key or SSE resumption promise exists.
 
@@ -599,7 +601,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 | --- | --- | --- | --- |
 | POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
-| GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure. |
+| GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
 
 ## Map geometry

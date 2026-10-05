@@ -466,6 +466,12 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
       "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37",
       "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/config.ts#L166",
       "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/lib/registry.ts#L40",
+      // The UI-server readers and manifest before #697 moved them onto core's queries.
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437",
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525",
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L390",
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L56",
+      "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L70",
     ].map((cited) => [
       cited,
       "verified commit-pinned historical evidence; the adjacent dated note scopes the old implementation and links its replacement",
@@ -516,6 +522,10 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the completions schema as it stood when this was written, with only provider and fallback; #253 added completions.apiKeyEnv",
   "docs/decisions/hardening.md|backend.ts:1039":
     "describes getBackendForSession substituting the default, which the fix replaced with a throw",
+  "docs/decisions/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92": {
+    reason: "verified commit-pinned historical evidence: the edge row before #697 added the core peer",
+    occurrences: 2,
+  },
   "docs/decisions/session-principals.md|middleware/auth.ts:253": {
     reason: "the epoch-bearing cookie mint, replaced by principal cookies",
     occurrences: 2,

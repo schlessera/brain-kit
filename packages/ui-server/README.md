@@ -92,6 +92,36 @@ Warnings distinguish unconfirmed cleanup from a process observed to exit.
 A timed-out Claude probe rejects startup; an unreadable brain version warns
 and continues by default; a known incompatible brain version rejects startup.
 
+## Installing core for the graph and voice vocabulary
+
+The knowledge graph and the index-derived voice vocabulary read the brain
+index through core's supported query entry, `@schlessera/brain/queries`.
+`@schlessera/brain` is an **optional peer**: install it explicitly, at the
+same lockstep version as this package (any release `>=0.40.0 <1.0.0` ships
+the operations), when the host wants either feature:
+
+```sh
+bun add @schlessera/brain-ui-server @schlessera/brain
+```
+
+A host upgrading from a release that read `brain.db` itself must add this
+dependency; nothing installs it automatically. Without it every other
+feature boots and works unchanged:
+
+- all five `/api/graph/*` endpoints, meta included, answer
+  `503 { "error": "graph_unavailable", "reason": "core_unavailable" }`;
+- voice keyterms degrade to an empty vocabulary while pronunciation
+  overrides keep working, and the degraded result is never cached;
+- one warning per feature names the failed check (`not_installed`,
+  `identity_mismatch`, `version_unsupported`, `operation_missing` or
+  `load_failed`) and the required range.
+
+The server resolves the peer lazily, once per app, and checks that it is the
+real package, in the supported range, with every operation it calls. It never
+falls back to a `brain` binary on `PATH`, SQL or a subprocess. Restart the
+server after installing or upgrading core. Typechecking this package's
+declarations does not require core.
+
 ## Host version minima
 
 `CreateAppOptions.versionRequirements?: HostVersionRequirements` lets a host
@@ -244,7 +274,9 @@ brain repository.
   Rollup responses round both cost sums to four decimal places after grouping;
   stored costs, run detail and runtime stats keep their original precision.
 - **Voice** — Deepgram token minting and keyterm-cache building from the brain
-  index.
+  index (through the optional core peer; see below).
+- **Knowledge graph** (`/api/graph/*`) — the graph view's five reads, served
+  from core's supported query results (see below).
 - **Render seam** — `POST /api/render` answers 501 unless the deployment
   injects a renderer (see `@schlessera/brain-render-puppeteer`).
 - **Model catalog** — Anthropic model discovery (via

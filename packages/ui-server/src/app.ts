@@ -24,6 +24,7 @@ import { createToolPermissionRoutes } from "./routes/tool-permissions.js";
 import { createSkillRoutes } from "./routes/skills.js";
 import { createGeoRoutes } from "./routes/geo.js";
 import { createGraphRoutes } from "./routes/graph.js";
+import { createCoreQueryAccess } from "./core-queries.js";
 import {
   resolveAuthMode,
   assertAuthConfig,
@@ -367,11 +368,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     log: observability.logger("passkeys"),
     failures: authFailures,
   };
+  // One lazily resolved core query access per app: the graph view and the
+  // voice vocabulary share its single resolution of the optional peer.
+  const coreQueries = createCoreQueryAccess({ log: observability.logger("core-queries") });
   const keyterms: KeytermSettings = {
     brainPath: config.brainPath,
     cacheDir: config.voice.cacheDir,
     limit: config.voice.keytermLimit,
     log: observability.logger("voice"),
+    queries: coreQueries,
   };
 
   // Request logging through the observability layer, so BRAIN_UI_LOG_LEVEL
@@ -553,7 +558,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route(
     "/api",
-    createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph") })
+    createGraphRoutes({ brainRoot: config.brainPath, log: observability.logger("graph"), queries: coreQueries })
   );
 
   app.route(

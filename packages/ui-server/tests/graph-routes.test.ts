@@ -511,8 +511,14 @@ describe("optional precompute state", () => {
       expect(status).toBe(503);
       expect(body).toEqual({ error: "graph_unavailable", reason: "schema" });
     }
-    // Links-only, so it keeps working with no derived tables at all.
-    expect((await get("/graph/neighborhood?center=alpha.md")).status).toBe(200);
+    // An index that CLAIMS the graph layout but lacks its tables is not the
+    // layout it says it is: core refuses it as a whole (corrupt_index) rather
+    // than trusting the number, so the links-only neighborhood degrades the
+    // same way. A genuinely pre-graph index still serves it — see the
+    // schema-7 neighborhood test.
+    const hood = await get<{ error: string; reason: string }>("/graph/neighborhood?center=alpha.md");
+    expect(hood.status).toBe(503);
+    expect(hood.body).toEqual({ error: "graph_unavailable", reason: "schema" });
   });
 });
 

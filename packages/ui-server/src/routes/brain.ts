@@ -324,10 +324,13 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         if (exitCode === 0) {
           try {
             const cache = buildKeyterms(keyterms);
+            // writeCache never persists a degraded result.
             writeCache(keyterms, cache);
             await send({
               type: "progress",
-              text: `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
+              text: cache.degraded
+                ? "[voice] Keyterm vocabulary unavailable; serving overrides only (not cached)"
+                : `[voice] Rebuilt keyterms cache (${cache.count} terms)`,
             });
           } catch (err) {
             await send({
