@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../src/stores/chat-state.js";
-import { deterministicDraft, mentionedPaths, snapshotSource, suggestedReferences } from "../src/lib/handoff.js";
+import { countTurns, deterministicDraft, markerPosition, mentionedPaths, snapshotSource, suggestedReferences } from "../src/lib/handoff.js";
 
 let id = 0;
 function msg(role: "user" | "assistant", content: string, extra: Partial<ChatMessage> = {}): ChatMessage {
@@ -13,6 +13,23 @@ describe("snapshot at the latest settled turn (#61 §3)", () => {
     const snapshot = snapshotSource({ messages, isStreaming: true });
     expect(snapshot.running).toBe(true);
     expect(snapshot.messages.map((m) => m.content)).toEqual(["Plan the return.", "Sail past the Sirens."]);
+  });
+
+  test("after a history reload, the host's running state still excludes the running turn", () => {
+    // Replayed messages are never marked streaming.
+    const messages = [msg("user", "Plan the return."), msg("assistant", "Sirens first."), msg("user", "Chart the strait."), msg("assistant", "Reading the chart")];
+    const snapshot = snapshotSource({ messages, isStreaming: false }, "streaming");
+    expect(snapshot.running).toBe(true);
+    expect(snapshot.messages.map((m) => m.content)).toEqual(["Plan the return.", "Sirens first."]);
+    expect(snapshotSource({ messages, isStreaming: false }, "idle").messages).toHaveLength(4);
+  });
+
+  test("turns and marker positions count asks, not assistant steps", () => {
+    const messages = [msg("user", "a"), msg("assistant", "b"), msg("assistant", "c"), msg("user", "d"), msg("assistant", "e")];
+    expect(countTurns(messages)).toBe(2);
+    expect(markerPosition(messages, 1)).toBe(3);
+    expect(markerPosition(messages, 2)).toBe(5);
+    expect(markerPosition(messages, undefined)).toBe(5);
   });
 
   test("pending approvals are counted where they stay", () => {

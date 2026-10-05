@@ -114,7 +114,7 @@ describe("opening the review", () => {
     await flush();
     expect(textarea().value).toBe("Asked: Plan the return to Ithaca, see plans/ithaca.md.\n\nAnswer: Sail past the Sirens.");
     const prepare = socket.frames().filter((f) => f.type === "handoff_prepare");
-    expect(prepare).toEqual([{ type: "handoff_prepare", handoffId: "h-ithaca-0001-p1", sourceSessionId: "src", messageCount: 2 }]);
+    expect(prepare).toEqual([{ type: "handoff_prepare", handoffId: "h-ithaca-0001-p1", sourceSessionId: "src", turns: 1 }]);
     expect(screen.q.getByText("Drafting a summary with Claude Opus · spends")).toBeTruthy();
     // Nothing reaches a destination before Start.
     expect(socket.frames().some((f) => f.type === "chat_message")).toBe(false);
@@ -274,8 +274,10 @@ describe("review findings: the run's lifetime and the snapshot's freshness", () 
       { role: "user", content: "Then?", toolCalls: [] },
       { role: "assistant", content: "Scylla.", toolCalls: [] },
     ] }));
+    // As the host's resume does: history, then the session's status.
+    act(() => socket.deliver({ type: "status", sessionId: "src", status: "idle", detail: "Session loaded" }));
     await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
-    expect(socket.frames().filter((f) => f.type === "handoff_prepare").map((f) => f.messageCount)).toEqual([4]);
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare").map((f) => f.turns)).toEqual([2]);
   });
 });
 

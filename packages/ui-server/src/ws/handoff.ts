@@ -158,10 +158,11 @@ export async function startHandoff(
     }
     // Where the source stood, so its forward marker keeps its place as the
     // source continues. Unreadable history is not a reason to refuse.
-    let sourceMessages: number | null = null;
+    let sourceTurns: number | null = null;
     try {
       const sourceBackend = await host.registry.getBackendForSession(sourceBackendId);
-      sourceMessages = host.prepareHistory(handoff.sourceSessionId, await sourceBackend.getHistory(handoff.sourceSessionId)).length;
+      sourceTurns = host.prepareHistory(handoff.sourceSessionId, await sourceBackend.getHistory(handoff.sourceSessionId))
+        .filter((message) => message.role === "user").length;
     } catch { /* the marker goes at the end */ }
     if (!connection.authorization.valid) return;
     handedOver = true;
@@ -178,7 +179,7 @@ export async function startHandoff(
       handoffHooks: {
         onNamed: (sessionId) => {
           entry.sessionId = sessionId;
-          recorded = catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceMessages);
+          recorded = catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceTurns);
           if (!recorded) {
             host.log.emit({
               severityText: "WARN",
@@ -211,6 +212,18 @@ export function handoffStatus(host: WsHost, ws: WSContext, handoffId: string): v
     state: sessionId ? "created" : pending ? "pending" : "none",
     ...(sessionId ? { sessionId } : {}),
   });
+}
+
+/**
+ * The replayed history up to, not including, its (turns + 1)th user message:
+ * the snapshot boundary, counted the way a live view and a replay agree.
+ */
+export function throughTurns(messages: readonly SessionHistoryMessage[], turns: number): SessionHistoryMessage[] {
+  let seen = 0;
+  for (let index = 0; index < messages.length; index++) {
+    if (messages[index]!.role === "user" && ++seen > turns) return messages.slice(0, index);
+  }
+  return [...messages];
 }
 
 /** The prompt the summarizer reads: the snapshot as a plain transcript, newest kept. */
@@ -288,7 +301,7 @@ export async function prepareHandoff(
     } catch {
       return answer({ state: "failed", message: "Couldn't load this chat's history." });
     }
-    const transcript = handoffTranscript(history.slice(0, msg.messageCount));
+    const transcript = handoffTranscript(throughTurns(history, msg.turns));
     if (!transcript) return answer({ state: "failed", message: "There is nothing in this chat to summarize yet." });
     const profileId = catalog.getStoredProviderId(msg.sourceSessionId) ?? undefined;
     const billing = await resolveRunBilling(host.registry, backend.id, profileId);

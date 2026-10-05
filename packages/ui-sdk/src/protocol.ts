@@ -228,8 +228,13 @@ export interface ClientHandoffPrepare {
   /** Names this run; its `handoff_draft` carries it back. Mint one per run. */
   handoffId: string;
   sourceSessionId: string;
-  /** The snapshot boundary: summarize only the first N replayed messages. */
-  messageCount: number;
+  /**
+   * The snapshot boundary, in turns: summarize the replayed history up to,
+   * not including, its (turns + 1)th user message. Counted in user messages
+   * because a live client and a replay may group one reply's steps into a
+   * different number of assistant messages.
+   */
+  turns: number;
 }
 
 /** Client → Server. Stop a running `handoff_prepare` (additive; #61). */
@@ -1160,10 +1165,11 @@ export interface ChatSession {
   /**
    * The session this one was handed off from (additive; #61). Its first
    * user message is the reviewed handoff. A source's forward links are the
-   * sessions whose `handoffFrom` names it; `afterMessages` is how many
-   * messages the source had when it was handed off, absent when unknown.
+   * sessions whose `handoffFrom` names it; `afterTurns` is how many user
+   * messages (turns) the source had when it was handed off, absent when
+   * unknown.
    */
-  handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterMessages?: number };
+  handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
 }
 
 export interface BrainSearchResult {

@@ -50,8 +50,8 @@ export interface HandoffLink {
   sessionId: string;
   title: string | null;
   backendId?: string;
-  /** Messages the source had when it was handed off; absent means unknown. */
-  afterMessages?: number;
+  /** User messages (turns) the source had when it was handed off; absent means unknown. */
+  afterTurns?: number;
 }
 
 export interface HandoffState {
@@ -135,7 +135,7 @@ export function createHandoffStore(_env?: StoreEnvironment) {
           sessionId: session.id,
           title: session.title,
           ...(session.backendId ? { backendId: session.backendId } : {}),
-          ...(link.afterMessages !== undefined ? { afterMessages: link.afterMessages } : {}),
+          ...(link.afterTurns !== undefined ? { afterTurns: link.afterTurns } : {}),
         });
       }
       set({ forward, from });

@@ -2304,7 +2304,7 @@ new linked session seeded with a reviewed summary and brain-file references
 HANDOFF_MAX_CHARS = 4000            HANDOFF_MAX_REFERENCES = 8
 HANDOFF_DRAFT_MESSAGES = 6          HANDOFF_REFERENCES_HEADING = "References:"
 chat_message.handoff?: { handoffId, sourceSessionId, references: string[] }
-client → { type: "handoff_prepare", handoffId, sourceSessionId, messageCount }
+client → { type: "handoff_prepare", handoffId, sourceSessionId, turns }
 client → { type: "handoff_prepare_cancel", handoffId }
 client → { type: "handoff_status", handoffId }
 server → { type: "handoff_draft", handoffId, state: "ready" | "failed" | "cancelled",
@@ -2312,7 +2312,7 @@ server → { type: "handoff_draft", handoffId, state: "ready" | "failed" | "canc
 server → { type: "handoff_receipt", handoffId, state: "created" | "pending" | "none",
            sessionId? }
 MessageSource adds "handoff"
-ChatSession.handoffFrom?: { sessionId, title, backendId?, afterMessages? }
+ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
 ```
 
 - **Creation.** `chat_message.handoff` is honored only on a message without
@@ -2337,7 +2337,8 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterMessages? }
   `session_info` for the destination echoes the request's `draftId` and
   `requestId` as for any new conversation.
 - **Preparation.** `handoff_prepare` runs one model summary of the first
-  `messageCount` replayed messages of the source on the source session's own
+  `turns` turns of the source (its replayed history up to, not including, the
+  next user message) on the source session's own
   backend and stored profile. The run is nonpersistent and toolless (the
   autonomous turn posture with no allowed tools), creates no session, and
   answers only the requesting connection. Its `handoffId` names the run; the
@@ -2352,9 +2353,10 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterMessages? }
   `costUsd` is absent when unknown and never reported as zero for an unknown
   price.
 - **Links.** `GET /api/sessions` sets `handoffFrom` on a destination:
-  the source id, its title, its backend when known, and `afterMessages`, the
-  number of replayed source messages when it was handed off (absent when
-  unreadable). A source's forward links are the sessions naming it.
+  the source id, its title, its backend when known, and `afterTurns`, the
+  number of source user messages (turns) when it was handed off (absent when
+  unreadable). Both boundaries count turns because a live client and a replay
+  may split one reply into different numbers of assistant messages. A source's forward links are the sessions naming it.
 - **Nothing transfers.** No native history, pending approval, remembered grant
   or running work moves to the destination, and creating it grants no tool
   permission. The source's history, backend, accounting and usability are

@@ -45,7 +45,7 @@ describe("handoff frames at the boundary", () => {
 
   test("prepare, cancel and status parse; an older source value from a newer peer reads as absent", () => {
     for (const frame of [
-      { type: "handoff_prepare", handoffId: "h-ithaca-0001-p1", sourceSessionId: "s1", messageCount: 6 },
+      { type: "handoff_prepare", handoffId: "h-ithaca-0001-p1", sourceSessionId: "s1", turns: 3 },
       { type: "handoff_prepare_cancel", handoffId: "h-ithaca-0001-p1" },
       { type: "handoff_status", handoffId: "h-ithaca-0001" },
     ]) expect(parseClientMessage(JSON.stringify(frame)).ok).toBe(true);

@@ -15,7 +15,7 @@ import { useHandoffStore } from "../../stores/handoff-store.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useOpenSession } from "../../hooks/use-open-session.js";
-import { deterministicDraft, snapshotSource, suggestedReferences, type HandoffSnapshot } from "../../lib/handoff.js";
+import { countTurns, deterministicDraft, snapshotSource, suggestedReferences, type HandoffSnapshot } from "../../lib/handoff.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { cn } from "../../lib/utils.js";
 
@@ -88,6 +88,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   const sourceBackendId = useChatStore((s) => s.backendIds[sourceSessionId]);
   const source = useChatStore((s) => s.buffers[sourceSessionId]);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const runState = useChatStore((s) => s.runStates[sourceSessionId]);
 
   const sourceProfile = providers.find((p) => p.id === pinnedId && activeSessionId === sourceSessionId)
     ?? providers.find((p) => p.backendId === sourceBackendId);
@@ -117,13 +118,13 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   useEffect(() => {
     if (snapshot || historyError) return;
     if (ready && source && source.messages.length > 0) {
-      if (!awaitHistory) { setSnapshot(snapshotSource(source)); return; }
-      const timer = setTimeout(() => setSnapshot(snapshotSource(source)), HISTORY_SETTLE_MS);
+      if (!awaitHistory) { setSnapshot(snapshotSource(source, runState)); return; }
+      const timer = setTimeout(() => setSnapshot(snapshotSource(source, runState)), HISTORY_SETTLE_MS);
       return () => clearTimeout(timer);
     }
     const timer = setTimeout(() => setHistoryError(true), HISTORY_WAIT_MS);
     return () => clearTimeout(timer);
-  }, [source, snapshot, historyError, ready, awaitHistory]);
+  }, [source, snapshot, historyError, ready, awaitHistory, runState]);
 
   function checkReference(path: string) {
     const clean = path.trim().replace(/^\.?\/+/, "");
@@ -144,12 +145,12 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
 
   const runs = useRef(0);
   const running = useRef<string | null>(null);
-  function prepare(messageCount: number) {
+  function prepare(turns: number) {
     if (!canSummarize) return;
     const prepareId = `${handoffId}-p${++runs.current}`;
     running.current = prepareId;
     root.stores.handoff.getState().startPrepare(prepareId);
-    if (send({ type: "handoff_prepare", handoffId: prepareId, sourceSessionId, messageCount }) === false) {
+    if (send({ type: "handoff_prepare", handoffId: prepareId, sourceSessionId, turns }) === false) {
       running.current = null;
       root.stores.handoff.getState().setDraft(prepareId, { state: "failed", message: "Couldn't reach the host." });
     }
@@ -176,7 +177,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     if (!snapshot) return;
     offerText(deterministicDraft(snapshot.messages), "deterministic");
     for (const path of suggestedReferences(snapshot.messages)) checkReference(path);
-    prepare(snapshot.messages.length);
+    prepare(countTurns(snapshot.messages));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot]);
 
@@ -221,7 +222,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     const backendId = providers.find((p) => p.id === (sent?.providerId ?? destinationId))?.backendId;
     store.addLink(
       sourceSessionId,
-      { sessionId: created.sessionId, title: null, ...(backendId ? { backendId } : {}), ...(snapshot ? { afterMessages: source?.messages.length ?? snapshot.messages.length } : {}) },
+      { sessionId: created.sessionId, title: null, ...(backendId ? { backendId } : {}), afterTurns: countTurns(source?.messages ?? snapshot?.messages ?? []) },
       { sessionId: sourceSessionId, title: sourceTitle(), ...(sourceBackendId ? { backendId: sourceBackendId } : {}) }
     );
     if (created.live) {
@@ -254,12 +255,12 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   }
 
   // --- New content during review (§3).
-  const settledNow = source ? snapshotSource(source).messages.length : 0;
+  const settledNow = source ? snapshotSource(source, runState).messages.length : 0;
   const newSince = snapshot ? Math.max(0, settledNow - snapshot.messages.length) : 0;
   function refreshDraft() {
     if (!source) return;
     stopSummary();
-    setSnapshot(snapshotSource(source));
+    setSnapshot(snapshotSource(source, runState));
   }
 
   function onType(value: string) {

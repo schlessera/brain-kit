@@ -23,7 +23,7 @@ import { createActivityStream, type ActivityStream } from "../src/activity/strea
 import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
-import { HANDOFF_PREPARATION_RUN_NAME } from "../src/ws/handoff";
+import { HANDOFF_PREPARATION_RUN_NAME, throughTurns } from "../src/ws/handoff";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { testPrincipal } from "./helpers/principal";
@@ -410,7 +410,7 @@ describe("handoff preparation", () => {
     const r = rig();
     const source = seedSource(r, "claude");
     const ws = r.open();
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-prepare-0001", sourceSessionId: source, messageCount: 2 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-prepare-0001", sourceSessionId: source, turns: 1 });
     await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
     const draft = ws.frames.find((f) => f.type === "handoff_draft")!;
     expect(draft).toMatchObject({ handoffId: "h-prepare-0001", state: "ready", text: "Odysseus is sailing home to Ithaca.", costUsd: 0.03 });
@@ -421,7 +421,7 @@ describe("handoff preparation", () => {
     expect(start.autonomous).toMatchObject({ origin: "autonomous", persistence: "none", allowedTools: [] });
     expect(start).toMatchObject({ enforceAllowedTools: true, noGrantSurface: true, profileId: "claude" });
     expect(r.scripts.claude.autonomous).toEqual([true]);
-    // The snapshot boundary: only the first two messages reach the model.
+    // The snapshot boundary: only the first turn reaches the model.
     expect(start.prompt).toContain("Plan the return to Ithaca.");
     expect(start.prompt).toContain("Sail past the Sirens");
     expect(start.prompt).not.toContain("Penelope");
@@ -442,7 +442,7 @@ describe("handoff preparation", () => {
     const source = seedSource(r, "claude");
     r.scripts.claude.summaryCost = undefined;
     const ws = r.open();
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-unknown-0001", sourceSessionId: source, messageCount: 4 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-unknown-0001", sourceSessionId: source, turns: 2 });
     await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
     const draft = ws.frames.find((f) => f.type === "handoff_draft")!;
     expect(draft.state).toBe("ready");
@@ -458,7 +458,7 @@ describe("handoff preparation", () => {
     const held = gate();
     r.scripts.claude.summaryHold = held.promise;
     const ws = r.open();
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-stop-00001", sourceSessionId: source, messageCount: 4 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-stop-00001", sourceSessionId: source, turns: 2 });
     await until(() => r.host.coordinator.handoffPreparations.size === 1 && r.starts.claude.length === 1);
     r.send(ws, { type: "handoff_prepare_cancel", handoffId: "h-stop-00001" });
     held.open();
@@ -469,7 +469,7 @@ describe("handoff preparation", () => {
     const again = gate();
     r.scripts.claude.summaryHold = again.promise;
     const other = r.open();
-    r.send(other, { type: "handoff_prepare", handoffId: "h-stop-00002", sourceSessionId: source, messageCount: 4 });
+    r.send(other, { type: "handoff_prepare", handoffId: "h-stop-00002", sourceSessionId: source, turns: 2 });
     await until(() => r.starts.claude.length === 2);
     const signal = r.starts.claude[1]!.signal;
     r.close(other);
@@ -481,7 +481,7 @@ describe("handoff preparation", () => {
     const r = rig();
     const source = seedSource(r, "pi");
     const ws = r.open();
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-pi-000001", sourceSessionId: source, messageCount: 4 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-pi-000001", sourceSessionId: source, turns: 2 });
     await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
     expect(ws.frames.find((f) => f.type === "handoff_draft")).toMatchObject({ state: "failed", message: "pi can't draft a summary on this server." });
     expect(r.starts.pi.length + r.starts.claude.length).toBe(0);
@@ -497,7 +497,7 @@ describe("review findings: authority, admission and fail-closed idempotency", ()
     const ws = r.open();
     const roster = gate();
     hold = roster.promise;
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-revoke-0001", sourceSessionId: source, messageCount: 4 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-revoke-0001", sourceSessionId: source, turns: 2 });
     await until(() => r.host.coordinator.handoffPreparations.size === 1);
     await Bun.sleep(20); // history read done; now parked in billing resolution
     r.host.revokePrincipals(["test-principal"], 4001, "revoked");
@@ -512,7 +512,7 @@ describe("review findings: authority, admission and fail-closed idempotency", ()
     const held = gate();
     r.scripts.claude.summaryHold = held.promise;
     const ws = r.open();
-    r.send(ws, { type: "handoff_prepare", handoffId: "h-capped-0001", sourceSessionId: source, messageCount: 4 });
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-capped-0001", sourceSessionId: source, turns: 2 });
     await until(() => r.starts.claude.length === 1);
     r.send(ws, { type: "chat_message", text: "Meanwhile, the harbour fees?", providerId: "default", requestId: "req-capped" });
     await until(() => ws.frames.some((f) => f.requestId === "req-capped"));
@@ -527,13 +527,13 @@ describe("review findings: authority, admission and fail-closed idempotency", ()
     const held = gate();
     r.scripts.claude.summaryHold = held.promise;
     const first = r.open();
-    r.send(first, { type: "handoff_prepare", handoffId: "h-unwind-0001", sourceSessionId: source, messageCount: 4 });
+    r.send(first, { type: "handoff_prepare", handoffId: "h-unwind-0001", sourceSessionId: source, turns: 2 });
     await until(() => r.starts.claude.length === 1);
     r.close(first);
     expect(r.starts.claude[0]!.signal.aborted).toBe(true);
     expect(r.host.coordinator.handoffPreparations.size).toBe(1);
     const second = r.open();
-    r.send(second, { type: "handoff_prepare", handoffId: "h-unwind-0002", sourceSessionId: source, messageCount: 4 });
+    r.send(second, { type: "handoff_prepare", handoffId: "h-unwind-0002", sourceSessionId: source, turns: 2 });
     await until(() => second.frames.some((f) => f.type === "handoff_draft"));
     expect(second.frames.find((f) => f.type === "handoff_draft")).toMatchObject({ state: "failed", message: "The server is busy, so no summary was drafted." });
     held.open();
@@ -554,5 +554,16 @@ describe("review findings: authority, admission and fail-closed idempotency", ()
     await until(() => ws.frames.filter((f) => f.type === "handoff_receipt").length === 2);
     expect(ws.frames.filter((f) => f.type === "handoff_receipt").map((f) => [f.state, f.sessionId])).toEqual([["created", created], ["created", created]]);
     expect(r.starts[pair.destination]).toHaveLength(1);
+  });
+});
+
+describe("the snapshot boundary counts turns", () => {
+  test("a reply replayed as several assistant steps stays whole", () => {
+    const m = (role: "user" | "assistant", content: string) => ({ role, content, toolCalls: [] });
+    // pi replays each model call of one reply; a live client shows one bubble.
+    const history = [m("user", "Plan the return."), m("assistant", "Reading the chart."), m("assistant", "Sirens, then Scylla."), m("user", "Who keeps the house?"), m("assistant", "Penelope.")];
+    expect(throughTurns(history, 1).map((x) => x.content)).toEqual(["Plan the return.", "Reading the chart.", "Sirens, then Scylla."]);
+    expect(throughTurns(history, 2)).toHaveLength(5);
+    expect(throughTurns(history, 0)).toEqual([]);
   });
 });

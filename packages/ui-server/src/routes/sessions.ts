@@ -51,8 +51,8 @@ export function createSessionRoutes(deps: {
       const accounting = new Map(
         (
           db
-            .query("SELECT id, title, total_cost_usd AS cost, num_turns AS turns, handoff_from AS handoffFrom, handoff_from_messages AS handoffFromMessages, backend_id AS backendId FROM sessions")
-            .all() as Array<{ id: string; title: string | null; cost: number | null; turns: number | null; handoffFrom: string | null; handoffFromMessages: number | null; backendId: string | null }>
+            .query("SELECT id, title, total_cost_usd AS cost, num_turns AS turns, handoff_from AS handoffFrom, handoff_from_turns AS handoffFromTurns, backend_id AS backendId FROM sessions")
+            .all() as Array<{ id: string; title: string | null; cost: number | null; turns: number | null; handoffFrom: string | null; handoffFromTurns: number | null; backendId: string | null }>
         ).map((r) => [r.id, r])
       );
       const results = await Promise.allSettled(
@@ -88,7 +88,7 @@ export function createSessionRoutes(deps: {
               sessionId: from,
               title: titles.get(from) ?? source?.title ?? null,
               ...(source?.backendId ? { backendId: source.backendId } : {}),
-              ...(typeof stored.handoffFromMessages === "number" ? { afterMessages: stored.handoffFromMessages } : {}),
+              ...(typeof stored.handoffFromTurns === "number" ? { afterTurns: stored.handoffFromTurns } : {}),
             },
           };
         })

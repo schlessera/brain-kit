@@ -21,12 +21,15 @@ describe("GET /sessions handoff links (#61)", () => {
     const res = await createSessionRoutes({ registry, db }).request("/sessions");
     const body = await res.json() as { sessions: Array<Record<string, unknown>> };
     const byId = Object.fromEntries(body.sessions.map((s) => [s.id, s]));
-    expect(byId.dst!.handoffFrom).toEqual({ sessionId: "src", title: "Ithaca return", backendId: "claude", afterMessages: 4 });
+    expect(byId.dst!.handoffFrom).toEqual({ sessionId: "src", title: "Ithaca return", backendId: "claude", afterTurns: 4 });
     expect(byId.src!.handoffFrom).toBeUndefined();
     expect(catalog.findHandoff!("h-ithaca-0001")).toBe("dst");
     // The key is unique: a second destination cannot claim it.
     catalog.persistSessionStub("dst2", "again", "pi", "pi");
     expect(catalog.recordHandoff!("dst2", "h-ithaca-0001", "src", 4)).toBe(false);
+    // A destination whose stub never persisted has no row: not recorded.
+    expect(catalog.recordHandoff!("never-stored", "h-ithaca-0002", "src", 1)).toBe(false);
+    expect(catalog.findHandoff!("h-ithaca-0002")).toBeNull();
     db.close();
   });
 });

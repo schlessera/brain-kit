@@ -327,7 +327,7 @@ export const clientHandoffPrepareSchema = z.looseObject({
   type: z.literal("handoff_prepare"),
   handoffId: handoffIdSchema,
   sourceSessionId: id,
-  messageCount: z.number().int().min(0).max(1_000_000),
+  turns: z.number().int().min(0).max(1_000_000),
 }) satisfies z.ZodType<ClientHandoffPrepare>;
 
 export const clientHandoffPrepareCancelSchema = z.looseObject({

@@ -22,6 +22,8 @@ import { Composer } from "./composer.js";
 import { HandoffSheet } from "./handoff-sheet.js";
 import { HandoffMarker } from "./handoff-links.js";
 import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js";
+import { markerPosition } from "../../lib/handoff.js";
+import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { Icon } from "@schlessera/brain-ui-kit";
 import {
@@ -45,12 +47,12 @@ const WINDOW_SIZE = 40;
 const NO_LINKS: HandoffLink[] = [];
 
 /**
- * After how many messages a forward marker sits: where the source stood
- * when it was handed off, so it keeps its place as the source continues;
- * at the end when that is unknown or beyond what is loaded.
+ * After how many messages a forward marker sits: after the turn where the
+ * source stood when it was handed off, so it keeps its place as the source
+ * continues; at the end when that is unknown.
  */
-function markerAfter(link: HandoffLink, total: number): number {
-  return link.afterMessages !== undefined && link.afterMessages > 0 && link.afterMessages <= total ? link.afterMessages : total;
+function markerAfter(link: HandoffLink, messages: readonly ChatMessage[]): number {
+  return markerPosition(messages, link.afterTurns);
 }
 const WINDOW_STEP = 40;
 
@@ -384,7 +386,7 @@ export function ChatPage() {
                   />
                   {/* Where this conversation was continued elsewhere (#61). */}
                   {forward
-                    .filter((link) => markerAfter(link, messages.length) === hiddenCount + index + 1)
+                    .filter((link) => markerAfter(link, messages) === hiddenCount + index + 1)
                     .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
                 </Fragment>
               ))}

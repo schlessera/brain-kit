@@ -439,7 +439,7 @@ unavailableBackends?: string[] }`, newest lastActiveAt first. Each session has
 id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.
 A cross-backend handoff destination (additive, #61) also carries
-`handoffFrom: { sessionId, title, backendId?, afterMessages? }`, as the
+`handoffFrom: { sessionId, title, backendId?, afterTurns? }`, as the
 [integration contract](integration-contract.md#cross-backend-handoff-additive-61)
 describes.
 Each backend list has a three-second wait; unfinished work is reused by retries

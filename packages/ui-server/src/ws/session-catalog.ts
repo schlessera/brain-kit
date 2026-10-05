@@ -88,7 +88,7 @@ export interface SessionCatalog {
    * (#61). Called once `session_info` names the destination. Returns false
    * when it could not be stored.
    */
-  recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceMessages: number | null): boolean;
+  recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
   /** The destination already created for a handoff key, or null. */
   findHandoff?(handoffId: string): string | null;
   /**
@@ -255,12 +255,14 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
       }
     },
 
-    recordHandoff(sessionId, handoffId, sourceSessionId, sourceMessages) {
+    recordHandoff(sessionId, handoffId, sourceSessionId, sourceTurns) {
       try {
-        db()
-          .prepare("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_messages = ? WHERE id = ?")
-          .run(sourceSessionId, handoffId, sourceMessages, sessionId);
-        return true;
+        // A stub that failed to persist leaves no row to update: that is not
+        // a recorded link, and saying so keeps the caller's key fail-closed.
+        const result = db()
+          .prepare("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_turns = ? WHERE id = ?")
+          .run(sourceSessionId, handoffId, sourceTurns, sessionId);
+        return result.changes === 1;
       } catch (err) {
         reportWriteFailure(sessionId, err);
         return false;

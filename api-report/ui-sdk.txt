@@ -2441,7 +2441,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             sessionId: string;
             title: string | null;
             backendId?: string;
-            afterMessages?: number;
+            afterTurns?: number;
         };
     }
   ClientEnvironment (packages/ui-sdk/src/protocol.ts)

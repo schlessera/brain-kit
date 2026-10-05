@@ -23,14 +23,29 @@ export interface HandoffSnapshot {
 /**
  * The source as of now, at its latest settled turn. A running reply and the
  * message that started it are left out: they keep running in the source.
+ *
+ * `runState` is the host's word for whether the session is running. It
+ * matters after a history reload: replayed messages are never marked
+ * streaming, so a turn parked on a long tool call would otherwise read as
+ * settled and its ask and partial reply would join the handoff.
  */
-export function snapshotSource(chat: Pick<SessionChat, "messages" | "isStreaming"> | undefined): HandoffSnapshot {
+export function snapshotSource(
+  chat: Pick<SessionChat, "messages" | "isStreaming"> | undefined,
+  runState?: "streaming" | "queued" | "idle"
+): HandoffSnapshot {
   const all = chat?.messages ?? [];
   let end = all.length;
-  const running = Boolean(chat?.isStreaming) || all.some((message) => message.isStreaming);
+  const running = Boolean(chat?.isStreaming) || all.some((message) => message.isStreaming)
+    || runState === "streaming" || runState === "queued";
   if (running) {
     const streaming = all.findIndex((message) => message.isStreaming);
-    end = streaming >= 0 ? streaming : all.length;
+    if (streaming >= 0) {
+      end = streaming;
+    } else {
+      // No message says where the running turn starts: it is the last ask.
+      const lastAsk = all.map((message) => message.role).lastIndexOf("user");
+      end = lastAsk >= 0 ? lastAsk + 1 : all.length;
+    }
     // The ask that started the running reply belongs to it.
     while (end > 0 && all[end - 1]!.role === "user") end--;
   }
@@ -100,6 +115,24 @@ export function suggestedReferences(messages: readonly ChatMessage[]): string[] 
     for (const path of mentionedPaths(message.content)) add(path);
   }
   return out;
+}
+
+/** Turns in a transcript: its user messages, which a live view and a replay count alike. */
+export function countTurns(messages: readonly Pick<ChatMessage, "role">[]): number {
+  return messages.filter((message) => message.role === "user").length;
+}
+
+/**
+ * How many messages precede a forward marker placed after `afterTurns`
+ * turns: up to the next ask. Unknown or out of range means the end.
+ */
+export function markerPosition(messages: readonly Pick<ChatMessage, "role">[], afterTurns: number | undefined): number {
+  if (afterTurns === undefined || afterTurns <= 0) return messages.length;
+  let seen = 0;
+  for (let index = 0; index < messages.length; index++) {
+    if (messages[index]!.role === "user" && ++seen > afterTurns) return index;
+  }
+  return messages.length;
 }
 
 /** A handoff key the host accepts: letters, digits, `-`, `_`. */

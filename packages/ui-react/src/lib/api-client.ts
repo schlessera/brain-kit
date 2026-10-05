@@ -426,7 +426,7 @@ export function createBrainApi(
           totalCostUsd: number;
           numTurns: number;
           backendId?: string;
-          handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterMessages?: number };
+          handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
         }>;
       }>("/sessions"),
 
