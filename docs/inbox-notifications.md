@@ -17,7 +17,7 @@ Persisted instants come from the server clock.
 A waiting episode starts when a decision (`approve` or `choose`) becomes
 pending: a new Action, or an explicit snooze-to-pending reactivation. The store
 records it in the same transaction as that transition
-(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:179-197`);
+(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:203-221`);
 leaving pending ends it. Version changes, retries, restarts and elapsed time
 never start one. Decisions already pending when the migration runs begin their
 first episode then.
@@ -60,9 +60,12 @@ The React client reports its IANA zone on registration and rebind, after the
 first authenticated probe, on reconnection, on foreground return and when a
 probe sees the zone change (`useNotificationZoneRefresh`,
 `packages/ui-react/src/hooks/use-notification-zone.ts:22-77`). The SDK worker's
-subscription renewal sends it too. The server validates it against its own
-zone database for the caller's client context and, only when the caller owns
-it, that device. A missing or unusable zone leaves that device's notices and
+subscription renewal sends the device zone too. A client context is the
+principal plus an identifier the browser persists, because ambient and proxy
+modes give several browsers one principal. The server validates the zone
+against its own zone database for that context and, only when the caller owns
+it, that device. Coverage and dismissal belong to the context as well, so one
+browser never consumes or hides another's summary. A missing or unusable zone leaves that device's notices and
 that context's digest pending (`zone_required`), with no server-time or UTC
 fallback. An inactive client keeps its last reported zone: the server cannot
 see a device move until it reports again. Budget days and snooze keep their
@@ -71,7 +74,9 @@ configured-zone rules.
 ## Digest contribution
 
 `digest()` runs on the tick and when a client fetches `GET /api/activity/digest`.
-For a context with a usable zone it finds the latest local 09:00 or 17:00. If
+For a context with a usable zone it finds the latest local 09:00 or 17:00.
+The card refetches after each zone report, so a first report shows its
+summary without a reload. If
 no summary exists for that slot it stores one, listing below-cutoff waiting
 episodes and FYIs not yet reported to this context, and commits their
 coverage in the same immediate transaction. Missed slots produce one current

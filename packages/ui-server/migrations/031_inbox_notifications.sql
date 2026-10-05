@@ -8,13 +8,18 @@
 ALTER TABLE push_subscriptions ADD COLUMN time_zone TEXT;
 ALTER TABLE push_subscriptions ADD COLUMN time_zone_reported_at INTEGER;
 
--- One authenticated client context per principal: its last reported zone and
--- the owner of its in-app digest coverage. No foreign key, so principal
+-- An authenticated client context: the principal plus the client's own
+-- persisted identifier, because one principal can serve several browsers
+-- (ambient and proxy modes share one). It owns the last reported zone, its
+-- in-app digest coverage and its own dismissal. No foreign key, so principal
 -- retention pruning keeps working; authority is rechecked at every use.
 CREATE TABLE inbox_notice_clients (
-  principal_id TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
   time_zone TEXT,
-  reported_at INTEGER NOT NULL
+  reported_at INTEGER NOT NULL,
+  dismissed_at INTEGER,
+  PRIMARY KEY (principal_id, client_id)
 );
 
 -- A waiting episode starts when a decision becomes pending: a new Action or an
@@ -116,21 +121,23 @@ BEGIN SELECT RAISE(ABORT, 'Retained notice component'); END;
 CREATE TABLE inbox_notice_digests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   principal_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
   slot_at INTEGER NOT NULL,
   time_zone TEXT NOT NULL,
   generated_at INTEGER NOT NULL,
   summary_json TEXT NOT NULL CHECK (json_valid(summary_json)),
-  UNIQUE (principal_id, slot_at)
+  UNIQUE (principal_id, client_id, slot_at)
 );
 CREATE TRIGGER inbox_notice_digest_no_update BEFORE UPDATE ON inbox_notice_digests
 BEGIN SELECT RAISE(ABORT, 'Immutable notice digest'); END;
 
 CREATE TABLE inbox_notice_coverage (
   principal_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
   subject_kind TEXT NOT NULL CHECK (subject_kind IN ('episode', 'fyi')),
   subject_id TEXT NOT NULL,
   digest_id INTEGER NOT NULL REFERENCES inbox_notice_digests(id),
-  PRIMARY KEY (principal_id, subject_kind, subject_id)
+  PRIMARY KEY (principal_id, client_id, subject_kind, subject_id)
 );
 CREATE TRIGGER inbox_notice_coverage_no_update BEFORE UPDATE ON inbox_notice_coverage
 BEGIN SELECT RAISE(ABORT, 'Immutable notice coverage'); END;

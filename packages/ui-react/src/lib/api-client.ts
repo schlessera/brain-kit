@@ -747,11 +747,14 @@ export function createBrainApi(
       fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
 
     /** `actions` is this client context's Actions/FYI contribution; older servers omit it. */
-    activityDigest: () =>
-      fetchJson<{ digest: ActivityDigest | null; dismissedAt: number; actions?: ActionDigestState }>("/activity/digest"),
+    activityDigest: (clientId?: string) =>
+      fetchJson<{ digest: ActivityDigest | null; dismissedAt: number; actions?: ActionDigestState }>(
+        `/activity/digest${clientId ? `?client=${encodeURIComponent(clientId)}` : ""}`
+      ),
 
-    activityDigestDismiss: () =>
-      fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
+    /** Also dismisses this client context's Actions summary when `clientId` is given. */
+    activityDigestDismiss: (clientId?: string) =>
+      fetchJson<{ ok: true }>(`/activity/digest/dismiss${clientId ? `?client=${encodeURIComponent(clientId)}` : ""}`, { method: "POST" }),
 
     pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
 
@@ -762,10 +765,14 @@ export function createBrainApi(
       }),
 
     /** Refresh this client's reported zone and, when named, its own push endpoint's. */
-    pushZone: (timeZone: string, endpoint?: string) =>
+    pushZone: (timeZone: string, endpoint?: string, clientId?: string) =>
       fetchJson<{ ok: true; timeZone: string | null }>("/push/zone", {
         method: "POST",
-        body: JSON.stringify({ timeZone, ...(endpoint !== undefined ? { endpoint } : {}) }),
+        body: JSON.stringify({
+          timeZone,
+          ...(endpoint !== undefined ? { endpoint } : {}),
+          ...(clientId ? { clientId } : {}),
+        }),
       }),
 
     pushUnsubscribe: (endpoint: string) =>

@@ -21,7 +21,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated notification zone tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b4 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b6 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -40,11 +40,11 @@ if (!process.env[CHILD_MARKER]) {
   });
 
   function fakeApi() {
-    const zones: Array<{ timeZone: string; endpoint?: string }> = [];
+    const zones: Array<{ timeZone: string; endpoint?: string; clientId?: string }> = [];
     const subscribes: Array<{ label?: string; timeZone?: string }> = [];
     const api = {
-      pushZone: async (timeZone: string, endpoint?: string) => {
-        zones.push({ timeZone, ...(endpoint !== undefined ? { endpoint } : {}) });
+      pushZone: async (timeZone: string, endpoint?: string, clientId?: string) => {
+        zones.push({ timeZone, ...(endpoint !== undefined ? { endpoint } : {}), ...(clientId ? { clientId } : {}) });
         return { ok: true as const, timeZone };
       },
       pushSubscribe: async (_subscription: unknown, label?: string, timeZone?: string) => {
@@ -56,12 +56,17 @@ if (!process.env[CHILD_MARKER]) {
     return { api, zones, subscribes };
   }
 
-  function grantPush(endpoint: string) {
+  function grantPush(endpoint: string | null) {
     (globalThis as { Notification?: unknown }).Notification = { permission: "granted" };
-    const subscription = { endpoint, options: { applicationServerKey: null }, toJSON: () => ({ endpoint }) };
+    const subscription = endpoint && { endpoint, options: { applicationServerKey: null }, toJSON: () => ({ endpoint }) };
+    const registration = endpoint ? { pushManager: { getSubscription: async () => subscription } } : undefined;
     Object.defineProperty(navigator, "serviceWorker", {
       configurable: true,
-      value: { ready: Promise.resolve({ pushManager: { getSubscription: async () => subscription } }) },
+      value: {
+        // A shell without an active worker: `ready` never settles.
+        ready: registration ? Promise.resolve(registration) : new Promise(() => {}),
+        getRegistration: async () => registration,
+      },
     });
   }
 
@@ -93,15 +98,32 @@ if (!process.env[CHILD_MARKER]) {
     const { api, zones, subscribes } = fakeApi();
     zone = "Europe/Athens";
     (globalThis as { Notification?: unknown }).Notification = undefined;
+    let reported = 0;
+    const stop = registration.onNotificationZoneReported(api, () => { reported++; });
     await registration.reportNotificationZone(api);
     grantPush("https://push.example.test/odysseus-phone");
     await registration.reportNotificationZone(api);
+    stop();
+    // The browser's persisted context identifier rides along, stable across reports.
+    const clientId = registration.noticeClientId();
+    expect(clientId).toMatch(/^[0-9a-f-]{36}$/);
     expect(zones).toEqual([
-      { timeZone: "Europe/Athens" },
-      { timeZone: "Europe/Athens", endpoint: "https://push.example.test/odysseus-phone" },
+      { timeZone: "Europe/Athens", clientId },
+      { timeZone: "Europe/Athens", endpoint: "https://push.example.test/odysseus-phone", clientId },
     ]);
+    // Listeners (the digest card) refetch after each successful report.
+    expect(reported).toBe(2);
     await registration.rebindPushSubscriptionAfterLogin(api);
     expect(subscribes.map((s) => s.timeZone)).toEqual(["Europe/Athens"]);
+  });
+
+  test("a granted page without an active service worker still reports its zone", async () => {
+    const { api, zones } = fakeApi();
+    grantPush(null);
+    const done = registration.reportNotificationZone(api);
+    const outcome = await Promise.race([done.then(() => "reported"), new Promise((resolve) => setTimeout(() => resolve("hung"), 500))]);
+    expect(outcome).toBe("reported");
+    expect(zones.map((z) => z.timeZone)).toEqual(["Europe/Athens"]);
   });
 
   test("an unavailable zone is reported as unusable rather than omitted", async () => {
@@ -109,7 +131,7 @@ if (!process.env[CHILD_MARKER]) {
     (globalThis as { Notification?: unknown }).Notification = undefined;
     zone = "";
     await registration.reportNotificationZone(api);
-    expect(zones).toEqual([{ timeZone: "" }]);
+    expect(zones.map((z) => z.timeZone)).toEqual([""]);
     zone = "Europe/Athens";
   });
 
@@ -153,5 +175,43 @@ if (!process.env[CHILD_MARKER]) {
     expect(zones).toHaveLength(5);
     unmount();
     zone = "Europe/Athens";
+  });
+}
+
+if (process.env[CHILD_MARKER]) {
+  const { act, render, cleanup } = await import("@testing-library/react");
+  const { BrainUiProvider } = await import("../src/root-context.js");
+  const { createBrainUiRoot } = await import("../src/root.js");
+  const { DigestCard } = await import("../src/components/activity/digest-card.js");
+  const registration = await import("../src/lib/push-registration.js");
+
+  test("the digest card refetches after a first zone report and shows this client's new Actions", async () => {
+    const summary = { generatedAt: 2, slotAt: 1, timeZone: "Europe/Athens", updates: [],
+      waiting: [{ episodeId: "raft#1", itemId: "raft", threadId: "ogygia", title: "Build the raft before the swell?" }] };
+    let zoneKnown = false;
+    const requests: string[] = [];
+    const api = {
+      activityDigest: async (clientId?: string) => {
+        requests.push(clientId ?? "");
+        return { digest: null, dismissedAt: 0, actions: zoneKnown
+          ? { status: "ready", timeZone: "Europe/Athens", latest: summary, dismissedAt: null }
+          : { status: "zone_required" } };
+      },
+      activityDigestDismiss: async () => ({ ok: true }),
+      pushZone: async () => ({ ok: true, timeZone: "Europe/Athens" }),
+    } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
+    const root = createBrainUiRoot({ api, storage: null });
+    (globalThis as { Notification?: unknown }).Notification = undefined;
+    const view = render(<BrainUiProvider root={root}><DigestCard /></BrainUiProvider>);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(view.container.textContent).not.toContain("Waiting on you");
+    zoneKnown = true;
+    await act(async () => { await registration.reportNotificationZone(api); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(view.container.textContent).toContain("Build the raft before the swell?");
+    // Both reads name this browser's persisted context.
+    expect(requests).toHaveLength(2);
+    expect(new Set(requests)).toEqual(new Set([registration.noticeClientId()]));
+    cleanup();
   });
 }

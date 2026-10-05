@@ -98,11 +98,12 @@ async function world() {
   const endpoint = "https://push.example.test/ithaca";
   createPushSender(db, { send: async () => {} }).subscribe({ endpoint, keys: { p256dh: "p256dh", auth: "auth" } }, principal.id);
   const notices = createActionNotifier(db);
-  notices.reportZone(principal.id, "UTC", endpoint, AT);
+  const ctx = (p: { id: string }) => ({ principalId: p.id, clientId: "" });
+  notices.reportZone(ctx(principal), "UTC", endpoint, AT);
   notices.enroll(AT);
   const attempt = notices.beginAttempt({ endpoint, principalId: principal.id }, AT + 60_000)!;
   notices.finishAttempt(attempt.attemptId, "success", AT + 60_000);
-  expect(notices.digest(principal.id, AT).status).toBe("ready");
+  expect(notices.digest(ctx(principal), AT).status).toBe("ready");
   writeFileSync(join(root, "content.md"), "Odysseus's content stays in git.");
   return { root, path, db, store, principal, budget, records };
 }

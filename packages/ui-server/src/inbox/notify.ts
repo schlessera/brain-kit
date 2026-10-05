@@ -69,6 +69,23 @@ export interface ActionAttempt {
   payload: ActionNoticePayload;
 }
 
+/**
+ * An authenticated client context: the request's principal plus the client's
+ * own persisted identifier. One principal can serve several browsers (ambient
+ * and proxy modes share one), so zone, coverage and dismissal are per client.
+ * The identifier is a delivery preference key, never an authority.
+ */
+export interface NoticeClient {
+  principalId: string;
+  clientId: string;
+}
+
+/** A client identifier: opaque, short, URL-safe. Anything else is rejected. */
+export function noticeClientId(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return "";
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null;
+}
+
 export interface ActionNotifier {
   /** Join newly push-eligible episodes to their recipient's fixed window. */
   enroll(now?: number): number;
@@ -76,10 +93,17 @@ export interface ActionNotifier {
   beginAttempt(destination: { endpoint: string; principalId: string }, now?: number): ActionAttempt | null;
   /** Settle an in-flight attempt exactly once. */
   finishAttempt(attemptId: number, outcome: ActionAttemptOutcome, now?: number): void;
-  /** Record a client's reported zone; unusable metadata is stored as missing. */
-  reportZone(principalId: string, timeZone: unknown, endpoint?: string, now?: number): { timeZone: string | null };
+  /**
+   * Record a client context's reported zone and, when named and owned by the
+   * principal, its push destination's. Unusable metadata is stored as missing.
+   */
+  reportZone(client: NoticeClient, timeZone: unknown, endpoint?: string, now?: number): { timeZone: string | null };
+  /** Record only a destination's zone, as registration and renewal report it. */
+  reportDeviceZone(principalId: string, endpoint: string, timeZone: unknown, now?: number): { timeZone: string | null };
   /** Generate this context's due summary if needed, then return the latest. */
-  digest(principalId: string, now?: number): ActionDigestState;
+  digest(client: NoticeClient, now?: number): ActionDigestState;
+  /** Record that this client context dismissed its latest summary. */
+  dismiss(client: NoticeClient, now?: number): void;
   /** Generate due summaries for every usable client context. */
   generateDue(now?: number): number;
 }
@@ -254,36 +278,48 @@ export function createActionNotifier(db: Database, options: { now?: () => number
     return rows.map((row) => row.id).filter((id) => usable(db, id, now));
   }
 
-  function generate(principalId: string, now: number): ActionDigestState {
+  function setDeviceZone(principalId: string, endpoint: string, zone: string | null, now: number): void {
+    // Only the caller's own destination; a zone never rebinds an endpoint.
+    db.query(
+      "UPDATE push_subscriptions SET time_zone = ?, time_zone_reported_at = ? WHERE endpoint = ? AND principal_id = ?"
+    ).run(zone, now, endpoint, principalId);
+  }
+
+  function generate(client: NoticeClient, now: number): ActionDigestState {
+    const { principalId, clientId } = client;
     return write(() => {
       const context = db
-        .query("SELECT time_zone FROM inbox_notice_clients WHERE principal_id = ?")
-        .get(principalId) as { time_zone: string | null } | null;
+        .query("SELECT time_zone, dismissed_at FROM inbox_notice_clients WHERE principal_id = ? AND client_id = ?")
+        .get(principalId, clientId) as { time_zone: string | null; dismissed_at: number | null } | null;
       const zone = noticeTimeZone(context?.time_zone);
       if (!zone) return { status: "zone_required" };
+      const dismissedAt = context?.dismissed_at ?? null;
       const latest = () => {
         const row = db
-          .query("SELECT summary_json FROM inbox_notice_digests WHERE principal_id = ? ORDER BY slot_at DESC, id DESC LIMIT 1")
-          .get(principalId) as { summary_json: string } | null;
+          .query(
+            "SELECT summary_json FROM inbox_notice_digests WHERE principal_id = ? AND client_id = ? ORDER BY slot_at DESC, id DESC LIMIT 1"
+          )
+          .get(principalId, clientId) as { summary_json: string } | null;
         return row ? (JSON.parse(row.summary_json) as ActionDigestSummary) : null;
       };
-      if (!usable(db, principalId, now) || restorePending(db)) return { status: "ready", timeZone: zone, latest: latest() };
+      const ready = (): ActionDigestState => ({ status: "ready", timeZone: zone, latest: latest(), dismissedAt });
+      if (!usable(db, principalId, now) || restorePending(db)) return ready();
       const slot = latestDigestSlot(zone, now);
       const last = db
-        .query("SELECT MAX(slot_at) AS slot FROM inbox_notice_digests WHERE principal_id = ?")
-        .get(principalId) as { slot: number | null };
+        .query("SELECT MAX(slot_at) AS slot FROM inbox_notice_digests WHERE principal_id = ? AND client_id = ?")
+        .get(principalId, clientId) as { slot: number | null };
       // One current summary per slot. Missed slots are not replayed: the next
       // opportunity covers every unreported item regardless of its age.
-      if (last.slot !== null && last.slot >= slot) return { status: "ready", timeZone: zone, latest: latest() };
+      if (last.slot !== null && last.slot >= slot) return ready();
 
       const covered = db.query(
-        "SELECT 1 FROM inbox_notice_coverage WHERE principal_id = ? AND subject_kind = ? AND subject_id = ?"
+        "SELECT 1 FROM inbox_notice_coverage WHERE principal_id = ? AND client_id = ? AND subject_kind = ? AND subject_id = ?"
       );
       const waiting: ActionDigestSummary["waiting"] = [];
       for (const episode of openEpisodes(db)) {
         const current = currentDecision(db, episode, now);
         if (!current || current.score >= ACTION_PUSH_CUTOFF) continue;
-        if (covered.get(principalId, "episode", episode.id)) continue;
+        if (covered.get(principalId, clientId, "episode", episode.id)) continue;
         waiting.push({ episodeId: episode.id, itemId: current.action.id, threadId: current.action.threadId, title: current.action.payload.title });
       }
       const updates: ActionDigestSummary["updates"] = [];
@@ -296,21 +332,21 @@ export function createActionNotifier(db: Database, options: { now?: () => number
         .all(now) as { data_json: string }[];
       for (const row of fyis) {
         const item = inboxItemSchema.parse(JSON.parse(row.data_json)) as InboxActionItem;
-        if (covered.get(principalId, "fyi", item.id)) continue;
+        if (covered.get(principalId, clientId, "fyi", item.id)) continue;
         updates.push({ itemId: item.id, threadId: item.threadId, title: item.payload.title });
       }
       const summary: ActionDigestSummary = { generatedAt: now, slotAt: slot, timeZone: zone, waiting, updates };
       const { id } = db
         .query(
-          "INSERT INTO inbox_notice_digests (principal_id, slot_at, time_zone, generated_at, summary_json) VALUES (?, ?, ?, ?, ?) RETURNING id"
+          "INSERT INTO inbox_notice_digests (principal_id, client_id, slot_at, time_zone, generated_at, summary_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id"
         )
-        .get(principalId, slot, zone, now, JSON.stringify(summary)) as { id: number };
+        .get(principalId, clientId, slot, zone, now, JSON.stringify(summary)) as { id: number };
       const cover = db.query(
-        "INSERT INTO inbox_notice_coverage (principal_id, subject_kind, subject_id, digest_id) VALUES (?, ?, ?, ?)"
+        "INSERT INTO inbox_notice_coverage (principal_id, client_id, subject_kind, subject_id, digest_id) VALUES (?, ?, ?, ?, ?)"
       );
-      for (const entry of waiting) cover.run(principalId, "episode", entry.episodeId, id);
-      for (const entry of updates) cover.run(principalId, "fyi", entry.itemId, id);
-      return { status: "ready", timeZone: zone, latest: summary };
+      for (const entry of waiting) cover.run(principalId, clientId, "episode", entry.episodeId, id);
+      for (const entry of updates) cover.run(principalId, clientId, "fyi", entry.itemId, id);
+      return { status: "ready", timeZone: zone, latest: summary, dismissedAt };
     });
   }
 
@@ -418,41 +454,52 @@ export function createActionNotifier(db: Database, options: { now?: () => number
         .run(outcome, now, attemptId);
     },
 
-    reportZone(principalId, timeZone, endpoint, at) {
+    reportZone(client, timeZone, endpoint, at) {
       const now = at ?? clock();
       const zone = noticeTimeZone(timeZone);
       return write(() => {
-        if (!usable(db, principalId, now)) throw new Error("Authentication required");
+        if (!usable(db, client.principalId, now)) throw new Error("Authentication required");
         db.query(
-          `INSERT INTO inbox_notice_clients (principal_id, time_zone, reported_at) VALUES (?, ?, ?)
-           ON CONFLICT(principal_id) DO UPDATE SET time_zone = excluded.time_zone, reported_at = excluded.reported_at`
-        ).run(principalId, zone, now);
-        if (endpoint !== undefined) {
-          // Only the caller's own destination; a zone never rebinds an endpoint.
-          db.query(
-            "UPDATE push_subscriptions SET time_zone = ?, time_zone_reported_at = ? WHERE endpoint = ? AND principal_id = ?"
-          ).run(zone, now, endpoint, principalId);
-        }
+          `INSERT INTO inbox_notice_clients (principal_id, client_id, time_zone, reported_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(principal_id, client_id) DO UPDATE SET time_zone = excluded.time_zone, reported_at = excluded.reported_at`
+        ).run(client.principalId, client.clientId, zone, now);
+        if (endpoint !== undefined) setDeviceZone(client.principalId, endpoint, zone, now);
         return { timeZone: zone };
       });
     },
 
-    digest(principalId, at) {
-      return generate(principalId, at ?? clock());
+    reportDeviceZone(principalId, endpoint, timeZone, at) {
+      const now = at ?? clock();
+      const zone = noticeTimeZone(timeZone);
+      return write(() => {
+        if (!usable(db, principalId, now)) throw new Error("Authentication required");
+        setDeviceZone(principalId, endpoint, zone, now);
+        return { timeZone: zone };
+      });
+    },
+
+    digest(client, at) {
+      return generate(client, at ?? clock());
+    },
+
+    dismiss(client, at) {
+      const now = at ?? clock();
+      db.query("UPDATE inbox_notice_clients SET dismissed_at = ? WHERE principal_id = ? AND client_id = ?")
+        .run(now, client.principalId, client.clientId);
     },
 
     generateDue(at) {
       const now = at ?? clock();
       const contexts = db
-        .query("SELECT principal_id FROM inbox_notice_clients WHERE time_zone IS NOT NULL ORDER BY principal_id")
-        .all() as { principal_id: string }[];
+        .query("SELECT principal_id, client_id FROM inbox_notice_clients WHERE time_zone IS NOT NULL ORDER BY principal_id, client_id")
+        .all() as { principal_id: string; client_id: string }[];
+      const count = db.query("SELECT COUNT(*) AS n FROM inbox_notice_digests WHERE principal_id = ? AND client_id = ?");
       let generated = 0;
-      for (const { principal_id } of contexts) {
+      for (const { principal_id, client_id } of contexts) {
         if (!usable(db, principal_id, now)) continue;
-        const before = db.query("SELECT COUNT(*) AS n FROM inbox_notice_digests WHERE principal_id = ?").get(principal_id) as { n: number };
-        generate(principal_id, now);
-        const after = db.query("SELECT COUNT(*) AS n FROM inbox_notice_digests WHERE principal_id = ?").get(principal_id) as { n: number };
-        generated += after.n - before.n;
+        const before = (count.get(principal_id, client_id) as { n: number }).n;
+        generate({ principalId: principal_id, clientId: client_id }, now);
+        generated += (count.get(principal_id, client_id) as { n: number }).n - before;
       }
       return generated;
     },

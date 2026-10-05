@@ -2302,10 +2302,14 @@ export interface ActionDigestSummary {
   updates: ActionDigestEntry[];
 }
 
-/** `zone_required`: no usable reported zone, so timed summaries wait for one. */
+/**
+ * `zone_required`: no usable reported zone, so timed summaries wait for one.
+ * `dismissedAt` is this client context's own dismissal, not the global
+ * activity digest marker.
+ */
 export type ActionDigestState =
   | { status: "zone_required" }
-  | { status: "ready"; timeZone: string; latest: ActionDigestSummary | null };
+  | { status: "ready"; timeZone: string; latest: ActionDigestSummary | null; dismissedAt: number | null };
 
 /** One notification intent, as the inbox lists it. */
 export interface ActivityIntent {

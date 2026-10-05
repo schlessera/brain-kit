@@ -32,6 +32,8 @@ afterEach(() => { for (const close of cleanup.splice(0).reverse()) close(); });
 
 const HOUR = 3_600_000, DAY = 24 * HOUR, YEAR = 365 * DAY;
 /** Europe/Athens is UTC+3 until 2026-10-25: a local wall time on 2026-10-03 + dayOffset. */
+/** The principal-wide client context (no client identifier). */
+const ctx = (p: { id: string }, clientId = "") => ({ principalId: p.id, clientId });
 const athens = (dayOffset: number, hour: number, minute = 0, second = 0) =>
   Date.UTC(2026, 9, 3 + dayOffset, hour - 3, minute, second);
 
@@ -63,7 +65,7 @@ function world(options: { path?: string } = {}) {
   const principal = (label: string) => createPrincipal(db, { authMethod: "password", label, ttlSeconds: YEAR / 1000 });
   function device(owner: Principal, endpoint: string, zone?: string) {
     expect(sender.subscribe({ endpoint, keys: { p256dh: "p256dh", auth: "auth" } }, owner.id, endpoint)).toBe(true);
-    if (zone !== undefined) notices.reportZone(owner.id, zone, endpoint, clock);
+    if (zone !== undefined) notices.reportZone(ctx(owner), zone, endpoint, clock);
     return endpoint;
   }
   let threads = 0;
@@ -171,7 +173,7 @@ test("the real score decides push at 12 and digest below it; promotion after a d
   expect(pushes.map((p) => p.payload.title)).toEqual(["1 action waiting"]);
   expect(w.db.query("SELECT item_id FROM inbox_notice_constituents").all()).toEqual([{ item_id: "high" }]);
 
-  const digest = w.notices.digest(odysseus.id, morning + 60_000);
+  const digest = w.notices.digest(ctx(odysseus), morning + 60_000);
   expect(digest.status).toBe("ready");
   const summary = (digest as { latest: ActionDigestSummary }).latest;
   expect(summary.waiting.map((e) => e.itemId).sort()).toEqual(["eleven", "low-48h", "medium"]);
@@ -260,12 +262,12 @@ test("two client zones evaluate independently and follow offset changes", async 
   const sends = await w.tick(at);
   // 09:00 in New York sends; 22:00 in Tokyo defers.
   expect(sends.map((s) => s.endpoint)).toEqual([newYork]);
-  const ny = w.notices.digest(odysseus.id, at) as { status: "ready"; latest: ActionDigestSummary };
+  const ny = w.notices.digest(ctx(odysseus), at) as { status: "ready"; latest: ActionDigestSummary };
   expect(ny.latest.slotAt).toBe(at);
   expect(ny.latest.timeZone).toBe("America/New_York");
   expect(ny.latest.waiting.map((e) => e.itemId)).toEqual(["lotus"]);
   // Tokyo's own context and coverage: the New York summary is not its receipt.
-  const tk = w.notices.digest(penelope.id, at) as { status: "ready"; latest: ActionDigestSummary };
+  const tk = w.notices.digest(ctx(penelope), at) as { status: "ready"; latest: ActionDigestSummary };
   expect(tk.latest.slotAt).toBe(Date.UTC(2026, 9, 3, 8)); // 17:00 Tokyo
   expect(tk.latest.waiting.map((e) => e.itemId)).toEqual(["lotus"]);
   const morning = await w.tick(Date.UTC(2026, 9, 3, 23)); // 08:00 Tokyo
@@ -276,12 +278,12 @@ test("two client zones evaluate independently and follow offset changes", async 
   expect(latestDigestSlot("America/New_York", Date.UTC(2026, 10, 1, 13, 59))).toBe(Date.UTC(2026, 9, 31, 21));
   expect(latestDigestSlot("America/New_York", Date.UTC(2026, 10, 1, 14))).toBe(Date.UTC(2026, 10, 1, 14));
   w.now = Date.UTC(2026, 9, 31, 21);
-  w.notices.digest(odysseus.id, Date.UTC(2026, 9, 31, 21));
+  w.notices.digest(ctx(odysseus), Date.UTC(2026, 9, 31, 21));
   const count = () => (w.db.query("SELECT COUNT(*) AS n FROM inbox_notice_digests WHERE principal_id = ?").get(odysseus.id) as { n: number }).n;
   const before = count();
-  w.notices.digest(odysseus.id, Date.UTC(2026, 10, 1, 13, 59));
+  w.notices.digest(ctx(odysseus), Date.UTC(2026, 10, 1, 13, 59));
   expect(count()).toBe(before);
-  w.notices.digest(odysseus.id, Date.UTC(2026, 10, 1, 14));
+  w.notices.digest(ctx(odysseus), Date.UTC(2026, 10, 1, 14));
   expect(count()).toBe(before + 1);
 });
 
@@ -360,13 +362,13 @@ test("authenticated rebind and revocation recheck authority at every attempt", a
 test("digest B omits reported episodes, keeps snoozed work out and reawakens it as a new episode", async () => {
   const w = world();
   const odysseus = w.principal("Odysseus");
-  w.notices.reportZone(odysseus.id, "Europe/Athens", undefined, athens(0, 8));
+  w.notices.reportZone(ctx(odysseus), "Europe/Athens", undefined, athens(0, 8));
   w.now = athens(0, 8);
   w.decision("old-debt", { stakes: 1 });
   w.decision("rest", { stakes: 1 });
   w.decision("herald", { stakes: 1, type: "fyi" });
   w.move("rest", "snoozed", athens(0, 12));
-  const nine = (w.notices.digest(odysseus.id, athens(0, 9)) as { latest: ActionDigestSummary }).latest;
+  const nine = (w.notices.digest(ctx(odysseus), athens(0, 9)) as { latest: ActionDigestSummary }).latest;
   expect(nine.waiting.map((e) => e.itemId)).toEqual(["old-debt"]);
   expect(nine.updates.map((e) => e.itemId)).toEqual(["herald"]);
   w.now = athens(0, 10);
@@ -375,7 +377,7 @@ test("digest B omits reported episodes, keeps snoozed work out and reawakens it 
   w.now = athens(0, 12);
   sweepInboxLifecycle(w.db, athens(0, 12));
   expect(w.store.getItem("rest")!.status).toBe("pending");
-  const five = (w.notices.digest(odysseus.id, athens(0, 17)) as { latest: ActionDigestSummary }).latest;
+  const five = (w.notices.digest(ctx(odysseus), athens(0, 17)) as { latest: ActionDigestSummary }).latest;
   expect(five.waiting.map((e) => e.itemId).sort()).toEqual(["new-arrival", "rest"]);
   expect(five.updates).toEqual([]);
   // Unchanged, still pending, still in Actions: omitted at 17:00.
@@ -386,14 +388,14 @@ test("digest B omits reported episodes, keeps snoozed work out and reawakens it 
 test("missed slots catch up once with older unreported work; failures and races never consume coverage", async () => {
   const w = world();
   const odysseus = w.principal("Odysseus");
-  w.notices.reportZone(odysseus.id, "Europe/Athens", undefined, athens(0, 8));
+  w.notices.reportZone(ctx(odysseus), "Europe/Athens", undefined, athens(0, 8));
   w.now = athens(-30, 8);
   w.decision("ancient", { stakes: 1 }); // a month old, never reported
   const generations = () => (w.db.query("SELECT COUNT(*) AS n FROM inbox_notice_digests").get() as { n: number }).n;
 
   // A generation that fails stores nothing and covers nothing.
   w.db.exec("CREATE TRIGGER refuse_coverage BEFORE INSERT ON inbox_notice_coverage BEGIN SELECT RAISE(ABORT, 'fixture coverage refusal'); END");
-  expect(() => w.notices.digest(odysseus.id, athens(3, 10))).toThrow("fixture coverage refusal");
+  expect(() => w.notices.digest(ctx(odysseus), athens(3, 10))).toThrow("fixture coverage refusal");
   expect(generations()).toBe(0);
   w.db.exec("DROP TRIGGER refuse_coverage");
 
@@ -401,8 +403,8 @@ test("missed slots catch up once with older unreported work; failures and races 
   const second = createUiDb(w.path);
   cleanup.push(() => second.close());
   const rival = createActionNotifier(second, { now: () => athens(3, 10) });
-  const a = w.notices.digest(odysseus.id, athens(3, 10)) as { latest: ActionDigestSummary };
-  const b = rival.digest(odysseus.id, athens(3, 10)) as { latest: ActionDigestSummary };
+  const a = w.notices.digest(ctx(odysseus), athens(3, 10)) as { latest: ActionDigestSummary };
+  const b = rival.digest(ctx(odysseus), athens(3, 10)) as { latest: ActionDigestSummary };
   expect(generations()).toBe(1);
   expect(a.latest).toEqual(b.latest);
   expect(a.latest.slotAt).toBe(athens(3, 9));
@@ -486,4 +488,33 @@ test("a gone destination is pruned and no device credential reaches history", as
   const state = JSON.stringify(w.store.exportState());
   expect(state).not.toContain(wreck);
   expect(state).toContain(noticeDestination(wreck));
+});
+
+test("browsers sharing one principal keep their own zone, coverage and dismissal", async () => {
+  const w = world();
+  const household = w.principal("Ithaca household"); // one ambient/proxy identity, two browsers
+  const app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => { c.set("principal", household); await next(); });
+  app.route("/", createPushRoutes({ sender: w.sender, notices: w.notices }));
+  app.route("/", createActivityRoutes({ db: w.db, store: createActivityStore(w.db, { writer: "test" }), actionNotices: w.notices }));
+  const post = (path: string, body?: unknown) => app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  const at = Date.UTC(2026, 9, 3, 13);
+  w.now = at - HOUR;
+  w.decision("loom", { stakes: 1 });
+  w.now = at;
+  expect((await post("/push/zone", { timeZone: "America/New_York", clientId: "hall-tablet" })).status).toBe(200);
+  expect((await post("/push/zone", { timeZone: "Asia/Tokyo", clientId: "harbor-phone" })).status).toBe(200);
+  expect((await post("/push/zone", { timeZone: "Asia/Tokyo", clientId: "../escape" })).status).toBe(400);
+  const read = async (client: string) => (await (await app.request(`/activity/digest?client=${client}`)).json()).actions;
+  const hall = await read("hall-tablet"), harbor = await read("harbor-phone");
+  expect([hall.timeZone, hall.latest.timeZone]).toEqual(["America/New_York", "America/New_York"]);
+  expect([harbor.timeZone, harbor.latest.timeZone]).toEqual(["Asia/Tokyo", "Asia/Tokyo"]);
+  // Each browser's first summary reports the decision; neither consumed the other's.
+  expect(hall.latest.waiting.map((e: { itemId: string }) => e.itemId)).toEqual(["loom"]);
+  expect(harbor.latest.waiting.map((e: { itemId: string }) => e.itemId)).toEqual(["loom"]);
+  // Dismissing on one browser leaves the other's summary visible.
+  w.now = at + 60_000;
+  await post("/activity/digest/dismiss?client=hall-tablet");
+  expect((await read("hall-tablet")).dismissedAt).toBe(at + 60_000);
+  expect((await read("harbor-phone")).dismissedAt).toBeNull();
 });

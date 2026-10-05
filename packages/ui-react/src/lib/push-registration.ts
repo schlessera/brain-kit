@@ -14,6 +14,39 @@ export function currentTimeZone(): string | undefined {
   }
 }
 
+const CLIENT_ID_KEY = "brain-ui:notice-client";
+
+/**
+ * This browser's persisted notice-context identifier. One principal can serve
+ * several browsers (ambient and proxy modes share one), so the server keeps
+ * zone, digest coverage and dismissal per identifier. It is a preference key,
+ * never a credential. Without storage the context is principal-wide ("").
+ */
+export function noticeClientId(): string {
+  try {
+    const storage = typeof localStorage === "undefined" ? null : localStorage;
+    if (!storage) return "";
+    const saved = storage.getItem(CLIENT_ID_KEY);
+    if (saved && /^[A-Za-z0-9_-]{1,64}$/.test(saved)) return saved;
+    const created = crypto.randomUUID();
+    storage.setItem(CLIENT_ID_KEY, created);
+    return created;
+  } catch {
+    // Safari throws on storage access with cookies disabled.
+    return "";
+  }
+}
+
+const zoneListeners = new WeakMap<BrainApi, Set<() => void>>();
+
+/** Run `listener` after each successful zone report through this API client. */
+export function onNotificationZoneReported(api: BrainApi, listener: () => void): () => void {
+  let listeners = zoneListeners.get(api);
+  if (!listeners) zoneListeners.set(api, (listeners = new Set()));
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
 /**
  * Re-assert an existing browser subscription after authentication changes.
  * This does not request permission or create a subscription: it only binds an
@@ -47,13 +80,16 @@ export async function reportNotificationZone(api: BrainApi, signal?: AbortSignal
   const zone = currentTimeZone() ?? "";
   let endpoint: string | undefined;
   try {
-    endpoint = (await existingSubscription(signal))?.endpoint;
+    // Never wait on `serviceWorker.ready`: it does not settle in a shell
+    // without an active worker, and the client context needs its zone anyway.
+    endpoint = (await existingSubscription(signal, false))?.endpoint;
   } catch (error) {
     if (signal?.aborted) throw error;
     // No service worker answer: still refresh the client context.
   }
   signal?.throwIfAborted();
-  await api.pushZone(zone, endpoint);
+  await api.pushZone(zone, endpoint, noticeClientId());
+  for (const listener of zoneListeners.get(api) ?? []) listener();
   return zone;
 }
 
@@ -94,7 +130,7 @@ export function createZoneRefresher(
   };
 }
 
-async function existingSubscription(signal?: AbortSignal): Promise<PushSubscription | null> {
+async function existingSubscription(signal?: AbortSignal, waitForWorker = true): Promise<PushSubscription | null> {
   if (
     typeof Notification === "undefined" ||
     Notification.permission !== "granted" ||
@@ -106,8 +142,9 @@ async function existingSubscription(signal?: AbortSignal): Promise<PushSubscript
   // Capture before awaiting: the page may begin navigating immediately after
   // login while the service-worker readiness promise settles.
   const serviceWorker = navigator.serviceWorker;
-  const registration = await serviceWorker.ready;
+  const registration = waitForWorker ? await serviceWorker.ready : await serviceWorker.getRegistration();
   signal?.throwIfAborted();
+  if (!registration) return null;
   const subscription = await registration.pushManager.getSubscription();
   signal?.throwIfAborted();
   return subscription;

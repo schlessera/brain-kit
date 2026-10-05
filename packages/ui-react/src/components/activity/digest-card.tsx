@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ActionDigestSummary, ActivityDigest } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
+import { noticeClientId, onNotificationZoneReported } from "../../lib/push-registration.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { DigestSummary } from "./digest-summary.js";
 import { digestCostClause } from "./span-bits.js";
@@ -28,35 +29,46 @@ export function DigestCard() {
   const [visible, setVisible] = useState(false);
   const setActiveView = useUIStore((s) => s.setActiveView);
 
+  const clientId = useMemo(() => noticeClientId(), []);
+
   useEffect(() => {
     let active = true;
+    let request = 0;
     setDigest(null);
     setActions(null);
     setVisible(false);
-    void api
-      .activityDigest()
-      .then(({ digest, dismissedAt, actions }) => {
-        if (!active) return;
-        const freshDigest = digest && digest.runs > 0 && digest.generatedAt > dismissedAt ? digest : null;
-        const latest = actions?.status === "ready" ? actions.latest : null;
-        const freshActions =
-          latest && latest.waiting.length + latest.updates.length > 0 && latest.generatedAt > dismissedAt ? latest : null;
-        if (!freshDigest && !freshActions) return;
-        setDigest(freshDigest);
-        setActions(freshActions);
-        setVisible(true);
-      })
-      .catch(() => {
-        // No digest is a quiet state, never an error surface.
-      });
-    return () => { active = false; };
-  }, [api]);
+    const load = () => {
+      const current = ++request;
+      void api
+        .activityDigest(clientId)
+        .then(({ digest, dismissedAt, actions }) => {
+          if (!active || current !== request) return;
+          const freshDigest = digest && digest.runs > 0 && digest.generatedAt > dismissedAt ? digest : null;
+          // Actions summaries carry this client context's own dismissal.
+          const latest = actions?.status === "ready" ? actions.latest : null;
+          const actionsDismissedAt = actions?.status === "ready" ? actions.dismissedAt ?? 0 : 0;
+          const freshActions =
+            latest && latest.waiting.length + latest.updates.length > 0 && latest.generatedAt > actionsDismissedAt ? latest : null;
+          if (!freshDigest && !freshActions) return;
+          setDigest(freshDigest);
+          setActions(freshActions);
+          setVisible(true);
+        })
+        .catch(() => {
+          // No digest is a quiet state, never an error surface.
+        });
+    };
+    load();
+    // A first or changed zone report can make a summary due: fetch again.
+    const unsubscribe = onNotificationZoneReported(api, load);
+    return () => { active = false; unsubscribe(); };
+  }, [api, clientId]);
 
   if (!visible || (!digest && !actions)) return null;
 
   function dismiss() {
     setVisible(false);
-    void api.activityDigestDismiss().catch(() => {});
+    void api.activityDigestDismiss(clientId).catch(() => {});
   }
 
   return (

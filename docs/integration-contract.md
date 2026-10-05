@@ -1976,19 +1976,28 @@ Durable waiting decisions reach their recipients under the
   display it unchanged; a notice grants no authority and resolves nothing.
 - **Registration input.** `POST /api/push/subscribe` accepts an optional
   `timeZone` string. The server validates it against its own zone database
-  and stores the canonical name for that device and the caller's client
-  context; an unusable value is stored as missing and never fails the
-  subscription. Omission keeps the device's last reported zone.
+  and stores the canonical name for that device; an unusable value is stored
+  as missing and never fails the subscription. Omission keeps the device's
+  last reported zone.
   `GET /api/push/subscriptions` adds `timeZone: string | null` to each summary.
   The SDK `registerPushHandlers` renewal now sends the worker's zone.
-- **Zone refresh.** The internal `POST /api/push/zone` `{ timeZone, endpoint? }`
-  refreshes the caller's zone and, only when the caller owns it, that
-  endpoint's. It answers `{ ok: true, timeZone: string | null }`. The server
-  stamps its own clock; no client time is accepted.
-- **In-app digest.** The internal `GET /api/activity/digest` response adds
-  `actions?: ActionDigestState` for the authenticated caller:
+- **Client context.** A client context is the authenticated principal plus
+  an optional client identifier (`[A-Za-z0-9_-]{1,64}`) the browser persists,
+  because one principal can serve several browsers. It keys the reported
+  zone, digest coverage and dismissal; it grants nothing. Omitted, the
+  context is principal-wide.
+- **Zone refresh.** The internal `POST /api/push/zone`
+  `{ timeZone, endpoint?, clientId? }` refreshes that client context's zone
+  and, only when the caller owns it, that endpoint's. It answers
+  `{ ok: true, timeZone: string | null }`; a malformed `clientId` is a 400.
+  The server stamps its own clock; no client time is accepted.
+- **In-app digest.** The internal `GET /api/activity/digest?client=<id>`
+  response adds `actions?: ActionDigestState` for that client context:
   `{ status: "zone_required" }` without a usable zone, otherwise
-  `{ status: "ready", timeZone, latest: ActionDigestSummary | null }`.
+  `{ status: "ready", timeZone, latest: ActionDigestSummary | null,
+  dismissedAt: number | null }`. `POST /api/activity/digest/dismiss?client=<id>`
+  also records that context's own Actions dismissal; the global activity
+  dismissal marker is unchanged.
   `ActionDigestSummary` is `{ generatedAt, slotAt, timeZone, waiting, updates }`,
   exported with `ActionDigestEntry` and `ActionDigestState` from
   `@schlessera/brain-ui-sdk/protocol`. `waiting` lists new or reawakened

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
-import type { ActionNotifier } from "../inbox/notify.js";
+import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
@@ -34,6 +34,8 @@ const unsubscribeSchema = z.object({
 const zoneSchema = z.object({
   timeZone: z.string().max(256),
   endpoint: z.url().max(2048).optional(),
+  /** The client's own persisted context identifier; omitted means principal-wide. */
+  clientId: z.string().max(64).optional(),
 });
 
 export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNotifier }) {
@@ -84,7 +86,7 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNot
         }
         // Omitted: an older client keeps the device's last reported zone.
         if (body.timeZone !== undefined) {
-          notices?.reportZone(principal.id, body.timeZone, body.subscription.endpoint);
+          notices?.reportDeviceZone(principal.id, body.subscription.endpoint, body.timeZone);
         }
         return c.json({ ok: true });
       } catch (err) {
@@ -101,10 +103,12 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNot
       const result = await readJsonBody(c);
       if (result instanceof Response) return result;
       const parsed = zoneSchema.safeParse(result);
-      if (!parsed.success) return c.json({ error: "Bad zone report" }, 400);
+      const clientId = parsed.success ? noticeClientId(parsed.data.clientId) : null;
+      if (!parsed.success || clientId === null) return c.json({ error: "Bad zone report" }, 400);
       if (!notices) return c.json({ error: "Action notices unavailable" }, 503);
       try {
-        const { timeZone } = notices.reportZone(c.get("principal")!.id, parsed.data.timeZone, parsed.data.endpoint);
+        const client = { principalId: c.get("principal")!.id, clientId };
+        const { timeZone } = notices.reportZone(client, parsed.data.timeZone, parsed.data.endpoint);
         return c.json({ ok: true, timeZone });
       } catch {
         return c.json({ error: "Authentication required" }, 401);
