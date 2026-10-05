@@ -8,6 +8,7 @@ import { createActivityStore } from "./activity-state.js";
 import { createPrincipalStore } from "./principal-state.js";
 import { createMaskStore } from "./mask-state.js";
 import { createShareStore } from "./share-state.js";
+import { createHandoffStore } from "./handoff-state.js";
 import { createVoiceStore } from "../voice/voice-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
@@ -24,6 +25,7 @@ export function createBrainStores(env: StoreEnvironment) {
     principal: createPrincipalStore(env),
     mask: createMaskStore(),
     share: createShareStore(),
+    handoff: createHandoffStore(env),
     voice: createVoiceStore(),
   };
 }

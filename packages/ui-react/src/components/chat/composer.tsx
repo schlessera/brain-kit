@@ -25,6 +25,7 @@ import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
 import { createTrackUploads, trackPending, trackReady, type PendingTrack } from "../../lib/track-uploads.js";
 import { apiBaseFor } from "../../lib/backend.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
+import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -96,6 +97,9 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
 
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const sessionId = useChatStore((s) => s.activeSessionId);
+  // A conversation with a settled reply can be continued on another backend (#61).
+  const hasSettledTurn = useChatStore((s) => activeChat(s).messages.some((m) => m.role === "assistant" && !m.isStreaming));
+  const handoffEntry = useHandoffEntry(sessionId, hasSettledTurn);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
   useEffect(() => {
     const changed = () => trackUploads.setOnline(wsStatus === "connected" && navigator.onLine !== false);
@@ -496,7 +500,10 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
   // actually answering.
   const displayProviderLabel =
     displayProvider?.label ?? displayProviderId ?? "Default model";
-  const showProviderPicker = providers.length > 1 || Boolean(effortLevels?.length);
+  // A pinned conversation's way to another backend lives in the locked
+  // picker (#61), so the chip stays even with one profile: the entry is then
+  // disabled with its reason, never hidden.
+  const showProviderPicker = providers.length > 1 || Boolean(effortLevels?.length) || (providerLocked && handoffEntry.shown);
   // What happens if the user sends into the currently-running session.
   const displayBackendId = displayProvider?.backendId;
   const followUpLive = !chatRequestAck && (displayBackendId ? backends[displayBackendId]?.capabilities.followUp ?? false : false);
@@ -589,6 +596,14 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
                   selectedEffort,
                   effortExplanation: selectedEffort && effort.requested && !effortLevels?.includes(effort.requested)
                     ? `${effort.requested} not supported` : undefined,
+                  ...(providerLocked && handoffEntry.shown ? {
+                    lockedAction: {
+                      label: HANDOFF_ENTRY_LABEL,
+                      detail: "starts a new linked chat; this one stays",
+                      ...(handoffEntry.why ? { why: handoffEntry.why } : {}),
+                      onSelect: () => { setProviderMenuOpen(false); handoffEntry.open(); },
+                    },
+                  } : {}),
                 }
               : null
           }

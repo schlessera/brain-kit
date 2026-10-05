@@ -4,6 +4,7 @@ import { chatFrameHandlers } from "./chat.js";
 import { connectionFrameHandlers } from "./connection.js";
 import { maskFrameHandlers } from "./mask.js";
 import { providerFrameHandlers } from "./provider.js";
+import { handoffFrameHandlers } from "./handoff.js";
 import type {
   DispatchContext,
   ServerMessageHandlerMap,
@@ -17,6 +18,7 @@ type ClaimedFrame = HandlerKeys<
   | typeof maskFrameHandlers
   | typeof providerFrameHandlers
   | typeof connectionFrameHandlers
+  | typeof handoffFrameHandlers
 >;
 type DuplicateFrame =
   | Extract<
@@ -36,7 +38,15 @@ type DuplicateFrame =
       keyof typeof maskFrameHandlers,
       keyof typeof providerFrameHandlers | keyof typeof connectionFrameHandlers
     >
-  | Extract<keyof typeof providerFrameHandlers, keyof typeof connectionFrameHandlers>;
+  | Extract<keyof typeof providerFrameHandlers, keyof typeof connectionFrameHandlers>
+  | Extract<
+      keyof typeof handoffFrameHandlers,
+      | keyof typeof chatFrameHandlers
+      | keyof typeof activityFrameHandlers
+      | keyof typeof maskFrameHandlers
+      | keyof typeof providerFrameHandlers
+      | keyof typeof connectionFrameHandlers
+    >;
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A, B] extends [B, A] ? true : false;
@@ -49,6 +59,7 @@ const serverMessageHandlers = {
   ...maskFrameHandlers,
   ...providerFrameHandlers,
   ...connectionFrameHandlers,
+  ...handoffFrameHandlers,
 } satisfies ServerMessageHandlerMap<ServerMessageType>;
 
 export function dispatchServerMessage(msg: ServerMessage, context: DispatchContext): void {

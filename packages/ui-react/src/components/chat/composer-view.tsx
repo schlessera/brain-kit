@@ -44,6 +44,8 @@ export interface ComposerProvider {
   effortLevels?: ThinkingLevel[];
   selectedEffort?: ThinkingLevel;
   effortExplanation?: string;
+  /** Under a locked model: continue on another backend (#61). */
+  lockedAction?: { label: string; detail?: string; why?: string; onSelect: () => void };
 }
 
 export interface ComposerViewProps {
@@ -156,6 +158,7 @@ export function ComposerView(p: ComposerViewProps) {
         models={p.provider.options} selectedModelId={p.provider.selectedId} modelLocked={p.provider.locked}
         phone={!pointer} defaultEffort={p.provider.defaultEffort} effortLevels={p.provider.effortLevels}
         selectedEffort={p.provider.selectedEffort ?? null} onModel={p.onProviderSelect}
+        {...(p.provider.lockedAction ? { lockedAction: p.provider.lockedAction } : {})}
         onEffort={(level) => { if (level === null || isThinkingLevel(level)) p.onEffortSelect(level); }} onDismiss={p.onProviderDismiss} />}
 
       {/* Capture is a MENU behind the paperclip (D37): a popover on a pointer
@@ -192,7 +195,7 @@ export function ComposerView(p: ComposerViewProps) {
         providerDetailExplanation={p.provider?.effortExplanation}
         providerExpanded={p.provider?.menuOpen}
         providerControls={pickerId}
-        onProvider={p.provider && (!p.provider.locked || p.provider.effortLevels?.length) ? p.onProviderToggle : undefined}
+        onProvider={p.provider && (!p.provider.locked || p.provider.effortLevels?.length || p.provider.lockedAction) ? p.onProviderToggle : undefined}
         onChange={p.onChange}
         onSend={p.onSend}
         onStop={p.onStop}
