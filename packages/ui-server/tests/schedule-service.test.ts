@@ -449,3 +449,17 @@ test("a list page, its cursor included, stays within the 512 KiB response bound"
   expect(first.tasks.length + second.tasks.length).toBe(34);
   expect(second.nextCursor).toBeNull();
 });
+
+test("a retirement interrupted after its claiming rename is completed, never lost", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const { result } = await create(fixture, "claimed", cronDefinition());
+  const id = result.task.id;
+  const definitions = join(fixture.root, "context/scheduled-tasks/definitions");
+  const claim = join(definitions, `.${id}.md.00000000-0000-4000-8000-000000000003.retiring`);
+  renameSync(join(definitions, `${id}.md`), claim);
+  const cancelled = await service.cancel(fixture.owner, id, { key: "claimed-cancel" });
+  expect(cancelled.task).toMatchObject({ state: "cancelled", compensationPending: false });
+  expect(existsSync(claim)).toBe(false);
+  expect(readFileSync(join(fixture.root, "context/scheduled-tasks/retired", `${id}.md`), "utf8")).toContain("schedule_schema: 1");
+});

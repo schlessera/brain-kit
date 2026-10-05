@@ -124,6 +124,7 @@ function assertBoundedJson(value: unknown, depth: number, where: string): assert
   if (value === null || typeof value === "boolean") return;
   if (typeof value === "string") {
     if (TEXT_CONTROL.test(value)) fail(`${where} contains a control character`);
+    if (!value.isWellFormed()) fail(`${where} is not well-formed Unicode`);
     return;
   }
   if (typeof value === "number") {
@@ -150,6 +151,7 @@ function assertBoundedJson(value: unknown, depth: number, where: string): assert
 function identifierText(value: string, where: string, maxBytes: number): void {
   if (value.length === 0 || bytes(value) > maxBytes) fail(`${where} must be 1–${maxBytes} bytes`);
   if (CONTROL.test(value)) fail(`${where} contains a control character`);
+  if (!value.isWellFormed()) fail(`${where} is not well-formed Unicode`);
 }
 
 /** Exact brain-relative target paths only; protected namespaces are refused. */
@@ -258,6 +260,8 @@ function validatePrompt(prompt: string): string {
   if (normalized.trim() === "") fail("prompt must not be blank");
   if (bytes(normalized) > MAX_PROMPT_BYTES) fail(`prompt exceeds ${MAX_PROMPT_BYTES} bytes`);
   if (TEXT_CONTROL.test(normalized)) fail("prompt contains a control character");
+  // A lone surrogate cannot be written as UTF-8: the file would never match.
+  if (!normalized.isWellFormed()) fail("prompt is not well-formed Unicode");
   return normalized;
 }
 

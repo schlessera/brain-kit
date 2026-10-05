@@ -78,7 +78,7 @@ test("fingerprints bind definition, root, creator and execution policy", () => {
 test("CRLF normalizes once at proposal time and control characters are refused", () => {
   const input = normalizeDefinitionInput({ ...cronDefinition(), prompt: "Line one\r\nLine two\tend" });
   expect(input.prompt).toBe("Line one\nLine two\tend");
-  for (const prompt of ["   ", "bell\u0007", "x".repeat(16 * 1024 + 1)]) {
+  for (const prompt of ["   ", "bell\u0007", "Read Ithaca\ud800", "x".repeat(16 * 1024 + 1)]) {
     expect(() => normalizeDefinitionInput({ ...cronDefinition(), prompt })).toThrow();
   }
 });

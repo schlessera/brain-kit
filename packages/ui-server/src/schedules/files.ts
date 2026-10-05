@@ -14,7 +14,7 @@
  * moves only the exact file identity whose bytes were verified.
  */
 import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readdir, unlink, type FileHandle } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
 import { DEFINITIONS_DIR, MAX_DEFINITION_FILE_BYTES, RETIRED_DIR } from "./definition.js";
@@ -163,11 +163,9 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         await assertChain(chain);
         const temporary = dir.at(`.${id}.md.${crypto.randomUUID()}.tmp`);
         const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-        let ino = -1;
         try {
           await handle.writeFile(bytes);
           await handle.sync();
-          ino = (await handle.stat()).ino;
         } finally { await handle.close(); }
         try {
           try { await link(temporary, final); }
@@ -181,9 +179,9 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         }
         await dir.handle.sync();
         await assertChain(chain);
+        // Same inode or not, only the approved bytes count as published.
         const published = await openContained(final);
-        if (!published || (published.ino !== ino && !published.bytes.equals(bytes)))
-          throw new ScheduleFileConflictError("Published definition changed");
+        if (!published?.bytes.equals(bytes)) throw new ScheduleFileConflictError("Published definition changed");
       } finally { await closeChain(chain); }
     },
 
@@ -194,29 +192,54 @@ export function createScheduleFiles(root: string): ScheduleFiles {
       try {
         archive = (await directoryChain(root, RETIRED_DIR, true))!;
         const source = active ? active.at(-1)!.at(name(id)) : null;
+        // Finish a retirement interrupted after its claiming rename: archive a
+        // claimed verified file, or put back anything else.
+        if (active) {
+          const dir = active.at(-1)!, prefix = `.${id}.md.`;
+          for (const entry of await readdir(dir.at("."))) {
+            if (!entry.startsWith(prefix) || !/^[0-9a-f-]{36}\.retiring$/.test(entry.slice(prefix.length))) continue;
+            const claim = dir.at(entry), held = await openContained(claim);
+            if (!held) continue;
+            const target = held.bytes.equals(bytes) ? archive.at(-1)!.at(name(id)) : source!;
+            try { await link(claim, target); }
+            catch (error) {
+              if (errno(error) !== "EEXIST" || !(await openContained(target))?.bytes.equals(held.bytes)) continue;
+            }
+            await unlink(claim);
+          }
+        }
         const current = source ? await openContained(source) : null;
         // Nothing active remains. Retirement is complete either way; matching
         // data cannot revive a cancelled ID.
         if (!current) { await assertChain(archive); return true; }
         if (!current.bytes.equals(bytes)) return false;
-        const destination = archive.at(-1)!.at(name(id));
-        let linked = false;
-        try { await link(source!, destination); linked = true; }
+        const activeDir = active!.at(-1)!, archiveDir = archive.at(-1)!;
+        const destination = archiveDir.at(name(id));
+        // Take ownership of whatever now sits at the active path with one
+        // atomic rename, then check it is the verified file. A replacement
+        // written after the check is put back, never deleted.
+        const claimed = activeDir.at(`.${id}.md.${crypto.randomUUID()}.retiring`);
+        try { await rename(source!, claimed); }
         catch (error) {
-          if (errno(error) !== "EEXIST") throw error;
-          if (!(await openContained(destination))?.bytes.equals(bytes)) return false;
+          if (errno(error) === "ENOENT") return true; // Another retirer finished first.
+          throw error;
         }
-        // The path may have been replaced after the bytes were verified: only
-        // the verified identity may be archived and removed.
-        if (linked && await inode(destination) !== current.ino) {
-          await unlink(destination).catch(() => {});
+        if (await inode(claimed) !== current.ino) {
+          await link(claimed, source!).then(() => unlink(claimed)).catch(() => {});
           return false;
         }
-        await archive.at(-1)!.handle.sync();
+        try { await link(claimed, destination); }
+        catch (error) {
+          if (errno(error) !== "EEXIST") throw error;
+          if (!(await openContained(destination))?.bytes.equals(bytes)) {
+            await link(claimed, source!).then(() => unlink(claimed)).catch(() => {});
+            return false;
+          }
+        }
+        await archiveDir.handle.sync();
+        await unlink(claimed);
+        await activeDir.handle.sync();
         await assertChain(active!);
-        if (await inode(source!) !== current.ino) return (await inode(source!)) === null;
-        await unlink(source!).catch((error) => { if (errno(error) !== "ENOENT") throw error; });
-        await active!.at(-1)!.handle.sync();
         await assertChain(archive);
         return true;
       } finally { await closeChain(active); await closeChain(archive); }

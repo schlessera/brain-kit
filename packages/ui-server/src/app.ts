@@ -360,10 +360,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;
   const schedules = createScheduleService(db, {
     brainRoot: config.brainPath,
-    executionPolicy: async () => scheduleOrigins === null ? null : {
-      backendId: await registry.getDefaultBackendId(),
-      profileId: await registry.getPreferredProfileId(),
-      inferenceOrigins: scheduleOrigins,
+    executionPolicy: async () => {
+      if (scheduleOrigins === null) return null;
+      // The backend that owns the preferred profile, as a turn would resolve it.
+      const profileId = await registry.getPreferredProfileId();
+      const backendId = profileId === null ? await registry.getDefaultBackendId()
+        : (await registry.getBackendForProfile(profileId))?.id;
+      return backendId ? { backendId, profileId, inferenceOrigins: scheduleOrigins } : null;
     },
   });
   try { await schedules.ready; }
