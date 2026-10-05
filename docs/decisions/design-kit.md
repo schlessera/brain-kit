@@ -5211,8 +5211,9 @@ more often than Files would take the slot and move Files to More.
 **Phone discs.** The Search disc sits left of New chat with its icon in
 `inkMute`; New chat keeps ink at rest as the primary. Both sit in one
 right-anchored row, so a label expanding leftward pushes Search and they
-never overlap. They are drawn only below `tablet:` and only while the chat
-has messages; the empty state has its chips instead.
+never overlap. The Search disc is drawn only below `tablet:` and only while
+the chat has messages; the empty state has its chips instead. The New chat
+disc is drawn in occupied Chat at every width below 1280 (§1).
 
 **Keyboard and focus.**
 
