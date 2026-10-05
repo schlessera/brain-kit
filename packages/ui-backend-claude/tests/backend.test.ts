@@ -292,7 +292,7 @@ describe("createClaudeBackend identity + profiles", () => {
       askUser: true,
       costReporting: true,
       concurrentSessions: true,
-      followUp: false,
+      followUp: true,
     });
   });
 

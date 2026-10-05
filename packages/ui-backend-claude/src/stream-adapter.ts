@@ -196,11 +196,11 @@ export class StreamAdapter {
         // Status BEFORE result: `result` is the turn's terminal frame and
         // must be the last thing a consumer sees for the turn.
         messages.push({ type: "status", status: "idle" });
-        // This backend runs one query() per turn (each turn is its own SDK
-        // subprocess), so result-level accounting IS per-turn — the SDK's
-        // cumulative-across-turns caveat for streaming-input sessions does
-        // not apply here. `modelUsage` is preferred per SDK guidance: it
-        // covers subagents and sidechains, which `usage` excludes.
+        // One query() subprocess per turn, so cost and `modelUsage` (preferred:
+        // it covers subagents and sidechains, which `usage` excludes) cover the
+        // turn. A follow-up the CLI runs as a continuation adds a result whose
+        // cost and modelUsage are cumulative over the process; the runner
+        // keeps the last one and adds the earlier runs' turns and duration.
         const usage = usageFromResult(msg);
         if (msg.subtype === "success" && !msg.is_error) {
           messages.push({

@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   BackendActivityEvent,
+  FollowUpRequest,
   ServerMessage,
   StartTurnRequest,
   TurnFailure,
@@ -29,12 +30,25 @@ import {
 } from "./subscription.js";
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
+import { createTurnInput, type TurnInput } from "./turn-input.js";
 import { DEFAULT_ALLOWED_TOOLS } from "./tool-policy.js";
 import { resolveExecConfig } from "./config/env.js";
 import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 const BACKEND_ID = "claude";
+
+/** A running turn, with the input stream a follow-up is delivered into. */
+interface RunningTurn extends ActiveTurn {
+  /** Set once the SDK turn is built; absent while the runtime is probed. */
+  input?: TurnInput;
+}
+
+export interface ClaudeTurnRunner {
+  startTurn(req: StartTurnRequest): Promise<void>;
+  /** `AgentBackend.followUp`: deliver a message into the session's running turn. */
+  followUp(req: FollowUpRequest): Promise<void>;
+}
 
 export function createClaudeTurnRunner(options: {
   backend: ClaudeBackendOptions;
@@ -43,16 +57,27 @@ export function createClaudeTurnRunner(options: {
   writeLock: KeyedLock;
   lockWaitMs: number;
   log: BackendLogFn;
-}): (req: StartTurnRequest) => Promise<void> {
+}): ClaudeTurnRunner {
   // Busy-ness is PER SESSION: one running turn per session key. Resuming a
   // session that already has a running turn rejects BackendBusyError; a NEW
   // turn (no sessionId yet) gets a unique placeholder key, so two concurrent
   // new-session turns always coexist. The slot is re-keyed to the real session
   // id once the SDK reports it.
-  const activeTurns = new Map<string, ActiveTurn>();
+  const activeTurns = new Map<string, RunningTurn>();
   const queryFn = options.backend.queryFn ?? query;
 
-  return async function startTurn(req: StartTurnRequest): Promise<void> {
+  async function followUp(req: FollowUpRequest): Promise<void> {
+    // Keyed by the real session id only once the SDK reported it, which is
+    // also when the host first learns it: a placeholder key never matches.
+    const turn = activeTurns.get(req.sessionId);
+    if (!turn?.input?.push(req.prompt, req.attachments)) {
+      throw new BackendRequestError(
+        `No running turn for session ${req.sessionId} to deliver a follow-up to.`
+      );
+    }
+  }
+
+  async function startTurn(req: StartTurnRequest): Promise<void> {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true);
@@ -63,7 +88,7 @@ export function createClaudeTurnRunner(options: {
 
     const abortController = new AbortController();
     let yielded = false;
-    const turn: ActiveTurn = { pendingReleases: new Map(), ended: false };
+    const turn: RunningTurn = { pendingReleases: new Map(), ended: false };
     const turnLock = createTurnLockBinding({
       turn,
       writeLock: options.writeLock,
@@ -232,6 +257,9 @@ export function createClaudeTurnRunner(options: {
         turnLock,
         log: options.log,
       });
+      // Always a stream that stays open, so follow-ups can join the turn.
+      const input = createTurnInput(sdkTurn.prompt);
+      turn.input = input;
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
         // before query() sees any user input. Capture uses the SDK's resolver.
@@ -256,7 +284,7 @@ export function createClaudeTurnRunner(options: {
         resolveQuery = resolve;
       });
       const prompt = sdkTurn.subscriptionOnly || runtimeRequirements.length > 0
-        ? gatedPrompt(sdkTurn.prompt, async () => {
+        ? gatedPrompt(input.messages, async () => {
             const withhold = (): false => {
               withheld = true;
               abortController.abort();
@@ -316,7 +344,7 @@ export function createClaudeTurnRunner(options: {
             }
             return true;
           })
-        : sdkTurn.prompt;
+        : input.messages;
       const result = queryFn({ prompt, options: sdkTurn.options });
       resolveQuery(result);
       // The account the CLI selected, for the per-turn report below. The SDK
@@ -328,7 +356,26 @@ export function createClaudeTurnRunner(options: {
       ) as Promise<AccountInfo | undefined>;
 
       let announced = false;
+      let reported = false;
+      /**
+       * A `result` that follow-ups outlived (#1003): the CLI runs them as
+       * continuation turns of the same process, so the one frame the client
+       * gets is built from the LAST result, with the per-run counts of the
+       * earlier ones added. Cost and model usage are already cumulative over
+       * the process, so the last result carries them for the whole turn.
+       */
+      let carried: { numTurns: number; durationMs: number; frames: ServerMessage[] } | null = null;
+      const carry = (frames: ServerMessage[]): ServerMessage[] => {
+        if (!carried) return frames;
+        const earlier = carried;
+        return frames.map((frame) =>
+          frame.type === "result"
+            ? { ...frame, numTurns: frame.numTurns + earlier.numTurns, durationMs: frame.durationMs + earlier.durationMs }
+            : frame
+        );
+      };
       for await (const msg of result) {
+        input.observe(msg);
         // A withheld turn has already decided its outcome; nothing the stream
         // does after that may replace it.
         if (withheld) break;
@@ -355,7 +402,9 @@ export function createClaudeTurnRunner(options: {
         }
         // After session_info, so the run is opened with its session.
         if (msg.type === "system" && msg.subtype === "init") {
-          reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
+          // Every continuation turn re-announces init; the run is reported once.
+          if (!reported) reportRuntime(msg.claude_code_version, msg.apiKeySource, await account);
+          reported = true;
           if (runtimeRequirements.length) {
             try {
               assertClaudeRuntime(msg.claude_code_version ?? null, runtimeRequirements, "system/init observation", "running CLI did not report its version");
@@ -368,7 +417,27 @@ export function createClaudeTurnRunner(options: {
             }
           }
         }
-        for (const serverMsg of adapter.adapt(msg)) {
+        let frames = adapter.adapt(msg);
+        if (msg.type === "result") {
+          const { continues, unacknowledged } = input.settle();
+          if (continues && !sawResult) {
+            // Not the turn's last: hold it, in case no continuation comes.
+            const held = carry(frames);
+            const final = held.find((frame) => frame.type === "result");
+            if (final?.type === "result") {
+              carried = { numTurns: final.numTurns, durationMs: final.durationMs, frames: held };
+            }
+            // A follow-up the CLI has not reported reading may come from a
+            // runtime that does not report it at all. Closing is safe: what was
+            // pushed is still written, and the CLI drains it before it exits.
+            if (unacknowledged) input.close();
+            continue;
+          }
+          input.close();
+          frames = carry(frames);
+          carried = null;
+        }
+        for (const serverMsg of frames) {
           // Exactly one terminal frame per turn, whatever the stream does:
           // a second SDK result is dropped rather than forwarded.
           if (serverMsg.type === "result") {
@@ -384,6 +453,13 @@ export function createClaudeTurnRunner(options: {
         }
       }
 
+      // A held result no continuation replaced is the turn's terminal frame.
+      if (carried && !sawResult && !withheld && !abortController.signal.aborted) {
+        for (const serverMsg of carried.frames) {
+          if (serverMsg.type === "result") sawResult = true;
+          emit(serverMsg);
+        }
+      }
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult) {
@@ -425,13 +501,16 @@ export function createClaudeTurnRunner(options: {
         emitTerminal("error");
       }
     } finally {
+      turn.input?.close();
       req.signal.removeEventListener("abort", onHostAbort);
       // Backstop: release any write lock still held (a mutating tool whose
       // result never streamed, e.g. an aborted turn) and free the busy slot.
       turnLock.close();
       activeTurns.delete(turnKey);
     }
-  };
+  }
+
+  return { startTurn, followUp };
 }
 
 /** Startup settlement is bounded even if an injected/older SDK ignores abort. */
