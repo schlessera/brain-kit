@@ -149,6 +149,32 @@ describe("delivering a follow-up into the running turn", () => {
     await expect(refusal!).rejects.toBeInstanceOf(BackendRequestError);
   });
 
+  test("an autonomous run's input still ends when the run ends without a result", async () => {
+    let input: AsyncIterator<SDKUserMessage> | undefined;
+    const h = harness(
+      async function* (stream) {
+        input = stream;
+        yield init;
+        // The CLI dies: no result.
+      },
+      {
+        enforceAllowedTools: true,
+        noGrantSurface: true,
+        autonomous: { origin: "autonomous", persistence: "none", allowedTools: ["Read"], systemPromptAppend: "" },
+        bridge: {
+          emit: () => {},
+          checkpointPermission: () => {},
+          requestPermission: async () => ({ behavior: "deny", message: "No grant surface" }),
+        },
+      }
+    );
+    await h.start();
+
+    expect(input).toBeDefined();
+    const next = await Promise.race([input!.next(), Bun.sleep(500).then(() => "still open" as const)]);
+    expect(next).toEqual({ done: true, value: undefined });
+  });
+
   test("is refused once the turn has ended", async () => {
     const h = harness(async function* () {
       yield init;

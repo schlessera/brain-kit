@@ -201,6 +201,8 @@ export function createClaudeTurnRunner(options: {
     let sawResult = false;
     /** Bounds how long a held result waits for a follow-up's read report. */
     let ackGraceTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Every turn's input, autonomous or not, so cleanup always ends it. */
+    let turnInput: TurnInput | undefined;
     /**
      * Set when the subscription check refused the turn before its prompt was
      * released. It outranks the abort it causes: the turn failed, it was not
@@ -270,7 +272,7 @@ export function createClaudeTurnRunner(options: {
         log: options.log,
       });
       // Always a stream that stays open, so follow-ups can join the turn.
-      const input = createTurnInput(sdkTurn.prompt);
+      const input = (turnInput = createTurnInput(sdkTurn.prompt));
       if (!req.autonomous) turn.input = input;
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
@@ -533,7 +535,7 @@ export function createClaudeTurnRunner(options: {
       }
     } finally {
       clearTimeout(ackGraceTimer);
-      turn.input?.close();
+      turnInput?.close();
       req.signal.removeEventListener("abort", onHostAbort);
       // Backstop: release any write lock still held (a mutating tool whose
       // result never streamed, e.g. an aborted turn) and free the busy slot.
