@@ -3495,12 +3495,81 @@ selected. Autonomous nonpersistence, exact tool authority, loaded-runtime
 compatibility and the containment/dispatch gates remain binding; endpoint
 support does not enable autonomous execution.
 
+## Scheduled tasks (additive, #914)
+
+`brain schedule add|list|cancel|due` and the authenticated host routes below
+store and inspect scheduled tasks. **They never run one.** No dispatcher is
+wired: every stored task reports `executionAvailable: false` with
+`blockedReason: "dispatch_disabled"` until the Queue runtime (#915) exists and
+[#689](https://github.com/schlessera/brain-kit/issues/689) enables it.
+Bridge tools (#916) and PWA review (#917) remain prepared below, not shipped.
+Types, bounds and receipts are the ones in the
+[prepared contract](#scheduled-task-contract-preparation-913), with the
+refinements this section lists; where the two differ, this section wins.
+
+**Storage.** The definition is `context/scheduled-tasks/definitions/<taskId>.md`
+under the canonical brain root; cancellation moves it to
+`context/scheduled-tasks/retired/`. Core excludes `context/scheduled-tasks`
+from indexing by default ([configuration](configuration.md#exclude)), so a
+forced `brain index` neither reads nor removes definitions. Frontmatter values
+are canonical JSON (valid YAML flow syntax) in the fixed order
+`schedule_schema`, `id`, `when`, `scope`, `limits`, `notifyOnSuccess`; the body
+is the exact prompt. A file that is not byte-identical to the approved snapshot
+quarantines the task (`definition_drift`); the host never rewrites it. The
+approved snapshot, fingerprint, approval, receipts and occurrences live in the
+UI operational database and travel with the [operational backup](inbox-recovery.md).
+A restore pauses every enabled task as `restore_pending` and marks each
+outstanding occurrence `unknown`; no shipped command reopens them yet.
+Publication is refused (`unsupported_capability`) when Git would ignore the
+definition path.
+
+**Supported tools.** The host accepts only `brain_read`, validated against the
+core tool's registered input schema; its `path` must be an approved target.
+Any other tool, a model alias, or non-empty `egress` is `invalid_request`
+(no supported tool uses the network). Targets must be exact, normalized,
+non-hidden brain-relative paths outside `context/scheduled-tasks`,
+`context/policies`, `brain.config*` and `brain.db*`, with no symlinked
+component. A variable input may not vary a target path.
+
+**Execution policy.** The reviewed `executionPolicy` is the host's default
+backend ID, its preferred profile ID (or null) and the operator-configured
+`BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS`. While that variable is unset, proposals
+are refused with `unsupported_capability`. Any change to the policy before
+approval or publication is `definition_conflict`; propose again.
+
+**HTTP refinements.** `POST /api/schedules/proposals` accepts an optional
+`clientTimeZone` beside `{key, definition}`: the CLI's `--client-time-zone`.
+An invalid explicit or client zone is `invalid_request`; neither falls back.
+`POST /api/schedules` takes `{proposalId, approvalId?}`: the stored approval
+for that proposal is used when `approvalId` is omitted, which lets a creator
+publish after an operator approved elsewhere. Only the proposal's creator can
+publish it. Approval requires an `owner` principal (password mode) or the
+ambient principal (other modes); a delegated `agent` credential gets
+`unauthorized`. Delegated principals see and cancel only the tasks they
+created; operators see all. The occurrence stop route is not mounted yet.
+All responses carry `Cache-Control: no-store`.
+
+**CLI.** Syntax and envelopes are the prepared ones. `add --approve` prints the
+whole materialized envelope, execution policy and fingerprint on stderr and
+grants only when the operator types `approve` on an interactive terminal; with
+no TTY, or any other answer, it exits 1 with `approval_required` and the stored
+proposal ID. `--attempt-timeout-ms` and `--max-operations` form one reviewed
+`limits` object; a missing half takes its default. The scope file is a
+regular, non-symlink file of at most 8 KiB holding one JSON object. In JSON
+mode, argument errors are `{ok:false,error:{code:"invalid_request",...}}`, exit
+1; `credential_file_invalid` exits 1; `server_unavailable`,
+`unsupported_capability` and `invalid_response` (including any redirect, which
+is never followed) exit 2. Every success envelope is schema-checked before it
+is printed.
+
 ## Scheduled-task contract preparation (#913)
 
-**Selected design, not an available machine surface.** The [scheduled-tasks
+**Selected design; partly implemented.** The [scheduled-tasks
 record](decisions/scheduled-tasks.md) supplies the six approved policies and this
-bounded specification for #914–#917. No listed command, route, tool, field,
-permission grant or dispatch is implemented by this documentation change.
+bounded specification for #914–#917. [Scheduled tasks (#914)](#scheduled-tasks-additive-914)
+ships the definition store, approval, CLI and HTTP routes except occurrence stop.
+The bridge tools, occurrence stop, runtime dispatch and Activity/notification
+correlation below remain unimplemented, and no permission grant or dispatch exists.
 Consumers must not infer availability from these examples. Implementation adds
 its actual schemas/exports/routes/receipts, compatibility tests and minor
 changesets in `CONTRACT:` commits; #689 still gates production execution.

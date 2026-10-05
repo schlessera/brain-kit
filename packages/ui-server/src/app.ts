@@ -14,6 +14,8 @@ import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
+import { createScheduleRoutes } from "./routes/schedules.js";
+import { createScheduleService } from "./schedules/service.js";
 import { createShareRoutes, shareTargetFallbackRoutes } from "./routes/share.js";
 import { createRenderRoutes, type AppRenderer } from "./routes/render.js";
 import { createProviderRoutes } from "./routes/providers.js";
@@ -353,6 +355,22 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       runtime: activity.runtime,
     },
   });
+  // Scheduled-task definitions and ledger (#914). Storage only: no dispatcher
+  // is wired, so every task reports dispatch_disabled until #915/#689.
+  const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;
+  const schedules = createScheduleService(db, {
+    brainRoot: config.brainPath,
+    executionPolicy: async () => {
+      if (scheduleOrigins === null) return null;
+      // The backend that owns the preferred profile, as a turn would resolve it.
+      const profileId = await registry.getPreferredProfileId();
+      const backendId = profileId === null ? await registry.getDefaultBackendId()
+        : (await registry.getBackendForProfile(profileId))?.id;
+      return backendId ? { backendId, profileId, inferenceOrigins: scheduleOrigins } : null;
+    },
+  });
+  try { await schedules.ready; }
+  catch { observability.logger("schedules").emit({ severityText: "WARN", body: "schedule journal reconciliation failed; journals retained" }); }
   const wsUpgrade = createWsUpgrade(host);
   // One instrument for every way a login can fail — passkey ceremonies and
   // password logins land in the same series, split by attributes.
@@ -527,6 +545,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
   );
   app.route("/api", createQueueRoutes(intake));
+  app.route("/api", createScheduleRoutes(schedules));
   app.route("/api", createTrackRoutes(config.brainPath));
   app.route(
     "/api",

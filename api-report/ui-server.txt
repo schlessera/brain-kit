@@ -187,6 +187,9 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             maxAutonomousRuns?: number;
             yieldAfterMs?: number;
         };
+        schedules?: {
+            inferenceOrigins: string[] | null;
+        };
         host: string;
         sourceCommit: string;
         allowedOrigins: string[];

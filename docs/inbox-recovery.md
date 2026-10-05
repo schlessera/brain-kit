@@ -27,6 +27,16 @@ Activity spans/rollups preserve observed spend; principal records preserve
 identity attribution. Other UI state, including sessions, authentication
 records and settings, travels with the same image.
 
+Scheduled-task proposals, operator approvals, approved snapshots, publication
+and retirement journals, cancel receipts and occurrences are in the same image.
+Export and restore refuse a task whose snapshot, fingerprint or approval no
+longer matches its proposal. The definition files themselves are content under
+`context/scheduled-tasks/` and come back with the content restore. Restore pauses
+every enabled task as `restore_pending` and turns each outstanding occurrence
+into an `unknown` outcome: an old image cannot prove that no later
+cancellation, revocation or effect happened. No shipped command reopens them
+yet; they stay paused and visible.
+
 Every regular file in the canonical share-staging directory is included,
 including metadata, uploaded bytes and interrupted intake's partial directories.
 Required staging references and each manifest's declared file sizes must agree.

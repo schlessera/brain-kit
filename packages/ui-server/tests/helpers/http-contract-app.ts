@@ -47,6 +47,7 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
   const config = resolveServerConfig({
     AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: brainPath,
     BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", VOICE_PROVIDER: "webspeech",
+    BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS: "https://inference.example",
     ...options.env,
   });
   const observability = createRecordingObservability();

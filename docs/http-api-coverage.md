@@ -69,6 +69,12 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
+| `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
+| `POST /api/schedules` | `mounted supported handler: POST /api/schedules` | K |
+| `POST /api/schedules/:id/cancel` | `mounted supported handler: POST /api/schedules/:id/cancel` | K |
+| `GET /api/schedules/due` | `mounted supported handler: GET /api/schedules/due` | K |
+| `POST /api/schedules/proposals` | `mounted supported handler: POST /api/schedules/proposals` | K |
+| `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
 | `POST /api/share` | `mounted supported handler: POST /api/share` | J, Q |
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
@@ -204,6 +210,19 @@ checks both nonempty priced and mixed-knownness fixtures
 - `real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials`, `packages/ui-server/tests/inbox-intake.test.ts:206-267`)
 - `authority overrides are rejected by both mounted endpoints` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`authority overrides are rejected by both mounted endpoints`, `packages/ui-server/tests/inbox-intake.test.ts:157-165`)
 - `revocation while the mounted route awaits its body prevents intake` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`revocation while the mounted route awaits its body prevents intake`, `packages/ui-server/tests/inbox-intake.test.ts:177-195`)
+
+**K — Scheduled tasks.**
+
+- `the operator reviews and approves on a terminal; the host record and file agree; replay is idempotent` ([source](../packages/ui-server/tests/schedule-cli.test.ts)), (`the operator reviews and approves on a terminal; the host record and file agree; replay is idempotent`, `packages/ui-server/tests/schedule-cli.test.ts:94-112`)
+- `no TTY or no affirmative answer means no grant` ([source](../packages/ui-server/tests/schedule-cli.test.ts)), (`no TTY or no affirmative answer means no grant`, `packages/ui-server/tests/schedule-cli.test.ts:114-122`)
+- `a delegated credential proposes, cannot self-approve, and publishes after operator approval` ([source](../packages/ui-server/tests/schedule-cli.test.ts)), (`a delegated credential proposes, cannot self-approve, and publishes after operator approval`, `packages/ui-server/tests/schedule-cli.test.ts:124-141`)
+- `cancel and due report exact envelopes and exit codes` ([source](../packages/ui-server/tests/schedule-cli.test.ts)), (`cancel and due report exact envelopes and exit codes`, `packages/ui-server/tests/schedule-cli.test.ts:143-160`)
+- `unavailable, redirecting and malformed hosts exit 2 and never follow a redirect` ([source](../packages/ui-server/tests/schedule-cli.test.ts)), (`unavailable, redirecting and malformed hosts exit 2 and never follow a redirect`, `packages/ui-server/tests/schedule-cli.test.ts:185-202`)
+- `matched receipts replay before clock checks; changed payloads conflict; expired proposals need a new key` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`matched receipts replay before clock checks; changed payloads conflict; expired proposals need a new key`, `packages/ui-server/tests/schedule-service.test.ts:73-93`)
+- `the host refuses unsupported, broader or authority-bearing scope` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`the host refuses unsupported, broader or authority-bearing scope`, `packages/ui-server/tests/schedule-service.test.ts:117-151`)
+- `list and due pages are bounded, ordered and use host-signed cursors bound to their query` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`list and due pages are bounded, ordered and use host-signed cursors bound to their query`, `packages/ui-server/tests/schedule-service.test.ts:260-288`)
+- `interrupted publication fails closed, then reconciles to one published definition on retry or restart` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`interrupted publication fails closed, then reconciles to one published definition on retry or restart`, `packages/ui-server/tests/schedule-service.test.ts:290-310`)
+- `edited, missing or symlinked definitions quarantine dispatch without rewriting the file` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`edited, missing or symlinked definitions quarantine dispatch without rewriting the file`, `packages/ui-server/tests/schedule-service.test.ts:329-356`)
 
 **J — Confirmed share intake.**
 

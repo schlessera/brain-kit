@@ -478,7 +478,10 @@ export const DEFAULT_EXCLUDE = {
   // caller (MCP listing, stats, OKF export) agreeing on it too.
   // evals: a retrieval query set measures search only if search cannot see
   // it, and a note beside the set quoting its queries would answer them.
-  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals"],
+  // context/scheduled-tasks: host-managed schedule definitions (#914). They
+  // are content in Git, never index documents; only the UI host parses them.
+  dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals",
+    "context/scheduled-tasks"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };

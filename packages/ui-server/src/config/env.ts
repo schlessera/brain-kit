@@ -207,6 +207,15 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS",
+    description:
+      "Comma-separated HTTPS origins (at most 16) of the model connection scheduled work would use. " +
+      "Operators review this audience with every schedule; unset refuses schedule proposals " +
+      "(unsupported_capability). Does not enable dispatch.",
+    default: "(unset; schedule proposals refused)",
+    required: false,
+  },
+  {
     name: "MAX_AUTONOMOUS_RUNS",
     description: "Maximum in-flight autonomous operations. Interactive sessions retain their separate capacity; this does not enable dispatch.",
     default: "2",
@@ -645,6 +654,11 @@ export interface ServerConfig {
   dbPath: string;
   /** Internal poke provisioning; optional for existing explicit configurations. */
   inbox?: { pokeTokenFile: string | null; budget?: InboxBudgetConfig; maxAutonomousRuns?: number; yieldAfterMs?: number };
+  /**
+   * Scheduled tasks (BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS): the reviewed model
+   * audience. Null or absent refuses schedule proposals.
+   */
+  schedules?: { inferenceOrigins: string[] | null };
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -707,6 +721,20 @@ export interface CronConfig {
    * Emitting them is what stops the privilege boundary at the crontab.
    */
   controlEnv: EnvRecord;
+}
+
+function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
+  if (raw === undefined || raw.trim() === "") return null;
+  const origins = list(raw);
+  for (const origin of origins) {
+    let url: URL | null = null;
+    try { url = new URL(origin); } catch { /* reported below */ }
+    if (!url || url.protocol !== "https:" || url.origin !== origin || Buffer.byteLength(origin) > 256)
+      throw new Error("BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS must list normalized HTTPS origins.");
+  }
+  if (origins.length > 16 || new Set(origins).size !== origins.length)
+    throw new Error("BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS must list at most 16 distinct origins.");
+  return origins;
 }
 
 function list(raw: string | undefined): string[] {
@@ -867,6 +895,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       maxAutonomousRuns: autonomousPositiveInteger(env, "MAX_AUTONOMOUS_RUNS", 2),
       yieldAfterMs: autonomousPositiveInteger(env, "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", 20_000, 30_000),
     },
+    schedules: { inferenceOrigins: scheduleInferenceOrigins(env.BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS) },
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),

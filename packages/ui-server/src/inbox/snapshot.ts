@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
+import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { inboxItemSchema, v1ResolutionEffectSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { createUiDb } from "../db/client.js";
 import { createInboxStore } from "./store.js";
@@ -113,6 +114,7 @@ function validateDatabase(db: Database): void {
   const counters = db.query("SELECT thread_id, MAX(seq) AS seq FROM inbox_changes GROUP BY thread_id ORDER BY thread_id").all();
   if (JSON.stringify(counters) !== JSON.stringify(db.query("SELECT thread_id, seq FROM inbox_thread_sequences ORDER BY thread_id").all()))
     throw new Error("inbox_snapshot_relations");
+  validateScheduleRelations(db);
 }
 function requiredStaging(db: Database): Set<string> {
   const state = createInboxStore(db).exportState(), active = new Set<string>();
@@ -310,6 +312,7 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       const store = createInboxStore(db, { now: () => at });
       const claims = db.query("SELECT id FROM inbox_items WHERE queue = 'queue' AND status = 'claimed' AND deleted_at IS NULL ORDER BY id").all() as { id: string }[];
       for (const row of claims) failInboxWork(db, row.id, (store.getItem(row.id) as InboxQueueItem).version, at);
+      pauseRestoredSchedules(db, at);
       db.query("UPDATE inbox_recovery_state SET status = 'ready', restored_at = ? WHERE id = 1").run(at);
       return claims.length;
     }).immediate();

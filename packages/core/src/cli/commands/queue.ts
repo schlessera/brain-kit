@@ -1,56 +1,10 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import { z } from "zod";
 import { emit, parseArgs, UsageError } from "../io.js";
+import { credentialCookie, readBoundedJson, serverOrigin } from "../host-client.js";
 import type { CoreCommand } from "../types.js";
 
 const resultSchema = z.object({ queued: z.literal(true), created: z.boolean(),
   threadId: z.string().min(1), itemId: z.string().min(1), stagingId: z.string().min(1) });
-const credentialSchema = z.strictObject({ server: z.string(), cookie: z.string() });
-
-function serverOrigin(value: string): string {
-  let url: URL;
-  try { url = new URL(value); } catch { throw new UsageError("--server must be an HTTP(S) origin"); }
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
-      url.pathname !== "/" || url.search || url.hash) throw new UsageError("--server must be an HTTP(S) origin without credentials, path or query");
-  if (url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
-    throw new UsageError("Queue credentials require HTTPS; HTTP is allowed only on loopback");
-  }
-  return url.origin;
-}
-
-async function credential(path: string, audience: string): Promise<string> {
-  // An explicit private file binds a cookie to one audience. Provider keys and
-  // ambient session env vars never become queue credentials.
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const info = await file.stat();
-    if (!info.isFile() || info.size > 4096 || (info.mode & 0o077) !== 0) throw new Error("Invalid credential file");
-    const parsed = credentialSchema.parse(JSON.parse(await file.readFile("utf8")));
-    if (serverOrigin(parsed.server) !== audience) throw new Error("Wrong credential audience");
-    const cookie = decodeURIComponent(parsed.cookie);
-    if (!/^[A-Za-z0-9_-]{22}\.[A-Za-z0-9+/]{43}=$/.test(cookie)) throw new Error("Invalid credential");
-    return `brain_ui_session=${encodeURIComponent(cookie)}`;
-  } finally { await file.close(); }
-}
-
-async function readResponse(response: Response): Promise<unknown> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Empty queue response");
-  let size = 0;
-  const decoder = new TextDecoder();
-  let text = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > 64 * 1024) throw new Error("Oversized queue response");
-      text += decoder.decode(value, { stream: true });
-    }
-    return JSON.parse(text + decoder.decode());
-  } finally { await reader.cancel().catch(() => {}); }
-}
 
 export const queueCommand: CoreCommand = {
   summary: "Queue intake on a UI server without filing content",
@@ -74,7 +28,7 @@ export const queueCommand: CoreCommand = {
     };
     let cookie: string | undefined;
     if (typeof flags["credential-file"] === "string") {
-      try { cookie = await credential(flags["credential-file"], origin); }
+      try { cookie = await credentialCookie(flags["credential-file"], origin); }
       catch { return fail("credential_file_invalid", "Queue credential file is invalid, not private, or belongs to another server.", 1); }
     }
     let response: Response;
@@ -89,7 +43,7 @@ export const queueCommand: CoreCommand = {
     if (response.status === 409) return fail("key_conflict", "Queue key was already used for different content.", 1);
     if (!response.ok) return fail("queue_failed", "Queue intake failed; retry with the same --key.", response.status >= 500 ? 2 : 1);
     let result: z.infer<typeof resultSchema>;
-    try { result = resultSchema.parse(await readResponse(response)); }
+    try { result = resultSchema.parse(await readBoundedJson(response, 64 * 1024)); }
     catch { return fail("invalid_response", "Queue server returned an invalid response; retry with the same --key.", 2); }
     emit(cli.json, result, () => console.log(`Queued ${result.itemId}${result.created ? "" : " (already queued)"}. Content has not been filed.`));
     return 0;

@@ -31,7 +31,7 @@ user choices retain their documented precedence and validation.
 An unchanged key can break a brain if its units or priority change. A compatible
 schema alone cannot prove compatible behavior. Core's loader prefers TypeScript
 over JSON and rejects an invalid selected config rather than falling back
-(`loadUserConfig`, `packages/core/src/lib/config.ts:587-625`). Module settings
+(`loadUserConfig`, `packages/core/src/lib/config.ts:590-628`). Module settings
 merge own object keys recursively, while arrays/scalars/null replace
 (`mergeModuleSettings`, `packages/core/src/lib/module-settings-source.ts:10-18`).
 Those are source-selection promises, not incidental implementation choices.

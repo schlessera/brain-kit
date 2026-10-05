@@ -359,7 +359,7 @@ never replace them.
 
 | Key        | Type       | Built-in default                                                                                  |
 | ---------- | ---------- | ------------------------------------------------------------------------------------------------- |
-| `dirs`     | `string[]` | `.git`, `node_modules`, `.claude`, `.agents`, `scripts`, `logs`, `tmp`, `workspaces`, `okf-dist`, `.brain/scratch`, `evals` |
+| `dirs`     | `string[]` | `.git`, `node_modules`, `.claude`, `.agents`, `scripts`, `logs`, `tmp`, `workspaces`, `okf-dist`, `.brain/scratch`, `evals`, `context/scheduled-tasks` |
 | `files`    | `string[]` | `CLAUDE.md`, `README.md`, `AGENTS.md`, `GEMINI.md`                                                 |
 | `segments` | `string[]` | *(none in core; modules may add — e.g. speaking excludes `alt-decks`, `versions`, `deck`)*        |
 
