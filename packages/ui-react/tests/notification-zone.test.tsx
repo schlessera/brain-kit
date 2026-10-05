@@ -22,7 +22,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated notification zone tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b10 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b11 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -244,6 +244,30 @@ if (process.env[CHILD_MARKER]) {
     view.rerender(<BrainUiProvider root={second}><DigestCard /></BrainUiProvider>);
     await flush();
     expect(view.container.textContent).toContain("Pass Scylla");
+    cleanup();
+  });
+
+  test("dismissing names the displayed Actions summary, or zero when only activity was shown", async () => {
+    const { createBrainApi } = await import("../src/lib/api-client.js");
+    const urls: string[] = [];
+    const wire = createBrainApi(() => "/api", async (url: string) => { urls.push(url); return new Response("{}", { headers: { "content-type": "application/json" } }); });
+    await wire.activityDigestDismiss("", 42);
+    await wire.activityDigestDismiss("hall-tablet", 7);
+    expect(urls.map((u) => u.slice(u.indexOf("/activity")))).toEqual([
+      "/activity/digest/dismiss?through=42",
+      "/activity/digest/dismiss?client=hall-tablet&through=7",
+    ]);
+    const throughs: Array<number | undefined> = [];
+    const api = {
+      activityDigest: async () => ({ dismissedAt: 0, actions: { status: "ready", timeZone: "Europe/Athens", latest: null, dismissedAt: null },
+        digest: { generatedAt: 3, windowStart: 1, windowEnd: 3, runs: 2, failures: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, notable: [] } }),
+      activityDigestDismiss: async (_client?: string, through?: number) => { throughs.push(through); return { ok: true }; },
+    } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
+    const view = render(<BrainUiProvider root={createBrainUiRoot({ api, storage: null })}><DigestCard /></BrainUiProvider>);
+    await flush();
+    const dismiss = [...view.container.querySelectorAll("[role=button]")].find((b) => b.textContent?.includes("Dismiss")) as HTMLElement;
+    await act(async () => { dismiss.click(); });
+    expect(throughs).toEqual([0]);
     cleanup();
   });
 

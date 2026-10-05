@@ -85,7 +85,9 @@ export function DigestCard() {
     request.current++;
     dismissedThrough.current = Math.max(dismissedThrough.current, digest?.generatedAt ?? 0, actions?.generatedAt ?? 0);
     setVisible(false);
-    void api.activityDigestDismiss(clientId, actions?.generatedAt).catch(() => {});
+    // Zero when no Actions were shown: dismissing activity alone never hides
+    // an Actions summary stored after this card's last read.
+    void api.activityDigestDismiss(clientId, actions?.generatedAt ?? 0).catch(() => {});
   }
 
   return (

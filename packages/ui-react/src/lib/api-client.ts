@@ -759,7 +759,7 @@ export function createBrainApi(
     activityDigestDismiss: (clientId?: string, through?: number) => {
       const query = new URLSearchParams();
       if (clientId) query.set("client", clientId);
-      if (clientId && through !== undefined) query.set("through", String(through));
+      if (through !== undefined) query.set("through", String(through));
       const suffix = query.toString() ? `?${query}` : "";
       return fetchJson<{ ok: true }>(`/activity/digest/dismiss${suffix}`, { method: "POST" });
     },
