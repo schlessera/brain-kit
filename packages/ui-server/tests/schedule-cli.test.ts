@@ -168,6 +168,11 @@ test("argument, credential and conflict errors exit 1 with the shared envelope",
   }
   expect((await run(addArgs("bad-zone").map((a) => (a === "Europe/Athens" ? "Atlantis/Ogygia" : a)), ownerFile)).body.error.code).toBe("invalid_request");
   expect((await run(["list", "--cursor", "forged.cursor"], ownerFile))).toMatchObject({ exit: 1, body: { error: { code: "invalid_cursor" } } });
+  // A FIFO scope or credential file is refused, not waited on.
+  const fifo = outside("fifo");
+  expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+  expect((await run(addArgs("fifo-scope").map((v) => (v === scopeFile ? fifo : v)), ownerFile))).toMatchObject({ exit: 1, body: { error: { code: "invalid_request" } } });
+  expect((await run(["list"], fifo))).toMatchObject({ exit: 1, body: { error: { code: "credential_file_invalid" } } });
   expect((await run(["list"]))).toMatchObject({ exit: 1, body: { error: { code: "unauthorized" } } });
   const other = outside("other");
   await writeFile(other, JSON.stringify({ server: "https://example.org", cookie: JSON.parse(readFileSync(ownerFile, "utf8")).cookie }), { mode: 0o600 });

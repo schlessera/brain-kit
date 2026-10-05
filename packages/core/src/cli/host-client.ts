@@ -32,7 +32,7 @@ export function serverOrigin(value: string): string {
  * environment variables never become host credentials. Throws on any defect.
  */
 export async function credentialCookie(path: string, audience: string): Promise<string> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = await file.stat();
     if (!info.isFile() || info.size > 4096 || (info.mode & 0o077) !== 0) throw new Error("Invalid credential file");

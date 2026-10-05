@@ -197,6 +197,7 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         const source = active ? active.at(-1)!.at(name(id)) : null;
         // Finish a retirement interrupted after its claiming rename: archive a
         // claimed verified file, or put back anything else.
+        let unresolved = false;
         if (active) {
           const dir = active.at(-1)!, prefix = `.${id}.md.`;
           for (const entry of await readdir(dir.at("."))) {
@@ -206,11 +207,13 @@ export function createScheduleFiles(root: string): ScheduleFiles {
             const target = held.bytes.equals(bytes) ? archive.at(-1)!.at(name(id)) : source!;
             try { await link(claim, target); }
             catch (error) {
-              if (errno(error) !== "EEXIST" || !(await openContained(target))?.bytes.equals(held.bytes)) continue;
+              if (errno(error) !== "EEXIST" || !(await openContained(target))?.bytes.equals(held.bytes)) { unresolved = true; continue; }
             }
             await unlink(claim);
           }
         }
+        // A stranded claim keeps the journal pending until it is resolved.
+        if (unresolved) return false;
         const current = source ? await openContained(source) : null;
         // Nothing active remains. Retirement is complete either way; matching
         // data cannot revive a cancelled ID.

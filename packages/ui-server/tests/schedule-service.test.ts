@@ -489,3 +489,18 @@ test("a retired directory Git would ignore refuses creation and keeps retirement
   expect(cancelled.task).toMatchObject({ state: "cancelled", compensationPending: true });
   expect(existsSync(join(fixture.root, "context/scheduled-tasks/definitions", `${result.task.id}.md`))).toBe(true);
 });
+
+test("a claim that cannot be archived keeps retirement pending", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const { result } = await create(fixture, "stranded", cronDefinition());
+  const id = result.task.id;
+  const definitions = join(fixture.root, "context/scheduled-tasks/definitions");
+  const claim = join(definitions, `.${id}.md.00000000-0000-4000-8000-000000000004.retiring`);
+  renameSync(join(definitions, `${id}.md`), claim);
+  mkdirSync(join(fixture.root, "context/scheduled-tasks/retired"), { recursive: true });
+  writeFileSync(join(fixture.root, "context/scheduled-tasks/retired", `${id}.md`), "# Not this definition\n");
+  const cancelled = await service.cancel(fixture.owner, id, { key: "stranded-cancel" });
+  expect(cancelled.task).toMatchObject({ state: "cancelled", compensationPending: true });
+  expect(existsSync(claim)).toBe(true);
+});

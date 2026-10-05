@@ -129,7 +129,7 @@ function positiveInteger(name: string, value: string | undefined): number | unde
 /** The scope file is a strict, private-or-not regular file that grants nothing. */
 async function readScopeFile(path: string): Promise<unknown> {
   let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
+  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch { throw new UsageError("--scope-file must be a readable regular file (symlinks are refused)"); }
   try {
     const info = await handle.stat();
