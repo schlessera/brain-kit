@@ -9,6 +9,7 @@ import {
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
 import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
+import { askRequestId } from "./tool-use-id.js";
 
 /** Bridges the tool to the host's list provider (`BackendBridge.askUserList`). */
 export type AskUserListHandler = (
@@ -18,7 +19,7 @@ export type AskUserListHandler = (
 
 /**
  * `ask_user_list`: one scale applied to a list of items, answered in one card
- * (#583). Routed like `ask_user` — the request id is minted here, the host
+ * (#583). Routed like `ask_user` — the request id is the tool_use id (`askRequestId`), the host
  * bridge carries the card to the client, and the tool resolves when the user
  * submits. A dismissal rejects, and the model reads it as a tool error.
  */
@@ -27,8 +28,8 @@ export function createAskUserListTool(handler: AskUserListHandler) {
     SHARED_TOOL_NAME,
     ASK_USER_LIST_DESCRIPTION,
     ASK_USER_LIST_INPUT_SCHEMA.shape,
-    async (input) => {
-      const requestId = crypto.randomUUID();
+    async (input, extra) => {
+      const requestId = askRequestId(extra);
       try {
         const parsed = ASK_USER_LIST_INPUT_SCHEMA.parse(input);
         const payload = await handleAskUserList(
