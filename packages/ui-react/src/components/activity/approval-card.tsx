@@ -86,6 +86,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
     <div data-approval-card="" role="group" aria-label={`Approval: ${label}`} tabIndex={0} onKeyDown={onKeyDown} className="rounded-[14px] outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
       <ActionCard
         kind="approval"
+        kindLabel="Live approval"
         title={summary ? `${label} · ${summary}` : label}
         rightMeta="blocks a run"
         rightMetaTone="red"

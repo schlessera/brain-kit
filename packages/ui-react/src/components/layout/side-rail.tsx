@@ -1,7 +1,7 @@
 import { SideRail as KitSideRail, type RailItem } from "@schlessera/brain-ui-kit";
 import { useEffect } from "react";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { useActivityStore } from "../../stores/activity-store.js";
+import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
@@ -18,7 +18,7 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  * Graph · Settings, the same five and the same order as the phone bar.
  * Activity is not among them — "what needs me" and "what has been happening"
  * are two lenses on one queue, so the Actions pane carries a filter and the
- * badge counts what needs you: pending approvals plus the inbox. The acts
+ * badge counts what needs you: live approvals plus open durable decisions. The acts
  * the old rail carried (New chat, Sessions, Sync, the briefing) live in the
  * ⌘K palette and the Chat header.
  *
@@ -43,9 +43,11 @@ export function SideRail() {
   const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
-  const inboxCount = useActivityStore((s) => s.inbox.length);
+  // Open, non-FYI durable decisions (#684). Run notices have their own count
+  // in the Actions list and no longer badge: a notice is a fact, not a question.
+  const decisionCount = useInboxStore(pendingDecisionCount);
   const approvalCount = useChatStore((s) => pendingApprovals(s).length);
-  const needsYou = inboxCount + approvalCount;
+  const needsYou = decisionCount + approvalCount;
   const expanded = useMediaQuery("(min-width: 900px)");
   const finePointer = useFinePointer();
   const cap = (key: string) => (finePointer ? key : undefined);

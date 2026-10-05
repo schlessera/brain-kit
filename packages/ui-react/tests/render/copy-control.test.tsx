@@ -111,7 +111,7 @@ describe("the run detail", () => {
     const { view, dispose } = renderRun({ runId: "run-old", detailPruned: true, highWaterSeq: 0, rollup });
     try {
       await act(flushPromises);
-      expect(view.container.textContent).toContain("Detail pruned");
+      expect(view.container.textContent).toContain("Trace pruned");
       fireEvent.click(view.getByRole("button", { name: "Copy rollup" }));
       expect(copied).toEqual([JSON.stringify(rollup, null, 2)]);
     } finally {

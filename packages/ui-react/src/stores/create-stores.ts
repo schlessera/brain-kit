@@ -6,6 +6,7 @@ import { createFileStore } from "./file-state.js";
 import { createGraphStore } from "./graph-state.js";
 import { createActivityStore } from "./activity-state.js";
 import { createPrincipalStore } from "./principal-state.js";
+import { createInboxStore } from "./inbox-state.js";
 import { createMaskStore } from "./mask-state.js";
 import { createShareStore } from "./share-state.js";
 import { createHandoffStore } from "./handoff-state.js";
@@ -22,6 +23,7 @@ export function createBrainStores(env: StoreEnvironment) {
     file: createFileStore(env),
     graph: createGraphStore(env),
     activity: createActivityStore(env),
+    inbox: createInboxStore(),
     principal: createPrincipalStore(env),
     mask: createMaskStore(),
     share: createShareStore(),

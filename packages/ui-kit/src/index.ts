@@ -103,6 +103,8 @@ export { TraceSteps, type TraceStep, type TraceStepsProps } from "./evidence/Tra
 
 /* Decision surfaces. */
 export { ActionCard, type ActionCardProps } from "./decisions/ActionCard.js";
+export { EffectPreview, effectLineCount, type EffectPreviewProps } from "./decisions/EffectPreview.js";
+export { DispositionBar, type DispositionBarProps, type DispositionControl } from "./decisions/DispositionBar.js";
 export { ApprovalCard, type ApprovalCardProps } from "./decisions/ApprovalCard.js";
 export { AskUserCard, type AskUserCardProps, type AskUserOption, type AskUserState } from "./decisions/AskUserCard.js";
 export { AskUserGroupCard, type AskUserGroupCardProps, type AskUserGroupQuestion } from "./decisions/AskUserGroupCard.js";

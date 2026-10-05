@@ -175,9 +175,20 @@ D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
 for durable decisions, and make Queue a secondary view with links to existing run
 detail. Do not add a second Actions/Activity destination. The current page's
 notification acknowledgement is not resolution (`ActionsLens`,
-`packages/ui-react/src/components/activity/activity-page.tsx:48-49`). Exact effects,
+`packages/ui-react/src/components/activity/activity-page.tsx:63-64`). Exact effects,
 reconnect convergence, accessible focus and visible failure are required; new
 cards need an interaction design that fits the current kit.
+
+That design is approved on #684 and shipped with it. Two of its choices bind
+later work. The snooze time is the server's: the client cannot preview it
+until the deterministic rule is exported to clients, so the card says "back at
+the next scheduled time" and the receipt prints the server's `waitUntil`
+(ruling R1). And `INBOX_DECISION_REFUSED` names no item, so a refusal unlocks
+every decision in flight and a fresh snapshot tells each card what happened
+(ruling R2); nothing is resent automatically. Both stay client-only, so v1
+changed no machine contract. The dismissal reasons offered are the four values
+`ClientInboxResolve.reason` already accepts; a free-text "Other" reason would
+widen that enum, so it is left to its own contract ruling (#1047).
 
 Streams reuse snapshot-then-delta ordering, with capability negotiation and
 principal-scoped access. Agent tools use the same state/authority rules. An export

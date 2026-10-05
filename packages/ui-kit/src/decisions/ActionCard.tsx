@@ -61,6 +61,14 @@ export interface ActionCardProps {
   footMeta?: string;
   footDot?: Tone;
   footPulse?: boolean;
+  /**
+   * A real link in the foot line, separate from the card's own `onClick`:
+   * "blocks queue item ▸" opens the Queue while the card itself stays a
+   * container of controls. It is a native button with its own name, so a card
+   * with no handler still offers this one target and nothing else. It
+   * replaces the chevron, which would otherwise claim the whole card opens.
+   */
+  footLink?: { label: string; onClick: () => void; name?: string };
   chevron?: boolean;
   /** A premise that has gone stale strikes the title through. */
   struck?: boolean;
@@ -210,6 +218,22 @@ export function ActionCard(p: ActionCardProps) {
     color: color.inkMute,
   };
   const chevWrap: CSSProperties = { marginLeft: "auto", display: "flex" };
+  // 44px tall like every other touch target; the visible text stays the
+  // foot's mono size, so the line does not grow a button look.
+  const footLinkStyle: CSSProperties = {
+    marginLeft: "auto",
+    minHeight: 44,
+    minWidth: 44,
+    padding: "0 4px",
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    font: `500 10px/1.3 ${font.mono}`,
+    color: accent.teal.ink,
+    textAlign: "right",
+    overflowWrap: "anywhere",
+    ...({ "--hv-bg": "transparent", "--hv-fg": color.ink } as CSSProperties),
+  };
 
   // The design's key table gives ActionCard a / d / s — allow, deny, snooze —
   // on top of the role's own keys. This component has ONE callback, so only the
@@ -251,11 +275,28 @@ export function ActionCard(p: ActionCardProps) {
        * margin in a screen — which is the thing §11 says a screen must never
        * need. */}
       {p.children ? <div style={{ marginTop: 10 }}>{p.children}</div> : null}
-      {p.footMeta ? (
+      {p.footMeta || p.footLink ? (
         <div style={foot}>
           {p.footDot ? <StatusDot tone={p.footDot} pulse={p.footPulse === true} size={6} /> : null}
           {p.footMeta}
-          {p.chevron !== false ? (
+          {p.footLink ? (
+            <button
+              type="button"
+              className="bk-control"
+              style={footLinkStyle}
+              aria-label={p.footLink.name}
+              onClick={(event) => {
+                // The link is not the card: a card with its own handler must
+                // not also open from the same tap.
+                event.stopPropagation();
+                p.footLink!.onClick();
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              {p.footLink.label}
+            </button>
+          ) : null}
+          {p.chevron !== false && !p.footLink ? (
             <span style={chevWrap}>
               <Icon icon="next" size={12} color={color.inkMute} />
             </span>

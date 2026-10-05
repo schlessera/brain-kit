@@ -67,6 +67,7 @@ import {
 } from "../../src/hooks/use-service-worker-updates.js";
 import { useFileStore } from "../../src/stores/file-store.js";
 import { useActivityStore } from "../../src/stores/activity-store.js";
+import { useInboxStore } from "../../src/stores/inbox-store.js";
 import {
   clearGraphSceneCache,
   useGraphStore,
@@ -2854,9 +2855,9 @@ describe("activity and device root ownership", () => {
     const view = render(panel(a.root));
     try {
       await act(async () => { a.requests[0].response.resolve(Response.json({ ...activityDetail("same", "Alpha summary"), detailPruned: true })); await flushPromises(); });
-      expect(view.getByText(/Detail pruned/)).toBeTruthy();
+      expect(view.getByText(/Trace pruned/)).toBeTruthy();
       view.rerender(panel(b.root));
-      expect(view.queryByText(/Detail pruned/)).toBeNull();
+      expect(view.queryByText(/Trace pruned/)).toBeNull();
       expect(view.queryByRole("heading", { name: "Alpha summary" })).toBeNull();
       await act(async () => { b.requests[0].response.resolve(Response.json(activityDetail("same", "Beta summary"))); await flushPromises(); });
       expect(view.getByRole("heading", { name: "Beta summary" })).toBeTruthy();
@@ -3666,9 +3667,20 @@ describe("remaining media and lookup root ownership", () => {
 
 /* ── S5: the first kit consumer, and the theme switch ───────────────────── */
 
+/** Open durable decisions for the badge (#684): what the badge counts now. */
+function openDecisions(n: number) {
+  const items = Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${i}`, {
+    id: `a${i}`, dedupKey: `a${i}`, threadId: "t", queue: "actions", type: "approve", status: "pending", version: 1,
+    createdAt: 0, updatedAt: 0, expiresAt: 1, payload: { title: "Harbour fee", detail: "" }, options: [],
+  }]));
+  useInboxStore.setState({ items } as never);
+}
+
 describe("MobileTabBar on the kit TabBar", () => {
   test("renders the five destinations as a tablist, with what needs you as the Actions badge", () => {
-    useActivityStore.setState({ inbox: [{ id: "a" }, { id: "b" }, { id: "c" }] as never });
+    // Run notices are facts, not decisions: they no longer badge (#684).
+    useActivityStore.setState({ inbox: [{ id: "n" }] as never });
+    openDecisions(3);
     const view = render(<MobileTabBar />);
     const tabs = view.getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "Actions3", "Files", "Graph", "More"]);
@@ -3677,6 +3689,8 @@ describe("MobileTabBar on the kit TabBar", () => {
     // The kit's roving tab stop: one slot reachable by Tab, the rest by arrows.
     expect(tabs.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
     view.unmount();
+    openDecisions(0);
+    useActivityStore.setState({ inbox: [] });
   });
 
   test("a slot switches the view, and More is the kit sheet with Settings and the acts", () => {
@@ -3710,23 +3724,25 @@ describe("MobileTabBar on the kit TabBar", () => {
   });
 
   test("a badge of ten or more reads 9+, and no inbox means no badge", () => {
-    useActivityStore.setState({ inbox: Array.from({ length: 12 }, (_, i) => ({ id: String(i) })) as never });
+    openDecisions(12);
     const many = render(<MobileTabBar />);
     // The badge is part of the accessible name, which is the point of it.
     expect(many.getByRole("tab", { name: "Actions 9+" }).textContent).toBe("Actions9+");
     many.unmount();
-    useActivityStore.setState({ inbox: [] });
+    openDecisions(0);
+    useActivityStore.setState({ inbox: [{ id: "n" }] as never });
     const none = render(<MobileTabBar />);
     expect(none.getByRole("tab", { name: "Actions" }).textContent).toBe("Actions");
     none.unmount();
+    useActivityStore.setState({ inbox: [] });
   });
 });
 
 /* ── S7: the desktop rail and the ⌘K palette ────────────────────────────── */
 
 describe("SideRail on the kit SideRail", () => {
-  test("five destinations in one vertical tablist, the inbox count as the badge, the socket as the status line", () => {
-    useActivityStore.setState({ inbox: [{ id: "a" }, { id: "b" }] as never });
+  test("five destinations in one vertical tablist, the open-decision count as the badge, the socket as the status line", () => {
+    openDecisions(2);
     const view = render(<SideRail />);
     const tabs = view.getAllByRole("tab");
     // The test window is 1024px wide, so the rail is expanded: label, badge
@@ -3740,6 +3756,7 @@ describe("SideRail on the kit SideRail", () => {
     // Disconnected is what the store starts as, and the rail says so.
     expect(view.container.textContent).toContain("offline");
     view.unmount();
+    openDecisions(0);
   });
 
   test("below 900px the rail collapses and each row keeps its name through aria-label", () => {

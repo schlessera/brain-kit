@@ -212,3 +212,26 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },
 });
+
+/**
+ * `footLink` is the one real link in the foot — "blocks queue item ▸" — kept
+ * apart from the card's own handler. A card that is a container of controls
+ * (no `onClick`) still offers it, and tapping it never opens the card.
+ */
+export const FootLink = Default.extend({
+  args: {
+    onClick: undefined,
+    chevron: false,
+    title: "File the harbour-fee notice into the port ledger?",
+    footMeta: "parked 2h",
+    footLink: { label: "blocks queue item ▸", name: "Open the blocked queue item", onClick: fn() },
+  },
+  play: async ({ canvas, userEvent, args }) => {
+    const link = await canvas.findByRole("button", { name: "Open the blocked queue item" });
+    await expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await userEvent.click(link);
+    await expect(args.footLink!.onClick).toHaveBeenCalledTimes(1);
+    // The chevron would claim the card itself opens; the link replaces it.
+    await expect(canvas.getAllByRole("button")).toHaveLength(1);
+  },
+});
