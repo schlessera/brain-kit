@@ -145,8 +145,10 @@ export function runAsrClientContract(
         let settled = false;
         const draining = probe.client.drainAndStop().then(() => { settled = true; });
         // The fixture holds a buffered final: an implementation that returns
-        // before its transport flush completes must fail here.
-        await Promise.resolve();
+        // before its transport flush completes must fail here. Yield a whole
+        // task, not one microtask: a drain that awaits a few resolved promises
+        // and then stops without flushing would otherwise still read pending.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         expect(settled).toBe(false);
         const final: AsrEvent & { type: "final" } = { type: "final", text: "Departure tomorrow", endsTurn: harness.session.capabilities.endpointing };
         await probe.finishDrain(final);
