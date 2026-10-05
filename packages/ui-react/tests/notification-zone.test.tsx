@@ -10,7 +10,8 @@ if (!process.env[CHILD_MARKER]) {
   test("notification zone lifecycle passes in an isolated process", async () => {
     const proc = Bun.spawn(["bun", "test", import.meta.path, "--timeout", "30000"], {
       cwd: import.meta.dir,
-      env: { ...process.env, [CHILD_MARKER]: "1" },
+      // A fixed local zone for the child, so slot timing is deterministic.
+      env: { ...process.env, [CHILD_MARKER]: "1", TZ: "Europe/Athens" },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -21,7 +22,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated notification zone tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b6 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b8 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -182,8 +183,54 @@ if (process.env[CHILD_MARKER]) {
   const { act, render, cleanup } = await import("@testing-library/react");
   const { BrainUiProvider } = await import("../src/root-context.js");
   const { createBrainUiRoot } = await import("../src/root.js");
-  const { DigestCard } = await import("../src/components/activity/digest-card.js");
+  const { DigestCard, msUntilNextSlot } = await import("../src/components/activity/digest-card.js");
   const registration = await import("../src/lib/push-registration.js");
+  const summaryOf = (title: string, generatedAt: number) => ({ generatedAt, slotAt: generatedAt, timeZone: "Europe/Athens", updates: [],
+    waiting: [{ episodeId: `${title}#1`, itemId: title, threadId: "ogygia", title }] });
+  function cardApi(next: () => unknown) {
+    return {
+      activityDigest: async () => ({ digest: null, dismissedAt: 0, actions: next() }),
+      activityDigestDismiss: async () => ({ ok: true }),
+      pushZone: async () => ({ ok: true, timeZone: "Europe/Athens" }),
+    } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
+  }
+  const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+  test("the next local slot is 09:00 or 17:00 in this runtime's zone", () => {
+    const athens = (day: number, hour: number, minute = 0) => Date.UTC(2026, 9, 3 + day, hour - 3, minute);
+    expect(msUntilNextSlot(athens(0, 8, 59))).toBe(60_000);
+    expect(msUntilNextSlot(athens(0, 9))).toBe(8 * 3_600_000);
+    expect(msUntilNextSlot(athens(0, 17, 30))).toBe(15.5 * 3_600_000);
+  });
+
+  test("an open card reads again after the local slot and hides when nothing is fresh", async () => {
+    let response: unknown = { status: "ready", timeZone: "Europe/Athens", latest: summaryOf("Answer the Cyclops", 5), dismissedAt: null };
+    const api = cardApi(() => response);
+    const timers: Array<{ run: () => void; delay: number }> = [];
+    const real = globalThis.setTimeout;
+    const spy = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => {
+      if ((delay ?? 0) > 60_000) { timers.push({ run, delay: delay! }); return 0 as unknown as ReturnType<typeof setTimeout>; }
+      return real(run, delay);
+    }) as typeof setTimeout);
+    try {
+      const view = render(<BrainUiProvider root={createBrainUiRoot({ api, storage: null })}><DigestCard /></BrainUiProvider>);
+      await flush();
+      expect(view.container.textContent).toContain("Answer the Cyclops");
+      expect(timers).toHaveLength(1);
+      // The 17:00 summary has nothing new: the stale card goes away.
+      response = { status: "ready", timeZone: "Europe/Athens", latest: { ...summaryOf("x", 9), waiting: [] }, dismissedAt: null };
+      await act(async () => { timers[0]!.run(); });
+      await flush();
+      expect(view.container.textContent).not.toContain("Answer the Cyclops");
+      expect(timers).toHaveLength(2);
+      // The next slot brings a new decision onto the still-open screen.
+      response = { status: "ready", timeZone: "Europe/Athens", latest: summaryOf("Pass Scylla", 12), dismissedAt: null };
+      await act(async () => { timers[1]!.run(); });
+      await flush();
+      expect(view.container.textContent).toContain("Pass Scylla");
+      cleanup();
+    } finally { spy.mockRestore(); }
+  });
 
   test("the digest card refetches after a first zone report and shows this client's new Actions", async () => {
     const summary = { generatedAt: 2, slotAt: 1, timeZone: "Europe/Athens", updates: [],

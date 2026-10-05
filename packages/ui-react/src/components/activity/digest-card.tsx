@@ -49,19 +49,27 @@ export function DigestCard() {
           const actionsDismissedAt = actions?.status === "ready" ? actions.dismissedAt ?? 0 : 0;
           const freshActions =
             latest && latest.waiting.length + latest.updates.length > 0 && latest.generatedAt > actionsDismissedAt ? latest : null;
-          if (!freshDigest && !freshActions) return;
+          // A refresh with nothing fresh hides a card shown by an earlier read.
           setDigest(freshDigest);
           setActions(freshActions);
-          setVisible(true);
+          setVisible(Boolean(freshDigest || freshActions));
         })
         .catch(() => {
           // No digest is a quiet state, never an error surface.
         });
     };
+    // The server stores this client's summary at its local 09:00 and 17:00;
+    // read again just after each, so an open screen picks the new one up.
+    let slotTimer: ReturnType<typeof setTimeout> | undefined;
+    const armSlot = () => {
+      clearTimeout(slotTimer);
+      slotTimer = setTimeout(() => { load(); armSlot(); }, msUntilNextSlot(Date.now()) + SLOT_SLACK_MS);
+    };
     load();
+    armSlot();
     // A first or changed zone report can make a summary due: fetch again.
     const unsubscribe = onNotificationZoneReported(api, load);
-    return () => { active = false; unsubscribe(); };
+    return () => { active = false; clearTimeout(slotTimer); unsubscribe(); };
   }, [api, clientId]);
 
   if (!visible || (!digest && !actions)) return null;
@@ -90,6 +98,21 @@ export function DigestCard() {
       }}
     />
   );
+}
+
+/** Read a little after the slot so the server tick has generated it. */
+const SLOT_SLACK_MS = 30_000;
+
+/** Milliseconds until this runtime's next local 09:00 or 17:00. */
+export function msUntilNextSlot(now: number): number {
+  const at = new Date(now);
+  for (const day of [0, 1]) {
+    for (const hour of [9, 17]) {
+      const slot = new Date(at.getFullYear(), at.getMonth(), at.getDate() + day, hour).getTime();
+      if (slot > now) return slot - now;
+    }
+  }
+  return 12 * 60 * 60 * 1000;
 }
 
 function formatDay(ms: number): string {
