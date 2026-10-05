@@ -97,12 +97,14 @@ async function cliIndex(root: string): Promise<void> {
 /** Rows the indexer may not produce (`.MD` names, a null status) but another writer could. */
 function addRows(root: string, rows: { path: string; status: string | null }[]): void {
   const db = new Database(join(root, "brain.db"));
+  // A statement left unfinalized makes close(true) fail as "database is locked".
+  const insert = db.prepare(
+    "INSERT INTO documents (path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?, 'Odysseus', 'opportunity', ?, 'primary', '2026-07-01', ?, 'Ithaca', '2026-07-12T00:00:00Z') ON CONFLICT(path) DO UPDATE SET status = excluded.status"
+  );
   try {
-    const insert = db.prepare(
-      "INSERT INTO documents (path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?, 'Odysseus', 'opportunity', ?, 'primary', '2026-07-01', ?, 'Ithaca', '2026-07-12T00:00:00Z') ON CONFLICT(path) DO UPDATE SET status = excluded.status"
-    );
     for (const row of rows) insert.run(row.path, row.status, NOW);
   } finally {
+    insert.finalize();
     db.close(true);
   }
 }
@@ -115,7 +117,7 @@ async function runAudit(brain: BrainContext, root = brain.root, failed: string[]
     const issues = await auditWithModules(db, { ...brain, root }, { onCheckFailed: (name) => failed.push(name) });
     return { issues, probes: (globalThis as { __hygieneProbe?: Probe[] }).__hygieneProbe ?? [] };
   } finally {
-    db.close(true);
+    db.close(); // the core audit may leave its own statements to finalize
   }
 }
 const stagePaths = (issues: AuditIssue[]) => issues.filter((i) => i.category === "jobs-stage").map((i) => i.path);
@@ -150,10 +152,12 @@ describe("module hygiene through root-bound queries", () => {
     // Root exact, nested ASCII-case-insensitive; near-names, notes, archived and null status excluded.
     expect(flagged).toEqual(["career/aeolus/status.md", "career/calypso/Status.md", "career/circe/STATUS.md", UPPER_NESTED, "status.md"]);
     const db = new Database(join(brain.root, "brain.db"), { readonly: true });
+    const statement = db.prepare(
+      `SELECT path FROM documents WHERE type = 'opportunity' AND status != 'archived' AND (path = 'status.md' OR path LIKE '%/status.md') ORDER BY path`
+    );
     try {
-      const former = db.prepare(
-        `SELECT path FROM documents WHERE type = 'opportunity' AND status != 'archived' AND (path = 'status.md' OR path LIKE '%/status.md') ORDER BY path`
-      ).all() as { path: string }[];
+      const former = statement.all() as { path: string }[];
+      statement.finalize();
       // Every former candidate without a stage is flagged; the staged one is selected but clean.
       expect(former.map((r) => r.path).filter((p) => p !== "career/ithaca/status.md")).toEqual(flagged);
       expect(former.length).toBe(6);
