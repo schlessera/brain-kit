@@ -39,6 +39,14 @@ Read the checked-out `.depot/workflows/`, `.github/workflows/project-sync.yml`
 and merge requirements for expected checks. CI and contract checks use Depot
 CI; project-sync uses GitHub Actions because Depot does not support issue
 events and its Actions runners require an organization-owned repository.
+A PR whose head repository is a fork is the exception: Depot does not
+receive it, and the generated `.github/workflows/fork-ci.yml` and
+`fork-contract.yml` run the same gates on GitHub Actions as `fork / <job>`
+checks. Choose the provider by the PR's `headRepository`, never by which
+rows happen to be green. On a same-repository PR the `fork / …` rows are
+skipped by their route and are not evidence; on a fork PR, Depot rows are
+absent and the `fork / …` runs are the gates. A fork run awaiting maintainer
+approval has not run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
 Skipped/neutral checks count only where actual workflow/branch rules
