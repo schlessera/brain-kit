@@ -251,6 +251,15 @@ adding or changing a check. See [AGENTS.md](AGENTS.md#depot-ci) for commands
 to find a PR's runs, diagnose failures, export logs and download artifacts.
 Project-board sync stays on GitHub Actions to retain issue-event triggers.
 
+A pull request from a fork runs the same gates on GitHub Actions instead,
+because Depot CI does not receive fork pull requests. Open it as usual; its
+checks are named `fork / <job>`. GitHub may hold a first-time contributor's
+run until a maintainer approves it. Until then the checks have not run, and
+the PR has not passed. The fork workflows in `.github/workflows/` are
+generated from `.depot/workflows/`: change the Depot file, then run
+`bun scripts/fork-ci-adapters.ts --write` and commit both. `bun run lint`
+fails while they disagree.
+
 Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 
 **The contract gate** (`.depot/workflows/contract.yml`, rule in

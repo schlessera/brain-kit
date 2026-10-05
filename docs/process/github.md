@@ -290,6 +290,16 @@ This repo is operated by coding agents, so this is a contract and not advice.
    what you did. Record the decisions you made that the issue did not make for
    you.
 
+## Pull requests from forks
+
+A contributor without write access opens their pull request from a fork, and
+it stays the PR of record: nobody re-opens it from a branch here to get CI.
+Depot CI does not receive fork pull requests, so GitHub Actions runs the same
+CI and contract gates for them as `fork / <job>` checks (CONTRIBUTING.md,
+"Contract checks"). GitHub may hold a first-time contributor's run until a
+maintainer approves it, and a held run is not a passing check. The rest of the
+review and merge process is unchanged.
+
 ## Filing an issue from a session
 
 Work found mid-session that is real but out of scope gets filed, not fixed and

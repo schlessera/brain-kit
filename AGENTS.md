@@ -314,6 +314,19 @@ image and diagnostic artifacts when changing workflows. Project sync remains
 in `.github/workflows/project-sync.yml`: Depot CI does not support `issues`
 events, and Depot's GitHub Actions runners require an organization-owned repo.
 
+Pull requests from forks are the one other exception. Depot CI does not
+receive them, so GitHub Actions runs the same CI and contract gates for them
+from `.github/workflows/fork-ci.yml` and `fork-contract.yml`. Those files are
+generated from the Depot workflows by `scripts/fork-ci-adapters.ts`, so never
+edit them by hand: change the Depot source and run
+`bun scripts/fork-ci-adapters.ts --write`. Every Depot job carries the same
+`if:` route that keeps it off fork PRs, and every adapter job carries the
+inverse, named `fork / <job>`. `bun run lint` and
+`tests/fork-ci-adapters.test.ts` fail when the two drift. For a fork PR, read
+the `fork / …` GitHub Actions checks (`gh run`), not Depot. For a
+same-repository PR, those rows are skipped by design and prove nothing: read
+Depot. A fork run that is waiting for maintainer approval has not passed.
+
 Use the installed `depot` CLI to monitor CI and investigate failed checks.
 Check `depot ci <command> --help` before assuming flags. Prefix commands with
 `rtk proxy` as required by the session's RTK instructions. For a PR, get its
