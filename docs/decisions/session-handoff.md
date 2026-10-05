@@ -92,7 +92,7 @@ failing closed, a retry still finds the destination.
 
 - Host: [`packages/ui-server/src/ws/handoff.ts`](../../packages/ui-server/src/ws/handoff.ts)
   (creation, status, preparation), the catalog columns in
-  [`migrations/030_session_handoff.sql`](../../packages/ui-server/migrations/030_session_handoff.sql),
+  [`migrations/031_session_handoff.sql`](../../packages/ui-server/migrations/031_session_handoff.sql),
   and the links on `GET /api/sessions`.
 - Client: the review sheet
   [`handoff-sheet.tsx`](../../packages/ui-react/src/components/chat/handoff-sheet.tsx),
