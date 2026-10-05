@@ -4623,7 +4623,7 @@ build it, and #964 and #979 add the host contracts in §6.
   a destination: it is reached through phone More and the palette's Jump to,
   with no key. Graph's contents are unchanged.
 - **The key remap is explicit.** Today the keys are ⌘1 Chat, ⌘2 Actions,
-  ⌘3 Files, ⌘4 Graph, ⌘5 Settings (`const jumpTo`, `packages/ui-react/src/components/layout/desktop-palette.tsx:78-83`).
+  ⌘3 Files, ⌘4 Graph, ⌘5 Settings (`const jumpTo`, `packages/ui-react/src/components/layout/desktop-palette.tsx:84-89`).
   After: ⌘1 Chat, ⌘2 **Sessions**, ⌘3 **Actions**, ⌘4 **Files**, ⌘5 Settings.
   Graph loses ⌘4 and gets no key.
 - **Rail acts** sit under the destinations: Search, Add a note and Daily
@@ -4901,7 +4901,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1034-1047`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1152-1173`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -4924,7 +4924,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:133-137`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:159-163`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5146,12 +5146,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:366-375`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:397-406`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:300-312`)
+  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:326-338`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
