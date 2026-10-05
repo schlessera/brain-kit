@@ -129,11 +129,15 @@ function edit(file: string, sql: string): void {
 let voyage: string;
 let later: string;
 let brain: BrainContext;
+/** What every consumer answers for an unmodified copy of A; each state compares against it. */
+let baseline: Observed;
 
+// File-level, so a single test selected with `-t` still has its index and baseline.
 beforeAll(async () => {
   voyage = await cliIndexed(VOYAGE);
   later = await cliIndexed({ ...VOYAGE, ...LATER });
   brain = await initContext({ root: voyage });
+  baseline = await observeAll(repo());
 });
 
 afterEach(() => setCoreModuleLoaderForTesting(null));
@@ -259,10 +263,7 @@ const jobsFailure = (code: string) => ({
 
 // --- the index ---------------------------------------------------------------
 
-let baseline: Observed;
-
 describe("one CLI-produced index serves every consumer", () => {
-  beforeAll(async () => { baseline = await observeAll(repo()); });
 
   test("the index carries what the consumers are tested on", () => {
     const meta = value(queries.readGraphMeta({ brainPath: voyage }));
