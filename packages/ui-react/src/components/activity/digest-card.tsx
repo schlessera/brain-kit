@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ActionDigestSummary, ActivityDigest } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
@@ -30,25 +30,29 @@ export function DigestCard() {
   const setActiveView = useUIStore((s) => s.setActiveView);
 
   const clientId = useMemo(() => noticeClientId(), []);
+  /** Bumped by every read and by dismissal, so an older response never lands. */
+  const request = useRef(0);
+  /** Newest summary dismissed here, ahead of the server's marker catching up. */
+  const dismissedThrough = useRef(0);
 
   useEffect(() => {
     let active = true;
-    let request = 0;
     setDigest(null);
     setActions(null);
     setVisible(false);
     const load = () => {
-      const current = ++request;
+      const current = ++request.current;
       void api
         .activityDigest(clientId)
         .then(({ digest, dismissedAt, actions }) => {
-          if (!active || current !== request) return;
-          const freshDigest = digest && digest.runs > 0 && digest.generatedAt > dismissedAt ? digest : null;
+          if (!active || current !== request.current) return;
+          const seen = (at: number, marker: number) => at > marker && at > dismissedThrough.current;
+          const freshDigest = digest && digest.runs > 0 && seen(digest.generatedAt, dismissedAt) ? digest : null;
           // Actions summaries carry this client context's own dismissal.
           const latest = actions?.status === "ready" ? actions.latest : null;
           const actionsDismissedAt = actions?.status === "ready" ? actions.dismissedAt ?? 0 : 0;
           const freshActions =
-            latest && latest.waiting.length + latest.updates.length > 0 && latest.generatedAt > actionsDismissedAt ? latest : null;
+            latest && latest.waiting.length + latest.updates.length > 0 && seen(latest.generatedAt, actionsDismissedAt) ? latest : null;
           // A refresh with nothing fresh hides a card shown by an earlier read.
           setDigest(freshDigest);
           setActions(freshActions);
@@ -67,14 +71,17 @@ export function DigestCard() {
     };
     load();
     armSlot();
-    // A first or changed zone report can make a summary due: fetch again.
-    const unsubscribe = onNotificationZoneReported(api, load);
+    // A first or changed zone report can make a summary due: fetch again,
+    // and re-arm the slot timer in case the local zone moved.
+    const unsubscribe = onNotificationZoneReported(api, () => { load(); armSlot(); });
     return () => { active = false; clearTimeout(slotTimer); unsubscribe(); };
   }, [api, clientId]);
 
   if (!visible || (!digest && !actions)) return null;
 
   function dismiss() {
+    request.current++;
+    dismissedThrough.current = Math.max(dismissedThrough.current, digest?.generatedAt ?? 0, actions?.generatedAt ?? 0);
     setVisible(false);
     void api.activityDigestDismiss(clientId).catch(() => {});
   }

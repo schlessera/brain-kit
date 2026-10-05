@@ -22,7 +22,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated notification zone tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b8 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b9 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -195,6 +195,43 @@ if (process.env[CHILD_MARKER]) {
     } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
   }
   const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+  test("a read in flight when the card is dismissed cannot bring it back; a zone report re-arms the slot timer", async () => {
+    let release: (() => void) | undefined;
+    let reads = 0;
+    const ready = { status: "ready", timeZone: "Europe/Athens", latest: summaryOf("Answer the Cyclops", 5), dismissedAt: null };
+    const api = {
+      activityDigest: async () => {
+        reads++;
+        if (reads === 2) await new Promise<void>((resolve) => { release = resolve; });
+        return { digest: null, dismissedAt: 0, actions: ready };
+      },
+      activityDigestDismiss: async () => ({ ok: true }),
+      pushZone: async () => ({ ok: true, timeZone: "Europe/Athens" }),
+    } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
+    const timers: number[] = [];
+    const real = globalThis.setTimeout;
+    const spy = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => {
+      if ((delay ?? 0) > 60_000) { timers.push(delay!); return 0 as unknown as ReturnType<typeof setTimeout>; }
+      return real(run, delay);
+    }) as typeof setTimeout);
+    try {
+      (globalThis as { Notification?: unknown }).Notification = undefined;
+      const view = render(<BrainUiProvider root={createBrainUiRoot({ api, storage: null })}><DigestCard /></BrainUiProvider>);
+      await flush();
+      expect(view.container.textContent).toContain("Answer the Cyclops");
+      // A zone report starts a second read (held open) and re-arms the timer.
+      await act(async () => { await registration.reportNotificationZone(api); });
+      expect(timers).toHaveLength(2);
+      const dismissButton = [...view.container.querySelectorAll("[role=button]")].find((b) => b.textContent?.includes("Dismiss")) as HTMLElement;
+      await act(async () => { dismissButton.click(); });
+      expect(view.container.textContent).not.toContain("Answer the Cyclops");
+      await act(async () => { release!(); });
+      await flush();
+      expect(view.container.textContent).not.toContain("Answer the Cyclops");
+      cleanup();
+    } finally { spy.mockRestore(); }
+  });
 
   test("the next local slot is 09:00 or 17:00 in this runtime's zone", () => {
     const athens = (day: number, hour: number, minute = 0) => Date.UTC(2026, 9, 3 + day, hour - 3, minute);
