@@ -300,12 +300,32 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     return latestCronInstant(parseCron(when.cron), when.timeZone, lower, at);
   }
 
-  function blockedReason(row: TaskRow, drifted: boolean): BlockedReason | null {
+  /**
+   * The recurring capability is the approved envelope intersected with
+   * current authority: both the creator and the approving operator must
+   * still be usable, and the approver must still be an operator.
+   */
+  function authorized(row: TaskRow): boolean {
+    if (!usable(row.creator_principal_id)) return false;
+    const approval = db.query("SELECT approver_principal_id, approver_kind FROM schedule_approvals WHERE id = ?")
+      .get(row.approval_id) as { approver_principal_id: string; approver_kind: string } | null;
+    const approver = approval ? usable(approval.approver_principal_id) : null;
+    return Boolean(approver && isOperator(approver) && approver.kind === approval!.approver_kind);
+  }
+
+  /** The host's current execution policy as canonical JSON, or null when it has none. */
+  async function hostPolicy(): Promise<string | null> {
+    try { return canonicalJson(await currentPolicy()); } catch { return null; }
+  }
+
+  /** `policy` is the host's current policy (hostPolicy); work runs only under the approved one. */
+  function blockedReason(row: TaskRow, drifted: boolean, policy: string | null): BlockedReason | null {
     if (!["active", "paused"].includes(row.state)) return null;
     if (drifted) return "definition_drift";
     if (row.blocked_reason) return row.blocked_reason;
     if (restorePending()) return "restore_pending";
-    if (!usable(row.creator_principal_id)) return "authority_unusable";
+    if (!authorized(row)) return "authority_unusable";
+    if (policy !== row.execution_policy_json) return "backend_unavailable";
     if (!dispatchAvailable()) return "dispatch_disabled";
     return null;
   }
@@ -313,7 +333,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   async function taskView(row: TaskRow): Promise<ScheduleTask> {
     const at = now();
     const drifted = await fileDrifted(row);
-    const reason = blockedReason(row, drifted);
+    const reason = blockedReason(row, drifted, await hostPolicy());
     const last = db.query("SELECT * FROM schedule_occurrences WHERE task_id = ? ORDER BY due_at DESC LIMIT 1").get(row.id) as OccurrenceRow | null;
     const next = nextDue(row, at);
     return {
@@ -675,8 +695,9 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     candidates.sort((a, b) => a.dueAt - b.dueAt || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0));
     const remaining = after ? candidates.filter((c) => c.dueAt > after![0] || (c.dueAt === after![0] && c.row.id > after![1])) : candidates;
     const views: (DueCandidate & { _row: TaskRow })[] = [];
+    const policy = await hostPolicy();
     for (const { dueAt, row } of remaining.slice(0, limit + 1)) {
-      const reason = blockedReason(row, await fileDrifted(row));
+      const reason = blockedReason(row, await fileDrifted(row), policy);
       views.push({ taskId: row.id, occurrenceId: occurrenceId(row.id, dueAt), dueAt: isoInstant(dueAt),
         expiresAt: isoInstant(dueAt + SCHEDULE_FRESHNESS_MS), admittable: row.state === "active" && reason === null,
         blockedReason: reason, _row: row });
@@ -804,7 +825,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
           throw new ScheduleError("definition_conflict", "The definition file does not match the approved snapshot; cancel and create a new schedule.");
         if (current.root_identity !== rootInfo().identity)
           throw new ScheduleError("definition_conflict", "The task belongs to another brain root.");
-        if (!usable(current.creator_principal_id)) throw new ScheduleError("unauthorized", "The schedule's creator is no longer usable.");
+        if (!authorized(current)) throw new ScheduleError("unauthorized", "The schedule's creator or approving operator is no longer usable.");
         if (canonicalJson(policy) !== current.execution_policy_json)
           throw new ScheduleError("definition_conflict", "The host execution policy changed since approval; cancel and create a new schedule.");
         if (db.query(`SELECT 1 FROM schedule_occurrences WHERE task_id = ? AND state IN
@@ -825,14 +846,22 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     taskRow,
     definitionOf,
     restorePending,
-    usable: (principalId: string) => usable(principalId) !== null,
+    authorized,
     latestDue,
     finished,
     occurrenceView,
-    /** Why work cannot start on this task now, checking its file first. */
+    /** Whether an approved recurrence's end has passed: nothing new may start. */
+    ended(row: TaskRow, at: number): boolean {
+      const { when } = definitionOf(row);
+      return when.kind === "cron" && when.endAt !== null && parseInstant(when.endAt)! <= at;
+    },
+    /**
+     * Why work cannot start on this task now. Checks the file and the host's
+     * current execution policy, which must still be the approved one.
+     */
     async refusal(row: TaskRow): Promise<BlockedReason | null> {
       if (row.state !== "active" || row.publication !== "published") return row.blocked_reason ?? "dispatch_disabled";
-      return blockedReason(row, await fileDrifted(row));
+      return blockedReason(row, await fileDrifted(row), await hostPolicy());
     },
   };
 

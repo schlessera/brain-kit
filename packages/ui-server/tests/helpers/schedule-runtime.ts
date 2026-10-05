@@ -9,7 +9,7 @@ import type { AgentBackend, StartTurnRequest } from "@schlessera/brain-ui-sdk/se
 import { createActivityStore } from "../../src/activity/store.js";
 import { createInboxRuntime } from "../../src/inbox/runtime.js";
 import { createScheduleAdmission, type AdmissionTimers } from "../../src/schedules/admission.js";
-import { createScheduleService } from "../../src/schedules/service.js";
+import { createScheduleService, type ExecutionPolicy } from "../../src/schedules/service.js";
 import { POLICY } from "./schedule-fixture.js";
 
 export type Script = (request: StartTurnRequest, attempt: number) => Promise<void>;
@@ -55,9 +55,11 @@ export function scheduleRuntime(db: Database, options: {
   timers?: AdmissionTimers;
   allowedTools?: () => string[];
   afterClaim?: () => unknown;
+  /** The host's current execution policy; defaults to the approved fixture policy. */
+  policy?: () => ExecutionPolicy | null;
 }) {
   const now = () => options.clock.now;
-  const service = createScheduleService(db, { brainRoot: options.root, now, executionPolicy: () => POLICY,
+  const service = createScheduleService(db, { brainRoot: options.root, now, executionPolicy: options.policy ?? (() => POLICY),
     gitIgnored: () => false, dispatchAvailable: () => true });
   const { backend, calls } = scriptedBackend(options.script);
   const activity = createActivityStore(db, { writer: "schedule-runtime-test" });

@@ -4156,7 +4156,12 @@ operator types `reopen` on an interactive terminal; otherwise it exits 1 with
 private admission boundary #915 will drive. It turns a task's latest fresh due
 instant into one occurrence and its first Queue item in one immediate
 transaction; concurrent callers in any process admit it once, and instants
-arriving while work is outstanding are skipped as busy. The Queue claim reserves
+arriving while work is outstanding are skipped as busy. Admission and every
+start require the creator and the approving operator to still be usable
+(otherwise `blockedReason: "authority_unusable"`) and the host's current
+execution policy to equal the approved one (otherwise `"backend_unavailable"`,
+which `list` and `due` also report). At or after an approved `endAt`, queued
+or retrying work expires instead of starting. The Queue claim reserves
 budget as for any autonomous work, and the start transaction is the
 cancel-versus-start boundary. Each attempt gets the approved
 `attemptTimeoutMs` (at most 600000 ms, never past the occurrence's 24-hour

@@ -2,10 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { revokePrincipal } from "../src/db/principals.js";
+import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { isoInstant } from "../src/schedules/time.js";
-import { atDefinition, cronDefinition, scheduleFixture, type ScheduleFixture } from "./helpers/schedule-fixture.js";
+import { atDefinition, cronDefinition, POLICY, scheduleFixture, type ScheduleFixture } from "./helpers/schedule-fixture.js";
 import { manualTimers, scheduleRuntime, succeed, type Script } from "./helpers/schedule-runtime.js";
 
 const MINUTE = 60_000;
@@ -402,6 +402,62 @@ test("revoked creator authority refuses admission and start instead of reporting
   expect(reservations(f)).toEqual([expect.objectContaining({ status: "released" })]);
   const view = (await h.service.list(f.owner, { id: task.id }).catch((error) => error)) as { code?: string };
   expect(view.code).toBe("unauthorized");
+});
+
+test("a changed host execution policy refuses admission and start under the approved one", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  const task = await create(f, "ithaca-policy", cronDefinition("* * * * *"));
+  let policy = POLICY;
+  const h = harness(f, succeed("Should not run."), { policy: () => policy });
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  // The operator switches the host to another profile after approval.
+  policy = { ...POLICY, profileId: "fixture-other" };
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(h.calls).toHaveLength(0);
+  expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "dropped" });
+  f.clock.now += 2 * MINUTE;
+  expect(await h.admission.admit()).toEqual([]);
+  expect((await h.service.list(f.owner, { id: task.id })).tasks[0]).toMatchObject({ executionAvailable: false, blockedReason: "backend_unavailable" });
+});
+
+test("revoking the approving operator stops a delegated creator's schedule", async () => {
+  const f = fixture = start();
+  const approver = createPrincipal(f.db, { authMethod: "password", label: "Eurycleia", ttlSeconds: 3600 * 24 });
+  const service = f.service({ dispatchAvailable: () => true });
+  const { proposal } = await service.propose(f.agent, { key: "agent-schedule", definition: cronDefinition("* * * * *") });
+  await service.approve(approver, proposal.id, { fingerprint: proposal.fingerprint, decision: "approve" });
+  const { task } = await service.publish(f.agent, { proposalId: proposal.id });
+  const h = harness(f, succeed("Agent work."));
+  f.clock.now += MINUTE;
+  const [id] = await h.admission.admit();
+  revokePrincipal(f.db, approver.id, f.clock.now);
+  // The creator is still usable; the grant's operator is not.
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(h.calls).toHaveLength(0);
+  expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "dropped" });
+  f.clock.now += 2 * MINUTE;
+  expect(await h.admission.admit()).toEqual([]);
+  expect((await h.service.list(f.agent, { id: task.id })).tasks[0]).toMatchObject({ blockedReason: "authority_unusable" });
+});
+
+test("nothing new starts at or after an approved recurrence end, not even queued work", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE, end = f.clock.now + 3 * MINUTE;
+  const task = await create(f, "ithaca-ending", cronDefinition("* * * * *", { endAt: isoInstant(end) }));
+  const h = harness(f, succeed("Should not run."));
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  f.clock.now = end;
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(h.calls).toHaveLength(0);
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id, state: "expired", operations_used: 0 })]);
+  expect(await h.admission.admit()).toEqual([]);
+  expect((await h.service.list(f.owner, { id: task.id })).tasks[0]).toMatchObject({ state: "expired", nextDueAt: null });
+  // A continuation cannot start after the end either.
+  f.db.query("UPDATE schedule_occurrences SET state = 'waiting_for_action' WHERE id = ?").run(id);
+  expect(h.admission.continueOccurrence(id!)).toBeNull();
 });
 
 test("a deadline never runs past the occurrence's 24-hour freshness bound", async () => {

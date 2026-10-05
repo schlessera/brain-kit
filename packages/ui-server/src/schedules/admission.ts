@@ -84,6 +84,10 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       WHERE id = ?`).run(state, at, extra.result ?? null, extra.result ?? null, id);
   }
 
+  /** Past its freshness bound or its task's approved end: no new attempt may start. */
+  const over = (occurrence: OccurrenceRow, task: TaskRow, at: number) =>
+    at >= occurrence.expires_at || internal.ended(task, at);
+
   /** A one-off ends with its occurrence; a recurring task keeps its configuration. */
   function settleTask(task: TaskRow, state: OccurrenceRow["state"], at: number): void {
     if (state === "unknown") {
@@ -139,12 +143,12 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         // recovery may already have returned it, or even reclaimed it.
         const alive = item !== null && ["scheduled", "ready", "claimed"].includes(item.status);
         const retry = alive && operationsAdmitted(occurrence.id) < occurrence.max_operations &&
-          at < occurrence.expires_at && task.state === "active";
+          !over(occurrence, task, at) && task.state === "active";
         if (retry) {
           setOccurrence(occurrence.id, "retrying", at);
           if (item!.status === "claimed" && item!.runId === attempt.run_id) failInboxWork(db, item!.id, item!.version, at);
         } else {
-          const final = at >= occurrence.expires_at ? "expired" : task.state === "cancelled" ? "cancelled" : "failed";
+          const final = over(occurrence, task, at) ? "expired" : task.state === "cancelled" ? "cancelled" : "failed";
           setOccurrence(occurrence.id, final, at);
           settleTask(task, final, at);
           dropClaim(attempt.item_id);
@@ -156,11 +160,15 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
     return recovered;
   }
 
-  /** Expire unstarted work at its 24-hour freshness bound and finished tasks. */
+  /**
+   * Expire unstarted work at its 24-hour freshness bound or the approved
+   * recurrence end (a started attempt may still finish), and finished tasks.
+   */
   function expire(at: number): void {
     db.transaction(() => {
-      const stale = db.query(`SELECT * FROM schedule_occurrences WHERE expires_at <= ?
-        AND state IN ('queued', 'retrying', 'waiting_for_action')`).all(at) as OccurrenceRow[];
+      const unstarted = db.query(`SELECT * FROM schedule_occurrences
+        WHERE state IN ('queued', 'retrying', 'waiting_for_action')`).all() as OccurrenceRow[];
+      const stale = unstarted.filter((occurrence) => over(occurrence, internal.taskRow(occurrence.task_id)!, at));
       for (const occurrence of stale) {
         setOccurrence(occurrence.id, "expired", at);
         const task = internal.taskRow(occurrence.task_id)!;
@@ -202,7 +210,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         const at = now();
         const current = internal.taskRow(task.id)!;
         if (current.state !== "active" || current.updated_at !== task.updated_at || internal.restorePending() ||
-            !internal.usable(current.creator_principal_id)) return null;
+            !internal.authorized(current)) return null;
         const outstanding = db.query(`SELECT 1 FROM schedule_occurrences WHERE task_id = ? AND state IN ${OUTSTANDING}`).get(current.id);
         const dueAt = outstanding ? null : internal.latestDue(current, at);
         db.query("UPDATE schedule_tasks SET evaluated_through = MAX(evaluated_through, ?) WHERE id = ?").run(at, current.id);
@@ -239,9 +247,9 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
     return db.transaction(() => {
       const at = now();
       const occurrence = occurrenceRow(id);
-      if (!occurrence || occurrence.state !== "waiting_for_action" || at >= occurrence.expires_at) return null;
+      if (!occurrence || occurrence.state !== "waiting_for_action") return null;
       const task = internal.taskRow(occurrence.task_id)!;
-      if (task.state !== "active" || !internal.usable(task.creator_principal_id)) return null;
+      if (over(occurrence, task, at) || task.state !== "active" || !internal.authorized(task)) return null;
       const live = db.query(`SELECT 1 FROM schedule_occurrence_items l JOIN inbox_items i ON i.id = l.item_id
         WHERE l.occurrence_id = ? AND i.status IN ('scheduled', 'ready', 'claimed', 'blocked') LIMIT 1`).get(id);
       if (live) return null;
@@ -297,11 +305,11 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       if (claim?.status !== "claimed" || claim.runId !== runId) return null;
       const admitted = operationsAdmitted(occurrence.id);
       const startable = ["queued", "retrying"].includes(occurrence.state) && current.state === "active" &&
-        refusal === null && !internal.restorePending() && internal.usable(current.creator_principal_id) &&
-        at < occurrence.expires_at && admitted <= occurrence.max_operations;
+        refusal === null && !internal.restorePending() && internal.authorized(current) &&
+        !over(occurrence, current, at) && admitted <= occurrence.max_operations;
       if (!startable) {
         if (["queued", "retrying"].includes(occurrence.state)) {
-          const final = at >= occurrence.expires_at ? "expired" : current.state === "cancelled" ? "cancelled"
+          const final = over(occurrence, current, at) ? "expired" : current.state === "cancelled" ? "cancelled"
             : admitted > occurrence.max_operations ? "failed" : null;
           if (final) { setOccurrence(occurrence.id, final, at); settleTask(current, final, at); }
         }
@@ -371,14 +379,14 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         return;
       }
       const remaining = operationsAdmitted(occurrence.id) < occurrence.max_operations;
-      const retry = remaining && at < occurrence.expires_at && current.state === "active" && readOnly(current);
+      const retry = remaining && !over(occurrence, current, at) && current.state === "active" && readOnly(current);
       if (retry) {
         setOccurrence(occurrence.id, "retrying", at);
         // A yield already returned the item to the Queue with its attempt counted.
         if (claimed) failInboxWork(db, item.id, claim!.version, at);
         return;
       }
-      const final = at >= occurrence.expires_at ? "expired" : current.state === "cancelled" ? "cancelled" : "failed";
+      const final = over(occurrence, current, at) ? "expired" : current.state === "cancelled" ? "cancelled" : "failed";
       setOccurrence(occurrence.id, final, at);
       settleTask(current, final, at);
       if (claimed && final === "failed" && !remaining) failInboxWork(db, item.id, claim!.version, at);
