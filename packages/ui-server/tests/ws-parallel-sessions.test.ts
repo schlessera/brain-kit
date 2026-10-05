@@ -23,6 +23,8 @@ import {
 interface TurnControl {
   emit: (m: ServerMessage) => void;
   finish: () => void;
+  /** Resolve startTurn without emitting anything more. */
+  end: () => void;
 }
 
 function makeFakeBackend(caps: { concurrentSessions: boolean; followUp: boolean }) {
@@ -58,6 +60,7 @@ function makeFakeBackend(caps: { concurrentSessions: boolean; followUp: boolean 
           req.bridge.emit({ type: "result", sessionId, costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
           resolveDone();
         },
+        end: () => resolveDone(),
       });
       req.signal.addEventListener(
         "abort",
@@ -205,6 +208,32 @@ describe("parallel sessions (ws handler)", () => {
     expect(followUpCalls[0]).toMatchObject({ sessionId: sidA, prompt: "live follow" });
     // No queued status when the backend follows up live.
     expect(sent.some((f) => f.type === "status" && (f as { status: string }).status === "queued")).toBe(false);
+  });
+
+  test("follow-up (followUp:true): after the turn's result it queues instead, then auto-starts", async () => {
+    const { backend, controls, startCalls, followUpCalls } = makeFakeBackend({
+      concurrentSessions: true,
+      followUp: true,
+    });
+    setBackendForTests(backend);
+    const { ws, sent } = fakeClient();
+    addClient(ws);
+
+    await handleClientMessage(ws, { type: "chat_message", text: "first" });
+    await waitFor(() => controls.size === 1);
+    const sidA = [...controls.keys()][0];
+
+    // The turn has streamed its terminal result but startTurn has not resolved:
+    // its input is closed, so a live follow-up would be refused and lost.
+    controls.get(sidA)!.emit({ type: "result", sessionId: sidA, costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
+    await handleClientMessage(ws, { type: "chat_message", text: "just after", sessionId: sidA });
+    expect(followUpCalls).toHaveLength(0);
+    expect(sent.some((f) => f.type === "status" && (f as { status: string }).status === "queued" && sid(f) === sidA)).toBe(true);
+
+    controls.get(sidA)!.end();
+    await waitFor(() => startCalls.filter((c) => c.sessionId === sidA).length === 2);
+    controls.get(sidA)!.finish();
+    await waitFor(() => !isTurnActive());
   });
 
   test("cancel with sessionId cancels that session's turn", async () => {

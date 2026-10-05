@@ -38,6 +38,13 @@ import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 const BACKEND_ID = "claude";
 
+/**
+ * How long a held result waits for the CLI to report reading a follow-up
+ * before the input is closed anyway. The measured runtime reports it within
+ * milliseconds; the bound only matters for a runtime that never reports it.
+ */
+export const FOLLOW_UP_ACK_GRACE_MS = 3_000;
+
 /** A running turn, with the input stream a follow-up is delivered into. */
 interface RunningTurn extends ActiveTurn {
   /**
@@ -192,6 +199,8 @@ export function createClaudeTurnRunner(options: {
     // produced its terminal result — a stream that yields a result and THEN
     // throws must not get a second one.
     let sawResult = false;
+    /** Bounds how long a held result waits for a follow-up's read report. */
+    let ackGraceTimer: ReturnType<typeof setTimeout> | undefined;
     /**
      * Set when the subscription check refused the turn before its prompt was
      * released. It outranks the abort it causes: the turn failed, it was not
@@ -441,9 +450,16 @@ export function createClaudeTurnRunner(options: {
               carried = { numTurns: final.numTurns, durationMs: final.durationMs, frames: held, continued: false };
             }
             // A follow-up the CLI has not reported reading may come from a
-            // runtime that does not report it at all. Closing is safe: what was
-            // pushed is still written, and the CLI drains it before it exits.
-            if (unacknowledged) input.close();
+            // runtime that does not report it at all, and would then wait for
+            // input forever. Closing is safe: what was pushed is still written,
+            // and the CLI drains it before it exits. It waits a moment first,
+            // because closing also refuses any later follow-up of this turn.
+            if (unacknowledged) {
+              clearTimeout(ackGraceTimer);
+              ackGraceTimer = setTimeout(() => {
+                if (input.unacknowledged()) input.close();
+              }, FOLLOW_UP_ACK_GRACE_MS);
+            }
             continue;
           }
           input.close();
@@ -516,6 +532,7 @@ export function createClaudeTurnRunner(options: {
         emitTerminal("error");
       }
     } finally {
+      clearTimeout(ackGraceTimer);
       turn.input?.close();
       req.signal.removeEventListener("abort", onHostAbort);
       // Backstop: release any write lock still held (a mutating tool whose

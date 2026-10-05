@@ -34,6 +34,8 @@ export interface TurnInput {
    * `unacknowledged` is whether one of those has not been reported read yet.
    */
   settle(): { continues: boolean; unacknowledged: boolean };
+  /** A follow-up is pushed that the CLI has not reported reading. */
+  unacknowledged(): boolean;
   readonly closed: boolean;
   close(): void;
 }
@@ -98,6 +100,7 @@ export function createTurnInput(prompt: string | AsyncIterable<SDKUserMessage>):
         unacknowledged: [...pending.values()].some((state) => state === "pushed"),
       };
     },
+    unacknowledged: () => [...pending.values()].some((state) => state === "pushed"),
     get closed() {
       return closed;
     },

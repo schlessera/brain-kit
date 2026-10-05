@@ -243,7 +243,7 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
       await delivered;
       // A runtime that never reports the follow-up: no lifecycle frames.
       yield result(2, 20, 0.01);
-      // The unacknowledged follow-up closed the input, so the CLI can exit.
+      // Unacknowledged past the grace, the follow-up closes the input, so the CLI can exit.
       expect((await input.next()).done).toBe(true);
     });
     const turn = h.start();
