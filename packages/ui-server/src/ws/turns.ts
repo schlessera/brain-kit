@@ -250,6 +250,15 @@ export class TurnCoordinator {
   }
 
   /** True while any session has a running turn. */
+  /**
+   * Backend runs occupying the concurrency cap: running and starting turns,
+   * and handoff preparation summaries (#61). Every admission check reads
+   * this, so no kind of run can slip past the others.
+   */
+  activeRuns(): number {
+    return this.running.size + this.startingSessions + this.handoffPreparations.size;
+  }
+
   isTurnActive(): boolean {
     return this.running.size > 0;
   }

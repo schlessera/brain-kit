@@ -69,7 +69,10 @@ anyone would have to answer. Activity records it as a run named
 total without counting a turn; an unknown cost stays unknown, as
 [cost-tracking.md](cost-tracking.md) requires. A backend that cannot run a
 nonpersistent turn (pi with an injected session factory, today) answers
-`failed` and the deterministic draft applies.
+`failed` and the deterministic draft applies. A running preparation occupies a
+slot of the concurrent-session cap like a turn, for every admission path, and
+keeps it until the backend has unwound, even after its connection has gone.
+Authorization is checked again at the last await before the model starts.
 
 ## Idempotency under uncertain delivery
 
@@ -80,7 +83,10 @@ already created, or `pending` while that creation is in flight; the in-flight
 entry is claimed before the host's first await, so a retry racing a slow
 first attempt cannot start a second session. `handoff_status` asks without
 creating, which is what the sheet's `Check again` sends. A creation that
-failed leaves nothing, so `Try again` with the same key is safe.
+failed leaves nothing, so `Try again` with the same key is safe. If the
+destination exists but its link cannot be stored, the host keeps the key in
+memory for the life of the process rather than forget the only record of it:
+failing closed, a retry still finds the destination.
 
 ## Where things live
 

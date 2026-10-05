@@ -2342,7 +2342,9 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterMessages? }
   autonomous turn posture with no allowed tools), creates no session, and
   answers only the requesting connection. Its `handoffId` names the run; the
   matching `handoff_draft` carries it back, and `handoff_prepare_cancel`
-  stops it. `ready` carries the summary, at most `HANDOFF_MAX_CHARS`.
+  stops it. A running preparation counts against the host's concurrent-session
+  cap for every admission, including ordinary chat and retries, until its
+  backend run has unwound. `ready` carries the summary, at most `HANDOFF_MAX_CHARS`.
   `failed` (including a backend without autonomous-turn support, a busy host
   or a timeout) and `cancelled` carry none. Closing the connection aborts its
   runs. Activity records it as a run named `handoff preparation` on the source

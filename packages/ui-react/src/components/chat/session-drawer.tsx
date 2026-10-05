@@ -122,7 +122,8 @@ export function SessionDrawer({
           if (backendId) root.stores.chat.getState().setSessionBackend(id, backendId);
           onResume(id);
           onClose();
-          root.stores.handoff.getState().open(id, mintHandoffId());
+          // The resume above replays fresh history; the review waits for it.
+          root.stores.handoff.getState().open(id, mintHandoffId(), { awaitHistory: true });
         }}
       />
     </SlidePanel>

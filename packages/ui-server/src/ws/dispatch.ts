@@ -164,7 +164,7 @@ export async function handleClientMessage(
         if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId)) {
           refuse("This session is busy. Wait for the current turn to finish."); return;
         }
-        if (coordinator.running.size + coordinator.startingSessions >= host.maxConcurrentSessions()) {
+        if (coordinator.activeRuns() >= host.maxConcurrentSessions()) {
           refuse("The server is busy. Wait for a turn to finish and try again."); return;
         }
         const original = catalog.peekRetry?.(msg.sessionId);
@@ -176,7 +176,7 @@ export async function handleClientMessage(
           } catch { refuse("An original track is unavailable. Attach it again in a new message."); return; }
           if (!connection.authorization.valid) return;
           // File reads yield; repeat admission before consuming eligibility.
-          if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.running.size + coordinator.startingSessions >= host.maxConcurrentSessions()) {
+          if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.activeRuns() >= host.maxConcurrentSessions()) {
             refuse("The session or server became busy. Try again when it is free."); return;
           }
         }

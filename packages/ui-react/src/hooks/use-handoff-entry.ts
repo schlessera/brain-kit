@@ -46,8 +46,9 @@ export function useHandoffEntry(sessionId: string | null, settled: boolean): Han
   const why = handoffWhy(providers, backendId, connected);
   const open = useCallback(() => {
     if (!sessionId || why) return;
-    if (activeSessionId !== sessionId) openSession(sessionId);
-    root.stores.handoff.getState().open(sessionId, mintHandoffId());
+    const opening = activeSessionId !== sessionId;
+    if (opening) openSession(sessionId);
+    root.stores.handoff.getState().open(sessionId, mintHandoffId(), { awaitHistory: opening });
   }, [sessionId, why, activeSessionId, openSession, root]);
   return { shown: Boolean(sessionId) && settled, ...(why ? { why } : {}), open };
 }

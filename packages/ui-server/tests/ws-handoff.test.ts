@@ -172,7 +172,15 @@ const SOURCE_HISTORY = [
   { type: "assistant", message: { model: "fixture", content: [{ type: "text", text: "Penelope, with Telemachus." }] } },
 ];
 
-function rig(): Rig {
+interface RigOptions {
+  cap?: number;
+  /** Hold the provider roster read (billing resolution) until released. */
+  rosterHold?: () => Promise<void> | undefined;
+  /** Replace the catalog's handoff write. */
+  recordHandoff?: (fallback: NonNullable<ReturnType<typeof createSessionCatalog>["recordHandoff"]>) => ReturnType<typeof createSessionCatalog>["recordHandoff"];
+}
+
+function rig(options: RigOptions = {}): Rig {
   const brain = mkdtempSync(join(tmpdir(), "brain-handoff-"));
   mkdirSync(join(brain, "plans"), { recursive: true });
   writeFileSync(join(brain, "plans", "ithaca.md"), "# Ithaca\n");
@@ -185,12 +193,17 @@ function rig(): Rig {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "handoff-test" });
   const stream = createActivityStream(store);
+  const registry = createStaticBackendRegistry([claude, pi], "claude");
+  const catalog = createSessionCatalog(() => db);
+  if (options.recordHandoff) catalog.recordHandoff = options.recordHandoff(catalog.recordHandoff!.bind(catalog));
   const host = new WsHost({
     brainPath: brain,
-    registry: createStaticBackendRegistry([claude, pi], "claude"),
-    catalog: createSessionCatalog(() => db),
+    registry: options.rosterHold
+      ? { ...registry, listAllProviders: async (o) => { await options.rosterHold!(); return registry.listAllProviders(o); } }
+      : registry,
+    catalog,
     activity: { store, stream },
-    maxConcurrentSessions: () => 4,
+    maxConcurrentSessions: () => options.cap ?? 4,
   });
   // One handler set per socket: each owns its connection state, like a real upgrade.
   const handlersFor = new Map<WSContext, ReturnType<typeof createWsHandlers>>();
@@ -473,5 +486,73 @@ describe("handoff preparation", () => {
     expect(ws.frames.find((f) => f.type === "handoff_draft")).toMatchObject({ state: "failed", message: "pi can't draft a summary on this server." });
     expect(r.starts.pi.length + r.starts.claude.length).toBe(0);
     expect(r.db.query("SELECT COUNT(*) AS n FROM activity_run_rollups").get()).toEqual({ n: 0 });
+  });
+});
+
+describe("review findings: authority, admission and fail-closed idempotency", () => {
+  test("a principal revoked while billing resolves never starts the summary model", async () => {
+    let hold: Promise<void> | undefined;
+    const r = rig({ rosterHold: () => hold });
+    const source = seedSource(r, "claude");
+    const ws = r.open();
+    const roster = gate();
+    hold = roster.promise;
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-revoke-0001", sourceSessionId: source, messageCount: 4 });
+    await until(() => r.host.coordinator.handoffPreparations.size === 1);
+    await Bun.sleep(20); // history read done; now parked in billing resolution
+    r.host.revokePrincipals(["test-principal"], 4001, "revoked");
+    roster.open();
+    await until(() => r.host.coordinator.handoffPreparations.size === 0);
+    expect(r.starts.claude).toHaveLength(0);
+  });
+
+  test("a running preparation counts against the session cap for ordinary chat", async () => {
+    const r = rig({ cap: 1 });
+    const source = seedSource(r, "claude");
+    const held = gate();
+    r.scripts.claude.summaryHold = held.promise;
+    const ws = r.open();
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-capped-0001", sourceSessionId: source, messageCount: 4 });
+    await until(() => r.starts.claude.length === 1);
+    r.send(ws, { type: "chat_message", text: "Meanwhile, the harbour fees?", providerId: "default", requestId: "req-capped" });
+    await until(() => ws.frames.some((f) => f.requestId === "req-capped"));
+    expect(ws.frames.find((f) => f.requestId === "req-capped")).toMatchObject({ type: "error", code: "SESSION_LIMIT" });
+    expect(r.starts.pi).toHaveLength(0);
+    held.open();
+  });
+
+  test("a disconnect aborts the run but keeps its slot until the backend has unwound", async () => {
+    const r = rig({ cap: 1 });
+    const source = seedSource(r, "claude");
+    const held = gate();
+    r.scripts.claude.summaryHold = held.promise;
+    const first = r.open();
+    r.send(first, { type: "handoff_prepare", handoffId: "h-unwind-0001", sourceSessionId: source, messageCount: 4 });
+    await until(() => r.starts.claude.length === 1);
+    r.close(first);
+    expect(r.starts.claude[0]!.signal.aborted).toBe(true);
+    expect(r.host.coordinator.handoffPreparations.size).toBe(1);
+    const second = r.open();
+    r.send(second, { type: "handoff_prepare", handoffId: "h-unwind-0002", sourceSessionId: source, messageCount: 4 });
+    await until(() => second.frames.some((f) => f.type === "handoff_draft"));
+    expect(second.frames.find((f) => f.type === "handoff_draft")).toMatchObject({ state: "failed", message: "The server is busy, so no summary was drafted." });
+    held.open();
+    await until(() => r.host.coordinator.handoffPreparations.size === 0);
+  });
+
+  for (const pair of PAIRS) test(`${pair.source} → ${pair.destination}: a destination whose link could not be stored is still found by its key`, async () => {
+    const r = rig({ recordHandoff: () => () => false });
+    const source = seedSource(r, pair.source);
+    const ws = r.open();
+    const frame = { type: "chat_message", text: "Odysseus is sailing home.", providerId: pair.profile, requestId: "req-unrecorded",
+      handoff: { handoffId: "h-unrecorded-01", sourceSessionId: source, references: [] } };
+    r.send(ws, frame);
+    await until(() => ws.frames.some((f) => f.type === "result") && !r.host.coordinator.isTurnActive());
+    const created = ws.frames.find((f) => f.type === "session_info")!.sessionId;
+    r.send(ws, { type: "handoff_status", handoffId: "h-unrecorded-01" });
+    r.send(ws, { ...frame, requestId: "req-unrecorded-2" });
+    await until(() => ws.frames.filter((f) => f.type === "handoff_receipt").length === 2);
+    expect(ws.frames.filter((f) => f.type === "handoff_receipt").map((f) => [f.state, f.sessionId])).toEqual([["created", created], ["created", created]]);
+    expect(r.starts[pair.destination]).toHaveLength(1);
   });
 });

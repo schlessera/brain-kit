@@ -655,7 +655,7 @@ export async function handleChatMessage(
 
   // New session (or resume of an idle one) — gated by the concurrency cap.
   const cap = host.maxConcurrentSessions();
-  if (coordinator.running.size + coordinator.startingSessions >= cap) {
+  if (coordinator.activeRuns() >= cap) {
     host.sendMessage(ws, {
       type: "error",
       code: "SESSION_LIMIT",

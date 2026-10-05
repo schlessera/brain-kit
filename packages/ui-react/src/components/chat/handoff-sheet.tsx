@@ -1,10 +1,11 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { BottomSheet, Label } from "@schlessera/brain-ui-kit";
 import {
   composeHandoffText,
   HANDOFF_DRAFT_MESSAGES,
   HANDOFF_MAX_CHARS,
   HANDOFF_MAX_REFERENCES,
+  type ClientMessage,
   type ProviderInfo,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -20,6 +21,8 @@ import { cn } from "../../lib/utils.js";
 
 /** How long the sheet waits for an unloaded source's history. */
 const HISTORY_WAIT_MS = 5000;
+/** How long a just-replayed history must stay unchanged before it is snapshotted. */
+const HISTORY_SETTLE_MS = 250;
 /** How long a send may go unacknowledged before it reads as uncertain. */
 const ACK_WAIT_MS = 15000;
 
@@ -54,15 +57,20 @@ function destinationWhy(profile: ProviderInfo | undefined, connected: boolean): 
 export function HandoffSheet() {
   const root = useBrainUiRoot();
   const sheet = useHandoffStore((s) => s.sheet);
+  // Stable across renders: the review's cleanup (which stops a running
+  // summary) must run when the review leaves, not on every parent render.
+  const send = useCallback((message: ClientMessage) => root.connection.send(message), [root]);
   if (!sheet) return null;
   // Keyed by the review: a new open is a new review with its own key.
-  return <HandoffReview key={sheet.handoffId} sourceSessionId={sheet.sourceSessionId} handoffId={sheet.handoffId} send={(m) => root.connection.send(m)} />;
+  return <HandoffReview key={sheet.handoffId} sourceSessionId={sheet.sourceSessionId} handoffId={sheet.handoffId} awaitHistory={sheet.awaitHistory === true} send={send} />;
 }
 
-function HandoffReview({ sourceSessionId, handoffId, send }: {
+function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   sourceSessionId: string;
   handoffId: string;
-  send: (message: import("@schlessera/brain-ui-sdk/protocol").ClientMessage) => boolean | void;
+  /** The source was just opened: snapshot its fresh history, not a cached buffer. */
+  awaitHistory: boolean;
+  send: (message: ClientMessage) => boolean | void;
 }) {
   const root = useBrainUiRoot();
   const titleId = useId();
@@ -101,15 +109,21 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
   const [confirmReplace, setConfirmReplace] = useState<null | { text: string; origin: Origin }>(null);
 
   // --- Snapshot, at open (§3): the latest settled turn, once history is here.
+  // A source opened just now replays its history in one or more chunks; the
+  // snapshot waits until the transcript has stopped growing for a moment.
+  const historyLoaded = useChatStore((s) => s.historyLoads[sourceSessionId] ?? 0);
+  const [loadsAtOpen] = useState(historyLoaded);
+  const ready = !awaitHistory || historyLoaded > loadsAtOpen;
   useEffect(() => {
     if (snapshot || historyError) return;
-    if (source && source.messages.length > 0) {
-      setSnapshot(snapshotSource(source));
-      return;
+    if (ready && source && source.messages.length > 0) {
+      if (!awaitHistory) { setSnapshot(snapshotSource(source)); return; }
+      const timer = setTimeout(() => setSnapshot(snapshotSource(source)), HISTORY_SETTLE_MS);
+      return () => clearTimeout(timer);
     }
     const timer = setTimeout(() => setHistoryError(true), HISTORY_WAIT_MS);
     return () => clearTimeout(timer);
-  }, [source, snapshot, historyError]);
+  }, [source, snapshot, historyError, ready, awaitHistory]);
 
   function checkReference(path: string) {
     const clean = path.trim().replace(/^\.?\/+/, "");
@@ -174,6 +188,15 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
     offerText(draft.text, "model");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.state, draft.text]);
+
+  // The host aborts a closed connection's run and cannot answer it. Fall back
+  // to the no-model draft; a new run starts only on an explicit Refresh.
+  useEffect(() => {
+    if (connected || !running.current) return;
+    const prepareId = running.current;
+    running.current = null;
+    root.stores.handoff.getState().setDraft(prepareId, { state: "failed", message: "The connection dropped, so no summary was drafted." });
+  }, [connected, root]);
 
   // Leaving with the run still going stops it: nobody is left to read it.
   useEffect(() => () => {

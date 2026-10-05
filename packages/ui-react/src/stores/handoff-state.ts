@@ -15,6 +15,8 @@ export interface HandoffSheetTarget {
   sourceSessionId: string;
   /** Minted per open: the idempotency key of everything this review sends. */
   handoffId: string;
+  /** The source was opened for this review; snapshot its replayed history. */
+  awaitHistory?: boolean;
 }
 
 /** The model summary for the open sheet (R1: it runs when the sheet opens). */
@@ -70,7 +72,7 @@ export interface HandoffState {
   /** Source by destination session: the destination's handoff card link. */
   from: Record<string, HandoffLink>;
 
-  open(sourceSessionId: string, handoffId: string): void;
+  open(sourceSessionId: string, handoffId: string, options?: { awaitHistory?: boolean }): void;
   close(): void;
   /** Begin waiting on a summary run under its own id. */
   startPrepare(prepareId: string): void;
@@ -98,8 +100,8 @@ export function createHandoffStore(_env?: StoreEnvironment) {
     forward: {},
     from: {},
 
-    open: (sourceSessionId, handoffId) =>
-      set({ sheet: { sourceSessionId, handoffId }, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
+    open: (sourceSessionId, handoffId, options) =>
+      set({ sheet: { sourceSessionId, handoffId, ...(options?.awaitHistory ? { awaitHistory: true } : {}) }, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
     close: () => set({ sheet: null, prepareId: null, draft: { state: "idle" }, phase: { kind: "review" }, pendingSend: null, created: null }),
     startPrepare: (prepareId) => set({ prepareId, draft: { state: "running" } }),
     setDraft: (prepareId, draft) => {

@@ -15,6 +15,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { HandoffSheet } from "../../src/components/chat/handoff-sheet.js";
 import { HandoffCard } from "../../src/components/chat/handoff-links.js";
 import type { ChatMessage } from "../../src/stores/chat-state.js";
+import { useChatStore } from "../../src/stores/chat-store.js";
 
 afterEach(cleanup);
 afterAll(unregisterHandoffDom);
@@ -45,6 +46,12 @@ afterEach(() => { globalThis.WebSocket = realWebSocket; });
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => { for (const root of roots.splice(0)) root.dispose(); });
+
+/** Like ChatPage: re-renders the sheet whenever any session's run state moves. */
+function Page() {
+  useChatStore((s) => s.runStates);
+  return <HandoffSheet />;
+}
 
 let n = 0;
 const message = (role: "user" | "assistant", content: string): ChatMessage =>
@@ -79,7 +86,7 @@ function setup(opts: { summarize?: boolean } = {}) {
     message("user", "Plan the return to Ithaca, see plans/ithaca.md."),
     message("assistant", "Sail past the Sirens."),
   ]);
-  render(<BrainUiProvider root={root}><HandoffSheet /></BrainUiProvider>);
+  render(<BrainUiProvider root={root}><Page /></BrainUiProvider>);
   return { root, socket };
 }
 
@@ -232,6 +239,43 @@ describe("starting the new chat", () => {
     fireEvent.keyDown(textarea(), { key: "Escape" });
     expect(root.stores.handoff.getState().sheet).toBeNull();
     expect(socket.frames().filter((f) => f.type === "handoff_prepare_cancel")).toHaveLength(1);
+  });
+});
+
+describe("review findings: the run's lifetime and the snapshot's freshness", () => {
+  test("an ordinary re-render (a source reply streaming) does not stop the summary", async () => {
+    const { root, socket } = setup();
+    open(root);
+    await flush();
+    act(() => { root.stores.chat.getState().setRunState("other", "streaming"); root.stores.chat.getState().setRunState("other", "idle"); });
+    await flush();
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare_cancel")).toEqual([]);
+  });
+
+  test("a dropped socket settles the running summary into the no-model draft without restarting it", async () => {
+    const { root, socket } = setup();
+    open(root);
+    await flush();
+    act(() => socket.close(1006));
+    await flush();
+    expect(screen.q.getByText("drafted from the last 6 messages · no model")).toBeTruthy();
+    expect(screen.q.getByText(/The connection dropped/)).toBeTruthy();
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare")).toHaveLength(1);
+  });
+
+  test("a source opened for the review is snapshotted from its replayed history, not its cached buffer", async () => {
+    const { root, socket } = setup();
+    act(() => root.stores.handoff.getState().open("src", "h-fresh-00001", { awaitHistory: true }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare")).toHaveLength(0);
+    act(() => socket.deliver({ type: "session_history", sessionId: "src", messages: [
+      { role: "user", content: "Plan the return.", toolCalls: [] },
+      { role: "assistant", content: "Sirens first.", toolCalls: [] },
+      { role: "user", content: "Then?", toolCalls: [] },
+      { role: "assistant", content: "Scylla.", toolCalls: [] },
+    ] }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare").map((f) => f.messageCount)).toEqual([4]);
   });
 });
 

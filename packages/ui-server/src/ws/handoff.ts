@@ -132,7 +132,12 @@ export async function startHandoff(
   const entry: { sessionId?: string } = {};
   coordinator.handoffs.set(handoff.handoffId, entry);
   let handedOver = false;
+  let recorded = false;
   const release = () => {
+    // Fail closed: a destination that exists but whose link could not be
+    // stored keeps its key here, so a retry still finds it rather than
+    // starting a second one. It lasts as long as the process does.
+    if (entry.sessionId && !recorded) return;
     if (coordinator.handoffs.get(handoff.handoffId) === entry) coordinator.handoffs.delete(handoff.handoffId);
   };
   try {
@@ -173,7 +178,8 @@ export async function startHandoff(
       handoffHooks: {
         onNamed: (sessionId) => {
           entry.sessionId = sessionId;
-          if (!catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceMessages)) {
+          recorded = catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceMessages);
+          if (!recorded) {
             host.log.emit({
               severityText: "WARN",
               body: "handoff link not recorded",
@@ -226,12 +232,14 @@ export function handoffTranscript(messages: readonly SessionHistoryMessage[], bu
   return lines.join("\n\n");
 }
 
-/** Abort every preparation a closing connection started; nobody can read their result. */
+/**
+ * Abort every preparation a closing connection started; nobody can read
+ * their result. The slot stays occupied until `prepareHandoff` has seen the
+ * backend unwind, so reconnecting cannot stack runs past the cap.
+ */
 export function abortHandoffPreparations(host: WsHost, owner: unknown): void {
-  for (const [handoffId, preparation] of host.coordinator.handoffPreparations) {
-    if (preparation.owner !== owner) continue;
-    preparation.abort.abort();
-    host.coordinator.handoffPreparations.delete(handoffId);
+  for (const preparation of host.coordinator.handoffPreparations.values()) {
+    if (preparation.owner === owner) preparation.abort.abort();
   }
 }
 
@@ -259,7 +267,7 @@ export async function prepareHandoff(
   }
   const sourceBackendId = catalog.getStoredBackendId(msg.sourceSessionId);
   if (!sourceBackendId) return answer({ state: "failed", message: "This chat isn't known to this server." });
-  if (coordinator.running.size + coordinator.startingSessions + coordinator.handoffPreparations.size >= host.maxConcurrentSessions()) {
+  if (coordinator.activeRuns() >= host.maxConcurrentSessions()) {
     return answer({ state: "failed", message: "The server is busy, so no summary was drafted." });
   }
   const abort = new AbortController();
@@ -282,10 +290,6 @@ export async function prepareHandoff(
     }
     const transcript = handoffTranscript(history.slice(0, msg.messageCount));
     if (!transcript) return answer({ state: "failed", message: "There is nothing in this chat to summarize yet." });
-    if (abort.signal.aborted) { outcome = "cancelled"; return answer({ state: "cancelled" }); }
-    host.expireAuthorizationContexts();
-    if (!connection.authorization.valid) return;
-
     const profileId = catalog.getStoredProviderId(msg.sourceSessionId) ?? undefined;
     const billing = await resolveRunBilling(host.registry, backend.id, profileId);
     const runId = crypto.randomUUID();
@@ -326,6 +330,11 @@ export async function prepareHandoff(
       requestPermission: async () => ({ behavior: "deny", message: "A handoff summary uses no tools." }),
       askUser: async () => { throw new Error("A handoff summary asks no questions."); },
     };
+    // The last await (billing) is behind us: revocation, expiry or a stop
+    // that landed during it must keep the model from starting at all.
+    host.expireAuthorizationContexts();
+    if (!connection.authorization.valid) { outcome = "cancelled"; return; }
+    if (abort.signal.aborted) { outcome = "cancelled"; return answer({ state: "cancelled" }); }
     try {
       await backend.startTurn({
         prompt: `Summarize this conversation for the handoff.\n\n<conversation>\n${transcript}\n</conversation>`,
