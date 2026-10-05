@@ -1202,7 +1202,10 @@ export interface CronJobStatus {
 export interface SystemStatus {
   healthy: boolean;
   uptime: number;
+  /** The configured source commit (`"dev"` by default), never a release. */
   version: string;
+  /** The server's package release and the same source commit as `version`. */
+  software: { release: string; sourceCommit: string };
   lastSync: CronJobStatus | null;
   cronJobs: CronJobStatus[];
   activeSession: boolean;
