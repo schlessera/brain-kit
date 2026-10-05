@@ -59,14 +59,11 @@ export function RunDetail({
   // "not-found" is a 404; any other failure is a record this view could not read.
   const [missing, setMissing] = useState<false | "not-found" | "unreadable">(false);
   const [rawOpen, setRawOpen] = useState(false);
-  // Until the detail read settles, the mirror may hold only the index's root.
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
     setPruned(null);
     setRollup(null);
-    setLoaded(false);
     setMissing(false);
     setRawOpen(false);
     api
@@ -75,7 +72,6 @@ export function RunDetail({
       .activityRun(runId, { includePayloads: true })
       .then((detail) => {
         if (!active) return;
-        setLoaded(true);
         if (detail.rollup) setRollup(detail.rollup);
         if (detail.detailPruned) {
           setPruned(detail.rollup ?? {});
@@ -128,17 +124,23 @@ export function RunDetail({
       ? { origin: root.origin, outcome, durationMs: root.endedAt !== undefined ? root.endedAt - root.startedAt : null,
           failureReason: root.outcomeReason ?? null, jobName: root.jobName ?? null, detailPruned: false }
       : null;
-  // A record still being read is not handed over: the sheet reads it itself
-  // rather than freezing a partial mirror as "retained".
-  const record: ReportRecord | undefined = !loaded && !missing ? undefined : pruned ? { state: "pruned" } : missing === "not-found" ? { state: "not-found" } : missing ? { state: "unloaded", offline: typeof navigator !== "undefined" && navigator.onLine === false } : { state: "retained", spans: streamed };
+  // Only settled facts are handed over. The mirror can lag the record (a
+  // snapshot older than a streamed delta is refused, and children may not be
+  // streamed at all), so for a retained run the sheet reads the record itself
+  // when it opens, after the failure, rather than freezing a partial mirror.
+  const record: ReportRecord | undefined = pruned ? { state: "pruned" } : missing === "not-found" ? { state: "not-found" } : undefined;
   // Announce once, and only for a run this view watched fail.
+  // Reset during render, before this render's observation, so a run already
+  // running on the first render still counts as watched.
   const sawRunning = useRef(false);
+  const watching = useRef(runId);
+  if (watching.current !== runId) {
+    watching.current = runId;
+    sawRunning.current = false;
+  }
   const [announced, setAnnounced] = useState(false);
   if (!failed && outcome === null && (root || rollup)) sawRunning.current = true;
-  useEffect(() => {
-    sawRunning.current = false;
-    setAnnounced(false);
-  }, [runId]);
+  useEffect(() => { setAnnounced(false); }, [runId]);
   useEffect(() => {
     if (failed && sawRunning.current && !announced) setAnnounced(true);
   }, [failed, announced]);

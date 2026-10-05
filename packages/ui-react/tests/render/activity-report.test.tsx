@@ -425,8 +425,49 @@ describe("run detail", () => {
       expect(page.container.textContent).toContain("Opens a review first. Nothing is sent until you choose to.");
       fireEvent.click(button);
       await waitFor(() => expect(dialog()).toBeTruthy());
-      expect(field("Exact outgoing text").value).toContain("record: retained · 3 steps\nfailed steps: Bash");
+      await waitFor(() => expect(field("Exact outgoing text").value).toContain("record: retained · 3 steps\nfailed steps: Bash"));
     } finally { window.location.hash = ""; }
+  });
+
+  test("a run that ends while the detail read is in flight still reports its full record", async () => {
+    let release!: () => void;
+    detailGate = new Promise((resolve) => { release = resolve; });
+    const root = { ...HARBOUR_SPANS[0]!, outcome: undefined, endedAt: undefined };
+    useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [root], events: [], highWaterSeq: { "run-harbour": 1 } });
+    window.location.hash = "#/activity/run-harbour";
+    try {
+      const page = render(<ActivityPage />);
+      await waitFor(() => expect(page.container.querySelector("[data-run-detail-heading]")).toBeTruthy(), { timeout: 5000 });
+      act(() => {
+        useActivityStore.getState().applyDelta({ type: "activity_delta", runId: "run-harbour", seq: 2, span: { ...HARBOUR_SPANS[0]! } });
+      });
+      // The detail's own snapshot (seq 1) is now older than the mirror and is refused.
+      await act(async () => { release(); await new Promise((r) => setTimeout(r, 0)); });
+      detailGate = null;
+      await waitFor(() => expect(detailButton(page)).toBeTruthy());
+      expect(Object.keys(useActivityStore.getState().spans["run-harbour"] ?? {})).toEqual(["h-root"]);
+      fireEvent.click(detailButton(page)!);
+      await waitFor(() => expect(dialog()).toBeTruthy());
+      await waitFor(() => expect(field("Exact outgoing text").value).toContain("record: retained · 3 steps\nfailed steps: Bash"));
+    } finally { window.location.hash = ""; }
+  });
+
+  test("a run already running on first render announces its failure, even mid-read", async () => {
+    detailGate = new Promise(() => {});
+    const live = span({ spanId: "e-root", runId: "run-eumaeus", name: "cron:Eumaeus", jobName: "Eumaeus pig count", startedAt: Date.now() - 1000 });
+    useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [live], events: [], highWaterSeq: { "run-eumaeus": 1 } });
+    window.location.hash = "#/activity/run-eumaeus";
+    try {
+      const page = render(<ActivityPage />);
+      // No await: the failure lands before any other render can re-observe "running".
+      expect(page.container.querySelector("[data-run-detail-heading]")).toBeTruthy();
+      act(() => {
+        useActivityStore.getState().applyDelta({ type: "activity_delta", runId: "run-eumaeus", seq: 2, span: { ...live, outcome: "error", endedAt: Date.now() } });
+      });
+      await waitFor(() => expect(detailButton(page)).toBeTruthy());
+      const statuses = [...page.container.querySelectorAll("[role=status]")].map((s) => s.textContent);
+      expect(statuses.filter((s) => s === "Run failed. Send bug report is available.")).toHaveLength(1);
+    } finally { window.location.hash = ""; detailGate = null; }
   });
 
   test("a run that fails while its detail is open gains the button and one announcement", async () => {

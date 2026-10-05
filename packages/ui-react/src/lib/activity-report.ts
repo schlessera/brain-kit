@@ -12,9 +12,13 @@ import { INCLUDED_TEXT_CAP, providerMessageInclusion, redactProviderMessage } fr
  * unknown, never inferred.
  */
 
-/** Built-in tool names safe to print; any other tool is `other tool`. */
+/**
+ * Built-in tool names safe to print; any other tool is `other tool`. Claude's
+ * built-ins, and the file and shell tools the pi backend registers.
+ */
 export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
   "Read", "Write", "Edit", "Bash", "Grep", "Glob", "WebFetch", "WebSearch", "Agent",
+  "read_file", "write_file", "edit_file", "grep", "bash",
 ]);
 
 /** The run fields a report reads: the history row's summary or the detail's rollup. */

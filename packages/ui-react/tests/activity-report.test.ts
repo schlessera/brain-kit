@@ -84,6 +84,16 @@ describe("the default body is an allowlist", () => {
   });
 });
 
+test("pi's built-in file and shell tools keep their names; its other tools do not", () => {
+  const pi = [
+    span({}),
+    span({ spanId: "p-1", parentSpanId: "s-root", kind: "tool", toolName: "bash", outcome: "error" }),
+    span({ spanId: "p-2", parentSpanId: "s-root", kind: "tool", toolName: "edit_file", outcome: "timeout" }),
+    span({ spanId: "p-3", parentSpanId: "s-root", kind: "tool", toolName: "brain_penelope_private", outcome: "error" }),
+  ];
+  expect(activityReportBody(run, { state: "retained", spans: pi }, ctx)).toContain("\nfailed steps: bash, edit_file, other tool\n");
+});
+
 describe("limited records are honest", () => {
   test("pruned: rollup only, with no failed-steps line", () => {
     const body = activityReportBody({ ...run, detailPruned: true }, { state: "pruned" }, ctx);
