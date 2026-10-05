@@ -223,6 +223,8 @@ export function recordActionEpisode(
 interface Current {
   action: InboxActionItem;
   score: number;
+  /** The existing score at another instant, for the same thread and Action. */
+  scoreAt(at: number): number;
 }
 
 /**
@@ -243,8 +245,8 @@ function currentDecision(db: Database, episode: EpisodeRow, now: number): Curren
     .get(item.threadId) as { stakes: number; deadline: number | null; status: string; deleted_at: number | null } | null;
   if (!thread || thread.status !== "open" || thread.deleted_at !== null) return null;
   // Actions carry zero attempts in the existing formula.
-  const score = inboxPriority(thread.stakes, thread.deadline ?? undefined, item.createdAt, 0, now);
-  return { action: item, score };
+  const scoreAt = (at: number) => inboxPriority(thread.stakes, thread.deadline ?? undefined, item.createdAt, 0, at);
+  return { action: item, score: scoreAt(now), scoreAt };
 }
 
 function usable(db: Database, principalId: string | null, now: number): boolean {
@@ -365,19 +367,24 @@ export function createActionNotifier(db: Database, options: { now?: () => number
         for (const episode of openEpisodes(db)) {
           const current = currentDecision(db, episode, now);
           if (!current || current.score < ACTION_PUSH_CUTOFF) continue;
+          // The arrival is when the episode became eligible, not when this tick
+          // noticed it: an episode eligible from its start arrived then, so a
+          // 20-second tick cannot push it out of the window it arrived in. A
+          // promotion over time is dated by the tick that observes it.
+          const arrival = Math.min(now, current.scoreAt(episode.started_at) >= ACTION_PUSH_CUTOFF ? episode.started_at : now);
           for (const principalId of principals) {
             if (joined.get(principalId, episode.id)) continue;
-            let batch = open.get(principalId, now, now) as { id: number } | null;
+            let batch = open.get(principalId, arrival, arrival) as { id: number } | null;
             if (!batch) {
               batch = db
                 .query(
                   "INSERT INTO inbox_notice_batches (principal_id, channel, delivery_class, opened_at, due_at) VALUES (?, 'push', 'push', ?, ?) RETURNING id"
                 )
-                .get(principalId, now, now + ACTION_NOTICE_WINDOW_MS) as { id: number };
+                .get(principalId, arrival, arrival + ACTION_NOTICE_WINDOW_MS) as { id: number };
             }
             db.query(
               "INSERT INTO inbox_notice_constituents (batch_id, episode_id, principal_id, item_id, thread_id, joined_at) VALUES (?, ?, ?, ?, ?, ?)"
-            ).run(batch.id, episode.id, principalId, episode.item_id, episode.thread_id, now);
+            ).run(batch.id, episode.id, principalId, episode.item_id, episode.thread_id, arrival);
             added++;
           }
         }

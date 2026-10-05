@@ -22,7 +22,7 @@ if (!process.env[CHILD_MARKER]) {
     ]);
     if (exitCode !== 0) throw new Error(`Isolated notification zone tests failed (${exitCode})\n${stdout}${stderr}`);
     // A child that registered no tests also exits 0.
-    expect(`${stdout}${stderr}`).toMatch(/\b9 pass\b/);
+    expect(`${stdout}${stderr}`).toMatch(/\b10 pass\b/);
   });
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
@@ -231,6 +231,20 @@ if (process.env[CHILD_MARKER]) {
       expect(view.container.textContent).not.toContain("Answer the Cyclops");
       cleanup();
     } finally { spy.mockRestore(); }
+  });
+
+  test("a dismissal on one root does not hide another root's older summary", async () => {
+    const make = (title: string, at: number) => cardApi(() => ({ status: "ready", timeZone: "Europe/Athens", latest: summaryOf(title, at), dismissedAt: null }));
+    const first = createBrainUiRoot({ api: make("Answer the Cyclops", 20), storage: null });
+    const second = createBrainUiRoot({ api: make("Pass Scylla", 10), storage: null });
+    const view = render(<BrainUiProvider root={first}><DigestCard /></BrainUiProvider>);
+    await flush();
+    const dismiss = [...view.container.querySelectorAll("[role=button]")].find((b) => b.textContent?.includes("Dismiss")) as HTMLElement;
+    await act(async () => { dismiss.click(); });
+    view.rerender(<BrainUiProvider root={second}><DigestCard /></BrainUiProvider>);
+    await flush();
+    expect(view.container.textContent).toContain("Pass Scylla");
+    cleanup();
   });
 
   test("the next local slot is 09:00 or 17:00 in this runtime's zone", () => {

@@ -37,6 +37,8 @@ export function DigestCard() {
 
   useEffect(() => {
     let active = true;
+    // A different API root is a different server: forget this one's dismissal.
+    dismissedThrough.current = 0;
     setDigest(null);
     setActions(null);
     setVisible(false);

@@ -518,3 +518,22 @@ test("browsers sharing one principal keep their own zone, coverage and dismissal
   expect((await read("hall-tablet")).dismissedAt).toBe(at + 60_000);
   expect((await read("harbor-phone")).dismissedAt).toBeNull();
 });
+
+test("the 20-second tick does not move an arrival out of the window it arrived in", async () => {
+  const w = world();
+  const odysseus = w.principal("Odysseus");
+  w.device(odysseus, "https://push.example.test/odysseus-phone", "Europe/Athens");
+  const start = athens(0, 10);
+  w.now = start;
+  w.decision("raft", { stakes: 3 });
+  await w.tick(start);
+  await w.tick(start + 20_000);
+  await w.tick(start + 40_000);
+  // Arrives at 50 seconds; the next tick only observes it at 60.
+  w.now = start + 50_000;
+  w.decision("sail", { stakes: 3 });
+  const sends = await w.tick(start + 60_000);
+  expect(sends.map((s) => s.payload.title)).toEqual(["2 actions waiting"]);
+  expect(w.db.query("SELECT item_id, joined_at FROM inbox_notice_constituents ORDER BY joined_at").all())
+    .toEqual([{ item_id: "raft", joined_at: start }, { item_id: "sail", joined_at: start + 50_000 }]);
+});

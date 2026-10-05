@@ -28,8 +28,11 @@ The activity runtime's 20-second tick calls `enroll()`. It recomputes each
 open episode's current state inside one transaction: pending (not snoozed),
 unexpired, undeleted, in an open thread, with the existing priority score at
 zero attempts. A score of 12 or more is push class. Each recipient principal
-(a usable owner of a bound push subscription) gets the episode once. The first
-eligible arrival opens a fixed 60-second window for that principal; later
+(a usable owner of a bound push subscription) gets the episode once. An arrival is dated
+when the episode became eligible (its start, for a decision eligible from the
+outset; the observing tick, for a later promotion), so the tick cadence cannot
+move it out of its window. The first eligible arrival opens a fixed 60-second
+window for that principal; later
 arrivals join it without moving the deadline, and an arrival at or after the
 deadline opens the next window. Thread identity is kept on each constituent,
 not in the grouping key. Below-cutoff decisions and FYIs never join a window.
