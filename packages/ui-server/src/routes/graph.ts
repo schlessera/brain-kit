@@ -93,6 +93,8 @@ export function createGraphRoutes(deps: { brainRoot: string; log?: Logger; queri
     if (rawCommunity !== undefined && rawCommunity !== "") {
       if (!/^\d+$/.test(rawCommunity)) return c.json(invalid("community"), 400);
       community = Number.parseInt(rawCommunity, 10);
+      // Core accepts only safe integers; a larger id names no community.
+      if (!Number.isSafeInteger(community)) return c.json(invalid("community"), 400);
     }
     const queries = graph();
     if (!queries) return c.json(CORE_UNAVAILABLE, 503);

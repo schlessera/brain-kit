@@ -1651,7 +1651,8 @@ When the package check fails, every other server feature is unaffected:
   any index state and never an empty graph.
 - `GET /api/voice/keyterms` and the session keyterms serve an empty vocabulary,
   `GET /api/voice/overrides` keeps the markdown pronunciation overrides, and the
-  degraded result is never written to the keyterm cache. Providers without
+  degraded result is never written to the keyterm cache; a cache left by an
+  earlier installation is not served while core is unusable. Providers without
   keyterm support never resolve core.
 - One warning per feature records the failed check (`not_installed`,
   `identity_mismatch`, `version_unsupported`, `operation_missing`,

@@ -165,6 +165,7 @@ describe("usable core and a CLI-produced index", () => {
         ["/api/graph/neighborhood?center=notes/odysseus.md&depth=4", 400, { error: "invalid_param", param: "depth" }],
         ["/api/graph/neighborhood?center=notes/odysseus.md&direction=sideways", 400, { error: "invalid_param", param: "direction" }],
         ["/api/graph/clusters?community=-1", 400, { error: "invalid_param", param: "community" }],
+        ["/api/graph/clusters?community=9007199254740992", 400, { error: "invalid_param", param: "community" }],
         ["/api/graph/discovery?maxDepth=9", 400, { error: "invalid_param", param: "maxDepth" }],
         ["/api/graph/discovery?direction=in", 400, { error: "invalid_param", param: "direction" }],
         ["/api/graph/maintenance?staleDays=0", 400, { error: "invalid_param", param: "staleDays" }],
@@ -304,6 +305,17 @@ describe("without a usable core package", () => {
       } finally { await t.close(); }
     });
   }
+
+  test("a vocabulary cached by an earlier installation is not served once core is gone", async () => {
+    setCoreModuleLoaderForTesting(absentCore);
+    const t = await boot();
+    try {
+      mkdirSync(t.app.config.voice.cacheDir, { recursive: true });
+      writeFileSync(t.cacheFile, JSON.stringify({ version: 2, generatedAt: 1, keyterms: ["Stale Ogygia"], count: 1, overrides: [] }));
+      expect(await (await t.get("/api/voice/keyterms")).json()).toMatchObject({ keyterms: [], count: 0 });
+      expect((await (await t.get("/api/voice/overrides")).json()).overrides).toEqual(OVERRIDE_PAIRS);
+    } finally { await t.close(); }
+  });
 });
 
 describe("speech providers and keyterm capability", () => {

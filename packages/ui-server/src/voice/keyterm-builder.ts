@@ -166,6 +166,9 @@ export function readCache(settings: KeytermSettings): KeytermsCache | null {
 }
 
 export function getKeyterms(settings: KeytermSettings, forceRebuild = false): KeytermsCache {
+  // Without usable core no vocabulary is current — not even one cached by an
+  // earlier installation — so the capability is checked before the cache.
+  if (!(settings.queries ?? defaultCoreQueryAccess()).voice().ok) return buildKeyterms(settings);
   if (!forceRebuild) {
     const cached = readCache(settings);
     if (cached) return cached;
