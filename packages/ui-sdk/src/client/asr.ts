@@ -27,8 +27,10 @@ export interface AsrClient {
   drainAndStop(): Promise<void>;
 }
 
+/** @experimental Part of the AsrClient seam until 1.0. */
 export type AsrClientFactory = (opts: AsrClientOptions) => AsrClient;
 
+/** @experimental Part of the AsrClient seam until 1.0. */
 export interface AsrClientRegistry {
   register: (providerId: string, factory: AsrClientFactory) => void;
   create: (opts: AsrClientOptions) => AsrClient;

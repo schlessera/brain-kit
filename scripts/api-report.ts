@@ -46,7 +46,7 @@ export const SEAMS: Record<string, Record<string, string[]>> = {
   "module-jobs": { ".": ["JobAdapter"] },
   "ui-server": { ".": ["ServerConfig"] },
   "ui-sdk": {
-    "./client": ["AsrClient", "ToolRenderer"],
+    "./client": ["AsrClient", "AsrClientFactory", "AsrClientRegistry", "ToolRenderer"],
     "./server": [
       "AgentBackend", "BackendModule", "SpeechProvider",
       "decideToolPermission", "createToolPermissionRequest", "requestToolPermission",

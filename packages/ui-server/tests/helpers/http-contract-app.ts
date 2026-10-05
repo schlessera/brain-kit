@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { version } from "@schlessera/brain-ui-server/package.json";
+import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 
 import { createApp, type CreateAppOptions } from "../../src/app";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
@@ -17,6 +18,7 @@ export async function httpContractApp(options: {
   staticRoot?: boolean;
   renderer?: CreateAppOptions["renderer"];
   registry?: CreateAppOptions["registry"];
+  speechProvider?: SpeechProvider;
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "brain-http-contract-"));
   const brainPath = join(root, "brain");
@@ -65,12 +67,14 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
   });
   let app: Awaited<ReturnType<typeof createApp>>;
   try {
-    app = await createApp({
+    const appOptions: CreateAppOptions & { speechProvider?: SpeechProvider } = {
       config, observability,
       registry: options.registry ?? createStaticBackendRegistry([backend]),
+      ...(options.speechProvider ? { speechProvider: options.speechProvider } : {}),
       ...(options.staticRoot ? { staticRoot } : {}),
       ...(options.renderer ? { renderer: options.renderer } : {}),
-    });
+    };
+    app = await createApp(appOptions);
   } catch (error) {
     rmSync(root, { recursive: true, force: true });
     throw error;

@@ -118,15 +118,17 @@ The first five live in core. The self-hosted chat UI adds four in
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
   descriptor, constructs an `AgentBackend`, the runtime that drives a chat
   conversation. Has its own authoring guide.
-- **`SpeechProvider`** (server) — mints per-session STT connection material
+- **[Dictation speech](speech.md)** — `SpeechProvider` (server) mints per-session STT connection material
   (endpoint URL, short-lived token, params) for the client's matching
   `AsrClient`; audio never transits the brain-ui server unless the provider
   itself proxies. Carries `SpeechCapabilities` the UI degrades against.
+  Pass an external implementation to `createApp({ speechProvider })`.
   Contract and `defineSpeechProvider` helper:
   `packages/ui-sdk/src/server/speech.ts`.
 - **`AsrClient`** (client) — the browser half of the same seam:
   `start` / `stop` / `drainAndStop` over the session the provider minted,
-  registered per provider id via `registerAsrClient`. Contract:
+  registered per provider id on the UI root's `asr` registry (or the SDK's
+  default registry via `registerAsrClient`). Contract:
   `packages/ui-sdk/src/client/asr.ts`.
 - **`ToolRenderer`** (client) — per-tool rendering for the chat timeline
   (icon, summary, input/output React components), registered at build time in
@@ -182,11 +184,10 @@ seams are not in it: a `ToolRenderer` pack and an `AsrClient` are registered by
 the app that bundles them, through `registerToolRenderers` and
 `registerAsrClient` — public API a community pack calls exactly as a
 first-party one does — so there is no registry to join and a registry entry
-would add nothing. `SpeechProvider` is the other exception, for the opposite
-reason: `pickSpeechProvider` resolves `VOICE_PROVIDER` and takes no passed-in
-value, so a community speech provider has no by-value path to be promoted
-*from*. Giving it one is a seam change, decided on its own before promotion is
-a question — see item 7 below.
+would add nothing. A community `SpeechProvider` can be supplied by value through
+`createApp({ speechProvider })`; promoting one would add a built-in selection
+name. The [speech guide](speech.md) documents explicit selection, matching
+client registration and the published provider/client conformance suites.
 
 ### What promotion costs
 
