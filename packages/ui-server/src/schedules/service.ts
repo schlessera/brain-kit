@@ -16,6 +16,7 @@ import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/princ
 import { canonicalJson, scheduleFingerprint, sha256Hex } from "./canonical.js";
 import {
   DEFINITIONS_DIR,
+  RETIRED_DIR,
   materializeDefinition,
   normalizeDefinitionInput,
   parseDefinitionFile,
@@ -178,9 +179,13 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   }
 
   /** An ignored definition would silently miss the content backup. */
+  function ignored(taskId: string): boolean {
+    return gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`) || gitIgnored()(`${RETIRED_DIR}/${taskId}.md`);
+  }
+  /** Active and retired definitions must both stay in the content backup. */
   function assertNotIgnored(taskId: string): void {
-    if (gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`))
-      throw new ScheduleError("unsupported_capability", "Git ignores the schedule definition directory, so content backup would omit it.");
+    if (ignored(taskId))
+      throw new ScheduleError("unsupported_capability", "Git ignores a schedule definition directory, so content backup would omit it.");
   }
 
   function restorePending(): boolean {
@@ -410,6 +415,8 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   async function completeRetirement(id: string): Promise<void> {
     const row = taskRow(id);
     if (!row || row.retirement !== "pending" || row.publication === "pending" || restorePending()) return;
+    // Never move a retained definition somewhere the content backup omits.
+    if (ignored(id)) return;
     let done = false;
     try { done = await fileStore().retire(id, serializeDefinition(definitionOf(row))); }
     catch { return; } // The journal stays pending; status reports compensationPending.
@@ -548,7 +555,15 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
       // Finish an interrupted journal; the receipt itself was created earlier.
       if (existing.publication === "pending") await completePublication(existing.id);
       if (existing.retirement === "pending") await completeRetirement(existing.id);
-      return { status: 200, created: false, task: await taskView(taskRow(existing.id)!) };
+      // Success only once the ledger and the file agree.
+      const current = taskRow(existing.id)!;
+      if (current.publication === "quarantined")
+        throw new ScheduleError("definition_conflict", "A different definition file occupies this schedule's path.");
+      if (current.publication === "pending") {
+        if (restorePending()) throw new ScheduleError("unsupported_capability", "Schedule storage awaits restore reconciliation.");
+        throw new ScheduleError("server_unavailable", "Schedule storage is unavailable; retry with the same key.");
+      }
+      return { status: 200, created: false, task: await taskView(current) };
     }
     const approval = db.query("SELECT * FROM schedule_approvals WHERE proposal_id = ?").get(proposal.id) as ApprovalRow | null;
     if (!approval) throw new ScheduleError("approval_required", `Review the stored schedule proposal ${proposal.id} before creation.`);

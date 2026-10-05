@@ -222,7 +222,7 @@ checks both nonempty priced and mixed-knownness fixtures
 - `the host refuses unsupported, broader or authority-bearing scope` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`the host refuses unsupported, broader or authority-bearing scope`, `packages/ui-server/tests/schedule-service.test.ts:117-151`)
 - `list and due pages are bounded, ordered and use host-signed cursors bound to their query` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`list and due pages are bounded, ordered and use host-signed cursors bound to their query`, `packages/ui-server/tests/schedule-service.test.ts:260-288`)
 - `interrupted publication fails closed, then reconciles to one published definition on retry or restart` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`interrupted publication fails closed, then reconciles to one published definition on retry or restart`, `packages/ui-server/tests/schedule-service.test.ts:290-310`)
-- `edited, missing or symlinked definitions quarantine dispatch without rewriting the file` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`edited, missing or symlinked definitions quarantine dispatch without rewriting the file`, `packages/ui-server/tests/schedule-service.test.ts:327-354`)
+- `edited, missing or symlinked definitions quarantine dispatch without rewriting the file` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`edited, missing or symlinked definitions quarantine dispatch without rewriting the file`, `packages/ui-server/tests/schedule-service.test.ts:329-356`)
 
 **J — Confirmed share intake.**
 

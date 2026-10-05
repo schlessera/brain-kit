@@ -320,6 +320,8 @@ test("a different file at the definition path is never overwritten; publication 
   writeFileSync(path, "# Penelope's own note\n");
   expect(await code(service.publish(fixture.owner, { proposalId: proposal.id, approvalId }))).toBe("definition_conflict");
   expect(readFileSync(path, "utf8")).toBe("# Penelope's own note\n");
+  // Repeating the request reports the same conflict, never a success receipt.
+  expect(await code(service.publish(fixture.owner, { proposalId: proposal.id, approvalId }))).toBe("definition_conflict");
   const task = (await service.list(fixture.owner, {})).tasks[0]!;
   expect(task).toMatchObject({ state: "paused", blockedReason: "definition_drift", executionAvailable: false });
 });
@@ -406,8 +408,8 @@ test("journal recovery never writes into a different brain root and keeps live t
   mkdirSync(foreign);
   const moved = fixture.service({ brainRoot: foreign });
   await moved.ready;
-  const replay = await moved.publish(fixture.owner, { proposalId: proposal.id, approvalId });
-  expect(replay.task).toMatchObject({ state: "publishing", blockedReason: null, compensationPending: true });
+  expect(await code(moved.publish(fixture.owner, { proposalId: proposal.id, approvalId }))).toBe("unsupported_capability");
+  expect(fixture.db.query("SELECT state, publication FROM schedule_tasks").get()).toEqual({ state: "publishing", publication: "pending" });
   expect(existsSync(join(foreign, "context"))).toBe(false);
   // A young temporary belongs to a live writer; only a stale one is reaped.
   const young = join(definitions, `.${proposal.taskId}.md.00000000-0000-4000-8000-000000000001.tmp`);
@@ -462,4 +464,28 @@ test("a retirement interrupted after its claiming rename is completed, never los
   expect(cancelled.task).toMatchObject({ state: "cancelled", compensationPending: false });
   expect(existsSync(claim)).toBe(false);
   expect(readFileSync(join(fixture.root, "context/scheduled-tasks/retired", `${id}.md`), "utf8")).toContain("schedule_schema: 1");
+});
+
+test("a FIFO planted at a definition path is drift, not a stalled host", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const { result } = await create(fixture, "fifo", cronDefinition());
+  const path = join(fixture.root, "context/scheduled-tasks/definitions", `${result.task.id}.md`);
+  rmSync(path);
+  const made = Bun.spawnSync(["mkfifo", path]);
+  expect(made.exitCode).toBe(0);
+  const listed = await Promise.race([service.list(fixture.owner, {}), Bun.sleep(5_000).then(() => "stalled" as const)]);
+  expect(listed).not.toBe("stalled");
+  expect((listed as Awaited<ReturnType<typeof service.list>>).tasks[0]).toMatchObject({ blockedReason: "definition_drift" });
+});
+
+test("a retired directory Git would ignore refuses creation and keeps retirement pending", async () => {
+  fixture = scheduleFixture();
+  const retiredIgnored = (path: string) => path.startsWith("context/scheduled-tasks/retired/");
+  expect(await code(fixture.service({ gitIgnored: retiredIgnored }).propose(fixture.owner, { key: "retired-ignored", definition: cronDefinition() }))).toBe("unsupported_capability");
+  const { result } = await create(fixture, "ignored-later", cronDefinition());
+  const later = fixture.service({ gitIgnored: retiredIgnored });
+  const cancelled = await later.cancel(fixture.owner, result.task.id, { key: "ignored-cancel" });
+  expect(cancelled.task).toMatchObject({ state: "cancelled", compensationPending: true });
+  expect(existsSync(join(fixture.root, "context/scheduled-tasks/definitions", `${result.task.id}.md`))).toBe(true);
 });

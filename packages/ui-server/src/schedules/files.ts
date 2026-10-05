@@ -93,7 +93,8 @@ async function assertChain(chain: Directory[]): Promise<void> {
 /** Open a bounded regular file without following a symlink; null when absent. */
 async function openContained(path: string): Promise<{ bytes: Buffer; ino: number } | null> {
   let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
+  // O_NONBLOCK: a FIFO or device planted at the path must not stall the host.
+  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch (error) {
     if (errno(error) === "ENOENT") return null;
     if (errno(error) === "ELOOP") throw new ScheduleContainmentError("Definition file is a symlink");
@@ -157,6 +158,8 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         const existing = await openContained(final);
         if (existing) {
           if (!existing.bytes.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
+          // Another publisher may not have synced its entry yet.
+          await dir.handle.sync();
           await assertChain(chain);
           return;
         }
