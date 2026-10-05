@@ -5,6 +5,9 @@
 
 export "." (./src/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActionDigestEntry
+  type ActionDigestState
+  type ActionDigestSummary
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
@@ -258,6 +261,9 @@ export "./client" (./src/client/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type ActionDigestEntry
+  type ActionDigestState
+  type ActionDigestSummary
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
@@ -628,6 +634,9 @@ export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  type ActionDigestEntry
+  type ActionDigestState
+  type ActionDigestSummary
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent
@@ -969,6 +978,9 @@ export "./server" (./src/server/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type ActionDigestEntry
+  type ActionDigestState
+  type ActionDigestSummary
   type ActivityAggregate
   type ActivityDigest
   type ActivityIntent

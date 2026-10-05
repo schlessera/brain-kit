@@ -2277,6 +2277,40 @@ export interface ActivityDigest {
   }>;
 }
 
+/** One decision or FYI in the Actions contribution to the in-app digest. */
+export interface ActionDigestEntry {
+  itemId: string;
+  threadId: string;
+  title: string;
+}
+
+/**
+ * The Actions/FYI contribution to the in-app digest for one authenticated
+ * client context, stored at its local 09:00 or 17:00 slot (#683). It lists
+ * only work not yet reported to that context; unchanged decisions remain in
+ * Actions without repeating here. Generation is not a delivery or read receipt.
+ */
+export interface ActionDigestSummary {
+  generatedAt: number;
+  /** The local slot this summary stands for, as a UTC instant. */
+  slotAt: number;
+  /** The client's validated IANA zone the slot was computed in. */
+  timeZone: string;
+  /** New or reawakened waiting decisions below the push cutoff. */
+  waiting: Array<ActionDigestEntry & { episodeId: string }>;
+  /** New FYIs. They never count as waiting decisions. */
+  updates: ActionDigestEntry[];
+}
+
+/**
+ * `zone_required`: no usable reported zone, so timed summaries wait for one.
+ * `dismissedAt` is this client context's own dismissal, not the global
+ * activity digest marker.
+ */
+export type ActionDigestState =
+  | { status: "zone_required" }
+  | { status: "ready"; timeZone: string; latest: ActionDigestSummary | null; dismissedAt: number | null };
+
 /** One notification intent, as the inbox lists it. */
 export interface ActivityIntent {
   id: number;

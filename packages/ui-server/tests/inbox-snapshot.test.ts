@@ -17,6 +17,8 @@ import { createInboxResolver } from "../src/inbox/resolve.js";
 import { recordCompletedCall } from "../src/inbox/yield.js";
 import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInboxCleanup } from "../src/inbox/cleanup.js";
+import { createActionNotifier } from "../src/inbox/notify.js";
+import { createPushSender } from "../src/activity/push-sender.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { isCompletedAutonomousToolCall, type AgentBackend, type InboxActionItem, type InboxOperation } from "@schlessera/brain-ui-sdk/server";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
@@ -83,6 +85,25 @@ async function world() {
   }
   store.commit([{ kind: "suppress", classKey: "harbor-seen", evidenceBoundary: "arrival", expiresAt: AT + YEAR, reraiseCondition: "New arrival" },
     { kind: "heartbeat", name: "inbox-drain", tickAt: AT, changeCursor: store.snapshot().cursor }]);
+  // Durable Action notice state: a delivered push episode, frozen attempt
+  // history, a client context and its committed digest coverage.
+  const ithacaStaging = crypto.randomUUID();
+  mkdirSync(join(root, SHARE_STAGING_DIR, ithacaStaging), { recursive: true });
+  writeFileSync(join(root, SHARE_STAGING_DIR, ithacaStaging, "route.txt"), "Ithaca lies west.");
+  writeFileSync(join(root, SHARE_STAGING_DIR, ithacaStaging, "meta.json"), JSON.stringify({ id: ithacaStaging, dir: `${SHARE_STAGING_DIR}/${ithacaStaging}`,
+    files: [{ name: "route.txt", path: `${SHARE_STAGING_DIR}/${ithacaStaging}/route.txt`, bytes: 17 }] }));
+  store.ingest({ threadId: "ithaca", itemId: "ithaca-triage", source: "cli", dedupKey: "ithaca", stagingId: ithacaStaging, expiresAt: AT + YEAR, stakes: 3 });
+  store.commit([{ kind: "item", item: { id: "approve-ithaca", dedupKey: "approve-ithaca", threadId: "ithaca", queue: "actions", type: "approve", status: "pending", version: 1,
+    createdAt: AT, updatedAt: AT, expiresAt: AT + YEAR, payload: { title: "Sail for Ithaca?", detail: "Odysseus can leave the harbor at dawn." }, options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] } }]);
+  const endpoint = "https://push.example.test/ithaca";
+  createPushSender(db, { send: async () => {} }).subscribe({ endpoint, keys: { p256dh: "p256dh", auth: "auth" } }, principal.id);
+  const notices = createActionNotifier(db);
+  const ctx = (p: { id: string }) => ({ principalId: p.id, clientId: "" });
+  notices.reportZone(ctx(principal), "UTC", endpoint, AT);
+  notices.enroll(AT);
+  const attempt = notices.beginAttempt({ endpoint, principalId: principal.id }, AT + 60_000)!;
+  notices.finishAttempt(attempt.attemptId, "success", AT + 60_000);
+  expect(notices.digest(ctx(principal), AT).status).toBe("ready");
   writeFileSync(join(root, "content.md"), "Odysseus's content stays in git.");
   return { root, path, db, store, principal, budget, records };
 }

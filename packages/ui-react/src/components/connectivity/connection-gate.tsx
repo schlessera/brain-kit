@@ -11,6 +11,7 @@ import {
   type ConnectionIssue,
 } from "./connection-state.js";
 import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js";
+import { useNotificationZoneRefresh } from "../../hooks/use-notification-zone.js";
 
 const INITIAL_PUSH_REBIND_BACKOFF_MS = 1_000;
 const MAX_PUSH_REBIND_BACKOFF_MS = 60_000;
@@ -35,6 +36,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
   const reportError = useConnectionStore((s) => s.reportError);
+  const socketOpens = useConnectionStore((s) => s.socketOpens);
   const issue = deriveConnectionIssue({
     vpnStatus,
     handshakeFailures,
@@ -50,6 +52,13 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   }, [vpnStatus, root]);
 
   const pushRebind = useRef(newPushRebind());
+
+  // Client-local Action notice timing follows this client's reported zone.
+  useNotificationZoneRefresh(root.api, {
+    successfulProbeCount,
+    connected: vpnStatus === "connected",
+    socketOpens,
+  });
 
   useEffect(() => {
     const state = newPushRebind();

@@ -537,8 +537,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionRoutes({ registry, db }));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
-  app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier }));
-  app.route("/api", createPushRoutes({ sender: activity.pushSender }));
+  app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
+  app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",

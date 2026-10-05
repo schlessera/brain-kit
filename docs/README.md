@@ -53,6 +53,7 @@ the published template rather than a source checkout.
 | [inbox-actions.md](inbox-actions.md) | Atomic escalation and exactly-once decisions, deterministic snooze, cap/expiry/suppression, bounded retries and staging compensation. |
 | [inbox-budget.md](inbox-budget.md) | Autonomous spend/turn admission, conservative reservations, frozen settlement and crash recovery. |
 | [inbox-runtime.md](inbox-runtime.md) | Queue lifecycle, expired-lease recovery and the protected local HTTP poke with boot token rotation. |
+| [inbox-notifications.md](inbox-notifications.md) | Counted Action pushes, fixed windows, client-local quiet hours and digest coverage, per-device attempt history. |
 | [inbox-recovery.md](inbox-recovery.md) | Complete operational backup, staging consistency, empty-target restore, crash resumption and the 24-hour recovery point. |
 | [integration-contract.md](integration-contract.md) | The stable machine surface: CLI `--json` shapes, MCP tools, supported HTTP/wire behavior, `brain.db` reads, and versioning rules. |
 

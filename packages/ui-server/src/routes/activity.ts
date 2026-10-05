@@ -11,6 +11,8 @@ import {
 import { rowToRunRollup, type ActivityStore } from "../activity/store.js";
 import { toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
+import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
+import type { AppEnv } from "../app-env.js";
 import {
   dismissActivityDigest,
   digestDismissedAt,
@@ -38,18 +40,28 @@ export function createActivityRoutes(deps: {
   db: Database;
   store: ActivityStore;
   notifier?: ActivityNotifier;
-}): Hono {
-  const { db, store, notifier } = deps;
+  /** Durable Action notices; their digest contribution is per client context. */
+  actionNotices?: ActionNotifier;
+}): Hono<AppEnv> {
+  const { db, store, notifier, actionNotices } = deps;
 
-  return new Hono()
+  return new Hono<AppEnv>()
     .get("/activity/digest", (c) => {
       try {
         // An authenticated fetch IS the app opening — the marker the next
         // digest window's framing leans on.
         setSetting(db, "activity.lastVisitAt", Date.now());
+        // A client return is also a generation opportunity for this context's
+        // Actions/FYI summary: one current catch-up, never a replay of slots.
+        // `?client=` names this browser's own context; an invalid one is ignored.
+        const principal = c.get("principal");
+        const clientId = noticeClientId(c.req.query("client"));
         return c.json({
           digest: latestActivityDigest(db),
           dismissedAt: digestDismissedAt(db),
+          ...(actionNotices && principal && clientId !== null
+            ? { actions: actionNotices.digest({ principalId: principal.id, clientId }) }
+            : {}),
         });
       } catch (err) {
         return c.json(
@@ -62,6 +74,14 @@ export function createActivityRoutes(deps: {
     .post("/activity/digest/dismiss", (c) => {
       try {
         dismissActivityDigest(db);
+        // The Actions contribution is per client context: dismissing here
+        // never hides another browser's unseen summary.
+        const principal = c.get("principal");
+        const clientId = noticeClientId(c.req.query("client"));
+        const through = c.req.query("through");
+        if (actionNotices && principal && clientId !== null) {
+          actionNotices.dismiss({ principalId: principal.id, clientId }, through === undefined ? undefined : Number(through));
+        }
         return c.json({ ok: true });
       } catch (err) {
         return c.json(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useBrainUiRoot } from "../../root-context.js";
-import { subscriptionMatchesKey } from "../../lib/push-registration.js";
+import { currentTimeZone, subscriptionMatchesKey } from "../../lib/push-registration.js";
 import { PushSwitch, type PushState } from "./push-switch.js";
 
 /**
@@ -52,7 +52,7 @@ export function PushToggle() {
             setState("unsubscribed");
             return;
           }
-          await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100));
+          await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100), currentTimeZone() ?? "");
         } catch {
           // Server unreachable — keep the browser's answer.
         }
@@ -92,7 +92,7 @@ export function PushToggle() {
         applicationServerKey: publicKey,
       });
       if (signal.aborted) return;
-      await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100));
+      await api.pushSubscribe(subscription.toJSON(), navigator.userAgent.slice(0, 100), currentTimeZone() ?? "");
       if (!signal.aborted) setState("subscribed");
     } catch {
       if (!signal.aborted) setState("unsubscribed");

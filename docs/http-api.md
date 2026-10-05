@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 103 unique declared
+The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 104 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -95,6 +95,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/push/public-key` | S | Read VAPID application-server public key | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/push/subscribe` | S | Bind/renew a browser subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | GET | `/api/push/subscriptions` | S | Inspect caller-owned subscription summaries | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
+| POST | `/api/push/zone` | I | Refresh a client context's reported notification zone | React lifecycle refresh for client-local Action notice timing; registration carries the device zone through the supported subscribe input. |
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
@@ -136,7 +137,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 103 declared endpoints are mounted regardless of backend, renderer or
+All 104 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -541,8 +542,8 @@ VAPID private key or stored delivery key material.
 | Supported operation | Inputs/validation | Success | Errors and behavior |
 | --- | --- | --- | --- |
 | GET `/api/push/public-key` | None | `{ publicKey: string }`, application-server public key | Sender failure 500 `{ error }`. |
-| GET `/api/push/subscriptions` | None | `{ subscriptions: [{ label, createdAt, lastUsedAt, endpointHash }] }` for caller only; label/lastUsedAt nullable | Endpoint hash is first 16 hex characters of SHA-256; never endpoint or keys. Store failure 500 `{ error }`. |
-| POST `/api/push/subscribe` | JSON `{ subscription: { endpoint: URL string (max 2048), keys: { p256dh: string (1–512), auth: string (1–512) } }, label?: string (max 120) }` | `{ ok: true }` | Invalid JSON/schema/store error 400 `{ error }`; unusable principal 401 `{ error:"Authentication required" }`. Upserts the caller's subscription; resubmitting the same endpoint updates keys/label and binds it to the current caller. |
+| GET `/api/push/subscriptions` | None | `{ subscriptions: [{ label, createdAt, lastUsedAt, endpointHash, timeZone }] }` for caller only; label/lastUsedAt/timeZone nullable | Endpoint hash is first 16 hex characters of SHA-256; never endpoint or keys. `timeZone` (additive, #683) is the device's last usable reported IANA zone; null means its Action notices wait for a zone report. Store failure 500 `{ error }`. |
+| POST `/api/push/subscribe` | JSON `{ subscription: { endpoint: URL string (max 2048), keys: { p256dh: string (1–512), auth: string (1–512) } }, label?: string (max 120), timeZone?: string (max 256) }` | `{ ok: true }` | Invalid JSON/schema/store error 400 `{ error }`; unusable principal 401 `{ error:"Authentication required" }`. Upserts the caller's subscription; resubmitting the same endpoint updates keys/label and binds it to the current caller. Additive `timeZone` (#683) records the device's notification zone; a value the server's zone database rejects is stored as missing rather than refused, and omitting it keeps the device's last reported zone. |
 | POST `/api/push/unsubscribe` | JSON `{ endpoint: URL string (max 2048) }` | `{ removed: boolean }` | Invalid JSON/schema/store error 400 `{ error }`. Removing an unknown or another principal's endpoint returns removed:false. |
 
 These routes preserve the default SDK worker renewal request; custom shells

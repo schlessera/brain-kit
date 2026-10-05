@@ -25,6 +25,7 @@ import {
   clampInboxStakes,
   inboxPriority,
 } from "./state.js";
+import { recordActionEpisode } from "./notify.js";
 
 export type InboxStoreSnapshot = Pick<
   InboxSnapshot,
@@ -176,6 +177,14 @@ const TABLES = [
   "inbox_intake_receipts",
   "inbox_completed_tool_calls",
   "inbox_action_contexts",
+  "inbox_notice_clients",
+  "inbox_notice_episodes",
+  "inbox_notice_batches",
+  "inbox_notice_constituents",
+  "inbox_notice_attempts",
+  "inbox_notice_attempt_components",
+  "inbox_notice_digests",
+  "inbox_notice_coverage",
 ] as const;
 const TERMINAL = new Set([
   "done",
@@ -427,6 +436,7 @@ export class InboxStore {
         ...this.itemColumns(item)
       );
     this.change(item.threadId, { kind: "upsert_item", itemId: item.id, item });
+    recordActionEpisode(this.db, item, null, this.now());
   }
 
   /** Source is supplied by authenticated intake code; trust is derived, never supplied. */
@@ -683,6 +693,8 @@ export class InboxStore {
           itemId: next.id,
           item: next,
         });
+        // A waiting episode starts only on entry to pending, in this commit.
+        recordActionEpisode(this.db, next, item.status, now);
         return;
       }
       case "checkpoint":

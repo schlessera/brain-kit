@@ -222,7 +222,7 @@ Stated before the requirements because five of them derive from it.
 ### Execution
 
 - R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:10-13`) owns only manual triggers and
-  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:49-171`) already runs an interval tick with a boot sweep —
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:52-190`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
@@ -387,7 +387,7 @@ Stated before the requirements because five of them derive from it.
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`), and the sender emits one push per
-  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-232`). Reuse subscriptions, retry budget, and delivery
+  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. The
   [2026-10-02 Action notification decision](../decisions/action-notifications.md)

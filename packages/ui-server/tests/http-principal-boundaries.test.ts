@@ -121,9 +121,11 @@ test("SDK push renewal reaches the mounted subscribe handler and retains princip
       expect(pending).toBeDefined();
       await pending;
       expect(renewals).toHaveLength(1);
-      expect(requests).toEqual([{ path: "/api/push/subscribe", status: 200, body: { subscription: subscription(endpointA, "renewed") } }]);
-      const row = t.app.db.query("SELECT auth, principal_id FROM push_subscriptions WHERE endpoint = ?").get(endpointA);
-      expect(row).toEqual({ auth: "renewed", principal_id: a.principal.id });
+      // The renewal reports the worker's zone, so Action notice timing survives it.
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      expect(requests).toEqual([{ path: "/api/push/subscribe", status: 200, body: { subscription: subscription(endpointA, "renewed"), timeZone: zone } }]);
+      const row = t.app.db.query("SELECT auth, principal_id, time_zone FROM push_subscriptions WHERE endpoint = ?").get(endpointA);
+      expect(row).toEqual({ auth: "renewed", principal_id: a.principal.id, time_zone: zone });
     } finally { transport.mockRestore(); }
     const removed = await t.fetch("/api/push/unsubscribe", json(a.cookie, "POST", { endpoint: endpointA }));
     expect(await removed.json()).toEqual({ removed: true });

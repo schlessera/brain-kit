@@ -15,7 +15,9 @@
  * - `pushsubscriptionchange` re-subscribes with the server. It can fire
  *   while offline; the re-subscribe POST simply fails and the next app
  *   open's subscription check heals it (the client compares its live
- *   subscription against the server's list).
+ *   subscription against the server's list). The renewal reports the
+ *   worker's IANA zone, so a renewed endpoint keeps client-local timing for
+ *   Action notices instead of waiting for the next app open.
  */
 
 export interface PushHandlerOptions {
@@ -51,6 +53,16 @@ export interface PushCapableScope {
     >;
     openWindow(url: string): Promise<unknown>;
   };
+}
+
+/** The runtime's IANA zone, or nothing: the server validates it again. */
+function reportedTimeZone(): { timeZone?: string } {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timeZone ? { timeZone } : {};
+  } catch {
+    return {};
+  }
 }
 
 export function registerPushHandlers(
@@ -112,7 +124,7 @@ export function registerPushHandlers(
           await fetch(subscribeUrl, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ subscription }),
+            body: JSON.stringify({ subscription, ...reportedTimeZone() }),
           });
         } catch {
           // Offline or logged out — the next app open's subscription check

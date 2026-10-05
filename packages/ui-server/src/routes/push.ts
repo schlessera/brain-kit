@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
+import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
@@ -21,14 +22,24 @@ const subscribeSchema = z.object({
     }),
   }),
   label: z.string().max(120).optional(),
+  /** Additive: the device's IANA zone for Action notice timing. Validated
+   *  server-side; an unusable value is recorded as missing, never rejected. */
+  timeZone: z.string().max(256).optional(),
 });
 
 const unsubscribeSchema = z.object({
   endpoint: z.url().max(2048),
 });
 
-export function createPushRoutes(deps: { sender: PushSender }) {
-  const { sender } = deps;
+const zoneSchema = z.object({
+  timeZone: z.string().max(256),
+  endpoint: z.url().max(2048).optional(),
+  /** The client's own persisted context identifier; omitted means principal-wide. */
+  clientId: z.string().max(64).optional(),
+});
+
+export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNotifier }) {
+  const { sender, notices } = deps;
 
   return new Hono<AppEnv>()
     .get("/push/public-key", (c) => {
@@ -50,6 +61,8 @@ export function createPushRoutes(deps: { sender: PushSender }) {
             label: s.label,
             createdAt: s.createdAt,
             lastUsedAt: s.lastUsedAt,
+            // Null means Action notices for this device wait for a zone report.
+            timeZone: s.timeZone,
             // Enough for the client to recognize its own registration.
             endpointHash: hashEndpoint(s.endpoint),
           })),
@@ -71,12 +84,34 @@ export function createPushRoutes(deps: { sender: PushSender }) {
         if (!sender.subscribe(body.subscription, principal.id, body.label)) {
           return c.json({ error: "Authentication required" }, 401);
         }
+        // Omitted: an older client keeps the device's last reported zone.
+        if (body.timeZone !== undefined) {
+          notices?.reportDeviceZone(principal.id, body.subscription.endpoint, body.timeZone);
+        }
         return c.json({ ok: true });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Bad subscription" },
           400
         );
+      }
+    })
+
+    // Lifecycle refresh (reconnect, foreground, detected change) of the
+    // caller's client-context zone and, when named, its own destination.
+    .post("/push/zone", requireJson(), async (c) => {
+      const result = await readJsonBody(c);
+      if (result instanceof Response) return result;
+      const parsed = zoneSchema.safeParse(result);
+      const clientId = parsed.success ? noticeClientId(parsed.data.clientId) : null;
+      if (!parsed.success || clientId === null) return c.json({ error: "Bad zone report" }, 400);
+      if (!notices) return c.json({ error: "Action notices unavailable" }, 503);
+      try {
+        const client = { principalId: c.get("principal")!.id, clientId };
+        const { timeZone } = notices.reportZone(client, parsed.data.timeZone, parsed.data.endpoint);
+        return c.json({ ok: true, timeZone });
+      } catch {
+        return c.json({ error: "Authentication required" }, 401);
       }
     })
 

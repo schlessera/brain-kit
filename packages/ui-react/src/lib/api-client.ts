@@ -25,6 +25,7 @@ import type {
   ActivityDigest,
   ActivityIntent,
   ActivityRuntimeStats,
+  ActionDigestState,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 // Activity REST types live in the SDK protocol (shared with the server);
@@ -38,6 +39,9 @@ export type {
   ActivityDigest,
   ActivityIntent,
   ActivityRuntimeStats,
+  ActionDigestEntry,
+  ActionDigestSummary,
+  ActionDigestState,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AuthenticationResponseJSON,
@@ -742,18 +746,41 @@ export function createBrainApi(
     activityInboxAckAll: () =>
       fetchJson<{ acknowledged: number }>("/activity/inbox/ack-all", { method: "POST" }),
 
-    activityDigest: () =>
-      fetchJson<{ digest: ActivityDigest | null; dismissedAt: number }>("/activity/digest"),
+    /** `actions` is this client context's Actions/FYI contribution; older servers omit it. */
+    activityDigest: (clientId?: string) =>
+      fetchJson<{ digest: ActivityDigest | null; dismissedAt: number; actions?: ActionDigestState }>(
+        `/activity/digest${clientId ? `?client=${encodeURIComponent(clientId)}` : ""}`
+      ),
 
-    activityDigestDismiss: () =>
-      fetchJson<{ ok: true }>("/activity/digest/dismiss", { method: "POST" }),
+    /**
+     * Also dismisses this client context's Actions summaries through
+     * `through` (the displayed summary's `generatedAt`) when `clientId` is given.
+     */
+    activityDigestDismiss: (clientId?: string, through?: number) => {
+      const query = new URLSearchParams();
+      if (clientId) query.set("client", clientId);
+      if (through !== undefined) query.set("through", String(through));
+      const suffix = query.toString() ? `?${query}` : "";
+      return fetchJson<{ ok: true }>(`/activity/digest/dismiss${suffix}`, { method: "POST" });
+    },
 
     pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
 
-    pushSubscribe: (subscription: unknown, label?: string) =>
+    pushSubscribe: (subscription: unknown, label?: string, timeZone?: string) =>
       fetchJson<{ ok: true }>("/push/subscribe", {
         method: "POST",
-        body: JSON.stringify({ subscription, label }),
+        body: JSON.stringify({ subscription, label, ...(timeZone !== undefined ? { timeZone } : {}) }),
+      }),
+
+    /** Refresh this client's reported zone and, when named, its own push endpoint's. */
+    pushZone: (timeZone: string, endpoint?: string, clientId?: string) =>
+      fetchJson<{ ok: true; timeZone: string | null }>("/push/zone", {
+        method: "POST",
+        body: JSON.stringify({
+          timeZone,
+          ...(endpoint !== undefined ? { endpoint } : {}),
+          ...(clientId ? { clientId } : {}),
+        }),
       }),
 
     pushUnsubscribe: (endpoint: string) =>
