@@ -30,7 +30,11 @@ function harness(init: () => Promise<unknown> = async () => ({}), version = "2.1
     calls.push(params.options);
     return { initializationResult: init, getSettings: async () => ({ effective: {}, sources: [] }), async *[Symbol.asyncIterator]() {
       if (typeof params.prompt === "string") released.push({ message: { content: params.prompt } } as SDKUserMessage);
-      else for await (const msg of params.prompt) released.push(msg);
+      else {
+        // The first message only: the turn's input stays open for follow-ups.
+        const first = await params.prompt[Symbol.asyncIterator]().next();
+        if (!first.done) released.push(first.value);
+      }
       yield { type: "system", subtype: "init", session_id: "session", claude_code_version: version };
       yield { type: "result", subtype: "success", session_id: "session", duration_ms: 1, num_turns: 1, total_cost_usd: 0 };
     } };

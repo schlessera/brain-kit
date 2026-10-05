@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:488`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:177-178`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:178-179`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -444,9 +444,9 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:138-140`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:46-52`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:47-53`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:203`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:204`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:115-121`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:122-124`).
 - **Billing originally relied on ambient credential classification.** The
@@ -594,7 +594,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:134`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:135`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -894,3 +894,46 @@ changed omitted-mode semantics, and records passing production enforcement
 controls on both the retained and candidate pair. It leaves measured constants,
 declared requirements and permission policy unchanged. A selected explicit-mode
 control is diagnostic evidence, not permission to skip the full upgrade probe.
+
+## 2026-10-05 — Mid-turn follow-ups ride the turn's open input (#1003)
+
+The Claude backend used to declare `followUp: false`, on the belief that the
+Agent SDK had no mid-turn injection, so the host queued every message sent
+during a turn as the next turn. Measured keylessly on SDK 0.3.283 / CLI 2.1.283
+(the real bundled CLI against a scripted loopback Messages API), that belief
+was wrong:
+
+- With `query()` fed a stream that stays open, a user message written while a
+  tool call is still running is not delivered at once and does not interrupt
+  the call. The CLI holds it and sends it in the next main-loop request,
+  beside that tool's successful result, inside the same turn. It says so to
+  the model in a system message ("The user sent a new message while you were
+  working"). `priority: "next"` and no priority behave the same. `now` was not
+  used, because its name says it interrupts.
+- A message written after the model's last step, while the final answer is
+  being generated, is not folded in. The CLI ends the turn on its `result` and
+  then runs the message as a continuation turn of the same process: a second
+  `system/init`, then a second `result`. This happens even when the input is
+  closed after the first result, because the CLI drains what it has already
+  read before it exits.
+- A message stamped with a `uuid` is reported back in `command_lifecycle`
+  frames: `queued` when the CLI reads it, `started` when a turn takes it in,
+  and `completed` when that turn ends, before the turn's `result`.
+- `total_cost_usd` and `modelUsage` on a later result are cumulative over the
+  process. `num_turns` and `duration_ms` count that run only.
+
+So the backend now keeps every turn's input open until the turn's last result
+(`createTurnInput`, `packages/ui-backend-claude/src/turn-input.ts`) and declares
+`followUp: true`. A `result` that arrives while a follow-up is pushed but not
+`started` is held. The terminal frame is built from the last result, with the
+earlier runs' turns and duration added. If no continuation comes, the held
+result is emitted when the stream ends. A follow-up the CLI has not
+acknowledged at a result also closes the input. That covers a runtime that
+never reports lifecycle frames, which would otherwise wait for input forever.
+
+This changes neither the measured runtime nor the SDK requirement nor the
+enforcement policy. The behaviour is re-checked on every CI run, not by the
+hand-run probe: `packages/ui-backend-claude/tests/follow-up-delivery.test.ts`
+drives the production backend through the real CLI and asserts what the CLI
+sent the model, with a control whose CLI never receives the follow-up. A
+version bump that moves any of the behaviours above fails that test.

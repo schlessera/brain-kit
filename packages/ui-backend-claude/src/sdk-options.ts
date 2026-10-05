@@ -18,6 +18,7 @@ import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
 import { envSnapshot, resolveExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
+import { userMessage } from "./turn-input.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
@@ -259,24 +260,5 @@ async function* buildAttachmentPrompt(
   text: string,
   attachments: ChatImageAttachment[]
 ): AsyncIterable<SDKUserMessage> {
-  const content = [
-    ...(text ? [{ type: "text" as const, text }] : []),
-    ...attachments.map((attachment) => ({
-      type: "image" as const,
-      source: {
-        type: "base64" as const,
-        media_type: attachment.mediaType,
-        data: attachment.data,
-      },
-    })),
-  ];
-  yield {
-    type: "user",
-    parent_tool_use_id: null,
-    message: {
-      role: "user",
-      content: content as SDKUserMessage["message"]["content"],
-    },
-    session_id: "",
-  };
+  yield userMessage(text, attachments);
 }

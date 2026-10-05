@@ -19,8 +19,9 @@ interface Double {
 }
 
 /**
- * A query that pulls every prompt message the gate releases, then yields
- * `after` — whether or not anything was released.
+ * A query that pulls the prompt message the gate releases, if it releases
+ * one, then yields `after`. Only the first: the turn's input stays open for
+ * follow-ups until the turn's result, as the real SDK reads it.
  */
 function double(
   init: () => Promise<{ account: AccountInfo }>,
@@ -33,7 +34,8 @@ function double(
     ...(settings ? { getSettings: settings } : {}),
     async *[Symbol.asyncIterator]() {
       if (typeof params.prompt !== "string") {
-        for await (const message of params.prompt) released.push(message);
+        const first = await params.prompt[Symbol.asyncIterator]().next();
+        if (!first.done) released.push(first.value);
       }
       yield* after;
     },

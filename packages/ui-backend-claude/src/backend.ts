@@ -83,7 +83,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
         `[claude-backend] ${message}`,
         attrs ?? ""
       ));
-  const startTurn = createClaudeTurnRunner({
+  const { startTurn, followUp } = createClaudeTurnRunner({
     backend: options,
     resolveProfiles,
     confirmPatterns,
@@ -103,10 +103,11 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     // Each turn is its own `query()` subprocess with per-turn closure state, so
     // turns on different sessions run in parallel; busy-ness is per session.
     concurrentSessions: true,
-    // The Agent SDK has no mid-turn message injection, so the host queues
-    // follow-ups as the session's next turn (status: queued) rather than us
-    // delivering them into the running one.
-    followUp: false,
+    // A message sent mid-turn joins the running turn: the turn's input stays
+    // open, and Claude Code hands a queued message to the model beside the
+    // next tool result, without interrupting the running step (#1003,
+    // turn-input.ts).
+    followUp: true,
   };
 
   return {
@@ -116,6 +117,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
       return listProfiles(resolveProfiles());
     },
     startTurn,
+    followUp,
     listSessions(): Promise<ChatSession[]> {
       return history.listSessions();
     },

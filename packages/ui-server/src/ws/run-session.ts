@@ -594,9 +594,9 @@ export async function handleChatMessage(
 
   if (runningTurn && sessionId) {
     const backend = runningTurn.backend;
-    // Drain older messages queued during routing before allowing native
-    // injection to overtake them.
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined) {
+    // Inject natively only into a turn that has not streamed its result yet,
+    // and never ahead of older messages queued during routing.
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.

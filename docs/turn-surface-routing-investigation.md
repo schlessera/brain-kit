@@ -45,7 +45,7 @@ skill descriptions and defaults are unchanged.
 | Built-in tools | The turn declares its allowlist, disallowed tools and permission callbacks. | Native CLI tool definitions and their per-request token cost. |
 
 The assembly entry is `createClaudeSdkTurn`
-(`packages/ui-backend-claude/src/sdk-options.ts:54-214`); eager bridge
+(`packages/ui-backend-claude/src/sdk-options.ts:55-215`); eager bridge
 registration is `createBrainUiMcpServer`
 (`packages/ui-backend-claude/src/ask-user-tool.ts:91-138`). Skill discovery
 is `discoverSkills` (`packages/core/src/lib/skills/discover.ts:43-81`), and
