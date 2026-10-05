@@ -146,6 +146,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           // activity-less host knows subscribing would be pointless.
           ...(host.activity ? { activity: true } : {}),
           ...(host.inbox ? { inbox: true } : {}),
+          // Offered to clients that declare it in client_hello (#957).
+          toolResolution: true,
+          ...(host.conversations ? { liveConversation: true } : {}),
         },
       });
 
@@ -243,6 +246,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // can make this process do, and parsing is most of that work.
       if (limiter && !limiter.take().allowed) {
         host.reportDroppedFrame("rate_limited");
+        // A metered-away frame may have been audio: a live conversation
+        // must not continue on an incomplete record (#957).
+        host.conversations?.frameDropped(connection);
         host.sendMessage(ws, {
           type: "error",
           code: "RATE_LIMITED",
@@ -325,6 +331,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
       host.inbox?.dropConnection(ws);
+      // Capture ends with the socket; the conversation stays resumable as a
+      // new epoch and its submitted work keeps running.
+      host.conversations?.dropConnection(connection);
       // Turns keep running in the background. Once the LAST client leaves,
       // reject only the requests that need a live client RIGHT NOW (location,
       // mask). Approvals and ask-user cards survive the disconnect and are

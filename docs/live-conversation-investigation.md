@@ -160,8 +160,11 @@ to grant a permission merely because the user spoke.
 
 ## Shared interface specification
 
-These names describe the proposed common seam; none is an exported type or a
-new wire message yet. A provider descriptor creates a server-side conversation
+These names describe the proposed common seam as specified on the evidence
+date. #957 has since exported it, with the adjustments its
+[contract](integration-contract.md#live-conversation-additive-957) records
+(`open` takes `{ signal, resync }`; results are `completed` or `error`).
+A provider descriptor creates a server-side conversation
 session with a capability profile, disclosure and normalized event stream.
 The browser owns capture/playback; the host owns admission and correlation.
 Registration is separate from dictation. Do not expose arbitrary vendor frames
@@ -273,9 +276,9 @@ rejects voice grants
 (`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:349-372`).
 Never add a spoken approve or always-allow path.
 
-The existing denial handler removes/resolves a matched request but provides
-no dedicated denial receipt at that branch
-(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:430-443`). The future
+On the evidence date the denial handler removed/resolved a matched request but
+provided no dedicated denial receipt at that branch; #957 added one
+(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:430-443`). The
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains

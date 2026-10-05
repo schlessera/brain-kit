@@ -74,7 +74,7 @@ import {
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
-import type { BackendVersionRequirements, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import type { BackendVersionRequirements, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
@@ -133,6 +133,13 @@ export interface CreateAppOptions {
    * @experimental Part of the SpeechProvider seam until 1.0.
    */
   speechProvider?: SpeechProvider;
+  /**
+   * Live-conversation provider (#957), registered separately from dictation.
+   * Absent: the host does not advertise `liveConversation` and refuses the
+   * `conversation_*` frames. Validated at startup; an invalid one throws.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProvider?: LiveConversationProvider;
   /** Per-turn timeout in ms (default 10 minutes). */
   turnTimeoutMs?: number;
   /** Backend registry override (tests/embedders); default is built from config. */
@@ -329,6 +336,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       createInboxResolver(db, { allowedOperations: () => [], timeZone: config.inbox?.budget?.timeZone })),
     classifier,
     scratchPrune: () => scratchPrune.tick(),
+    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs

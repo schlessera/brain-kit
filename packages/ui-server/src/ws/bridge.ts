@@ -39,6 +39,9 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   const requestId = turn.requestId;
+  // Same reason as turnId: the host work this bridge's turn runs, not whatever
+  // the slot runs after a late frame arrives.
+  const work = turn.work;
   const thinkingLevel = turn.retryRequest?.thinkingLevel;
   let pendingSessionNamed = onSessionNamed;
   const queryActivity = host.activity?.query;
@@ -92,6 +95,9 @@ export function makeBridge(
           && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
         if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
           && !(turn.isManualRetry && msg.failure.errorClass === "unknown")
+          // Host work carries a posture a client retry could not restore:
+          // retrying a voice turn as a typed one would widen its tools.
+          && work === undefined
           // File Retry needs a pre-reservation read to verify the exact original.
           // Older catalogs can still retain their text/image-only requests.
           && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
@@ -105,7 +111,9 @@ export function makeBridge(
       // Late frames through a previous turn's bridge stay un-recorded — the
       // recorder belongs to ONE turn identity.
       if (turn.turnId === turnId) recorder?.observeFrame(msg);
-      host.sendToClients(withTurnScope(msg, turn, turnId));
+      const scoped = withTurnScope(msg, turn, turnId);
+      host.sendToClients(scoped);
+      work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
         // frame through a previous turn's bridge must not relabel this one.
@@ -225,6 +233,9 @@ export function makeBridge(
             turnId
           )
         );
+        if (turn.sessionId) {
+          host.conversations?.approvalRaised({ sessionId: turn.sessionId, turnId, toolUseId: req.toolUseId, toolName: req.toolName });
+        }
       });
     },
     ...(recorder

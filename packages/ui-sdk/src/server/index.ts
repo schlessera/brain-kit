@@ -94,6 +94,24 @@ export type {
 export type { SpeechProvider, SpeechSession } from "./speech.js";
 export { defineSpeechProvider } from "./speech.js";
 
+export type {
+  ConversationResync,
+  ConversationScope,
+  ConversationWorkRef,
+  ConversationWorkResult,
+  LiveConversationAudioChunk,
+  LiveConversationEvent,
+  LiveConversationOpenOptions,
+  LiveConversationProvider,
+  LiveConversationSession,
+} from "./conversation.js";
+export {
+  assertLiveConversationProvider,
+  assertLiveConversationSession,
+  defineLiveConversationProvider,
+  parseLiveConversationEvent,
+} from "./conversation.js";
+
 export { BRAIN_UI_SYSTEM_PROMPT_APPEND, buildSystemPromptAppend } from "./system-prompt.js";
 export type { SurfaceTools, ExecutionBrief } from "./system-prompt.js";
 

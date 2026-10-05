@@ -15,7 +15,7 @@ import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
 import { withLocalContext } from "./local-exchanges.js";
-import type { AuthorizationContext, QueuedFollowUp, RunningTurn } from "./turns.js";
+import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
   MAX_SESSION_QUEUE,
@@ -92,6 +92,8 @@ type RunSessionInput = {
   localExchanges?: LocalExchange[];
   /** A handoff destination's hooks (#61); only on a new conversation. */
   handoffHooks?: HandoffHooks;
+  /** Host-orchestrated work this message carries (#957). */
+  work?: HostWork;
 };
 
 /**
@@ -102,6 +104,20 @@ type RunSessionInput = {
 export interface HandoffHooks {
   onNamed(sessionId: string): void;
   onSettled(): void;
+}
+
+/**
+ * A queue lease that also settles the work it carries. Every queue exit
+ * releases its lease exactly once, so a dropped entry's work settles as
+ * cancelled; one that ran has already settled with its real outcome.
+ */
+function leaseFor(authorization: AuthorizationContext, work: HostWork | undefined): () => void {
+  const release = authorization.retain();
+  if (!work) return release;
+  return () => {
+    release();
+    work.settle("cancelled", { reason: "Removed from the session queue before it ran" });
+  };
 }
 
 /**
@@ -127,6 +143,9 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
   try {
     await runRetainedSession(host, initial);
   } finally {
+    // Every early exit (cancelled while routing, revoked) lands here; a work
+    // item that ran has settled already and ignores this.
+    initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
     releaseAuthorization();
     initial.handoffHooks?.onSettled();
   }
@@ -148,6 +167,13 @@ async function runRetainedSession(
     // No turn exists yet — routing failed before one was minted — so the
     // report carries only the session identity the client asked for.
     host.reportTurnFailed("BACKEND_ERROR", { sessionId: initial.sessionId }, message);
+    initial.work?.settle("error", { reason: message });
+    // Messages queued behind this start have no runner now: settle their
+    // work and release their leases instead of stranding them.
+    for (const entry of starting.queue.splice(0)) {
+      entry.work?.settle("error", { reason: message });
+      entry.releaseAuthorization();
+    }
     host.sendToClients({
       type: "error",
       code: "BACKEND_ERROR",
@@ -164,7 +190,10 @@ async function runRetainedSession(
   }
 
   if (starting.cancelled) return;
-  if (!initial.authorization.valid) return;
+  if (!initial.authorization.valid) {
+    for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+    return;
+  }
 
   const { backend, profileId: initialProfileId } = target;
   if (target.droppedPin) {
@@ -215,7 +244,10 @@ async function runRetainedSession(
     ...(initial.source ? { source: initial.source } : {}),
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
     ...(initial.requestId ? { requestId: initial.requestId } : {}),
-    releaseAuthorization: () => {},
+    ...(initial.work ? { work: initial.work } : {}),
+    releaseAuthorization: () => {
+      initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
+    },
   };
   let releaseActiveAuthorization: (() => void) | undefined;
 
@@ -234,8 +266,9 @@ async function runRetainedSession(
         }
         continue;
       }
-      const { text, attachments, files, client, source, thinkingLevel, requestId } = next;
+      const { text, attachments, files, client, source, thinkingLevel, requestId, work } = next;
       turn.requestId = requestId;
+      turn.work = work;
       next = null;
 
       const abortController = new AbortController();
@@ -359,6 +392,9 @@ async function runRetainedSession(
       );
       const startedAt = Date.now();
       host.reportTurnStarted(turn);
+      work?.started(turn.turnId);
+      let workOutcome: HostWorkOutcome = "error";
+      let workReason: string | undefined;
       try {
         await backend.startTurn({
           prompt,
@@ -373,7 +409,21 @@ async function runRetainedSession(
           bridge,
           ...(client ? { client } : {}),
           ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+          // A new turn started by voice runs the voice posture: the backend's
+          // named voice allowlist, enforced, with no surface that could grant
+          // a card (docs/decisions/voice-permission.md). A backend without a
+          // voice posture refuses the turn. A follow-up joining an ordinary
+          // turn never gets here, so that turn keeps its posture.
+          ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
+        // A host timeout ends the turn like a cancel: its late result is
+        // never narrated, and the receipt keeps the reason.
+        workOutcome = turn.cancelled || abortController.signal.aborted || turn.lastResult === "cancelled"
+          ? "cancelled"
+          : turn.lastResult === "error"
+            ? "error"
+            : "completed";
+        if (abortController.signal.aborted && !turn.cancelled) workReason = "Turn timed out";
         // A resolved startTurn is not a successful turn: backends resolve for
         // runtime failures and report them on the terminal result frame, which
         // the bridge recorded on the turn.
@@ -398,10 +448,18 @@ async function runRetainedSession(
         recorder?.finish(
           turn.cancelled ? "cancelled" : abortController.signal.aborted ? "timeout" : "error"
         );
+        // A host timeout is host-terminal like a cancel: its late result is
+        // never narrated (the work keeps the reason).
+        workOutcome = turn.cancelled || abortController.signal.aborted ? "cancelled" : "error";
+        workReason = !turn.cancelled && abortController.signal.aborted
+          ? "Turn timed out"
+          : err instanceof Error ? err.message : String(err);
       } finally {
         await failureRecording.finish();
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
+        work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });
+        turn.work = undefined;
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
       }
@@ -501,6 +559,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
     // The entry never joins a queue, so nothing else will ever release its
     // lease: a refused follow-up would otherwise hold its principal
     // discoverable forever and the registry would never empty.
+    entry.work?.settle("refused", { reason: "This session's queue is full." });
     entry.releaseAuthorization();
     return;
   }
@@ -552,6 +611,8 @@ export async function handleChatMessage(
     replayPrompt?: string;
     isRetry?: boolean;
     handoffHooks?: HandoffHooks;
+    /** Host-orchestrated work (#957); always queues as its own turn. */
+    work?: HostWork;
   }
 ): Promise<void> {
   const {
@@ -567,6 +628,7 @@ export async function handleChatMessage(
     requestId,
     draftId,
     localExchanges,
+    work,
   } = msg;
   const { coordinator } = host;
   // Exchanges sent with a message to a session that already exists are
@@ -590,6 +652,7 @@ export async function handleChatMessage(
   if (starting && sessionId) {
     if (starting.cancelled) {
       host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", sessionId, ...(requestId ? { requestId } : {}), message: "This session is cancelling. Wait before sending again." });
+      work?.settle("refused", { reason: "This session is cancelling." });
     } else {
       queueFollowUp(host, ws, sessionId, starting, {
         principalId: authorization.principalId,
@@ -601,7 +664,8 @@ export async function handleChatMessage(
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         ...(requestId ? { requestId } : {}),
-        releaseAuthorization: authorization.retain(),
+        ...(work ? { work } : {}),
+        releaseAuthorization: leaseFor(authorization, work),
       });
     }
     return;
@@ -610,8 +674,11 @@ export async function handleChatMessage(
   if (runningTurn && sessionId) {
     const backend = runningTurn.backend;
     // Inject natively only into a turn that has not streamed its result yet,
-    // and never ahead of older messages queued during routing.
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined) {
+    // and never ahead of older messages queued during routing. Host work never
+    // joins a running turn, and nothing joins a running host-work turn: each
+    // needs its own turn identity to correlate its result (and keep its own
+    // posture), and a follow-up would merge two requests (#957).
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && work === undefined && runningTurn.work === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
@@ -647,7 +714,8 @@ export async function handleChatMessage(
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         ...(requestId ? { requestId } : {}),
-        releaseAuthorization: authorization.retain(),
+        ...(work ? { work } : {}),
+        releaseAuthorization: leaseFor(authorization, work),
       });
     }
     return;
@@ -663,6 +731,7 @@ export async function handleChatMessage(
       message: `Too many concurrent sessions (max ${cap}). Wait for one to finish.`,
       ...(sessionId ? { sessionId } : {}),
     });
+    work?.settle("refused", { reason: `Too many concurrent sessions (max ${cap}).` });
     msg.handoffHooks?.onSettled();
     return;
   }
@@ -687,5 +756,6 @@ export async function handleChatMessage(
     ...(draftId ? { draftId } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
     ...(!sessionId && msg.handoffHooks ? { handoffHooks: msg.handoffHooks } : {}),
+    ...(work ? { work } : {}),
   });
 }

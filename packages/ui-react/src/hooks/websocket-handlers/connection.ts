@@ -1,6 +1,9 @@
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame = "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta";
+type ConnectionFrame =
+  | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
+  | "tool_resolution" | "conversation_opened" | "conversation_closed"
+  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission";
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
@@ -16,6 +19,16 @@ export const connectionFrameHandlers = {
   // not subscribe yet; additive frames are safely ignored in the meantime.
   inbox_snapshot: () => {},
   inbox_delta: () => {},
+  // Live conversation (#957) is negotiated: a host sends these only to a
+  // connection that started a conversation or declared toolResolution, and
+  // this client does neither yet (capture/playback is #960).
+  tool_resolution: () => {},
+  conversation_opened: () => {},
+  conversation_closed: () => {},
+  conversation_event: () => {},
+  conversation_work: () => {},
+  conversation_output: () => {},
+  conversation_permission: () => {},
   location_request: (msg, context) => {
     context.requestBrowserLocation(msg);
   },

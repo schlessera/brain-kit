@@ -99,3 +99,27 @@ This documentation-only decision changes none of those published surfaces.
 Implementation and release sequencing belong to [epic #54](https://github.com/schlessera/brain-kit/issues/54).
 The completed capability record supplies #114's architecture input; final
 interaction design and live-device proof remain independent requirements.
+
+## The host contract — 2026-10-05
+
+[#957](https://github.com/schlessera/brain-kit/issues/957) exports the seam as
+`LiveConversationProvider` and implements the host side of this record; the
+[integration contract](../integration-contract.md#live-conversation-additive-957)
+is the normative text. Three choices it made within this record's scope:
+
+- **Commit is a client frame.** The client reviews the recognized text and
+  sends `conversation_commit`; nothing else creates work. A provider's work
+  request only binds a correlation handle to committed work.
+- **One request at a time per conversation, each its own turn.** Host work
+  never joins a running turn as a native follow-up, because a merged turn
+  would give two requests one result. A busy session queues it, as it queues
+  a typed message.
+- **Cancelled work is not narrated.** The provider receives completed and
+  failed results only; cancellation, withdrawal and a replaced epoch keep the
+  host outcome and discard the narration. `returnWork` therefore has no
+  `cancelled` or `denied` outcome.
+
+Permission outcomes became host-authoritative for every client that asks
+(`tool_resolution`), not only for conversations. No adapter ships; #958 and
+#959 implement the two engines against this seam, and #961 still gates
+activation on measured device and provider behavior.

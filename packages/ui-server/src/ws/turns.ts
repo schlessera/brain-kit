@@ -36,7 +36,28 @@ export interface AuthorizationContext {
   release(): void;
 }
 
+/** How host work ended, from the host's point of view. */
+export type HostWorkOutcome = "completed" | "cancelled" | "error" | "refused";
+
+/**
+ * Lifecycle hooks for one message submitted by host orchestration rather than
+ * typed by a client (a committed live-conversation utterance, #957). The
+ * session machinery calls `settle` on every exit — refused, dropped from a
+ * queue, cancelled before starting, or finished — and an implementation must
+ * treat repeats as no-ops. `posture: "voice"` makes a new turn declare
+ * `enforceAllowedTools` and `noGrantSurface` (docs/decisions/voice-permission.md).
+ */
+export interface HostWork {
+  posture: "voice";
+  started(turnId: string): void;
+  /** Every frame the turn emits, after host scoping. */
+  observe(frame: import("@schlessera/brain-ui-sdk/protocol").ServerMessage): void;
+  settle(outcome: HostWorkOutcome, detail?: { sessionId?: string | null; reason?: string }): void;
+}
+
 export interface QueuedFollowUp {
+  /** Host-orchestrated work this entry carries; absent for client messages. */
+  work?: HostWork;
   principalId: string;
   authorization: AuthorizationContext;
   text: string;
@@ -88,6 +109,8 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
 export interface RunningTurn {
   /** Chat correlation for the current turn; replaced on dequeue. */
   requestId?: string;
+  /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
+  work?: HostWork;
   /** Principal responsible for the CURRENT turn in this session slot. */
   principalId: string;
   authorization: AuthorizationContext;
@@ -144,6 +167,23 @@ export interface PendingApproval {
     response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
   ) => void;
 }
+
+/**
+ * The host's outcome for one permission request, kept after the request
+ * leaves `pendingApprovals` so a late or repeated reply learns what actually
+ * happened (#957). `expired` is a terminal turn that resolved the request
+ * itself; it never needed a `tool_result`.
+ */
+export interface ToolResolutionRecord {
+  outcome: "granted" | "denied" | "expired";
+  turnId: string;
+  sessionId: string | null;
+  channel?: ApprovalChannel;
+  reason?: string;
+}
+
+/** Settled outcomes retained for late replies; the oldest is evicted first. */
+export const MAX_RESOLVED_APPROVALS = 512;
 
 export interface PendingAskUser {
   turn: RunningTurn;
@@ -220,6 +260,13 @@ export class TurnCoordinator {
   readonly startingBySession = new Map<string, { queue: QueuedFollowUp[]; cancelled: boolean }>();
 
   readonly pendingApprovals = new Map<string, PendingApproval>();
+  /** Settled permission outcomes by toolUseId, bounded by MAX_RESOLVED_APPROVALS. */
+  readonly resolvedApprovals = new Map<string, ToolResolutionRecord>();
+  /**
+   * Told about every settled permission request, whichever path settled it.
+   * Assigned by the owning WsHost, which publishes `tool_resolution`.
+   */
+  onApprovalSettled?: (toolUseId: string, record: ToolResolutionRecord) => void;
   readonly pendingAskUser = new Map<string, PendingAskUser>();
   readonly pendingAskUserList = new Map<string, PendingAskUserList>();
   readonly pendingAskUserRank = new Map<string, PendingAskUserRank>();
@@ -365,12 +412,27 @@ export class TurnCoordinator {
     else turn.pendingCancellationPrincipalIds.push(principalId);
   }
 
+  /** Record a settled permission outcome and tell the host. */
+  recordApprovalOutcome(toolUseId: string, record: ToolResolutionRecord): void {
+    this.resolvedApprovals.delete(toolUseId);
+    this.resolvedApprovals.set(toolUseId, record);
+    while (this.resolvedApprovals.size > MAX_RESOLVED_APPROVALS) {
+      const oldest = this.resolvedApprovals.keys().next().value;
+      if (oldest === undefined) break;
+      this.resolvedApprovals.delete(oldest);
+    }
+    this.onApprovalSettled?.(toolUseId, record);
+  }
+
   /** Resolve/reject every pending interactive request belonging to one turn. */
   drainPendingForTurn(turn: RunningTurn, reason: string): void {
     for (const [id, p] of this.pendingApprovals) {
       if (p.turn !== turn) continue;
       p.resolve({ behavior: "deny", message: reason });
       this.pendingApprovals.delete(id);
+      // A terminal turn settles its own cards: no tool_result is coming, and
+      // a client must be able to clear the card without waiting for one.
+      this.recordApprovalOutcome(id, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
     }
     for (const [id, p] of this.pendingAskUser) {
       if (p.turn !== turn) continue;
@@ -458,6 +520,7 @@ export class TurnCoordinator {
     this.running.clear();
     this.bySession.clear();
     this.pendingApprovals.clear();
+    this.resolvedApprovals.clear();
     this.pendingAskUser.clear();
     this.pendingAskUserList.clear();
     this.pendingAskUserRank.clear();
