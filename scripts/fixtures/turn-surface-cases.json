@@ -1,0 +1,82 @@
+{
+  "skills": [
+    {
+      "name": "voyage-plan",
+      "description": "Plan Odysseus's next voyage using the notebook's navigation records."
+    },
+    {
+      "name": "shipbuilding",
+      "description": "Review timber and assembly notes for Odysseus's raft."
+    },
+    {
+      "name": "crew-log",
+      "description": "Record a crew decision in Odysseus's voyage notebook."
+    }
+  ],
+  "cases": [
+    {
+      "id": "needed-quote",
+      "prompt": "Show Athena's advice as a quote card.",
+      "neededTool": "mcp__brain-ui__show_block",
+      "pickedTool": "mcp__brain-ui__show_block",
+      "neededSkill": null,
+      "pickedSkill": null,
+      "input": {
+        "block": {
+          "kind": "quote",
+          "quote": "Choose the next harbour carefully."
+        }
+      }
+    },
+    {
+      "id": "missed-quote",
+      "prompt": "Show Odysseus's reminder as a quote card.",
+      "neededTool": "mcp__brain-ui__show_block",
+      "pickedTool": "mcp__brain-ui__ask_user",
+      "neededSkill": null,
+      "pickedSkill": null,
+      "input": {
+        "block": {
+          "kind": "quote",
+          "quote": "Check the mast before departure."
+        }
+      }
+    },
+    {
+      "id": "needed-skill",
+      "prompt": "Use the voyage planning procedure to prepare Odysseus's next leg.",
+      "neededTool": null,
+      "pickedTool": null,
+      "neededSkill": "voyage-plan",
+      "pickedSkill": "voyage-plan",
+      "input": null
+    },
+    {
+      "id": "wrong-skill",
+      "prompt": "Review the raft's timber using the shipbuilding procedure.",
+      "neededTool": null,
+      "pickedTool": null,
+      "neededSkill": "shipbuilding",
+      "pickedSkill": "crew-log",
+      "input": null
+    },
+    {
+      "id": "prose-only",
+      "prompt": "Explain why a harbour shelters a vessel from waves.",
+      "neededTool": null,
+      "pickedTool": null,
+      "neededSkill": null,
+      "pickedSkill": null,
+      "input": null
+    },
+    {
+      "id": "needless-skill",
+      "prompt": "Explain what a mast does.",
+      "neededTool": null,
+      "pickedTool": null,
+      "neededSkill": null,
+      "pickedSkill": "shipbuilding",
+      "input": null
+    }
+  ]
+}
