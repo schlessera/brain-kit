@@ -5,6 +5,7 @@ import { graphMeta, graphClusters, graphNeighborhood, graphDiscovery, graphMaint
 import { vocabulary, EXTRACTOR_VERSION } from "./vocabulary.js";
 import { linkWalk } from "./links.js";
 export type * from "./types.js";
+export type { ContentIndexQueries } from "./bound.js";
 
 export function readGraphMeta(opts: Root): QueryResult<GraphMeta> {
   return withSnapshot(opts, "graph", () => {}, (db, meta, version) => graphMeta(db, meta, version));

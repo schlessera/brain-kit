@@ -25,6 +25,11 @@ character and `..` paths are invalid. The API reads indexed keys, not source fil
 a missing indexed path is `not_found`. IDs identify nodes in this index/result,
 not across rebuilding; retain document paths as durable keys.
 
+A module hygiene check receives the same nine operations already bound to its
+brain as `ctx.queries` (type `ContentIndexQueries`, exported from this entry),
+taking these options without `brainPath`. See
+[modules.md](modules.md#hygiene-checks-read-the-index-through-ctxqueries).
+
 ## Operations
 
 | Operation | Options beyond required `brainPath` | Result and defaults |

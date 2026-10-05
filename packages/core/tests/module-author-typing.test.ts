@@ -14,7 +14,6 @@
  * same context shapes audit.ts / registry.ts construct, so the assertion is
  * not purely structural.
  */
-import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -27,6 +26,8 @@ import { buildTaxonomy } from "../src/lib/taxonomy";
 import { defineModule, defineModuleTool } from "../src/index";
 import type { CommandModule, HygieneContext, ModuleContribution, ToolContext } from "../src/index";
 import type { AuditIssue } from "../src/lib/types";
+import type { QueryCode } from "../src/queries/index";
+import { bindContentIndexQueries } from "../src/queries/bound";
 
 /**
  * Compile-time identity assertion: passing a value forces the argument type to
@@ -86,6 +87,14 @@ const fixtureCommand: CommandModule<FixtureConfig> = {
 function fixtureHygiene(ctx: HygieneContext<FixtureConfig>): AuditIssue[] {
   const config = expectType<FixtureConfig>(ctx.config);
   expectType<string>(ctx.config.dir);
+  // The index is reached through root-bound query results, not a database.
+  const found = ctx.queries.findIndexDocuments({ type: "opportunity", excludeStatus: "archived" });
+  if (found.ok) expectType<{ path: string; updated: string | null }[]>(found.value);
+  else expectType<QueryCode>(found.error.code);
+  // @ts-expect-error the raw content-index handle was removed (#699)
+  void ctx.db;
+  // @ts-expect-error core binds the root: callers cannot pass brainPath
+  void ctx.queries.listIndexDocuments({ brainPath: "/elsewhere" });
   seen.hygiene = config;
   return [];
 }
@@ -178,18 +187,13 @@ describe("module author typing (G7)", () => {
     expect(result).toEqual({ message: "fixture", count: 2 });
     expect(seen.tool).toEqual({ dir: "notes", limit: 5 });
 
-    // Same context shape cli/commands/audit.ts constructs for hygiene checks.
-    const db = new Database(":memory:");
-    try {
-      const issues = await contribution.hygieneChecks![0]!({
-        db,
-        root: "/tmp/brain",
-        config,
-      });
-      expect(issues).toEqual([]);
-      expect(seen.hygiene).toEqual({ dir: "notes", limit: 5 });
-    } finally {
-      db.close();
-    }
+    // Same context shape auditWithModules constructs for hygiene checks.
+    const issues = await contribution.hygieneChecks![0]!({
+      queries: bindContentIndexQueries("/tmp/brain"),
+      root: "/tmp/brain",
+      config,
+    });
+    expect(issues).toEqual([]);
+    expect(seen.hygiene).toEqual({ dir: "notes", limit: 5 });
   });
 });

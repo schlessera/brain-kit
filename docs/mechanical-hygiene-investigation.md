@@ -42,7 +42,7 @@ The normal keyless test transport guards remain active.
 
 Date repair sets both fields to the maximum of created, updated and the original
 file mtime's UTC day, only when updated precedes created. UTC follows the existing
-`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:209-211`). Separate
+`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:210-212`). Separate
 processes in UTC, Honolulu and Kiritimati produce identical expected bytes.
 Comments, quotes, body content and CRLF endings survive.
 

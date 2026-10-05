@@ -11,6 +11,7 @@ import { planRegistry } from "./index-registry.js";
 import { createUnresolvedLinkDescriber } from "./indexer/links.js";
 import { codeRanges, inRanges } from "./markdown-code.js";
 import type { LoadedModule } from "./module-types.js";
+import { bindContentIndexQueries } from "../queries/bound.js";
 import type { AuditIssue } from "./types.js";
 import type { Severity, Taxonomy } from "./taxonomy.js";
 
@@ -1037,8 +1038,9 @@ export function audit(
  * warning instead of failing the audit, and `opts.onCheckFailed` hears of
  * it. `brain audit` and `brain maintain` both count issues through this, so
  * their numbers agree. The brain's root reaches the core audit
- * (`AuditOptions.root`) unless `opts` sets another. A check sees the whole
- * index, so `opts.exclude` drops its findings on excluded paths.
+ * (`AuditOptions.root`) unless `opts` sets another. A check reads the index
+ * only through `ctx.queries`, bound here to `brain.root`, never through `db`.
+ * It sees the whole index, so `opts.exclude` drops its findings on excluded paths.
  */
 export async function auditWithModules(
   db: Database,
@@ -1046,11 +1048,12 @@ export async function auditWithModules(
   opts: AuditOptions = {}
 ): Promise<AuditIssue[]> {
   const issues = audit(db, brain.taxonomy, { root: brain.root, ...opts });
+  const queries = bindContentIndexQueries(brain.root);
   for (const mod of brain.modules) {
     if (mod.state === "dormant") continue;
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {
-        const found = await check({ db, root: brain.root, config: mod.config });
+        const found = await check({ queries, root: brain.root, config: mod.config });
         issues.push(...(opts.exclude ? found.filter((issue) => !opts.exclude!(issue.path)) : found));
       } catch (e) {
         opts.onCheckFailed?.(mod.manifest.name);

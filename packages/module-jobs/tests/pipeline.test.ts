@@ -12,7 +12,7 @@ import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { parseFrontmatter } from "../src/lib/frontmatter-parse";
 
-import { openDatabase as openBrainDb } from "@schlessera/brain";
+import { bindContentIndexQueries } from "../../core/src/queries/bound";
 import { openDatabase } from "../src/db";
 import { checkOpportunityStages, ensurePipelineIndex } from "../src/pipeline";
 import { ingestJobs } from "../src/scrape";
@@ -201,12 +201,7 @@ describe("hygiene checks", () => {
   async function issues(files: Record<string, string>, now: Date) {
     const root = makeBrain(files);
     expect((await brain(root, "index", "--json")).code).toBe(0);
-    const db = openBrainDb(join(root, "brain.db"), { readonly: true });
-    try {
-      return checkOpportunityStages({ db, root, config: {} as never }, now);
-    } finally {
-      db.close();
-    }
+    return checkOpportunityStages({ queries: bindContentIndexQueries(root), root, config: {} as never }, now);
   }
   const NOW = new Date("2026-09-01T12:00:00Z");
 

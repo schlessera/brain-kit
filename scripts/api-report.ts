@@ -40,7 +40,7 @@ const REPORT_DIR = join(ROOT, "api-report");
 export const SEAMS: Record<string, Record<string, string[]>> = {
   core: {
     ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter", "SearchResult", "RerankCandidate"],
-    "./queries": ["readGraphMeta", "readGraphClusters", "readGraphNeighborhood", "readGraphDiscovery", "readGraphMaintenance", "readLinkWalk", "readVoiceVocabulary", "listIndexDocuments", "findIndexDocuments"],
+    "./queries": ["readGraphMeta", "readGraphClusters", "readGraphNeighborhood", "readGraphDiscovery", "readGraphMaintenance", "readLinkWalk", "readVoiceVocabulary", "listIndexDocuments", "findIndexDocuments", "ContentIndexQueries"],
   },
   scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },
   "module-jobs": { ".": ["JobAdapter"] },
