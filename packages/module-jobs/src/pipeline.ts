@@ -149,13 +149,10 @@ const MS_PER_DAY = 86_400_000;
  * close or advance it). Archived opportunities are left alone.
  */
 export function checkOpportunityStages(ctx: HygieneContext<JobsConfig>, now = new Date()): AuditIssue[] {
-  const rows = ctx.db
-    .prepare(
-      `SELECT path, updated FROM documents
-       WHERE type = 'opportunity' AND status != 'archived' AND (path = 'status.md' OR path LIKE '%/status.md')
-       ORDER BY path`
-    )
-    .all() as { path: string; updated: string }[];
+  // The complete path-ordered candidate set; null status is excluded with archived.
+  const found = ctx.queries.findIndexDocuments({ type: "opportunity", excludeStatus: "archived" });
+  if (!found.ok) throw new Error(indexFailure(found.error.code));
+  const rows = found.value.filter((row) => isStatusFile(row.path));
   const issues: AuditIssue[] = [];
   for (const row of rows) {
     let data: Record<string, unknown>;
@@ -176,7 +173,8 @@ export function checkOpportunityStages(ctx: HygieneContext<JobsConfig>, now = ne
       continue;
     }
     if (stage === "researching") {
-      const days = Math.floor((now.getTime() - Date.parse(row.updated)) / MS_PER_DAY);
+      // A null `updated` parses to NaN and is never stale, as with the former SQL row.
+      const days = Math.floor((now.getTime() - Date.parse(row.updated ?? "")) / MS_PER_DAY);
       if (days > RESEARCHING_STALE_DAYS) {
         issues.push({
           path: row.path,
@@ -189,4 +187,26 @@ export function checkOpportunityStages(ctx: HygieneContext<JobsConfig>, now = ne
     }
   }
   return issues;
+}
+
+/**
+ * The former SQL predicate, `path = 'status.md' OR path LIKE '%/status.md'`:
+ * the root file matches exactly, a nested one with SQLite LIKE's ASCII-only
+ * case folding. So root `STATUS.MD` is out, nested `STATUS.MD` is in, and
+ * `notstatus.md` is out at any depth. A literal suffix query cannot express
+ * this, so the module filters the complete candidate set itself.
+ */
+function isStatusFile(path: string): boolean {
+  if (path === "status.md") return true;
+  return path.replace(/[A-Z]/g, (c) => c.toLowerCase()).endsWith("/status.md");
+}
+
+/** A failed index read fails the check: it is never an empty, clean result. */
+function indexFailure(code: string): string {
+  const action =
+    code === "missing_index" ? "run `brain index`"
+    : code === "incompatible_index" || code === "corrupt_index" ? "run `brain index --force`"
+    : code === "busy_index" ? "retry"
+    : "check the index";
+  return `opportunity stages could not read the content index (${code}): ${action}`;
 }

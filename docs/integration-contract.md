@@ -2491,6 +2491,34 @@ receive `{ root, json, config, taxonomy }`, so a command must NOT re-read
 above is an exception: it never computes effective configuration or
 serializes evaluated TypeScript. See [modules.md](modules.md).
 
+## Module hygiene context (breaking, #699)
+
+A module hygiene check receives `HygieneContext<C>` = `{ queries, root, config }`.
+The raw `db` content-index connection is **removed** (pre-1.0 break, ruled in
+[#696](https://github.com/schlessera/brain-kit/issues/696#issuecomment-5969048668)).
+`queries: ContentIndexQueries` is a frozen object core creates per audit, bound to
+the brain root resolved once at creation. Its nine methods are those of the
+[content-index query API](#content-index-query-api) with the same options minus
+`brainPath`, and the same validation, defaults, caps, ordering and `QueryResult`
+envelopes. A `brainPath` supplied anyway (including through a getter), an
+argument to `readGraphMeta` or a later change to `ctx.root` cannot redirect a
+query. Each call opens and closes its own read snapshot; no handle, SQL,
+statement or transaction escapes. `ContentIndexQueries` is a type exported from
+`@schlessera/brain` and `@schlessera/brain/queries`; core does not export a
+constructor. `root` and parsed `config: C` are unchanged, and checks may still
+return synchronously or asynchronously.
+
+A failed query returns `ok: false` with its `QueryCode`; a check should throw on
+it, which the audit reports as the existing single `module-hygiene` warning and
+`failedChecks` entry rather than a clean result. The jobs `jobs-stage` check does
+so with the message `opportunity stages could not read the content index
+(<code>): <action>`, and its selection is unchanged: every non-archived,
+non-null-status `opportunity` whose path is exactly `status.md` or ends in
+`/status.md` with ASCII case folding, in path order and uncapped. Migration: replace
+each `ctx.db` SQL read with the query returning the same rows and keep any path
+matching in module code ([modules.md](modules.md#hygiene-checks-read-the-index-through-ctxqueries)).
+The [direct-SQL guarantees](#braindb-direct-sql-reads) for other readers are unchanged.
+
 ## Module dormancy (additive, #527)
 
 Each configured module entry gains optional core-owned `enabled: boolean`.

@@ -54,6 +54,7 @@ export type {
   CommandModule,
   CommandContext,
 } from "./lib/module-types.js";
+export type { ContentIndexQueries } from "./queries/bound.js";
 export { loadModules } from "./lib/module-loader.js";
 
 // Taxonomy

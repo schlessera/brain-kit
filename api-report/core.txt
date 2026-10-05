@@ -26,6 +26,7 @@ export "." (./src/index.ts)
   type CommandContext
   type CommandModule
   type CompletionProvider
+  type ContentIndexQueries
   type ContentPart
   type CoreEnv
   DEFAULT_CANONICAL
@@ -222,6 +223,7 @@ export "./package.json" (./package.json) [asset]
 
 export "./queries" (./src/queries/index.ts)
   type Community
+  type ContentIndexQueries
   type Direction
   type DocumentCandidate
   type Edge
@@ -287,6 +289,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         name: string;
         version?: string;
     }
+  Bound (packages/core/src/queries/bound.ts)
+    type Bound<F extends (opts: never) => unknown> = Omit<Parameters<F>[0], "brainPath">;
   ChunkMatch (packages/core/src/lib/types.ts)
     export interface ChunkMatch {
         path: string;
@@ -314,6 +318,18 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             parts?: ContentPart[];
             maxTokens?: number;
         }): Promise<string>;
+    }
+  ContentIndexQueries (packages/core/src/queries/bound.ts)
+    export interface ContentIndexQueries {
+        readGraphMeta(): QueryResult<GraphMeta>;
+        readGraphClusters(opts?: Bound<typeof standalone.readGraphClusters>): QueryResult<Subgraph>;
+        readGraphNeighborhood(opts: Bound<typeof standalone.readGraphNeighborhood>): QueryResult<Subgraph>;
+        readGraphDiscovery(opts?: Bound<typeof standalone.readGraphDiscovery>): QueryResult<Subgraph>;
+        readGraphMaintenance(opts?: Bound<typeof standalone.readGraphMaintenance>): QueryResult<Maintenance>;
+        readLinkWalk(opts: Bound<typeof standalone.readLinkWalk>): QueryResult<LinkWalk>;
+        readVoiceVocabulary(opts: Bound<typeof standalone.readVoiceVocabulary>): QueryResult<VoiceVocabulary>;
+        listIndexDocuments(opts?: Bound<typeof standalone.listIndexDocuments>): QueryResult<ListedDocument[]>;
+        findIndexDocuments(opts?: Bound<typeof standalone.findIndexDocuments>): QueryResult<DocumentCandidate[]>;
     }
   ContentPart (packages/core/src/lib/seams.ts)
     export type ContentPart = {

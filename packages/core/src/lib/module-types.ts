@@ -1,16 +1,19 @@
-import type { Database } from "bun:sqlite";
 import type { z } from "zod";
 import type { AuditIssue } from "./types.js";
 import type { TypeSpec } from "./config.js";
 import type { ModuleSettings } from "./module-settings-types.js";
+import type { ContentIndexQueries } from "../queries/bound.js";
 
 /**
  * Context handed to module hygiene checks. `C` is the module's config type,
  * threaded from its configSchema by `defineModule` — inside a module authored
- * with a schema, `config` is the parsed type, no cast needed.
+ * with a schema, `config` is the parsed type, no cast needed. `queries` reads
+ * the content index through core's supported results, bound by core to this
+ * brain's root; there is no raw database handle (#699).
  */
 export interface HygieneContext<C = unknown> {
-  db: Database;
+  /** Core-bound content-index queries; each call reads its own snapshot. */
+  queries: ContentIndexQueries;
   root: string;
   /** The module's own validated config block. */
   config: C;

@@ -30,7 +30,7 @@ injected `ctx.db` uses throughout package source, then traced each connection.
 
 Sources: (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`); graph meta (`getGraphMeta`, `packages/ui-server/src/graph/reader.ts:437-471`), edges (`DISTINCT_EDGES_SQL`, `packages/ui-server/src/graph/reader.ts:253-258`), neighborhood (`getNeighborhood`, `packages/ui-server/src/graph/reader.ts:525-540`),
 discovery (`getDiscovery`, `packages/ui-server/src/graph/reader.ts:542-617`) and maintenance (`getMaintenance`, `packages/ui-server/src/graph/reader.ts:619-673`); voice (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`) and content
-extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`); raw module context (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`).
+extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)); raw module context ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)).
 
 > **2026-10-01 — Implementation context (pi inventory above and link-walk
 > comparison below).** The native pi graph and listing described by the audit
@@ -127,7 +127,7 @@ removal on 2026-10-03 in
 [#696's context ruling](https://github.com/schlessera/brain-kit/issues/696#issuecomment-5969048668).
 Retain `HygieneContext<C>.root` and the module's validated, parsed `config: C`;
 replace `db` with the concrete query object created by core. The current context
-still exposes `db` (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`);
+exposed `db` before #699 ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17));
 #699 migrates the context, every callback/fixture and author guidance together.
 It does not leave an indefinite deprecated raw-db escape.
 
@@ -144,7 +144,7 @@ callback, `.sql`/`.prepare`/`.execute` escape or native handle. It holds neither
 a persistent connection nor a transaction spanning callbacks. Each synchronous
 operation opens/closes its own core-owned read snapshot. Module callbacks may
 return synchronously or asynchronously; core keeps awaiting them and reporting
-failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1053-1062`).
+failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1056-1065`).
 A typed query failure must propagate into that lifecycle rather than being
 converted to an empty candidate list or successful hygiene result.
 
@@ -175,8 +175,8 @@ that root. Every return is `QueryResult<T>`.
 | `listIndexDocuments` | `type?: string`, `tag?: string`, `status?: string`, `relevance?: string`, `limit?: number` | `ListedDocument[]` |
 | `findIndexDocuments` | `type?: string`, `excludeStatus?: string`, `pathSuffix?: string` | `DocumentCandidate[]` |
 
-Source: (`readGraphMeta`, `packages/core/src/queries/index.ts:9-11`), through
-(`findIndexDocuments`, `packages/core/src/queries/index.ts:130-158`); exported
+Source: (`readGraphMeta`, `packages/core/src/queries/index.ts:10-12`), through
+(`findIndexDocuments`, `packages/core/src/queries/index.ts:131-159`); exported
 results (`export type Direction`, `packages/core/src/queries/types.ts:2-109`).
 #534's public export inventory and #537's module-author inventory include the
 bound context and every signature-reachable option/result type, including
@@ -194,7 +194,7 @@ validation and result/error discrimination.
 
 The existing jobs callback selects `type = 'opportunity'`, `status != 'archived'`
 and `(path = 'status.md' OR path LIKE '%/status.md')`, ordered by path
-(`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)).
 #699 uses complete `findIndexDocuments` metadata with `type: "opportunity"`
 and `excludeStatus: "archived"`, followed by the **module-owned exact former
 path predicate**. Null status remains excluded. Preserve these asymmetric cases:
@@ -212,7 +212,7 @@ predicate. `status.md` alone admits near-names; `/status.md` misses the root and
 nested case variants. Neither safely narrows this selection. Do not alter the
 suffix contract or use bounded `listIndexDocuments` (default 20, maximum 100).
 `findIndexDocuments` returns the complete path-ordered set in one snapshot,
-without a cap/pagination loss (`findIndexDocuments`, `packages/core/src/queries/index.ts:130-158`).
+without a cap/pagination loss (`findIndexDocuments`, `packages/core/src/queries/index.ts:131-159`).
 
 Read source frontmatter under the callback root and retain existing stage,
 staleness and taxonomy rules. The module's parsed config and separate jobs

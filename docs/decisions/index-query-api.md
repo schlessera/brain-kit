@@ -36,7 +36,7 @@ not automatically a behavior-preserving replacement for the other.
 Voice extracts terms from tags, titles, paths, link text and markdown content,
 then degrades an old schema to empty vocabulary while retaining overrides
 (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`). The audited pi backend duplicated link walking in its [native-handle graph implementation](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367). A module hygiene callback
-receives a raw database (`HygieneContext`, `packages/core/src/lib/module-types.ts:12-17`); jobs uses it for opportunity metadata (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+received a raw database ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)); jobs used it for opportunity metadata ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
 columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) and actual consumers against a CLI-produced index
@@ -135,7 +135,7 @@ options and later context-root mutation. Each operation retains its own
 core-owned read snapshot/native lifetime. There is no persistent handle,
 transaction spanning callbacks, consumer-supplied provider, SQL callback or
 prepare/execute escape. Keep awaited sync/async callback execution and existing
-failed-check reporting (`const found = await check`, `packages/core/src/lib/auditor.ts:1053-1062`).
+failed-check reporting (`const found = await check`, `packages/core/src/lib/auditor.ts:1056-1065`).
 Typed failure remains distinct from an empty valid result or successful check.
 The current raw context stays in source until #699 migrates every callback,
 fixture and author guide together; the ruling approves removal in that change,
@@ -144,12 +144,23 @@ without an indefinite deprecated raw-db escape.
 Jobs keeps complete deterministic non-archived opportunity metadata selection,
 null-status exclusion and path ordering. Its former predicate is exact root
 `status.md` equality plus nested `%/status.md` matching with ASCII case behavior
-(`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-170`).
+(the pre-#699 opportunity query linked above).
 Root uppercase and near-names are excluded; nested `STATUS.MD`/`Status.Md`
 remain included. Use complete `findIndexDocuments` metadata plus the
 module-owned path predicate, not capped listing or a case-sensitive literal
 suffix that loses candidates. Source frontmatter, stages, taxonomy, parsed
 config/root and the separate jobs operational database retain their ownership.
+
+> **2026-10-05 — Implemented by #699.** The context now carries
+> `queries: ContentIndexQueries` instead of `db`
+> (`HygieneContext`, `packages/core/src/lib/module-types.ts:14-20`).
+> Core binds the resolved root once per audit and freezes the object
+> (`bindContentIndexQueries`, `packages/core/src/queries/bound.ts:37-61`).
+> Jobs filters the complete `findIndexDocuments` set with the former predicate
+> and throws on a failed read
+> (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-190`).
+> `tests/module-hygiene-queries.test.ts` runs both through the real loader
+> against CLI-produced indexes. The direct-SQL promise still binds until #701.
 
 The rejected **explicit supported query imports** would reuse the standalone
 API with a smaller context, but repeat `brainPath: ctx.root` wiring for every
