@@ -39,8 +39,8 @@ then degrades an old schema to empty vocabulary while retaining overrides
 received a raw database ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)); jobs used it for opportunity metadata ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
-columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:56-69`) and actual consumers against a CLI-produced index
-(`ui-server's readers run`, `tests/brain-db-contract.test.ts:208-251`). Those proofs must be replaced with result and runtime coverage,
+columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:61-74`) and actual consumers against a CLI-produced index
+(`ui-server's readers run`, `tests/brain-db-contract.test.ts:213-256`). Those proofs must be replaced with result and runtime coverage,
 not deleted to make a schema change pass.
 
 > **2026-10-01 — Implementation context (pi reader audit above).** Pi's graph
@@ -207,6 +207,17 @@ semantics, not the bound context/loader runtime. Neither is an installation-size
 or latency receipt; measured cold/warm route behavior belongs to #697/#700.
 The direct-SQL table/column/version promises stay binding until #701 meets its
 separate retirement prerequisites below.
+
+> **2026-10-06 — Cross-package coverage (#700).**
+> `tests/index-query-consumers.test.ts` drives the mounted graph and keyterms
+> routes, pi's registered `brain_list`/`brain_graph` tools and the jobs hygiene
+> check through the real loader against one CLI-produced index. Each consumer
+> keeps its documented envelope in eleven index states, one WAL snapshot per
+> response, a checkpointed replacement on the next call and closed connections
+> after a native failure. `scripts/check-module-query-package.ts` runs the
+> packed jobs check in CI beside the existing core, pi and ui-server package
+> probes. The column assertions in `tests/brain-db-contract.test.ts` are
+> labelled internal and still bind until #701.
 
 ## Conditions for retiring the SQL promise
 

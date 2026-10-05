@@ -14,6 +14,11 @@
  * something a consumer outside this monorepo is entitled to rely on, so a
  * failure here is a CONTRACT change: fix the drift, or update
  * docs/integration-contract.md and take the major-version discussion.
+ *
+ * Everything here is the INTERNAL schema side: table, column and version
+ * checks under the still-binding direct-SQL promise, kept until #701 retires
+ * it. The supported results every consumer reads are asserted separately, in
+ * tests/index-query-consumers.test.ts.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
