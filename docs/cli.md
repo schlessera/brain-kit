@@ -334,3 +334,34 @@ Only loopback supports plain HTTP. `--title`, `--text` and `--url` carry input;
 at least one is required. The command needs no local index or brain config.
 See the [exact JSON and error contract](integration-contract.md#durable-share-and-cli-intake-additive-679)
 and [HTTP intake contract](http-api.md#authenticated-cli-intake-additive-679).
+
+## Scheduled tasks on a UI server
+
+`brain schedule` manages scheduled tasks stored by a UI host. Creating one
+never runs it: execution waits for the host's Queue runtime and its
+enablement gate, so every task currently reports `dispatch_disabled`.
+
+```sh
+brain schedule add --server https://scheduler.example --credential-file ./operator.json \
+  --key ithaca-review-01 --prompt "Read notes/ithaca.md and report outstanding checks." \
+  --cron "0 7 * * 1-5" --time-zone Europe/Athens --scope-file ./scope.json --approve --json
+brain schedule list --server https://scheduler.example --credential-file ./operator.json --json
+brain schedule due --server https://scheduler.example --credential-file ./operator.json --json
+brain schedule cancel task_ithaca_review --key ithaca-cancel-01 --server https://scheduler.example --credential-file ./operator.json --json
+```
+
+`add` takes exactly one of `--at` (a future ISO instant with `Z` or an offset)
+and `--cron` (five numeric fields; `--end-at` is allowed only here). The scope
+file names the exact tools, inputs and target paths the task may use; only
+`brain_read` is supported. With `--approve`, the operator reviews the whole
+envelope on an interactive terminal and types `approve`. Without a terminal or
+that answer nothing is granted, and the command exits 1 with
+`approval_required` and the stored proposal ID. A delegated credential can
+propose but not approve; after an operator approves, the same `add` command
+publishes. Retry any write with the same `--key`.
+
+`list` pages with `--limit`/`--cursor` and filters with `--state` or `--id`;
+cancelled tasks stay listed. `due` is read-only. `cancel` stops future and
+unstarted work; it never stops or undoes an attempt that already started.
+The credential file and transport rules are the same as `brain queue`'s.
+See the [schedule contract](integration-contract.md#scheduled-tasks-additive-914).

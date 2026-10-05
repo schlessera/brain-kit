@@ -38,6 +38,7 @@ import { okfCommand } from "./okf.js";
 import { evalCommand } from "./eval.js";
 import { tagsCommand } from "./tags.js";
 import { queueCommand } from "./queue.js";
+import { scheduleCommand } from "./schedule.js";
 import { hygieneCommand } from "./hygiene.js";
 
 export const CORE_COMMANDS: Record<string, CoreCommand> = {
@@ -74,6 +75,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   tags: tagsCommand,
   hygiene: hygieneCommand,
   queue: queueCommand,
+  schedule: scheduleCommand,
 };
 
 export { generateBriefing } from "./briefing.js";

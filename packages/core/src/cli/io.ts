@@ -59,6 +59,7 @@ export const BOOLEAN_FLAGS = new Set([
   "record", "history",
   "no-background",
   "migrate", "preview", "stdin",
+  "notify-success", "approve",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -76,6 +77,8 @@ export const VALUE_FLAGS = new Set([
   "since", "server", "key", "credential-file", "text", "url",
   "reverse", "near", "along", "radius-m", "compare", "tolerance-m", "sample-spacing-m", "pin", "point", "bbox",
   "revision", "action",
+  "prompt", "at", "cron", "time-zone", "client-time-zone", "end-at", "scope-file",
+  "attempt-timeout-ms", "max-operations", "id", "cursor",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

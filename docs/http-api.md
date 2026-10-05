@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake and poke mounted by `createApp`: 97 unique declared
+The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 103 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -100,6 +100,12 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
+| GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| POST | `/api/schedules` | S | Publish an approved schedule proposal | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| POST | `/api/schedules/:id/cancel` | S | Cancel future and unstarted work of one task | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| GET | `/api/schedules/due` | S | Read due candidates without claiming them | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| POST | `/api/schedules/proposals` | S | Store a schedule proposal for review | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| POST | `/api/schedules/proposals/:id/approve` | S | Record a verified operator approval | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/share` | S | Stage and queue confirmed untrusted share payload | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/api/skills` | I | List built-in and custom skills | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills` | I | Create custom skill and sync agent links | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
@@ -130,7 +136,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 97 declared endpoints are mounted regardless of backend, renderer or
+All 103 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -693,6 +699,38 @@ receipts are included in the existing audit-only operational export; they do
 not turn it into a filesystem backup. The CLI never accesses UI SQLite or
 `brain.db` for this operation, and intake does not file markdown or dispatch
 production autonomous work before its containment/system gates.
+
+## Scheduled tasks (additive, #914)
+
+Six protected routes store and inspect scheduled tasks for `brain schedule`
+and other clients. None of them runs work: no dispatcher is wired, and the
+stored task reports `executionAvailable: false` / `dispatch_disabled`. Request
+bodies must be `application/json`, at most 64 KiB of valid UTF-8, with no NUL
+and no duplicate object keys. Unknown fields or query parameters are
+`invalid_request`. Every response is `Cache-Control: no-store`. Errors are
+`{ ok: false, error: { code, message } }` with the closed codes and statuses of
+the [schedule contract](integration-contract.md#scheduled-tasks-additive-914):
+400 `invalid_request`/`invalid_cursor`, 401/403 `unauthorized`, 404
+`not_found`, 409 `key_conflict`/`approval_required`/`approval_expired`/
+`definition_conflict`, 503 `server_unavailable`/`unsupported_capability`.
+The common authentication guard answers before these handlers with its own
+401/403 body.
+
+**POST /api/schedules/proposals** takes `{ key, definition, clientTimeZone? }`
+and answers 201 `{ ok: true, proposal }` (200 for a matched replay by the same
+principal and key). It validates and materializes the definition, resolves the
+zone, and stores nothing authoritative. **POST
+/api/schedules/proposals/:id/approve** takes `{ fingerprint, decision:
+"approve" }` from an operator principal and answers 200 `{ ok: true,
+approvalId }`. **POST /api/schedules** takes `{ proposalId, approvalId? }` from
+the proposal's creator; it answers 201 `{ ok: true, created: true, task }` once
+the ledger and the definition file agree, and 200 `created: false` when a
+receipt already exists. **GET /api/schedules** accepts `limit`, `cursor`,
+`state` and `id`. **POST /api/schedules/:id/cancel** takes `{ key }` and
+answers 200 `{ ok: true, changed, task, runningOccurrences }`. **GET
+/api/schedules/due** accepts `limit` and `cursor`; it is read-only. Cursors are
+host-signed, bound to the caller, filters and evaluation time, and expire after
+15 minutes. Responses stay under 512 KiB.
 
 ## Imported track UI transport (#526)
 

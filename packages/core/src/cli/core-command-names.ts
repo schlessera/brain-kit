@@ -6,5 +6,5 @@
 export const CORE_COMMAND_NAMES = new Set<string>([
   "search", "context", "read", "list", "briefing", "add", "index", "validate",
   "audit", "process", "archive", "accept-mtime", "maintain", "stats", "graph", "render", "scratch", "sync",
-  "setup", "doctor", "init", "import", "skills", "module", "config", "mcp", "okf", "eval", "tags", "hygiene", "geo",
+  "setup", "doctor", "init", "import", "skills", "module", "config", "mcp", "okf", "eval", "tags", "hygiene", "geo", "queue", "schedule",
 ]);
