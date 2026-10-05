@@ -315,8 +315,17 @@ describe("brain hygiene", () => {
     brains.push(root);
     return root;
   }
+  // The fixture repository sees no host Git state: no global or system config
+  // (signing, hooks, excludes, status.showUntrackedFiles) and no inherited
+  // GIT_* variable that could point it at another repository. Signing is also
+  // off per command, so a repository-local preference cannot reach a signer.
+  const fixtureGitEnv = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
   const git = (root: string, ...args: string[]) => {
-    const proc = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: root, env: fixtureGitEnv, stdout: "pipe", stderr: "pipe" });
     if (proc.exitCode !== 0) {
       throw new Error(`git ${args.join(" ")} failed (${proc.exitCode}): ${proc.stderr.toString()}`);
     }
@@ -425,7 +434,7 @@ describe("brain hygiene", () => {
     expect(names.map((name) => statSync(log(root, name)).mtimeMs)).toEqual(names.map(() => past.getTime()));
     expect(git(root, "rev-parse", "--is-inside-work-tree").trim()).toBe("true");
     expect(second.out.stillOpen).toBe(first.out.opened);
-    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(git(root, "status", "--porcelain", "--untracked-files=all")).toBe("");
     // The IDs are the same on both runs.
     expect(second.out.detected.map((d: { id: string }) => d.id)).toEqual(first.out.detected.map((d: { id: string }) => d.id));
   });
