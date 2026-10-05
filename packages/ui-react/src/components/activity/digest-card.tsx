@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { ActivityDigest } from "../../lib/api-client.js";
+import type { ActionDigestSummary, ActivityDigest } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { DigestSummary } from "./digest-summary.js";
@@ -16,23 +16,34 @@ import { digestCostClause } from "./span-bits.js";
  *
  * This is the container (S7): the fetch, the once-per-digest rule and the
  * dismissal live here; `DigestSummary` draws the kit `DigestCard`.
+ *
+ * The same fetch carries this client's Actions/FYI contribution, refreshed at
+ * its local 09:00 and 17:00. It lists only decisions and updates new since the
+ * last summary; an unchanged waiting decision stays in Actions instead.
  */
 export function DigestCard() {
   const api = useBrainApi();
   const [digest, setDigest] = useState<ActivityDigest | null>(null);
+  const [actions, setActions] = useState<ActionDigestSummary | null>(null);
   const [visible, setVisible] = useState(false);
   const setActiveView = useUIStore((s) => s.setActiveView);
 
   useEffect(() => {
     let active = true;
     setDigest(null);
+    setActions(null);
     setVisible(false);
     void api
       .activityDigest()
-      .then(({ digest, dismissedAt }) => {
-        if (!active || !digest || digest.runs === 0) return;
-        if (digest.generatedAt <= dismissedAt) return;
-        setDigest(digest);
+      .then(({ digest, dismissedAt, actions }) => {
+        if (!active) return;
+        const freshDigest = digest && digest.runs > 0 && digest.generatedAt > dismissedAt ? digest : null;
+        const latest = actions?.status === "ready" ? actions.latest : null;
+        const freshActions =
+          latest && latest.waiting.length + latest.updates.length > 0 && latest.generatedAt > dismissedAt ? latest : null;
+        if (!freshDigest && !freshActions) return;
+        setDigest(freshDigest);
+        setActions(freshActions);
         setVisible(true);
       })
       .catch(() => {
@@ -41,7 +52,7 @@ export function DigestCard() {
     return () => { active = false; };
   }, [api]);
 
-  if (!visible || !digest) return null;
+  if (!visible || (!digest && !actions)) return null;
 
   function dismiss() {
     setVisible(false);
@@ -51,10 +62,15 @@ export function DigestCard() {
   return (
     <DigestSummary
       digest={digest}
-      windowLabel={`${formatDay(digest.windowStart)} – ${formatDay(digest.windowEnd)}`}
+      actions={actions}
+      windowLabel={
+        digest
+          ? `${formatDay(digest.windowStart)} – ${formatDay(digest.windowEnd)}`
+          : `Actions, ${formatSlot(actions!.slotAt)}`
+      }
       // Effective-only spend clause; a digest persisted before pricing shipped
       // falls back to its old list-cost clause inside the helper.
-      costClause={digestCostClause(digest)}
+      costClause={digest ? digestCostClause(digest) : null}
       onDismiss={dismiss}
       onOpen={() => {
         dismiss();
@@ -66,4 +82,8 @@ export function DigestCard() {
 
 function formatDay(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatSlot(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }

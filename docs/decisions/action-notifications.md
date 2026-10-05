@@ -170,7 +170,7 @@ incrementing an Action count
 (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`).
 The sender processes run-bound activity rows and settles one intent from a
 device pass; that is not the required per-episode/per-destination Action history
-(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:185-264`).
+(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-273`).
 Reuse concrete subscriptions, authorization, revocation and bounded backoff,
 but add the Actions-aware aggregate and durable constituent/destination records.
 This decision authorizes no new channel, extension seam or daemon.
@@ -178,9 +178,9 @@ This decision authorizes no new channel, extension seam or daemon.
 The client already reads a zone for client environment
 (`const zone`, `packages/ui-react/src/lib/client-environment.ts:107-108`).
 Push rebind sends the subscription and label
-(`rebindPushSubscriptionAfterLogin`, `packages/ui-react/src/lib/push-registration.ts:8-36`);
+(`rebindPushSubscriptionAfterLogin`, `packages/ui-react/src/lib/push-registration.ts:22-36`);
 the server subscribe path does not persist that client's delivery zone
-(`.post("/push/subscribe"`, `packages/ui-server/src/routes/push.ts:65-74`).
+(`.post("/push/subscribe"`, `packages/ui-server/src/routes/push.ts:76-89`).
 Collection for a chat environment is not authenticated notification-zone
 binding or lifecycle freshness proof.
 
