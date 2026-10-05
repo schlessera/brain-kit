@@ -295,28 +295,30 @@ test("missing or invalid zones stay visibly pending until a lifecycle refresh, w
   app.route("/", createActivityRoutes({ db: w.db, store: createActivityStore(w.db, { writer: "test" }), actionNotices: w.notices }));
   const post = (path: string, body: unknown) => app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-  w.now = athens(0, 10);
+  // 14:00 in Athens is 11:00Z: outside quiet hours in UTC as well, so a
+  // silent server-zone fallback would send here.
+  w.now = athens(0, 14);
   w.decision("raft", { stakes: 3 });
   w.decision("tribute", { stakes: 1 });
-  await w.tick(athens(0, 10));
-  expect(await w.tick(athens(0, 10, 1))).toEqual([]);
+  await w.tick(athens(0, 14));
+  expect(await w.tick(athens(0, 14, 1))).toEqual([]);
   const listed = await (await app.request("/push/subscriptions")).json();
   expect(listed.subscriptions[0].timeZone).toBeNull();
   expect((await (await app.request("/activity/digest")).json()).actions).toEqual({ status: "zone_required" });
 
   // An invalid zone is recorded as unusable, not substituted.
   expect(await (await post("/push/zone", { timeZone: "Aeaea/Circe", endpoint: phone })).json()).toEqual({ ok: true, timeZone: null });
-  expect(await w.tick(athens(0, 10, 2))).toEqual([]);
+  expect(await w.tick(athens(0, 14, 2))).toEqual([]);
   expect((await post("/push/zone", { timeZone: 7 })).status).toBe(400);
 
   // Foreground/reconnect refresh: the server stamps its own clock; any client
   // time in the body is ignored, so client skew cannot move a window.
-  w.now = athens(0, 10, 3);
+  w.now = athens(0, 14, 3);
   const refreshed = await post("/push/zone", { timeZone: "europe/athens", endpoint: phone, reportedAt: 0 });
   expect(await refreshed.json()).toEqual({ ok: true, timeZone: "Europe/Athens" });
   expect(w.db.query("SELECT time_zone, time_zone_reported_at FROM push_subscriptions").get())
-    .toEqual({ time_zone: "Europe/Athens", time_zone_reported_at: athens(0, 10, 3) });
-  const sends = await w.tick(athens(0, 10, 3));
+    .toEqual({ time_zone: "Europe/Athens", time_zone_reported_at: athens(0, 14, 3) });
+  const sends = await w.tick(athens(0, 14, 3));
   expect(sends.map((s) => s.payload.title)).toEqual(["1 action waiting"]);
   const digest = (await (await app.request("/activity/digest")).json()).actions;
   expect(digest.status).toBe("ready");
@@ -348,6 +350,8 @@ test("authenticated rebind and revocation recheck authority at every attempt", a
   // Revocation written without unbinding still stops delivery.
   revokePrincipal(w.db, telemachus.id, athens(0, 11));
   expect(await w.tick(athens(0, 11, 1))).toEqual([]);
+  // The notifier's own attempt check refuses the revoked owner of the device.
+  expect(w.notices.beginAttempt({ endpoint: shared, principalId: telemachus.id }, athens(0, 11, 2))).toBeNull();
   expect(w.attempts().filter((a) => a.principal_id === telemachus.id)).toEqual([]);
   // Odysseus no longer owns the device either.
   expect(w.notices.beginAttempt({ endpoint: shared, principalId: odysseus.id }, athens(0, 11, 2))).toBeNull();
