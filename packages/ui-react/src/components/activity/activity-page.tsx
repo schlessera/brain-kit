@@ -200,10 +200,24 @@ export function ActivityPage() {
   // Kept apart from the bounded mirror, which may evict a finished run's
   // spans before the next REST refresh lists it.
   const promoted = useRef(new Map<string, ActivityRunSummary>());
+  // Once REST history lists a run it owns the row; the run is forgotten
+  // here, so it cannot reappear after leaving the REST window.
+  for (const r of runs?.history ?? []) {
+    seenLive.current.delete(r.runId);
+    promoted.current.delete(r.runId);
+  }
   for (const runId of seenLive.current) {
     const root = Object.values(liveSpans[runId] ?? {}).find((s) => !s.parentSpanId);
     if (root && root.outcome !== undefined && root.outcome !== null) {
       promoted.current.set(runId, settledSummary(root, runs?.live.find((r) => r.runId === runId)));
+    }
+  }
+  // Bounded like the mirror: only the newest pending promotions are kept.
+  if (promoted.current.size > MAX_PROMOTED) {
+    const oldest = [...promoted.current.values()].sort((x, y) => x.startedAt - y.startedAt);
+    for (const row of oldest.slice(0, promoted.current.size - MAX_PROMOTED)) {
+      promoted.current.delete(row.runId);
+      seenLive.current.delete(row.runId);
     }
   }
   const settled = promoted.current;
@@ -520,6 +534,9 @@ export function ActivityPage() {
     </div>
   );
 }
+
+/** How many watched-and-ended runs wait for a REST refresh at most. */
+const MAX_PROMOTED = 50;
 
 /** A run this page watched end, as a history row until the next REST refresh. */
 function settledSummary(root: ActivitySpan, rest: ActivityRunSummary | undefined): ActivityRunSummary {

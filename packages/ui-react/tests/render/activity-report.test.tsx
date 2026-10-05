@@ -204,6 +204,30 @@ describe("eligibility", () => {
 });
 
 describe("history order", () => {
+  test("once REST history lists a promoted run it is forgotten, and never resurrected", async () => {
+    const live = span({ spanId: "z-root", runId: "run-zephyr", name: "cron:Zephyr", jobName: "Wind bag audit", startedAt: Date.now() - 4000 });
+    useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [live], events: [], highWaterSeq: { "run-zephyr": 1 } });
+    const page = render(<ActivityPage />);
+    await page.findByText("Running now", undefined, { timeout: 5000 });
+    act(() => {
+      useActivityStore.getState().applyDelta({ type: "activity_delta", runId: "run-zephyr", seq: 2, span: { ...live, outcome: "error", endedAt: Date.now() } });
+    });
+    fireEvent.click([...page.container.querySelectorAll<HTMLElement>("[role=tab]")].find((t) => (t.textContent ?? "").startsWith("done"))!);
+    await waitFor(() => expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-zephyr"));
+    HISTORY.unshift(summary({ runId: "run-zephyr", jobName: "Wind bag audit", outcome: "error", startedAt: live.startedAt }));
+    try {
+      fireEvent.click(page.getByRole("button", { name: "Refresh" }));
+      await waitFor(() => expect(calls.filter((c) => c.url.includes("/activity/runs?")).length).toBe(2));
+      await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+      expect(reportButtons(page).filter((b) => b.dataset.reportRun === "run-zephyr")).toHaveLength(1);
+    } finally { HISTORY.shift(); }
+    // The run has left the REST window; the page must not bring its old copy back.
+    fireEvent.click(page.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.includes("/activity/runs?")).length).toBe(3));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(reportButtons(page).map((b) => b.dataset.reportRun)).not.toContain("run-zephyr");
+  });
+
   test("a promoted run takes its place by start time, not the top", async () => {
     const older = span({ spanId: "o-root", runId: "run-older", name: "cron:Lotus census", jobName: "Lotus census", startedAt: T0 - 3_600_000 });
     useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [older], events: [], highWaterSeq: { "run-older": 1 } });
@@ -307,6 +331,17 @@ describe("the outgoing draft is exactly the reviewed text", () => {
     expect(opened).toEqual([]);
     expect(field("Exact outgoing text").value).toBe(big);
     expect(dialog()!.querySelector("[data-report-meter]")!.textContent).toMatch(/^Too long for the issue link by [\d,]+ — copy instead, or shorten it$/);
+    expect(dialog()!.querySelector("[role=status]")!.textContent).toBe(
+      "This report is too long for the issue link. Copy it and paste it into a new issue on GitHub, or shorten it.");
+  });
+
+  test("an oversized link right after a draft still explains the refusal", async () => {
+    const page = await mount();
+    await openReport(page, "run-harbour");
+    fireEvent.click(buttonIn(dialog()!, "Open issue on GitHub"));
+    type(field("Exact outgoing text"), "Charybdis ".repeat(900));
+    fireEvent.click(buttonIn(dialog()!, "Open issue on GitHub"));
+    expect(opened).toHaveLength(1);
     expect(dialog()!.querySelector("[role=status]")!.textContent).toBe(
       "This report is too long for the issue link. Copy it and paste it into a new issue on GitHub, or shorten it.");
   });

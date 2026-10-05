@@ -139,12 +139,13 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
     }
   }
   function report() {
+    // No implicit truncation: the exact fields are the payload. Large reports
+    // can be copied and pasted instead of silently editing the reviewed text.
+    // Checked first, so a refusal is always explained.
+    if (tooLong) { setNotice(copyText.tooLong); return; }
     // A second tap inside a second is a double activation, not a second draft.
     const now = Date.now();
     if (now - lastOpen.current < 1000) return;
-    // No implicit truncation: the exact fields are the payload. Large reports
-    // can be copied and pasted instead of silently editing the reviewed text.
-    if (tooLong) { setNotice(copyText.tooLong); return; }
     lastOpen.current = now;
     try { window.open(url, "_blank", "noopener,noreferrer"); setNotice(copyText.opened); setOpened(true); }
     catch { setNotice(copyText.openFailed); }
