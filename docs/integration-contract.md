@@ -1995,9 +1995,10 @@ Durable waiting decisions reach their recipients under the
   response adds `actions?: ActionDigestState` for that client context:
   `{ status: "zone_required" }` without a usable zone, otherwise
   `{ status: "ready", timeZone, latest: ActionDigestSummary | null,
-  dismissedAt: number | null }`. `POST /api/activity/digest/dismiss?client=<id>`
-  also records that context's own Actions dismissal; the global activity
-  dismissal marker is unchanged.
+  dismissedAt: number | null }`. `POST /api/activity/digest/dismiss?client=<id>&through=<generatedAt>`
+  also records that context's own Actions dismissal, advancing it only
+  through the displayed summary so a later one stays visible; the global
+  activity dismissal marker is unchanged.
   `ActionDigestSummary` is `{ generatedAt, slotAt, timeZone, waiting, updates }`,
   exported with `ActionDigestEntry` and `ActionDigestState` from
   `@schlessera/brain-ui-sdk/protocol`. `waiting` lists new or reawakened

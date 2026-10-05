@@ -102,8 +102,11 @@ export interface ActionNotifier {
   reportDeviceZone(principalId: string, endpoint: string, timeZone: unknown, now?: number): { timeZone: string | null };
   /** Generate this context's due summary if needed, then return the latest. */
   digest(client: NoticeClient, now?: number): ActionDigestState;
-  /** Record that this client context dismissed its latest summary. */
-  dismiss(client: NoticeClient, now?: number): void;
+  /**
+   * Record that this client context dismissed summaries generated up to
+   * `through` (the one it displayed), never one generated after it.
+   */
+  dismiss(client: NoticeClient, through?: number, now?: number): void;
   /** Generate due summaries for every usable client context. */
   generateDue(now?: number): number;
 }
@@ -489,10 +492,14 @@ export function createActionNotifier(db: Database, options: { now?: () => number
       return generate(client, at ?? clock());
     },
 
-    dismiss(client, at) {
+    dismiss(client, through, at) {
       const now = at ?? clock();
-      db.query("UPDATE inbox_notice_clients SET dismissed_at = ? WHERE principal_id = ? AND client_id = ?")
-        .run(now, client.principalId, client.clientId);
+      // Advance only through the displayed summary: a summary stored after
+      // the client last read stays undismissed. The marker never moves back.
+      const mark = Math.min(now, through !== undefined && Number.isSafeInteger(through) && through >= 0 ? through : now);
+      db.query(
+        "UPDATE inbox_notice_clients SET dismissed_at = MAX(COALESCE(dismissed_at, 0), ?) WHERE principal_id = ? AND client_id = ?"
+      ).run(mark, client.principalId, client.clientId);
     },
 
     generateDue(at) {

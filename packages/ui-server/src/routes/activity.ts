@@ -78,8 +78,9 @@ export function createActivityRoutes(deps: {
         // never hides another browser's unseen summary.
         const principal = c.get("principal");
         const clientId = noticeClientId(c.req.query("client"));
+        const through = c.req.query("through");
         if (actionNotices && principal && clientId !== null) {
-          actionNotices.dismiss({ principalId: principal.id, clientId });
+          actionNotices.dismiss({ principalId: principal.id, clientId }, through === undefined ? undefined : Number(through));
         }
         return c.json({ ok: true });
       } catch (err) {

@@ -752,9 +752,17 @@ export function createBrainApi(
         `/activity/digest${clientId ? `?client=${encodeURIComponent(clientId)}` : ""}`
       ),
 
-    /** Also dismisses this client context's Actions summary when `clientId` is given. */
-    activityDigestDismiss: (clientId?: string) =>
-      fetchJson<{ ok: true }>(`/activity/digest/dismiss${clientId ? `?client=${encodeURIComponent(clientId)}` : ""}`, { method: "POST" }),
+    /**
+     * Also dismisses this client context's Actions summaries through
+     * `through` (the displayed summary's `generatedAt`) when `clientId` is given.
+     */
+    activityDigestDismiss: (clientId?: string, through?: number) => {
+      const query = new URLSearchParams();
+      if (clientId) query.set("client", clientId);
+      if (clientId && through !== undefined) query.set("through", String(through));
+      const suffix = query.toString() ? `?${query}` : "";
+      return fetchJson<{ ok: true }>(`/activity/digest/dismiss${suffix}`, { method: "POST" });
+    },
 
     pushPublicKey: () => fetchJson<{ publicKey: string }>("/push/public-key"),
 

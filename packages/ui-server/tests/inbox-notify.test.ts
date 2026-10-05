@@ -514,9 +514,20 @@ test("browsers sharing one principal keep their own zone, coverage and dismissal
   expect(harbor.latest.waiting.map((e: { itemId: string }) => e.itemId)).toEqual(["loom"]);
   // Dismissing on one browser leaves the other's summary visible.
   w.now = at + 60_000;
-  await post("/activity/digest/dismiss?client=hall-tablet");
-  expect((await read("hall-tablet")).dismissedAt).toBe(at + 60_000);
+  await post(`/activity/digest/dismiss?client=hall-tablet&through=${hall.latest.generatedAt}`);
+  expect((await read("hall-tablet")).dismissedAt).toBe(hall.latest.generatedAt);
   expect((await read("harbor-phone")).dismissedAt).toBeNull();
+  // A summary stored after the card was read stays visible after dismissing
+  // the one shown: 17:00 in New York arrives before the stale card's dismissal.
+  const fivePm = Date.UTC(2026, 9, 3, 21);
+  w.now = fivePm - HOUR;
+  w.decision("bow", { stakes: 1 });
+  const evening = w.notices.digest(ctx(household, "hall-tablet"), fivePm) as { latest: { generatedAt: number } };
+  expect(evening.latest.generatedAt).toBe(fivePm);
+  w.now = fivePm + 1_000;
+  await post(`/activity/digest/dismiss?client=hall-tablet&through=${hall.latest.generatedAt}`);
+  const after = await read("hall-tablet");
+  expect(after.latest.generatedAt).toBeGreaterThan(after.dismissedAt);
 });
 
 test("the 20-second tick does not move an arrival out of the window it arrived in", async () => {
