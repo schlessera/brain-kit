@@ -1,14 +1,20 @@
 /**
  * Definition-file publication and retirement inside the canonical brain root.
  *
- * Every directory component is checked with lstat (no symlink anywhere) and
- * its inode identity is re-verified after each write, so a rename or symlink
- * swap between check and use fails closed instead of escaping the root.
+ * Each directory is opened component by component with O_NOFOLLOW, and every
+ * later operation is anchored to that open directory: on Linux through the
+ * `/proc/self/fd/<fd>/<name>` magic link, which resolves to the directory the
+ * descriptor holds even if a path component is renamed or swapped for a
+ * symlink. So a swap between check and use cannot redirect a write outside
+ * the root. Without procfs the same operations run on the verified paths and
+ * re-check each directory's identity afterwards (check-then-use, detected).
+ *
  * Publication never replaces an existing file: it links a synced private
- * temporary file into place, which fails when the name is taken.
+ * temporary file into place, which fails when the name is taken. Retirement
+ * moves only the exact file identity whose bytes were verified.
  */
-import { constants } from "node:fs";
-import { link, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { link, lstat, mkdir, open, readdir, unlink, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
 import { DEFINITIONS_DIR, MAX_DEFINITION_FILE_BYTES, RETIRED_DIR } from "./definition.js";
@@ -16,42 +22,67 @@ import { DEFINITIONS_DIR, MAX_DEFINITION_FILE_BYTES, RETIRED_DIR } from "./defin
 export class ScheduleFileConflictError extends Error {}
 export class ScheduleContainmentError extends Error {}
 
-interface DirIdentity { path: string; dev: number; ino: number }
+/** Interrupted temporaries older than this belong to a writer that stopped. */
+export const TEMPORARY_REAP_AGE_MS = 60 * 60_000;
+const ANCHORED = process.platform === "linux" && existsSync("/proc/self/fd");
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 
 function errno(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-  try { await handle.sync(); } finally { await handle.close(); }
+interface Directory {
+  handle: FileHandle;
+  path: string;
+  dev: number;
+  ino: number;
+  /** A path for `name` inside exactly this open directory. */
+  at(name: string): string;
 }
 
-/** Walk (and optionally create) a relative directory chain under the root, refusing symlinks. */
-async function directoryChain(root: string, relative: string, create: boolean): Promise<DirIdentity[] | null> {
-  const chain: DirIdentity[] = [];
-  const rootInfo = await lstat(root);
-  if (!rootInfo.isDirectory()) throw new ScheduleContainmentError("Brain root is not a directory");
-  chain.push({ path: root, dev: rootInfo.dev, ino: rootInfo.ino });
-  let current = root;
-  for (const segment of relative.split("/")) {
-    current = join(current, segment);
-    let info;
-    try { info = await lstat(current); }
-    catch (error) {
-      if (errno(error) !== "ENOENT") throw error;
-      if (!create) return null;
-      try { await mkdir(current, { mode: 0o755 }); }
-      catch (mkdirError) { if (errno(mkdirError) !== "EEXIST") throw mkdirError; }
-      info = await lstat(current);
-    }
-    if (info.isSymbolicLink() || !info.isDirectory()) throw new ScheduleContainmentError("Schedule directory is not a contained directory");
-    chain.push({ path: current, dev: info.dev, ino: info.ino });
+async function openDirectory(path: string, display: string): Promise<Directory> {
+  let handle: FileHandle;
+  try { handle = await open(path, DIRECTORY_FLAGS); }
+  catch (error) {
+    if (errno(error) === "ELOOP" || errno(error) === "ENOTDIR") throw new ScheduleContainmentError("Schedule directory is not a contained directory");
+    throw error;
   }
-  return chain;
+  const info = await handle.stat();
+  return {
+    handle, path: display, dev: info.dev, ino: info.ino,
+    at: (name) => ANCHORED ? `/proc/self/fd/${handle.fd}/${name}` : join(display, name),
+  };
 }
 
-async function assertChain(chain: DirIdentity[]): Promise<void> {
+/** Open (and optionally create) a relative directory chain under the root. */
+async function directoryChain(root: string, relative: string, create: boolean): Promise<Directory[] | null> {
+  const chain: Directory[] = [];
+  try {
+    chain.push(await openDirectory(root, root));
+    for (const segment of relative.split("/")) {
+      const parent = chain.at(-1)!;
+      const target = parent.at(segment), display = join(parent.path, segment);
+      try { chain.push(await openDirectory(target, display)); continue; }
+      catch (error) { if (errno(error) !== "ENOENT") throw error; }
+      if (!create) { await closeChain(chain); return null; }
+      try { await mkdir(target, { mode: 0o755 }); }
+      catch (error) { if (errno(error) !== "EEXIST") throw error; }
+      chain.push(await openDirectory(target, display));
+    }
+    return chain;
+  } catch (error) {
+    await closeChain(chain);
+    throw error;
+  }
+}
+
+async function closeChain(chain: Directory[] | null): Promise<void> {
+  for (const entry of chain ?? []) await entry.handle.close().catch(() => {});
+}
+
+/** Path-mode fallback only: the paths must still name the opened directories. */
+async function assertChain(chain: Directory[]): Promise<void> {
+  if (ANCHORED) return;
   for (const entry of chain) {
     const info = await lstat(entry.path);
     if (info.isSymbolicLink() || !info.isDirectory() || info.dev !== entry.dev || info.ino !== entry.ino)
@@ -59,8 +90,8 @@ async function assertChain(chain: DirIdentity[]): Promise<void> {
   }
 }
 
-/** Read a regular, single-link file without following a symlink; null when absent. */
-async function readContained(path: string): Promise<Buffer | null> {
+/** Open a bounded regular file without following a symlink; null when absent. */
+async function openContained(path: string): Promise<{ bytes: Buffer; ino: number } | null> {
   let handle;
   try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
   catch (error) {
@@ -71,8 +102,18 @@ async function readContained(path: string): Promise<Buffer | null> {
   try {
     const info = await handle.stat();
     if (!info.isFile() || info.size > MAX_DEFINITION_FILE_BYTES) throw new ScheduleContainmentError("Definition is not a bounded regular file");
-    return await handle.readFile();
+    return { bytes: await handle.readFile(), ino: info.ino };
   } finally { await handle.close(); }
+}
+
+async function inode(path: string): Promise<number | null> {
+  try {
+    const info = await lstat(path);
+    return info.isFile() ? info.ino : null;
+  } catch (error) {
+    if (errno(error) === "ENOENT") return null;
+    throw error;
+  }
 }
 
 /**
@@ -100,97 +141,109 @@ export interface ScheduleFiles {
   retire(id: string, bytes: string): Promise<boolean>;
   /** The active definition bytes, or null when absent. */
   readActive(id: string): Promise<Buffer | null>;
-  /** Remove this host's interrupted temporaries for one task. */
-  reapTemporaries(id: string): Promise<void>;
+  /** Remove interrupted temporaries for one task older than `olderThan` (ms epoch). */
+  reapTemporaries(id: string, olderThan: number): Promise<void>;
 }
 
 export function createScheduleFiles(root: string): ScheduleFiles {
-  const definitions = (id: string) => join(root, DEFINITIONS_DIR, `${id}.md`);
-  const retired = (id: string) => join(root, RETIRED_DIR, `${id}.md`);
-
-  async function reapTemporaries(id: string): Promise<void> {
-    const chain = await directoryChain(root, DEFINITIONS_DIR, false);
-    if (!chain) return;
-    const prefix = `.${id}.md.`;
-    for (const name of await readdir(chain.at(-1)!.path)) {
-      if (!name.startsWith(prefix) || !/^[0-9a-f-]{36}\.tmp$/.test(name.slice(prefix.length))) continue;
-      const path = join(chain.at(-1)!.path, name);
-      if ((await lstat(path)).isFile()) await unlink(path);
-    }
-  }
+  const name = (id: string) => `${id}.md`;
 
   return {
     async publish(id, text) {
       const bytes = Buffer.from(text, "utf8");
       const chain = (await directoryChain(root, DEFINITIONS_DIR, true))!;
-      const dir = chain.at(-1)!.path, final = definitions(id);
-      const existing = await readContained(final);
-      if (existing) {
-        if (!existing.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
-        await assertChain(chain);
-        return;
-      }
-      const temporary = join(dir, `.${id}.md.${crypto.randomUUID()}.tmp`);
-      const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-      let ino = -1;
       try {
-        await handle.writeFile(bytes);
-        await handle.sync();
-        ino = (await handle.stat()).ino;
-      } finally { await handle.close(); }
-      try {
-        await assertChain(chain);
-        try { await link(temporary, final); }
-        catch (error) {
-          if (errno(error) !== "EEXIST") throw error;
-          const raced = await readContained(final);
-          if (!raced?.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
+        const dir = chain.at(-1)!, final = dir.at(name(id));
+        const existing = await openContained(final);
+        if (existing) {
+          if (!existing.bytes.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
+          await assertChain(chain);
+          return;
         }
-      } finally {
-        await unlink(temporary).catch(() => {});
-      }
-      await syncDirectory(dir);
-      await assertChain(chain);
-      const published = await lstat(final);
-      if (!published.isFile() || published.isSymbolicLink()) throw new ScheduleContainmentError("Published definition is not a regular file");
-      if (published.ino !== ino && !(await readContained(final))?.equals(bytes))
-        throw new ScheduleFileConflictError("Published definition changed");
+        await assertChain(chain);
+        const temporary = dir.at(`.${id}.md.${crypto.randomUUID()}.tmp`);
+        const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+        let ino = -1;
+        try {
+          await handle.writeFile(bytes);
+          await handle.sync();
+          ino = (await handle.stat()).ino;
+        } finally { await handle.close(); }
+        try {
+          try { await link(temporary, final); }
+          catch (error) {
+            if (errno(error) !== "EEXIST") throw error;
+            const raced = await openContained(final);
+            if (!raced?.bytes.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
+          }
+        } finally {
+          await unlink(temporary).catch(() => {});
+        }
+        await dir.handle.sync();
+        await assertChain(chain);
+        const published = await openContained(final);
+        if (!published || (published.ino !== ino && !published.bytes.equals(bytes)))
+          throw new ScheduleFileConflictError("Published definition changed");
+      } finally { await closeChain(chain); }
     },
 
     async retire(id, text) {
       const bytes = Buffer.from(text, "utf8");
       const active = await directoryChain(root, DEFINITIONS_DIR, false);
-      const current = active ? await readContained(definitions(id)) : null;
-      const archive = (await directoryChain(root, RETIRED_DIR, true))!;
-      if (!current) {
+      let archive: Directory[] | null = null;
+      try {
+        archive = (await directoryChain(root, RETIRED_DIR, true))!;
+        const source = active ? active.at(-1)!.at(name(id)) : null;
+        const current = source ? await openContained(source) : null;
         // Nothing active remains. Retirement is complete either way; matching
         // data cannot revive a cancelled ID.
+        if (!current) { await assertChain(archive); return true; }
+        if (!current.bytes.equals(bytes)) return false;
+        const destination = archive.at(-1)!.at(name(id));
+        let linked = false;
+        try { await link(source!, destination); linked = true; }
+        catch (error) {
+          if (errno(error) !== "EEXIST") throw error;
+          if (!(await openContained(destination))?.bytes.equals(bytes)) return false;
+        }
+        // The path may have been replaced after the bytes were verified: only
+        // the verified identity may be archived and removed.
+        if (linked && await inode(destination) !== current.ino) {
+          await unlink(destination).catch(() => {});
+          return false;
+        }
+        await archive.at(-1)!.handle.sync();
+        await assertChain(active!);
+        if (await inode(source!) !== current.ino) return (await inode(source!)) === null;
+        await unlink(source!).catch((error) => { if (errno(error) !== "ENOENT") throw error; });
+        await active!.at(-1)!.handle.sync();
         await assertChain(archive);
         return true;
-      }
-      if (!current.equals(bytes)) return false;
-      try { await link(definitions(id), retired(id)); }
-      catch (error) {
-        if (errno(error) !== "EEXIST") throw error;
-        if (!(await readContained(retired(id)))?.equals(bytes)) return false;
-      }
-      await syncDirectory(archive.at(-1)!.path);
-      await assertChain(active!);
-      // Another process may have completed the same retirement concurrently.
-      await unlink(definitions(id)).catch((error) => { if (errno(error) !== "ENOENT") throw error; });
-      await syncDirectory(active!.at(-1)!.path);
-      await assertChain(archive);
-      return true;
+      } finally { await closeChain(active); await closeChain(archive); }
     },
 
     async readActive(id) {
       const chain = await directoryChain(root, DEFINITIONS_DIR, false);
       if (!chain) return null;
-      const bytes = await readContained(definitions(id));
-      await assertChain(chain);
-      return bytes;
+      try {
+        const file = await openContained(chain.at(-1)!.at(name(id)));
+        await assertChain(chain);
+        return file?.bytes ?? null;
+      } finally { await closeChain(chain); }
     },
 
-    reapTemporaries,
+    async reapTemporaries(id, olderThan) {
+      const chain = await directoryChain(root, DEFINITIONS_DIR, false);
+      if (!chain) return;
+      try {
+        const dir = chain.at(-1)!, prefix = `.${id}.md.`;
+        for (const entry of await readdir(dir.at("."))) {
+          if (!entry.startsWith(prefix) || !/^[0-9a-f-]{36}\.tmp$/.test(entry.slice(prefix.length))) continue;
+          const info = await lstat(dir.at(entry)).catch(() => null);
+          // Only a stopped writer's file: a live publisher's temporary is young.
+          if (info?.isFile() && info.mtimeMs < olderThan) await unlink(dir.at(entry)).catch(() => {});
+        }
+      } finally { await closeChain(chain); }
+    },
   };
 }

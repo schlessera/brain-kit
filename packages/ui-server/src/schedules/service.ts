@@ -27,13 +27,15 @@ import {
   type StoredDefinition,
   type ZoneSource,
 } from "./definition.js";
-import { assertTargetContained, createScheduleFiles, ScheduleContainmentError, ScheduleFileConflictError, type ScheduleFiles } from "./files.js";
+import { assertTargetContained, createScheduleFiles, ScheduleContainmentError, TEMPORARY_REAP_AGE_MS, ScheduleFileConflictError, type ScheduleFiles } from "./files.js";
 import { isoInstant, latestCronInstant, nextCronInstant, parseCron, parseInstant, SCHEDULE_FRESHNESS_MS } from "./time.js";
 
 export const PROPOSAL_TTL_MS = 15 * 60_000;
 export const CURSOR_TTL_MS = 15 * 60_000;
 export const MAX_RESPONSE_BYTES = 512 * 1024;
 const MAX_CURSOR_BYTES = 1024;
+/** Envelope fields plus the largest signed cursor, budgeted before any row. */
+const ENVELOPE_RESERVE = 256 + MAX_CURSOR_BYTES;
 const DEFAULT_PAGE = 25;
 const MAX_PAGE = 100;
 
@@ -173,6 +175,12 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   function fileStore(): ScheduleFiles {
     rootInfo();
     return files!;
+  }
+
+  /** An ignored definition would silently miss the content backup. */
+  function assertNotIgnored(taskId: string): void {
+    if (gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`))
+      throw new ScheduleError("unsupported_capability", "Git ignores the schedule definition directory, so content backup would omit it.");
   }
 
   function restorePending(): boolean {
@@ -363,11 +371,13 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   async function completePublication(id: string): Promise<boolean> {
     const row = taskRow(id);
     if (!row || row.publication !== "pending") return false;
+    // A restored or moved root never receives files from an old journal.
+    if (restorePending()) return false;
     const definition = definitionOf(row);
     const text = serializeDefinition(definition);
     if (sha256Hex(text) !== row.file_sha256) throw new ScheduleError("server_unavailable", "Schedule snapshot is inconsistent.");
+    assertNotIgnored(id);
     try {
-      await fileStore().reapTemporaries(id);
       await fileStore().publish(id, text);
     } catch (error) {
       if (error instanceof ScheduleFileConflictError || error instanceof ScheduleContainmentError) {
@@ -388,14 +398,18 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         WHERE id = ? AND publication = 'pending'`).run(now(), id);
       return result.changes > 0 && taskRow(id)!.state === "active";
     }).immediate();
-    // A cancellation that won the race retires the file this call just wrote.
-    if (taskRow(id)?.state === "cancelled") await completeRetirement(id);
+    // A cancellation that won the race retires the file this call just wrote,
+    // even when another publisher's retirement already completed before it.
+    if (taskRow(id)?.state === "cancelled") {
+      db.query("UPDATE schedule_tasks SET retirement = 'pending', updated_at = ? WHERE id = ? AND state = 'cancelled'").run(now(), id);
+      await completeRetirement(id);
+    }
     return activated;
   }
 
   async function completeRetirement(id: string): Promise<void> {
     const row = taskRow(id);
-    if (!row || row.retirement !== "pending" || row.publication === "pending") return;
+    if (!row || row.retirement !== "pending" || row.publication === "pending" || restorePending()) return;
     let done = false;
     try { done = await fileStore().retire(id, serializeDefinition(definitionOf(row))); }
     catch { return; } // The journal stays pending; status reports compensationPending.
@@ -406,7 +420,10 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   async function reconcile(): Promise<void> {
     if (restorePending()) return;
     const publishing = db.query("SELECT id FROM schedule_tasks WHERE publication = 'pending' ORDER BY created_at").all() as { id: string }[];
-    for (const { id } of publishing) await completePublication(id).catch(() => {});
+    for (const { id } of publishing) {
+      await fileStore().reapTemporaries(id, now() - TEMPORARY_REAP_AGE_MS).catch(() => {});
+      await completePublication(id).catch(() => {});
+    }
     const retiring = db.query("SELECT id FROM schedule_tasks WHERE retirement = 'pending' ORDER BY created_at").all() as { id: string }[];
     for (const { id } of retiring) await completeRetirement(id);
     const active = db.query("SELECT * FROM schedule_tasks WHERE state = 'active' ORDER BY created_at").all() as TaskRow[];
@@ -461,8 +478,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         throw new ScheduleError("server_unavailable", "Schedule storage is unavailable.");
       }
     }
-    if (gitIgnored()(`${DEFINITIONS_DIR}/${taskId}.md`))
-      throw new ScheduleError("unsupported_capability", "Git ignores the schedule definition directory, so content backup would omit it.");
+    assertNotIgnored(taskId);
     const { identity } = rootInfo();
     const fingerprint = scheduleFingerprint({ definition: materialized.definition, rootIdentity: identity,
       creatorPrincipalId: actor.id, executionPolicy: policy });
@@ -540,6 +556,8 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const definition = JSON.parse(proposal.definition_json) as StoredDefinition;
     const text = serializeDefinition(definition);
     const policy = await currentPolicy();
+    assertWritable();
+    assertNotIgnored(proposal.task_id);
     const taskId = db.transaction(() => {
       const at = now();
       caller(actor);
@@ -600,7 +618,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const visible = rows.filter((row) => canSee(actor, row.creator_principal_id));
     const views: ScheduleTask[] = [];
     for (const row of visible.slice(0, limit + 1)) views.push(await taskView(row));
-    const { items, more } = page(views, limit, 64);
+    const { items, more } = page(views, limit, ENVELOPE_RESERVE);
     const last = items.at(-1);
     const lastRow = last ? visible.find((row) => row.id === last.id)! : null;
     const nextCursor = more && lastRow
@@ -641,7 +659,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         expiresAt: isoInstant(dueAt + SCHEDULE_FRESHNESS_MS), admittable: row.state === "active" && reason === null,
         blockedReason: reason, _row: row });
     }
-    const { items, more } = page(views.map(({ _row: _ignored, ...view }) => view), limit, 128);
+    const { items, more } = page(views.map(({ _row: _ignored, ...view }) => view), limit, ENVELOPE_RESERVE);
     const last = items.at(-1);
     const nextCursor = more && last
       ? signCursor({ ...scope, evaluatedAt, after: [Date.parse(last.dueAt), last.taskId], exp: now() + CURSOR_TTL_MS })

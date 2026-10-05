@@ -12,8 +12,13 @@ const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d
 const ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
-/** Longest gap between two matches of a possible expression: Feb 29 recurs within 8 years. */
-const SEARCH_DAYS = 8 * 366 + 2;
+/**
+ * Search horizon: one full Gregorian cycle (400 years) plus margin. Every
+ * possible (month, day, weekday) combination recurs within it, including
+ * February 29 restricted to one weekday, which can be 40 years apart. Days
+ * that do not match are skipped with plain calendar arithmetic.
+ */
+const SEARCH_DAYS = 146_097 + 2;
 
 export class ScheduleTimeError extends Error {}
 
@@ -187,12 +192,34 @@ function* localDays(zone: string, ms: number, direction: 1 | -1): Generator<{ ye
   }
 }
 
+function offsetAt(zone: string, ms: number): number {
+  const second = Math.floor(ms / 1000) * 1000;
+  return wallMs(wallOf(zone, second)) - second;
+}
+
+/**
+ * The zone's single offset for a whole local day, or null when the offset
+ * changes at or during that day (then every wall time is resolved exactly).
+ */
+function steadyOffset(zone: string, date: { year: number; month: number; day: number }): number | null {
+  const midnight = Date.UTC(date.year, date.month - 1, date.day);
+  const offset = offsetAt(zone, midnight);
+  const start = midnight - offset;
+  for (const probe of [start - MINUTE_MS, start, start + DAY_MS / 2, start + DAY_MS - MINUTE_MS]) {
+    if (offsetAt(zone, probe) !== offset) return null;
+  }
+  return offset;
+}
+
 function dayInstants(spec: CronSpec, zone: string, date: { year: number; month: number; day: number }): number[] {
   if (!dayMatches(spec, date.year, date.month, date.day)) return [];
   const instants: number[] = [];
+  const steady = steadyOffset(zone, date);
   for (const hour of spec.hours) {
     for (const minute of spec.minutes) {
-      const instant = wallTimeInstant(zone, date.year, date.month, date.day, hour, minute);
+      const instant = steady !== null
+        ? Date.UTC(date.year, date.month - 1, date.day, hour, minute) - steady
+        : wallTimeInstant(zone, date.year, date.month, date.day, hour, minute);
       if (instant !== null) instants.push(instant);
     }
   }

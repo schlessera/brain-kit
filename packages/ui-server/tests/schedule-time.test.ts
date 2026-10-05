@@ -78,3 +78,22 @@ test("zones are validated IANA names and instants need Z or a numeric offset", (
     expect(parseInstant(bad)).toBeNull();
   }
 });
+
+test("rare calendar intersections are found beyond eight years", () => {
+  // February 29 on a Sunday: 2032, then 2060.
+  const leapSunday = parseCron("0 0 29 2 */7");
+  expect(iso(nextCronInstant(leapSunday, "UTC", at("2032-03-01T00:00:00Z")))).toBe("2060-02-29T00:00:00.000Z");
+});
+
+test("every-minute schedules resolve without expanding each minute through the zone database", () => {
+  const everyMinute = parseCron("* * * * *");
+  const started = performance.now();
+  for (let i = 0; i < 200; i++) {
+    nextCronInstant(everyMinute, "Europe/Athens", at("2026-07-12T06:00:00Z") + i * 60_000);
+    latestCronInstant(everyMinute, "Europe/Athens", at("2026-07-11T06:00:01Z"), at("2026-07-12T06:00:00Z"));
+  }
+  // The per-minute zone lookups this replaced took about 0.2 s per call.
+  expect(performance.now() - started).toBeLessThan(5_000);
+  // The repeated 03:00-03:59 hour already ran in its first pass, so the next minute is 04:00 EET.
+  expect(iso(nextCronInstant(everyMinute, "Europe/Athens", at("2026-10-25T00:59:30Z")))).toBe("2026-10-25T02:00:00.000Z");
+});

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
@@ -376,4 +376,76 @@ test("the approved snapshot and cancellation are immutable in the database itsel
   expect(() => fixture!.db.query("UPDATE schedule_proposals SET fingerprint = ?").run("f".repeat(64))).toThrow("immutable");
   await fixture.service().cancel(fixture.owner, result.task.id, { key: "imm-cancel" });
   expect(() => fixture!.db.query("UPDATE schedule_tasks SET state = 'active', cancelled_at = NULL, retirement = 'none' WHERE id = ?").run(result.task.id)).toThrow("final");
+});
+
+test("a publisher that finishes after retirement completed retires its own late file", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const { result, proposal, approvalId } = await create(fixture, "late-publisher", cronDefinition());
+  const id = result.task.id;
+  await service.cancel(fixture.owner, id, { key: "late-cancel" });
+  // A delayed publisher's journal: the receipt is retired, yet its write is still due.
+  fixture.db.query("UPDATE schedule_tasks SET publication = 'pending' WHERE id = ?").run(id);
+  const replay = await service.publish(fixture.owner, { proposalId: proposal.id, approvalId });
+  expect(replay.task).toMatchObject({ state: "cancelled", compensationPending: false });
+  expect(existsSync(join(fixture.root, "context/scheduled-tasks/definitions", `${id}.md`))).toBe(false);
+  expect(existsSync(join(fixture.root, "context/scheduled-tasks/retired", `${id}.md`))).toBe(true);
+});
+
+test("journal recovery never writes into a different brain root and keeps live temporaries", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const { proposal } = await service.propose(fixture.owner, { key: "fenced", definition: cronDefinition() });
+  const { approvalId } = await service.approve(fixture.owner, proposal.id, { fingerprint: proposal.fingerprint, decision: "approve" });
+  const definitions = join(fixture.root, "context/scheduled-tasks/definitions");
+  mkdirSync(definitions, { recursive: true });
+  chmodSync(definitions, 0o555);
+  try { expect(await code(service.publish(fixture.owner, { proposalId: proposal.id, approvalId }))).toBe("server_unavailable"); }
+  finally { chmodSync(definitions, 0o755); }
+  const foreign = join(fixture.root, "..", "foreign");
+  mkdirSync(foreign);
+  const moved = fixture.service({ brainRoot: foreign });
+  await moved.ready;
+  const replay = await moved.publish(fixture.owner, { proposalId: proposal.id, approvalId });
+  expect(replay.task).toMatchObject({ state: "publishing", blockedReason: null, compensationPending: true });
+  expect(existsSync(join(foreign, "context"))).toBe(false);
+  // A young temporary belongs to a live writer; only a stale one is reaped.
+  const young = join(definitions, `.${proposal.taskId}.md.00000000-0000-4000-8000-000000000001.tmp`);
+  const stale = join(definitions, `.${proposal.taskId}.md.00000000-0000-4000-8000-000000000002.tmp`);
+  writeFileSync(young, "partial");
+  writeFileSync(stale, "partial");
+  utimesSync(stale, new Date(Date.now() - 2 * HOUR), new Date(Date.now() - 2 * HOUR));
+  fixture.clock.now = Date.now();
+  await fixture.service().ready;
+  expect(existsSync(young)).toBe(true);
+  expect(existsSync(stale)).toBe(false);
+});
+
+test("Git exclusion is rechecked when an approved proposal is published", async () => {
+  fixture = scheduleFixture();
+  const { proposal } = await fixture.service().propose(fixture.owner, { key: "ignored-later", definition: cronDefinition() });
+  await fixture.service().approve(fixture.owner, proposal.id, { fingerprint: proposal.fingerprint, decision: "approve" });
+  const ignoring = fixture.service({ gitIgnored: () => true });
+  expect(await code(ignoring.publish(fixture.owner, { proposalId: proposal.id }))).toBe("unsupported_capability");
+  expect(fixture.db.query("SELECT COUNT(*) AS n FROM schedule_tasks").get()).toEqual({ n: 0 });
+});
+
+test("a list page, its cursor included, stays within the 512 KiB response bound", async () => {
+  fixture = scheduleFixture();
+  const service = fixture.service();
+  const prompt = `${PROMPT} ${"Ithaca ".repeat(2300)}`.slice(0, 16_200);
+  for (let i = 0; i < 34; i++) {
+    const { proposal } = await service.propose(fixture.owner, { key: `big-${i}`, definition: { ...cronDefinition(), prompt } });
+    const { approvalId } = await service.approve(fixture.owner, proposal.id, { fingerprint: proposal.fingerprint, decision: "approve" });
+    await service.publish(fixture.owner, { proposalId: proposal.id, approvalId });
+    fixture.clock.now += 1;
+  }
+  const first = await service.list(fixture.owner, { limit: "100" });
+  expect(first.tasks.length).toBeGreaterThan(0);
+  expect(first.tasks.length).toBeLessThan(34);
+  expect(first.nextCursor).not.toBeNull();
+  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThanOrEqual(512 * 1024);
+  const second = await service.list(fixture.owner, { limit: "100", cursor: first.nextCursor! });
+  expect(first.tasks.length + second.tasks.length).toBe(34);
+  expect(second.nextCursor).toBeNull();
 });
