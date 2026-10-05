@@ -48,3 +48,17 @@ export function redactProviderMessage(text: string): string {
     .replace(/(?:\/[\w.-]+){2,}/g, "[redacted path]")
     .replace(/\b[A-Z]:\\[^\s<>]+/gi, "[redacted path]");
 }
+
+/** How much redacted failure text one explicit inclusion appends. */
+export const INCLUDED_TEXT_CAP = 1500;
+
+/**
+ * A labelled, redacted and visibly capped block of untrusted failure text,
+ * appended to a review only on an explicit tap. Null when there is none.
+ */
+export function providerMessageInclusion(label: string, text: string | null | undefined): string | null {
+  if (!text || !text.trim()) return null;
+  const redacted = redactProviderMessage(text);
+  const shown = redacted.slice(0, INCLUDED_TEXT_CAP);
+  return `${label} (review before sharing):\n${shown}${redacted.length > shown.length ? `\n[${redacted.length - shown.length} characters not included]` : ""}`;
+}

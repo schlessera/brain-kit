@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import { TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
 
-import type { ActivityRunRollup } from "../../lib/api-client.js";
+import { ApiRequestError, type ActivityRunRollup } from "../../lib/api-client.js";
 import {
   useActivityStore,
   narrativeEventsFor,
@@ -24,6 +24,8 @@ import {
   spanToolLabel,
 } from "./span-bits.js";
 import { RunRollupReceipt } from "./activity-views.js";
+import { ReportButton, reportButtonName, type ActivityReportRequest } from "./activity-report.js";
+import { rollupReportRun, type ReportRecord, type ReportRun } from "../../lib/activity-report.js";
 
 /**
  * Chat-less run detail (cron runs; pruned runs show their rollup) — the full
@@ -40,10 +42,13 @@ export function RunDetail({
   runId,
   onBack,
   embedded = false,
+  onReport,
 }: {
   runId: string;
   onBack: () => void;
   embedded?: boolean;
+  /** Send bug report, offered only while the run's outcome is a failure (#598). */
+  onReport?: (request: ActivityReportRequest) => void;
 }) {
   const api = useBrainApi();
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
@@ -51,7 +56,8 @@ export function RunDetail({
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
   const [pruned, setPruned] = useState<object | null>(null);
   const [rollup, setRollup] = useState<ActivityRunRollup | null>(null);
-  const [missing, setMissing] = useState(false);
+  // "not-found" is a 404; any other failure is a record this view could not read.
+  const [missing, setMissing] = useState<false | "not-found" | "unreadable">(false);
   const [rawOpen, setRawOpen] = useState(false);
 
   useEffect(() => {
@@ -80,8 +86,8 @@ export function RunDetail({
           });
         }
       })
-      .catch(() => {
-        if (active) setMissing(true);
+      .catch((err) => {
+        if (active) setMissing(err instanceof ApiRequestError && err.status === 404 ? "not-found" : "unreadable");
       });
     return () => {
       active = false;
@@ -108,6 +114,29 @@ export function RunDetail({
     );
     return formatSpanUsage({ ...children[0]!, usage: { ...sum, model: undefined } });
   }, [root, streamed]);
+  // The live stream's outcome wins over the fetched rollup: a run that fails
+  // while this view is open offers the report without a reload.
+  const outcome = root?.outcome ?? rollup?.outcome ?? null;
+  const failed = isFailureOutcome(outcome);
+  const reportRun: ReportRun | null = !failed ? null : rollup
+    ? { ...rollupReportRun(rollup, Boolean(pruned)), outcome }
+    : root
+      ? { origin: root.origin, outcome, durationMs: root.endedAt !== undefined ? root.endedAt - root.startedAt : null,
+          failureReason: root.outcomeReason ?? null, jobName: root.jobName ?? null, detailPruned: false }
+      : null;
+  const record: ReportRecord = pruned ? { state: "pruned" } : missing === "not-found" ? { state: "not-found" } : missing ? { state: "unloaded", offline: typeof navigator !== "undefined" && navigator.onLine === false } : { state: "retained", spans: streamed };
+  // Announce once, and only for a run this view watched fail.
+  const sawRunning = useRef(false);
+  const [announced, setAnnounced] = useState(false);
+  if (!failed && outcome === null && (root || rollup)) sawRunning.current = true;
+  useEffect(() => {
+    sawRunning.current = false;
+    setAnnounced(false);
+  }, [runId]);
+  useEffect(() => {
+    if (failed && sawRunning.current && !announced) setAnnounced(true);
+  }, [failed, announced]);
+
   // Serialised once per render and only while open: the <pre> shows it and
   // the copy button hands over the same string.
   const rawTrace = rawOpen ? JSON.stringify({ runId, rollup, spans: streamed, events }, null, 2) : "";
@@ -127,7 +156,7 @@ export function RunDetail({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-medium">{title}</h1>
+          <h1 className="truncate text-sm font-medium outline-none" tabIndex={-1} data-run-detail-heading="">{title}</h1>
           <p className="truncate font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
             {runId}
           </p>
@@ -149,6 +178,18 @@ export function RunDetail({
             failureReason={rollup.failureReason}
           />
         )}
+        {reportRun && onReport && (
+          <div className="pb-3 pt-1">
+            <ReportButton
+              runId={runId}
+              placement="detail"
+              name={reportButtonName(title, outcome!, formatRelativeTime(rollup?.startedAt ?? root?.startedAt ?? Date.now()))}
+              onClick={() => onReport({ runId, run: reportRun, record, from: "detail" })}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">Opens a review first. Nothing is sent until you choose to.</p>
+          </div>
+        )}
+        <p role="status" className="bk-sr-only">{announced ? "Run failed. Send bug report is available." : ""}</p>
         {pruned && (
           <div className="rounded-lg border border-border-subtle bg-surface p-3 text-xs text-muted-foreground">
             Detail pruned — only the rollup remains.
