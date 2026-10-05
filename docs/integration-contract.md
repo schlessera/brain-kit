@@ -1962,6 +1962,46 @@ restart. See [the Action engine](inbox-actions.md) for lifecycle details.
 This behavior enables no unattended dispatcher, policy formation or session
 creation; the full-v1 containment and system-proof gate remains required.
 
+### Action notices (additive, #683)
+
+Durable waiting decisions reach their recipients under the
+[Action notification decision](decisions/action-notifications.md); the
+[inbox notifications guide](inbox-notifications.md) describes the runtime.
+
+- **Push payload.** Web push for Actions uses the existing generic payload
+  `{ title, body, tag, url }`: `title` is `"N actions waiting"` (`"1 action
+  waiting"`), `body` is `"Open Actions to decide."`, `tag` is
+  `"brain-actions"` and `url` is `"/#/activity"`, the Actions destination. No
+  thread content, option or credential is included. The SDK push handlers
+  display it unchanged; a notice grants no authority and resolves nothing.
+- **Registration input.** `POST /api/push/subscribe` accepts an optional
+  `timeZone` string. The server validates it against its own zone database
+  and stores the canonical name for that device and the caller's client
+  context; an unusable value is stored as missing and never fails the
+  subscription. Omission keeps the device's last reported zone.
+  `GET /api/push/subscriptions` adds `timeZone: string | null` to each summary.
+  The SDK `registerPushHandlers` renewal now sends the worker's zone.
+- **Zone refresh.** The internal `POST /api/push/zone` `{ timeZone, endpoint? }`
+  refreshes the caller's zone and, only when the caller owns it, that
+  endpoint's. It answers `{ ok: true, timeZone: string | null }`. The server
+  stamps its own clock; no client time is accepted.
+- **In-app digest.** The internal `GET /api/activity/digest` response adds
+  `actions?: ActionDigestState` for the authenticated caller:
+  `{ status: "zone_required" }` without a usable zone, otherwise
+  `{ status: "ready", timeZone, latest: ActionDigestSummary | null }`.
+  `ActionDigestSummary` is `{ generatedAt, slotAt, timeZone, waiting, updates }`,
+  exported with `ActionDigestEntry` and `ActionDigestState` from
+  `@schlessera/brain-ui-sdk/protocol`. `waiting` lists new or reawakened
+  below-cutoff decisions (`{ itemId, threadId, title, episodeId }`); `updates`
+  lists new FYIs. Generation is not a delivery or read receipt.
+- **Persistence.** Migration `030_inbox_notifications.sql` adds the episode,
+  window, constituent, attempt, digest and coverage relations and the
+  `push_subscriptions.time_zone` columns. They are authoritative operational
+  state, included in the operational backup and the store's export.
+
+Existing activity intents, their payloads, suppression, retry and digest
+coverage are unchanged.
+
 ### Activity stream (rev 3, additive)
 
 Hosts that record agent activity advertise `capabilities.activity` on

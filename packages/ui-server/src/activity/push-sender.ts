@@ -19,6 +19,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import webpush from "web-push";
 
 import type { ActivityNotifier } from "./notify.js";
+import type { ActionAttemptOutcome, ActionNotifier } from "../inbox/notify.js";
 
 export interface PushSubscriptionRow {
   endpoint: string;
@@ -28,6 +29,8 @@ export interface PushSubscriptionRow {
   createdAt: number;
   lastUsedAt: number | null;
   principalId: string | null;
+  /** The destination's last reported IANA zone; null until a usable report. */
+  timeZone: string | null;
 }
 
 export interface PushSender {
@@ -44,6 +47,11 @@ export interface PushSender {
   unbindPrincipal(principalId: string): number;
   /** Deliver pending intents to every subscription. Returns sends attempted. */
   deliverPending(notifier: ActivityNotifier): Promise<number>;
+  /**
+   * Deliver due Action notices: one current-count attempt per destination,
+   * frozen by the notifier before sending. Returns sends attempted.
+   */
+  deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
 }
 
 export interface CreatePushSenderOptions {
@@ -105,6 +113,7 @@ export function createPushSender(
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
       principalId: r.principal_id,
+      timeZone: r.time_zone ?? null,
     }));
   }
 
@@ -273,6 +282,57 @@ export function createPushSender(
         }
       }
       return attempts;
+    },
+
+    async deliverActions(notices, at) {
+      const now = at ?? Date.now();
+      // Each destination is evaluated on its own: its zone, quiet hours,
+      // current binding and known receipts. The notifier freezes the payload
+      // and components in the same transaction that rechecks them.
+      const planned = deliverableRows(now).flatMap((sub) => {
+        const attempt = notices.beginAttempt({ endpoint: sub.endpoint, principalId: sub.principalId! }, now);
+        return attempt ? [{ sub, attempt }] : [];
+      });
+      if (planned.length === 0) return 0;
+      const keys = vapid();
+      const results = await Promise.allSettled(
+        planned.map(({ sub, attempt }) =>
+          send(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            JSON.stringify(attempt.payload),
+            {
+              vapidDetails: { subject, publicKey: keys.publicKey, privateKey: keys.privateKey },
+              timeout: SEND_TIMEOUT_MS,
+            }
+          )
+        )
+      );
+      results.forEach((result, i) => {
+        const { sub, attempt } = planned[i]!;
+        let outcome: ActionAttemptOutcome;
+        if (result.status === "fulfilled") {
+          // Provider acceptance: a submission receipt, not display or reading.
+          outcome = "success";
+          db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?").run(Date.now(), sub.endpoint);
+        } else {
+          const status = (result.reason as { statusCode?: number } | null)?.statusCode;
+          if (status === 404 || status === 410) {
+            outcome = "gone";
+            db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(sub.endpoint);
+          } else {
+            // A provider status is a known refusal. Without one (timeout,
+            // dropped connection) the request may have arrived: ambiguous.
+            outcome = typeof status === "number" ? "failed" : "ambiguous";
+          }
+          log?.emit({
+            severityText: "WARN",
+            body: "action notice send did not succeed",
+            attributes: { outcome, ...(status ? { status } : {}) },
+          });
+        }
+        notices.finishAttempt(attempt.attemptId, outcome);
+      });
+      return planned.length;
     },
   };
 }

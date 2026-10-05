@@ -64,7 +64,7 @@ accounts for Hono's implicit HEAD and configured CORS preflight behavior.
 These counts describe this audit, not a rule preventing additive endpoints.
 
 The SDK worker itself fetches its configured subscription endpoint
-(`subscribeUrl`, `packages/ui-sdk/src/client/push-handlers.ts:60`), and the
+(`subscribeUrl`, `packages/ui-sdk/src/client/push-handlers.ts:72`), and the
 share handler's default is explicit (`DEFAULT_SHARE_TARGET_PATH`,
 `packages/ui-sdk/src/client/share-target.ts:45`). The published React entry
 exports its REST adapter (`createBrainApi`, `packages/ui-react/src/index.ts:82`).

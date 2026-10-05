@@ -17,6 +17,7 @@ import { createActivityStore, type ActivityStore, type RollupPricing } from "./s
 import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
+import { createActionNotifier, type ActionNotifier } from "../inbox/notify.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { keepSubscriptionProof } from "../agent/subscription.js";
@@ -39,6 +40,8 @@ export interface ActivityRuntime {
   stream: ActivityStream;
   notifier: ActivityNotifier;
   pushSender: PushSender;
+  /** Durable Action notices: windows, per-destination attempts, digest coverage. */
+  actionNotices: ActionNotifier;
   /** What the server knows about the agent runtime (boot probe, last turn, last auth failure). */
   runtime: RuntimeStatus;
   /** The agent-facing read seam (bridge.queryActivity). */
@@ -71,6 +74,7 @@ export function createActivityRuntime(
     log,
   });
   const pushSender = createPushSender(db, { log });
+  const actionNotices = createActionNotifier(db);
 
   // Boot sweep: close this server's orphans from a previous life (interrupted).
   try {
@@ -104,12 +108,26 @@ export function createActivityRuntime(
         stream.pump();
       }
       notifier.tick();
+      // Action notices: join newly eligible decisions to their fixed window
+      // and store any due client-local digest. Isolated so a failure here
+      // never stalls activity delivery.
+      try {
+        actionNotices.enroll();
+        actionNotices.generateDue();
+      } catch (err) {
+        log.emit({
+          severityText: "WARN",
+          body: "action notice tick failed",
+          attributes: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
       // Async delivery, reentrancy-guarded: a slow push service must not
       // stack passes; the next tick simply retries what stayed pending.
       if (!delivering) {
         delivering = true;
         void pushSender
           .deliverPending(notifier)
+          .then(() => pushSender.deliverActions(actionNotices))
           .catch((err) =>
             log.emit({
               severityText: "WARN",
@@ -161,6 +179,7 @@ export function createActivityRuntime(
     stream,
     notifier,
     pushSender,
+    actionNotices,
     runtime: createRuntimeStatus(undefined, log, (at) => keepSubscriptionProof(db, at)),
     query: (query) => runActivityQuery(db, store, query, notifier),
     close() {
