@@ -81,6 +81,9 @@ export function createScheduleRoutes(service: ScheduleService) {
   app.post("/schedules/:id/cancel", run(async (c) => {
     return c.json(await service.cancel(c.get("principal")!, c.req.param("id") ?? "", await readBody(c)), 200);
   }));
+  app.post("/schedules/:id/reconcile", run(async (c) => {
+    return c.json(await service.reopen(c.get("principal")!, c.req.param("id") ?? "", await readBody(c)), 200);
+  }));
   app.get("/schedules", run(async (c) => c.json(await service.list(c.get("principal")!, query(c)), 200)));
   app.post("/schedules", run(async (c) => {
     const result = await service.publish(c.get("principal")!, await readBody(c));

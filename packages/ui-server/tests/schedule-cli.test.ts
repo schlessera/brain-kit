@@ -159,6 +159,28 @@ test("cancel and due report exact envelopes and exit codes", async () => {
   expect((await run(["cancel", id, "--key", "cancel-key-01"], agentFile))).toMatchObject({ exit: 1, body: { error: { code: "not_found" } } });
 });
 
+test("reconcile reopens a paused task only after operator confirmation on a terminal", async () => {
+  const created = await runTty(addArgs("reconcile-01", ["--approve"]), ownerFile, "approve");
+  const id = created.body.task.id as string;
+  // The state a restore leaves behind (pauseRestoredSchedules).
+  fixture.app.db.query("UPDATE schedule_tasks SET state = 'paused', blocked_reason = 'restore_pending' WHERE id = ?").run(id);
+  const piped = await run(["reconcile", id, "--key", "reconcile-key-01"], ownerFile);
+  expect(piped).toMatchObject({ exit: 1, body: { ok: false, error: { code: "approval_required" } } });
+  const declined = await runTty(["reconcile", id, "--key", "reconcile-key-01"], ownerFile, "no");
+  expect(declined).toMatchObject({ exit: 1, body: { error: { code: "approval_required" } } });
+  expect((await run(["list", "--id", id], ownerFile)).body.tasks[0]).toMatchObject({ state: "paused", blockedReason: "restore_pending" });
+  // A delegated credential cannot even see the operator's task, let alone reopen it.
+  expect((await runTty(["reconcile", id, "--key", "agent-key"], agentFile, "reopen"))).toMatchObject({ exit: 1, body: { error: { code: "not_found" } } });
+  const reopened = await runTty(["reconcile", id, "--key", "reconcile-key-01"], ownerFile, "reopen");
+  expect(reopened.review).toContain(`Scheduled task ${id} is paused (restore_pending).`);
+  expect(reopened.exit).toBe(0);
+  expect(reopened.body).toMatchObject({ ok: true, changed: true, task: { id, state: "active", blockedReason: "dispatch_disabled" } });
+  expect(Object.keys(reopened.body).sort()).toEqual(["changed", "ok", "task"]);
+  const replay = await runTty(["reconcile", id, "--key", "reconcile-key-01"], ownerFile, "reopen");
+  expect(replay).toMatchObject({ exit: 0, body: { changed: false, task: { id, state: "active" } } });
+  expect(startedTurns).toBe(0);
+});
+
 test("argument, credential and conflict errors exit 1 with the shared envelope", async () => {
   for (const args of [["add", "--key", "x", "--prompt", "p", "--scope-file", scopeFile], ["add", "--key", "x", "--prompt", "p", "--at", "2026-07-13T07:00:00Z", "--cron", "0 7 * * *", "--scope-file", scopeFile],
     ["add", "--key", "x", "--prompt", "p", "--at", "2026-07-13T07:00:00Z", "--end-at", "2026-08-01T00:00:00Z", "--scope-file", scopeFile],

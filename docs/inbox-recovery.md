@@ -34,8 +34,13 @@ longer matches its proposal. The definition files themselves are content under
 `context/scheduled-tasks/` and come back with the content restore. Restore pauses
 every enabled task as `restore_pending` and turns each outstanding occurrence
 into an `unknown` outcome: an old image cannot prove that no later
-cancellation, revocation or effect happened. No shipped command reopens them
-yet; they stay paused and visible.
+cancellation, revocation or effect happened. Restore also ends every
+unfinished attempt as `unknown` and drops the Queue work of those occurrences,
+so none of it is claimed again. The tasks stay paused and visible until the
+operator investigates and runs `brain schedule reconcile <id>` (see the
+[schedule contract](integration-contract.md#scheduled-tasks-additive-914)).
+The first reconciliation after a restore into a different brain directory
+binds the schedule ledger to the directory that restore named.
 
 Every regular file in the canonical share-staging directory is included,
 including metadata, uploaded bytes and interrupted intake's partial directories.

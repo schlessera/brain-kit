@@ -63,6 +63,7 @@ const checks: Record<string, Check> = {
   "POST /api/schedules": { init: json("POST", { proposalId: "proposal_missing" }), status: 404, body: { ok: false, error: { code: "not_found" } } },
   "GET /api/schedules": { body: { ok: true, tasks: [], nextCursor: null }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/schedules/:id/cancel": { path: "/api/schedules/task_missing/cancel", init: json("POST", { key: "fixture-cancel" }), status: 404, body: { ok: false, error: { code: "not_found" } } },
+  "POST /api/schedules/:id/reconcile": { path: "/api/schedules/task_missing/reconcile", init: json("POST", { key: "fixture-reconcile", decision: "reopen" }), status: 404, body: { ok: false, error: { code: "not_found" } } },
   "GET /api/schedules/due": { body: { ok: true, due: [], nextCursor: null }, verify: async (r) => { expect((await r.json()).evaluatedAt).toMatch(/Z$/); } },
   "POST /share-target": { init: { method: "POST" }, status: 303, verify: async (r) => { expect(r.headers.get("location")).toBe("/?share_error=no_worker"); } },
   "POST /api/render": { init: json("POST", { content: "# Arrival", contentType: "markdown", format: "png" }), status: 501, body: { error: "render_unavailable" } },

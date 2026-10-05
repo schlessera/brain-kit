@@ -72,6 +72,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
 | `POST /api/schedules` | `mounted supported handler: POST /api/schedules` | K |
 | `POST /api/schedules/:id/cancel` | `mounted supported handler: POST /api/schedules/:id/cancel` | K |
+| `POST /api/schedules/:id/reconcile` | `mounted supported handler: POST /api/schedules/:id/reconcile` | K |
 | `GET /api/schedules/due` | `mounted supported handler: GET /api/schedules/due` | K |
 | `POST /api/schedules/proposals` | `mounted supported handler: POST /api/schedules/proposals` | K |
 | `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
