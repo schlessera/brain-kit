@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 
 import { scheduleFingerprint, sha256Hex } from "./canonical.js";
 import { serializeDefinition, type StoredDefinition } from "./definition.js";
+import { dropUnstartedItems } from "./queue-items.js";
 
 /**
  * Relationship checks the operational backup runs before export and restore.
@@ -30,6 +31,13 @@ export function validateScheduleRelations(db: Database): void {
   const orphans = db.query(`SELECT 1 FROM schedule_approvals a LEFT JOIN schedule_tasks t ON t.approval_id = a.id
     WHERE (a.consumed_at IS NULL) != (t.id IS NULL) LIMIT 1`).get();
   if (orphans) throw new Error("inbox_snapshot_relations");
+  // Every attempt belongs to an item of its own occurrence, and the occurrence
+  // counters cover at least every started attempt.
+  const attempts = db.query(`SELECT 1 FROM schedule_attempts a JOIN schedule_occurrence_items l ON l.item_id = a.item_id
+    WHERE l.occurrence_id != a.occurrence_id LIMIT 1`).get();
+  const counters = db.query(`SELECT 1 FROM schedule_occurrences o
+    WHERE o.operations_used < (SELECT COUNT(*) FROM schedule_attempts a WHERE a.occurrence_id = o.id) LIMIT 1`).get();
+  if (attempts || counters) throw new Error("inbox_snapshot_relations");
 }
 
 /**
@@ -41,6 +49,12 @@ export function validateScheduleRelations(db: Database): void {
 export function pauseRestoredSchedules(db: Database, at: number): void {
   db.query(`UPDATE schedule_occurrences SET state = 'unknown', updated_at = ?
     WHERE state IN ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')`).run(at);
+  // Attempts whose worker was lost with the old installation end unknown too.
+  db.query("UPDATE schedule_attempts SET outcome = 'unknown', ended_at = ? WHERE outcome IS NULL").run(at);
   db.query(`UPDATE schedule_tasks SET state = 'paused', blocked_reason = 'restore_pending', updated_at = ?
     WHERE state IN ('active', 'publishing')`).run(at);
+  // Restore has already returned old claims to the Queue. Work for an unknown
+  // occurrence must never be claimed again, so its items are dropped here.
+  const tasks = db.query("SELECT DISTINCT task_id FROM schedule_occurrences WHERE state = 'unknown'").all() as { task_id: string }[];
+  for (const { task_id } of tasks) dropUnstartedItems(db, task_id, at);
 }
