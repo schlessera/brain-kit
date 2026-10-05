@@ -139,6 +139,8 @@ export function ActivityPage() {
     setPricingStale(false);
     setSoftware(null);
     setReport(null);
+    seenLive.current.clear();
+    promoted.current.clear();
     setDetailRunId(null);
   }, [root]);
 
@@ -195,19 +197,22 @@ export function ActivityPage() {
   const seenLive = useRef(new Set<string>());
   for (const r of liveRoots) seenLive.current.add(r.runId);
   for (const r of runs?.live ?? []) seenLive.current.add(r.runId);
-  const settled = new Map<string, ActivitySpan>();
+  // Kept apart from the bounded mirror, which may evict a finished run's
+  // spans before the next REST refresh lists it.
+  const promoted = useRef(new Map<string, ActivityRunSummary>());
   for (const runId of seenLive.current) {
     const root = Object.values(liveSpans[runId] ?? {}).find((s) => !s.parentSpanId);
-    if (root && root.outcome !== undefined && root.outcome !== null) settled.set(runId, root);
+    if (root && root.outcome !== undefined && root.outcome !== null) {
+      promoted.current.set(runId, settledSummary(root, runs?.live.find((r) => r.runId === runId)));
+    }
   }
+  const settled = promoted.current;
 
   const liveRunIds = new Set(liveRoots.map((r) => r.runId));
   const restLive = (runs?.live ?? []).filter((r) => !liveRunIds.has(r.runId) && !settled.has(r.runId));
   const restHistory = (runs?.history ?? []).filter((r) => !liveRunIds.has(r.runId));
   const known = new Set([...restHistory.map((r) => r.runId)]);
-  const ended = [...settled.values()]
-    .filter((span) => !known.has(span.runId))
-    .map((span) => settledSummary(span, runs?.live.find((r) => r.runId === span.runId)));
+  const ended = [...settled.values()].filter((row) => !known.has(row.runId) && !liveRunIds.has(row.runId));
   // Newest first, as the API orders history; a promoted run that started
   // before rows already listed takes its place among them, not the top.
   const history = [...ended, ...restHistory].sort((a, b) => b.startedAt - a.startedAt);

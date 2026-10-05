@@ -191,8 +191,12 @@ describe("eligibility", () => {
     fireEvent.click([...page.container.querySelectorAll<HTMLElement>("[role=tab]")].find((t) => (t.textContent ?? "").startsWith("done"))!);
     await waitFor(() => expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-sirens"));
     expect(calls.filter((c) => c.url.includes("/activity/runs?")).length).toBe(runsFetched);
-    // The promoted row has no reason of its own; the record's rollup does.
+    // The bounded mirror may evict the finished run before a refresh lists it.
+    act(() => { useActivityStore.setState({ spans: {}, events: {} }); });
+    expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-sirens");
+    // The promoted row has no reason or billing of its own; the record's rollup does.
     await openReport(page, "run-sirens");
+    await waitFor(() => expect(field("Exact outgoing text").value).toContain("\nbilling: subscription"));
     await waitFor(() => expect(buttonIn(dialog()!, "+ Add failure reason for review")).toBeTruthy());
     fireEvent.click(buttonIn(dialog()!, "+ Add failure reason for review"));
     expect(field("Exact outgoing text").value).toContain("Failure reason (review before sharing):\nSiren song read [redacted path]");

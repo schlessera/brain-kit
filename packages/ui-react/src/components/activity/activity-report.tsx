@@ -3,7 +3,7 @@ import { Flag } from "lucide-react";
 import { Disclosure } from "@schlessera/brain-ui-kit";
 import type { SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 
-import { ApiRequestError } from "../../lib/api-client.js";
+import { ApiRequestError, type ActivityRunRollup } from "../../lib/api-client.js";
 import {
   activityReportBody,
   activityReportTitle,
@@ -130,7 +130,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
   const [late, setLate] = useState(false);
   // The record's own rollup can carry a reason the row's summary lacked (a
   // run promoted from the live stream has none); it is offered, never added.
-  const [fetchedReason, setFetchedReason] = useState<string | null>(null);
+  const [fetched, setFetched] = useState<ActivityRunRollup | null>(null);
   const { runId, run } = request;
   const held = Boolean(request.record) || Boolean(run.detailPruned);
 
@@ -142,7 +142,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
     root.api.activityRun(runId)
       .then((detail) => {
         if (!active) return;
-        setFetchedReason(detail.rollup?.failureReason ?? null);
+        setFetched(detail.rollup ?? null);
         setRecord(detail.detailPruned ? { state: "pruned" } : { state: "retained", spans: detail.spans ?? [] });
       })
       .catch((err) => {
@@ -155,7 +155,16 @@ export function ActivityReportSheet({ request, server, onClose }: {
     // Read once per opened sheet; the request does not change while it is open.
   }, [root, runId, held]);
 
-  const body = useMemo(() => activityReportBody(run, record, { client: CLIENT_RELEASE, server }), [run, record, server]);
+  // The record's rollup fills facts the opener's summary lacked (a run
+  // promoted from the live stream knows no billing or reason yet). Only the
+  // allowlisted fields are read, and a value the summary had is kept.
+  const facts = useMemo<ReportRun>(() => fetched ? {
+    ...run,
+    durationMs: run.durationMs ?? fetched.durationMs,
+    billingMode: run.billingMode ?? fetched.billingMode,
+    failureReason: run.failureReason ?? fetched.failureReason,
+  } : run, [run, fetched]);
+  const body = useMemo(() => activityReportBody(facts, record, { client: CLIENT_RELEASE, server }), [facts, record, server]);
   const spans = record.state === "retained" ? record.spans : null;
   const offlineRecord = record.state === "unloaded" && record.offline;
   const stepLine = useMemo(() => {
@@ -178,7 +187,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
         setLateNotice(record.state === "retained" ? "Step details loaded. Add the step summary below to include it." : "The run record could not be read. Your edits are kept.");
       }}
       inclusions={[
-        { id: "reason", label: "+ Add failure reason for review", build: () => failureReasonInclusion({ ...run, failureReason: run.failureReason ?? fetchedReason }, spans),
+        { id: "reason", label: "+ Add failure reason for review", build: () => failureReasonInclusion(facts, spans),
           notice: "Failure reason added below. Review it before sending." },
         { id: "job", label: "+ Add job name for review", build: () => jobNameInclusion(run),
           notice: "Job name added below. Review it before sending." },
