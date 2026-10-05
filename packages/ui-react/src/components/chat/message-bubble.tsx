@@ -1,4 +1,5 @@
 import { TrackChip } from "./track-chip.js";
+import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -102,7 +103,7 @@ export const MessageBubble = memo(function MessageBubble({
       <TurnHeader
         who={isUser ? "You" : root.config.assistantName}
         when={formatTime(message.timestamp)}
-        voice={isUser && message.source && message.source !== "typed" ? message.source : undefined}
+        voice={isUser && (message.source === "voice-dictate" || message.source === "voice-conversation") ? message.source : undefined}
         effort={isUser && message.thinkingLevel !== undefined ? (
           message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
@@ -112,7 +113,9 @@ export const MessageBubble = memo(function MessageBubble({
       />
 
       {/* Content */}
-      {isUser ? (
+      {isUser && message.source === "handoff" ? (
+        <HandoffCard content={message.content} />
+      ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />
           {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <TrackChip key={file.path} file={file} />)}</div>}

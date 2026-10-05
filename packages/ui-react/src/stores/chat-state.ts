@@ -253,6 +253,13 @@ export interface ChatState {
   setRetryHandle(key: ChatKey, retryOfTurnId: string | undefined): void;
   /** Per-session transcript buffers, keyed by server sessionId. */
   buffers: Record<string, SessionChat>;
+  /**
+   * How many replayed-history chunks each session has received. A reader
+   * that asked for fresh history (the handoff review, #61) waits for this
+   * to move instead of trusting a cached buffer.
+   */
+  historyLoads: Record<string, number>;
+  noteHistoryLoaded: (sessionId: string) => void;
   /** The unbound new-conversation buffer, if one is in progress. */
   draft: SessionChat | null;
   /**
@@ -1073,6 +1080,10 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         ),
 
       setStreaming: (key, streaming) => mutateBuffer(key, () => ({ isStreaming: streaming })),
+
+      historyLoads: {},
+      noteHistoryLoaded: (sessionId) =>
+        set((state) => ({ historyLoads: { ...state.historyLoads, [sessionId]: (state.historyLoads[sessionId] ?? 0) + 1 } })),
 
       setMessages: (key, messages) =>
         set((state) => {

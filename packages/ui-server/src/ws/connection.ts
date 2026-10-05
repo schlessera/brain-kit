@@ -70,6 +70,7 @@ function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
 }
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
+import { abortHandoffPreparations } from "./handoff.js";
 import type { WsHost } from "./host.js";
 import type { WSContext } from "./clients.js";
 
@@ -319,6 +320,8 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         host.reportAbnormalClose(code);
       }
       host.clients.remove(ws);
+      // A summary nobody can receive would only spend (#61).
+      abortHandoffPreparations(host, connection);
       connection.authorization.release();
       host.activity?.stream.dropConnection(ws);
       host.inbox?.dropConnection(ws);

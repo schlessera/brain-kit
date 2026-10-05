@@ -39,6 +39,12 @@ import type {
   ClientRetryTurn,
   ClientRetryStatus,
   ServerRetryReceipt,
+  HandoffRequest,
+  ClientHandoffPrepare,
+  ClientHandoffPrepareCancel,
+  ClientHandoffStatus,
+  ServerHandoffDraft,
+  ServerHandoffReceipt,
   MessagePart,
   SessionHistoryMessage,
   ServerAskUserListRequest,
@@ -97,6 +103,8 @@ import type {
   TurnUsage,
 } from "./protocol.js";
 import {
+  HANDOFF_MAX_CHARS,
+  HANDOFF_MAX_REFERENCES,
   ALLOWED_IMAGE_MEDIA_TYPES,
   MAX_IMAGES_PER_MESSAGE,
   MAX_IMAGE_BYTES,
@@ -262,6 +270,7 @@ export const messageSourceSchema = z.enum([
   "typed",
   "voice-dictate",
   "voice-conversation",
+  "handoff",
 ]) satisfies z.ZodType<MessageSource>;
 
 /**
@@ -305,6 +314,32 @@ export const clientLocalExchangeSchema = z.looseObject({
   exchange: localExchangeSchema,
 }) satisfies z.ZodType<ClientLocalExchange>;
 
+/** A client-minted handoff key: letters, digits, `-` and `_` (#61). */
+const handoffIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
+
+export const handoffRequestSchema = z.looseObject({
+  handoffId: handoffIdSchema,
+  sourceSessionId: id,
+  references: z.array(z.string().min(1).max(512)).max(HANDOFF_MAX_REFERENCES),
+}) satisfies z.ZodType<HandoffRequest>;
+
+export const clientHandoffPrepareSchema = z.looseObject({
+  type: z.literal("handoff_prepare"),
+  handoffId: handoffIdSchema,
+  sourceSessionId: id,
+  turns: z.number().int().min(0).max(1_000_000),
+}) satisfies z.ZodType<ClientHandoffPrepare>;
+
+export const clientHandoffPrepareCancelSchema = z.looseObject({
+  type: z.literal("handoff_prepare_cancel"),
+  handoffId: handoffIdSchema,
+}) satisfies z.ZodType<ClientHandoffPrepareCancel>;
+
+export const clientHandoffStatusSchema = z.looseObject({
+  type: z.literal("handoff_status"),
+  handoffId: handoffIdSchema,
+}) satisfies z.ZodType<ClientHandoffStatus>;
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -319,6 +354,7 @@ export const clientChatMessageSchema = z
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
+    handoff: handoffRequestSchema.optional(),
   })
   .refine(
     (m) =>
@@ -655,6 +691,9 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientActivitySubscribeSchema,
   clientActivityUnsubscribeSchema,
   clientLocalExchangeSchema,
+  clientHandoffPrepareSchema,
+  clientHandoffPrepareCancelSchema,
+  clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
@@ -1118,6 +1157,23 @@ export const serverRetryReceiptSchema = z.looseObject({ type: z.literal("retry_r
   thinkingLevel: thinkingLevelSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerRetryReceipt>;
 
+export const serverHandoffDraftSchema = z.looseObject({
+  type: z.literal("handoff_draft"),
+  handoffId: id,
+  state: z.enum(["ready", "failed", "cancelled"]),
+  text: z.string().max(HANDOFF_MAX_CHARS).optional(),
+  message: z.string().optional(),
+  runId: id.optional(),
+  costUsd: z.number().min(0).optional(),
+}) satisfies z.ZodType<ServerHandoffDraft>;
+
+export const serverHandoffReceiptSchema = z.looseObject({
+  type: z.literal("handoff_receipt"),
+  handoffId: id,
+  state: z.enum(["created", "pending", "none"]),
+  sessionId: id.optional(),
+}) satisfies z.ZodType<ServerHandoffReceipt>;
+
 // Durable server projections preserve additive fields; they are display data,
 // never fed to effect application without the strict submission validators.
 const wireOperationSchema = inboxOperationSchema.loose().extend({ input: z.record(z.string(), z.unknown()) });
@@ -1195,6 +1251,8 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
   serverLocalExchangeResultSchema,
+  serverHandoffDraftSchema,
+  serverHandoffReceiptSchema,
   inboxSnapshotSchema, inboxDeltaSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 

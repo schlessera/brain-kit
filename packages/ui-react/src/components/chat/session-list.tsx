@@ -1,4 +1,5 @@
-import { Button, Callout, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { useEffect, useId, useRef, useState } from "react";
+import { Button, Callout, Icon, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
 import type { Tone } from "@schlessera/brain-ui-kit";
 
 /**
@@ -24,6 +25,13 @@ export interface SessionRowData {
   run: "streaming" | "queued" | null;
   /** The host's queue-pressure note; present only once the queue is heavy. */
   note?: string;
+  /** A handoff destination's source title (#61): `from: Ithaca return`. */
+  from?: string;
+  /**
+   * Present when the row's overflow offers Continue on another backend
+   * (#61); `why` is why it cannot run now, printed rather than hidden.
+   */
+  handoff?: { why?: string };
 }
 
 export interface SessionGroupData {
@@ -41,6 +49,7 @@ export interface SessionListProps {
   onNew: () => void;
   onResume: (sessionId: string) => void;
   onRetry: () => void;
+  onHandoff?: (sessionId: string) => void;
 }
 
 export function SessionList(p: SessionListProps) {
@@ -88,19 +97,25 @@ export function SessionList(p: SessionListProps) {
               {group.sessions.map((session) => {
                 const tone: Tone | undefined =
                   session.run === "streaming" ? "amber" : session.run === "queued" ? (session.note ? "red" : "amber") : undefined;
+                const subtitle = [session.from ? `from: ${session.from}` : null, session.when, session.cost].filter(Boolean).join(" · ");
                 return (
-                  <span key={session.id} title={session.note} className="flex">
-                    <ListRow
-                      variant="card"
-                      icon="chat"
-                      iconTone={session.id === p.currentSessionId ? "teal" : "neutral"}
-                      title={session.title || "Untitled"}
-                      subtitle={session.cost ? `${session.when} · ${session.cost}` : session.when}
-                      value={session.run === "streaming" ? "running" : session.run === "queued" ? "queued" : undefined}
-                      valueTone={tone}
-                      selected={session.id === p.currentSessionId}
-                      onClick={() => p.onResume(session.id)}
-                    />
+                  <span key={session.id} title={session.note} className="flex items-stretch gap-1">
+                    <span className="flex min-w-0 flex-1">
+                      <ListRow
+                        variant="card"
+                        icon="chat"
+                        iconTone={session.id === p.currentSessionId ? "teal" : "neutral"}
+                        title={session.title || "Untitled"}
+                        subtitle={subtitle}
+                        value={session.run === "streaming" ? "running" : session.run === "queued" ? "queued" : undefined}
+                        valueTone={tone}
+                        selected={session.id === p.currentSessionId}
+                        onClick={() => p.onResume(session.id)}
+                      />
+                    </span>
+                    {session.handoff && p.onHandoff ? (
+                      <SessionOverflow title={session.title || "Untitled"} why={session.handoff.why} onHandoff={() => p.onHandoff!(session.id)} />
+                    ) : null}
                   </span>
                 );
               })}
@@ -109,5 +124,60 @@ export function SessionList(p: SessionListProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A session row's overflow (#61 §1): its one action is Continue on another
+ * backend. Without another backend the item stays, announced as dimmed,
+ * with its reason printed.
+ */
+function SessionOverflow({ title, why, onHandoff }: { title: string; why?: string; onHandoff: () => void }) {
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const item = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (open) item.current?.focus(); }, [open]);
+  function close() {
+    setOpen(false);
+    trigger.current?.focus();
+  }
+  return (
+    <span className="relative flex">
+      <button
+        ref={trigger}
+        type="button"
+        aria-label={`More for ${title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+      >
+        <Icon icon="more" size={18} />
+      </button>
+      {open ? (
+        <div
+          id={menuId}
+          role="menu"
+          aria-label={`Actions for ${title}`}
+          onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); e.stopPropagation(); close(); } }}
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && e.relatedTarget !== trigger.current) setOpen(false); }}
+          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface-raised shadow-2xl"
+        >
+          <button
+            ref={item}
+            type="button"
+            role="menuitem"
+            aria-disabled={why ? true : undefined}
+            onClick={() => { if (why) return; setOpen(false); onHandoff(); }}
+            className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left text-sm text-foreground hover:bg-surface aria-disabled:text-muted-foreground aria-disabled:hover:bg-transparent focus-visible:outline-none focus-visible:bg-surface"
+          >
+            <span>Continue on another backend…</span>
+            {why ? <span className="font-mono text-[11px] text-muted-foreground">{why}</span> : null}
+          </button>
+        </div>
+      ) : null}
+    </span>
   );
 }

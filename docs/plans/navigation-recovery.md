@@ -347,9 +347,9 @@ is selected by the later ruling.
 The ranges below describe the measured package snapshot, not an inferred future
 implementation. Any PR moving these lines owns their citation repairs.
 
-- Palette commands: (`const jumpTo: PaletteItem[] = [`, `packages/ui-react/src/components/layout/desktop-palette.tsx:78-111`).
+- Palette commands: (`const jumpTo: PaletteItem[] = [`, `packages/ui-react/src/components/layout/desktop-palette.tsx:84-117`).
 
-- Palette opening: (`function onKey(e: KeyboardEvent) {`, `packages/ui-react/src/components/layout/desktop-palette.tsx:46-53`).
+- Palette opening: (`function onKey(e: KeyboardEvent) {`, `packages/ui-react/src/components/layout/desktop-palette.tsx:52-59`).
 
 - Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:58-102`).
 
@@ -359,47 +359,47 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:36-42`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:213-226`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:237-250`).
 
-- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:300-312`).
+- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:324-336`).
 
-- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:528-544`).
+- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:535-551`).
 
 - Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:54-62`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1182-1191`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1193-1202`).
 
-- Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:51-64`).
+- Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:52-65`).
 
-- Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:136-151`).
+- Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:140-155`).
 
 - Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:30-41`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:231-277`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:235-281`).
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:391-401`).
 
-- Single background drawer row: (`const backgroundSessionId =`, `packages/ui-react/src/components/chat/session-drawer.tsx:48-50`).
+- Single background drawer row: (`const backgroundSessionId =`, `packages/ui-react/src/components/chat/session-drawer.tsx:57-59`).
 
-- Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:155-221`).
+- Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:156-222`).
 
-- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:507-550`).
+- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:528-571`).
 
-- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:155-194`).
+- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:169-208`).
 
-- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1034-1050`).
+- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1147-1163`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:98-99`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:104-105`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:1755-1778`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:1875-1898`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:122-258`).
 
 - API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:496-496`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:494-519`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:508-533`).
 
-- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:618-648`).
+- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:625-655`).
 
 ## Bounded follow-up ownership
 

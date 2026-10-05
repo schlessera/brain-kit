@@ -399,6 +399,7 @@ export const chatFrameHandlers = {
       context.state.setMessages(context.key, converted);
       context.markHistoryReplaced(context.key);
     }
+    if (context.key !== null) context.state.noteHistoryLoaded(context.key);
   },
   status: (msg, context) => {
     // A model call the runtime is retrying: the turn is alive, and says why

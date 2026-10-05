@@ -1,0 +1,152 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { commands, page, userEvent } from "vitest/browser";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { BrainUiProvider } from "../../src/root-context.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { ChatPage } from "../../src/components/chat/chat-page.js";
+
+// The cross-backend handoff review (#61) in real Chromium: the real ChatPage
+// with a seeded source conversation, at the phone and desktop widths, in both
+// themes. Only transports are fixtures; no backend or network is reached.
+class FixtureSocket {
+  static last: FixtureSocket | undefined;
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror = null;
+  sent: string[] = [];
+  constructor() { FixtureSocket.last = this; }
+  send(raw: string) { this.sent.push(raw); }
+  close() { this.readyState = 3; }
+}
+
+let renderer: Root | undefined;
+let ui: BrainUiRoot | undefined;
+let host: HTMLDivElement | undefined;
+let style: HTMLStyleElement | undefined;
+let outerBefore: { width: number; height: number } | undefined;
+let frameBefore: { width: number; height: number } | undefined;
+
+const PROVIDERS = [
+  { id: "claude", label: "Claude Opus", backendId: "claude" },
+  { id: "codex", label: "Codex · gpt-5.5", backendId: "pi", billingMode: "api" },
+];
+const BACKENDS = {
+  claude: { id: "claude", capabilities: { concurrentSessions: true, followUp: false, autonomous: true } },
+  pi: { id: "pi", capabilities: { concurrentSessions: true, followUp: true, autonomous: false } },
+};
+
+beforeEach(() => {
+  vi.stubGlobal("WebSocket", FixtureSocket);
+  // The roster loads on mount: answer it with the two-backend fixture.
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(
+    String(url).includes("/files/resolve")
+      ? { path: "plans/ithaca.md", ancestors: ["plans"], exists: true, type: "file" }
+      : { entries: [], providers: PROVIDERS, backends: BACKENDS, slugs: {}, models: [], sessions: [] }
+  )));
+});
+
+afterEach(async () => {
+  if (renderer) flushSync(() => renderer!.unmount());
+  ui?.dispose();
+  host?.remove();
+  style?.remove();
+  renderer = undefined;
+  ui = undefined;
+  vi.unstubAllGlobals();
+  if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height);
+  if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
+});
+
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+async function mount(width: number, height: number, theme: "dark" | "light") {
+  frameBefore = { width: window.innerWidth, height: window.innerHeight };
+  outerBefore = await commands.formViewport(width, height);
+  await page.viewport(width, height);
+  document.documentElement.dataset.theme = theme;
+  style = document.createElement("style");
+  style.textContent = await commands.formConsumerStyles();
+  document.head.append(style);
+  host = document.createElement("div");
+  host.style.cssText = `position:fixed;inset:0;display:flex;flex-direction:column;width:${width}px;height:${height}px`;
+  document.body.append(host);
+  ui = createBrainUiRoot({ storage: null });
+  ui.stores.provider.setState({ available: PROVIDERS as never, backends: BACKENDS, pinnedId: "claude", loaded: true });
+  const chat = ui.stores.chat.getState();
+  chat.setActiveSession("ithaca");
+  chat.setSessionBackend("ithaca", "claude");
+  chat.addUserMessage("ithaca", "Plan the return to Ithaca; the notes are in plans/ithaca.md.", "typed");
+  chat.startAssistantMessage("ithaca");
+  chat.appendText("ithaca", "Sail past the Sirens, then keep clear of Scylla.");
+  chat.finishAssistantMessage("ithaca");
+  renderer = createRoot(host);
+  flushSync(() => renderer!.render(<BrainUiProvider root={ui!}><ChatPage /></BrainUiProvider>));
+  // The host is reachable: the socket opens, so the summary run can be asked for.
+  const socket = FixtureSocket.last!;
+  socket.readyState = 1;
+  socket.onopen?.();
+  await nextFrame();
+  const opener = document.createElement("button");
+  host.append(opener);
+  opener.focus();
+  flushSync(() => ui!.stores.handoff.getState().open("ithaca", "h-ithaca-layout-0001"));
+  for (let i = 0; i < 5; i++) await nextFrame();
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!;
+  expect(dialog, "the review sheet is open").not.toBeNull();
+  return { dialog, opener };
+}
+
+const cases = [
+  { width: 320, height: 640, theme: "dark" },
+  { width: 320, height: 640, theme: "light" },
+  { width: 1280, height: 800, theme: "dark" },
+  { width: 1280, height: 800, theme: "light" },
+] as const;
+
+for (const c of cases) {
+  const name = `${c.width}×${c.height} ${c.theme === "light" ? "paper" : "dark"}`;
+
+  test(`${name}: the sheet fits the viewport, focuses To, and every control is a 44px target`, async () => {
+    const { dialog } = await mount(c.width, c.height, c.theme);
+    const to = dialog.querySelector("select")!;
+    expect(document.activeElement, "focus goes to the To select").toBe(to);
+    const panel = (c.width >= 900 ? dialog.firstElementChild! : dialog).getBoundingClientRect();
+    expect(panel.left, "no horizontal overflow, left").toBeGreaterThanOrEqual(0);
+    expect(panel.height, "the measured surface is the sheet itself").toBeGreaterThan(300);
+    expect(panel.top, "the sheet starts on screen").toBeGreaterThanOrEqual(0);
+    const title = [...dialog.querySelectorAll("span, h2")].find((e) => e.textContent === "Continue on another backend" && e.getBoundingClientRect().height > 0)!;
+    expect(title.getBoundingClientRect().top, "the title is on screen").toBeGreaterThanOrEqual(0);
+    expect(panel.bottom, "the sheet ends on screen").toBeLessThanOrEqual(c.height + 0.5);
+    expect(panel.right, "no horizontal overflow, right").toBeLessThanOrEqual(c.width + 0.5);
+    if (c.width >= 900) expect(panel.width, "the desktop dialog is 480px").toBeCloseTo(480, 0);
+    expect(document.documentElement.scrollWidth, "the page does not scroll sideways").toBeLessThanOrEqual(c.width);
+    const controls = [...dialog.querySelectorAll<HTMLElement>("button, select, textarea, input")]
+      .filter((el) => el.getBoundingClientRect().width > 0);
+    expect(controls.length, "the sheet has controls to measure").toBeGreaterThan(4);
+    for (const el of controls) {
+      const rect = el.getBoundingClientRect();
+      const label = el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName;
+      expect(rect.height, `${label} height`).toBeGreaterThanOrEqual(44);
+      if (el.tagName === "BUTTON") expect(rect.width, `${label} width`).toBeGreaterThanOrEqual(36);
+    }
+    const startButton = dialog.querySelector<HTMLElement>('button[aria-label^="Start new chat on"]')!;
+    expect(startButton.getAttribute("aria-label")).toBe("Start new chat on Codex · gpt-5.5");
+    // At 320 the two actions sit side by side.
+    const cancel = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    expect(Math.round(cancel.getBoundingClientRect().top)).toBe(Math.round(startButton.getBoundingClientRect().top));
+    // The summary's busy state says it spends before anything else is shown.
+    expect(dialog.textContent).toContain("Drafting a summary with Claude Opus · spends");
+    expect(dialog.textContent).toContain("Nothing is sent until you start it.");
+  });
+
+  test(`${name}: Esc cancels and returns focus to the opener`, async () => {
+    const { opener } = await mount(c.width, c.height, c.theme);
+    await userEvent.keyboard("{Escape}");
+    await nextFrame();
+    expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+}

@@ -4,6 +4,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useChatCommands } from "../chat/use-chat-commands.js";
+import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 
 /**
  * The ⌘K palette, on the kit's `CommandPalette` (D22: "SideRail + ⌘K
@@ -18,7 +19,9 @@ import { useChatCommands } from "../chat/use-chat-commands.js";
  * answer something. **Run**: Sync (`effect: sync`, it writes the
  * repository), the Daily briefing (a cost chip: spending is an effect even
  * when nothing is written) and Add a note (bare — opening a form is not an
- * effect; its submit carries the write). A command the host cannot serve
+ * effect; its submit carries the write). With a chat in view, Continue on
+ * another backend (#61) joins Run with a cost chip: its review drafts a
+ * summary with a model the moment it opens. A command the host cannot serve
  * right now is shown DISABLED with its reason, never omitted: dropping rows
  * while the socket is down would teach that the palette's contents are a
  * guess.
@@ -40,6 +43,9 @@ export function DesktopPalette() {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const runCommand = useChatCommands();
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const hasSettledTurn = useChatStore((s) => activeChat(s).messages.some((m) => m.role === "assistant" && !m.isStreaming));
+  const handoff = useHandoffEntry(activeSessionId, hasSettledTurn);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -92,6 +98,12 @@ export function DesktopPalette() {
     { icon: "repeat", label: "Sync the brain", tone: "amber", effect: "sync", why, onClick: inChat(() => runCommand("sync")) },
     { icon: "sunrise", label: "Daily briefing", tone: "gold", cost: "spends", why, onClick: inChat(() => runCommand("whatsup")) },
     { icon: "add", label: "Add a note", tone: "teal", onClick: inChat(() => runCommand("add")) },
+    // A chat with a selected session can continue on another backend (#61).
+    // Opening its review drafts a summary with a model, so it spends.
+    ...(handoff.shown
+      ? [{ icon: "share" as const, label: HANDOFF_ENTRY_LABEL, tone: "teal" as const, cost: "spends",
+          ...(handoff.why ? { why: handoff.why } : {}), onClick: inChat(handoff.open) }]
+      : []),
   ];
   const q = query.trim().toLowerCase();
   const groups: PaletteGroup[] = [

@@ -194,6 +194,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
     } else if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
+      root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
     }
 
     // Activity stream frames feed their own store and never touch chat state.
@@ -203,7 +204,10 @@ export function createWebSocketClient(root: BrainUiServices) {
       msg.type === "server_hello" ||
       msg.type === "activity_snapshot" ||
       msg.type === "activity_delta" ||
-      msg.type === "local_exchange_result"
+      msg.type === "local_exchange_result" ||
+      // Handoff answers (#61) name the review that asked, not a transcript.
+      msg.type === "handoff_draft" ||
+      msg.type === "handoff_receipt"
     ) {
       const key = state.activeSessionId;
       dispatchServerMessage(msg, {
@@ -247,6 +251,17 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (!frameSessionId) {
       key = state.activeSessionId; // null = the draft view
     } else if (state.buffers[frameSessionId]) {
+      key = frameSessionId;
+    } else if (msg.type === "session_info" && msg.draftId && root.stores.handoff.getState().pendingSend?.draftId === msg.draftId) {
+      // A handoff destination (#61) just got its identity. It has no draft
+      // buffer to adopt, so open one holding the reviewed text the host was
+      // sent, and let the turn's frames stream into it like any session.
+      const handoff = root.stores.handoff.getState();
+      const sent = handoff.pendingSend!;
+      state.setMessages(frameSessionId, []);
+      state.addUserMessage(frameSessionId, sent.text, "handoff", undefined, { requestId: sent.requestId });
+      state.startAssistantMessage(frameSessionId, undefined, sent.requestId);
+      handoff.noteCreated(sent.handoffId, frameSessionId, true);
       key = frameSessionId;
     } else if (state.draft && isOurDraftAnnouncement(state, msg)) {
       // A draft run just got its server identity: adopt the draft buffer.

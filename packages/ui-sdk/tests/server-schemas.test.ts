@@ -118,6 +118,8 @@ const SAMPLES: ServerMessage[] = [
     ],
   },
   { type: "local_exchange_result", sessionId: "s1", exchangeId: "x1", saved: false, reason: "No store." },
+  { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
+  { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
 ];
 
 describe("coverage", () => {

@@ -398,3 +398,35 @@ export type DurableInboxChecks = [
   InboxSnapshotMatches,
   InboxDeltaMatches,
 ];
+
+// Cross-backend handoff (#61): recursive parity for every additive frame.
+import type {
+  HandoffRequest,
+  ClientHandoffPrepare,
+  ClientHandoffPrepareCancel,
+  ClientHandoffStatus,
+  ServerHandoffDraft,
+  ServerHandoffReceipt,
+} from "../src/protocol.js";
+import {
+  handoffRequestSchema,
+  clientHandoffPrepareSchema,
+  clientHandoffPrepareCancelSchema,
+  clientHandoffStatusSchema,
+  serverHandoffDraftSchema,
+  serverHandoffReceiptSchema,
+} from "../src/schemas.js";
+type HandoffRequestMatches = Assert<SchemaEqualsProtocol<typeof handoffRequestSchema, HandoffRequest>>;
+type ClientHandoffPrepareMatches = Assert<SchemaEqualsProtocol<typeof clientHandoffPrepareSchema, ClientHandoffPrepare>>;
+type ClientHandoffPrepareCancelMatches = Assert<SchemaEqualsProtocol<typeof clientHandoffPrepareCancelSchema, ClientHandoffPrepareCancel>>;
+type ClientHandoffStatusMatches = Assert<SchemaEqualsProtocol<typeof clientHandoffStatusSchema, ClientHandoffStatus>>;
+type ServerHandoffDraftMatches = Assert<SchemaEqualsProtocol<typeof serverHandoffDraftSchema, ServerHandoffDraft>>;
+type ServerHandoffReceiptMatches = Assert<SchemaEqualsProtocol<typeof serverHandoffReceiptSchema, ServerHandoffReceipt>>;
+export type HandoffSchemaAssertions = [
+  HandoffRequestMatches,
+  ClientHandoffPrepareMatches,
+  ClientHandoffPrepareCancelMatches,
+  ClientHandoffStatusMatches,
+  ServerHandoffDraftMatches,
+  ServerHandoffReceiptMatches,
+];

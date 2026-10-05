@@ -51,8 +51,8 @@ export function createSessionRoutes(deps: {
       const accounting = new Map(
         (
           db
-            .query("SELECT id, total_cost_usd AS cost, num_turns AS turns FROM sessions")
-            .all() as Array<{ id: string; cost: number | null; turns: number | null }>
+            .query("SELECT id, title, total_cost_usd AS cost, num_turns AS turns, handoff_from AS handoffFrom, handoff_from_turns AS handoffFromTurns, backend_id AS backendId FROM sessions")
+            .all() as Array<{ id: string; title: string | null; cost: number | null; turns: number | null; handoffFrom: string | null; handoffFromTurns: number | null; backendId: string | null }>
         ).map((r) => [r.id, r])
       );
       const results = await Promise.allSettled(
@@ -72,7 +72,26 @@ export function createSessionRoutes(deps: {
           })
         )
       );
-      const sessions = results.flatMap((result) => result.status === "fulfilled" ? result.value : [])
+      const listed = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      // A handoff destination names its source (#61). The title is the one
+      // the source's own backend lists, else the catalog's first prompt.
+      const titles = new Map(listed.map((session) => [session.id, session.title]));
+      const sessions = listed
+        .map((session) => {
+          const stored = accounting.get(session.id);
+          const from = stored?.handoffFrom;
+          if (!from) return session;
+          const source = accounting.get(from);
+          return {
+            ...session,
+            handoffFrom: {
+              sessionId: from,
+              title: titles.get(from) ?? source?.title ?? null,
+              ...(source?.backendId ? { backendId: source.backendId } : {}),
+              ...(typeof stored.handoffFromTurns === "number" ? { afterTurns: stored.handoffFromTurns } : {}),
+            },
+          };
+        })
         .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
       const unavailableBackends = results.flatMap((result, index) =>
         result.status === "rejected" ? [backends[index]!.id] : []);

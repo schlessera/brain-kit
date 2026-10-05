@@ -49,6 +49,31 @@ export const Pinned = meta.story({
   },
 });
 
+/** A locked model offers the way out (#61): continuing on another backend starts a new chat. */
+export const PinnedWithHandoff = meta.story({
+  args: { modelLocked: true, effortLevels: [], defaultEffort: undefined,
+    lockedAction: { label: "Continue on another backend", detail: "starts a new linked chat", onSelect: fn() } },
+  play: async ({ canvas, userEvent, args }) => {
+    const action = canvas.getByRole("button", { name: /Continue on another backend/ });
+    await expect(action).toHaveFocus();
+    await userEvent.click(action);
+    await expect(args.lockedAction!.onSelect).toHaveBeenCalled();
+  },
+});
+
+/** Without a second backend the action stays visible, dimmed, with its reason. */
+export const PinnedHandoffUnavailable = meta.story({
+  args: { modelLocked: true, effortLevels: [], defaultEffort: undefined,
+    lockedAction: { label: "Continue on another backend", why: "no other backend set up", onSelect: fn() } },
+  play: async ({ canvas, userEvent, args }) => {
+    const action = canvas.getByRole("button", { name: /Continue on another backend/ });
+    await expect(action).toHaveAttribute("aria-disabled", "true");
+    await expect(canvas.getByText("no other backend set up")).toBeVisible();
+    await userEvent.click(action);
+    await expect(args.lockedAction!.onSelect).not.toHaveBeenCalled();
+  },
+});
+
 export const WithoutEffort = meta.story({
   args: { defaultEffort: undefined, effortLevels: [] },
   play: async ({ canvas }) => {

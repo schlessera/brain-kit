@@ -13,6 +13,13 @@ export interface ModelPickerProps {
   /** null means the profile default. */
   selectedEffort?: string | null;
   phone?: boolean;
+  /**
+   * An action under a locked model: the model cannot change in place, so the
+   * locked picker is where the way out lives (#61's "Continue on another
+   * backend"). `why` prints the reason it cannot run and leaves it
+   * announced as dimmed but focusable, never hidden.
+   */
+  lockedAction?: { label: string; detail?: string; why?: string; onSelect: () => void };
   containerRef?: RefObject<HTMLDivElement | null>;
   onModel: (id: string) => void;
   onEffort: (level: string | null) => void;
@@ -30,12 +37,13 @@ export function ModelPicker(p: ModelPickerProps) {
   const previewEffort = preview.base === selected ? preview.level : selected;
   const currentEffort = previewEffort === null || p.effortLevels?.includes(previewEffort) ? previewEffort : selected;
   useEffect(() => {
-    panel.current?.querySelector<HTMLInputElement>('input[data-model]:checked:not(:disabled), input[data-effort]:checked')?.focus();
+    (panel.current?.querySelector<HTMLElement>('input[data-model]:checked:not(:disabled), input[data-effort]:checked')
+      ?? panel.current?.querySelector<HTMLElement>("button[data-locked-action]"))?.focus();
   }, []);
   function keys(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); p.onDismiss(); }
     if (e.key !== "Tab") return;
-    const stops = [...(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled)[tabindex="0"]') ?? [])];
+    const stops = [...(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled)[tabindex="0"], button[data-locked-action]') ?? [])];
     const first = stops[0];
     const last = stops.at(-1);
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
@@ -60,6 +68,13 @@ export function ModelPicker(p: ModelPickerProps) {
         })}
       </div>
     </fieldset>
+    {p.modelLocked && p.lockedAction ? <button type="button" data-locked-action="" className="bk-control"
+      aria-disabled={p.lockedAction.why ? true : undefined}
+      onClick={() => { if (!p.lockedAction!.why) p.lockedAction!.onSelect(); }}
+      style={{ ...row, width: "100%", border: 0, background: "transparent", textAlign: "left", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 0, padding: "6px 8px", cursor: p.lockedAction.why ? "default" : "pointer", color: p.lockedAction.why ? color.inkMute : accent.teal.ink }}>
+      <span style={{ font: `500 12px/1.5 ${font.body}` }}>{p.lockedAction.label}…</span>
+      {p.lockedAction.why || p.lockedAction.detail ? <span style={{ font: `400 11px/1.4 ${font.mono}`, color: color.inkMute }}>{p.lockedAction.why ?? p.lockedAction.detail}</span> : null}
+    </button> : null}
     {p.effortLevels?.length ? <>
       <fieldset style={{ ...group, borderTop: `1px solid ${color.edge}`, marginTop: 8 }}>
         <legend style={heading}>Effort · next message</legend>

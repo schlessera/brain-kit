@@ -89,6 +89,9 @@ export type ClientMessage =
   | ClientActivitySubscribe
   | ClientActivityUnsubscribe
   | ClientLocalExchange
+  | ClientHandoffPrepare
+  | ClientHandoffPrepareCancel
+  | ClientHandoffStatus
   | ClientInboxResolve
   | ClientInboxSnooze
   | ClientInboxSubscribe
@@ -163,6 +166,119 @@ export interface ClientChatMessage {
    * An existing session records them with `local_exchange` instead.
    */
   localExchanges?: LocalExchange[];
+  /**
+   * Start this NEW conversation as a handoff from another session (additive;
+   * #61). `text` is the reviewed summary, at most `HANDOFF_MAX_CHARS`; the
+   * host appends the references block (`composeHandoffText`), so the first
+   * user message is exactly the reviewed text plus its references. Refused
+   * on a message that names a `sessionId`.
+   */
+  handoff?: HandoffRequest;
+}
+
+/** Most characters a reviewed handoff summary may carry (#61). */
+export const HANDOFF_MAX_CHARS = 4000;
+/** Most brain files a handoff may reference (#61). */
+export const HANDOFF_MAX_REFERENCES = 8;
+/** Settled messages the deterministic fallback draft is built from (#61). */
+export const HANDOFF_DRAFT_MESSAGES = 6;
+/** The heading that opens a handoff's references block in its first message. */
+export const HANDOFF_REFERENCES_HEADING = "References:";
+
+/**
+ * A new session seeded from another one (#61). `handoffId` is minted by the
+ * client once per review and is the idempotency key: a host that already
+ * created the destination for it returns that session instead of a second.
+ */
+export interface HandoffRequest {
+  handoffId: string;
+  sourceSessionId: string;
+  /** Brain-relative file paths the host checks and lists after the text. */
+  references: string[];
+}
+
+/**
+ * The first user message of a handoff destination: the reviewed summary,
+ * then one `- path` line per reference under `HANDOFF_REFERENCES_HEADING`.
+ * Shared so the host that writes it and the client that draws it as a card
+ * cannot disagree about its shape.
+ */
+export function composeHandoffText(summary: string, references: readonly string[]): string {
+  if (references.length === 0) return summary;
+  return `${summary}\n\n${HANDOFF_REFERENCES_HEADING}\n${references.map((path) => `- ${path}`).join("\n")}`;
+}
+
+/** Split a handoff message back into its summary and references. */
+export function parseHandoffText(text: string): { summary: string; references: string[] } {
+  const marker = `\n\n${HANDOFF_REFERENCES_HEADING}\n`;
+  const at = text.lastIndexOf(marker);
+  if (at < 0) return { summary: text, references: [] };
+  const lines = text.slice(at + marker.length).split("\n");
+  if (!lines.every((line) => line.startsWith("- ") && line.length > 2)) return { summary: text, references: [] };
+  return { summary: text.slice(0, at), references: lines.map((line) => line.slice(2)) };
+}
+
+/**
+ * Client → Server. Draft a handoff summary with a model on the source
+ * session's own backend (additive; #61). One run, attributed to the source
+ * session; the host answers with `handoff_draft`.
+ */
+export interface ClientHandoffPrepare {
+  type: "handoff_prepare";
+  /** Names this run; its `handoff_draft` carries it back. Mint one per run. */
+  handoffId: string;
+  sourceSessionId: string;
+  /**
+   * The snapshot boundary, in turns: summarize the replayed history up to,
+   * not including, its (turns + 1)th user message. Counted in user messages
+   * because a live client and a replay may group one reply's steps into a
+   * different number of assistant messages.
+   */
+  turns: number;
+}
+
+/** Client → Server. Stop a running `handoff_prepare` (additive; #61). */
+export interface ClientHandoffPrepareCancel {
+  type: "handoff_prepare_cancel";
+  handoffId: string;
+}
+
+/**
+ * Client → Server. Ask what became of a handoff without creating anything
+ * (additive; #61). Answered with `handoff_receipt`.
+ */
+export interface ClientHandoffStatus {
+  type: "handoff_status";
+  handoffId: string;
+}
+
+/**
+ * Server → Client. The outcome of `handoff_prepare` (additive; #61).
+ * `ready` carries the model's summary, at most `HANDOFF_MAX_CHARS`;
+ * `failed` and `cancelled` carry none, and the client falls back to its
+ * deterministic draft. `costUsd` is absent when the cost is unknown.
+ */
+export interface ServerHandoffDraft {
+  type: "handoff_draft";
+  handoffId: string;
+  state: "ready" | "failed" | "cancelled";
+  text?: string;
+  message?: string;
+  /** The Activity run that drafted it, on the source session. */
+  runId?: string;
+  costUsd?: number;
+}
+
+/**
+ * Server → Client. What the host knows about a handoff (additive; #61).
+ * `created` names the destination session; `pending` means a creation is in
+ * flight and has no session yet; `none` means nothing was created for it.
+ */
+export interface ServerHandoffReceipt {
+  type: "handoff_receipt";
+  handoffId: string;
+  state: "created" | "pending" | "none";
+  sessionId?: string;
 }
 
 /**
@@ -386,6 +502,8 @@ export type ServerMessage =
   | ServerActivityDelta
   | ServerMessageBlocks
   | ServerLocalExchangeResult
+  | ServerHandoffDraft
+  | ServerHandoffReceipt
   | InboxSnapshot
   | InboxDelta;
 
@@ -1044,6 +1162,14 @@ export interface ChatSession {
    * client group/label sessions and the host route history to the owner.
    */
   backendId?: string;
+  /**
+   * The session this one was handed off from (additive; #61). Its first
+   * user message is the reviewed handoff. A source's forward links are the
+   * sessions whose `handoffFrom` names it; `afterTurns` is how many user
+   * messages (turns) the source had when it was handed off, absent when
+   * unknown.
+   */
+  handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
 }
 
 export interface BrainSearchResult {
@@ -1103,7 +1229,7 @@ export interface PasskeySummary {
 // Voice (ASR / TTS)
 // ============================================================
 
-export type MessageSource = "typed" | "voice-dictate" | "voice-conversation";
+export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "handoff";
 
 export type VoiceMode = "idle" | "dictate" | "conversation";
 

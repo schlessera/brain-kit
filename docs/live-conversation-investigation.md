@@ -270,12 +270,12 @@ matcher. An isolated ambiguous refusal denies all **current** pending requests;
 an exact refusal can name one. With none pending, it is ordinary input. Bind
 each denial to existing IDs, echoed turn and `channel:"voice"`; the server still
 rejects voice grants
-(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:328-351`).
+(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:349-372`).
 Never add a spoken approve or always-allow path.
 
 The existing denial handler removes/resolves a matched request but provides
 no dedicated denial receipt at that branch
-(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:409-422`). The future
+(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:430-443`). The future
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains
@@ -285,7 +285,7 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:982-987`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:989-994`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.

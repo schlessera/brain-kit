@@ -130,7 +130,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:177-192`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:457`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)

@@ -102,7 +102,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:39-50`; `slot.queue.push(entry)`, `run-session.ts:497` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:39-50`; `slot.queue.push(entry)`, `run-session.ts:511` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:740` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:540` | inserts a credential; calls **neither** helper |
@@ -110,7 +110,7 @@ Both reviewers verified every row below against the source.
 | Sockets | `ClientSet`, `ws/clients.ts:39` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
 | Rollups | `migrations/007_activity.sql`; `upsertRollup`, `activity/sql.ts:19-24` | `activity_run_rollups` survives span pruning and carries its own origin/session/job |
-| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:626`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
+| Client logout | `logout: () =>`, `ui-react/src/lib/api-client.ts:636`; `Sign out everywhere`, `passkey-list.tsx:103-105` | "Sign out everywhere" POSTs `/auth/logout` with no arguments |
 | Unauthorized in the UI | `res.status === 401`, `ui-react/src/hooks/use-vpn-status.ts:23` | reached by `/api/vpn-check` returning 401, not by a close code |
 
 Two findings that are true today, independent of this plan:
@@ -178,13 +178,13 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:132`; `const billing = host.activity`,
-`:253`), and queued follow-ups execute later. Each connection holds a
+(`resolveTurnTarget`, `ws/run-session.ts:145`; `const billing = host.activity`,
+`:266`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:336`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:353`). The revocation itself is recorded in the activity record.
 
 > **2026-09-30 — Implementation context (decision 5's missing re-check).** The
 > [old dispatch](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162-L220)
@@ -204,7 +204,7 @@ credentials, not people.
 (`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
 pruning, so cost-by-actor dies at prune time without it. The precedent is
 profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
-`activity/recorder.ts:132-147`). Nullable for cron (`origin: "cron"`,
+`activity/recorder.ts:138-153`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
 

@@ -90,7 +90,19 @@ type RunSessionInput = {
    * prompt.
    */
   localExchanges?: LocalExchange[];
+  /** A handoff destination's hooks (#61); only on a new conversation. */
+  handoffHooks?: HandoffHooks;
 };
+
+/**
+ * What a handoff creation (#61) needs from the run that creates its
+ * destination: the moment `session_info` names it, and the moment the
+ * attempt is over, whichever way it ended.
+ */
+export interface HandoffHooks {
+  onNamed(sessionId: string): void;
+  onSettled(): void;
+}
 
 /**
  * Record a new conversation's local exchanges against the session its first
@@ -116,6 +128,7 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
     await runRetainedSession(host, initial);
   } finally {
     releaseAuthorization();
+    initial.handoffHooks?.onSettled();
   }
 }
 
@@ -340,6 +353,7 @@ async function runRetainedSession(
           : (sid) => {
               recordSource(sid);
               recordDraftExchanges(host, sid, drafted);
+              initial.handoffHooks?.onNamed(sid);
             },
         failureRecording.observe
       );
@@ -429,7 +443,7 @@ async function runRetainedSession(
  * roster records no billing attrs, and the rollup leaves billing unknown
  * rather than inferring it from server credentials.
  */
-async function resolveRunBilling(
+export async function resolveRunBilling(
   registry: BackendRegistry,
   backendId: string,
   profileId: string | undefined
@@ -537,6 +551,7 @@ export async function handleChatMessage(
     localExchanges?: LocalExchange[];
     replayPrompt?: string;
     isRetry?: boolean;
+    handoffHooks?: HandoffHooks;
   }
 ): Promise<void> {
   const {
@@ -640,7 +655,7 @@ export async function handleChatMessage(
 
   // New session (or resume of an idle one) — gated by the concurrency cap.
   const cap = host.maxConcurrentSessions();
-  if (coordinator.running.size + coordinator.startingSessions >= cap) {
+  if (coordinator.activeRuns() >= cap) {
     host.sendMessage(ws, {
       type: "error",
       code: "SESSION_LIMIT",
@@ -648,6 +663,7 @@ export async function handleChatMessage(
       message: `Too many concurrent sessions (max ${cap}). Wait for one to finish.`,
       ...(sessionId ? { sessionId } : {}),
     });
+    msg.handoffHooks?.onSettled();
     return;
   }
 
@@ -670,5 +686,6 @@ export async function handleChatMessage(
     ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
+    ...(!sessionId && msg.handoffHooks ? { handoffHooks: msg.handoffHooks } : {}),
   });
 }

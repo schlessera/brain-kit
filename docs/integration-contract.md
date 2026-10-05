@@ -2294,6 +2294,78 @@ to the caller and session; another principal receives `unknown`.
 Unreadable optional handles are dropped while preserving the failure frame.
 Older peers ignore these additions and show the failure without Retry.
 
+### Cross-backend handoff (additive, #61)
+
+A session never changes backend. Continuing it on another backend creates a
+new linked session seeded with a reviewed summary and brain-file references
+([decision](decisions/session-handoff.md)).
+
+```
+HANDOFF_MAX_CHARS = 4000            HANDOFF_MAX_REFERENCES = 8
+HANDOFF_DRAFT_MESSAGES = 6          HANDOFF_REFERENCES_HEADING = "References:"
+chat_message.handoff?: { handoffId, sourceSessionId, references: string[] }
+client → { type: "handoff_prepare", handoffId, sourceSessionId, turns }
+client → { type: "handoff_prepare_cancel", handoffId }
+client → { type: "handoff_status", handoffId }
+server → { type: "handoff_draft", handoffId, state: "ready" | "failed" | "cancelled",
+           text?, message?, runId?, costUsd? }
+server → { type: "handoff_receipt", handoffId, state: "created" | "pending" | "none",
+           sessionId? }
+MessageSource adds "handoff"
+ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
+```
+
+- **Creation.** `chat_message.handoff` is honored only on a message without
+  `sessionId`, attachments, files or local exchanges, with nonempty `text` of
+  at most `HANDOFF_MAX_CHARS` and a `providerId` whose backend differs from
+  the source's. `handoffId` matches `[A-Za-z0-9_-]{8,128}`. Before anything
+  starts, the host checks that the source session is in its catalog and that
+  every reference is an existing browseable brain file (contained, no dot
+  segment, no database or lockfile). Any failure is an `error` frame with code
+  `HANDOFF_REJECTED`, the request's `requestId` and a readable `message`; no
+  session or turn exists. Otherwise the destination starts through ordinary
+  routing and permissions as a new session, with `source: "handoff"`. Its
+  first user message is exactly `composeHandoffText(text, references)`: the
+  text, then a blank line, `References:` and one `- path` line per reference
+  (none when there are no references). `parseHandoffText` splits it back.
+- **Idempotency.** `handoffId` is a unique key on the destination. A repeated
+  key whose destination exists answers `handoff_receipt` `created` with that
+  `sessionId`; one whose creation is still in flight answers `pending`.
+  Neither starts a session or turn. `handoff_status` answers the same receipt
+  without creating anything; `none` means nothing exists for the key, so a
+  retry with the same key is safe. A refused or failed creation leaves `none`.
+  `session_info` for the destination echoes the request's `draftId` and
+  `requestId` as for any new conversation.
+- **Preparation.** `handoff_prepare` runs one model summary of the first
+  `turns` turns of the source (its replayed history up to, not including, the
+  next user message) on the source session's own
+  backend and stored profile. The run is nonpersistent and toolless (the
+  autonomous turn posture with no allowed tools), creates no session, and
+  answers only the requesting connection. Its `handoffId` names the run; the
+  matching `handoff_draft` carries it back, and `handoff_prepare_cancel`
+  stops it. A running preparation counts against the host's concurrent-session
+  cap for every admission, including ordinary chat and retries, until its
+  backend run has unwound. `ready` carries the summary, at most `HANDOFF_MAX_CHARS`.
+  `failed` (including a backend without autonomous-turn support, a busy host
+  or a timeout) and `cancelled` carry none. Closing the connection aborts its
+  runs. Activity records it as a run named `handoff preparation` on the source
+  session; its cost joins the source's `totalCostUsd` without adding a turn.
+  `costUsd` is absent when unknown and never reported as zero for an unknown
+  price.
+- **Links.** `GET /api/sessions` sets `handoffFrom` on a destination:
+  the source id, its title, its backend when known, and `afterTurns`, the
+  number of source user messages (turns) when it was handed off (absent when
+  unreadable). Both boundaries count turns because a live client and a replay
+  may split one reply into different numbers of assistant messages. A source's forward links are the sessions naming it.
+- **Nothing transfers.** No native history, pending approval, remembered grant
+  or running work moves to the destination, and creating it grants no tool
+  permission. The source's history, backend, accounting and usability are
+  unchanged.
+- **Tolerance.** Older hosts ignore the field and frames: a handoff
+  `chat_message` starts an ordinary new chat, and the client receives no
+  `handoff_*` frame. Older clients drop the new frames, read `source:
+  "handoff"` as absent and show the first message as text.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

@@ -1,6 +1,6 @@
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ArrowDown, ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
@@ -19,6 +19,11 @@ import { SearchPanel } from "../quick-actions/search-modal.js";
 import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
+import { HandoffSheet } from "./handoff-sheet.js";
+import { HandoffMarker } from "./handoff-links.js";
+import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js";
+import { markerPosition } from "../../lib/handoff.js";
+import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { Icon } from "@schlessera/brain-ui-kit";
 import {
@@ -38,6 +43,17 @@ import {
  * position wrong.
  */
 const WINDOW_SIZE = 40;
+
+const NO_LINKS: HandoffLink[] = [];
+
+/**
+ * After how many messages a forward marker sits: after the turn where the
+ * source stood when it was handed off, so it keeps its place as the source
+ * continues; at the end when that is unknown.
+ */
+function markerAfter(link: HandoffLink, messages: readonly ChatMessage[]): number {
+  return markerPosition(messages, link.afterTurns);
+}
 const WINDOW_STEP = 40;
 
 /**
@@ -78,6 +94,16 @@ export function ChatPage() {
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   const runCommand = useChatCommands();
+
+  // Handoff links (#61): the session list carries them; refresh them when
+  // a stored session comes into view, so its card and markers can draw.
+  const forward = useHandoffStore((s) => (sessionId ? s.forward[sessionId] : undefined)) ?? NO_LINKS;
+  useEffect(() => {
+    if (!sessionId) return;
+    let live = true;
+    root.api.sessions().then((data) => { if (live) root.stores.handoff.getState().setLinks(data.sessions); }, () => {});
+    return () => { live = false; };
+  }, [sessionId, root]);
 
   // Only the tail of a long transcript is rendered; the rest is one tap away.
   const [visibleCount, setVisibleCount] = useState(WINDOW_SIZE);
@@ -345,19 +371,24 @@ export function ChatPage() {
                   </button>
                 </div>
               )}
-              {visibleMessages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  onToolApproval={handleToolApproval}
-                  onAskUserSubmit={handleAskUserSubmit}
-                  onAskUserCancel={handleAskUserCancel}
-                  onAskUserReask={handleAskUserReask}
-                  onAskUserListSubmit={handleAskUserListSubmit}
-                  onAskUserRankSubmit={handleAskUserRankSubmit}
-                  onAskUserFormSubmit={handleAskUserFormSubmit}
-                  closing={msg === messages[messages.length - 1]}
-                />
+              {visibleMessages.map((msg, index) => (
+                <Fragment key={msg.id}>
+                  <MessageBubble
+                    message={msg}
+                    onToolApproval={handleToolApproval}
+                    onAskUserSubmit={handleAskUserSubmit}
+                    onAskUserCancel={handleAskUserCancel}
+                    onAskUserReask={handleAskUserReask}
+                    onAskUserListSubmit={handleAskUserListSubmit}
+                    onAskUserRankSubmit={handleAskUserRankSubmit}
+                    onAskUserFormSubmit={handleAskUserFormSubmit}
+                    closing={msg === messages[messages.length - 1]}
+                  />
+                  {/* Where this conversation was continued elsewhere (#61). */}
+                  {forward
+                    .filter((link) => markerAfter(link, messages) === hiddenCount + index + 1)
+                    .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
+                </Fragment>
               ))}
             </div>
           </div>
@@ -375,6 +406,7 @@ export function ChatPage() {
         )}
       </div>
 
+      <HandoffSheet />
       <Composer send={send} />
     </div>
   );

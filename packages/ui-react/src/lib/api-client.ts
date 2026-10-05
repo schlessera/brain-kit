@@ -423,8 +423,18 @@ export function createBrainApi(
           title: string | null;
           createdAt: number;
           lastActiveAt: number;
+          totalCostUsd: number;
+          numTurns: number;
+          backendId?: string;
+          handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
         }>;
       }>("/sessions"),
+
+    /** Whether a brain-relative path exists and what it is; for handoff references (#61). */
+    fileResolve: (path: string) =>
+      fetchJson<{ path: string; ancestors: string[]; exists: boolean; type?: "dir" | "file" }>(
+        `/files/resolve?path=${encodeURIComponent(path)}`
+      ),
 
     /** Mint a dictation session for the active speech provider. */
     voiceSession: (signal?: AbortSignal) =>

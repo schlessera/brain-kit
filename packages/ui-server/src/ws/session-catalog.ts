@@ -83,6 +83,20 @@ export interface SessionCatalog {
   takePendingLocalExchanges?(sessionId: string): LocalExchange[];
   /** Every exchange recorded for the session, for replay. */
   loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
+  /**
+   * Link a handoff destination to its source and its client-minted key
+   * (#61). Called once `session_info` names the destination. Returns false
+   * when it could not be stored.
+   */
+  recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
+  /** The destination already created for a handoff key, or null. */
+  findHandoff?(handoffId: string): string | null;
+  /**
+   * Add a run's cost to a session's total without counting a turn: the
+   * handoff preparation summary (#61) is spent on its source session but is
+   * not a turn of its conversation. Unknown cost adds nothing.
+   */
+  addSessionCost?(sessionId: string, costUsd: number): void;
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -238,6 +252,38 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
           },
         });
         return [];
+      }
+    },
+
+    recordHandoff(sessionId, handoffId, sourceSessionId, sourceTurns) {
+      try {
+        // A stub that failed to persist leaves no row to update: that is not
+        // a recorded link, and saying so keeps the caller's key fail-closed.
+        const result = db()
+          .prepare("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_turns = ? WHERE id = ?")
+          .run(sourceSessionId, handoffId, sourceTurns, sessionId);
+        return result.changes === 1;
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+        return false;
+      }
+    },
+
+    findHandoff(handoffId) {
+      const row = db()
+        .query("SELECT id FROM sessions WHERE handoff_id = ?")
+        .get(handoffId) as { id: string } | null;
+      return row?.id ?? null;
+    },
+
+    addSessionCost(sessionId, costUsd) {
+      if (!Number.isFinite(costUsd) || costUsd <= 0) return;
+      try {
+        db()
+          .prepare("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?")
+          .run(costUsd, sessionId);
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
       }
     },
 

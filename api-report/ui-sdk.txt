@@ -59,6 +59,9 @@ export "." (./src/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHandoffPrepare
+  type ClientHandoffPrepareCancel
+  type ClientHandoffStatus
   type ClientHello
   type ClientInboxResolve
   type ClientInboxSnooze
@@ -93,6 +96,11 @@ export "." (./src/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  HANDOFF_DRAFT_MESSAGES
+  HANDOFF_MAX_CHARS
+  HANDOFF_MAX_REFERENCES
+  HANDOFF_REFERENCES_HEADING
+  type HandoffRequest
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -164,6 +172,8 @@ export "." (./src/index.ts)
   type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
+  type ServerHandoffDraft
+  type ServerHandoffReceipt
   type ServerHello
   type ServerLocalExchangeResult
   type ServerLocationRequest
@@ -211,11 +221,13 @@ export "." (./src/index.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   canonicalModelId
+  composeHandoffText
   describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  parseHandoffText
   resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
@@ -332,6 +344,9 @@ export "./client" (./src/client/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHandoffPrepare
+  type ClientHandoffPrepareCancel
+  type ClientHandoffStatus
   type ClientHello
   type ClientInboxResolve
   type ClientInboxSnooze
@@ -372,6 +387,11 @@ export "./client" (./src/client/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  HANDOFF_DRAFT_MESSAGES
+  HANDOFF_MAX_CHARS
+  HANDOFF_MAX_REFERENCES
+  HANDOFF_REFERENCES_HEADING
+  type HandoffRequest
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
   type InboxActionItem
@@ -483,6 +503,8 @@ export "./client" (./src/client/index.ts)
   type ServerAskUserRequest
   type ServerError
   type ServerFrameHandlers
+  type ServerHandoffDraft
+  type ServerHandoffReceipt
   type ServerHello
   type ServerLocalExchangeResult
   type ServerLocationRequest
@@ -553,6 +575,7 @@ export "./client" (./src/client/index.ts)
   askUserFormVisibleNodes
   bridgeContractForToolName
   canonicalModelId
+  composeHandoffText
   createAsrClient
   createAsrClientRegistry
   createBrainUiClient
@@ -571,6 +594,7 @@ export "./client" (./src/client/index.ts)
   isPricingRoute
   isThinkingLevel
   numberRuns
+  parseHandoffText
   parseToolPayload
   planPlaces
   registerAsrClient
@@ -658,6 +682,9 @@ export "./protocol" (./src/protocol.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHandoffPrepare
+  type ClientHandoffPrepareCancel
+  type ClientHandoffStatus
   type ClientHello
   type ClientInboxResolve
   type ClientInboxSnooze
@@ -691,6 +718,11 @@ export "./protocol" (./src/protocol.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  HANDOFF_DRAFT_MESSAGES
+  HANDOFF_MAX_CHARS
+  HANDOFF_MAX_REFERENCES
+  HANDOFF_REFERENCES_HEADING
+  type HandoffRequest
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -757,6 +789,8 @@ export "./protocol" (./src/protocol.ts)
   type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
+  type ServerHandoffDraft
+  type ServerHandoffReceipt
   type ServerHello
   type ServerLocalExchangeResult
   type ServerLocationRequest
@@ -804,11 +838,13 @@ export "./protocol" (./src/protocol.ts)
   type VoiceTokenResponse
   type WikilinkMapResponse
   canonicalModelId
+  composeHandoffText
   describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isThinkingLevel
+  parseHandoffText
   resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
@@ -833,6 +869,9 @@ export "./schemas" (./src/schemas.ts)
   clientCancelSchema
   clientChatMessageSchema
   clientEnvironmentSchema
+  clientHandoffPrepareCancelSchema
+  clientHandoffPrepareSchema
+  clientHandoffStatusSchema
   clientHelloSchema
   clientInboxResolveSchema
   clientInboxSnoozeSchema
@@ -849,6 +888,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  handoffRequestSchema
   inboxActionItemSchema
   inboxActionStatusSchema
   inboxChangeSchema
@@ -879,6 +919,8 @@ export "./schemas" (./src/schemas.ts)
   serverAskUserRankRequestSchema
   serverAskUserRequestSchema
   serverErrorSchema
+  serverHandoffDraftSchema
+  serverHandoffReceiptSchema
   serverHelloSchema
   serverLocalExchangeResultSchema
   serverLocationRequestSchema
@@ -1057,6 +1099,9 @@ export "./server" (./src/server/index.ts)
   type ClientCancelRequest
   type ClientChatMessage
   type ClientEnvironment
+  type ClientHandoffPrepare
+  type ClientHandoffPrepareCancel
+  type ClientHandoffStatus
   type ClientHello
   type ClientInboxResolve
   type ClientInboxSnooze
@@ -1114,6 +1159,11 @@ export "./server" (./src/server/index.ts)
   type GraphMetaResponse
   type GraphNodePayload
   type GraphSubgraphResponse
+  HANDOFF_DRAFT_MESSAGES
+  HANDOFF_MAX_CHARS
+  HANDOFF_MAX_REFERENCES
+  HANDOFF_REFERENCES_HEADING
+  type HandoffRequest
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskHandlerOptions
   type ImageMaskPayload
@@ -1235,6 +1285,8 @@ export "./server" (./src/server/index.ts)
   type ServerAskUserRankRequest
   type ServerAskUserRequest
   type ServerError
+  type ServerHandoffDraft
+  type ServerHandoffReceipt
   type ServerHello
   type ServerLocalExchangeResult
   type ServerLocationRequest
@@ -1336,6 +1388,7 @@ export "./server" (./src/server/index.ts)
   closeAgainstViewport
   closedRings
   compileConfirmPatterns
+  composeHandoffText
   createKeyedLock
   createToolPermissionRequest
   createTranscriptStore
@@ -1367,6 +1420,7 @@ export "./server" (./src/server/index.ts)
   isThinkingLevel
   killWrapped
   observeClassification
+  parseHandoffText
   parseMarkdown
   parseToolPayload
   piMaskFilename
@@ -2383,6 +2437,12 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         totalCostUsd: number;
         numTurns: number;
         backendId?: string;
+        handoffFrom?: {
+            sessionId: string;
+            title: string | null;
+            backendId?: string;
+            afterTurns?: number;
+        };
     }
   ClientEnvironment (packages/ui-sdk/src/protocol.ts)
     export interface ClientEnvironment {
@@ -2601,7 +2661,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         toolIndex: number;
     };
   MessageSource (packages/ui-sdk/src/protocol.ts)
-    export type MessageSource = "typed" | "voice-dictate" | "voice-conversation";
+    export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "handoff";
   ModelUsage (packages/ui-sdk/src/protocol.ts)
     export interface ModelUsage {
         inputTokens?: number;
@@ -2765,6 +2825,23 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         failure?: TurnFailure;
         requestId?: string;
     }
+  ServerHandoffDraft (packages/ui-sdk/src/protocol.ts)
+    export interface ServerHandoffDraft {
+        type: "handoff_draft";
+        handoffId: string;
+        state: "ready" | "failed" | "cancelled";
+        text?: string;
+        message?: string;
+        runId?: string;
+        costUsd?: number;
+    }
+  ServerHandoffReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ServerHandoffReceipt {
+        type: "handoff_receipt";
+        handoffId: string;
+        state: "created" | "pending" | "none";
+        sessionId?: string;
+    }
   ServerHello (packages/ui-sdk/src/protocol.ts)
     export interface ServerHello {
         type: "server_hello";
@@ -2793,7 +2870,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | InboxSnapshot | InboxDelta;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";

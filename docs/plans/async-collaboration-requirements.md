@@ -256,7 +256,7 @@ Stated before the requirements because five of them derive from it.
   (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:642-652`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:657-667`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
@@ -266,7 +266,7 @@ Stated before the requirements because five of them derive from it.
   promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:173-228`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:238-244`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:251-257`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -336,14 +336,14 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1248`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:1368`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:451`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:457`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at

@@ -226,6 +226,14 @@ export class TurnCoordinator {
   readonly pendingAskUserForm = new Map<string, PendingAskUserForm>();
   readonly pendingLocation = new Map<string, PendingLocation>();
   readonly pendingMask = new Map<string, PendingMask>();
+  /**
+   * Handoff creations in flight, by client-minted key (#61). Present from
+   * acceptance until the destination is recorded or the attempt ends, so a
+   * repeated key answers `pending` instead of starting a second session.
+   */
+  readonly handoffs = new Map<string, { sessionId?: string }>();
+  /** Running handoff preparation summaries, by handoff key (#61). */
+  readonly handoffPreparations = new Map<string, { abort: AbortController; owner: unknown }>();
 
   /** Every authorization context with at least one live owner or async lease. */
   readonly authorizationRegistry = new Map<AuthorizationContext, number>();
@@ -242,6 +250,15 @@ export class TurnCoordinator {
   }
 
   /** True while any session has a running turn. */
+  /**
+   * Backend runs occupying the concurrency cap: running and starting turns,
+   * and handoff preparation summaries (#61). Every admission check reads
+   * this, so no kind of run can slip past the others.
+   */
+  activeRuns(): number {
+    return this.running.size + this.startingSessions + this.handoffPreparations.size;
+  }
+
   isTurnActive(): boolean {
     return this.running.size > 0;
   }
@@ -446,6 +463,9 @@ export class TurnCoordinator {
     this.pendingAskUserRank.clear();
     this.pendingAskUserForm.clear();
     this.pendingLocation.clear();
+    for (const preparation of this.handoffPreparations.values()) preparation.abort.abort();
+    this.handoffPreparations.clear();
+    this.handoffs.clear();
     this.startingSessions = 0;
   }
 }

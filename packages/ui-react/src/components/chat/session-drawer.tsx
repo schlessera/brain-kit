@@ -4,6 +4,10 @@ import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { SessionList } from "./session-list.js";
 import { formatRelativeTime } from "./tool-views.js";
+import { useProviderStore } from "../../stores/provider-store.js";
+import { useConnectionStore } from "../../stores/connection-store.js";
+import { handoffWhy } from "../../hooks/use-handoff-entry.js";
+import { mintHandoffId } from "../../lib/handoff.js";
 
 interface SessionInfo {
   id: string;
@@ -11,6 +15,9 @@ interface SessionInfo {
   createdAt: number;
   lastActiveAt: number;
   totalCostUsd?: number;
+  numTurns?: number;
+  backendId?: string;
+  handoffFrom?: { sessionId: string; title: string | null };
 }
 
 interface GroupedSessions {
@@ -41,6 +48,8 @@ export function SessionDrawer({
   const currentSessionId = useChatStore((s) => s.activeSessionId);
   const runStates = useChatStore((s) => s.runStates);
   const queueNotes = useChatStore((s) => s.queueNotes);
+  const providers = useProviderStore((s) => s.available);
+  const connected = useConnectionStore((s) => s.wsStatus === "connected");
   // A running/queued session other than the one in view is reattachable. Derive
   // it from the live per-session run-state (kept current by the frame demux)
   // rather than the deprecated status.activeSessionId, which multi-session
@@ -59,6 +68,9 @@ export function SessionDrawer({
       .then((data) => {
         if (!active) return;
         setSessions(data.sessions);
+        // The list is where handoff links live (#61): index them for the
+        // destination's card and the source's forward marker.
+        root.stores.handoff.getState().setLinks(data.sessions);
         setWarning(data.unavailableBackends?.length
           ? "Some session histories are unavailable. Showing available sessions."
           : null);
@@ -81,6 +93,9 @@ export function SessionDrawer({
         cost: session.totalCostUsd != null && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(2)}` : null,
         run: state === "streaming" || state === "queued" ? state : null,
         note: queueNotes[session.id],
+        ...(session.handoffFrom ? { from: session.handoffFrom.title || "an earlier chat" } : {}),
+        // A stored session with a settled turn can continue elsewhere.
+        ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected) } } : {}),
       };
     }),
   }));
@@ -102,6 +117,14 @@ export function SessionDrawer({
           onClose();
         }}
         onRetry={() => setRetry((value) => value + 1)}
+        onHandoff={(id) => {
+          const backendId = sessions.find((session) => session.id === id)?.backendId;
+          if (backendId) root.stores.chat.getState().setSessionBackend(id, backendId);
+          onResume(id);
+          onClose();
+          // The resume above replays fresh history; the review waits for it.
+          root.stores.handoff.getState().open(id, mintHandoffId(), { awaitHistory: true });
+        }}
       />
     </SlidePanel>
   );
