@@ -7,7 +7,7 @@ the rest. Neither grants authority or resolves anything. The policy and its
 binding examples are the [Action notification decision](decisions/action-notifications.md);
 the wire additions are in the [integration contract](integration-contract.md#action-notices-additive-683).
 
-Migration `030_inbox_notifications.sql` holds every record below in the UI
+Migration `031_inbox_notifications.sql` holds every record below in the UI
 operational database. They survive restart and the
 [operational backup](inbox-recovery.md); none lives in disposable `brain.db`.
 Persisted instants come from the server clock.

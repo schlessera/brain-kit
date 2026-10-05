@@ -2004,7 +2004,7 @@ Durable waiting decisions reach their recipients under the
   `@schlessera/brain-ui-sdk/protocol`. `waiting` lists new or reawakened
   below-cutoff decisions (`{ itemId, threadId, title, episodeId }`); `updates`
   lists new FYIs. Generation is not a delivery or read receipt.
-- **Persistence.** Migration `030_inbox_notifications.sql` adds the episode,
+- **Persistence.** Migration `031_inbox_notifications.sql` adds the episode,
   window, constituent, attempt, digest and coverage relations and the
   `push_subscriptions.time_zone` columns. They are authoritative operational
   state, included in the operational backup and the store's export.
