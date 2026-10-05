@@ -309,7 +309,9 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
   const draftNote = draft.state === "failed" && draft.message && origin !== "model" ? `No summary: ${draft.message}` : null;
 
   const body = (
-    <div ref={dialogRef} onKeyDown={onKeyDown} className="flex max-h-[min(80vh,720px)] flex-col gap-4 overflow-y-auto">
+    <div ref={dialogRef} onKeyDown={onKeyDown} className="flex flex-col" style={{ maxHeight: pointer ? "min(86vh, 760px)" : "calc(92dvh - 132px)" }}>
+      {/* Everything that can grow scrolls; the outcome and the actions stay in view. */}
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-1">
       {!pointer ? null : (
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -356,7 +358,7 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
           value={text}
           disabled={busy}
           onChange={(e) => onType(e.target.value)}
-          rows={pointer ? 9 : 7}
+          rows={pointer ? 7 : 6}
           aria-busy={draft.state === "running" || undefined}
           aria-describedby={`${titleId}-source`}
           className="w-full resize-y rounded-lg border border-border bg-background p-3 text-sm leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
@@ -443,8 +445,10 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
         </ul>
       </div>
 
+      </div>
+
       {/* Outcome of Start new chat (§4) */}
-      <div aria-live="assertive">
+      <div aria-live="assertive" className="pt-3 empty:pt-0">
         {phase.kind === "creating" ? (
           <p className="text-sm text-foreground">Starting new chat on {destination?.label ?? "the other backend"}…</p>
         ) : phase.kind === "checking" ? (
@@ -470,7 +474,7 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
         <p className="text-xs text-muted-foreground">Nothing is sent until you start it.{why && phase.kind === "review" ? ` · ${why}` : ""}</p>
         <div className="grid grid-cols-2 gap-2 tablet:flex tablet:justify-end">
           <button type="button" className={GHOST} onClick={cancel} disabled={busy}>Cancel</button>
@@ -504,7 +508,7 @@ function HandoffReview({ sourceSessionId, handoffId, send }: {
       onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}
     >
       <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="absolute inset-x-0 bottom-0">
-        <BottomSheet title="Continue on another backend" subtitle="Starts a new linked chat. This one stays as it is." docked>
+        <BottomSheet title="Continue on another backend" subtitle="Starts a new linked chat. This one stays as it is.">
           <span id={titleId} className="sr-only">Continue on another backend</span>
           {body}
         </BottomSheet>
