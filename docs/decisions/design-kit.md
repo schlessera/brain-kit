@@ -4596,8 +4596,11 @@ host recovery (**Recovery A**, 2026-10-04), a separate draft per session
 (2026-10-04), host-backed draft storage across devices (**storage C**,
 2026-10-04), the [shared row above the composer](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5992839917)
 and its [≥1280 answer](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5992922056)
-(2026-10-05), and the [approval of the six-part #943 design](https://github.com/schlessera/brain-kit/issues/943#issuecomment-5980283574)
-with its four residual answers, R1–R4 (2026-10-05). The measured input is
+(2026-10-05), and the [maintainer's approval](https://github.com/schlessera/brain-kit/issues/943#issuecomment-5998985495)
+of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943#issuecomment-5980283574)
+(2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
+those later rulings do not replace it, the supplied navigation and
+parallel-session designs still bind; §8 lists what carries over. The measured input is
 [`docs/plans/navigation-recovery.md`](../plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
@@ -4771,10 +4774,16 @@ which stay under the answer.
   a summary pill; the right half shows the oldest pending follow-up and a
   summary pill.
 - **Pills are 44px, paint and target the same box**, so no paint/target
-  exception is needed. A half narrower than 240px (at 320 and 390) draws two
-  lines in 44px: the label at 12px, then the state word in 10px mono in the
-  state's ink. At 240px or wider it draws one line, with the state word
-  right-aligned. The state word never truncates; only the label does.
+  exception is needed. Both systems use the same kit pill. A half narrower
+  than 240px (at 320 and 390) draws two lines in 44px: the label at 12/600
+  in ink, then the state word in mono 10/600 in the state's ink
+  (8 + 15 + 13 + 8 = 44px). At 240px or wider it draws one line, with the
+  state word right-aligned. The state word never truncates; only the label
+  does.
+- **A pending pill** prints `pending` in neutral ink, with a `◷` icon, on
+  the `neutral` chip ramp: it is waiting, not a problem, so it is neither
+  amber nor red, and the word carries the meaning. Tracker pills keep §4's
+  words and tones.
 - **Labels** are a few words from #1004's small model, falling back to the
   session title or the start of the prompt.
 - **The scroll disc** stays inside the message area at `bottom: 16px`, so it
@@ -4799,14 +4808,20 @@ reads `+3 pending` and opens a `Pending follow-ups` BottomSheet listing every
 queued message in full, in send order, numbered `1 of 4`, read-only.
 
 **A pending follow-up's full text** is a popover above the pill, at most
-280px wide and never wider than its half on a phone. It opens on hover or
-focus with a pointer, and on tap for touch (another tap, a tap outside or
-Esc closes it). The text is also always the pill's `aria-describedby`. It is
-the row's one hover, and it reveals content, never state, effect or cost, so
-D22's hover rule holds. Nothing in it sends, cancels or navigates. When the
-agent takes a follow-up, its pill leaves and the full user message appears
-in the transcript in the same frame, with no animation. A dropped follow-up
-leaves with its reason.
+280px wide and never wider than its half on a phone, with the full prompt
+text selectable, `ink` on `raised`. With a pointer it opens on hover or
+focus and disappears on leave or blur; on touch a tap opens it, and another
+tap, a tap outside or Esc closes it. The text is also always the pill's
+`aria-describedby`. It is the row's one hover, and it reveals content, never
+state, effect or cost, so D22's hover rule holds. Nothing in it sends,
+cancels or navigates.
+
+When the agent takes a follow-up, its pill leaves and the full user message
+appears in the transcript at that point in the conversation, in the same
+frame and with no animation; a reload shows it once, never twice. If the
+half had a summary, the next-oldest pending pill takes the freed place and
+the summary's count drops, or the summary goes. A dropped follow-up
+(cancelled, revoked or refused) leaves with its reason.
 
 **Focus.**
 
@@ -4822,7 +4837,10 @@ leaves with its reason.
   focus to the composer with the caret restored.
 - Each group announces through its own polite live region, so the two never
   interrupt each other. Pending: `Follow-up queued`,
-  `Follow-up sent to the agent`, `Follow-up dropped: {reason}`.
+  `Follow-up sent to the agent`, `Follow-up dropped: {reason}`. Trackers
+  announce once, politely, when one changes to `needs you`, `failed` or
+  `done` (`Tax folder cleanup needs you.`); changes into running or queued
+  are not announced.
 
 **Motion.** Nothing in the row or the pane animates, in either mode, and
 popovers appear without a transition. D22's one ambient animation stays the
@@ -4831,7 +4849,9 @@ filament.
 ### 4. Trackers under Recovery A
 
 A tracker is created when a session leaves the foreground with a live run,
-a queue entry, a pending interaction or an unconfirmed send. It stays until
+a queue entry, a pending interaction or an unconfirmed send, and when work
+starts in a session that is not being watched. Leaving an idle session with
+nothing pending creates none. It stays until
 the session's latest turn is **seen**, as defined below. Selecting a session
 acknowledges nothing.
 
@@ -4940,7 +4960,10 @@ kinds keep #910's rules and state footer, with no second indicator.
 
 **Identity.** Every composer belongs to
 `{draftId, sessionId | null, revision}`, where `draftId` is a client UUID.
-There is no shared null-session bucket. Navigation restores by `draftId`:
+There is no shared null-session bucket. Client draft state is root-owned
+and separated by host, root and session identity. A saved draft's text and
+attachment bytes survive reload, tab close and a normal host restart, and
+restore on any of the same operator's authorized devices at that host. Navigation restores by `draftId`:
 selecting a session, switching destinations, opening panels and remounting
 the composer. Actions and Graph unmount the composer today, which is the
 loss #942 measured; view unmount and buffer eviction never touch the draft
@@ -5054,6 +5077,14 @@ transcript nor a grant, and its payloads rehydrate through the existing
 scoped interaction frames. Authorization is rechecked after every
 asynchronous step.
 
+The host correlates request, turn, session and backend identities from its
+actual acceptance, coordinator, catalog and Activity records; uncorrelated
+imported history gets no fabricated identity. `startedAt` / `endedAt` are
+real host run times. Losing process-local execution or pending maps does
+not resurrect them, and a retained acceptance receipt proves acceptance, not
+continued execution or the completion of an external effect. A recovery
+read never selects a session, starts work, replies or grants anything.
+
 | Response | Client state |
 | --- | --- |
 | 200 envelope | §4's rules |
@@ -5093,12 +5124,14 @@ still current. Errors use the existing envelope: 409 `DRAFT_CONFLICT` with
 `{ current }`; 410 `DRAFT_DELETED` with `{ tombstoneRevision }`, after which
 the local content becomes a new unbound draft; and 413 `DRAFT_TOO_LARGE` and
 507 `DRAFT_CAPACITY`, each with `{ limit }`. Tombstones stop stale autosaves
-and late receipts from resurrecting a removed revision. The namespace is
-the existing single-owner host model: every call resolves and attributes
-the current principal and honours revocation, with no new role and no
-cross-root access. Drafts live in the operational store, inside the generic
-backup set, and never in `brain.db`, canonical Markdown or the tracker
-record.
+and late receipts from resurrecting a removed revision. The existing image
+bounds still apply to each attachment, alongside these aggregate limits.
+The namespace is the existing single-owner host model, not partitioned by
+temporary device-login principal: every call resolves and attributes the
+current principal and honours revocation, with no new role and no
+cross-root access. Drafts and their attachment bytes live in the
+operational store, inside the generic backup set, and never in `brain.db`,
+canonical Markdown or the tracker record.
 
 ### 7. What the kit gains
 
@@ -5123,6 +5156,170 @@ Read from the source, not inferred from the drawings:
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
   them, and #779's geometry work is untouched.
+- **The shared row** is one kit container owned by #949: the grid, the half
+  boxes, the width-based pill layout and the keyboard-open summaries. #950
+  wires the left half; #1002 fills the right half and adds the
+  `Pending follow-ups` sheet and the popover. One kit story covers the
+  combined row at 320, 390 and 900 with both halves populated, one half
+  empty, and the keyboard up.
+
+### 8. What carries over from the supplied designs
+
+The supplied [navigation design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5973564827)
+and [parallel-session design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5973572791)
+hold the full drawings and still bind where §§1–7 do not replace them.
+Their binding rules:
+
+**Placement of future acts.** Each act has a frequency class (S, D, O) and
+an effect (none, writes, spends).
+
+- **V1** S acts get a persistent visible control at every width, one
+  activation from Chat.
+- **V2** D acts get a persistent visible control wherever it can show the
+  act's name and effect at rest. Where it cannot, they move one step down
+  for that width: All commands on the rail, More on a phone.
+- **V3** O acts get no persistent control: a palette row on desktop and
+  tablet, a More row on a phone. Palette-only is allowed only because the
+  palette has a visible button.
+- **V4** Acts never take a destination slot or join the destination
+  tablist (D37 §1: a tab is a place).
+- **V5** is replaced by §1's placement-only cap.
+- **V6** A control that cannot show the effect at rest is not drawn for that
+  act, and the effect never moves to a hover (D22).
+- **V7** Within a section, order by class, then effect-free first, then
+  alphabetically.
+
+The §2 exceptions stand over V1 and V2 as adopted. A place keeps its slot by
+being a place: Files keeps slot 4 although it is O, and a future place used
+more often than Files would take the slot and move Files to More.
+
+**The rail.**
+
+- Act rows use the destination row's geometry: at least 36px tall (44px
+  under a coarse pointer), a 17px icon and a 12.5px label, in `inkMute`,
+  never amber, because an act is never "here". Activating an act does not
+  move the amber destination, except that it lands in Chat as the
+  palette's `inChat` does.
+- A disabled rail briefing keeps its chip; its reason is a second line in
+  9.5px mono.
+- Collapsed, effect-free acts are icons with accessible names and **no
+  tooltip**, like the collapsed destinations.
+- In a short viewport the rail's middle, from the destinations through the
+  acts, scrolls; the wordmark and All commands stay pinned.
+- Palette rows do not print where their visible control lives.
+
+**Phone discs.** The Search disc sits left of New chat with its icon in
+`inkMute`; New chat keeps ink at rest as the primary. Both sit in one
+right-anchored row, so a label expanding leftward pushes Search and they
+never overlap. They are drawn only below `tablet:` and only while the chat
+has messages; the empty state has its chips instead.
+
+**Keyboard and focus.**
+
+- The desktop rail is three tab stops: the destinations (a tablist, ↑↓ /
+  Home / End, manual activation); the acts (`role="toolbar"`,
+  `aria-orientation="vertical"`, `aria-label="Acts"`, roving with ↑↓ /
+  Home / End, ⏎ and space activate, and arrows never cross into the
+  destinations); and All commands. Then list → detail → composer (D22).
+- On the phone, the overlay's Search then New chat come first in DOM order,
+  then the transcript, the composer and the bar. More moves focus to its
+  first row on open and back to its slot on close.
+- No new keys. All commands prints `⌘K` everywhere, the one rail key not
+  gated on a fine pointer (D36 addendum); the destination chords keep
+  their pointer-gated printing.
+- Search and Add move focus to the panel they open. The briefing and Sync
+  leave focus on the composer, and the result arrives in the transcript.
+
+**The Sessions pane (≥1280).** In Chat the list pane is Sessions, 280px
+wide. Working pins the trackers in §4's order, each a two-line `ListRow`
+with the title and then the state word. The existing date groups follow,
+unchanged; the single `Session running…` row goes, because Working replaces
+it, and a tracked session does not appear again in its date group. The pane
+is two tab stops: `New conversation`, then one roving list (↑↓ / Home /
+End) across Working and the date groups. The order is rail → pane →
+transcript → composer.
+
+**Actions** is not made the cross-session working queue here; that touches
+#684's internals and is a separate design. Its badge still counts pending
+approvals across all buffers.
+
+**Drawing, 320, occupied Chat with trackers and pending follow-ups.**
+
+```text
+┌──────────────────────────────────────┐
+│ BRAIN ───────────────────── 09:41    │
+│ The receipts for March are in …      │
+│                ┌──┐                  │
+│                │↓ │                  │  scroll disc, ≥16px above the row
+│                └──┘                  │
+│ ┌────────────────┐ ┌────────────────┐│
+│ │! Tax folder cl…│ │◷ Also the Apri…││  44
+│ │  needs you     │ │  pending       ││
+│ └────────────────┘ └────────────────┘│
+│ ┌────────────────┐ ┌────────────────┐│
+│ │+2 more         │ │+2 pending    ▸ ││  44  (row = 94)
+│ │  1 done        │ │                ││
+│ └────────────────┘ └────────────────┘│
+│ [+] Ask anything…            [◖] [↑] │
+├──────┬──────┬──────┬──────┬──────────┤
+│◆Chat │◷Sessn│✓Actns│▦Files│ ⋯More    │
+└──────┴──────┴──────┴──────┴──────────┘
+```
+
+**Drawing, 320 × 568, keyboard up.**
+
+```text
+│ …the receipts for March are in      │
+│                ┌──┐                 │
+│                │↓ │                 │
+│                └──┘                 │
+│ ┌───────────────┐ ┌───────────────┐ │
+│ │● 3 working  ▸ │ │◷ 2 pending  ▸ │ │  44, two separate buttons
+│ └───────────────┘ └───────────────┘ │
+│ [+] Can you also check the Ap| [◖][↑]│
+│ ┌ keyboard ─────────────────────────┐│
+```
+
+**Drawing, 900, expanded rail, Files open.**
+
+```text
+┌──────────────────────┬───────────────────────────────────────────────┐
+│ ▌◆ Chat          ⌘1  │ ┌ Files ───────────────────────[Close files] ┐│
+│  ◷ Sessions      ⌘2  │ │ life/ …                                    ││
+│  ✓ Actions   (2) ⌘3  │ └────────────────────────────────────────────┘│
+│  ▦ Files         ⌘4  │  rail Actions → 1 activation, Files closes    │
+│  ⚙ Settings      ⌘5  │  Esc → focus back to rail Files               │
+│ ──────────────────── │                                               │
+│  ⌕ Search            │                                               │
+│  + Add a note        │                                               │
+│  ☀ Daily briefing spends                                             │
+│ ──────────────────── │  ◐ Trip packing list   running · 2m           │
+│ [⌘K] All commands    │  [+] Ask anything…                [◖] [↑]     │
+└──────────────────────┴───────────────────────────────────────────────┘
+```
+
+**Drawing, 1440, Chat with the Sessions pane.**
+
+```text
+┌──────────────────────┬────────────────────────────┬──────────────────────────────────────┐
+│ ▌◆ Chat          ⌘1  │ [✎ New conversation]       │  YOU ──────────────────── 09:41      │
+│  ◷ Sessions      ⌘2  │ WORKING                    │   Which receipts are still missing?  │
+│  ✓ Actions   (2) ⌘3  │ ! Tax folder cleanup       │  BRAIN ────────────────── 09:41      │
+│  ▦ Files         ⌘4  │   needs you                │  The receipts for March are in …     │
+│  ⚙ Settings      ⌘5  │ ◐ Trip packing list        │                                      │
+│ ──────────────────── │   running · 2m             │      (left half empty) ┌──────────┐  │
+│  ⌕ Search            │ TODAY                      │                        │◷ Check A…│  │
+│  + Add a note        │ ▌Receipts for March     ●  │                        │  pending │  │
+│  ☀ Daily briefing spends Weekly review    2h ago   │                        └──────────┘  │
+│ ──────────────────── │ YESTERDAY                  │  [+] Ask anything…        [◖] [↑]    │
+│ [⌘K] All commands    │  …                         │                                      │
+└──────────────────────┴────────────────────────────┴──────────────────────────────────────┘
+       208                       280                       remainder (720 measure)
+```
+
+The remaining widths and states (empty Chat after New chat, Actions at 480,
+the Working sheet, Drafts, conflict and the unconfirmed send) are drawn in
+the six #943 design comments linked above.
 
 ### Rejected
 
@@ -5178,7 +5375,16 @@ clicks and taps and no forced clicks:
    both versions, and Keep both creates an unbound entry. With the socket
    closed after a send, the review block appears, and no second
    `chat_message` is sent without `Send again`.
-6. Every new control has an accessible name and a 44×44 target under a
-   coarse pointer, in both themes.
+6. Three pending follow-ups render the oldest plus `+2 pending`, and the
+   sheet lists all three in send order, in full. The full text is reachable
+   by hover, by tap, by focus plus ⏎ and through `aria-describedby`, and
+   none of these sends, cancels or navigates. Handing a follow-up over
+   removes its pill and adds exactly one user message in the same render,
+   with no duplicate after a reload. Tab reaches working sessions, then
+   pending follow-ups, then the composer, and arrows never cross the
+   gutter.
+7. Every new control has an accessible name and a 44×44 target under a
+   coarse pointer, in both themes, with coarse, fine and mixed pointers,
+   short viewports and reduced motion covered.
 
 A restored mutation of each guard must fail on the assertion named for it.
