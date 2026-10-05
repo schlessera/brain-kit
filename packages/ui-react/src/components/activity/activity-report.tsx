@@ -128,6 +128,9 @@ export function ActivityReportSheet({ request, server, onClose }: {
   );
   const [lateNotice, setLateNotice] = useState<string | undefined>();
   const [late, setLate] = useState(false);
+  // The record's own rollup can carry a reason the row's summary lacked (a
+  // run promoted from the live stream has none); it is offered, never added.
+  const [fetchedReason, setFetchedReason] = useState<string | null>(null);
   const { runId, run } = request;
   const held = Boolean(request.record) || Boolean(run.detailPruned);
 
@@ -139,6 +142,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
     root.api.activityRun(runId)
       .then((detail) => {
         if (!active) return;
+        setFetchedReason(detail.rollup?.failureReason ?? null);
         setRecord(detail.detailPruned ? { state: "pruned" } : { state: "retained", spans: detail.spans ?? [] });
       })
       .catch((err) => {
@@ -174,7 +178,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
         setLateNotice(record.state === "retained" ? "Step details loaded. Add the step summary below to include it." : "The run record could not be read. Your edits are kept.");
       }}
       inclusions={[
-        { id: "reason", label: "+ Add failure reason for review", build: () => failureReasonInclusion(run, spans),
+        { id: "reason", label: "+ Add failure reason for review", build: () => failureReasonInclusion({ ...run, failureReason: run.failureReason ?? fetchedReason }, spans),
           notice: "Failure reason added below. Review it before sending." },
         { id: "job", label: "+ Add job name for review", build: () => jobNameInclusion(run),
           notice: "Job name added below. Review it before sending." },
@@ -185,7 +189,10 @@ export function ActivityReportSheet({ request, server, onClose }: {
       returnFocus={() => {
         const again = document.querySelector<HTMLElement>(`[data-report-run="${CSS.escape(runId)}"]`);
         if (again) { again.focus(); return; }
-        document.querySelector<HTMLElement>(request.from === "row" ? "[data-history-heading]" : "[data-run-detail-heading]")?.focus();
+        // The lens or pane may have changed under the sheet; Actions' own
+        // heading is always mounted.
+        (document.querySelector<HTMLElement>(request.from === "row" ? "[data-history-heading]" : "[data-run-detail-heading]")
+          ?? document.querySelector<HTMLElement>("[data-activity-heading]"))?.focus();
       }}
     />
   );

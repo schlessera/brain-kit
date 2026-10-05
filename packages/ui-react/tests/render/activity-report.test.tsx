@@ -83,6 +83,8 @@ beforeEach(() => {
       if (runId === "run-harbour") return Response.json({ runId, detailPruned: false, spans: HARBOUR_SPANS, events: [], highWaterSeq: 1,
         rollup: { ...HISTORY[0]!, spanCount: 3 } } satisfies ActivityRunDetail);
       if (runId === "run-loom") return Response.json({ runId, detailPruned: false, spans: [], events: [] });
+      if (runId === "run-sirens") return Response.json({ runId, detailPruned: false, spans: [], events: [],
+        rollup: { ...summary({ runId, jobName: "Siren watch", outcome: "error" }), spanCount: 1, failureReason: `Siren song read ${PATH}` } });
       return Response.json({ error: "not_found" }, { status: 404 });
     }
     if (url.includes("/activity/rollups")) return Response.json({ timeZone: "UTC", days: [] });
@@ -189,6 +191,11 @@ describe("eligibility", () => {
     fireEvent.click([...page.container.querySelectorAll<HTMLElement>("[role=tab]")].find((t) => (t.textContent ?? "").startsWith("done"))!);
     await waitFor(() => expect(reportButtons(page).map((b) => b.dataset.reportRun)).toContain("run-sirens"));
     expect(calls.filter((c) => c.url.includes("/activity/runs?")).length).toBe(runsFetched);
+    // The promoted row has no reason of its own; the record's rollup does.
+    await openReport(page, "run-sirens");
+    await waitFor(() => expect(buttonIn(dialog()!, "+ Add failure reason for review")).toBeTruthy());
+    fireEvent.click(buttonIn(dialog()!, "+ Add failure reason for review"));
+    expect(field("Exact outgoing text").value).toContain("Failure reason (review before sharing):\nSiren song read [redacted path]");
   });
 });
 
@@ -382,6 +389,20 @@ describe("late, limited and offline records", () => {
 });
 
 describe("focus", () => {
+  test("when the lens changes under the sheet, focus lands on the Actions heading", async () => {
+    const page = await mount();
+    await openReport(page, "run-harbour");
+    const live = span({ spanId: "n-root", runId: "run-nausicaa", name: "cron:Nausicaa", jobName: "Laundry", startedAt: Date.now() });
+    act(() => {
+      useActivityStore.getState().applySnapshot({ type: "activity_snapshot", view: "index", spans: [live], events: [], highWaterSeq: { "run-nausicaa": 1 } });
+    });
+    await waitFor(() => expect(page.container.querySelector("[data-history-heading]")).toBeNull());
+    expect(reportButtons(page)).toHaveLength(0);
+    fireEvent(dialog()!, new Event("cancel", { cancelable: true }));
+    await waitFor(() => expect(dialog()).toBeNull());
+    expect(document.activeElement).toBe(page.container.querySelector("[data-activity-heading]"));
+  });
+
   test("Escape closes and returns focus to the opener", async () => {
     const page = await mount();
     const opener = await openReport(page, "run-harbour");
