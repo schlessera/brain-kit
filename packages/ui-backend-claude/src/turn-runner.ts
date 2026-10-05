@@ -40,7 +40,10 @@ const BACKEND_ID = "claude";
 
 /** A running turn, with the input stream a follow-up is delivered into. */
 interface RunningTurn extends ActiveTurn {
-  /** Set once the SDK turn is built; absent while the runtime is probed. */
+  /**
+   * Set once the SDK turn is built, and only for an interactive turn: an
+   * autonomous run is not a conversation and never takes a follow-up.
+   */
   input?: TurnInput;
 }
 
@@ -259,7 +262,7 @@ export function createClaudeTurnRunner(options: {
       });
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = createTurnInput(sdkTurn.prompt);
-      turn.input = input;
+      if (!req.autonomous) turn.input = input;
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
         // before query() sees any user input. Capture uses the SDK's resolver.
@@ -364,7 +367,13 @@ export function createClaudeTurnRunner(options: {
        * earlier ones added. Cost and model usage are already cumulative over
        * the process, so the last result carries them for the whole turn.
        */
-      let carried: { numTurns: number; durationMs: number; frames: ServerMessage[] } | null = null;
+      let carried: {
+        numTurns: number;
+        durationMs: number;
+        frames: ServerMessage[];
+        /** The continuation began: the held result no longer describes the turn. */
+        continued: boolean;
+      } | null = null;
       const carry = (frames: ServerMessage[]): ServerMessage[] => {
         if (!carried) return frames;
         const earlier = carried;
@@ -376,6 +385,10 @@ export function createClaudeTurnRunner(options: {
       };
       for await (const msg of result) {
         input.observe(msg);
+        if (carried && (msg.type === "assistant" || msg.type === "user" || msg.type === "stream_event"
+          || (msg.type === "system" && msg.subtype === "init"))) {
+          carried.continued = true;
+        }
         // A withheld turn has already decided its outcome; nothing the stream
         // does after that may replace it.
         if (withheld) break;
@@ -425,7 +438,7 @@ export function createClaudeTurnRunner(options: {
             const held = carry(frames);
             const final = held.find((frame) => frame.type === "result");
             if (final?.type === "result") {
-              carried = { numTurns: final.numTurns, durationMs: final.durationMs, frames: held };
+              carried = { numTurns: final.numTurns, durationMs: final.durationMs, frames: held, continued: false };
             }
             // A follow-up the CLI has not reported reading may come from a
             // runtime that does not report it at all. Closing is safe: what was
@@ -453,8 +466,10 @@ export function createClaudeTurnRunner(options: {
         }
       }
 
-      // A held result no continuation replaced is the turn's terminal frame.
-      if (carried && !sawResult && !withheld && !abortController.signal.aborted) {
+      // A held result is the turn's terminal frame only if no continuation
+      // began. One that began and ended without its own result is an abnormal
+      // end, reported below like any other.
+      if (carried && !carried.continued && !sawResult && !withheld && !abortController.signal.aborted) {
         for (const serverMsg of carried.frames) {
           if (serverMsg.type === "result") sawResult = true;
           emit(serverMsg);

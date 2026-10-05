@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/server";
+import type { BackendBridge, ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
@@ -26,7 +26,7 @@ interface Script {
   (input: AsyncIterator<SDKUserMessage>): AsyncGenerator<unknown>;
 }
 
-function harness(script: Script) {
+function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
   const frames: ServerMessage[] = [];
   const first: SDKUserMessage[] = [];
   let sessionReady!: () => void;
@@ -47,7 +47,8 @@ function harness(script: Script) {
     requestPermission: async () => ({ behavior: "allow" }),
   };
   const backend = createClaudeBackend({ brainPath: "/brain", profiles, queryFn, log: () => {} });
-  const start = () => backend.startTurn({ prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge });
+  const start = () =>
+    backend.startTurn({ prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge, ...extra });
   return { backend, frames, first, ready, start };
 }
 
@@ -116,6 +117,38 @@ describe("delivering a follow-up into the running turn", () => {
     ]);
   });
 
+  test("is refused for an autonomous run, which is not a conversation", async () => {
+    let refusal: Promise<void> | undefined;
+    let identified!: () => void;
+    const identity = new Promise<void>((resolve) => (identified = resolve));
+    const h = harness(
+      async function* () {
+        yield init;
+        await identity;
+        refusal = h.backend.followUp!({ sessionId: "voyage", prompt: "Steer the run." });
+        refusal.catch(() => {});
+        yield result(1, 5, 0);
+      },
+      {
+        enforceAllowedTools: true,
+        noGrantSurface: true,
+        autonomous: { origin: "autonomous", persistence: "none", allowedTools: ["Read"], systemPromptAppend: "" },
+        bridge: {
+          emit: () => {},
+          checkpointPermission: () => {},
+          requestPermission: async () => ({ behavior: "deny", message: "No grant surface" }),
+          activity: (event) => {
+            if (event.kind === "autonomous_identity") identified();
+          },
+        },
+      }
+    );
+    await h.start();
+
+    expect(refusal).toBeDefined();
+    await expect(refusal!).rejects.toBeInstanceOf(BackendRequestError);
+  });
+
   test("is refused once the turn has ended", async () => {
     const h = harness(async function* () {
       yield init;
@@ -172,6 +205,33 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
     expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 4, durationMs: 45, costUsd: 0.03 })]);
     expect(h.frames.at(-1)).toBe(results[0]!);
     expect(h.frames.some((frame) => frame.type === "text_delta" && frame.text === "and the log")).toBe(true);
+  });
+
+  test("a continuation that ends without its result fails the turn, not the held success", async () => {
+    let resume!: () => void;
+    const delivered = new Promise<void>((resolve) => (resume = resolve));
+    const h = harness(async function* (input) {
+      yield init;
+      const next = await input.next();
+      const uuid = next.done ? undefined : next.value.uuid;
+      await delivered;
+      yield lifecycle(uuid, "queued");
+      yield result(3, 40, 0.02, "first");
+      yield lifecycle(uuid, "started");
+      yield init;
+      yield { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "and the" } } };
+      // The CLI dies mid-continuation: no second result.
+    });
+    const turn = h.start();
+    await h.ready;
+    await h.backend.followUp!({ sessionId: "voyage", prompt: "Also check the harbour log." });
+    resume();
+    await turn;
+
+    expect(h.frames.some((frame) => frame.type === "error" && frame.code === "CLAUDE_NO_RESULT")).toBe(true);
+    const results = h.frames.filter((frame) => frame.type === "result");
+    expect(results).toEqual([expect.objectContaining({ outcome: "error" })]);
+    expect(h.frames.at(-1)).toBe(results[0]!);
   });
 
   test("a held result still ends the turn when no continuation comes", async () => {
