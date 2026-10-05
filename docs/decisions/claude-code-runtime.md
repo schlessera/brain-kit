@@ -312,7 +312,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.depot/workflows/ci.yml:82`), so bumping the SDK in this repo fails CI until
+  `.depot/workflows/ci.yml:88`), so bumping the SDK in this repo fails CI until
   somebody re-measures. It needs no key and no network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
@@ -753,6 +753,47 @@ documents status, diagnosis, attempt logs and artifact downloads. Project sync
 retains GitHub Actions because Depot CI does not support issue events and Depot
 Actions runners cannot serve a personal-account repository. This supersedes
 the provider choice in #618; it does not alter the probe or its isolation.
+
+## 2026-10-05 — Fork pull requests fall back to GitHub Actions (#988)
+
+Depot CI does not run pull request workflows triggered from forks; its
+compatibility page lists that support as planned. The maintainer chose
+(2026-10-04) to run the complete CI and contract gates for fork PRs on GitHub
+Actions, from the contributor's own PR. Depot keeps same-repository PRs and
+pushes to main, and project sync keeps its separate exception above.
+
+- **One definition.** `.depot/workflows/` stays the only place a gate is
+  written. `scripts/fork-ci-adapters.ts` generates
+  `.github/workflows/fork-ci.yml` and `fork-contract.yml` from it, keeping its
+  comments and layout. The adaptations are enumerated in that script's header
+  and nowhere else: a `pull_request` trigger only, fork-only job routes,
+  `fork / <job>` check names, GitHub-hosted runner labels and
+  `persist-credentials: false` on every checkout. A source shape without a
+  rule (another trigger, runner, job permission or a `secrets.` reference)
+  refuses generation. `tests/fork-ci-adapters.test.ts` parses both files and
+  requires every job, step, command, matrix, container, environment, timeout
+  and artifact to match once those adaptations are undone. `bun run lint`
+  fails on a stale adapter.
+- **Routing.** Each Depot job runs only for a push, a local `api` run or a PR
+  whose head repository is this one (`DEPOT_ROUTE`). Each adapter job runs only
+  for a PR from another repository (`FORK_ROUTE`). The test evaluates both
+  routes against fork, same-repository, deleted-fork, push and `api` events
+  and requires exactly one provider per job, so Depot stays off fork PRs even
+  once it starts receiving them. On a same-repository PR the adapter's jobs
+  are skipped. Their `fork / ` names cannot satisfy a requirement written for
+  Depot's `CI / <job>` checks.
+- **Fork context.** The adapters run under ordinary `pull_request` with
+  `contents: read`, on GitHub-hosted runners, with no secret, write token or
+  persisted checkout credential, and never through `pull_request_target` or
+  `workflow_run`. Artifacts are diagnostics for a human, never input to a
+  privileged follow-up. The contract gate still checks the PR's head against
+  its base, and reads the title and labels only from environment values. The
+  test runs the emitted contract step with a hostile title and labels.
+- **Approval.** GitHub may hold a first-time contributor's run until a
+  maintainer approves it. A held run has not passed.
+
+Retiring the fallback needs verified native Depot fork behaviour and a new
+entry here. A provider roadmap claim alone does not change the routing.
 
 ## 2026-09-30 — What a sync ran is observed per run, not probed (#290)
 
