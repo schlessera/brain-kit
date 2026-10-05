@@ -164,7 +164,7 @@ resumption. The host must retain a successful complete export at least every
 
 | Consumer | Surfaces used |
 |----------|---------------|
-| brain-ui (`packages/ui-server/src/brain/client.ts`, `packages/ui-server/src/graph/reader.ts`, `packages/ui-server/src/cron/emit.ts`) | CLI `--json` commands, brain.db reads (voice keyterms; the `links` and `graph_*` tables for the knowledge graph), file paths |
+| brain-ui (`packages/ui-server/src/brain/client.ts`, `packages/ui-server/src/core-queries.ts`, `packages/ui-server/src/cron/emit.ts`) | CLI `--json` commands, the [content-index query API](#content-index-query-api) through an optional core peer (voice keyterms and the knowledge graph), file paths |
 | Coding-agent sessions (MCP) | MCP server tools, CLI |
 | Cron on a hosting container | `brain maintain`, module cron entries (`brain jobs scrape` …) |
 
@@ -1622,6 +1622,66 @@ and write implementation. They may accept native handles and are not supported
 query APIs. This scoped classification adds the internal entry and migrates
 pi's imports; #534 owns removal of existing accidental ordinary exports.
 Existing direct-SQL guarantees remain binding until the explicit retirement.
+
+### UI server optional core peer (breaking host migration, #697)
+
+`@schlessera/brain-ui-server` reads the knowledge graph and the index-derived
+voice vocabulary through this entry, never through its own SQL. It declares
+`@schlessera/brain` in `peerDependencies` (`*`, the lockstep convention) with
+`peerDependenciesMeta` marking it optional, so **a host that wants the graph
+view or keyterms must now install `@schlessera/brain` itself**. Install the same
+lockstep version as the server; the server accepts `>=0.40.0 <1.0.0`, 0.40.0
+being the first release whose `./queries` entry ships all six operations it
+calls. The [package ruling](decisions/index-query-api.md#package-access--lazy-optional-core-peer-2026-10-03)
+approved this as a pre-1.0 break.
+
+The peer is resolved lazily, once per app. Before use, the server checks that
+the resolved `@schlessera/brain/package.json` names that package, that its
+version is in range, that the loaded `./queries` entry belongs to the same
+installation, and that each feature's operations are functions — the five
+`readGraph*` reads for the graph, `readVoiceVocabulary` for keyterms. A `brain`
+binary on `PATH`, handwritten SQL and a per-query subprocess are never
+substitutes. Published server declarations do not reference core.
+
+When the package check fails, every other server feature is unaffected:
+
+- All five `/api/graph/*` endpoints, `meta` included, answer 503
+  `{ "error": "graph_unavailable", "reason": "core_unavailable" }` after their
+  existing parameter validation. This is a missing capability, distinct from
+  any index state and never an empty graph.
+- `GET /api/voice/keyterms` and the session keyterms serve an empty vocabulary,
+  `GET /api/voice/overrides` keeps the markdown pronunciation overrides, and the
+  degraded result is never written to the keyterm cache. Providers without
+  keyterm support never resolve core.
+- One warning per feature records the failed check (`not_installed`,
+  `identity_mismatch`, `version_unsupported`, `operation_missing`,
+  `load_failed`), the required range and any observed version — no paths or
+  native messages.
+
+With usable core, index states keep their established mappings. Graph `meta`
+answers 200 for every index state: core's own description of a pre-graph or
+uncomputed index, and `available: false`, `reason: "schema"`, `schemaVersion: 0`
+with zero counts for a missing, incompatible or corrupt index. Subgraph modes
+answer 503 `graph_unavailable` with `reason: "schema"` for those, or
+`"not_computed"`; an absent or malformed center/root path is 404 `not_found`. A
+lock wait is 503 `{ "error": "index_busy" }`; any other failure is a sanitized
+500 `{ "error": "internal_error" }`. An index that claims the graph layout without
+its tables is refused as a whole, so its links-only neighborhood now degrades
+with the other modes. Voice keeps the missing-index error, degrades an
+incompatible index to overrides without caching, and reports a corrupt, locked
+or unreadable index as an error. `writeCache` no longer persists a degraded
+result for any caller, including the post-sync rebuild.
+
+`openBrainDb`, `withBrainDb`, `BrainDbUnavailableError` and
+`MIN_BRAIN_SCHEMA_VERSION` stay exported for embedders' own readers under the
+direct-SQL guarantees below; the server's graph and voice paths no longer use
+them.
+
+**Migrating a host:** add `@schlessera/brain` at the server's version to the
+host's dependencies (`bun add @schlessera/brain`), reinstall and restart. A
+host that serves neither the graph view nor keyterm-capable dictation may skip
+it. A warning naming `core.reason` at first graph or keyterm use means the
+installation is absent or skewed.
 
 ## brain.db (direct SQL reads)
 

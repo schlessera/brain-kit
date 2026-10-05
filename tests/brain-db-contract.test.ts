@@ -1,13 +1,13 @@
 /**
  * F5 — the brain.db read contract, asserted across the package boundary.
  *
- * `ui-server` reads `$BRAIN_PATH/brain.db` with hand-written SQL and has no
- * dependency on `core` (see tests/dependency-edges.test.ts), so the schema is
- * a documented contract rather than a shared type. Until this file existed,
- * nothing checked it: ui-server's own graph tests build their fixture with the
- * schema ui-server *assumes*, so core renaming a column left them green and
- * broke production at the next `brain index`. The schema version was written
- * out as a bare `8` in four places with nothing tying them together.
+ * Outside consumers may still read `$BRAIN_PATH/brain.db` with hand-written
+ * SQL under the documented direct-read contract, so the schema is a
+ * documented contract rather than a shared type. Until this file existed,
+ * nothing checked it: ui-server's graph tests then built their fixture with
+ * the schema ui-server *assumed*, so core renaming a column left them green
+ * and broke production at the next `brain index`. (ui-server itself now reads
+ * through core's supported query entry, an optional peer.)
  *
  * This test is the tie. It indexes the real fixture corpus with the real CLI,
  * then points ui-server's real readers at the result. Everything it asserts is
@@ -28,12 +28,19 @@ import {
   buildKeyterms,
 } from "@schlessera/brain-ui-server";
 import {
-  MIN_SCHEMA_VERSION as GRAPH_MIN_SCHEMA_VERSION,
   getClusters,
   getGraphMeta,
   getMaintenance,
   getNeighborhood,
 } from "../packages/ui-server/src/graph/reader.js";
+import { createCoreQueryAccess, type GraphQueries } from "../packages/ui-server/src/core-queries.js";
+
+/** ui-server's graph operations, resolved from the workspace core as the server does. */
+function graph(): GraphQueries {
+  const capability = createCoreQueryAccess().graph();
+  if (!capability.ok) throw new Error(`core query capability unusable: ${capability.reason}`);
+  return capability.queries;
+}
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURE_CORPUS = join(ROOT, "packages/core/fixtures/corpus");
@@ -134,8 +141,8 @@ describe("brain.db schema version has one source", () => {
   test("every ui-server read floor is reachable by what core writes", () => {
     // A floor ABOVE what core produces means the shipped server refuses a
     // freshly indexed brain — the exact failure a bump used to cause silently.
+    // (The graph's own floor now lives in core's query compatibility checks.)
     expect(MIN_BRAIN_SCHEMA_VERSION).toBeLessThanOrEqual(SCHEMA_VERSION);
-    expect(GRAPH_MIN_SCHEMA_VERSION).toBeLessThanOrEqual(SCHEMA_VERSION);
   });
 });
 
@@ -200,30 +207,30 @@ describe("brain.db tables the contract promises", () => {
 
 describe("ui-server's readers run against a core-produced database", () => {
   test("graph meta reports an available, populated graph", () => {
-    const meta = getGraphMeta({ brainPath });
+    const meta = getGraphMeta(graph(), { brainPath });
     expect(meta.available).toBe(true);
     expect(meta.nodeCount).toBeGreaterThan(0);
   });
 
   test("clusters return nodes and edges", () => {
-    const clusters = getClusters({ brainPath, includeIsolates: true });
+    const clusters = getClusters(graph(), { brainPath, includeIsolates: true });
     expect(clusters.nodes.length).toBeGreaterThan(0);
     expect(clusters.nodes[0].path).toBeString();
     expect(Array.isArray(clusters.edges)).toBe(true);
   });
 
   test("a neighborhood around a real document resolves", () => {
-    const clusters = getClusters({ brainPath, includeIsolates: true });
+    const clusters = getClusters(graph(), { brainPath, includeIsolates: true });
     // Pick a node that actually has an edge, so depth-1 is meaningful.
     const linked = clusters.edges[0];
     expect(linked, "the fixture corpus produced no links to walk").toBeDefined();
     const center = clusters.nodes.find((n) => n.id === linked.source)!;
-    const hood = getNeighborhood({ brainPath, center: center.path, depth: 1 });
+    const hood = getNeighborhood(graph(), { brainPath, center: center.path, depth: 1 });
     expect(hood.nodes.length).toBeGreaterThan(1);
   });
 
   test("maintenance reads the columns it reports on", () => {
-    const maintenance = getMaintenance({ brainPath });
+    const maintenance = getMaintenance(graph(), { brainPath });
     // Every arm touches a different part of the schema: links (orphans),
     // graph_root_distances (unreachable), the links target column
     // (brokenLinks) and documents.indexed_at (stale).

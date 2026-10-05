@@ -28,9 +28,9 @@ injected `ctx.db` uses throughout package source, then traced each connection.
 | Public brain-template | No direct SQL reader at `b78b355444b9ee1e819b85f43582d06b6957e3bd`. README names the disposable index. | No consumer migration invented. Reaudit generated source before retirement. |
 | Public brain-hosting-template | No direct SQL reader at `262444c3bbe9c18456afa70a2554ee5046a31101`. Its privilege decision describes ownership of the index. | Shell dependencies may need an approved core peer; generated-host ownership remains in that public repository. Reaudit before retirement. |
 
-Sources: (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`); graph meta (`getGraphMeta`, `packages/ui-server/src/graph/reader.ts:437-471`), edges (`DISTINCT_EDGES_SQL`, `packages/ui-server/src/graph/reader.ts:253-258`), neighborhood (`getNeighborhood`, `packages/ui-server/src/graph/reader.ts:525-540`),
-discovery (`getDiscovery`, `packages/ui-server/src/graph/reader.ts:542-617`) and maintenance (`getMaintenance`, `packages/ui-server/src/graph/reader.ts:619-673`); voice (`buildKeyterms`, `packages/ui-server/src/voice/keyterm-builder.ts:390-437`) and content
-extraction (`extractFromContent`, `packages/ui-server/src/voice/keyterm-builder.ts:257-272`); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)); raw module context ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)).
+Sources: (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`); graph meta ([pre-migration `getGraphMeta`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437-L471)), edges ([pre-migration `DISTINCT_EDGES_SQL`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L253-L258)), neighborhood ([pre-migration `getNeighborhood`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525-L540)),
+discovery ([pre-migration `getDiscovery`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L542-L617)) and maintenance ([pre-migration `getMaintenance`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L619-L673)); voice ([pre-migration `buildKeyterms`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L390-L437)) and content
+extraction ([pre-migration `extractFromContent`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L257-L272)); pi ([historical native graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367)); jobs ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)); raw module context ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)).
 
 > **2026-10-01 — Implementation context (pi inventory above and link-walk
 > comparison below).** The native pi graph and listing described by the audit
@@ -107,9 +107,9 @@ identity/version/feature skew and actual mounted routes. No handwritten SQL,
 PATH-CLI substitution, query service/provider seam or per-query process fallback.
 
 The inspected source is the pre-migration baseline: no core server dependency
-or peer (`"dependencies"`, `packages/ui-server/package.json:56-69`;
-`"peerDependencies"`, `packages/ui-server/package.json:70-74`), and no allowed
-server-to-core edge (`"@schlessera/brain-ui-server"`, `tests/allowed-edges.ts:92-95`).
+or peer ([pre-migration `"dependencies"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L56-L69);
+[pre-migration `"peerDependencies"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L70-L74)), and no allowed
+server-to-core edge ([pre-migration `"@schlessera/brain-ui-server"`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92-L95)).
 The ruling approves the one-way edge; this document does not implement it.
 Core owns plain results and imports no UI SDK types. Native snapshots and
 connections remain core-owned per operation, never cached with the functions.
@@ -119,6 +119,14 @@ resolution. It was rejected because every server install would bring core and
 couple the packages even when neither graph nor vocabulary is used. The chosen
 optional peer gives the host explicit installation/version ownership, with the
 additional absence/skew, declaration and migration obligations above.
+
+> **2026-10-05 — Implementation context (#697).** UI-server's graph and voice
+> readers now use the supported results through the optional peer; see the
+> [decision record's implementation note](../decisions/index-query-api.md#package-access--lazy-optional-core-peer-2026-10-03)
+> for the concrete range and the
+> [integration contract](../integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697)
+> for the resulting behavior. The UI-server inventory and baseline citations
+> in this document link the pre-migration commit.
 
 ## Core-created module hygiene context
 
@@ -246,12 +254,12 @@ vocabulary plus overrides and is never persisted as a successful cache.
 Graph defaults match UI-server: clusters exclude isolates unless requested;
 neighborhood depth 1/both capped at 3 and 1,500 nodes; discovery out/depth 8;
 maintenance 180 days (1..3650). General subgraphs cap at 5,000 nodes and 20,000
-edges using current ranking/tie behavior (`MAX_NODES`, `packages/ui-server/src/graph/reader.ts:33-40`). API integer/direction inputs
+edges using current ranking/tie behavior ([pre-migration `MAX_NODES`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L33-L40)). API integer/direction inputs
 are validated; invalid input is explicit rather than SQL coercion. Adapters
-retain the current HTTP parameter validation before queries (`createGraphRoutes`, `packages/ui-server/src/routes/graph.ts:53-60`).
+retain the current HTTP parameter validation before queries (`createGraphRoutes`, `packages/ui-server/src/routes/graph.ts:70-77`).
 
 Graph nodes are markdown only; edges are distinct resolved document pairs,
-exclude self-links and non-markdown endpoints (`DISTINCT_EDGES_SQL`, `packages/ui-server/src/graph/reader.ts:253-258`). ID 0 is the virtual root,
+exclude self-links and non-markdown endpoints ([pre-migration `DISTINCT_EDGES_SQL`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L253-L258)). ID 0 is the virtual root,
 never a persisted document. IDs are identities within a result/index, not stable
 identities across a rebuild; consumers retain paths as durable document keys.
 Uncomputed graph permits raw neighborhood/link walking with absent analytics,
@@ -331,8 +339,8 @@ an unexplained regression blocks migration until diagnosed. Record host/runtime,
 corpus size and methodology so a reviewer can compare. No network/paid models.
 
 Verification must use the actual CLI-produced fixture index, not a handcrafted
-schema that copies the reader's assumptions (`ui-server's readers run`, `tests/brain-db-contract.test.ts:201-244`). Existing table
-assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:49-62`) stay until final retirement.
+schema that copies the reader's assumptions (`ui-server's readers run`, `tests/brain-db-contract.test.ts:208-251`). Existing table
+assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:56-69`) stay until final retirement.
 
 Verification ownership is explicit; documenting a requirement completes none
 of these implementation criteria:

@@ -89,8 +89,12 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // parser. This concrete intake is always installed, independent of optional
   // agent backends; a direct hard edge names that ownership without relying
   // on the SDK's transitive dependency or adding a second measurement stack.
+  // #696 ruling A: core is an optional peer, resolved lazily for the graph
+  // view and index-derived voice vocabulary only (`@schlessera/brain/queries`).
+  // The edge is one way — core never imports the UI protocol — and a host
+  // that uses neither feature does not install core.
   "@schlessera/brain-ui-server": {
     dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk", "@schlessera/brain-geo"],
-    optionalPeers: ["@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
+    optionalPeers: ["@schlessera/brain", "@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
   },
 };

@@ -8,8 +8,9 @@ import type { QueryResult } from "@schlessera/brain/queries";
 import { SCHEMA_VERSION } from "@schlessera/brain";
 import { walkLinks } from "../packages/core/src/lib/link-walk.js";
 import { filterSearch } from "../packages/core/src/lib/search-engine.js";
-import { getClusters, getDiscovery, getGraphMeta, getMaintenance, getNeighborhood } from "../packages/ui-server/src/graph/reader.js";
-import { buildKeyterms } from "@schlessera/brain-ui-server";
+// The frozen pre-migration server readers: core must keep reproducing them.
+import { getClusters, getDiscovery, getGraphMeta, getMaintenance, getNeighborhood } from "./helpers/legacy-ui/graph-reader.js";
+import { buildKeyterms } from "./helpers/legacy-ui/keyterm-builder.js";
 const ROOT = resolve(import.meta.dir, "..");
 let brainPath: string;
 const temporary: string[] = [];

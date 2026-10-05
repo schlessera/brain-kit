@@ -1,12 +1,13 @@
 /**
  * G6 — cross-package schema integration test (closes RC4).
  *
- * ui-server reads `brain.db` directly, but core owns that schema and versions
- * it independently: nothing else in either package fails when core changes the
- * shape. A version constant cannot catch a drift that keeps its number, so
- * this test binds the two sides with the real artifact — it runs core's actual
- * indexer over core's fixture corpus (the "Odysseus" voyage brain)
- * and then points every ui-server reader at the database that run produced.
+ * ui-server's graph and voice readers go through core's supported query entry
+ * (`@schlessera/brain/queries`, an optional peer), while core owns the schema
+ * and versions it independently. A version constant cannot catch a drift that
+ * keeps its number, so this test binds the two sides with the real artifact —
+ * it runs core's actual indexer over core's fixture corpus (the "Odysseus"
+ * voyage brain) and then points every ui-server reader at the database that
+ * run produced, through the peer resolved the way the server resolves it.
  *
  * Every assertion here is on REAL content, never on "did not throw": both
  * readers degrade silently (the graph reader to `unavailable`, the keyterm
@@ -14,10 +15,11 @@
  * schema drift produces. An empty result set from a freshly indexed corpus IS
  * the failure this gate exists to catch.
  *
- * Importing `@schlessera/brain` from a test is deliberate and safe: the
- * dependency-edge table (tests/dependency-edges.test.ts) governs manifests and
- * `src/` only. The runtime edge between the packages remains the documented
- * direct-read contract, not an import.
+ * Importing `@schlessera/brain` statically from a test is deliberate and safe:
+ * ui-server's `src/` only ever resolves it lazily, at runtime, so its
+ * published declarations never name it. `openBrainDb` stays exported for
+ * embedders' own readers under the direct-SQL guarantees, so its floor is
+ * still checked here.
  *
  * The corpus is indexed ONCE (in beforeAll) and shared by every assertion —
  * this is the one enforcement gate with real runtime cost,
@@ -34,8 +36,8 @@ import { buildTaxonomy, indexAll, openDatabase } from "@schlessera/brain";
 import corpusConfig from "../../../core/fixtures/corpus/brain.config.ts";
 
 import { MIN_BRAIN_SCHEMA_VERSION, openBrainDb } from "../../src/db/brain-db";
+import { createCoreQueryAccess, type GraphQueries } from "../../src/core-queries";
 import {
-  MIN_SCHEMA_VERSION as GRAPH_MIN_SCHEMA_VERSION,
   getClusters,
   getDiscovery,
   getGraphMeta,
@@ -50,13 +52,15 @@ const FIXTURE_CORPUS = resolve(import.meta.dir, "../../../core/fixtures/corpus")
 const DRIFT =
   "core's brain.db schema changed under ui-server (G6). The database was just " +
   "produced by core's own indexer over its fixture corpus, so a degraded or " +
-  "empty read here means ui-server's SQL no longer matches the shape core " +
-  "writes — fix the reader (or its schema floor) in packages/ui-server, do not " +
-  "loosen this test.";
+  "empty read here means core's supported query results or ui-server's " +
+  "adaptation of them no longer match what core writes — fix the query or the " +
+  "adapter, do not loosen this test.";
 
 let brainPath: string;
 /** schema_version as core actually wrote it, read raw, no wrapper involved. */
 let writtenSchemaVersion: number;
+/** The graph operations, resolved from the workspace core like the server does. */
+let graph: GraphQueries;
 
 beforeAll(async () => {
   brainPath = mkdtempSync(join(tmpdir(), "brain-ui-schema-gate-"));
@@ -96,6 +100,9 @@ beforeAll(async () => {
   } finally {
     raw.close();
   }
+  const capability = createCoreQueryAccess().graph();
+  if (!capability.ok) throw new Error(`core query capability unusable: ${capability.reason}`);
+  graph = capability.queries;
 });
 
 afterAll(() => {
@@ -113,8 +120,12 @@ describe("schema floors are honest against what core writes", () => {
     expect(writtenSchemaVersion, DRIFT).toBeGreaterThanOrEqual(MIN_BRAIN_SCHEMA_VERSION);
   });
 
-  test("the graph reader's v8 gate agrees with what core produces", () => {
-    expect(writtenSchemaVersion, DRIFT).toBeGreaterThanOrEqual(GRAPH_MIN_SCHEMA_VERSION);
+  test("the workspace's core resolves as a usable query capability", () => {
+    // The graph and vocabulary reads below go through core's supported query
+    // entry, resolved the way the server resolves its optional peer.
+    const access = createCoreQueryAccess();
+    expect(access.graph().ok, DRIFT).toBe(true);
+    expect(access.voice().ok, DRIFT).toBe(true);
   });
 
   test("openBrainDb admits the database and reports core's version", () => {
@@ -129,7 +140,7 @@ describe("schema floors are honest against what core writes", () => {
 
 describe("graph reader returns real content from a core-indexed corpus", () => {
   test("meta: available, populated, rooted", () => {
-    const meta = getGraphMeta({ brainPath });
+    const meta = getGraphMeta(graph, { brainPath });
     expect(meta.available, DRIFT).toBe(true);
     expect(meta.schemaVersion).toBe(writtenSchemaVersion);
     expect(meta.computedAt, DRIFT).toBeTruthy();
@@ -141,7 +152,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   });
 
   test("clusters: linked notes with computed metrics, isolates filtered", () => {
-    const clusters = getClusters({ brainPath });
+    const clusters = getClusters(graph, { brainPath });
     const paths = clusters.nodes.map((n) => n.path);
     expect(paths, DRIFT).toContain("projects/active/raft/plan.md");
     expect(paths, DRIFT).toContain("studies/star-bearings.md");
@@ -149,7 +160,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
     // clusters view excludes isolates, so its absence proves the degree
     // columns are really being read, not COALESCEd to zero across the board.
     expect(paths).not.toContain("notes/loose-idea.md");
-    expect(getClusters({ brainPath, includeIsolates: true }).nodes.map((n) => n.path)).toContain(
+    expect(getClusters(graph, { brainPath, includeIsolates: true }).nodes.map((n) => n.path)).toContain(
       "notes/loose-idea.md"
     );
     // Precomputed analytics made it through the join.
@@ -161,7 +172,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   });
 
   test("neighborhood: ego graph around star-bearings", () => {
-    const hood = getNeighborhood({ brainPath, center: "studies/star-bearings.md", depth: 1 });
+    const hood = getNeighborhood(graph, { brainPath, center: "studies/star-bearings.md", depth: 1 });
     const byPath = new Map(hood.nodes.map((n) => [n.path, n]));
     expect(byPath.get("studies/star-bearings.md")?.distance, DRIFT).toBe(0);
     // Out-link ([[star-catalog]]) and in-link (plan.md links back) both land.
@@ -171,7 +182,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   });
 
   test("discovery from the precomputed virtual root", () => {
-    const view = getDiscovery({ brainPath });
+    const view = getDiscovery(graph, { brainPath });
     const byPath = new Map(view.nodes.map((n) => [n.path, n]));
     const root = byPath.get("AGENTS.md");
     expect(root, DRIFT).toBeDefined();
@@ -188,7 +199,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   });
 
   test("discovery from an explicit root", () => {
-    const view = getDiscovery({ brainPath, root: "projects/active/raft/plan.md", direction: "both" });
+    const view = getDiscovery(graph, { brainPath, root: "projects/active/raft/plan.md", direction: "both" });
     const paths = view.nodes.map((n) => n.path);
     expect(paths, DRIFT).toContain("projects/active/raft/plan.md");
     expect(paths, DRIFT).toContain("studies/star-bearings.md");
@@ -196,7 +207,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
   });
 
   test("maintenance: orphans, broken links and unreachable notes are found", () => {
-    const findings = getMaintenance({ brainPath });
+    const findings = getMaintenance(graph, { brainPath });
     expect(findings.orphans.map((n) => n.path), DRIFT).toContain("notes/loose-idea.md");
     // quick-note-eagle.md and current-focus.md both point at [[does-not-exist]].
     expect(findings.brokenLinks.map((l) => l.target), DRIFT).toContain("does-not-exist");
