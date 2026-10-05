@@ -3,9 +3,14 @@
 The [2026-09-28 ruling](https://github.com/schlessera/brain-kit/issues/347#issuecomment-5866348379)
 keeps `SpeechProvider` and `AsrClient` as public extension interfaces and makes
 both stable at the actual 1.0 transition. Their declarations and related types
-remain experimental before that transition. Two server/client implementations
-already justify this seam; an external author must be able to use it without
-changing the built-in registry.
+remain experimental before that transition, as
+[ROADMAP.md](../../ROADMAP.md) binding decision 7 requires of every extension
+interface. Binding decision 2 permits a seam only where a second implementation
+is plausible within a year; Deepgram and browser speech are two shipped
+server/client implementations, so this seam already meets it. What it lacked
+was an entry point: an external author must be able to use it without changing
+the built-in registry, so the server construction path is completed here rather
+than an inaccessible interface being frozen.
 
 ## Dictation and conversation have separate authority
 
