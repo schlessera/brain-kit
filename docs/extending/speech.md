@@ -135,7 +135,6 @@ export class ExternalSpeechClient implements AsrClient {
     } finally { this.stop(); }
   }
 }
-
 ```
 
 Register it on the UI root **before mounting the UI**:
@@ -145,12 +144,11 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { BrainUiProvider, ChatPage, createBrainUiRoot }
   from "@schlessera/brain-ui-react";
-import type { AsrClientFactory, SpeechCapabilities, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
+import type { AsrClientFactory } from "@schlessera/brain-ui-sdk/client";
 // ExternalSpeechClient is the complete class above, in this module.
 
 const root = createBrainUiRoot({ storage: null });
-const factory: AsrClientFactory = (options: AsrClientOptions) =>
-  new ExternalSpeechClient(options);
+const factory: AsrClientFactory = (options) => new ExternalSpeechClient(options);
 root.asr.register("example-speech", factory);
 createRoot(document.getElementById("app")!).render(
   createElement(BrainUiProvider, { root, children: createElement(ChatPage) }),

@@ -28,7 +28,7 @@ or bypass the host's permission and turn machinery.
 `createApp({ speechProvider })` supplies an implementation by value. It wins
 over automatic Deepgram discovery. An explicit `config.voice.provider` must
 match its id; a mismatch fails instead of choosing either implementation
-(`pickSpeechProvider`, `packages/ui-server/src/voice/speech-providers.ts:96-130`).
+(`pickSpeechProvider`, `packages/ui-server/src/voice/speech-providers.ts:96-124`).
 Without the value, existing selection remains: explicit built-ins, automatic
 Deepgram only when its key is present, otherwise failure. Browser speech is an
 explicit opt-in; it never becomes a fallback after a missing key or provider
