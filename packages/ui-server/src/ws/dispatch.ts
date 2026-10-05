@@ -9,6 +9,7 @@ import { approvalRequestFrame, locationErrorText, withTurnScope } from "./frames
 import { sendSessionHistory } from "./history.js";
 import { validateAttachments } from "./attachments.js";
 import { handleChatMessage } from "./run-session.js";
+import { cancelHandoffPreparation, handoffStatus, prepareHandoff, startHandoff } from "./handoff.js";
 import type { WsHost } from "./host.js";
 
 /** Per-connection negotiation state, owned by the socket handler. */
@@ -80,6 +81,10 @@ export async function handleClientMessage(
     }
 
     case "chat_message": {
+      if (msg.handoff) {
+        await startHandoff(host, ws, { ...msg, handoff: msg.handoff }, connection);
+        return;
+      }
       const attachmentResult = validateAttachments(msg.attachments);
       if (!attachmentResult.ok) {
         host.sendMessage(ws, {
@@ -117,6 +122,22 @@ export async function handleClientMessage(
         ...(msg.localExchanges?.length ? { localExchanges: msg.localExchanges } : {}),
       });
       break;
+    }
+
+    case "handoff_status": {
+      handoffStatus(host, ws, msg.handoffId);
+      return;
+    }
+
+    case "handoff_prepare": {
+      if (connection.closed) return;
+      await prepareHandoff(host, ws, msg, connection);
+      return;
+    }
+
+    case "handoff_prepare_cancel": {
+      cancelHandoffPreparation(host, msg.handoffId, connection);
+      return;
     }
 
     case "retry_status": {

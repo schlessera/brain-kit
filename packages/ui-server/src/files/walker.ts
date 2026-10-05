@@ -165,6 +165,16 @@ function isHardExcluded(name: string, isDir: boolean): boolean {
 }
 
 /**
+ * Whether a brain-relative path names content the file browser shows: no
+ * dot segment, no tooling directory, no database or lockfile. The handoff
+ * (#61) offers a reference to the destination only on these terms.
+ */
+export function isBrowseablePath(rel: string): boolean {
+  const parts = rel.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.length > 0 && parts.every((part, index) => !isHardExcluded(part, index < parts.length - 1));
+}
+
+/**
  * List entries of a directory, applying ignore rules.
  * Always excludes: .git, node_modules, *.db*. Then applies .gitignore.
  */

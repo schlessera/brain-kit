@@ -438,6 +438,10 @@ calling principal's runs or sessions.
 unavailableBackends?: string[] }`, newest lastActiveAt first. Each session has
 id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.
+A cross-backend handoff destination (additive, #61) also carries
+`handoffFrom: { sessionId, title, backendId?, afterMessages? }`, as the
+[integration contract](integration-contract.md#cross-backend-handoff-additive-61)
+describes.
 Each backend list has a three-second wait; unfinished work is reused by retries
 and is not canceled. One unavailable backend is omitted and identified in the
 optional list without discarding healthy backends; registry-level failure is

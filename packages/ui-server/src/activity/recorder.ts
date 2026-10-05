@@ -92,6 +92,12 @@ export function createTurnRecorder(
     principalId?: string;
     /** Server-selected; autonomous attempts never acquire an interactive session. */
     origin?: "session" | "autonomous";
+    /**
+     * The root span's name, when the run is not a conversation turn: the
+     * handoff preparation summary (#61) is a run on its source session that
+     * Activity names for what it was. Absent means an ordinary turn.
+     */
+    name?: string;
   }
 ): TurnRecorder {
   const { store, onWrite, log, runtime } = deps;
@@ -131,7 +137,7 @@ export function createTurnRecorder(
     store.startSpan({
       spanId: rootSpanId,
       runId,
-      name: SPAN_OP_INVOKE_AGENT,
+      name: turn.name ?? SPAN_OP_INVOKE_AGENT,
       kind: "turn",
       origin: turn.origin ?? "session",
       sessionId,
