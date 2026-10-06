@@ -3,6 +3,7 @@ import type { ServerMessage, SessionRecovery, SessionRecoveryLatest, SessionReco
 import { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions } from "../src/root.js";
 import { trackerViews } from "../src/stores/tracker-state.js";
 import { TRACKER_STORAGE_KEY, trackerWords } from "../src/lib/trackers.js";
+import { observeTrackerSeen } from "../src/hooks/use-tracker-seen.js";
 
 // Trackers in one real root (#948, D52 §4): the chat store, the actual
 // socket demux, the recovery read through the root's own request function,
@@ -246,6 +247,47 @@ describe("clearing a tracker", () => {
   });
 });
 
+describe("the seen observer's conditions", () => {
+  test("only Chat, visible, uncovered and at the end of the linked turn sees it", () => {
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    (globalThis as { document?: unknown }).document = doc;
+    try {
+      const r = root();
+      hello(r, false);
+      runningIn(r, A);
+      r.stores.chat.getState().setActiveSession(B);
+      frame(r, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+      r.stores.chat.getState().setActiveSession(A);
+      const bottom = { clientHeight: 400, scrollHeight: 1000, scrollTop: 600 } as HTMLElement;
+      const up = { clientHeight: 400, scrollHeight: 1000, scrollTop: 100 } as HTMLElement;
+      const ui = r.stores.ui;
+      const blocked: Array<[string, () => void, () => void]> = [
+        ["scrolled up", () => {}, () => {}],
+        ["hidden document", () => { doc.visibilityState = "hidden"; }, () => { doc.visibilityState = "visible"; }],
+        ["session panel", () => ui.setState({ sessionPanelOpen: true }), () => ui.setState({ sessionPanelOpen: false })],
+        ["files panel", () => ui.setState({ filePanelOpen: true }), () => ui.setState({ filePanelOpen: false })],
+        ["command palette", () => ui.setState({ paletteOpen: true }), () => ui.setState({ paletteOpen: false })],
+        ["another view", () => ui.setState({ activeView: "activity" }), () => ui.setState({ activeView: "chat" })],
+        ["subagent drill-in", () => ui.setState({ subagentStack: ["span-1"] }), () => ui.setState({ subagentStack: [] })],
+        ["mask editor", () => r.stores.mask.setState({ request: { requestId: "m1" } as never }), () => r.stores.mask.setState({ request: null })],
+        ["handoff sheet", () => r.stores.handoff.setState({ sheet: { kind: "review" } as never }), () => r.stores.handoff.setState({ sheet: null })],
+      ];
+      for (const [name, cover, uncover] of blocked) {
+        cover();
+        const seen = observeTrackerSeen(r, name === "scrolled up" ? up : bottom, false);
+        uncover();
+        expect({ name, seen }).toEqual({ name, seen: false });
+      }
+      expect(observeTrackerSeen(r, bottom, true)).toBe(false);
+      expect(views(r)[0]!.cleared).toBe(false);
+      expect(observeTrackerSeen(r, bottom, false)).toBe(true);
+      expect(views(r)[0]!.cleared).toBe(true);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+});
+
 describe("persistence", () => {
   function tracked(storage: Storage, storagePrefix: string, sessionId = A) {
     const r = root({ storage, storagePrefix });
@@ -395,6 +437,41 @@ describe("recovery (Recovery A)", () => {
     expect(await outcome(() => Response.json({ error: "Authentication required", authRequired: true }, { status: 401 }))).toMatchObject({ state: "cant_check", cantCheck: "unauthorized" });
     expect(await outcome(() => Response.json({}, { status: 403 }))).toMatchObject({ state: "cant_check", cantCheck: "unauthorized" });
     expect(await outcome(() => Response.json({ error: "SESSION_RECOVERY_FAILED", message: "x" }, { status: 500 }))).toMatchObject({ state: "needs_you", pendingKind: "approval" });
+  });
+
+  test("a read begun before the set was deleted cannot settle a newer read", async () => {
+    const r = root();
+    hello(r, false, "pk-ithaca");
+    runningIn(r, A);
+    r.stores.chat.getState().setActiveSession(B);
+    const trackers = () => r.stores.trackers.getState();
+    expect(trackers().beginRead(A)).toBe(true);
+    const stale = trackers().epoch;
+    // A different principal: the set goes, and a new tracker starts a new read.
+    hello(r, false, "pk-penelope");
+    trackers().track(A);
+    expect(trackers().beginRead(A)).toBe(true);
+    trackers().live(A, [{ kind: "running", turnId: "turn-7", requestId: null }]);
+    const ok = { ok: true as const, recovery: { sessionId: A, backendId: null, revision: 9, latest: latest({ state: "running", turnId: "turn-7", startedAt: 5 }), pending: [] } };
+    trackers().endRead(A, { ok: false, reason: "host_unreachable" }, stale);
+    expect(trackers().reading[A]).toEqual([{ kind: "running", turnId: "turn-7", requestId: null }]);
+    trackers().endRead(A, ok, trackers().epoch);
+    expect(views(r)[0]).toMatchObject({ state: "running", startedAt: 5, revision: 9 });
+  });
+
+  test("after a revocation, leaving a session rebuilds nothing until a hello", () => {
+    const storage = memoryStorage();
+    const r = root({ storage, storagePrefix: "ithaca" });
+    hello(r, false);
+    runningIn(r, A);
+    r.stores.trackers.getState().revoke();
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "status", sessionId: "odysseus-aeolus", status: "queued", requestId: "req-1" });
+    expect(ids(r)).toEqual([]);
+    expect(storage.data.has(`ithaca:${TRACKER_STORAGE_KEY}`)).toBe(false);
+    hello(r, false);
+    frame(r, { type: "status", sessionId: "odysseus-aeolus", status: "queued", requestId: "req-2" });
+    expect(ids(r)).toEqual(["odysseus-aeolus"]);
   });
 
   test("a revocation deletes the whole set", () => {

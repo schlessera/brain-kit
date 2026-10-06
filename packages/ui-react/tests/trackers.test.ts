@@ -75,6 +75,34 @@ describe("live frames (rules 3 and 4)", () => {
     expect(e.latest).toMatchObject({ requestId: "req-2", turnId: "turn-2", state: "running" });
   });
 
+  test("a second follow-up keeps waiting behind the running turn, whose frames never start it", () => {
+    let e = live(emptyEvidence(), frames.info("turn-1", "req-1"), frames.queued("req-2"), frames.queued("req-3"));
+    e = live(e, frames.delta("turn-1"));
+    expect(e.latest).toMatchObject({ requestId: "req-3", turnId: null, state: "queued" });
+    // The first follow-up's dispatch is not the latest request's either.
+    e = live(e, frames.info("turn-2", "req-2"), frames.delta("turn-2"));
+    expect(e.latest).toMatchObject({ requestId: "req-3", state: "queued" });
+    e = live(e, frames.info("turn-3", "req-3"));
+    expect(e.latest).toMatchObject({ requestId: "req-3", turnId: "turn-3", state: "running" });
+  });
+
+  test("a queued request from a snapshot is started only by its own dispatch", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(5, { requestId: "req-5", state: "queued" }));
+    // A turn this page never saw start is still running ahead of it.
+    e = live(e, frames.delta("turn-4"), frames.result("turn-4"));
+    expect(e.latest).toMatchObject({ requestId: "req-5", state: "queued" });
+    e = live(e, frames.info("turn-5", "req-5"));
+    expect(e.latest).toMatchObject({ turnId: "turn-5", state: "running" });
+  });
+
+  test("progress of the running turn answers a failed read", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(2, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 1 }));
+    e = applyUnavailable(e, "host_unreachable");
+    expect(view(e).state).toBe("cant_check");
+    e = live(e, frames.delta("turn-2"));
+    expect(view(e).state).toBe("running");
+  });
+
   test("a new turn after a finished one is running work, not the old success", () => {
     let e = live(emptyEvidence(), frames.info("turn-1", "req-1"), frames.result("turn-1"));
     e = live(e, frames.delta("turn-2"));

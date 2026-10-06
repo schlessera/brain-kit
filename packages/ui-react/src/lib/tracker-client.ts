@@ -123,6 +123,7 @@ export function createTrackerClient(root: BrainUiServices) {
     hello(msg: Extract<ServerMessage, { type: "server_hello" }>): void {
       if (disposed) return;
       const store = trackers.getState();
+      store.resume();
       store.setPrincipal(msg.principalKey ?? null);
       store.setRecoverySupported(msg.capabilities?.[SESSION_RECOVERY_CAPABILITY] === true);
       refreshAll();

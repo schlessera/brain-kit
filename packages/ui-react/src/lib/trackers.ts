@@ -162,23 +162,33 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
   switch (event.kind) {
     case "queued": {
       if (event.requestId !== null && latest?.requestId === event.requestId) return evidence;
-      // Late frames of the turn running now belong to it, not to this request.
-      const behind = latest?.state === "running" ? latest.turnId : null;
+      // Late frames of the turn running now belong to it, not to this
+      // request; a request queued behind another queued one waits behind
+      // the same turn.
+      const behind = latest?.state === "running" ? latest.turnId : latest?.state === "queued" ? evidence.behind : null;
       return proven(evidence, fresh(event.requestId, null, "queued"), true, behind);
     }
     case "running": {
       const { turnId, requestId } = event;
       if (!latest) return proven(evidence, { ...fresh(requestId, turnId, "running") }, true, null);
       if (latest.state === "queued" && latest.turnId === null) {
-        // The queued request's dispatch, unless the frame is the turn it waits behind.
-        if (turnId !== null && turnId === evidence.behind) return evidence;
-        if (turnId === null && requestId === null) return evidence;
-        if (requestId !== null && latest.requestId !== null && requestId !== latest.requestId) return evidence;
+        // Only the request's own dispatch starts it: the turn's
+        // `session_info` carries its requestId. Any other frame may be an
+        // older turn still running, whose id this page may never have seen.
+        // Without a requestId to match, the turn it waits behind is the one
+        // turn known not to be its dispatch.
+        if (latest.requestId !== null) {
+          if (requestId !== latest.requestId) return evidence;
+        } else if (requestId === null && (turnId === null || turnId === evidence.behind)) {
+          return evidence;
+        }
         return proven(evidence, { ...latest, turnId, state: "running", requestId: latest.requestId ?? requestId }, evidence.ahead, null);
       }
       const sameTurn = turnId !== null && latest.turnId === turnId;
       if (sameTurn) {
-        if (latest.state === "terminal" || latest.state === "running") return evidence;
+        if (latest.state === "terminal") return evidence;
+        // The turn is live now: that also answers a failed or rolled-back read.
+        if (latest.state === "running" && !evidence.unavailable && !evidence.rolledBack) return evidence;
         return proven(evidence, { ...latest, state: "running" }, evidence.ahead, null);
       }
       if (turnId === null) {

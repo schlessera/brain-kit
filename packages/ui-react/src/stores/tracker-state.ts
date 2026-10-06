@@ -44,6 +44,12 @@ export interface TrackerStoreState {
   reading: Record<string, TrackerLiveEvent[]>;
   /** Bumped when the set is deleted, so a read begun before cannot write after. */
   epoch: number;
+  /**
+   * The principal was revoked: nothing is tracked until a hello shows the
+   * connection is authorized again, so a leave cannot rebuild the set from
+   * the run state the revoked socket left behind.
+   */
+  suspended: boolean;
 
   /**
    * Track a session: it was left with work in flight, or its work started
@@ -73,8 +79,10 @@ export interface TrackerStoreState {
   setRecoverySupported(supported: boolean): void;
   /** A hello named a principal. A different one than the set was stored under deletes the set. */
   setPrincipal(principalKey: string | null): void;
-  /** A revocation: the whole set goes. */
+  /** A revocation: the whole set goes, and tracking stops until `resume`. */
   revoke(): void;
+  /** A hello arrived: the connection is authorized, so tracking resumes. */
+  resume(): void;
 }
 
 /** Every tracker with its state, in display order, cleared ones included. */
@@ -183,9 +191,11 @@ export function createTrackerStore(env: StoreEnvironment) {
       recoverySupported: null,
       reading: {},
       epoch: 0,
+      suspended: false,
 
       track(sessionId, options = {}) {
         const state = get();
+        if (state.suspended) return;
         const existing = state.records[sessionId];
         const evidence = state.evidence[sessionId] ?? emptyEvidence(existing?.revision ?? null);
         const record: TrackerRecord = withIdentity({
@@ -221,8 +231,8 @@ export function createTrackerStore(env: StoreEnvironment) {
       },
 
       live(sessionId, events) {
-        if (events.length === 0) return;
         const state = get();
+        if (events.length === 0 || state.suspended) return;
         const held = state.reading[sessionId];
         if (held) {
           set({ reading: { ...state.reading, [sessionId]: [...held, ...events] } });
@@ -248,12 +258,14 @@ export function createTrackerStore(env: StoreEnvironment) {
 
       endRead(sessionId, result, epoch) {
         const state = get();
+        // A read begun before the set was deleted settles nothing: not even
+        // the slot, which may already belong to a newer read.
+        if (epoch !== state.epoch) return;
         const held = state.reading[sessionId];
         if (!held) return;
         const reading = { ...state.reading };
         delete reading[sessionId];
         set({ reading });
-        if (epoch !== state.epoch) return;
         let evidence = state.evidence[sessionId] ?? emptyEvidence(state.records[sessionId]?.revision ?? null);
         evidence = result.ok ? applySnapshot(evidence, result.recovery) : applyUnavailable(evidence, result.reason);
         for (const event of held) evidence = applyLiveEvent(evidence, event);
@@ -301,6 +313,11 @@ export function createTrackerStore(env: StoreEnvironment) {
 
       revoke() {
         deleteAll();
+        set({ suspended: true });
+      },
+
+      resume() {
+        if (get().suspended) set({ suspended: false });
       },
     };
   });
