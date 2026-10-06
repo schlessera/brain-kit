@@ -169,6 +169,7 @@ export function SideRail(p: SideRailProps) {
   // No act is ever "selected": the stop is the last act focused, else the first.
   const actRoving = useRoving(actEligible, -1);
   const anyAct = actEligible.includes(true);
+  const middleScrolls = anyInteractive || anyAct;
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
     if (event.key === "Enter" || event.key === " ") {
@@ -265,10 +266,17 @@ export function SideRail(p: SideRailProps) {
       {/* The middle scrolls in a short viewport; the wordmark above it and the
           footer below it stay pinned. Only a middle with controls in it
           scrolls: those controls are what reach a scrolled-off row from the
-          keyboard, and a picture of a rail has none, as before acts. */}
+          keyboard, and a picture of a rail has none, as before acts. A
+          picture above an operable All commands is clipped instead, so the
+          rail's one control is never pushed out of it. */}
       <div
-        className={anyInteractive || anyAct ? "bk-side-rail-middle" : undefined}
-        style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        className={middleScrolls ? "bk-side-rail-middle" : undefined}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          ...(!middleScrolls && p.onOpenPalette ? { minHeight: 0, overflow: "hidden" } : null),
+        }}
       >
         <div
           style={{ display: "flex", flexDirection: "column", gap: 3 }}

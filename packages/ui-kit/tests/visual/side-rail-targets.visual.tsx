@@ -351,6 +351,28 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     if (mode === "mixed") await page.screenshot({ element: host!, path: `../../.vitest-attachments/side-rail/acts-offline-${theme}.png` });
   });
 
+  test(`All commands as the only control, 280px tall: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+    const mode = pointerScene();
+    await page.viewport(900, 280);
+    await commands.formViewport(900, 280);
+    document.documentElement.dataset.theme = theme;
+    host = document.createElement("div");
+    host.style.cssText = "display:flex;width:900px;height:280px;overflow:hidden";
+    document.body.append(host);
+    const palette = vi.fn();
+    // A picture of the destinations and acts (no handlers) above a real button.
+    const acts: RailAct[] = [{ icon: "search", label: "Search" }, { icon: "add", label: "Add a note" }];
+    root = createRoot(host);
+    flushSync(() => root!.render(createElement(SideRail, { active: 1, expanded, acts, onOpenPalette: palette })));
+    await document.fonts.ready;
+    const all = host.querySelector<HTMLElement>('button[aria-keyshortcuts="Meta+K"]')!;
+    const a = all.getBoundingClientRect();
+    expect(a.bottom, "the only control stays inside the rail").toBeLessThanOrEqual(280);
+    expect(document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2)?.closest("button")).toBe(all);
+    await press(all, mode);
+    await expect.poll(() => palette.mock.calls.length, { message: "All commands opens once" }).toBe(1);
+  });
+
   test(`rail acts long labels: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { actButtons, all } = await mountActs(390, 600, expanded, theme, "a turn is running", true);
