@@ -811,11 +811,12 @@ the live coordinator or any backend knows; the
 holds the field semantics. Every response is `Cache-Control: no-store`. The
 common authentication guard answers first; the handler re-checks the
 principal after its one asynchronous step (looking the session up in the
-backends when the catalog does not know it) and answers a revoked or expired
+backends when the catalog does not know it; the first backend that replays
+any history settles it, and each gets three seconds) and answers a revoked or expired
 one with the guard's 401 `{ error: "Authentication required", authRequired:
 true }`, disclosing nothing about the session. An unknown session is 404
-`{ error: "SESSION_NOT_FOUND", message }`. A storage or backend read failure
-is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
+`{ error: "SESSION_NOT_FOUND", message }`. A storage failure, or a backend
+that failed or timed out when none had the session, is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
 `unknown`.
 
 ## Imported track UI transport (#526)

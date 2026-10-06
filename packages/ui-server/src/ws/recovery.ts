@@ -150,6 +150,22 @@ function pendingOf(host: WsHost, sessionId: string): SessionRecoveryPending[] {
   return pending;
 }
 
+/** A backend probe that answered with no history: not a failure. */
+const NO_HISTORY = Symbol("no history");
+
+/** How long one backend may take to say whether it holds a session, as `/api/sessions` allows. */
+export const RECOVERY_PROBE_MS = 3_000;
+
+function boundedHistory<T>(read: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    read,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Session lookup timed out")), RECOVERY_PROBE_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Read one session's recovery envelope for `principal`. A storage failure
  * throws, so the route answers 5xx rather than a successful `unknown`.
@@ -166,15 +182,25 @@ export async function readSessionRecovery(host: WsHost, sessionId: string, princ
     // A session the catalog never saw may still be one its backend holds
     // (imported history). It exists if the backend replays anything for it.
     const backends = await host.registry.getBackends();
-    const reads = await Promise.allSettled(backends.map((backend) => backend.getHistory(sessionId)));
+    // The first backend that replays anything settles it; each probe is
+    // bounded, so one stalled backend cannot hold the read open.
+    let found = false;
+    let failure: unknown;
+    try {
+      await Promise.any(backends.map((backend) => boundedHistory(backend.getHistory(sessionId)).then((history) => {
+        if (history.length === 0) throw NO_HISTORY;
+      })));
+      found = true;
+    } catch (err) {
+      const errors = err instanceof AggregateError ? err.errors : [err];
+      failure = errors.find((e) => e !== NO_HISTORY);
+    }
     // Authorization is re-read after every asynchronous step.
     if (!host.isPrincipalValid(principal)) return { kind: "unauthorized" };
-    const found = reads.some((read) => read.status === "fulfilled" && read.value.length > 0);
     if (!found && !known()) {
-      // A backend that failed to answer might hold it: that is a failed
+      // A backend that failed or timed out might hold it: that is a failed
       // read, not an absent session.
-      const failed = reads.find((read): read is PromiseRejectedResult => read.status === "rejected");
-      if (failed) throw failed.reason;
+      if (failure !== undefined) throw failure;
       return { kind: "not_found" };
     }
   }
