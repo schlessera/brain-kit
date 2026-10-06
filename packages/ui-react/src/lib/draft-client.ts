@@ -228,13 +228,18 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   /** Orphans whose delete got no answer, waiting for their next try. */
   const orphanRetries = new Map<string, { orphan: { draftId: string; revision: number }; tries: number; timer: ReturnType<typeof setTimeout> }>();
 
+  /** Orphans whose delete is out: a list taken meanwhile still shows them, and is not believed. */
+  const deleting = new Set<string>();
+
   function removeOrphan(orphan: { draftId: string; revision: number }, tries = 0) {
     // A read of it begun before this delete is stale whatever the delete's answer.
     bumpHost(orphan.draftId);
+    deleting.add(orphan.draftId);
     void api.remove(orphan.draftId, orphan.revision).then((result) => {
       bumpHost(orphan.draftId);
       if (disposed) return;
       orphanRetries.delete(orphan.draftId);
+      if (result.ok || result.status !== 0) deleting.delete(orphan.draftId);
       // No answer: try again later, backing off as saves do. A conflict means
       // another device changed it since: it is theirs, and the next list shows it.
       if (!result.ok && result.status === 0) {
@@ -286,13 +291,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         const local = drafts.getState().drafts[summary.draftId];
         if (local?.host && local.host.revision >= summary.revision) continue;
         if (local?.conflict?.sameId && local.conflict.other.revision >= summary.revision) continue;
-        if (busy.has(summary.draftId)) continue;
+        if (busy.has(summary.draftId) || deleting.has(summary.draftId)) continue;
         const seq = hostSeq.get(summary.draftId) ?? 0;
         const full = await api.get(summary.draftId);
         if (disposed) return;
         // Something here changed what the host holds while the read was out
         // (a save, a delete, a send that consumed it): the read is stale.
-        if ((hostSeq.get(summary.draftId) ?? 0) !== seq || (before.get(summary.draftId) ?? 0) !== seq || busy.has(summary.draftId)) continue;
+        if ((hostSeq.get(summary.draftId) ?? 0) !== seq || (before.get(summary.draftId) ?? 0) !== seq || busy.has(summary.draftId) || deleting.has(summary.draftId)) continue;
         if (full.ok) drafts.getState().restore(full.value);
         else if (transient(full.status)) readFailed = true;
       }

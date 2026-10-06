@@ -32,7 +32,11 @@ export function attachmentFromDraft(a: DraftAttachment): PendingAttachment {
 }
 
 /** `Draft with 2 images`, or the first line of the text. */
-export function draftTitle(d: Pick<ComposerDraft, "text" | "attachments">): string {
+export function draftTitle(d: { text: string; attachments: readonly unknown[]; conflict?: ComposerDraft["conflict"] }): string {
+  // Emptied here, with another device's version waiting: named by that version.
+  if (d.text.length === 0 && d.attachments.length === 0 && d.conflict) {
+    return draftTitle({ text: d.conflict.other.text, attachments: d.conflict.other.attachments });
+  }
   const line = d.text.split("\n").map((l) => l.trim()).find(Boolean);
   if (line) return line;
   const n = d.attachments.length;
@@ -94,7 +98,8 @@ export function draftEntryWord(d: ComposerDraft, store: Pick<DraftStoreState, "s
 /** Nonempty drafts with no session yet: the Sessions Draft entries, newest change first. */
 export function unboundDrafts(drafts: Record<string, ComposerDraft>): ComposerDraft[] {
   return Object.values(drafts)
-    .filter((d) => d.sessionId === null && (d.text.length > 0 || d.attachments.length > 0))
+    // An emptied draft with another device's version waiting stays reachable: its Compare is still owed.
+    .filter((d) => d.sessionId === null && (d.text.length > 0 || d.attachments.length > 0 || d.conflict !== null))
     .sort((a, b) => b.editedAt - a.editedAt);
 }
 

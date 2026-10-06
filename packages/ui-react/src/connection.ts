@@ -353,8 +353,10 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
     if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
-      // A turn-scoped error means the request ran: it was accepted, then failed.
-      if (drafts.receipt(msg.requestId, msg.turnId ? "accepted" : "refused", msg.sessionId)) state.clearChatReceipt(msg.requestId);
+      // A turn-scoped error in a session means the request ran there: it was
+      // accepted, then failed. One with no session left nothing to return to,
+      // so its words come back to the draft, as a refusal's do.
+      if (drafts.receipt(msg.requestId, msg.turnId && msg.sessionId ? "accepted" : "refused", msg.sessionId)) state.clearChatReceipt(msg.requestId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
       // A refused follow-up was never pending; the composer keeps its draft.
       // A turn-scoped error is not a refusal: the follow-up's turn started

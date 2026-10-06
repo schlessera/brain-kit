@@ -471,6 +471,16 @@ describe("the host's versions", () => {
     expect(state().idFor(null)).not.toBe(state().idFor(ITHACA));
   });
 
+  test("an emptied unbound draft with another device's version waiting stays a Draft entry, named by that version", () => {
+    const { state } = store();
+    state().restore(hostDraft({ draftId: "d-letter", sessionId: null, revision: 1, text: "Letter to Penelope" }));
+    state().edit("d-letter", null, { text: "" });
+    state().conflictWith("d-letter", hostDraft({ draftId: "d-letter", sessionId: null, revision: 2, text: "Letter to Telemachus" }), true);
+    const entries = unboundDrafts(state().drafts);
+    expect(entries.map((d) => d.draftId)).toEqual(["d-letter"]);
+    expect(draftTitle(entries[0]!)).toBe("Letter to Telemachus");
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

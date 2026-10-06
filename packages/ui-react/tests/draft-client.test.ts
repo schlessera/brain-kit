@@ -18,6 +18,7 @@ function fakeHost() {
   let down = false;
   let full = false;
   let losePut = false;
+  let deleteHold: Promise<void> | null = null;
   let maxText = Infinity;
   let getHold: Promise<void> | null = null;
   let slow: Promise<void> | null = null;
@@ -51,6 +52,7 @@ function fakeHost() {
       return now && !now.deleted ? json(now) : json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
     }
     if (method === "DELETE") {
+      if (deleteHold) await deleteHold;
       if (!row) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
       if (row.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
       if (ifMatch !== row.revision) return conflict(row);
@@ -83,6 +85,7 @@ function fakeHost() {
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
     loseNextPut: () => { losePut = true; },
+    holdDeletes: () => { let release!: () => void; deleteHold = new Promise<void>((r) => { release = r; }); return () => { deleteHold = null; release(); }; },
     setMaxText: (value: number) => { maxText = value; },
     /** Hold every draft read until the returned release is called. */
     holdGets: () => { let release!: () => void; getHold = new Promise<void>((r) => { release = r; }); return () => { getHold = null; release(); }; },
@@ -403,6 +406,42 @@ describe("uncertain answers, continued", () => {
     expect(ui.connection.drafts.resend("req-1")).toBe(true);
     const sent = next.frames("chat_message").at(-1)!;
     expect(ui.stores.trackers.getState().unconfirmed[ITHACA]).toBe(sent.requestId);
+  });
+});
+
+describe("late answers", () => {
+  test("a first message that fails before any session exists gives its words back", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const first = drafts().fresh;
+    drafts().edit(first, null, { text: "Which harbour?" });
+    drafts().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: { type: "chat_message", text: "Which harbour?", requestId: "req-1", source: "typed" } }, "Which harbour?");
+    socket.deliver({ type: "error", code: "agent_error", message: "failed", requestId: "req-1", turnId: "t-1" });
+    expect(drafts().sends["req-1"]?.state).toBe("refused");
+    expect(drafts().drafts[first]?.text).toBe("Which harbour?");
+  });
+
+  test("a list taken while the reader's discarded version is being deleted does not raise it again", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const mine = drafts().idFor(ITHACA);
+    drafts().edit(mine, ITHACA, { text: "Typed here" });
+    await until(() => drafts().drafts[mine]?.host?.revision === 1);
+    host.rows.set("d-other", { draftId: "d-other", sessionId: ITHACA, revision: 1, updatedAt: 5, text: "Typed on the phone", attachments: [] });
+    const hello = () => socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    hello();
+    await until(() => drafts().drafts[mine]?.conflict !== null);
+    const release = host.holdDeletes();
+    drafts().resolve(mine, "mine");
+    await until(() => host.calls.includes("DELETE /drafts/d-other"));
+    const lists = host.calls.filter((c) => c === "GET /drafts").length;
+    hello();
+    await until(() => host.calls.filter((c) => c === "GET /drafts").length > lists);
+    await wait(100);
+    release();
+    await until(() => host.rows.get("d-other")?.deleted === true);
+    await wait(100);
+    expect(drafts().drafts[mine]?.conflict, "the choice stands").toBeNull();
   });
 });
 
