@@ -183,6 +183,22 @@ describe("recovery envelopes (rules 1, 2 and 5)", () => {
     expect(e.latest).toMatchObject({ state: "terminal", startedAt: 100, endedAt: 400 });
   });
 
+  test("a snapshot that first counts work the frames already finished does not reopen it", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(2, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success" }));
+    e = live(e, frames.info("turn-3", "req-3"), frames.result("turn-3"));
+    // The host still counts the slot as running when it first counts it.
+    e = applySnapshot(e, envelope(3, { requestId: "req-3", turnId: "turn-3", state: "running", startedAt: 5 }));
+    expect(e.latest).toMatchObject({ requestId: "req-3", state: "terminal", outcome: "success" });
+    expect(e.revision).toBe(3);
+  });
+
+  test("a restored tracker's own turn ending is proof before any read; another turn's is not", () => {
+    const stored = { requestId: "req-1", turnId: "turn-1" };
+    expect(live(emptyEvidence(3, stored), frames.result("turn-0")).latest).toBeNull();
+    const e = live(emptyEvidence(3, stored), frames.result("turn-1", "error"));
+    expect(view(e)).toMatchObject({ state: "failed", outcome: "error" });
+  });
+
   test("two different requests at one revision contradict each other", () => {
     let e = applySnapshot(emptyEvidence(), envelope(2, { requestId: "req-2", state: "queued" }));
     e = applySnapshot(e, envelope(2, { requestId: "req-other", state: "queued" }));

@@ -242,7 +242,13 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
     case "terminal": {
       const pending = event.turnId === null ? evidence.pending : evidence.pending.filter((p) => p.turnId !== event.turnId);
       const next = pending === evidence.pending ? evidence : { ...evidence, pending };
-      if (!latest || latest.state === "terminal" || latest.state === "queued") return next;
+      if (!latest) {
+        // A restored tracker's own turn ending is proof, before any read.
+        const stored = evidence.stored;
+        if (!stored || stored.turnId === null || stored.turnId !== event.turnId) return next;
+        return proven(next, { ...fresh(stored.requestId, stored.turnId, "running"), state: "terminal", outcome: event.outcome }, next.ahead);
+      }
+      if (latest.state === "terminal" || latest.state === "queued") return next;
       if (latest.turnId !== event.turnId) return next;
       return proven(next, { ...latest, state: "terminal", outcome: event.outcome, endedAt: null }, next.ahead);
     }
@@ -285,7 +291,10 @@ export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecove
     return { ...base, rolledBack: true };
   }
   if (seen === null || recovery.revision > seen || !latest) {
-    return { ...base, revision: recovery.revision, latest: recovery.latest, ahead: false, behind: null, past: latest ? superseded(evidence.past, latest, recovery.latest) : evidence.past, rolledBack: false };
+    // The first snapshot to count work the frames already showed: the
+    // request still only moves forward.
+    const next = latest && sameRequest(latest, recovery.latest) ? forward(latest, recovery.latest) : recovery.latest;
+    return { ...base, revision: recovery.revision, latest: next, ahead: false, behind: null, past: latest ? superseded(evidence.past, latest, next) : evidence.past, rolledBack: false };
   }
   // Equal revision.
   if (sameRequest(latest, recovery.latest)) {
