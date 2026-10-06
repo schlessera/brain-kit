@@ -154,6 +154,8 @@ export async function handleClientMessage(
         client: msg.client,
         source: msg.source,
         draftId: msg.draftId,
+        // Ignored entirely by a host that does not store drafts.
+        ...(msg.draftRef && host.drafts ? { draftRef: msg.draftRef } : {}),
         thinkingLevel: msg.thinkingLevel,
         requestId: msg.requestId,
         ...(msg.localExchanges?.length ? { localExchanges: msg.localExchanges } : {}),

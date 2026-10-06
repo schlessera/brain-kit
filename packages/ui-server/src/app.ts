@@ -9,6 +9,8 @@ import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
+import { createDraftRoutes } from "./routes/drafts.js";
+import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes } from "./routes/files.js";
@@ -325,7 +327,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     log: observability.logger("classification"),
     meter: observability.meter("classification"),
   });
+  // Per-session composer drafts (#979): the UI's operational database, one
+  // namespace for this host, shared by its principals.
+  const drafts = createDraftStore(db);
   const host = new WsHost({
+    drafts,
     brainPath: config.brainPath,
     registry,
     observability,
@@ -471,7 +477,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       cors({
         origin: allowedOrigins,
         allowMethods: ["GET", "POST", "PUT", "DELETE"],
-        allowHeaders: ["Content-Type"],
+        // If-Match and Idempotency-Key carry draft revisions and receipts (#979).
+        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key"],
         credentials: true,
       })
     );
@@ -543,6 +550,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
+  app.route("/api", createDraftRoutes(drafts));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));

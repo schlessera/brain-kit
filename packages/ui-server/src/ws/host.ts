@@ -15,6 +15,7 @@ import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
 import type { InboxStream } from "../inbox/stream.js";
+import type { DraftStore } from "../drafts/store.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
 import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
@@ -139,6 +140,12 @@ export interface WsHostOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * Host draft storage (#979). Present: `server_hello` advertises
+   * `sessionDrafts` and an accepted `chat_message.draftRef` consumes its
+   * revision. Absent: drafts are neither advertised nor touched.
+   */
+  drafts?: DraftStore;
 }
 
 /** The remembered per-tool auto-allow store the ws layer consults. */
@@ -191,6 +198,7 @@ export class WsHost {
   readonly isPrincipalValid: (principal: Principal) => boolean;
   readonly activity: ActivityRuntime | null;
   readonly inbox: InboxStream | null;
+  readonly drafts: DraftStore | null;
   readonly toolPermissions: ToolPermissions | null;
   /** Live-conversation orchestration, when a provider is registered. */
   readonly conversations: ConversationHost | null;
@@ -236,6 +244,7 @@ export class WsHost {
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
     this.activity = options.activity ?? null;
     this.inbox = options.inbox ?? null;
+    this.drafts = options.drafts ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
     this.conversations = options.conversationProvider

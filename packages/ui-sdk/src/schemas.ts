@@ -126,6 +126,13 @@ import type {
   TurnFailure,
   TurnRetry,
   TurnUsage,
+  Draft,
+  DraftAttachment,
+  DraftListResponse,
+  DraftRef,
+  DraftSaveResponse,
+  DraftSummary,
+  SessionDraftLimits,
 } from "./protocol.js";
 import {
   HANDOFF_MAX_CHARS,
@@ -138,6 +145,8 @@ import {
   MAX_LOCAL_ANSWER_CHARS,
   MAX_LOCAL_CONTEXT_CHARS,
   MAX_LOCAL_EXCHANGES_PER_MESSAGE,
+  DRAFT_PREVIEW_CHARS,
+  SESSION_DRAFT_LIMITS,
 } from "./protocol.js";
 
 // --- Boundary limits ---
@@ -365,6 +374,14 @@ export const clientHandoffStatusSchema = z.looseObject({
   handoffId: handoffIdSchema,
 }) satisfies z.ZodType<ClientHandoffStatus>;
 
+const revisionSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+
+/** A saved draft revision a chat message was sent from (#979). */
+export const draftRefSchema = z.looseObject({
+  draftId: id,
+  revision: revisionSchema,
+}) satisfies z.ZodType<DraftRef>;
+
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
@@ -380,6 +397,7 @@ export const clientChatMessageSchema = z
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
     handoff: handoffRequestSchema.optional(),
+    draftRef: draftRefSchema.optional(),
   })
   .refine(
     (m) =>
@@ -996,12 +1014,62 @@ const sessionScoped = {
   turnId: z.string().max(MAX_ID_CHARS).optional(),
 };
 
+const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+export const sessionDraftLimitsSchema = z.looseObject({
+  maxTextBytes: byteCount,
+  maxDraftBytes: byteCount,
+  maxDrafts: byteCount,
+  maxTotalBytes: byteCount,
+}) satisfies z.ZodType<SessionDraftLimits>;
+
 export const serverHelloSchema = z.looseObject({
   type: z.literal("server_hello"),
   protocolRev: z.number(),
   principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
+  // A malformed bound is dropped rather than costing the whole hello.
+  sessionDraftLimits: sessionDraftLimitsSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerHello>;
+
+// --- Session draft HTTP responses (#979) ---
+// For clients validating what `/api/drafts` returns; unknown keys pass.
+
+const nullableId = id.nullable();
+
+export const draftSummarySchema = z.looseObject({
+  draftId: id,
+  sessionId: nullableId,
+  revision: revisionSchema,
+  updatedAt: byteCount,
+  preview: z.string().max(DRAFT_PREVIEW_CHARS),
+  attachmentCount: z.number().int().nonnegative().max(MAX_IMAGES_PER_MESSAGE),
+}) satisfies z.ZodType<DraftSummary>;
+
+export const draftListResponseSchema = z.looseObject({
+  drafts: z.array(draftSummarySchema).max(SESSION_DRAFT_LIMITS.maxDrafts),
+}) satisfies z.ZodType<DraftListResponse>;
+
+export const draftAttachmentSchema = z.looseObject({
+  attachmentId: id,
+  mime: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
+  bytes: z.string().min(1).max(MAX_IMAGE_BASE64_CHARS).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  name: z.string().max(255).nullable(),
+}) satisfies z.ZodType<DraftAttachment>;
+
+export const draftSchema = z.looseObject({
+  draftId: id,
+  sessionId: nullableId,
+  revision: revisionSchema,
+  updatedAt: byteCount,
+  text: z.string(),
+  attachments: z.array(draftAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE),
+}) satisfies z.ZodType<Draft>;
+
+export const draftSaveResponseSchema = z.looseObject({
+  revision: revisionSchema,
+  updatedAt: byteCount,
+}) satisfies z.ZodType<DraftSaveResponse>;
 
 export const serverTextDeltaSchema = z.looseObject({
   type: z.literal("text_delta"),

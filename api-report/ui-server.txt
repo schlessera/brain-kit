@@ -76,6 +76,14 @@ export "./internal" (./src/internal.ts)
 export "./package.json" (./package.json) [asset]
 
 signatures (every public export and the types it is made of)
+  AcceptDraftInput (packages/ui-server/src/drafts/store.ts)
+    export interface AcceptDraftInput {
+        draftRef: DraftRef;
+        sessionId: string;
+        resumed: boolean;
+        requestId?: string;
+        principalId: string;
+    }
   ActionAttempt (packages/ui-server/src/inbox/notify.ts)
     export interface ActionAttempt {
         attemptId: number;
@@ -501,6 +509,24 @@ signatures (every public export and the types it is made of)
         registry?: BackendRegistry;
         observability?: Observability;
     }
+  DraftAcceptOutcome (packages/ui-server/src/drafts/store.ts)
+    export type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
+  DraftImageType (packages/ui-server/src/drafts/store.ts)
+    export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+  DraftStore (packages/ui-server/src/drafts/store.ts)
+    export interface DraftStore {
+        readonly limits: Readonly<SessionDraftLimits>;
+        list(principalId: string): DraftListResponse;
+        get(principalId: string, draftId: string): Draft;
+        save(principalId: string, draftId: string, input: SaveDraftInput): DraftSaveResponse;
+        upload(principalId: string, draftId: string, input: UploadDraftAttachmentInput): DraftAttachmentResponse;
+        remove(principalId: string, draftId: string, ifMatch: number): void;
+        bind(principalId: string, draftId: string, input: {
+            sessionId: string;
+            requestId: string;
+        }): DraftBindResponse;
+        accept(input: AcceptDraftInput): DraftAcceptOutcome;
+    }
   ENV_VARS (packages/ui-server/src/config/env.ts)
     const ENV_VARS: readonly EnvVarDescriptor[];
   EndSpanInput (packages/ui-server/src/activity/store.ts)
@@ -791,6 +817,14 @@ signatures (every public export and the types it is made of)
     const SEVERITIES: readonly ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
   SPAN_OUTCOMES (packages/ui-server/src/activity/store.ts)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
+  SaveDraftInput (packages/ui-server/src/drafts/store.ts)
+    export interface SaveDraftInput {
+        ifMatch: number;
+        idempotencyKey: string;
+        sessionId: string | null;
+        text: string;
+        attachmentIds: string[];
+    }
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
         askUserFormLimits?: AskUserFormLimits;
@@ -974,6 +1008,13 @@ signatures (every public export and the types it is made of)
         turnId?: string | null;
         providerId?: string | null;
     }
+  UploadDraftAttachmentInput (packages/ui-server/src/drafts/store.ts)
+    export interface UploadDraftAttachmentInput {
+        idempotencyKey: string;
+        mime: DraftImageType;
+        name: string | null;
+        bytes: Uint8Array;
+    }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
@@ -1015,6 +1056,7 @@ signatures (every public export and the types it is made of)
         readonly isPrincipalValid: (principal: Principal) => boolean;
         readonly activity: ActivityRuntime | null;
         readonly inbox: InboxStream | null;
+        readonly drafts: DraftStore | null;
         readonly toolPermissions: ToolPermissions | null;
         readonly conversations: ConversationHost | null;
         readonly classifier: TurnClassifier | null;
@@ -1059,6 +1101,7 @@ signatures (every public export and the types it is made of)
         inbox?: InboxStream;
         toolPermissions?: ToolPermissions;
         conversationProvider?: LiveConversationProvider;
+        drafts?: DraftStore;
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;

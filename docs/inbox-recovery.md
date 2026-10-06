@@ -27,6 +27,13 @@ Activity spans/rollups preserve observed spend; principal records preserve
 identity attribution. Other UI state, including sessions, authentication
 records and settings, travels with the same image.
 
+Session drafts (#979) are in the same image: their text, image bytes,
+revisions, tombstones, idempotency receipts and accepted-send records.
+Restore returns them to the capture point. A draft deleted or sent after the
+capture comes back, and edits made after it are lost; a device that still
+holds newer content gets a conflict or a not-found answer from the restored host
+rather than a silent overwrite.
+
 Scheduled-task proposals, operator approvals, approved snapshots, publication
 and retirement journals, cancel receipts and occurrences are in the same image.
 Export and restore refuse a task whose snapshot, fingerprint or approval no

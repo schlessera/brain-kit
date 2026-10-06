@@ -14,6 +14,7 @@ import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
+import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
 import { TurnTextCollector } from "../classification/classify-turn.js";
@@ -40,6 +41,13 @@ export function makeBridge(
   // field would attribute those to the NEXT turn.
   const turnId = turn.turnId;
   const requestId = turn.requestId;
+  // The draft this bridge's message was sent from (#979), and whether that
+  // message named an existing session. Captured like requestId: a late frame
+  // settles only this request's draft.
+  const draftRef = turn.draftRef;
+  const draftPrincipalId = turn.principalId;
+  const resumedSession = turn.sessionId !== null;
+  let draftSettled = false;
   // Same reason as turnId: the host work this bridge's turn runs, not whatever
   // the slot runs after a late frame arrives.
   const work = turn.work;
@@ -78,6 +86,10 @@ export function makeBridge(
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        if (draftRef && !draftSettled) {
+          draftSettled = true;
+          acceptDraft(host, { draftRef, sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
+        }
         if (pendingSessionNamed) {
           const named = pendingSessionNamed;
           pendingSessionNamed = undefined;

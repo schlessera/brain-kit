@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 105 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task and session-draft routes mounted by `createApp`: 111 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -58,6 +58,12 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/whatsup` | I | Stream an optional repo-local briefing script | React quick action; optional script outside the packaged CLI, not an independent service API. |
+| GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| PUT | `/api/drafts/:draftId` | S | Create or replace a draft revision with If-Match | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
@@ -138,7 +144,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 105 declared endpoints are mounted regardless of backend, renderer or
+All 111 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -153,7 +159,7 @@ Range. WebSocket upgrade requires an actual GET.
 `ALL /api/*` installs origin policy, configured CORS and authentication.
 With nonempty `ALLOWED_ORIGINS`, CORS middleware answers allowed **OPTIONS
 /api/** preflights with 204 before authentication, advertising GET, POST, PUT,
-DELETE, `Content-Type` and credentials. Origin policy runs first; a rejected
+DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` headers, and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
@@ -742,6 +748,54 @@ with nothing to reconcile. **GET
 /api/schedules/due** accepts `limit` and `cursor`; it is read-only. Cursors are
 host-signed, bound to the caller, filters and evaluation time, and expire after
 15 minutes. Responses stay under 512 KiB.
+
+## Session drafts (additive, #979)
+
+Six protected routes keep each session's unsent composer draft on the host,
+as [D52](decisions/design-kit.md#5-per-session-drafts-stored-on-the-host-storage-c)
+designed. They are advertised by `server_hello.capabilities.sessionDrafts:
+true`, with `server_hello.sessionDraftLimits` carrying the bounds; a client
+must not claim host saving without that flag. Shapes are the SDK's `Draft*`
+types in `@schlessera/brain-ui-sdk/protocol`, and the
+[integration contract](integration-contract.md#session-drafts-additive-979)
+holds the semantics. None of them sends, starts, answers or grants anything.
+Every response is `Cache-Control: no-store`. The common authentication guard
+answers first; each handler then re-resolves its principal inside its write
+transaction, after the body is read, and answers a revoked or expired one
+with the guard's 401 `{ error: "Authentication required", authRequired: true }`.
+The namespace is the host's, shared by every principal that authenticates to
+it; it is not partitioned per login.
+
+**GET /api/drafts** returns `{ drafts: DraftSummary[] }`, every live draft,
+newest change first. At most `maxDrafts` exist, so one response is the
+complete list. **GET /api/drafts/:draftId** returns the `Draft`, its images'
+decoded bytes base64-encoded in `bytes`.
+
+**PUT /api/drafts/:draftId** takes `If-Match: <revision>` (`0` creates),
+`Idempotency-Key` and the JSON body `{ sessionId: string | null, text,
+attachmentIds: string[] }`, at most 512 KiB, and answers 200 `{ revision,
+updatedAt }` only after the commit. A save cannot change `sessionId`; that
+is a conflict. An empty draft is deleted, not saved (400). **POST
+/api/drafts/:draftId/attachments** takes the raw image as the body, its type
+as `Content-Type` (`image/jpeg`, `image/png`, `image/webp` or `image/gif`;
+otherwise 415 `{ error: "unsupported_media_type" }`), an optional `name`
+query parameter and `Idempotency-Key`, and answers 200 `{ attachmentId }`.
+The bytes must carry the declared type's signature. A save lists the image
+to attach it; an upload no save lists is removed an hour later.
+**DELETE /api/drafts/:draftId** takes `If-Match` and answers 204, leaving a
+tombstone; retrying the same delete answers 204 again. **POST
+/api/drafts/:draftId/bind** takes `{ sessionId, requestId }` and answers 200
+`{ revision }` only when the host accepted a first message carrying this
+draft and that `requestId`, and it started that session.
+
+Failures are `{ error: <code>, message, ... }`: 400 `DRAFT_INVALID`;
+404 `DRAFT_NOT_FOUND`; 409 `DRAFT_CONFLICT` with `current` (the host's
+`Draft`), `DRAFT_KEY_REUSED` or `DRAFT_NOT_ACCEPTED`; 410 `DRAFT_DELETED`
+with `tombstoneRevision`; 413 `DRAFT_TOO_LARGE` and 507 `DRAFT_CAPACITY`,
+each with `limit` and `bound`; 428 `DRAFT_PRECONDITION_REQUIRED` when
+`If-Match` is missing. Bodies are counted as they stream, whatever
+`Content-Length` says. A refused or failed request leaves the committed
+draft unchanged.
 
 ## Imported track UI transport (#526)
 

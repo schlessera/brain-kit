@@ -17,6 +17,7 @@ import type {
   AskUserQuestion,
   ChatImageAttachment,
   ClientEnvironment,
+  DraftRef,
   MessageSource,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -69,6 +70,8 @@ export interface QueuedFollowUp {
   source?: MessageSource;
   thinkingLevel?: ThinkingLevel;
   requestId?: string;
+  /** The saved draft revision this message was sent from (#979). */
+  draftRef?: DraftRef;
   /** Queue-owned authorization lease, transferred to the runner on dequeue. */
   releaseAuthorization: () => void;
 }
@@ -109,6 +112,8 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
 export interface RunningTurn {
   /** Chat correlation for the current turn; replaced on dequeue. */
   requestId?: string;
+  /** The draft revision the current turn's message was sent from; replaced on dequeue. */
+  draftRef?: DraftRef;
   /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
   work?: HostWork;
   /** Principal responsible for the CURRENT turn in this session slot. */

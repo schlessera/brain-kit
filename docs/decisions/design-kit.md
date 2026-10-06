@@ -2386,7 +2386,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:276`), so
+  `packages/ui-server/src/ws/run-session.ts:282`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -4901,7 +4901,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1205-1226`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1363-1384`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -5132,6 +5132,18 @@ current principal and honours revocation, with no new role and no
 cross-root access. Drafts and their attachment bytes live in the
 operational store, inside the generic backup set, and never in `brain.db`,
 canonical Markdown or the tracker record.
+
+> **2026-10-06 — Implemented by #979, with one placement change.** The
+> limits object above travels as `server_hello.sessionDraftLimits`, beside
+> `capabilities.sessionDrafts: true`, not inside `capabilities`: every
+> shipped client validates `capabilities` as a string-to-boolean record and
+> would drop the whole hello over an object value, which an additive change
+> may not cause. The routes also answer 404 `DRAFT_NOT_FOUND`, 400
+> `DRAFT_INVALID`, 428 `DRAFT_PRECONDITION_REQUIRED`, 409 `DRAFT_KEY_REUSED`
+> (one key, a different request) and 409 `DRAFT_NOT_ACCEPTED` (a bind without
+> an accepted first message), and 413/507 bodies name their `bound`. The
+> [integration contract](../integration-contract.md#session-drafts-additive-979)
+> is the reference.
 
 ### 7. What the kit gains
 

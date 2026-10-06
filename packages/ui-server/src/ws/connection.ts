@@ -105,7 +105,11 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,
           ...(host.conversations ? { liveConversation: true } : {}),
+          ...(host.drafts ? { sessionDrafts: true } : {}),
         },
+        // Beside `capabilities`, whose values every shipped client parses
+        // as booleans (#979).
+        ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
       });
 
       // Snapshot-on-connect only for the single-running-session case (backward

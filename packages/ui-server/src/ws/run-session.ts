@@ -3,6 +3,7 @@ import type {
   BillingMode,
   ChatImageAttachment,
   ClientEnvironment,
+  DraftRef,
   LocalExchange,
   MessageSource,
   PricingRoute,
@@ -15,6 +16,7 @@ import { makeBridge, emitTurnError } from "./bridge.js";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
 import { withLocalContext } from "./local-exchanges.js";
+import { acceptDraft } from "./drafts.js";
 import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
@@ -84,6 +86,8 @@ type RunSessionInput = {
   requestId?: string;
   /** Client correlation id for a new conversation; echoed on session_info. */
   draftId?: string;
+  /** The saved draft revision this message was sent from (#979). */
+  draftRef?: DraftRef;
   /**
    * Local exchanges the draft conversation holds (#582). Recorded against
    * the session once `session_info` names it, and carried on its first
@@ -244,6 +248,7 @@ async function runRetainedSession(
     ...(initial.source ? { source: initial.source } : {}),
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
     ...(initial.requestId ? { requestId: initial.requestId } : {}),
+    ...(initial.draftRef ? { draftRef: initial.draftRef } : {}),
     ...(initial.work ? { work: initial.work } : {}),
     releaseAuthorization: () => {
       initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
@@ -266,8 +271,9 @@ async function runRetainedSession(
         }
         continue;
       }
-      const { text, attachments, files, client, source, thinkingLevel, requestId, work } = next;
+      const { text, attachments, files, client, source, thinkingLevel, requestId, draftRef, work } = next;
       turn.requestId = requestId;
+      turn.draftRef = draftRef;
       turn.work = work;
       next = null;
 
@@ -589,6 +595,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   host.sendToClients(
     withSessionId({ type: "status", status: "queued", ...(entry.requestId ? { requestId: entry.requestId } : {}), ...(detail ? { detail } : {}) }, sessionId)
   );
+  // Queued is accepted: the sent revision of its draft is consumed now.
+  acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
 }
 
 /** Dispatch a chat_message: follow-up to a running session, or a new session. */
@@ -607,6 +615,8 @@ export async function handleChatMessage(
     thinkingLevel?: ThinkingLevel;
     requestId?: string;
     draftId?: string;
+    /** Only present when the host stores drafts (#979). */
+    draftRef?: DraftRef;
     localExchanges?: LocalExchange[];
     replayPrompt?: string;
     isRetry?: boolean;
@@ -627,6 +637,7 @@ export async function handleChatMessage(
     thinkingLevel,
     requestId,
     draftId,
+    draftRef,
     localExchanges,
     work,
   } = msg;
@@ -664,6 +675,7 @@ export async function handleChatMessage(
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         ...(requestId ? { requestId } : {}),
+        ...(draftRef ? { draftRef } : {}),
         ...(work ? { work } : {}),
         releaseAuthorization: leaseFor(authorization, work),
       });
@@ -678,7 +690,7 @@ export async function handleChatMessage(
     // joins a running turn, and nothing joins a running host-work turn: each
     // needs its own turn identity to correlate its result (and keep its own
     // posture), and a follow-up would merge two requests (#957).
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && work === undefined && runningTurn.work === undefined) {
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
@@ -714,6 +726,7 @@ export async function handleChatMessage(
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
         ...(requestId ? { requestId } : {}),
+        ...(draftRef ? { draftRef } : {}),
         ...(work ? { work } : {}),
         releaseAuthorization: leaseFor(authorization, work),
       });
@@ -754,6 +767,7 @@ export async function handleChatMessage(
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
+    ...(draftRef ? { draftRef } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
     ...(!sessionId && msg.handoffHooks ? { handoffHooks: msg.handoffHooks } : {}),
     ...(work ? { work } : {}),
