@@ -158,7 +158,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const sendState = useRootStore("drafts", (s) => pendingSend ? Object.values(s.sends).find((x) => (x.origin ?? x.requestId) === pendingSend.requestId) : undefined);
   // A send of this view still unanswered: another would start a second
   // conversation, or repeat this one, so it waits (#942).
-  const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.state === "pending" && x.sessionId === sessionId && (sessionId !== null || x.draftId === draftId)));
+  // A new chat's first message held for review waits too: another send
+  // from the same new chat could start a second conversation beside it.
+  const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.sessionId === sessionId
+    && (x.state === "pending" || (sessionId === null && x.state === "unconfirmed"))
+    && (sessionId !== null || x.draftId === draftId)));
   useEffect(() => {
     // Naming our accepted new conversation is not a conversation switch.
     // Carry a newer choice to its identity; consume only the sent choice.

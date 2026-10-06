@@ -241,6 +241,25 @@ describe("orphans", () => {
   });
 });
 
+describe("capacity", () => {
+  test("a send that consumes a saved draft frees a place for one refused as full", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const sent = drafts().idFor("odysseus-raft");
+    drafts().edit(sent, "odysseus-raft", { text: "Lash the beams" });
+    await until(() => host.rows.get(sent)?.revision === 1);
+    host.setFull(true);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => drafts().drafts[id]?.failure?.kind === "full");
+    host.setFull(false);
+    const ref = drafts().beginSend({ requestId: "req-raft", draftId: sent, sessionId: "odysseus-raft", text: "Lash the beams", attachments: [], message: { type: "chat_message", text: "Lash the beams", sessionId: "odysseus-raft", requestId: "req-raft", source: "typed" } }, "Lash the beams");
+    expect(ref).toEqual({ draftId: sent, revision: 1 });
+    socket.deliver({ type: "status", status: "queued", sessionId: "odysseus-raft", requestId: "req-raft" });
+    await until(() => host.rows.get(id)?.revision === 1, 4_000);
+  });
+});
+
 describe("restoring", () => {
   test("a hello lists the host's drafts and restores them; a dirty one is never overwritten", async () => {
     const host = fakeHost();

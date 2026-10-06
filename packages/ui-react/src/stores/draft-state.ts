@@ -370,6 +370,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // that session's now, whatever view the reader has moved on to.
         const session = d.sessionId ?? acceptedSessionId ?? null;
         const wasConsumed = send.draftRef !== null && d.host?.revision === send.draftRef.revision;
+        if (wasConsumed && d.savingSince !== null) {
+          // A save is out: the host may have stored a newer revision before
+          // it accepted the message, and kept it. Its answer decides; a new
+          // chat's draft keeps the proof to bind it if the host kept it.
+          consumed.add(d.draftId);
+          put({ ...d, sessionId: session, ...(d.sessionId === null && session !== null ? { bind: { sessionId: session, requestId } } : {}) });
+          return;
+        }
         if (wasConsumed) {
           consumed.add(d.draftId);
           if (!hasContent(d) && !held(d.draftId)) { drop(d.draftId); return; }
@@ -474,6 +482,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const listed = new Set(copy.attachmentIds);
         const kept = new Map([...uploads].filter(([, id]) => listed.has(id)));
         for (const [a, id] of d.uploads) if (!kept.has(a) && d.attachments.includes(a) && !listed.has(id)) kept.set(a, id);
+        // A revision acknowledged after this page's send was accepted is the
+        // host's newer one: that send did not consume it.
+        if (copy.revision > (d.host?.revision ?? 0)) consumed.delete(draftId);
         put({ ...d, host: copy, uploads: kept, failure: null, savingSince: null });
         // Acknowledged unbound after this page's send bound the draft to a
         // session: no message named this revision, so nothing can bind it.

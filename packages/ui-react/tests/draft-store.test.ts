@@ -286,6 +286,24 @@ describe("the host's versions", () => {
     expect(now.draftId).not.toBe(id);
   });
 
+  test("accepted while a newer save is out: the host's answer to that save decides consumption", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const first = state().fresh;
+    state().edit(first, null, { text: "Which harbour?" });
+    state().saved(first, { revision: 1, edit: state().drafts[first]!.edit, sessionId: null, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: message("Which harbour?") }, "Which harbour?");
+    state().edit(first, null, { text: "And the fees" });
+    state().saving(first, 5);
+    state().accepted("req-1", ITHACA);
+    // Still the same id: the save that is out may have been kept.
+    expect(state().drafts[first]).toMatchObject({ sessionId: ITHACA, bind: { sessionId: ITHACA, requestId: "req-1" } });
+    // It was: revision 2 lives on the host, unbound until the bind.
+    state().saved(first, { revision: 2, edit: state().drafts[first]!.edit, sessionId: null, attachmentIds: [], updatedAt: 2 }, new Map());
+    expect(state().drafts[first]).toMatchObject({ text: "And the fees", sessionId: ITHACA, host: { revision: 2 } });
+    expect(state().orphans).toEqual([]);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

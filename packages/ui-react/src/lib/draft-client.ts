@@ -228,6 +228,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const result = await api.list();
       if (!result.ok || disposed) return;
       const listed = new Map(result.value.drafts.map((s) => [s.draftId, s]));
+      let freed = false;
       for (const summary of result.value.drafts) {
         const local = drafts.getState().drafts[summary.draftId];
         if (local?.host && local.host.revision >= summary.revision) continue;
@@ -242,7 +243,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         if (!d.host || listed.has(d.draftId) || busy.has(d.draftId)) continue;
         if ((hostSeq.get(d.draftId) ?? 0) !== (before.get(d.draftId) ?? 0)) continue;
         drafts.getState().hostGone(d.draftId);
+        freed = true;
       }
+      // A draft deleted or sent elsewhere freed a place on the host.
+      if (freed) retryFull();
     } finally {
       listing = false;
     }
@@ -370,6 +374,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (state === "accepted") {
         drafts.getState().accepted(requestId, sessionId);
         acceptedTracks(send, sessionId);
+        // Consuming a saved draft frees a place on the host.
+        if (send.draftRef) retryFull();
         // Accepted after all: its rows come back before the turn's frames do.
         if (send.state === "unconfirmed") restoreRows(send, sessionId ?? send.sessionId);
       } else drafts.getState().refused(requestId);
@@ -389,10 +395,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const correlation = next.sessionId ? undefined : chat.getState().startDraftTurn();
       const message = { ...next.message, ...(correlation ? { draftId: correlation } : {}) };
       const sent = options.send(message);
-      if (!sent) {
-        drafts.getState().unconfirmed("disconnected");
-        withdraw(drafts.getState().sends[nextRequestId] ?? next);
-      }
+      // Nothing left: like a closed socket, every send still waiting is held.
+      if (!sent) holdPending("disconnected");
       return sent;
     },
 

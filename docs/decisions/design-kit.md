@@ -5170,7 +5170,9 @@ question-answer rules are independent.
 >   the host.
 > - A new chat's unconfirmed first message has no session to be found in,
 >   so its review block is held in the new-chat view whichever new chat is
->   open; its Edit reopens that message's own draft there.
+>   open; Send again and Edit first open that message's own new chat, as New
+>   chat does. Until it is resolved, that new chat sends nothing else, since
+>   a second first message would start a second conversation beside it.
 > - In empty Chat the pane's `New conversation` stays `aria-disabled` (§2);
 >   a nonempty new-chat draft reaches a fresh one through the palette row.
 

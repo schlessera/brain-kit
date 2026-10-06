@@ -5381,6 +5381,21 @@ describe("one-message composer effort", () => {
     } finally { h.done(); }
   });
 
+  test("a new chat whose first message is held for review sends nothing more until it is resolved", async () => {
+    const h = await mounted();
+    try {
+      h.type("Which harbour?"); h.send();
+      act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
+      act(() => h.root.stores.connection.getState().setWsStatus("connected"));
+      h.type("And the fees"); h.send();
+      expect(h.sent, "a second first message would start a second conversation").toHaveLength(1);
+      act(() => h.root.connection.drafts.edit(h.sent[0].requestId!));
+      expect(h.field().value).toBe("Which harbour?\nAnd the fees");
+      h.send();
+      expect(h.sent).toHaveLength(2);
+    } finally { h.done(); }
+  });
+
   test("a held send accepted after Send again consumes the effort it carried", async () => {
     const h = await mounted();
     try {
