@@ -205,6 +205,20 @@ test("another client's follow-up with files is read again from history once its 
   expect(root.stores.followUp.getState().pending[S]).toBeUndefined();
 });
 
+test("the history refresh waits until nothing else is queued in the session", () => {
+  const { socket } = busy();
+  const resumes = () => socket.sent.map((raw) => JSON.parse(raw)).filter((f) => f.type === "session_resume");
+  const files = { id: "fu-log", requestId: "req-log", text: "", fileCount: 1, queuedAt: 3 };
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag], started: { ...files, turnId: "turn-2" } });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  // `bag` is about to start: a replay now could land over its live frames.
+  expect(resumes()).toEqual([]);
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], started: { ...bag, turnId: "turn-3" } });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-3", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  expect(resumes()).toEqual([{ type: "session_resume", sessionId: S }]);
+});
+
 test("each session whose started follow-up arrived incomplete reads its own history again", () => {
   const { root, socket } = busy();
   const S2 = "sess-scheria";

@@ -525,7 +525,11 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   function resyncIfNeeded(sessionId: string | null) {
-    if (sessionId && followUpRefresh.delete(sessionId)) {
+    // Only once nothing else is waiting in the session: a replay that lands
+    // after the next queued turn has started would replace its live frames.
+    // The last turn's end takes the refresh instead.
+    const draining = sessionId !== null && (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0;
+    if (sessionId && !draining && followUpRefresh.delete(sessionId)) {
       if (resyncSessionId === sessionId) resyncSessionId = null;
       wsClient?.send({ type: "session_resume", sessionId });
       return;

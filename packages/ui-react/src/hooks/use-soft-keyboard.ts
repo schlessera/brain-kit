@@ -23,6 +23,9 @@ export const KEYBOARD_MIN_PX = 120;
 
 const COMPOSER = "textarea[data-composer]";
 
+/** How often a focused composer is re-read for changes no event reports. */
+const POLL_MS = 250;
+
 function read(): SoftKeyboard {
   const field = document.activeElement;
   if (!(field instanceof HTMLTextAreaElement) || !field.matches(COMPOSER)) return { open: false, composerLines: 1 };
@@ -46,14 +49,31 @@ export function useSoftKeyboard(): SoftKeyboard {
     // Focus moves before the keyboard animates in, so the viewport's resize
     // is what settles it; input catches a composer growing past a line.
     // Focus events are read once the focus has actually moved.
-    const later = () => setTimeout(update, 0);
+    // While the composer holds focus, its value can also change with no
+    // event at all: an accepted send clears it, a suggestion fills it. A
+    // light poll catches those, only while it is focused.
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let disposed = false;
+    const later = () =>
+      setTimeout(() => {
+        if (disposed) return;
+        update();
+        const focused = document.activeElement instanceof HTMLTextAreaElement && document.activeElement.matches(COMPOSER);
+        if (focused && poll === undefined) poll = setInterval(update, POLL_MS);
+        if (!focused && poll !== undefined) {
+          clearInterval(poll);
+          poll = undefined;
+        }
+      }, 0);
     const viewport = window.visualViewport;
     document.addEventListener("focusin", later);
     document.addEventListener("focusout", later);
     document.addEventListener("input", update);
     viewport?.addEventListener("resize", update);
-    update();
+    later();
     return () => {
+      disposed = true;
+      if (poll !== undefined) clearInterval(poll);
       document.removeEventListener("focusin", later);
       document.removeEventListener("focusout", later);
       document.removeEventListener("input", update);
