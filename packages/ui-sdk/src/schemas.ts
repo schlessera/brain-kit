@@ -92,6 +92,10 @@ import type {
   ServerToolUseComplete,
   ServerToolUseStart,
   ClientAskUserCancel,
+  ClientAskAnswerStatus,
+  ClientPing,
+  ServerAskAnswerReceipt,
+  ServerPong,
   ClientAskUserListResponse,
   ClientAskUserRankResponse,
   ClientAskUserFormResponse,
@@ -437,9 +441,16 @@ const askUserAnnotationSchema = z.looseObject({
   notes: z.string().max(MAX_ANSWER_CHARS).optional(),
 }) satisfies z.ZodType<AskUserAnnotation>;
 
+/** Rev-5 delivery fields shared by the four ask answers (#910). */
+const askAnswerBinding = {
+  submissionId: id.optional(),
+  sessionId: id.optional(),
+};
+
 export const clientAskUserResponseSchema = z.looseObject({
   type: z.literal("ask_user_response"),
   requestId: id,
+  ...askAnswerBinding,
   answers: boundedRecord(
     z.string().max(MAX_ANSWER_CHARS),
     z.string().max(MAX_ANSWER_CHARS),
@@ -471,6 +482,7 @@ export const clientAskUserCancelSchema = z.looseObject({
 export const clientAskUserListResponseSchema = z.looseObject({
   type: z.literal("ask_user_list_response"),
   requestId: id,
+  ...askAnswerBinding,
   answers: boundedRecord(
     z.string().max(MAX_ANSWER_CHARS),
     z.string().max(MAX_ANSWER_CHARS),
@@ -489,6 +501,7 @@ export const clientAskUserListResponseSchema = z.looseObject({
 
 export const clientAskUserFormResponseSchema = z.looseObject({
   type: z.literal("ask_user_form_response"), requestId: id,
+  ...askAnswerBinding,
   answers: z.custom<AskUserFormAnswers>((value) => z.record(z.string().min(1).max(64), ASK_USER_FORM_ANSWER_SCHEMA).safeParse(value).success),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserFormResponse>;
@@ -497,10 +510,23 @@ export const clientAskUserFormResponseSchema = z.looseObject({
 export const clientAskUserRankResponseSchema = z.looseObject({
   type: z.literal("ask_user_rank_response"),
   requestId: id,
+  ...askAnswerBinding,
   order: z.array(z.string().min(1).max(64)).min(2).max(15),
   unchanged: z.boolean(),
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientAskUserRankResponse>;
+
+export const clientAskAnswerStatusSchema = z.looseObject({
+  type: z.literal("ask_answer_status"),
+  requestId: id,
+  submissionId: id,
+  sessionId: id.optional(),
+}) satisfies z.ZodType<ClientAskAnswerStatus>;
+
+export const clientPingSchema = z.looseObject({
+  type: z.literal("ping"),
+  probeId: id,
+}) satisfies z.ZodType<ClientPing>;
 
 
 const geoCoordsSchema = z.looseObject({
@@ -776,6 +802,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientAskUserListResponseSchema,
   clientAskUserRankResponseSchema,
   clientAskUserFormResponseSchema,
+  clientAskAnswerStatusSchema,
+  clientPingSchema,
   clientLocationResponseSchema,
   clientLocationErrorSchema,
   clientMaskResponseSchema,
@@ -971,6 +999,7 @@ const sessionScoped = {
 export const serverHelloSchema = z.looseObject({
   type: z.literal("server_hello"),
   protocolRev: z.number(),
+  principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
 }) satisfies z.ZodType<ServerHello>;
 
@@ -1271,6 +1300,20 @@ export const serverHandoffReceiptSchema = z.looseObject({
   state: z.enum(["created", "pending", "none"]),
   sessionId: id.optional(),
 }) satisfies z.ZodType<ServerHandoffReceipt>;
+export const serverAskAnswerReceiptSchema = z.looseObject({
+  type: z.literal("ask_answer_receipt"),
+  ...sessionScoped,
+  requestId: id,
+  submissionId: id,
+  state: z.enum(["accepted", "pending", "closed"]),
+  // An unknown future reason must not drop the receipt: it still says closed.
+  reason: z.enum(["ended", "cancelled", "answered_elsewhere", "not_recognized", "refused"]).optional().catch(undefined),
+}) satisfies z.ZodType<ServerAskAnswerReceipt>;
+
+export const serverPongSchema = z.looseObject({
+  type: z.literal("pong"),
+  probeId: id,
+}) satisfies z.ZodType<ServerPong>;
 
 // Durable server projections preserve additive fields; they are display data,
 // never fed to effect application without the strict submission validators.
@@ -1521,6 +1564,8 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverAskUserListRequestSchema,
   serverAskUserRankRequestSchema,
   serverAskUserFormRequestSchema,
+  serverAskAnswerReceiptSchema,
+  serverPongSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
   serverActivitySnapshotSchema,

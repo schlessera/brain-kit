@@ -126,7 +126,9 @@ describe.skipIf(!executablePath)("mounted public chat decision focus", () => {
     } finally { await page.context().close(); }
   });
 
-  for (const prompt of ["list", "rank", "form"] as const) test(`${prompt} submit focuses the real composer after the backend receives its answer`, async () => {
+  // An answer's focus stays on its delivery status (#910, design §6), which
+  // supersedes D37 §6's composer handoff for the four ask cards.
+  for (const prompt of ["list", "rank", "form"] as const) test(`${prompt} submit moves focus to the answer's status, which reads Answered once the backend has it`, async () => {
     const page = await open(prompt);
     try {
       if (prompt === "list") {
@@ -138,7 +140,14 @@ describe.skipIf(!executablePath)("mounted public chat decision focus", () => {
         await page.getByRole("textbox", { name: "Supply note", exact: true }).fill(content);
         await page.getByRole("button", { name: "Submit", exact: true }).click();
       }
-      await completed(page, prompt);
+      await page.locator('[data-answer-delivery="answered"]').waitFor();
+      await page.getByText(`Completed ${prompt}`, { exact: true }).first().waitFor();
+      const status = await page.evaluate(() => ({
+        heading: document.activeElement?.tagName,
+        text: document.activeElement?.textContent,
+        inStatus: !!document.activeElement?.closest("[data-answer-delivery]"),
+      }));
+      expect(status).toEqual({ heading: "H4", text: "ANSWERED", inStatus: true });
       const answer = replies.get(prompt);
       expect(answer).toBeDefined();
       if (prompt === "list") expect(answer).toMatchObject({ answers: { rope: "Pack" } });

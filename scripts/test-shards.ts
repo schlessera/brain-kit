@@ -9,6 +9,8 @@
  * External speech runtime builds packages and launches Chrome the same way:
  * 62.43s on Depot run h1hfj72q5h (test shard 2), recorded in #1003. The two
  * Claude follow-up suites are from the same PR's CI run (bzvr9l77k7).
+ * Answer delivery's browser suite (#910) is a local measurement until CI
+ * re-measures it: 87.54s, including its 35s Liveness B blackhole case.
  * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
  * New/renamed tests are discovered on every run and receive the small-file cost.
  */

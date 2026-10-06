@@ -9,8 +9,12 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 import { DISMISSED_NOTE } from "./ask-user-card.js";
+import { formReaskMessage } from "./reask-text.js";
+import type { RecordHead } from "./answer-text.js";
 
 export function AskUserFormExchangeCard(p: {
+  /** The record's head while its answer is unconfirmed (#910). */
+  record?: RecordHead;
   requestId: string;
   form: AskUserFormSpec;
   answers?: AskUserFormAnswers;
@@ -37,6 +41,8 @@ export function AskUserFormExchangeCard(p: {
       <AskUserFormCard
         {...base}
         state="answered"
+        recordHead={p.record?.head}
+        recordIcon={p.record?.icon}
         answers={p.answers}
         answerMeta={`you answered${p.answeredAt === undefined ? "" : ` · ${formatRelativeTime(p.answeredAt)}`}`}
       />
@@ -58,12 +64,12 @@ export function AskUserFormExchangeCard(p: {
       prompt={`${root.config.assistantName} needs your input`}
       onSubmit={(submitted) => {
         const result = askUserFormPayload(p.form, submitted);
-        document.querySelector<HTMLElement>("textarea[data-composer]")?.focus();
         if (reopened) {
-          p.onReask?.(
-            `Answering “${p.form.prompt}”: ${JSON.stringify(result)}`,
-          );
+          // A reask is a new message: the reader continues in the composer.
+          document.querySelector<HTMLElement>("textarea[data-composer]")?.focus();
+          p.onReask?.(formReaskMessage(p.form, result));
           setReopened(false);
+          // An answer: focus moves to its delivery status (#910, design §6).
         } else p.onSubmit?.(p.requestId, result.answers, result.visibleNodes);
       }}
       onDismiss={() =>

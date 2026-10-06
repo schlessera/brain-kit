@@ -4,6 +4,8 @@ import { createBrainApi, type BrainApi } from "./lib/api-client.js";
 import { apiBaseFor, getBackendUrlFor, getWsUrlFor } from "./lib/backend.js";
 import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient } from "./connection.js";
+import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
+import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
 
 export interface BrainUiRootOptions {
   config?: Partial<BrainUiConfig>;
@@ -13,6 +15,14 @@ export interface BrainUiRootOptions {
   storagePrefix?: string;
   /** null disables persistence (SSR, stories, tests). */
   storage?: Storage | null;
+  /**
+   * @internal Where submitted ask answers wait (#910). Defaults to IndexedDB
+   * under the storage prefix; to memory when `storage` is null; to none when
+   * the page has no IndexedDB, so answers cannot be queued and say so.
+   */
+  answerStorage?: AnswerStorage | null;
+  /** @internal Cross-tab coordination for the answer queue. */
+  answerTabs?: TabCoordinator | null;
 }
 
 /** Dependencies the connection closes over; none are resolved from React. */
@@ -28,11 +38,16 @@ export interface BrainUiServices {
   wsUrl: () => string;
   /** Mounted connectivity poller for this root, if any. */
   recheckVpn: () => void;
+  /** Answer-queue dependencies, resolved once for this root. */
+  answerStorage: AnswerStorage | null;
+  answerTabs: TabCoordinator | null;
   registerVpnRecheck: (callback: () => void) => () => void;
 }
 
 export interface BrainUiRoot extends BrainUiServices {
   connection: ReturnType<typeof createWebSocketClient>;
+  /** Submitted ask answers, from Submit to the host's receipt (#910). */
+  answers: ReturnType<typeof createWebSocketClient>["answers"];
   dispose: () => void;
 }
 
@@ -59,7 +74,22 @@ export function createRoot(
     storageKey: (key) => prefix ? `${prefix}:${key}` : key,
   });
   let vpnRecheck: (() => void) | null = null;
+  // A root built without persistence (stories, tests, SSR) keeps submitted
+  // answers in memory: receipts and live-page recovery still work, a reload
+  // does not survive. A real page whose IndexedDB is missing gets no store
+  // at all, and its cards say an answer cannot be saved, rather than
+  // promising a durability they lack.
+  const persistent = options.storage !== null && typeof indexedDB !== "undefined";
+  const answerStorage = options.answerStorage !== undefined
+    ? options.answerStorage
+    : options.storage === null
+      ? createMemoryAnswerStorage()
+      : persistent ? createIndexedDbAnswerStorage(`${prefix}:answers`) : null;
+  const answerTabs = options.answerTabs !== undefined
+    ? options.answerTabs
+    : persistent ? createBrowserTabCoordinator(`${prefix}:answers`) : null;
   const services: BrainUiServices = {
+    answerStorage, answerTabs,
     config, api, request, stores, renderers, asr, apiBase,
     backendUrl: (path) => getBackendUrlFor(config, path),
     wsUrl: () => getWsUrlFor(config),
@@ -72,8 +102,10 @@ export function createRoot(
   const connection = createWebSocketClient(services);
   return Object.assign(services, {
     connection,
+    answers: connection.answers,
     dispose() {
       connection.dispose();
+      answerTabs?.dispose();
       stores.activity.dispose();
       stores.graph.dispose();
       stores.file.getState().reset();

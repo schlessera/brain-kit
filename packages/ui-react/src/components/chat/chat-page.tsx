@@ -4,6 +4,7 @@ import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } f
 import { ArrowDown, ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
+import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
 import { MaskEditor } from "../images/mask-editor.js";
@@ -179,40 +180,60 @@ export function ChatPage() {
     [send, sessionId, root]
   );
 
+  /**
+   * Every ask answer goes to the answer queue (#910), never straight to the
+   * socket: it is saved on this device first, and the card says "answered"
+   * only when the host's receipt does. The binding is the exchange's own:
+   * this session, and the turn its request frame named.
+   */
+  const submitAnswer = useCallback(
+    (requestId: string, payload: AnswerPayload) => {
+      const chat = root.stores.chat.getState();
+      const buffer = sessionId === null ? chat.draft : chat.buffers[sessionId];
+      const exchange = buffer?.messages
+        .flatMap((m) => m.askUserExchanges ?? [])
+        .find((e) => e.requestId === requestId);
+      void root.answers.submit({
+        requestId,
+        sessionId,
+        ...(exchange?.turnId ? { turnId: exchange.turnId } : {}),
+        payload,
+      });
+    },
+    [sessionId, root]
+  );
+
   const handleAskUserSubmit = useCallback(
     (
       requestId: string,
       answers: Record<string, string>,
       annotations?: Record<string, AskUserAnnotation>
-    ) => {
-      root.stores.chat.getState()
-        .submitAskUserAnswers(sessionId, requestId, answers, annotations);
-      send({ type: "ask_user_response", requestId, answers, annotations });
-    },
-    [send, sessionId, root]
+    ) => submitAnswer(requestId, { kind: "ask_user", answers, ...(annotations ? { annotations } : {}) }),
+    [submitAnswer]
   );
 
   const handleAskUserListSubmit = useCallback(
-    (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => {
-      root.stores.chat.getState().submitAskUserListAnswers(sessionId, requestId, answers, notes);
-      send({ type: "ask_user_list_response", requestId, answers, ...(notes ? { notes } : {}) });
-    },
-    [send, sessionId, root]
+    (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) =>
+      submitAnswer(requestId, { kind: "ask_user_list", answers, ...(notes ? { notes } : {}) }),
+    [submitAnswer]
   );
 
-  const handleAskUserRankSubmit = useCallback((requestId: string, order: string[], unchanged: boolean) => {
-    root.stores.chat.getState().submitAskUserRankOrder(sessionId, requestId, order, unchanged);
-    send({ type: "ask_user_rank_response", requestId, order, unchanged });
-  }, [root, sessionId, send]);
+  const handleAskUserRankSubmit = useCallback(
+    (requestId: string, order: string[], unchanged: boolean) =>
+      submitAnswer(requestId, { kind: "ask_user_rank", order, unchanged }),
+    [submitAnswer]
+  );
 
-  const handleAskUserFormSubmit = useCallback((requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) => {
-    root.stores.chat.getState().submitAskUserFormAnswers(sessionId, requestId, answers, visibleNodes);
-    send({ type: "ask_user_form_response", requestId, answers });
-  }, [root, sessionId, send]);
+  const handleAskUserFormSubmit = useCallback(
+    (requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) =>
+      submitAnswer(requestId, { kind: "ask_user_form", answers, visibleNodes }),
+    [submitAnswer]
+  );
 
   const handleAskUserCancel = useCallback(
     (requestId: string) => {
       root.stores.chat.getState().cancelAskUser(sessionId, requestId);
+      root.answers.dismissed(requestId);
       send({ type: "ask_user_cancel", requestId, reason: "User dismissed" });
     },
     [send, sessionId, root]

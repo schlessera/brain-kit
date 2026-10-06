@@ -1833,7 +1833,7 @@ Revision negotiation determines which rules apply to a connection; incrementing
 the revision does not waive compatibility guarantees or semantic versioning.
 The legacy tolerance and validation policies below remain binding.
 
-`PROTOCOL_REV` is **4**. A client announces what it speaks with a `client_hello`
+`PROTOCOL_REV` is **5**. A client announces what it speaks with a `client_hello`
 as its first frame; a host that does not understand the frame ignores it, and a
 client that never sends one is treated as rev 2.
 
@@ -1848,6 +1848,11 @@ applies rev-3 rules only to connections that declared rev 3:
 - **rev 4** — `message_blocks` and the `blocks` field on history messages
   (additive, see below). Nothing is required of a client; one that does not
   know the frame drops it and renders the markdown it already has.
+- **rev 5** — ask-answer receipts and liveness probes (see "Interactive answer
+  receipts" below). This is the one rule that does **not** follow the declared
+  revision: a host that advertises `askReceipts` refuses every ask answer
+  without a `submissionId`, whatever the client declared (pre-1.0 break,
+  #910). Nothing else changes for a client that declares an older revision.
 
 A host must never REQUIRE `client_hello`, and must not refuse a client
 declaring a revision it does not recognise — it holds it to the newest rules it
@@ -2680,6 +2685,108 @@ invalid one closes the epoch. `assertLiveConversationProvider` and
 `assertLiveConversationSession` are the registration checks. No shipped
 adapter, client capture/playback or provider network call is part of this
 contract.
+
+### Interactive answer receipts (breaking, #910)
+
+```
+server_hello.capabilities.askReceipts: true      // this host requires and sends receipts
+server_hello.capabilities.liveness: true         // this host answers ping
+server_hello.principalKey?: string               // opaque, stable per principal
+client_hello.capabilities.askReceipts: true      // this client reads receipts
+
+client → ask_user_response | ask_user_list_response
+       | ask_user_rank_response | ask_user_form_response
+         + { submissionId: string, turnId: string, sessionId?: string }
+client → { type: "ask_answer_status", requestId, submissionId, sessionId? }
+server → { type: "ask_answer_receipt", requestId, submissionId,
+           state: "accepted" | "pending" | "closed",
+           reason?: "ended" | "cancelled" | "answered_elsewhere"
+                  | "not_recognized" | "refused",
+           sessionId?, turnId? }
+client → { type: "ping", probeId }      server → { type: "pong", probeId }
+error.code "ASK_ANSWER_UPDATE_REQUIRED"   // an ask answer without submissionId
+```
+
+This section covers the answers to the four ask tools (`ask_user`,
+`ask_user_list`, `ask_user_rank`, `ask_user_form`) and nothing else.
+Tool approvals, `ask_user_cancel`, location and mask replies keep the
+tolerance described under "Revision negotiation".
+
+**Breaking (Compatibility B).** The maintainer ruled on #910 that
+receipt-capable peers are required for these four answers. A host that
+advertises `askReceipts` does not settle an ask answer that carries no
+`submissionId`. It replies to the sender with an `error` frame,
+`code: "ASK_ANSWER_UPDATE_REQUIRED"`, carrying the `requestId`. The question
+stays pending, so an updated client can still answer it within the turn's
+timeout. A client must not submit an ask answer to a host whose
+`server_hello` lacks `askReceipts`, or to a host that sends no hello at all.
+It shows an update-required state instead and settles nothing. Old-client and
+new-host pairs, and new-client and old-host pairs, therefore both fail
+visibly rather than silently. Neither one reports an answer as accepted.
+
+**Identity.** `requestId` is the tool call's id on both backends. On the
+Claude backend the in-process tool reads it from the MCP request's
+`_meta["claudecode/toolUseId"]`, which Claude Code sends on every `tools/call`.
+This was measured against the bundled CLI 2.1.283, and
+`packages/ui-backend-claude/tests/ask-tool-request-id.test.ts` re-measures it
+against the installed CLI. Without that field the tool falls back to a minted
+id: live delivery still works, but a card rebuilt from history cannot
+correlate with it. A card rebuilt from `session_history` and the live
+request therefore share one `requestId`. Clients key ask cards by it within a
+session: a re-sent request updates its card and never adds a second one.
+
+**Submission.** `submissionId` (1–128 characters) names one explicitly
+submitted answer. The client mints it at Submit and reuses it for every retry
+of that same answer. A receipt-carrying answer must name the request's
+`turnId`. A missing or different `turnId`, a `sessionId` that is not the
+request's, or a frame for another ask kind is refused with
+`closed: refused`. The request stays pending.
+
+**Receipts** go to the sending socket only:
+
+- `accepted`: this submission settled the request. Repeating the same
+  submission (same principal) returns `accepted` again and settles nothing.
+- `pending` (status replies only): the request still waits and does not
+  have this submission. `sessionId` and `turnId` name its binding.
+- `closed`: the request will not take this answer. `ended` means the turn
+  ended, failed, timed out or was cancelled. `cancelled` means the question
+  was dismissed. `answered_elsewhere` means another submission settled it.
+  `not_recognized` means the host does not know the request, or the receipt
+  belongs to another principal. `refused` means the binding does not match.
+
+`ask_answer_status` settles nothing. It is how a client revalidates a
+queued or unconfirmed answer before replaying it. The host remembers each
+outcome for 24 hours, the client's maximum replay age, and for at most the
+1,024 most recent requests. It keeps them in memory only. After a host
+restart every request is `not_recognized`, and replay stops. A queued
+answer cannot resurrect an ended request or start a turn.
+
+**Re-delivery.** On every socket open the host re-sends each pending
+question, as before. After a `session_resume` it also re-sends that
+session's pending questions, after the replacing history frame, because the
+history replaced the client's live card.
+
+**Liveness (Liveness B).** `ping` is answered at once with a `pong` carrying
+the same `probeId`. `BrainUiClient` probes after 15 seconds without a valid
+frame while the page is in the foreground. It replaces the socket when no
+correlated `pong` arrives within 5 seconds, closing the abandoned one with
+code 4000, and ignores any late callbacks from it. A connection attempt that
+has not opened, or an open socket that has delivered no frame, after 10
+seconds is abandoned the same way and retried with the normal backoff, which
+resets only once a connection delivers a valid frame.
+`checkLiveness()` probes at once, for a return to the page, a resume or going
+online. `setForeground(false)` pauses the periodic probe. These are targets:
+a frozen page runs no timers.
+
+**principalKey** is a one-way digest of the principal id, stable per
+principal. A client files queued answers under it and never replays an
+answer over a connection with a different key. It identifies nothing by
+itself.
+
+The client-side queue (16 answers, 16 MiB of UTF-8 serialized records and 24
+hours per device and principal, persisted in IndexedDB) is
+`@schlessera/brain-ui-react` behaviour, not wire contract. The decision
+record is [answer-delivery.md](decisions/answer-delivery.md).
 
 ## File-layer contracts
 

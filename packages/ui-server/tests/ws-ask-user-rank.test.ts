@@ -121,6 +121,7 @@ describe("ask_user_rank over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_rank_response",
       requestId: "rank-1",
+      submissionId: "sub-1",
       order: ["b", "a"],
       unchanged: false,
       turnId: frame.turnId,
@@ -141,11 +142,11 @@ describe("ask_user_rank over the socket", () => {
     await handleClientMessage(c.ws, { type: "chat_message", text: "rank" });
     await waitFor(() => host.coordinator.pendingAskUserRank.size === 1);
     const frame = c.sent.find((f) => f.type === "ask_user_rank_request")!;
-    await handleClientMessage(c.ws, { type: "ask_user_rank_response", requestId: "rank-1", order: ["b", "a"], unchanged: false, turnId: "different-turn" });
+    await handleClientMessage(c.ws, { type: "ask_user_rank_response", requestId: "rank-1", submissionId: "sub-inline-3", order: ["b", "a"], unchanged: false, turnId: "different-turn" });
     await handleClientMessage(c.ws, { type: "ask_user_cancel", requestId: "rank-1", reason: "stale", turnId: "different-turn" });
     expect(host.coordinator.pendingAskUserRank.size).toBe(1);
     expect(settled()).toBeNull();
-    await handleClientMessage(c.ws, { type: "ask_user_rank_response", requestId: "rank-1", order: ["b", "a"], unchanged: false, turnId: frame.turnId });
+    await handleClientMessage(c.ws, { type: "ask_user_rank_response", requestId: "rank-1", submissionId: "sub-inline-4", order: ["b", "a"], unchanged: false, turnId: frame.turnId });
     await waitFor(() => settled() !== null);
     expect(settled()!.result?.order).toEqual(["b", "a"]);
     handlers.onClose(closeEvt, c.ws);
@@ -200,6 +201,7 @@ describe("ask_user_rank over the socket", () => {
     await handleClientMessage(c2.ws, {
       type: "ask_user_rank_response",
       requestId: "rank-1",
+      submissionId: "sub-2",
       order: ["a", "b"],
       unchanged: true,
       turnId: card!.turnId,

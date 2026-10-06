@@ -80,6 +80,49 @@ signatures (every public export and the types it is made of)
         applyDelta: (msg: ServerActivityDelta) => void;
         clear: () => void;
     }
+  AnswerDelivery (packages/ui-react/src/lib/answer-delivery/types.ts)
+    export interface AnswerDelivery {
+        requestId: string;
+        submissionId: string;
+        sessionId: string | null;
+        state: DeliveryState;
+        payload: AnswerPayload;
+        submittedAt: number;
+        settledAt?: number;
+        reason?: ClosedReason;
+        full?: "count" | "bytes";
+        editable?: boolean;
+        mirror?: boolean;
+        focus?: boolean;
+    }
+  AnswerPayload (packages/ui-react/src/lib/answer-delivery/types.ts)
+    export type AnswerPayload = {
+        kind: "ask_user";
+        answers: Record<string, string>;
+        annotations?: Record<string, AskUserAnnotation>;
+        typed?: boolean;
+    } | {
+        kind: "ask_user_list";
+        answers: Record<string, string>;
+        notes?: Record<string, string>;
+    } | {
+        kind: "ask_user_rank";
+        order: string[];
+        unchanged: boolean;
+    } | {
+        kind: "ask_user_form";
+        answers: AskUserFormAnswers;
+        visibleNodes: string[];
+    };
+  AnswerStorage (packages/ui-react/src/lib/answer-delivery/storage.ts)
+    export interface AnswerStorage {
+        load(): Promise<unknown[]>;
+        put(item: QueuedAnswer): Promise<void>;
+        remove(submissionId: string): Promise<void>;
+        clear(): Promise<void>;
+        getPrincipalKey(): Promise<string | null>;
+        setPrincipalKey(key: string): Promise<void>;
+    }
   AppShell (packages/ui-react/src/components/layout/app-shell.tsx)
     export function AppShell({ children }: {
         children: ReactNode;
@@ -87,6 +130,7 @@ signatures (every public export and the types it is made of)
   AskUserExchange (packages/ui-react/src/stores/chat-state.ts)
     export interface AskUserExchange {
         requestId: string;
+        turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
         rank?: AskUserRankSpec;
@@ -157,6 +201,7 @@ signatures (every public export and the types it is made of)
   BrainUiRoot (packages/ui-react/src/root.ts)
     export interface BrainUiRoot extends BrainUiServices {
         connection: ReturnType<typeof createWebSocketClient>;
+        answers: ReturnType<typeof createWebSocketClient>["answers"];
         dispose: () => void;
     }
   BrainUiRootOptions (packages/ui-react/src/root.ts)
@@ -179,6 +224,8 @@ signatures (every public export and the types it is made of)
         backendUrl: (path: string) => string;
         wsUrl: () => string;
         recheckVpn: () => void;
+        answerStorage: AnswerStorage | null;
+        answerTabs: TabCoordinator | null;
         registerVpnRecheck: (callback: () => void) => () => void;
     }
   ChatKey (packages/ui-react/src/stores/chat-state.ts)
@@ -249,16 +296,19 @@ signatures (every public export and the types it is made of)
         requestToolApproval: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>, description?: string, kind?: "tool" | "command", rememberable?: boolean) => void;
         resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
         setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
-        setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[]) => void;
-        setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec) => void;
-        setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec) => void;
-        setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec) => void;
+        setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
+        setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
+        setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec, turnId?: string) => void;
+        setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec, turnId?: string) => void;
         submitAskUserFormAnswers: (key: ChatKey, requestId: string, formAnswers: AskUserFormAnswers, visibleNodes: string[]) => void;
         submitAskUserRankOrder: (key: ChatKey, requestId: string, order: string[], unchanged: boolean) => void;
         submitAskUserListAnswers: (key: ChatKey, requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
         submitAskUserAnswers: (key: ChatKey, requestId: string, answers: Record<string, string>, annotations?: Record<string, AskUserAnnotation>, typed?: boolean) => void;
         cancelAskUser: (key: ChatKey, requestId: string) => void;
+        reopenAskExchange: (key: ChatKey, requestId: string) => void;
         clearAskUser: (key: ChatKey) => void;
+        deliveries: Record<string, AnswerDelivery>;
+        setDelivery: (requestId: string, delivery: AnswerDelivery | null) => void;
         finishAssistantMessage: (key: ChatKey) => void;
         failAssistantMessage: (key: ChatKey, failure: TurnFailure, turnId?: string, replace?: boolean) => void;
         setRetry: (key: ChatKey, retry: TurnRetry | null) => void;
@@ -280,6 +330,8 @@ signatures (every public export and the types it is made of)
         requestComposerInsert: (text: string) => void;
         clearComposerInsert: (seq: number) => void;
     }
+  ClosedReason (packages/ui-react/src/lib/answer-delivery/types.ts)
+    export type ClosedReason = NonNullable<ServerAskAnswerReceipt["reason"]>;
   ClustersParams (packages/ui-react/src/stores/graph-state.ts)
     export interface ClustersParams {
         community: number | null;
@@ -422,6 +474,8 @@ signatures (every public export and the types it is made of)
         countMedian: number | null;
         versions: string[];
     }
+  DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
+    export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
   DiscoveryColorBy (packages/ui-react/src/stores/graph-state.ts)
     export type DiscoveryColorBy = "topic" | "distance" | "folder" | "entity";
   DiscoveryParams (packages/ui-react/src/stores/graph-state.ts)
@@ -705,6 +759,18 @@ signatures (every public export and the types it is made of)
         setSelected: (id: string) => void;
         setPinned: (id: string | null) => void;
     }
+  QueuedAnswer (packages/ui-react/src/lib/answer-delivery/types.ts)
+    export interface QueuedAnswer {
+        v: 1;
+        submissionId: string;
+        principalKey: string;
+        requestId: string;
+        sessionId: string | null;
+        turnId: string | null;
+        payload: AnswerPayload;
+        submittedAt: number;
+        sent: boolean;
+    }
   SessionChat (packages/ui-react/src/stores/chat-state.ts)
     export interface SessionChat {
         messages: ChatMessage[];
@@ -805,6 +871,37 @@ signatures (every public export and the types it is made of)
         storage: () => Storage | null;
         storageKey: (key: string) => string;
     }
+  SubmitAnswer (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    export interface SubmitAnswer {
+        requestId: string;
+        sessionId: string | null;
+        turnId?: string;
+        payload: AnswerPayload;
+        focus?: boolean;
+    }
+  TabCoordinator (packages/ui-react/src/lib/answer-delivery/tabs.ts)
+    export interface TabCoordinator {
+        post(message: TabMessage): void;
+        subscribe(listener: (message: TabMessage) => void): () => void;
+        claim(submissionId: string, onOwned: () => void): () => void;
+        exclusive<T>(name: string, fn: () => Promise<T>): Promise<T>;
+        dispose(): void;
+    }
+  TabMessage (packages/ui-react/src/lib/answer-delivery/tabs.ts)
+    export type TabMessage = {
+        type: "item";
+        item: QueuedAnswer;
+    } | {
+        type: "delivery";
+        delivery: AnswerDelivery;
+    } | {
+        type: "removed";
+        submissionId: string;
+        requestId: string;
+        delivery?: AnswerDelivery;
+    } | {
+        type: "cleared";
+    };
   ThemePreference (packages/ui-react/src/stores/ui-state.ts)
     export type ThemePreference = "system" | "light" | "dark";
   ToolCall (packages/ui-react/src/stores/chat-state.ts)
@@ -923,6 +1020,8 @@ signatures (every public export and the types it is made of)
     export function anyStreaming(state: ChatState): boolean;
   apiBase (packages/ui-react/src/lib/backend.ts)
     export function apiBase(): string;
+  cancel (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function cancel(requestId: string): Promise<void>;
   checkRetryDelivery (packages/ui-react/src/connection.ts)
     function checkRetryDelivery(sessionId: string): boolean;
   clearGraphSceneCache (packages/ui-react/src/stores/graph-state.ts)
@@ -931,6 +1030,8 @@ signatures (every public export and the types it is made of)
     export function configureBrainUi(overrides: Partial<BrainUiConfig>): void;
   connect (packages/ui-react/src/connection.ts)
     function connect(): () => void;
+  connected (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function connected(): void;
   createBrainApi (packages/ui-react/src/lib/api-client.ts)
     export function createBrainApi(getBase: () => string, request?: (url: string, init?: RequestInit) => Promise<Response>): {
         activityDigest: (clientId?: string) => Promise<{
@@ -1213,6 +1314,31 @@ signatures (every public export and the types it is made of)
     export function createBrainUiRoot(options?: BrainUiRootOptions): BrainUiRoot;
   createWebSocketClient (packages/ui-react/src/connection.ts)
     export function createWebSocketClient(root: BrainUiServices): {
+        answers: {
+            cancel: (requestId: string) => Promise<void>;
+            connected: () => void;
+            disconnected: () => void;
+            dismissed: (requestId: string) => void;
+            dispose(): void;
+            edit: (requestId: string) => void;
+            held: () => {
+                owned: boolean;
+                payload: import("./lib/answer-delivery/types.js").AnswerPayload;
+                principalKey: string;
+                requestId: string;
+                sent: boolean;
+                sessionId: null | string;
+                submissionId: string;
+                submittedAt: number;
+                turnId: null | string;
+                v: 1;
+            }[];
+            logout: () => Promise<void>;
+            receipt: (frame: import("@schlessera/brain-ui-sdk").ServerAskAnswerReceipt) => void;
+            retry: (requestId: string) => Promise<void>;
+            start: () => Promise<void>;
+            submit: (input: import("./lib/answer-delivery/manager.js").SubmitAnswer) => Promise<"admitted" | "ignored" | "refused">;
+        };
         checkRetryDelivery: (sessionId: string) => boolean;
         connect: () => () => void;
         dispose(): void;
@@ -1222,6 +1348,12 @@ signatures (every public export and the types it is made of)
         retryTurn: (failedTurnId: string) => "pending" | "refused" | "sent";
         send: (msg: ClientMessage) => boolean;
     };
+  disconnected (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function disconnected(): void;
+  dismissed (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function dismissed(requestId: string): void;
+  edit (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function edit(requestId: string): void;
   flushChatDeltas (packages/ui-react/src/connection.ts)
     function flushChatDeltas(): void;
   handleServerMessage (packages/ui-react/src/connection.ts)
@@ -1234,8 +1366,14 @@ signatures (every public export and the types it is made of)
     function loadSessionActivityHistory(sessionId: string): Promise<void>;
   loadSpanPayloads (packages/ui-react/src/stores/activity-state.ts)
     function loadSpanPayloads(spanId: string): Promise<void>;
+  logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function logout(): Promise<void>;
+  receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function receipt(frame: ServerAskAnswerReceipt): void;
   reconnectWebSocketNow (packages/ui-react/src/connection.ts)
     function reconnectWebSocketNow(): void;
+  retry (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function retry(requestId: string): Promise<void>;
   retryTurn (packages/ui-react/src/connection.ts)
     function retryTurn(failedTurnId: string): "sent" | "pending" | "refused";
   sendClientMessage (packages/ui-react/src/connection.ts)
@@ -1254,6 +1392,10 @@ signatures (every public export and the types it is made of)
         state: string;
         tone: "gold" | "neutral" | "teal";
     };
+  start (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function start(): Promise<void>;
+  submit (packages/ui-react/src/lib/answer-delivery/manager.ts)
+    function submit(input: SubmitAnswer): Promise<"admitted" | "refused" | "ignored">;
   useBrainApi (packages/ui-react/src/root-context.tsx)
     export function useBrainApi(): {
         activityDigest: (clientId?: string) => Promise<{

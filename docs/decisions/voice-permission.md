@@ -368,7 +368,7 @@ further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
 (`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:289` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:429-459`),
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:513-547`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -395,7 +395,7 @@ exchange over a security decision is a second chance for noise to produce a
 grant.
 
 **"Always allow" cannot be given by voice.** It is a persistent policy change
-(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:427-433`)
+(the block computing `remembers`, `packages/ui-server/src/ws/dispatch.ts:400-406`)
 and it is the one decision on
 the card with no keyboard shortcut, by D37's ruling 5, and the reason given
 there is exactly the one that applies here: *"a letter that grants standing
@@ -404,7 +404,7 @@ permission by reflex is the one footgun in the vocabulary"*
 A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
-(the block computing `remembers`, `dispatch.ts:427-433`, and the lookup computing
+(the block computing `remembers`, `dispatch.ts:400-406`, and the lookup computing
 `remembered`, `ws/bridge.ts:161-181`), and 192 of 192 measured
 approvals were kind `command`.
 
@@ -474,7 +474,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (in `handleClientMessage`, the arm `case "tool_denial"`,
-`packages/ui-server/src/ws/dispatch.ts:474-497`) with a message naming the
+`packages/ui-server/src/ws/dispatch.ts:447-470`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -593,7 +593,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   left out (the lookup computing `remembered`,
   `packages/ui-server/src/ws/bridge.ts:161-181`,
   and the block computing `remembers`,
-  `packages/ui-server/src/ws/dispatch.ts:427-433`).
+  `packages/ui-server/src/ws/dispatch.ts:400-406`).
   The evaluation happens
   before the lookup, which is what this record asked for.
 

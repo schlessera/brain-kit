@@ -273,12 +273,12 @@ matcher. An isolated ambiguous refusal denies all **current** pending requests;
 an exact refusal can name one. With none pending, it is ordinary input. Bind
 each denial to existing IDs, echoed turn and `channel:"voice"`; the server still
 rejects voice grants
-(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:387-410`).
+(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:360-383`).
 Never add a spoken approve or always-allow path.
 
 On the evidence date the denial handler removed/resolved a matched request but
 provided no dedicated denial receipt at that branch; #957 added one
-(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:474-497`). The
+(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:447-470`). The
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains
@@ -288,13 +288,13 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:989-994`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1095-1100`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.
 
 Voice question binding retains the existing one-question rule
-(`questionForTypedAnswer`, `packages/ui-react/src/components/chat/ask-user-typed.ts:31-33`).
+(`questionForTypedAnswer`, `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`).
 Multi-question, list, rank, form and permission-card interactions keep their
 visual boundaries. Under `noGrantSurface`, tools requiring those surfaces
 remain withheld. Starting voice on an ordinary turn does not erase its cards.

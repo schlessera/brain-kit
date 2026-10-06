@@ -3,7 +3,7 @@ import { useRoving } from "../internal/roving.js";
 import { AskOtherField } from "../internal/AskOtherField.js";
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
-import { Icon } from "../primitives/Icon.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
 import { ChoiceOption } from "../rows/ChoiceOption.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { AskUserOption } from "./AskUserCard.js";
@@ -30,6 +30,13 @@ export interface AskUserGroupCardProps {
   questions: AskUserGroupQuestion[];
   state?: "pending" | "answered" | "dismissed";
   prompt?: string;
+  /**
+   * The answered head, replaced. For an answer that is recorded on the card
+   * but not yet confirmed by its host, which must not read "Answered" (#910).
+   */
+  recordHead?: string;
+  /** The answered head's icon, replaced alongside `recordHead`. */
+  recordIcon?: IconName;
   answerMeta?: string;
   lapsedNote?: string;
   onSubmit?: (answers: Record<string, string>, annotations?: Record<string, { preview: string }>) => void;
@@ -103,7 +110,7 @@ export function AskUserGroupCard(p: AskUserGroupCardProps) {
   }
 
   const head = pending ? p.prompt ?? "Brain needs your input" : answered
-    ? `Answered · ${p.questions.length} questions` : "Unanswered — the turn ended";
+    ? p.recordHead ?? `Answered · ${p.questions.length} questions` : "Unanswered — the turn ended";
   return (
     <div ref={root} className="bk-ask-group" data-ask-group={state} style={{
       border: `1px solid ${token(dismissed ? "ask-border-gold" : "ask-border-teal")}`,
@@ -111,7 +118,7 @@ export function AskUserGroupCard(p: AskUserGroupCardProps) {
     }}>
       <div data-group-head style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px 14px", marginBottom: 11 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6, font: `500 10px/1.4 ${font.mono}`, letterSpacing: ".08em", textTransform: "uppercase", color: hue, minWidth: 0 }}>
-          <Icon icon={pending ? "ask" : answered ? "resolved" : "later"} size={13} color={hue} />{head}
+          <Icon icon={pending ? "ask" : answered ? p.recordIcon ?? "resolved" : "later"} size={13} color={hue} />{head}
         </span>
         {pending ? <span style={{ ...position, marginLeft: "auto" }}>{count} of {p.questions.length} answered</span> : null}
       </div>

@@ -776,6 +776,7 @@ describe("activity stream over the ws path", () => {
         data: JSON.stringify({
           type: "ask_user_response",
           requestId: "ask-1",
+          submissionId: "sub-5",
           answers: { "Continue?": "Yes" },
           turnId: request.turnId,
         }),

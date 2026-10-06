@@ -49,7 +49,7 @@ The binding constraints are:
 - A single-question `ask_user` may consume a composer answer. Multiple
   questions and `ask_user_list` do not. The current guard is
   (`questionForTypedAnswer`,
-  `packages/ui-react/src/components/chat/ask-user-typed.ts:31-33`). The
+  `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`). The
   [list contract](../integration-contract.md#ask_user_list-additive-in-0400)
   requires a reader and withholds the tool under `noGrantSurface`; voice does
   not widen it.
@@ -186,7 +186,7 @@ existing pronunciation overrides only as disclosed text correction, retaining
 the distinction between recognized words and submitted text. The present
 `AsrEvent` carries partial/final text and `endsTurn`, not confidence, overlap
 evidence or an output transcript (`AsrEvent`,
-`packages/ui-sdk/src/protocol.ts:1312`). #317 must resolve those gaps rather
+`packages/ui-sdk/src/protocol.ts:1348`). #317 must resolve those gaps rather
 than pretending that dictation supplies them.
 
 Assistant text remains the generated answer; playback progress is a separate
@@ -325,7 +325,7 @@ require their own live window and are not silently added to an earlier snapshot.
 Send each denial using the existing `tool_denial`, `toolUseId`, echoed `turnId`,
 `channel: "voice"` and a message naming the recognized phrase and ambiguity
 where applicable (`ClientToolDenial`,
-`packages/ui-sdk/src/protocol.ts:314-322`). Before transmitting or playing a
+`packages/ui-sdk/src/protocol.ts:457-465`). Before transmitting or playing a
 queued announcement, recheck liveness. Duplicate/late events do not decide a
 replacement request. "brain, stop" outside a pending window is ordinary
 transcript text, including as a possible single-question answer.
@@ -346,10 +346,10 @@ once, using the host outcome as truth.
 
 Silence produces no reminder. At expiry the server denies and removes pending
 requests (`drainPendingForTurn`,
-`packages/ui-server/src/ws/turns.ts:400-442`). Clear the correlated card's
+`packages/ui-server/src/ws/turns.ts:513-547`). Clear the correlated card's
 actionable state on the host terminal outcome even if no `tool_result` arrives;
 the current terminal-frame contract is (`ServerResultMessage`,
-`packages/ui-sdk/src/protocol.ts:626-636`). Keep the existing card/receipt in
+`packages/ui-sdk/src/protocol.ts:780-790`). Keep the existing card/receipt in
 the transcript with "Expired · denied" and no live approval controls. Speak
 once: "I stopped without doing it. Ask me again when you can look at a screen."
 Cancellation similarly resolves only the requests of the cancelled turn.

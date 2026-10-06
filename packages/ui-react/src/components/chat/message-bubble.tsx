@@ -36,6 +36,10 @@ import {
   UserTurn,
 } from "./transcript-turn.js";
 import { TurnError } from "./turn-error.js";
+import { AnswerDeliveryStatus } from "./answer-delivery-status.js";
+import { answerAsMessage, UNCONFIRMED_RECORD, withSubmittedAnswer } from "./answer-text.js";
+import { isRefusedAdmission } from "../../lib/answer-delivery/types.js";
+import { useChatStore } from "../../stores/chat-store.js";
 
 /**
  * One message in the transcript.
@@ -185,25 +189,66 @@ type PartGroup =
   | { kind: "askUser"; exchange: AskUserExchange; isLast: boolean }
   | { kind: "block"; payload: ShowBlockPayload; isLast: boolean };
 
+/**
+ * Pair each ask tool part with its exchange. By request id first: the
+ * exchange's id IS the tool call's id on both backends (#910), and matching by
+ * position put a live card under the wrong call whenever the order differed.
+ * By position only for an exchange whose id names no tool call here (an
+ * older host's minted id), so nothing that has a call is taken out of turn.
+ * Whatever is left renders trailing, so a prompt is never lost.
+ */
+export function matchAskExchanges(
+  parts: MessagePart[],
+  toolCalls: ToolCall[],
+  askUserExchanges: AskUserExchange[] | undefined
+): { byPart: Map<number, AskUserExchange>; unmatched: AskUserExchange[] } {
+  const exchanges = askUserExchanges ?? [];
+  const byPart = new Map<number, AskUserExchange>();
+  const askParts: Array<{ index: number; id: string }> = [];
+  parts.forEach((part, index) => {
+    if (part.kind !== "tool") return;
+    const tool = toolCalls[part.toolIndex];
+    if (tool && isAskExchangeTool(tool.name)) askParts.push({ index, id: tool.id });
+  });
+  const callIds = new Set(askParts.map((p) => p.id));
+  const used = new Set<AskUserExchange>();
+  for (const { index, id } of askParts) {
+    const exchange = exchanges.find((e) => !used.has(e) && e.requestId === id);
+    if (exchange) {
+      used.add(exchange);
+      byPart.set(index, exchange);
+    }
+  }
+  for (const { index } of askParts) {
+    if (byPart.has(index)) continue;
+    const exchange = exchanges.find((e) => !used.has(e) && !callIds.has(e.requestId));
+    if (!exchange) continue;
+    used.add(exchange);
+    byPart.set(index, exchange);
+  }
+  return { byPart, unmatched: exchanges.filter((e) => !used.has(e)) };
+}
+
 function groupParts(
   parts: MessagePart[],
   toolCalls: ToolCall[],
   askUserExchanges: AskUserExchange[] | undefined
 ): PartGroup[] {
   const groups: PartGroup[] = [];
-  // ask_user tool parts don't join the tool timeline — each maps (in order)
-  // to its exchange and renders as its own AskUserCard at that chronological
-  // spot, so it collapses and scrolls away like the surrounding events.
-  let askUserSeen = 0;
+  // ask_user tool parts don't join the tool timeline — each maps to its
+  // exchange and renders as its own AskUserCard at that chronological spot,
+  // so it collapses and scrolls away like the surrounding events.
+  const { byPart } = matchAskExchanges(parts, toolCalls, askUserExchanges);
+  let partIndex = -1;
   // Ordinal among TEXT parts: classified blocks (D42) are anchored to it.
   let textSeen = 0;
   for (const part of parts) {
+    partIndex++;
     if (part.kind === "tool") {
       const tool = toolCalls[part.toolIndex];
       if (!tool) continue;
       if (isAskExchangeTool(tool.name)) {
-        const exchange = askUserExchanges?.[askUserSeen];
-        askUserSeen++;
+        const exchange = byPart.get(partIndex);
         // The exchange may not have arrived yet mid-stream — skip until it does.
         if (exchange) {
           groups.push({ kind: "askUser", exchange, isLast: false });
@@ -310,53 +355,29 @@ function AssistantContent({
     message.askUserExchanges
   );
 
-  // Safety net: each ask_user tool part consumes one exchange (by order) into a
-  // chronological group above. Any exchange without a matching tool part — e.g.
-  // a stream that missed the tool_use_start — would otherwise vanish, stranding
-  // an unanswerable prompt. Render those trailing so a prompt is never lost.
-  const askUserSlots = message.parts.reduce(
-    (n, p) =>
-      p.kind === "tool" && isAskExchangeTool(message.toolCalls[p.toolIndex]?.name)
-        ? n + 1
-        : n,
-    0
-  );
-  const unmatchedExchanges = (message.askUserExchanges ?? []).slice(askUserSlots);
+  // Safety net: an exchange without a matching tool part — e.g. a stream that
+  // missed the tool_use_start — would otherwise vanish, stranding an
+  // unanswerable prompt. Render those trailing so a prompt is never lost.
+  const unmatchedExchanges = matchAskExchanges(
+    message.parts,
+    message.toolCalls,
+    message.askUserExchanges
+  ).unmatched;
 
-  // One exchange, one card, selected by its requested answer shape.
-  const renderExchange = (ex: AskUserExchange, key: string | number) =>
-    ex.form ? (
-      <AskUserFormExchangeCard key={key} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
-    ) : ex.rank ? (
-      <AskUserRankExchangeCard key={key} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
-        cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
-    ) : ex.list ? (
-      <AskUserListExchangeCard
-        key={key}
-        requestId={ex.requestId}
-        list={ex.list}
-        answered={ex.answers}
-        notes={ex.notes}
-        cancelled={ex.cancelled}
-        answeredAt={ex.answeredAt}
-        onSubmit={onAskUserListSubmit}
-        onCancel={onAskUserCancel}
-        onReask={onAskUserReask}
-      />
-    ) : (
-      <AskUserCard
-        key={key}
-        requestId={ex.requestId}
-        questions={ex.questions}
-        answered={ex.answers}
-        cancelled={ex.cancelled}
-        typed={ex.typed}
-        answeredAt={ex.answeredAt}
-        onSubmit={onAskUserSubmit}
-        onCancel={onAskUserCancel}
-        onReask={onAskUserReask}
-      />
-    );
+  // One exchange, one card, selected by its requested answer shape, with the
+  // delivery of a submitted answer under it (#910).
+  const renderExchange = (ex: AskUserExchange, key: string | number) => (
+    <DeliveredExchange
+      key={key}
+      exchange={ex}
+      onAskUserSubmit={onAskUserSubmit}
+      onAskUserCancel={onAskUserCancel}
+      onAskUserReask={onAskUserReask}
+      onAskUserListSubmit={onAskUserListSubmit}
+      onAskUserRankSubmit={onAskUserRankSubmit}
+      onAskUserFormSubmit={onAskUserFormSubmit}
+    />
+  );
 
   return (
     <div className="space-y-3">
@@ -471,4 +492,88 @@ function formatTime(timestamp: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * One ask card and, once an answer was submitted, where that answer stands.
+ *
+ * The answer stays visible in every delivery state (design §3). A card
+ * rebuilt from history after a reload knows only the question; the queue
+ * still holds what the user submitted, so the card shows that, read-only.
+ * When nothing was admitted (the queue was full, or this device could not
+ * save it) the card stays editable, with its draft intact.
+ */
+function DeliveredExchange({
+  exchange,
+  onAskUserSubmit,
+  onAskUserCancel,
+  onAskUserReask,
+  onAskUserListSubmit,
+  onAskUserRankSubmit,
+  onAskUserFormSubmit,
+}: {
+  exchange: AskUserExchange;
+  onAskUserSubmit: (requestId: string, answers: Record<string, string>, annotations?: Record<string, AskUserAnnotation>) => void;
+  onAskUserCancel: (requestId: string) => void;
+  onAskUserReask?: (text: string) => void;
+  onAskUserFormSubmit?: (requestId: string, answers: AskUserFormAnswers, visibleNodes: string[]) => void;
+  onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
+  onAskUserListSubmit: (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
+}) {
+  const delivery = useChatStore((s) => s.deliveries[exchange.requestId]);
+  // While saving, or when nothing was admitted, the editable card stays
+  // mounted with its draft; otherwise it shows the submitted answer.
+  const shown = delivery && delivery.state !== "saving" && !isRefusedAdmission(delivery.state);
+  const ex = shown ? withSubmittedAnswer(exchange, delivery) : exchange;
+  // A recorded answer the host has not confirmed must not read "Answered".
+  const record = shown && delivery.state !== "answered" ? UNCONFIRMED_RECORD : undefined;
+  const card = (
+      ex.form ? (
+        <AskUserFormExchangeCard record={record} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+      ) : ex.rank ? (
+        <AskUserRankExchangeCard record={record} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
+          cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+      ) : ex.list ? (
+        <AskUserListExchangeCard
+          record={record}
+          requestId={ex.requestId}
+          list={ex.list}
+          answered={ex.answers}
+          notes={ex.notes}
+          cancelled={ex.cancelled}
+          answeredAt={ex.answeredAt}
+          onSubmit={onAskUserListSubmit}
+          onCancel={onAskUserCancel}
+          onReask={onAskUserReask}
+        />
+      ) : (
+        <AskUserCard
+          record={record}
+          requestId={ex.requestId}
+          questions={ex.questions}
+          answered={ex.answers}
+          cancelled={ex.cancelled}
+          typed={ex.typed}
+          answeredAt={ex.answeredAt}
+          onSubmit={onAskUserSubmit}
+          onCancel={onAskUserCancel}
+          onReask={onAskUserReask}
+        />
+      )
+  );
+  // One wrapper whether or not a delivery exists: a card that moved into a
+  // new parent when its footer appeared would remount, and a refused
+  // answer's draft would be lost with it.
+  return (
+    <div>
+      {card}
+      {delivery ? (
+        <AnswerDeliveryStatus
+          delivery={delivery}
+          answerText={() => answerAsMessage(exchange, delivery.payload)}
+          onSendAsMessage={onAskUserReask}
+        />
+      ) : null}
+    </div>
+  );
 }

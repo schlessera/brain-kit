@@ -43,7 +43,7 @@ export interface SessionScoped {
 }
 
 /** Protocol revision spoken by this ui-sdk build. Additions never bump it; only semantics changes do. */
-export const PROTOCOL_REV = 4;
+export const PROTOCOL_REV = 5;
 
 /**
  * What each revision added, and what a peer declaring it promises.
@@ -55,6 +55,31 @@ export const PROTOCOL_REV = 4;
  *   client that declares nothing is treated as rev 2 and stays tolerated.
  */
 export const PROTOCOL_REV_CLIENT_ECHO = 3;
+
+/**
+ * Rev 5 (#910): ask answers carry a `submissionId`, and the host acknowledges
+ * each one with an `ask_answer_receipt`. Liveness probes (`ping`/`pong`) come
+ * with it.
+ *
+ * Unlike rev 3's echo, this is NOT negotiated per connection. A host that
+ * advertises {@link ASK_RECEIPTS_CAPABILITY} refuses EVERY ask answer without a
+ * `submissionId`, whatever revision the client declared. The refusal is an
+ * `error` frame with {@link ASK_ANSWER_UPDATE_REQUIRED}, and the tool is not
+ * settled. A client must not submit an ask answer to a host that does not
+ * advertise the capability; it shows an update-required state instead. This
+ * break is scoped to the four ask answers: every other frame keeps its
+ * tolerance (docs/integration-contract.md, "Interactive answer receipts").
+ */
+export const PROTOCOL_REV_ASK_RECEIPTS = 5;
+
+/** `server_hello`/`client_hello` capability: ask answers use receipts. */
+export const ASK_RECEIPTS_CAPABILITY = "askReceipts";
+
+/** `server_hello` capability: the host answers `ping` with `pong`. */
+export const LIVENESS_CAPABILITY = "liveness";
+
+/** `error.code` for an ask answer the host refused because it carried no `submissionId`. */
+export const ASK_ANSWER_UPDATE_REQUIRED = "ASK_ANSWER_UPDATE_REQUIRED";
 
 /**
  * Composite session identity for multi-backend hosts. The wire keeps plain
@@ -82,6 +107,8 @@ export type ClientMessage =
   | ClientAskUserListResponse
   | ClientAskUserRankResponse
   | ClientAskUserFormResponse
+  | ClientAskAnswerStatus
+  | ClientPing
   | ClientLocationResponse
   | ClientLocationError
   | ClientMaskResponse
@@ -503,6 +530,8 @@ export type ServerMessage =
   | ServerAskUserListRequest
   | ServerAskUserRankRequest
   | ServerAskUserFormRequest
+  | ServerAskAnswerReceipt
+  | ServerPong
   | ServerLocationRequest
   | ServerMaskRequest
   | ServerActivitySnapshot
@@ -531,6 +560,13 @@ export type ServerMessage =
 export interface ServerHello {
   type: "server_hello";
   protocolRev: number;
+  /**
+   * Rev 5 (#910): an opaque, stable key for the principal this connection
+   * authenticated as. A client files queued ask answers under it and never
+   * replays one over a connection with a different key. It identifies
+   * nothing by itself.
+   */
+  principalKey?: string;
   /** Coarse, additive flags. `inbox: true` advertises durable Queue/Actions;
    * absent/false means unsupported. Delivery still requires `inbox_subscribe`.
    * `toolResolution: true` offers `tool_resolution` to clients that declare
@@ -1876,13 +1912,86 @@ export interface ServerAskUserRequest extends SessionScoped {
  * The shape is backend-neutral; backends translate it into whatever their
  * agent's ask-user tool expects.
  */
-export interface ClientAskUserResponse {
+export interface ClientAskUserResponse extends AskAnswerBinding {
   type: "ask_user_response";
   requestId: string;
   answers: Record<string, string>;
   annotations?: Record<string, AskUserAnnotation>;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
+}
+
+/**
+ * Delivery fields on all four ask answers (rev 5, #910).
+ *
+ * `submissionId` names ONE explicitly submitted answer. The client mints it
+ * when the user submits and reuses it for every retry of that same answer, so
+ * the host can settle the request at most once and repeat its receipt. A host
+ * advertising `askReceipts` refuses an answer without it
+ * ({@link ASK_ANSWER_UPDATE_REQUIRED}). Optional in the type only so the
+ * schema can still parse an older client's frame and refuse it with that
+ * error instead of a parse error.
+ */
+export interface AskAnswerBinding {
+  /** 1–128 characters, client-minted, unique per submitted answer. */
+  submissionId?: string;
+  /** The session the client bound the answer to. A different session is refused. */
+  sessionId?: string;
+}
+
+/** Client → Server. Where does this submitted answer stand? Settles nothing. */
+export interface ClientAskAnswerStatus {
+  type: "ask_answer_status";
+  requestId: string;
+  submissionId: string;
+  sessionId?: string;
+}
+
+/**
+ * Server → Client. The host's authoritative word on one submitted ask answer,
+ * sent to the socket that asked: in reply to an answer frame, or to
+ * `ask_answer_status`.
+ *
+ * - `accepted` — this `submissionId` settled the request. Repeating the same
+ *   submission repeats this receipt and settles nothing again.
+ * - `pending` — status replies only: the request is still waiting and has not
+ *   received this submission. `sessionId`/`turnId` name its binding, so the
+ *   client can send (or resend) the answer.
+ * - `closed` — the request will not take this answer. `reason` says why:
+ *   `ended` (the turn ended, failed, timed out or was cancelled), `cancelled`
+ *   (the question was dismissed), `answered_elsewhere` (another submission
+ *   settled it), `not_recognized` (the host does not know the request, or the
+ *   receipt belongs to another principal), `refused` (the answer's turn,
+ *   session or kind does not match the request).
+ *
+ * A receipt is about delivery to the host, not about what the agent does with
+ * the answer. A host restart forgets receipts: afterwards every request is
+ * `not_recognized`.
+ */
+export interface ServerAskAnswerReceipt extends SessionScoped {
+  type: "ask_answer_receipt";
+  requestId: string;
+  submissionId: string;
+  state: "accepted" | "pending" | "closed";
+  reason?: "ended" | "cancelled" | "answered_elsewhere" | "not_recognized" | "refused";
+}
+
+/**
+ * Client → Server. An application-level liveness probe (rev 5). Browser
+ * WebSocket ping/pong frames are not exposed to scripts, so a client that
+ * suspects a half-open socket asks the host directly. Only send it to a host
+ * advertising `liveness`.
+ */
+export interface ClientPing {
+  type: "ping";
+  /** 1–128 characters; the `pong` echoes it. */
+  probeId: string;
+}
+
+/** Server → Client. The reply to `ping`, sent immediately to the same socket. */
+export interface ServerPong {
+  type: "pong";
+  probeId: string;
 }
 
 /**
@@ -1947,7 +2056,7 @@ export interface ServerAskUserListRequest extends SessionScoped, AskUserListSpec
  * `notes` is keyed by item id too and is separate from `answers`, so a note on
  * a skipped item still reaches the agent while the item stays skipped.
  */
-export interface ClientAskUserListResponse {
+export interface ClientAskUserListResponse extends AskAnswerBinding {
   type: "ask_user_list_response";
   requestId: string;
   answers: Record<string, string>;
@@ -1973,7 +2082,7 @@ export interface ServerAskUserRankRequest extends SessionScoped, AskUserRankSpec
   requestId: string;
 }
 /** A complete permutation of the request's ids; the host verifies equality. */
-export interface ClientAskUserRankResponse {
+export interface ClientAskUserRankResponse extends AskAnswerBinding {
   type: "ask_user_rank_response";
   requestId: string;
   order: string[];
@@ -2876,7 +2985,7 @@ export interface ServerAskUserFormRequest extends SessionScoped, AskUserFormSpec
   type: "ask_user_form_request";
   requestId: string;
 }
-export interface ClientAskUserFormResponse {
+export interface ClientAskUserFormResponse extends AskAnswerBinding {
   type: "ask_user_form_response";
   requestId: string;
   answers: import("./tool-contracts/form.js").AskUserFormAnswers;

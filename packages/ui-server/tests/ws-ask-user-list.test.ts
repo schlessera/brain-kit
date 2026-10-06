@@ -122,6 +122,7 @@ describe("ask_user_list over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_list_response",
       requestId: "list-1",
+      submissionId: "sub-6",
       answers: { a: "loved" },
       notes: { b: "later" },
       turnId: frame.turnId,
@@ -181,6 +182,7 @@ describe("ask_user_list over the socket", () => {
     await handleClientMessage(c2.ws, {
       type: "ask_user_list_response",
       requestId: "list-1",
+      submissionId: "sub-7",
       answers: { b: "meh" },
       turnId: card!.turnId,
     });

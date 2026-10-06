@@ -19,9 +19,14 @@ export {
 
 export {
   BrainUiClient,
+  LIVENESS_IDLE_MS,
+  LIVENESS_RESPONSE_MS,
+  STALE_SOCKET_CLOSE_CODE,
 } from "./ws-client.js";
 export type {
   BrainUiClientOptions,
+  HelloState,
+  LivenessEvent,
   ServerFrameHandlers,
   ConnectionStatus,
   ProtocolError,
