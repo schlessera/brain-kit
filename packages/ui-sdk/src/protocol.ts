@@ -215,7 +215,8 @@ export interface ClientChatMessage {
    * draft's current revision and the draft belongs to this message's
    * session (or is unbound, for a new conversation). Edits saved after
    * submitting are a later revision and survive. Ignored by hosts that do
-   * not advertise `capabilities.sessionDrafts`.
+   * not advertise `capabilities.sessionDrafts`, and on a `handoff` message,
+   * whose text is a reviewed summary rather than a composer draft.
    */
   draftRef?: DraftRef;
 }

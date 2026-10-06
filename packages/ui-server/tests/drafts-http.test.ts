@@ -51,7 +51,7 @@ async function login(t: HttpContractApp, label: string) {
       headers: { "content-type": "application/json", ...(ifMatch === null ? {} : { "if-match": String(ifMatch) }), "idempotency-key": key },
       body: JSON.stringify(body),
     }),
-    upload: (draftId: string, key: string, bytes: Uint8Array, mime = "image/png", name = "harbour.png") =>
+    upload: (draftId: string, key: string, bytes: Uint8Array<ArrayBuffer>, mime = "image/png", name = "harbour.png") =>
       call(`/api/drafts/${draftId}/attachments?name=${encodeURIComponent(name)}`, {
         method: "POST", headers: { "content-type": mime, "idempotency-key": key }, body: bytes,
       }),
@@ -62,7 +62,7 @@ async function login(t: HttpContractApp, label: string) {
 }
 
 /** A small PNG-signed payload; the host checks the signature, not the pixels. */
-function png(seed: number, size = 64): Uint8Array {
+function png(seed: number, size = 64): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(size);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   for (let i = 8; i < size; i++) bytes[i] = (seed * 31 + i * 7) & 0xff;
@@ -104,7 +104,7 @@ test("a saved draft survives a closed database and restores identically to a sec
   expect(restored).toMatchObject({ draftId: "draft-ithaca", sessionId: "fixture-session", revision: 1, text: ITHACA });
   expect(restored.attachments).toHaveLength(1);
   expect(restored.attachments[0]).toMatchObject({ attachmentId, mime: "image/png", name: "harbour.png" });
-  const decoded = new Uint8Array(Buffer.from(restored.attachments[0]!.bytes, "base64"));
+  const decoded = Uint8Array.from(Buffer.from(restored.attachments[0]!.bytes, "base64"));
   expect(decoded.byteLength).toBe(4096);
   expect(decoded).toEqual(image);
   expect(await (await call("/api/drafts/draft-other")).json()).toMatchObject({ sessionId: "other-session", text: "Ask Athena about the winds", attachments: [] });

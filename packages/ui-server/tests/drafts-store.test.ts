@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import type { SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
@@ -8,7 +9,7 @@ import { createDraftStore, DraftError, draftPreview, hasImageSignature, PENDING_
 const dbs: Database[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
 
-function setup(limits?: Parameters<typeof createDraftStore>[1]["limits"]) {
+function setup(limits?: Partial<SessionDraftLimits>) {
   const db = createUiDb(":memory:");
   dbs.push(db);
   let clock = 1_000_000;
@@ -40,6 +41,16 @@ test("total host capacity refuses an upload or a growing save without dropping s
   expect(store.get(owner, "draft-a")).toMatchObject({ revision: 1, text: "oar" });
   expect(store.save(owner, "draft-a", { ifMatch: 1, idempotencyKey: "s3", sessionId: null, text: "o", attachmentIds: [attachmentId] })).toMatchObject({ revision: 2 });
   expect((db.query("SELECT COUNT(*) AS n FROM session_draft_attachments").get() as { n: number }).n).toBe(1);
+});
+
+test("a save that drops an image to make room for text is measured after the drop", () => {
+  const { store, owner } = setup({ maxTotalBytes: 100 });
+  const { attachmentId } = store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1, 90) });
+  store.save(owner, "draft-a", { ifMatch: 0, idempotencyKey: "s1", sessionId: null, text: "o", attachmentIds: [attachmentId] });
+  expect(store.save(owner, "draft-a", { ifMatch: 1, idempotencyKey: "s2", sessionId: null, text: "o".repeat(20), attachmentIds: [] })).toMatchObject({ revision: 2 });
+  // Growth past the limit is still refused once the image is gone.
+  const error = refusal(() => store.save(owner, "draft-a", { ifMatch: 2, idempotencyKey: "s3", sessionId: null, text: "o".repeat(101), attachmentIds: [] }));
+  expect(error.body).toMatchObject({ error: "DRAFT_CAPACITY", bound: "total" });
 });
 
 test("per-draft byte bound counts text and images together", () => {

@@ -11,7 +11,7 @@ test("chat_message carries an optional draftRef naming a positive revision", () 
 });
 
 test("server_hello keeps its booleans readable beside the draft limits, and a bad bound costs only itself", () => {
-  const hello = { type: "server_hello", protocolRev: 4, capabilities: { inbox: true, sessionDrafts: true }, sessionDraftLimits: SESSION_DRAFT_LIMITS };
+  const hello = { type: "server_hello" as const, protocolRev: 4, capabilities: { inbox: true, sessionDrafts: true }, sessionDraftLimits: { ...SESSION_DRAFT_LIMITS } };
   expect(parseServerMessage(JSON.stringify(hello))).toEqual({ ok: true, message: hello });
   const malformed = parseServerMessage(JSON.stringify({ ...hello, sessionDraftLimits: { maxTextBytes: "lots" } }));
   expect(malformed).toEqual({ ok: true, message: { type: "server_hello", protocolRev: 4, capabilities: { inbox: true, sessionDrafts: true } } });

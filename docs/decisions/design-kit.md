@@ -2386,7 +2386,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:276`), so
+  `packages/ui-server/src/ws/run-session.ts:282`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -4901,7 +4901,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1205-1226`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1363-1384`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**

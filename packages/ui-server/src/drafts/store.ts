@@ -126,6 +126,7 @@ interface AttachmentRow {
   name: string | null;
   bytes: Uint8Array;
   size_bytes: number;
+  attached: 0 | 1;
 }
 
 const encoder = new TextEncoder();
@@ -187,7 +188,7 @@ export function createDraftStore(
     "SELECT draft_id, session_id, revision, text, attachment_ids, updated_at, deleted_at FROM session_drafts WHERE draft_id = ?"
   );
   const selectAttachments = db.prepare(
-    "SELECT attachment_id, mime, name, bytes, size_bytes FROM session_draft_attachments WHERE draft_id = ?"
+    "SELECT attachment_id, mime, name, bytes, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
   );
 
   function readDraft(draftId: string): DraftRow | null {
@@ -353,8 +354,16 @@ export function createDraftStore(
             throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host holds the most drafts it keeps.", limit: limits.maxDrafts, bound: "drafts" });
           }
         }
+        // The host total after this save: its text replaces the old text, and
+        // the images the old revision listed but this one drops are deleted.
         const previousTextBytes = row ? utf8Bytes(row.text) : 0;
-        if (textBytes > previousTextBytes && totalBytes() - previousTextBytes + textBytes > limits.maxTotalBytes) {
+        const keep = new Set(input.attachmentIds);
+        let droppedBytes = 0;
+        for (const attachment of stored.values()) {
+          if (attachment.attached === 1 && !keep.has(attachment.attachment_id)) droppedBytes += attachment.size_bytes;
+        }
+        const growth = textBytes - previousTextBytes - droppedBytes;
+        if (growth > 0 && totalBytes() + growth > limits.maxTotalBytes) {
           throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's draft storage is full.", limit: limits.maxTotalBytes, bound: "total" });
         }
 
@@ -372,7 +381,6 @@ export function createDraftStore(
         }
         // An image the previous revision listed and this one dropped is gone;
         // an upload no revision has listed yet waits for its own save.
-        const keep = new Set(input.attachmentIds);
         for (const attachment of stored.values()) {
           if (keep.has(attachment.attachment_id)) {
             db.prepare("UPDATE session_draft_attachments SET attached = 1 WHERE attachment_id = ?").run(attachment.attachment_id);

@@ -2883,7 +2883,8 @@ The six routes, their headers, bodies and error codes are specified in the
   draft and its images unchanged.
 
 `chat_message.draftRef?: DraftRef` names the saved revision a message was
-sent from. It is ignored by a host without the capability, and a message
+sent from. It is ignored by a host without the capability and on a handoff
+message (whose text is a reviewed summary, not a composer draft), and a message
 carrying it never joins a running turn natively: like `requestId`, it queues
 as its own turn. When the host accepts the message (the `session_info` of its
 turn, or its `status: queued`), it deletes the draft only if that revision is
