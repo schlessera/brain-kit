@@ -26,7 +26,11 @@ export function createTrackerClient(root: BrainUiServices) {
     const lastUser = state.buffers[sessionId]?.messages.findLast((m) => m.role === "user");
     const requestId = lastUser?.requestId;
     if (!requestId) return null;
-    return state.chatReceipts[requestId] ? null : requestId;
+    // The composer consumes a receipt once it has acted on it, so a missing
+    // receipt proves nothing. The frames that accepted the request were
+    // also tracker evidence: the session's latest request is this one.
+    if (state.chatReceipts[requestId]) return null;
+    return trackers.getState().evidence[sessionId]?.latest?.requestId === requestId ? null : requestId;
   }
 
   /** Something in the session is still in flight, or waits on the reader (D52 §4). */

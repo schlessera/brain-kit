@@ -200,6 +200,22 @@ describe("creating a tracker", () => {
     frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-mast" });
     expect(state(r, A)).toBe("queued");
   });
+
+  test("an accepted send stays accepted after the composer consumes its receipt", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Bind me to the mast", "typed", undefined, { requestId: "req-mast" });
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-mast" });
+    expect(r.stores.chat.getState().chatReceipts["req-mast"]).toBeDefined();
+    // What the composer does once it has cleared its input.
+    r.stores.chat.getState().clearChatReceipt("req-mast");
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("running");
+  });
 });
 
 describe("clearing a tracker", () => {

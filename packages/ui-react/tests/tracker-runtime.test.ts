@@ -194,7 +194,13 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         expect(seen).toMatchObject({ basis: "proof", turnId: done.turnId! });
         // Recovery reads and seen observation started no model turn.
         expect(turnsStarted.filter((id) => id === sessionId)).toHaveLength(1);
-      } finally { await context.close(); }
+      } finally {
+        await context.close();
+        // A run that failed mid-way must not leave its turn running into the
+        // next one, where the host would announce it as unwatched work.
+        gates.get(prompt)?.();
+        gates.delete(prompt);
+      }
     }, 90_000);
   }
 });
