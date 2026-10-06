@@ -5648,29 +5648,30 @@ describe("New chat on the chat page (#93)", () => {
       expect(view.container.textContent).toContain("What did Circe say about the strait?");
       const button = view.getByRole("button", { name: "New chat" });
 
-      // A sibling of the transcript's scroller, inside the positioned
-      // message area, anchored to its top right.
+      // The kit's disc row (D52 §7) is a sibling of the transcript's
+      // scroller, inside the positioned message area, anchored to its top
+      // right.
       const scroller = view.container.querySelector(`[${READING_COLUMN_ATTR}]`)!.parentElement!;
       const area = scroller.parentElement!;
-      expect(button.parentElement === area).toBe(true);
+      const row = button.parentElement!;
+      expect(row.className).toBe("bk-disc-row");
+      expect(row.parentElement === area).toBe(true);
       expect(area.className.split(" ")).toContain("relative");
       expect(scroller.className.split(" ")).toEqual(
         expect.arrayContaining(["pt-10", "@min-[888px]:pt-0"])
       );
-      const classes = button.className.split(" ");
-      expect(classes).toContain("absolute");
-      expect(classes).toContain("right-4");
-      expect(classes).toContain("top-2.5");
-      // Named by label and title; icon-only, so no visible text.
-      expect(button.getAttribute("title")).toBe("New chat");
-      expect(button.textContent).toBe("");
+      expect([row.style.position, row.style.right, row.style.top]).toEqual(["absolute", "16px", "10px"]);
+      // Named by aria-label. The word the pill opens to is the same word,
+      // hidden from assistive technology, so there is no title to repeat it.
+      expect(button.className).toBe("bk-disc");
+      expect(button.getAttribute("title")).toBe(null);
+      const word = button.querySelector(".bk-disc-label")!;
+      expect(word.textContent).toBe("New chat");
+      expect(word.getAttribute("aria-hidden")).toBe("true");
       expect(button.querySelector("svg") !== null).toBe(true);
-      // A 44px target around the scroll disc's 32px paint.
-      expect(classes).toEqual(expect.arrayContaining(["h-11", "w-11"]));
-      const disc = button.firstElementChild!.className.split(" ");
-      expect(disc).toEqual(
-        expect.arrayContaining(["h-8", "w-8", "rounded-full", "border", "border-border", "bg-surface", "shadow-md", "text-muted-foreground"])
-      );
+      // Ink at rest: the primary act (D52 §8).
+      expect(button.getAttribute("data-tone")).toBe("ink");
+      expect(button.firstElementChild!.className).toBe("bk-disc-paint");
 
       // The page column holds the message area directly after the panels:
       // nothing in flow between them takes the transcript's height.

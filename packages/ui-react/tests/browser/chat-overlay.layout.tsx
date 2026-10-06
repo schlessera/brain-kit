@@ -106,7 +106,7 @@ async function mount(size: Size) {
   expect(scroller.scrollHeight, "seeded transcript really overflows").toBeGreaterThan(scroller.clientHeight + 20);
   expect(scroller.scrollTop).toBe(0);
   const target = host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')!;
-  const scrollDisc = host.querySelector<HTMLButtonElement>('button[title="Scroll to bottom"]')!;
+  const scrollDisc = host.querySelector<HTMLButtonElement>('button[aria-label="Scroll to latest"]')!;
   expect(target).not.toBeNull();
   expect(scrollDisc, "both overlay controls are shown").not.toBeNull();
   return { target, scrollDisc, column, scroller, area, chat, composer };
