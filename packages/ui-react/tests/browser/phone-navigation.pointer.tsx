@@ -367,6 +367,22 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     await settle();
     expect(host!.querySelector('[role="dialog"][aria-label="More"]')).toBeNull();
     expect(document.activeElement, "Esc returns focus to the More slot").toBe(must(/^More/, "tab"));
+    // A press on the scrim dismisses More and returns focus the same way.
+    await activate(must(/^More/, "tab"), mode);
+    const scrim = host!.querySelector<HTMLElement>('[role="dialog"][aria-label="More"]')!.parentElement!;
+    const above = rect(host!.querySelector('[role="dialog"][aria-label="More"]')!).top;
+    if (above > 8) {
+      const point = { x: width / 2, y: above / 2 };
+      expect(document.elementFromPoint(point.x, point.y), "the scrim is what is pressed").toBe(scrim);
+      if (mode === "fine") await commands.overlayMouse(point);
+      else { await commands.rankTouch("touchStart", [point]); await commands.rankTouch("touchEnd", []); }
+      await settle();
+      expect(host!.querySelector('[role="dialog"][aria-label="More"]'), "the scrim dismisses More").toBeNull();
+      expect(document.activeElement, "a scrim press returns focus to the More slot").toBe(must(/^More/, "tab"));
+    } else {
+      await userEvent.keyboard("{Escape}");
+      await settle();
+    }
     if (width === 320 && height === 640 && mode === "mixed") {
       await activate(must(/^More/, "tab"), mode);
       await page.screenshot({ element: host!, path: `../../.vitest-attachments/phone-navigation/${theme}-320-more.png` });
@@ -383,6 +399,13 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
       expect(t.contains(hit), `the open panel does not cover ${t.textContent}`).toBe(true);
     }
     expect(must(/^Files/, "tab").getAttribute("aria-selected"), "Files is here").toBe("true");
+    // More opens over the drawer, and Escape dismisses only More.
+    await activate(must(/^More/, "tab"), mode);
+    expect(host!.querySelector('[role="dialog"][aria-label="More"]'), "More opens over Files").not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await settle();
+    expect(host!.querySelector('[role="dialog"][aria-label="More"]')).toBeNull();
+    expect(ui$().filePanelOpen, "Escape leaves Files open under More").toBe(true);
     await activate(must(/^Chat/, "tab"), mode);
     expect(ui$().filePanelOpen, "Chat replaces the panel").toBe(false);
     await activate(must("Search the brain"), mode);

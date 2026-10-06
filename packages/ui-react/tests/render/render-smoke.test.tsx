@@ -3766,6 +3766,26 @@ describe("MobileTabBar on the kit TabBar", () => {
     useUIStore.getState().setActiveView("chat");
   });
 
+  test("Escape over an open destination dismisses only More", () => {
+    useUIStore.getState().setActiveView("chat");
+    useUIStore.getState().openPanel("files");
+    // A drawer's own Escape, registered the way SlidePanel and FilePanel do.
+    const drawerEscape = mock((e: KeyboardEvent) => { if (e.key === "Escape") useUIStore.getState().setFilePanelOpen(false); });
+    document.addEventListener("keydown", drawerEscape);
+    const view = render(<MobileTabBar />);
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(view.queryByRole("dialog"), "More closes").toBeNull();
+    expect(useUIStore.getState().filePanelOpen, "the drawer under More stays open").toBe(true);
+    // With More closed, Escape reaches the drawer again.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(useUIStore.getState().filePanelOpen).toBe(false);
+    document.removeEventListener("keydown", drawerEscape);
+    view.unmount();
+    useUIStore.getState().setActiveView("chat");
+  });
+
   test("a Settings page that refuses to be left keeps every slot and More act from running behind it", () => {
     useUIStore.getState().setActiveView("chat");
     useUIStore.getState().openPanel("settings");

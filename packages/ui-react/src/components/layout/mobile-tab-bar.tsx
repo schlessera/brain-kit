@@ -59,13 +59,18 @@ export function MobileTabBar() {
 
   useEffect(() => {
     if (!moreOpen) return;
+    // More is the topmost layer, and a destination drawer may be open under
+    // it with its own document-level Escape. Escape dismisses only More, so
+    // it is taken in the window's capture phase, before any of those.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeMore(true);
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      closeMore(true);
     }
-    document.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     // The sheet's first row takes focus; the More slot gets it back on close.
     moreRef.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
-    return () => document.removeEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [moreOpen]);
 
   /**
@@ -132,7 +137,11 @@ export function MobileTabBar() {
         <div
           className="fixed inset-0 z-40 bg-black/60"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeMore(true);
+            if (e.target !== e.currentTarget) return;
+            // The press's default would move focus to <body> after the
+            // restore below, so it is cancelled.
+            e.preventDefault();
+            closeMore(true);
           }}
         >
           <div ref={moreRef} role="dialog" aria-label="More" className="absolute inset-x-0 bottom-0 max-h-full overflow-y-auto">
