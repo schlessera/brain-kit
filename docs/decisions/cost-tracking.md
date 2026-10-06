@@ -164,3 +164,9 @@ subscription call that reported nothing would otherwise read as free. Every
 other call, including a malformed token count, has no billing mode and counts
 as unpriced. The calls stay counted in the `brain.labeller.calls` metric, and a
 label run's cost is not added to the session's own total.
+
+A label run raises no failure or stuck notification (`const isPillLabel`,
+`packages/ui-server/src/activity/notify.ts:145`). A failed label only leaves a
+pill on its fallback, and its failure intent would carry the session's tag,
+`failure:<sessionId>`, so the session's next real turn failure would be
+deduplicated against it and never delivered.

@@ -24,6 +24,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting, setSetting } from "../db/settings.js";
+import { LABEL_RUN_NAME } from "../labels/labeller.js";
 import type { ActivityStore, SpanRow } from "./store.js";
 
 export type IntentKind = "failure" | "completion" | "stuck";
@@ -135,8 +136,16 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     });
   }
 
+  /**
+   * A pill label call (#1083) is recorded so its cost shows, not to page
+   * anyone: a failed label leaves the pill on its fallback, and its
+   * session-scoped failure tag would swallow that session's next real turn
+   * failure.
+   */
+  const isPillLabel = (span: SpanRow) => span.name === LABEL_RUN_NAME && span.origin === "session";
+
   function intentForSpan(span: SpanRow): void {
-    if (span.parentSpanId) return;
+    if (span.parentSpanId || isPillLabel(span)) return;
     if (isFailureOutcome(span.outcome)) {
       const label = span.jobName ?? span.name;
       // "Unwatched" is evaluated when the failure is NOTICED — a live
@@ -218,7 +227,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
         );
         const scanThreshold = Math.min(defaultThreshold, ...overrideValues);
         for (const span of store.findStuck(scanThreshold, now)) {
-          if (stuckFlagged.has(span.runId)) continue;
+          if (stuckFlagged.has(span.runId) || isPillLabel(span)) continue;
           const threshold = span.jobName ? (overrides[span.jobName] ?? defaultThreshold) : defaultThreshold;
           if ((now ?? Date.now()) - span.startedAt < threshold) continue;
           stuckFlagged.add(span.runId);

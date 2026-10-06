@@ -3113,7 +3113,11 @@ prompt).
   calls are also counted by outcome in the `brain.labeller.calls` metric, and
   asks that kept their fallback without an answer (timed out, or skipped
   while busy) are counted apart, in `brain.labeller.fallbacks`. A label run's
-  cost is not added to the session's own `totalCostUsd`.
+  cost is not added to the session's own `totalCostUsd`, and a failed or
+  long-running label run raises no failure or stuck notification. `createApp` records
+  these runs itself; a `WsHost` embedder that builds its own labeller passes
+  `createLabeller({ options, activity: { store, onWrite? } })`, and without
+  `activity` it records none.
 
 ## File-layer contracts
 

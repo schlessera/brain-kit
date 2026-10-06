@@ -39,9 +39,9 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   [complete backup](../inbox-recovery.md) and [reservation accounting](../inbox-budget.md)
   are available precedents; their existing tests cannot prove new schedule relations.
 - Notification kinds are already failure/completion/stuck
-  (`IntentKind`, `packages/ui-server/src/activity/notify.ts:29-29`), with bounded
-  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:67-73`).
-  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:162-175`)
+  (`IntentKind`, `packages/ui-server/src/activity/notify.ts:30-30`), with bounded
+  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:68-74`).
+  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:171-184`)
   does not implement schedule/occurrence preferences or correlation.
 
 Production execution requires [#689](https://github.com/schlessera/brain-kit/issues/689)
