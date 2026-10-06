@@ -14,11 +14,21 @@ export const connectionFrameHandlers = {
     // …and view-owned subscriptions (the Activity index) must re-send too.
     context.stores.activity.getState().bumpConnectionEpoch();
     context.ensureActivitySubscription(context.state.activeSessionId);
+    // Durable Queue/Actions (#684): opt in only when advertised. Both views
+    // are connection-wide, because the badge counts decisions everywhere.
+    const inbox = msg.capabilities?.inbox === true;
+    context.stores.inbox.getState().setSupported(inbox);
+    if (inbox) {
+      context.subscribeInbox("actions");
+      context.subscribeInbox("queue");
+    }
   },
-  // Durable subscriptions/store are wired by #682/#684. This client does
-  // not subscribe yet; additive frames are safely ignored in the meantime.
-  inbox_snapshot: () => {},
-  inbox_delta: () => {},
+  inbox_snapshot: (msg, context) => {
+    context.stores.inbox.getState().applySnapshot(msg);
+  },
+  inbox_delta: (msg, context) => {
+    context.stores.inbox.getState().applyDelta(msg);
+  },
   // Live conversation (#957) is negotiated: a host sends these only to a
   // connection that started a conversation or declared toolResolution, and
   // this client does neither yet (capture/playback is #960).
@@ -38,6 +48,21 @@ export const connectionFrameHandlers = {
     // error arriving between turns (a rejected frame, a failed resume) was
     // dropped as silently on the client as it was on the server.
     context.stores.connection.getState().reportError(msg.code, msg.message);
+    // A refused durable decision names no item, so every decision in flight
+    // unlocks and a fresh snapshot tells each card its outcome (ruling R2).
+    // It is never a chat failure: a turn streaming meanwhile is unaffected.
+    if (msg.code === "INBOX_DECISION_REFUSED" || msg.code === "INBOX_UNAVAILABLE") {
+      const unavailable = msg.code === "INBOX_UNAVAILABLE";
+      if (context.stores.inbox.getState().decisionRefused(unavailable)) context.subscribeInbox("actions");
+      return;
+    }
+    if (msg.code.startsWith("INBOX_")) return;
+    // The socket's frame budget refuses by frame, not by item: a decision in
+    // flight may be the one refused. Ask for a snapshot once the budget has
+    // had a moment to refill, rather than leave the card recording forever.
+    if (msg.code === "RATE_LIMITED" && context.stores.inbox.getState().decisionRefused()) {
+      setTimeout(() => context.subscribeInbox("actions"), 1000);
+    }
     // These socket-boundary refusals reject a frame, not the running turn.
     // Keep the connection/recovery signal without inventing a failed reply.
     if (

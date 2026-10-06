@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { InboxView, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { ChatKey, SessionChat } from "../../stores/chat-store.js";
 import type { ChatState } from "../../stores/chat-state.js";
 import type { BrainStores } from "../../stores/create-stores.js";
@@ -15,6 +15,8 @@ export interface DispatchContext {
   buffer: () => SessionChat | null | undefined;
   enqueueDelta: (key: ChatKey, kind: "text" | "thinking", text: string) => void;
   ensureActivitySubscription: (sessionId: string | null | undefined) => void;
+  /** (Re-)subscribe one durable view; a repeat yields a fresh snapshot. */
+  subscribeInbox: (view: InboxView) => void;
   requestBrowserLocation: (
     msg: Extract<ServerMessage, { type: "location_request" }>
   ) => void;

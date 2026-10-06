@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BottomSheet, ListRow, TabBar, type TabItem } from "@schlessera/brain-ui-kit";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat, pendingApprovals } from "../../stores/chat-store.js";
-import { useActivityStore } from "../../stores/activity-store.js";
+import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useChatCommands } from "../chat/use-chat-commands.js";
 
@@ -25,12 +25,14 @@ export function MobileTabBar() {
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
-  const inboxCount = useActivityStore((s) => s.inbox.length);
+  // Open, non-FYI durable decisions (#684). Run notices have their own count
+  // in the Actions list and no longer badge: a notice is a fact, not a question.
+  const decisionCount = useInboxStore(pendingDecisionCount);
   const approvalCount = useChatStore((s) => pendingApprovals(s).length);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const runCommand = useChatCommands();
-  const needsYou = inboxCount + approvalCount;
+  const needsYou = decisionCount + approvalCount;
 
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);

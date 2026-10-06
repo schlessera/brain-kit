@@ -474,6 +474,8 @@ signatures (every public export and the types it is made of)
         countMedian: number | null;
         versions: string[];
     }
+  DecisionKind (packages/ui-react/src/stores/inbox-state.ts)
+    export type DecisionKind = "commit" | "later" | "dismiss";
   DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
   DiscoveryColorBy (packages/ui-react/src/stores/graph-state.ts)
@@ -639,6 +641,63 @@ signatures (every public export and the types it is made of)
         noteCreated(handoffId: string, sessionId: string, live: boolean): void;
         setLinks(sessions: readonly ChatSession[]): void;
         addLink(sourceSessionId: string, destination: HandoffLink, source: HandoffLink): void;
+    }
+  InFlightDecision (packages/ui-react/src/stores/inbox-state.ts)
+    export interface InFlightDecision {
+        kind: DecisionKind;
+        optionId?: string;
+        label: string;
+        receipt: string;
+        reason?: InboxDismissReason;
+        ambiguous?: boolean;
+        sentVersion: number;
+        state: "applying" | "unconfirmed" | "refused";
+    }
+  InboxChangeNotice (packages/ui-react/src/stores/inbox-state.ts)
+    export interface InboxChangeNotice {
+        fields: string[];
+        before: InboxActionItem;
+        reviewed: boolean;
+    }
+  InboxOutcome (packages/ui-react/src/stores/inbox-state.ts)
+    export type InboxOutcome = {
+        kind: "receipt";
+        status: Extract<InboxActionStatus, "resolved" | "dismissed" | "snoozed">;
+        by: "you" | "elsewhere" | "unknown";
+        afterReconnect?: boolean;
+        waitUntil?: number;
+        reason?: InboxDismissReason;
+        text?: string;
+        lost?: string;
+    } | {
+        kind: "not-received";
+        label: string;
+    } | {
+        kind: "not-applied";
+    } | {
+        kind: "gone";
+        status: "dropped" | "expired" | "removed";
+    };
+  InboxState (packages/ui-react/src/stores/inbox-state.ts)
+    export interface InboxState {
+        supported: boolean;
+        online: boolean;
+        asOf: number | null;
+        views: Record<InboxView, ViewMirror>;
+        threads: Record<string, InboxThread>;
+        items: Record<string, InboxItem>;
+        inFlight: Record<string, InFlightDecision>;
+        outcomes: Record<string, InboxOutcome>;
+        changes: Record<string, InboxChangeNotice>;
+        setSupported: (supported: boolean) => void;
+        connectionLost: () => void;
+        applySnapshot: (msg: InboxSnapshot) => void;
+        applyDelta: (msg: InboxDelta) => void;
+        beginDecision: (itemId: string, decision: Omit<InFlightDecision, "state" | "sentVersion">) => boolean;
+        decisionRefused: (settle?: boolean) => boolean;
+        reviewChanges: (itemId: string) => void;
+        clearReceipts: (exceptItemId?: string) => void;
+        clear: () => void;
     }
   LocalDirection (packages/ui-react/src/stores/graph-state.ts)
     export type LocalDirection = "in" | "out" | "both";
@@ -964,6 +1023,11 @@ signatures (every public export and the types it is made of)
         hasUnsentText?: () => boolean;
         enabled?: boolean;
         reload?: () => void;
+    }
+  ViewMirror (packages/ui-react/src/stores/inbox-state.ts)
+    interface ViewMirror {
+        ready: boolean;
+        highWaterSeq: Record<string, number>;
     }
   ViewMode (packages/ui-react/src/stores/file-state.ts)
     export type ViewMode = "preview" | "raw";
@@ -1303,6 +1367,7 @@ signatures (every public export and the types it is made of)
             dispose(): void;
         };
         handoff: import("zustand").StoreApi<import("./handoff-state.js").HandoffState>;
+        inbox: import("zustand").StoreApi<import("./inbox-state.js").InboxState>;
         mask: import("zustand").StoreApi<import("./mask-state.js").MaskState>;
         principal: import("zustand").StoreApi<import("./principal-state.js").PrincipalState>;
         provider: import("zustand").StoreApi<import("./provider-state.js").ProviderState>;

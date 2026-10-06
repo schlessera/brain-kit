@@ -1,7 +1,22 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Activity as ActivityIcon, AlertTriangle, RefreshCw } from "lucide-react";
-import type { ActivitySpan, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivitySpan, InboxActionItem, InboxQueueItem, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
+import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
+import {
+  DECISION_CARD,
+  DecisionCard,
+  DecisionDetail,
+  FULL_CARDS,
+  NoteCard,
+  OutcomeRow,
+  ThreadHeader,
+  useStableOrder,
+  type DecisionContext,
+} from "./durable-actions.js";
+import { QueueItemReceipt, QueueView, useQueueCounts } from "./queue-view.js";
+import { formatWhen, groupDecisions, priorityTerms } from "./inbox-model.js";
+import { Disclosure } from "@schlessera/brain-ui-kit";
 
 import type {
   ActivityIntent,
@@ -104,6 +119,62 @@ export function ActivityPage() {
   const loadInbox = useActivityStore((s) => s.loadInbox);
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
   const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
+
+  // Durable Actions and the Queue (#684): one mirror, fed by the stream.
+  const inboxSupported = useInboxStore((s) => s.supported);
+  const inboxOnline = useInboxStore((s) => s.online);
+  const inboxAsOf = useInboxStore((s) => s.asOf);
+  const inboxItems = useInboxStore((s) => s.items);
+  const inboxThreads = useInboxStore((s) => s.threads);
+  const inFlight = useInboxStore((s) => s.inFlight);
+  const outcomes = useInboxStore((s) => s.outcomes);
+  const clearReceipts = useInboxStore((s) => s.clearReceipts);
+  const decisionCount = useInboxStore(pendingDecisionCount);
+  const queueCounts = useQueueCounts();
+  const [detailActionId, setDetailActionId] = useState<string | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueFocus, setQueueFocus] = useState<string | null>(null);
+  const [queueReceiptId, setQueueReceiptId] = useState<string | null>(null);
+  /** The decision whose confirmation should move focus (D37 §6). */
+  const awaitingFocus = useRef<string | null>(null);
+  const actions = useMemo(() => Object.values(inboxItems).filter((i): i is InboxActionItem => i.queue === "actions"), [inboxItems]);
+  const openDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && a.status === "pending"), [actions]);
+  const snoozedDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && a.status === "snoozed"), [actions]);
+  const notes = useMemo(() => actions.filter((a) => a.type === "fyi" && a.status === "pending").sort((a, b) => b.createdAt - a.createdAt), [actions]);
+  const blockedBy = useMemo(() => {
+    const map = new Map<string, InboxQueueItem>();
+    for (const item of Object.values(inboxItems)) {
+      if (item.queue === "queue" && item.status === "blocked" && item.blockedByItemId) map.set(item.blockedByItemId, item);
+    }
+    return map;
+  }, [inboxItems]);
+  const now = Date.now();
+  const sortedOpen = useMemo(
+    () => groupDecisions(openDecisions, inboxThreads, now).flatMap((g) => g.items.map((i) => i.id)),
+    // `now` moves every render; the score's age term changes by days, so the
+    // order is recomputed when the records change, not on every tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openDecisions, inboxThreads],
+  );
+  // Rows that replace a card in place: an answer's outcome, including a
+  // confirmed snooze, whose card has moved under Later.
+  const receiptIds = Object.keys(outcomes).filter((id) => {
+    if (inboxItems[id]?.queue === "queue" || openDecisions.some((d) => d.id === id)) return false;
+    const o = outcomes[id];
+    return !snoozedDecisions.some((d) => d.id === id) || (o?.kind === "receipt" && o.status === "snoozed");
+  });
+  const busy = Object.keys(inFlight).length > 0;
+  const stable = useStableOrder(sortedOpen, receiptIds, busy);
+  const rankOf = new Map(stable.order.filter((id) => openDecisions.some((d) => d.id === id)).map((id, i) => [id, i + 1]));
+  function decisionContext(item: InboxActionItem, compact: boolean): DecisionContext {
+    return {
+      thread: inboxThreads[item.threadId],
+      blocked: blockedBy.get(item.id) ?? null,
+      rank: rankOf.get(item.id) ?? 0,
+      total: decisionCount,
+      compact,
+    };
+  }
 
   const refresh = useCallback(() => {
     const token = ++request.current;
@@ -311,9 +382,137 @@ export function ActivityPage() {
     resolveToolApproval(key, toolUseId, approved);
     root.connection.send(frame);
   }
-  const needsYouCount = inbox.length + approvals.length;
+  /**
+   * The badge's one number (#684): live approvals plus open, non-FYI durable
+   * decisions — the rail, the bar, the chip and the heading all print it.
+   * Run notices are facts with their own count and do not join it.
+   */
+  const needsYouCount = decisionCount + approvals.length;
+  // A receipt of your own answer is held by the toast above the empty state;
+  // any other outcome (resolved elsewhere, not applied) keeps its row.
+  const foreignOutcome = receiptIds.some((id) => { const o = outcomes[id]; return !(o?.kind === "receipt" && o.by === "you"); });
+  const hasNeedsYou = needsYouCount > 0 || inbox.length > 0 || snoozedDecisions.length > 0 || foreignOutcome;
   const runningCount = liveRoots.length + restLive.length;
-  const lens: ActionsLens = picked ?? (needsYouCount > 0 || drained ? "needs-you" : runningCount > 0 ? "running" : "done");
+  const lens: ActionsLens = picked ?? (hasNeedsYou || drained ? "needs-you" : runningCount > 0 ? "running" : "done");
+
+  // A receipt lasts until the next disposition elsewhere, or leaving the lens.
+  // Only the reader leaving the lens counts: an automatic lens change (the
+  // last decision just went) must not swallow the receipt it produced.
+  function pickLens(next: ActionsLens) {
+    if (next !== lens) clearReceipts();
+    setLens(next);
+  }
+  useEffect(() => () => { clearReceipts(); }, [clearReceipts]);
+
+  /**
+   * Focus follows CONFIRMATION, not the tap (D37 §6): the next card, else the
+   * previous, else the empty state's heading. A refusal moves focus to the
+   * card's own alert instead, so the reader hears why nothing changed.
+   */
+  useEffect(() => {
+    const id = awaitingFocus.current;
+    if (!id) return;
+    const outcome = outcomes[id];
+    if (!outcome) return;
+    awaitingFocus.current = null;
+    // The pane the answer was given in: its detail, or the list.
+    const pane = id === detailActionId ? "[data-decision-detail]" : "[data-decision-list]";
+    if (outcome.kind === "not-applied" || outcome.kind === "not-received") {
+      document.querySelector<HTMLElement>(`${pane} [data-decision-id="${CSS.escape(id)}"] [data-decision-alert]`)?.focus();
+      return;
+    }
+    if (outcome.kind === "receipt" && outcome.by === "you" && outcome.text) {
+      setReceipt({ text: outcome.text.split(" · ")[0]!, target: outcome.text.split(" · ").slice(1).join(" · ") || (inboxItems[id] as InboxActionItem | undefined)?.payload.title || "", effect: outcome.status === "resolved" ? "inbox_resolve" : outcome.status === "snoozed" ? "inbox_snooze" : "dismiss" });
+    }
+    if (id === detailActionId) {
+      // Decided from its detail: the detail now says what happened.
+      // Keep the lens on what was just answered, and focus what the detail
+      // now shows: its outcome, or the card itself when it is still open
+      // (snoozed decisions can still be answered).
+      setDrained(true);
+      requestAnimationFrame(() => (document.querySelector<HTMLElement>("[data-decision-detail-status]")
+        ?? document.querySelector<HTMLElement>("[data-decision-detail] [data-decision-card]"))?.focus());
+      return;
+    }
+    const list = document.querySelector("[data-decision-list]");
+    const row = list?.querySelector(`[data-decision-receipt="${CSS.escape(id)}"]`);
+    const cards = list ? [...list.querySelectorAll<HTMLElement>(DECISION_CARD)] : [];
+    const after = row ? cards.find((c) => row.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) : undefined;
+    const before = row ? [...cards].reverse().find((c) => row.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_PRECEDING) : undefined;
+    // No card left: the receipt row itself (the last one was snoozed into
+    // Later), else the empty state's heading.
+    const target = after ?? before ?? cards[0] ?? (row as HTMLElement | null | undefined);
+    if (target) target.focus();
+    else setDrained(true);
+  }, [outcomes, inboxItems, detailActionId]);
+
+  // A queue item that left the stream cannot stay selected: below `laptop:`
+  // its empty pane would hide the Queue with no way back.
+  useEffect(() => {
+    if (queueReceiptId && !inboxItems[queueReceiptId]) setQueueReceiptId(null);
+  }, [queueReceiptId, inboxItems]);
+
+  function onDecided(itemId: string) {
+    awaitingFocus.current = itemId;
+    setDrained(false);
+  }
+  function openQueue(focusId: string | null) {
+    setQueueFocus(focusId);
+    setQueueReceiptId(null);
+    // Below `laptop:` a selected detail hides the list column the Queue
+    // replaces; release it so the Queue is what shows.
+    setDetailActionId(null);
+    setQueueOpen(true);
+  }
+  function closeQueue() {
+    setQueueOpen(false);
+    setQueueFocus(null);
+  }
+  function openAction(id: string) {
+    setDetailActionId(id);
+    setQueueReceiptId(null);
+    showDetail(null);
+  }
+  function closeAction() {
+    const id = detailActionId;
+    setDetailActionId(null);
+    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-decision-list] [data-decision-id="${CSS.escape(id)}"]`)?.focus());
+  }
+  /** A blocked Queue row's link: back to the decision it waits on, focused. */
+  function queueToAction(id: string) {
+    closeQueue();
+    setLens("needs-you");
+    requestAnimationFrame(() => {
+      const card = document.querySelector<HTMLElement>(`[data-decision-list] [data-decision-id="${CSS.escape(id)}"]`);
+      if (card) card.focus();
+      else openAction(id);
+    });
+  }
+  function openQueueItem(item: InboxQueueItem) {
+    setDetailActionId(null);
+    if (item.runId) {
+      setQueueReceiptId(null);
+      showDetail(item.runId);
+    } else {
+      showDetail(null);
+      setQueueReceiptId(item.id);
+    }
+  }
+  /** j / k across durable cards, full and compact alike (D36). */
+  function onDecisionKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!keys) return;
+    const key = singleKey(event);
+    if (key !== "j" && key !== "k") return;
+    const cards = [...event.currentTarget.querySelectorAll<HTMLElement>(DECISION_CARD)];
+    const here = cards.findIndex((card) => card.contains(event.target as Node));
+    if (here === -1) return;
+    event.preventDefault();
+    cards[(here + (key === "j" ? 1 : -1) + cards.length) % cards.length]?.focus();
+  }
+  const openDetail = detailRunId !== null || detailActionId !== null || queueReceiptId !== null;
+  const queueReceiptItem = queueReceiptId ? inboxItems[queueReceiptId] : undefined;
+  const detailAction = detailActionId ? inboxItems[detailActionId] : undefined;
+  const nextBack = snoozedDecisions.reduce<number | null>((min, d) => (d.waitUntil !== undefined && (min === null || d.waitUntil < min) ? d.waitUntil : min), null);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col laptop:flex-row">
@@ -330,9 +529,12 @@ export function ActivityPage() {
         aria-label="Actions queue"
         className={cn(
           "min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:flex-none laptop:border-r laptop:border-border-subtle",
-          detailRunId ? "hidden" : "flex flex-1"
+          openDetail ? "hidden" : "flex flex-1"
         )}
       >
+        {queueOpen ? (
+          <QueueView focusId={queueFocus} onBack={closeQueue} onOpenAction={queueToAction} onOpenItem={openQueueItem} />
+        ) : (<>
         <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
           <ActivityIcon className="h-4 w-4 text-muted-foreground" />
           <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Actions</h1>
@@ -351,6 +553,16 @@ export function ActivityPage() {
             )}
             <PushToggle />
           </div>
+          {inboxSupported && (
+            <button
+              type="button"
+              onClick={() => openQueue(null)}
+              className="min-h-11 rounded-md px-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+              aria-label={`Open the queue, ${queueCounts.total} items`}
+            >
+              Queue · {queueCounts.total} ▸
+            </button>
+          )}
           <button
             type="button"
             onClick={refresh}
@@ -368,30 +580,30 @@ export function ActivityPage() {
 
           <FilterRow
             items={[
-              { label: `needs you ${needsYouCount}`, onClick: () => setLens("needs-you") },
-              { label: `running ${runningCount}`, onClick: () => setLens("running") },
-              { label: `done ${history.length}`, onClick: () => setLens("done") },
+              { label: `needs you ${needsYouCount}`, onClick: () => pickLens("needs-you") },
+              { label: `running ${runningCount}`, onClick: () => pickLens("running") },
+              { label: `done ${history.length}`, onClick: () => pickLens("done") },
             ]}
             active={lens === "needs-you" ? 0 : lens === "running" ? 1 : 2}
           />
 
+          {inboxSupported && !inboxOnline && (
+            <p role="status" className="rounded-md border border-border-subtle px-3 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground" data-inbox-offline="">
+              Reconnecting · showing state as of {inboxAsOf ? formatWhen(inboxAsOf) : "the last connection"}
+            </p>
+          )}
+
           {lens === "needs-you" && (
             <section aria-labelledby="needs-you-heading">
-              <div className="mb-2 flex items-center">
+              <div className="mb-2 flex items-center gap-2">
                 <h2 id="needs-you-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-needs-you-heading="">
                   Needs you
                 </h2>
-                {inbox.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={dismissAll}
-                    className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Dismiss all
-                  </button>
-                )}
+                <span className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground" data-needs-you-count="">
+                  {decisionCount >= 50 ? `${needsYouCount} · ${decisionCount} of 60` : needsYouCount}
+                </span>
               </div>
-              {needsYouCount === 0 ? (
+              {!hasNeedsYou ? (
                 <div className="flex flex-col gap-3">
                   {receipt && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
                   {/* A drained section becomes the empty state, and its heading
@@ -400,9 +612,10 @@ export function ActivityPage() {
                   <EmptyState variant="caught_up" meta="" focusTitle={drained} />
                 </div>
               ) : (
-                <>
+                <div className="flex flex-col gap-3">
+                  {receipt && receiptIds.length > 0 && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
                   {approvals.length > 0 && (
-                    <div className="mb-3 space-y-2">
+                    <div className="space-y-2">
                       {approvals.map(({ key, tool }) => (
                         <ApprovalCard
                           key={tool.id}
@@ -414,28 +627,102 @@ export function ActivityPage() {
                       ))}
                     </div>
                   )}
-                  <div className="space-y-2" onKeyDown={onInboxKeyDown}>
-                    {inbox.map((intent) => (
-                      <div key={intent.id} data-intent-card="">
-                        <IntentCard
-                          intent={intent}
-                          when={formatRelativeTime(intent.createdAt)}
-                          keyHint={printKeys}
-                          onOpen={() => {
-                            void acknowledgeIntent(intent.id);
-                            openIntent(intent);
-                          }}
-                          onDismiss={() => dismiss(intent)}
-                        />
+                  {(stable.order.length > 0 || stable.fresh > 0) && (
+                    <div className="flex flex-col gap-2" data-decision-list="" onKeyDown={onDecisionKeyDown}>
+                      {stable.fresh > 0 && (
+                        <button type="button" onClick={stable.show} className="min-h-11 rounded-md border border-border-subtle px-3 text-xs text-muted-foreground hover:text-foreground" data-decision-fresh="">
+                          {stable.fresh} new · show
+                        </button>
+                      )}
+                      {stable.order.map((id, i) => {
+                        const item = inboxItems[id];
+                        if (!item || item.queue !== "actions") {
+                          return outcomes[id] ? (
+                            <div key={id} data-decision-receipt={id} className="rounded-[12px] border border-border-subtle px-3 py-2 text-xs text-muted-foreground" role="status">
+                              No longer listed
+                            </div>
+                          ) : null;
+                        }
+                        const prev = i > 0 ? inboxItems[stable.order[i - 1]!] : undefined;
+                        const header = !prev || prev.threadId !== item.threadId;
+                        const count = openDecisions.filter((d) => d.threadId === item.threadId).length;
+                        const outcome = outcomes[id];
+                        const rank = rankOf.get(id) ?? 0;
+                        return (
+                          <div key={id} className="flex flex-col gap-2">
+                            {header && <ThreadHeader thread={inboxThreads[item.threadId]} count={count} />}
+                            {item.status === "pending" ? (
+                              <DecisionCard
+                                item={item}
+                                context={decisionContext(item, rank > FULL_CARDS)}
+                                keys={keys}
+                                onDetails={() => openAction(id)}
+                                onQueue={(q) => openQueue(q)}
+                                onDecided={onDecided}
+                              />
+                            ) : outcome ? (
+                              <OutcomeRow item={item} outcome={outcome} onQueue={() => openQueue(null)} />
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {inbox.length > 0 && (
+                    <section aria-labelledby="notices-heading" className="flex flex-col gap-2">
+                      <div className="flex items-center">
+                        <h3 id="notices-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notices · {inbox.length}</h3>
+                        <button
+                          type="button"
+                          onClick={dismissAll}
+                          className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          Dismiss all
+                        </button>
                       </div>
-                    ))}
-                  </div>
+                      <div className="space-y-2" onKeyDown={onInboxKeyDown}>
+                        {inbox.map((intent) => (
+                          <div key={intent.id} data-intent-card="">
+                            <IntentCard
+                              intent={intent}
+                              when={formatRelativeTime(intent.createdAt)}
+                              keyHint={printKeys}
+                              onOpen={() => {
+                                void acknowledgeIntent(intent.id);
+                                openIntent(intent);
+                              }}
+                              onDismiss={() => dismiss(intent)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {snoozedDecisions.length > 0 && (
+                    <div data-later-section="">
+                      <Disclosure label={`Later · ${snoozedDecisions.length}${nextBack !== null ? ` · next back ${formatWhen(nextBack)}` : ""}`}>
+                        <div className="flex flex-col gap-2" onKeyDown={onDecisionKeyDown}>
+                          {snoozedDecisions.map((item) => (
+                            <DecisionCard
+                              key={item.id}
+                              item={item}
+                              context={decisionContext(item, false)}
+                              keys={keys}
+                              onDetails={() => openAction(item.id)}
+                              onQueue={(q) => openQueue(q)}
+                              onDecided={onDecided}
+                            />
+                          ))}
+                        </div>
+                      </Disclosure>
+                    </div>
+                  )}
                   {printKeys && (
                     <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:hidden">
-                      j / k move · d dismiss · ⏎ open{approvals.length > 0 ? " · a allow" : ""}
+                      {stable.order.length > 0 ? "j / k move · a approve · d dismiss · s later · ⏎ details" : `j / k move · d dismiss · ⏎ open${approvals.length > 0 ? " · a allow" : ""}`}
                     </p>
                   )}
-                </>
+                </div>
               )}
             </section>
           )}
@@ -457,11 +744,27 @@ export function ActivityPage() {
                   ))}
                 </div>
               )}
+              {inboxSupported && (
+                <button
+                  type="button"
+                  onClick={() => openQueue(null)}
+                  className="mt-3 min-h-11 w-full rounded-md border border-border-subtle px-3 text-left font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground hover:text-foreground"
+                  data-running-queue=""
+                >
+                  Queue: {queueCounts.ready} ready · {queueCounts.blocked} blocked · {queueCounts.failed} failed ▸
+                </button>
+              )}
             </section>
           )}
 
           {lens === "done" && (
             <>
+              {notes.length > 0 && (
+                <section aria-labelledby="notes-heading" className="flex flex-col gap-2">
+                  <h2 id="notes-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes · {notes.length}</h2>
+                  {notes.map((note) => <NoteCard key={note.id} item={note} />)}
+                </section>
+              )}
               {rollups && <RollupCards rollups={rollups} />}
               <section>
                 <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-history-heading="">
@@ -489,14 +792,26 @@ export function ActivityPage() {
             j / k move · d dismiss
           </p>
         )}
+        </>)}
       </section>
 
       {/* The detail pane. Below `laptop:` it shows only with a selection and
           takes the whole page; from `laptop:` it is always there, holding the
           selected run or the prompt to pick one. */}
-      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", detailRunId ? "flex" : "hidden laptop:flex")}>
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", openDetail ? "flex" : "hidden laptop:flex")}>
         {detailRunId ? (
           <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded onReport={setReport} />
+        ) : detailActionId ? (
+          <DecisionDetail
+            item={detailAction?.queue === "actions" ? detailAction : undefined}
+            context={detailAction?.queue === "actions" ? decisionContext(detailAction, false) : null}
+            why={detailAction?.queue === "actions" ? priorityTerms(inboxThreads[detailAction.threadId], detailAction, now) : ""}
+            onBack={closeAction}
+            onQueue={(q) => openQueue(q)}
+            onDecided={onDecided}
+          />
+        ) : queueReceiptItem?.queue === "queue" ? (
+          <QueueItemReceipt item={queueReceiptItem} onBack={() => setQueueReceiptId(null)} />
         ) : (
           <div className="flex h-full items-center justify-center overflow-y-auto p-4">
             <EmptyState

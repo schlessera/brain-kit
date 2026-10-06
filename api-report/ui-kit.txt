@@ -88,6 +88,11 @@ export "." (./src/index.ts)
   type DigestItem
   Disclosure
   type DisclosureProps
+  DispositionBar
+  type DispositionBarProps
+  type DispositionControl
+  EffectPreview
+  type EffectPreviewProps
   type Emphasis
   EmptyState
   type EmptyStateProps
@@ -243,6 +248,7 @@ export "." (./src/index.ts)
   type ViewState
   canvas
   color
+  effectLineCount
   font
 
 export "./internal" (./src/internal.ts)
@@ -289,6 +295,11 @@ signatures (every public export and the types it is made of)
         footMeta?: string;
         footDot?: Tone;
         footPulse?: boolean;
+        footLink?: {
+            label: string;
+            onClick: () => void;
+            name?: string;
+        };
         chevron?: boolean;
         struck?: boolean;
         stateMessage?: string;
@@ -573,6 +584,7 @@ signatures (every public export and the types it is made of)
         subtitle?: string;
         disabled?: boolean;
         ariaDisabled?: boolean;
+        ariaLabel?: string;
         block?: boolean;
         center?: boolean;
         onClick?: () => void;
@@ -824,6 +836,44 @@ signatures (every public export and the types it is made of)
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         children?: ReactNode;
+    }
+  DispositionBar (packages/ui-kit/src/decisions/DispositionBar.tsx)
+    export function DispositionBar(p: DispositionBarProps): import("react").JSX.Element;
+  DispositionBarProps (packages/ui-kit/src/decisions/DispositionBar.tsx)
+    export interface DispositionBarProps {
+        commit?: DispositionControl;
+        later?: DispositionControl;
+        dismiss?: DispositionControl;
+        busy?: "commit" | "later" | "dismiss";
+        busyLabel?: string;
+        reason?: string;
+    }
+  DispositionControl (packages/ui-kit/src/decisions/DispositionBar.tsx)
+    export interface DispositionControl {
+        label: string;
+        name?: string;
+        effect?: string;
+        disabled?: boolean;
+        onClick?: () => void;
+    }
+  EffectPreview (packages/ui-kit/src/decisions/EffectPreview.tsx)
+    export function EffectPreview(p: EffectPreviewProps): import("react").JSX.Element;
+  EffectPreviewProps (packages/ui-kit/src/decisions/EffectPreview.tsx)
+    export interface EffectPreviewProps {
+        variant?: "enqueue" | "cancel" | "unavailable" | "malformed";
+        heading?: string;
+        effect?: string;
+        tool?: string;
+        path?: string;
+        instruction?: string;
+        input?: string;
+        scope?: string;
+        cost?: string;
+        message?: string;
+        raw?: string;
+        maxLines?: number;
+        revealed?: boolean;
+        onReveal?: () => void;
     }
   Emphasis (packages/ui-kit/src/types.ts)
     export type Emphasis = "hairline" | "strong" | "bold" | "dashed" | "none";
@@ -2257,6 +2307,8 @@ signatures (every public export and the types it is made of)
         readonly tealLift: string;
     };
   decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
+    export function effectLineCount(text: string | undefined): number;
   font (packages/ui-kit/src/tokens.ts)
     const font: {
         readonly body: "'Plus Jakarta Sans',sans-serif";

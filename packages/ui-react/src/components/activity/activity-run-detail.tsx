@@ -200,7 +200,7 @@ export function RunDetail({
         <p role="status" className="bk-sr-only">{announced ? "Run failed. Send bug report is available." : ""}</p>
         {pruned && (
           <div className="rounded-lg border border-border-subtle bg-surface p-3 text-xs text-muted-foreground">
-            Detail pruned — only the rollup remains.
+            Trace pruned · this run's rollup is kept.
             <div className="group/copy relative mt-2">
               <pre className="overflow-x-auto pr-9 text-[11px]">{JSON.stringify(pruned, null, 2)}</pre>
               <CopyButton label="Copy rollup" getText={() => JSON.stringify(pruned, null, 2)} />

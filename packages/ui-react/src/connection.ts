@@ -1,5 +1,5 @@
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
-import type { ServerMessage, ClientMessage, ServerLocationRequest } from "@schlessera/brain-ui-sdk/protocol";
+import type { ServerMessage, ClientMessage, ServerLocationRequest, InboxView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
 import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from "./stores/chat-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
@@ -78,6 +78,16 @@ export function createWebSocketClient(root: BrainUiServices) {
     // The subscription snapshot carries OPEN runs; finished runs (history
     // timing, past fan-outs) come from the REST side.
     void root.stores.activity.loadSessionActivityHistory(sessionId);
+  }
+
+  /**
+   * Durable Queue/Actions (#684). Repeating a subscribe re-snapshots it. It
+   * goes through the client's public `send`, the same path a card's decision
+   * frame takes, so both share one transport and one connected check.
+   */
+  function subscribeInbox(view: InboxView): void {
+    if (!root.stores.inbox.getState().supported) return;
+    client.send({ type: "inbox_subscribe", view });
   }
 
   /**
@@ -240,6 +250,8 @@ export function createWebSocketClient(root: BrainUiServices) {
       msg.type === "server_hello" ||
       msg.type === "activity_snapshot" ||
       msg.type === "activity_delta" ||
+      msg.type === "inbox_snapshot" ||
+      msg.type === "inbox_delta" ||
       msg.type === "local_exchange_result" ||
       // Handoff answers (#61) name the review that asked, not a transcript.
       msg.type === "handoff_draft" ||
@@ -255,6 +267,7 @@ export function createWebSocketClient(root: BrainUiServices) {
         buffer: () => (key === null ? state.draft : state.buffers[key]),
         enqueueDelta,
         ensureActivitySubscription,
+        subscribeInbox,
         requestBrowserLocation,
         resyncIfNeeded,
         coldResumeIfNeeded,
@@ -337,6 +350,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       buffer,
       enqueueDelta,
       ensureActivitySubscription,
+      subscribeInbox,
       requestBrowserLocation,
       resyncIfNeeded,
       coldResumeIfNeeded,
@@ -468,6 +482,8 @@ export function createWebSocketClient(root: BrainUiServices) {
     flushDeltas();
 
     if (status === "disconnected") {
+      // Nothing sent can be confirmed until the next snapshot (#684).
+      root.stores.inbox.getState().connectionLost();
       const chat = root.stores.chat.getState();
       for (const [sessionId, pending] of Object.entries(chat.turnRetries)) {
         if (pending.state === "waiting") chat.setTurnRetry(sessionId, { ...pending, state: "unknown" });
@@ -591,9 +607,10 @@ export function createWebSocketClient(root: BrainUiServices) {
     handleStatusChange("disconnected");
     root.stores.activity.getState().setSupported(false);
     root.stores.activity.getState().resetSubscriptions();
+    root.stores.inbox.getState().setSupported(false);
   }
 
-  return {
+  const client = {
     connect,
     send: sendClientMessage,
     retryTurn,
@@ -613,4 +630,5 @@ export function createWebSocketClient(root: BrainUiServices) {
       coldResumedSessionId = null;
     },
   };
+  return client;
 }
