@@ -43,7 +43,7 @@ if (!process.env[CHILD_MARKER]) {
       root.stores.ui.getState().setActiveView("activity");
       defaultRoot.stores.ui.getState().setActiveView("chat");
       const { result, unmount } = renderHook(() => useUIStore((state) => state.activeView), {
-        wrapper: ({ children }) => createElement(BrainUiProvider, { root }, children),
+        wrapper: ({ children }) => createElement(BrainUiProvider, { root, children }),
       });
       expect(result.current).toBe("activity");
       unmount();
