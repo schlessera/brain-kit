@@ -1646,6 +1646,23 @@ exclude it from HTTP compatibility. The shipped app wiring performs recovery
 and heartbeat work with no production dispatcher. An unavailable or closed
 runtime never grants access to ordinary APIs or enables autonomous execution.
 
+### Interactive HTML preview (additive, #1084)
+
+`GET /api/files/html?path=…` is an internal UI transport for the file
+viewer's script-running preview and its "Open in new tab" link. Its raw path
+is not an independent API. Its isolation is a security property that a
+consumer and a reviewer may rely on: it serves `.html`/`.htm` files under the
+raw route's path, auth and size rules, with a CSP `sandbox allow-scripts`
+directive (an opaque origin), `connect-src 'none'`, `form-action 'none'` and
+`frame-ancestors 'self'`. It is the only response sent with
+`X-Frame-Options: SAMEORIGIN`; every other response keeps `DENY`. The
+[HTTP specification](http-api.md#interactive-html-preview-additive-1084) has
+the full header set and the residual risks accepted in #1084. Removing a
+sandbox restriction or widening a source list is a reviewed change, and the
+real-Chrome test fails on it. `GET /api/files/content?raw=1` and its CSP are
+unchanged. The SDK's default service-worker policy never answers an `/api`
+navigation from the app shell.
+
 ### Corpus stats history (`GET /api/brain/stats/history`, additive in 0.40.0)
 
 Passes `brain stats --history --json` through untouched, behind the auth
