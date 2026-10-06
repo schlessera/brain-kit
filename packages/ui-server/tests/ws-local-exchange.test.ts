@@ -130,7 +130,8 @@ async function replay(sessionId: string): Promise<SessionHistoryMessage[]> {
   await handleClientMessage(ws, { type: "session_resume", sessionId });
   const history = frames.find((frame) => frame.type === "session_history");
   if (!history || history.type !== "session_history") throw new Error("no session_history sent");
-  return history.messages;
+  // Host-proven turn ids (#964) are asserted in ws-session-recovery.test.ts.
+  return history.messages.map(({ turnId: _turnId, ...message }) => message);
 }
 
 const SECTIONS = [
@@ -330,7 +331,7 @@ describe("replay without exchanges", () => {
     await waitFor(() => fake.transcript.length === 2);
 
     const history = await fake.backend.getHistory("s1");
-    const prepared = testHost().prepareHistory("s1", history);
+    const prepared = testHost().prepareHistory("s1", history).map(({ turnId: _turnId, ...message }) => message);
     expect(JSON.stringify(prepared)).toBe(JSON.stringify(history));
   });
 

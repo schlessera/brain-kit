@@ -10,6 +10,8 @@ import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.j
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { createDraftRoutes } from "./routes/drafts.js";
+import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
+import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
@@ -550,6 +552,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
   app.route("/api", createSessionRoutes({ registry, db }));
+  // Only where server_hello advertises it: elsewhere the route is absent,
+  // which a client reads as a host too old to answer (#964).
+  if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
   app.route("/api", createDraftRoutes(drafts));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).

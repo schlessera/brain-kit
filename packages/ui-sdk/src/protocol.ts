@@ -550,6 +550,99 @@ export type DraftErrorResponse =
   /** 409: no accepted message of that session carried this draft and request. */
   | { error: "DRAFT_NOT_ACCEPTED"; message: string };
 
+// ============================================================
+// Session recovery (additive; #964, design D52 §4 and §6)
+// ============================================================
+
+/**
+ * `server_hello` capability: the host answers
+ * `GET /api/sessions/:id/recovery` with a {@link SessionRecovery}, and its
+ * replayed history may carry a host-proven `SessionHistoryMessage.turnId`.
+ * A client reads the route only when this is advertised as `true`.
+ */
+export const SESSION_RECOVERY_CAPABILITY = "sessionRecovery";
+
+/** Where the latest accepted request of a session stands, as the host can prove it. */
+export type SessionRecoveryState = "queued" | "running" | "terminal" | "unknown";
+
+/** The interaction kinds a recovery envelope can list as pending. */
+export type SessionRecoveryPendingKind =
+  | "approval"
+  | "ask_user"
+  | "ask_user_list"
+  | "ask_user_rank"
+  | "ask_user_form";
+
+export interface SessionRecoveryLatest {
+  /** The client's `chat_message.requestId`, when it sent one. */
+  requestId: string | null;
+  /** The host turn that runs the request; null until a queued request is dispatched. */
+  turnId: string | null;
+  /**
+   * `queued`: accepted, not dispatched. `running`: its turn is executing in
+   * this host process. `terminal`: the Activity record holds its outcome.
+   * `unknown`: the read succeeded but the host cannot prove more, for example
+   * after a restart lost the queue, for imported history, or when Activity
+   * holds no outcome for the turn.
+   */
+  state: SessionRecoveryState;
+  /** The Activity outcome; non-null exactly when `state` is `terminal`. */
+  outcome: ActivitySpanOutcome | null;
+  /** Host clock, milliseconds since epoch, when the turn started; null while unknown. */
+  startedAt: number | null;
+  /** Host clock when the turn ended; non-null only when `state` is `terminal`. */
+  endedAt: number | null;
+}
+
+/**
+ * One interaction waiting on a person. The identities are the original
+ * ones; the payload rehydrates through the existing scoped interaction
+ * frames. Listing one grants nothing.
+ */
+export interface SessionRecoveryPending {
+  kind: SessionRecoveryPendingKind;
+  /** The approval's `toolUseId`, or the ask's `requestId`. */
+  requestId: string;
+  /** The turn that raised it, which may be older than `latest.turnId`. */
+  turnId: string;
+}
+
+/** `GET /api/sessions/:id/recovery` (additive; #964). Read-only. */
+export interface SessionRecovery {
+  sessionId: string;
+  backendId: string | null;
+  /**
+   * The host's persisted accepted-work ordering for this session: it grows
+   * by one each time the host accepts a request. 0 means the host has no
+   * acceptance on record. A lower value than one already seen is a rollback.
+   */
+  revision: number;
+  latest: SessionRecoveryLatest;
+  pending: SessionRecoveryPending[];
+}
+
+/** The `error` code of a recovery read for a session the host does not know. */
+export const SESSION_NOT_FOUND = "SESSION_NOT_FOUND";
+
+/** The `error` code of a recovery read the host could not complete. */
+export const SESSION_RECOVERY_FAILED = "SESSION_RECOVERY_FAILED";
+
+/**
+ * Why a recovery read gave no envelope, as D52 §6 maps the response:
+ * 401/403 → `unauthorized`; 404 `SESSION_NOT_FOUND` → `session_not_found`;
+ * any other 404 → `host_too_old`; 5xx, a network failure or an unreadable
+ * body → `host_unreachable`.
+ */
+export type SessionRecoveryUnavailable =
+  | "unauthorized"
+  | "session_not_found"
+  | "host_too_old"
+  | "host_unreachable";
+
+export type SessionRecoveryResult =
+  | { ok: true; recovery: SessionRecovery }
+  | { ok: false; reason: SessionRecoveryUnavailable };
+
 export const ALLOWED_IMAGE_MEDIA_TYPES = [
   "image/jpeg",
   "image/png",
@@ -722,7 +815,8 @@ export interface ServerHello {
    * the same flag; `liveConversation: true` means a conversation provider is
    * registered and the `conversation_*` frames are accepted.
    * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
-   * `sessionDraftLimits` then carries their bounds. */
+   * `sessionDraftLimits` then carries their bounds. `sessionRecovery: true`
+   * means `GET /api/sessions/:id/recovery` answers (#964). */
   capabilities?: Record<string, boolean>;
   /**
    * Draft storage bounds (additive; #979). Present exactly when
@@ -808,6 +902,13 @@ export interface SessionHistoryMessage {
   failure?: TurnFailure;
   /** Host-held exact original request, present only on an eligible latest failure. */
   retryOfTurnId?: string;
+  /**
+   * On an `assistant` message: the host turn whose answer ends here
+   * (additive; #964). Present only when the host observed this message
+   * appear as that turn's last answer and the transcript before it is
+   * unchanged since; never inferred from timestamps or content.
+   */
+  turnId?: string;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */

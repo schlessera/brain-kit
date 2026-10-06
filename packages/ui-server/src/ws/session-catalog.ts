@@ -20,6 +20,7 @@ import {
 } from "./local-exchanges.js";
 
 import * as retries from "./retry-requests.js";
+import * as work from "./session-work.js";
 import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
 /**
@@ -31,6 +32,21 @@ export interface SessionCatalog {
   /** Observed terminal metadata at its backend-normalized assistant position. */
   recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
   attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+  /**
+   * Record an accepted request and return its revision (#964), or null when
+   * it could not be stored. Never throws: acceptance must not fail a turn.
+   */
+  acceptWork?(sessionId: string, requestId: string | null, backendId: string | null): number | null;
+  /** Record the turn that runs the request accepted at `revision`. */
+  dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
+  /** The latest accepted request, or null. Throws when the read fails. */
+  latestWork?(sessionId: string): work.AcceptedWork | null;
+  /** Whether the catalog holds a row for this session. Throws when the read fails. */
+  hasSession?(sessionId: string): boolean;
+  /** Observed position of a finished turn's last answer (#964). */
+  recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+  /** Replayed history with host-proven turn ids joined onto the answers that ended each turn. */
+  attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
   getStoredProviderId(sessionId: string): string | null;
   saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
@@ -151,6 +167,33 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
     attachRetryRequest(sessionId, messages) {
       try { return retries.attachRetryRequest(db(), sessionId, messages); }
       catch (err) { reportWriteFailure(sessionId, err); return messages; }
+    },
+    acceptWork(sessionId, requestId, backendId) {
+      try { return work.acceptWork(db(), sessionId, { requestId, backendId, at: Date.now() }); }
+      catch (err) { reportWriteFailure(sessionId, err); return null; }
+    },
+    dispatchWork(sessionId, revision, turnId, backendId, startedAt) {
+      try { work.dispatchWork(db(), sessionId, { revision, turnId, backendId, startedAt }); }
+      catch (err) { reportWriteFailure(sessionId, err); }
+    },
+    latestWork(sessionId) { return work.latestWork(db(), sessionId); },
+    hasSession(sessionId) {
+      return db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
+    },
+    recordTurnBoundary(sessionId, backendId, boundary) {
+      try { work.saveTurnBoundary(db(), sessionId, backendId, boundary); }
+      catch (err) { reportWriteFailure(sessionId, err); }
+    },
+    attachTurnBoundaries(sessionId, messages) {
+      try {
+        const row = db().query("SELECT backend_id FROM sessions WHERE id = ?").get(sessionId) as { backend_id: string | null } | null;
+        return row?.backend_id ? work.attachTurnBoundaries(db(), sessionId, row.backend_id, messages) : messages;
+      } catch (err) {
+        // Without the boundaries a replay carries no turn ids, which is
+        // what it carried before they existed: unproven, never wrong.
+        reportWriteFailure(sessionId, err);
+        return messages;
+      }
     },
     getStoredProviderId(sessionId) {
       const row = db()

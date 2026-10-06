@@ -345,7 +345,8 @@ export class WsHost {
   }
 
   /**
-   * Replayed history as the host sends it: the context blocks of locally
+   * Replayed history as the host sends it: each observed turn's id on the
+   * answer that ended it (#964), the context blocks of locally
    * answered commands stripped from the prompts that carried them, each user
    * message's recorded source joined on, with or without a classifier, then
    * its classified blocks, and last the local exchanges put back in place
@@ -354,6 +355,8 @@ export class WsHost {
    * exactly as it did before they existed.
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+    // Turn ids first: boundaries were observed on the backend's own messages.
+    messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);

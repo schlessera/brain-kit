@@ -84,6 +84,15 @@ signatures (every public export and the types it is made of)
         requestId?: string;
         principalId: string;
     }
+  AcceptedWork (packages/ui-server/src/ws/session-work.ts)
+    export interface AcceptedWork {
+        revision: number;
+        requestId: string | null;
+        turnId: string | null;
+        backendId: string | null;
+        acceptedAt: number;
+        startedAt: number | null;
+    }
   ActionAttempt (packages/ui-server/src/inbox/notify.ts)
     export interface ActionAttempt {
         attemptId: number;
@@ -176,6 +185,7 @@ signatures (every public export and the types it is made of)
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
         openRootSpans(): SpanRow[];
+        runRollup?(runId: string): RunRollupRow | null;
         rollupRun(runId: string): void;
         prune(options: PruneOptions): {
             runsPruned: number;
@@ -552,7 +562,7 @@ signatures (every public export and the types it is made of)
         wait(sessionId: string): Promise<void>;
         begin(backend: AgentBackend, sessionId: string | undefined, turnId: string, signal: AbortSignal): Promise<{
             observe: (sessionId: string, failure: TurnFailure) => void;
-            finish: () => Promise<void>;
+            finish: (sessionId?: string | null) => Promise<void>;
         }>;
     }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
@@ -775,6 +785,32 @@ signatures (every public export and the types it is made of)
         failureMessage: string;
         prompt: string;
     }
+  RunRollupRow (packages/ui-server/src/activity/store.ts)
+    export interface RunRollupRow {
+        runId: string;
+        origin: SpanOrigin;
+        name: string;
+        sessionId: string | null;
+        jobName: string | null;
+        principalId: string | null;
+        principalLabel: string | null;
+        principalKind: PrincipalKind | null;
+        startedAt: number;
+        endedAt: number | null;
+        outcome: SpanOutcome | null;
+        durationMs: number | null;
+        spanCount: number;
+        inputTokens: number | null;
+        outputTokens: number | null;
+        cacheReadTokens: number | null;
+        cacheCreationTokens: number | null;
+        costUsd: number | null;
+        effectiveCostUsd: number | null;
+        billingMode: BillingMode | null;
+        pricingEstimate: boolean | null;
+        failureReason: string | null;
+        detailPruned: boolean;
+    }
   RunSnapshot (packages/ui-server/src/activity/store.ts)
     export interface RunSnapshot {
         runId: string;
@@ -868,6 +904,12 @@ signatures (every public export and the types it is made of)
     export interface SessionCatalog {
         recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
         attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        acceptWork?(sessionId: string, requestId: string | null, backendId: string | null): number | null;
+        dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
+        latestWork?(sessionId: string): work.AcceptedWork | null;
+        hasSession?(sessionId: string): boolean;
+        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+        attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredProviderId(sessionId: string): string | null;
         saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
         clearRetryRequest?(sessionId: string): void;
@@ -995,6 +1037,12 @@ signatures (every public export and the types it is made of)
     export interface ToolPermissions {
         isAutoAllowed(toolName: string): boolean;
         add(toolName: string): void;
+    }
+  TurnBoundary (packages/ui-server/src/ws/session-work.ts)
+    export interface TurnBoundary {
+        turnId: string;
+        assistantOrdinal: number;
+        prefixDigest: string;
     }
   TurnClassifier (packages/ui-server/src/classification/classify-turn.ts)
     export interface TurnClassifier {

@@ -345,6 +345,11 @@ export interface ActivityStore {
   runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
   openRootSpans(): SpanRow[];
+  /**
+   * The run's rollup row, or null. Rollups are written at the terminal and
+   * survive detail pruning, so this is the run's terminal proof (#964).
+   */
+  runRollup?(runId: string): RunRollupRow | null;
   /** Upsert the run's rollup row from current span state (call on terminal). */
   rollupRun(runId: string): void;
   prune(options: PruneOptions): { runsPruned: number; spansDeleted: number };
@@ -846,6 +851,11 @@ export function createActivityStore(
           .query(ACTIVITY_SQL.openRootSpans)
           .all() as any[]
       ).map(rowToSpan);
+    },
+
+    runRollup(runId) {
+      const row = db.query("SELECT * FROM activity_run_rollups WHERE run_id = ?").get(runId);
+      return row ? rowToRunRollup(row) : null;
     },
 
     rollupRun(runId) {

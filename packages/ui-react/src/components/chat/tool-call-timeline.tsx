@@ -279,6 +279,16 @@ function ToolCallEntry({
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          {/* R3 (D52 §4): the host handed this pending card back after a
+              reload; it is the original request, not a new one. */}
+          {isPending && toolCall.restored && (
+            <span
+              data-restored-approval=""
+              className="rounded-full border border-border-subtle px-1.5 py-px font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground"
+            >
+              restored
+            </span>
+          )}
           {meta && (
             <span className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/50">
               {meta}

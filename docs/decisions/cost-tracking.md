@@ -128,7 +128,7 @@ math and authoritative backend cost remain available independently; aggregates
 exclude unknown effective costs from their sum and count the runs as unpriced.
 Explicit valid subscription/API classifications keep their existing behavior.
 The rollup reads the root attribute and prices child usage for cron locally
-(`const attrBilling`, `packages/ui-server/src/activity/store.ts:521-522`).
+(`const attrBilling`, `packages/ui-server/src/activity/store.ts:526-527`).
 
 This is a change to the evidence used for new computations, not a historical
 backfill. First non-null billing, list cost, effective cost and estimate values

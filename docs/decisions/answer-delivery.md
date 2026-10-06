@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:217-248`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:223-254`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.
@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:605`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:607`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 
@@ -106,7 +106,7 @@ capability flag is what peers check, because a revision number alone was
 ruled not to establish receipt support.
 
 Outcomes are remembered in memory for 24 hours, at most 1,024 of them
-(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:261`). That is the
+(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:271`). That is the
 client's maximum replay age, so any answer a client may still replay finds
 its outcome. Persisting outcomes would not help after a restart: the
 requests themselves are gone then, and an answer for them must stop, not
@@ -165,7 +165,7 @@ saved.
 
 **The principal** is identified by `server_hello.principalKey`, a one-way
 digest of the principal id (`answerQueueKey`,
-`packages/ui-server/src/ws/connection.ts:26-28`). The page cannot read its
+`packages/ui-server/src/ws/connection.ts:27-29`). The page cannot read its
 principal from an httpOnly cookie, and it needs nothing more than "same or
 different". A different key on reconnect signs every held answer out,
 unsent. So does logging out, or revoking this device's own principal.

@@ -2915,6 +2915,99 @@ that this draft's request started that session, which is the only proof
 `POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
 logs, push payloads or the transcript store.
 
+### Session recovery (additive, #964)
+
+A host that can account for its sessions' work sends
+`server_hello.capabilities.sessionRecovery: true`
+(`SESSION_RECOVERY_CAPABILITY`). Then `GET /api/sessions/:id/recovery`
+answers with a `SessionRecovery` ([HTTP API](http-api.md#session-recovery-additive-964)),
+and its replayed history may carry an optional `SessionHistoryMessage.turnId`.
+A client uses neither without the flag: an older host has no route, which a
+client reads as `host_too_old`. Unrelated chat, approval and ask flows are
+unchanged. The design is D52 §6 in
+[decisions/design-kit.md](decisions/design-kit.md#6-host-contracts-the-implementations-add).
+
+```ts
+SessionRecovery = {
+  sessionId: string;
+  backendId: string | null;
+  revision: number;
+  latest: {
+    requestId: string | null;
+    turnId: string | null;
+    state: "queued" | "running" | "terminal" | "unknown";
+    outcome: ActivitySpanOutcome | null;
+    startedAt: number | null;
+    endedAt: number | null;
+  };
+  pending: Array<{ kind: "approval" | "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form"; requestId: string; turnId: string }>;
+}
+```
+
+- **Revision.** The host persists, per session, the latest request it
+  accepted and a revision that grows by one at each acceptance: a message
+  that starts or resumes a session, and a follow-up that joins its queue. A
+  follow-up injected natively into the running turn is part of that turn and
+  takes none. A refused message takes none. Acceptance order is the only
+  ordering: never backend mtime, message count or identifier comparison.
+  `revision: 0` means the host has no acceptance on record (imported
+  history, or a session older than this record). A revision lower than one
+  a client has already seen is a rollback, for the client to treat as
+  `unknown`.
+- **States.** `queued`: accepted and held by this host process, not yet
+  handed to the backend; `turnId` is null. `running`: its turn is executing
+  in this process; `turnId` and `startedAt` are set. `terminal`: the Activity
+  rollup of the request's turn holds its outcome, in the existing
+  `ActivitySpanOutcome` vocabulary, with that run's `startedAt` and
+  `endedAt`. A rollup survives detail pruning. `unknown`: the read succeeded
+  but nothing proves more — a queue or running turn lost to a restart (the
+  host never resurrects either), a request dropped before it ran, a turn
+  with no Activity outcome, an Activity run recorded for another session,
+  an acceptance the host could not record, or imported history. `outcome`
+  is non-null exactly when `state` is `terminal`, and `endedAt` is null
+  unless it is. Times are host clock milliseconds; no time is inferred.
+- **Pending.** Every approval and ask waiting on a person in the session,
+  with its original `requestId` (an approval's `toolUseId`) and the `turnId`
+  that raised it, which may be older than `latest.turnId` while a newer
+  request is queued. It is not a payload and grants nothing: the payloads
+  are re-sent through the existing scoped interaction frames. A
+  `session_resume` now re-sends the session's pending approvals, after its
+  history and before its pending asks, under their original turn, so a
+  replay that ends on the user's message no longer loses the card. Only
+  what is still pending is re-sent; a settled approval is never revived.
+  The four ask kinds keep the receipts and rules of #910.
+- **Turn linkage.** After each turn, the host reads the transcript once. If
+  the turn added an assistant answer and the transcript ends on it, the host
+  records that answer's position among assistant messages and a digest of
+  the transcript up to it. A replay puts `turnId` on the assistant message
+  at that position only while the digest still matches, so an edited,
+  truncated or rebranched transcript loses the link. Nothing else carries
+  one, and nothing is inferred from timestamps or content. A turn that
+  answered nothing links nothing.
+- **Reads.** A recovery read never selects a session, starts work, replies
+  or grants. It re-checks the caller's principal after its asynchronous
+  step, and its envelope is one synchronous snapshot. Responses are
+  `Cache-Control: no-store`.
+
+| Response | Meaning | SDK `classifySessionRecoveryResponse` |
+| --- | --- | --- |
+| 200 `SessionRecovery` | the read succeeded | `{ ok: true, recovery }` |
+| 401 `{ error: "Authentication required", authRequired: true }` (or another 401/403 from the guard) | no identities disclosed | `unauthorized` |
+| 404 `{ error: "SESSION_NOT_FOUND", message }` | neither the catalog, the live coordinator nor any backend knows the session | `session_not_found` |
+| any other 404 | the route is absent | `host_too_old` |
+| 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, any other status, or an unreadable 200 | the read failed; never a successful `unknown` | `host_unreachable` |
+
+The SDK publishes `SessionRecovery`, `SessionRecoveryLatest`,
+`SessionRecoveryPending`, `SessionRecoveryState`,
+`SessionRecoveryPendingKind`, `SessionRecoveryUnavailable`,
+`SessionRecoveryResult`, `SESSION_RECOVERY_CAPABILITY`, `SESSION_NOT_FOUND`
+and `SESSION_RECOVERY_FAILED`, with `sessionRecoverySchema` and
+`classifySessionRecoveryResponse` in `schemas`. `brain-ui-react`'s API client
+gains `sessionRecovery(sessionId)`, which returns that classification and
+never throws. The host stores only identifiers, revisions and times in its
+operational database (`session_work`, `turn_boundaries`), never prompt
+text, payloads or credentials, and never in `brain.db`.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

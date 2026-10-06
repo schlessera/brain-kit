@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:88-121`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:91-124`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -74,6 +74,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
+| `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
 | `POST /api/schedules` | `mounted supported handler: POST /api/schedules` | K |
@@ -206,6 +207,10 @@ checks both nonempty priced and mixed-knownness fixtures
 - `keeps healthy histories when another backend throws, and recovers on retry` ([source](../packages/ui-server/tests/session-routes-multi-backend.test.ts)), (`keeps healthy histories when another backend throws, and recovers on retry`, `packages/ui-server/tests/session-routes-multi-backend.test.ts:79-91`)
 - `bounds stalled backends and coalesces scans across concurrent requests` ([source](../packages/ui-server/tests/session-routes-multi-backend.test.ts)), (`bounds stalled backends and coalesces scans across concurrent requests`, `packages/ui-server/tests/session-routes-multi-backend.test.ts:93-110`)
 - `GET /sessions/:id reads history from the persisted owner backend` ([source](../packages/ui-server/tests/session-routes-multi-backend.test.ts)), (`GET /sessions/:id reads history from the persisted owner backend`, `packages/ui-server/tests/session-routes-multi-backend.test.ts:112-144`)
+- `a known session answers 200 with an envelope; an unknown one 404 SESSION_NOT_FOUND` ([source](../packages/ui-server/tests/session-recovery-http.test.ts)), (`a known session answers 200 with an envelope; an unknown one 404 SESSION_NOT_FOUND`, `packages/ui-server/tests/session-recovery-http.test.ts:36-53`)
+- `a revoked login gets the auth envelope and no identities` ([source](../packages/ui-server/tests/session-recovery-http.test.ts)), (`a revoked login gets the auth envelope and no identities`, `packages/ui-server/tests/session-recovery-http.test.ts:55-63`)
+- `a storage failure is a 500, never a successful unknown` ([source](../packages/ui-server/tests/session-recovery-http.test.ts)), (`a storage failure is a 500, never a successful unknown`, `packages/ui-server/tests/session-recovery-http.test.ts:65-73`)
+- `a host without the route reads as too old` ([source](../packages/ui-server/tests/session-recovery-http.test.ts)), (`a host without the route reads as too old`, `packages/ui-server/tests/session-recovery-http.test.ts:75-86`)
 
 **U — Push ownership and SDK renewal.**
 

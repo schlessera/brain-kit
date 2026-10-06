@@ -1,5 +1,7 @@
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
+import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
+import type { SessionRecoveryResult } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -391,6 +393,22 @@ export function createBrainApi(
           (opts?.width ? `&width=${Math.round(opts.width)}` : ""),
         { signal: opts?.signal }
       ),
+
+    /**
+     * One session's recovery envelope (#964, D52 §6), classified: never
+     * throws. Call it only when `server_hello.capabilities.sessionRecovery`
+     * is true; the result names why there is no envelope otherwise.
+     */
+    sessionRecovery: async (sessionId: string, opts?: { signal?: AbortSignal }): Promise<SessionRecoveryResult> => {
+      let res: Response;
+      try {
+        res = await request(`${getBase()}/sessions/${encodeURIComponent(sessionId)}/recovery`, { cache: "no-store", ...(opts?.signal ? { signal: opts.signal } : {}) });
+      } catch {
+        return { ok: false, reason: "host_unreachable" };
+      }
+      const body: unknown = await res.json().catch(() => undefined);
+      return classifySessionRecoveryResponse(res.status, body);
+    },
 
     brainStats: () => fetchJson<CorpusStats>("/brain/stats"),
 

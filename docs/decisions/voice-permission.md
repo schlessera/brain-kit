@@ -32,7 +32,7 @@ The permission bridge asks the user to approve a tool call before it runs
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
-`packages/ui-react/src/components/chat/tool-call-timeline.tsx:325-367`), the
+`packages/ui-react/src/components/chat/tool-call-timeline.tsx:335-377`), the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
@@ -367,8 +367,8 @@ budget. That is already fail-closed: nothing runs. The user hears nothing
 further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
-(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:295` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:518-552`),
+(`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:308` →
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:534-568`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -380,7 +380,7 @@ those two citations and is left to #54. The chat store clears a pending
 approval on `tool_result`
 (`packages/ui-react/src/hooks/websocket-handlers/chat.ts`), and on the timeout
 path `abortController.abort()` fires before the drain
-(`abortController.abort()`, `run-session.ts:290`; `drainPendingForTurn`, `:295`),
+(`abortController.abort()`, `run-session.ts:303`; `drainPendingForTurn`, `:308`),
 so whether a `tool_result` still streams for that tool use is a question a live
 turn has to answer. It matters only for the
 wording: if a dead card can survive on screen, the spoken line above is right

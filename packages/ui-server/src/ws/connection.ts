@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
+import { supportsSessionRecovery } from "./recovery.js";
 import type { Principal } from "../db/principals.js";
 import type { AppEnv } from "../app-env.js";
 
@@ -106,6 +107,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           toolResolution: true,
           ...(host.conversations ? { liveConversation: true } : {}),
           ...(host.drafts ? { sessionDrafts: true } : {}),
+          // GET /api/sessions/:id/recovery answers, and replays carry
+          // host-proven turn ids (#964).
+          ...(supportsSessionRecovery(host) ? { [SESSION_RECOVERY_CAPABILITY]: true } : {}),
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { ServerMessage, TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
+import type { ServerMessage, SessionHistoryMessage, TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { buildSessionHistory } from "../../ui-backend-claude/src/history";
 import { normalizeMessages } from "../../ui-backend-pi/src/history";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -10,6 +10,11 @@ import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 const TEST_DB = `/tmp/brain-ui-failure-replay-${process.pid}.db`;
 beforeEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); useTestDb(TEST_DB); });
 afterEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); });
+
+/** Replay without the host-proven turn ids (#964), which these failure assertions are not about. */
+function unlinked(messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+  return messages.map(({ turnId: _turnId, ...message }) => message);
+}
 
 async function settled(complete: () => boolean) {
   for (let i = 0; i < 200; i++) {
@@ -200,11 +205,11 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     await h.send({ errorClass: "invalid_request", status: 400, message: "API Error: 400 Request refused." });
     const original = await h.backend.getHistory("s1");
     getDb().prepare("UPDATE turn_failures SET failure_json = ?").run('{"errorClass":42,"message":"wrong"}');
-    expect(testHost().prepareHistory("s1", original)).toEqual(original);
+    expect(unlinked(testHost().prepareHistory("s1", original))).toEqual(original);
     getDb().prepare("UPDATE turn_failures SET failure_json = ?").run("invalid JSON");
-    expect(testHost().prepareHistory("s1", original)).toEqual(original);
+    expect(unlinked(testHost().prepareHistory("s1", original))).toEqual(original);
     getDb().prepare("UPDATE turn_failures SET failure_json = ?").run(JSON.stringify({ errorClass: "model_not_found", message: "Different failure." }));
-    expect(testHost().prepareHistory("s1", original)).toEqual(original);
+    expect(unlinked(testHost().prepareHistory("s1", original))).toEqual(original);
   });
 
   test("unreadable recorded observations are dropped without losing the replayed failure", async () => {
@@ -250,7 +255,7 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     expect(h.frames.find((frame) => frame.type === "result")?.type).toBe("result");
     const fallback = await read("s1");
     expect(fallback.at(-1)?.failure).toBeDefined();
-    expect(await h.replay()).toEqual(fallback);
+    expect(unlinked(await h.replay())).toEqual(fallback);
     expect(getDb().query("SELECT COUNT(*) AS n FROM turn_failures").get()).toEqual({ n: 0 });
   });
 
@@ -263,7 +268,7 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     expect(terminal?.type === "result" && terminal.failure).toEqual(live);
     const fallback = await h.backend.getHistory("s1");
     expect(fallback.at(-1)?.failure).toBeDefined();
-    expect(await h.replay()).toEqual(fallback);
+    expect(unlinked(await h.replay())).toEqual(fallback);
   });
 
   test("a closed successful turn's late failure cannot label a later failed assistant", async () => {
