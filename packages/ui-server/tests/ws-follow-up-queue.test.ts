@@ -218,6 +218,25 @@ describe("session_queue", () => {
     expect(frame.dropped[0].reason).toBe("Its sender was signed out.");
   });
 
+  test("a full queue of the longest prompts is reported whole, within one frame", async () => {
+    const s = setup();
+    const client = await s.connect({ followUpQueue: true });
+    await s.busy(client);
+    // Fifty is the host's queue depth and 200,000 characters a message's cap.
+    // Three-byte characters: left to the frame shrinker alone, the list
+    // itself would be clipped to fit.
+    for (let i = 0; i < 50; i++) {
+      client.send({ type: "chat_message", text: `${i}: Ithaca ${"…".repeat(199_980)}`, sessionId: SESSION, requestId: `req-${i}` });
+    }
+    await until(() => client.frames("session_queue").length === 50, 5000);
+    const raw = client.all().filter((f) => f.type === "session_queue").at(-1);
+    expect(raw.followUps).toHaveLength(50);
+    expect(raw.followUps.map((f: any) => f.requestId)).toEqual(Array.from({ length: 50 }, (_, i) => `req-${i}`));
+    expect(Buffer.byteLength(JSON.stringify(raw), "utf8"), "under the 512 KB frame bound").toBeLessThanOrEqual(512_000);
+    expect(raw.followUps[0].text.startsWith("0: Ithaca ………")).toBe(true);
+    expect(raw.followUps[0].text).toMatch(/…\[\d+ chars elided\]$/);
+  });
+
   test("an entry being handed over is still pending until its turn reaches the backend", () => {
     const s = setup();
     const entry = { followUpId: "fu-1", requestId: "req-winds", text: "Ask Aeolus", attachments: [], queuedAt: 1 } as never;

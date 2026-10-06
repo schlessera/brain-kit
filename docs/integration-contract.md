@@ -3044,7 +3044,9 @@ not declare it receives exactly the frames it received before.
   was never queued and is not listed; its `error` frame answers it, as before.
 - `id` is host-minted and stable while the entry waits; `requestId` is the
   sender's `chat_message` correlation id. Attachment bytes are never repeated,
-  only counted. A message's text is bounded like any other frame.
+  only counted. Each `text` carries at most 8,000 UTF-8 bytes of the message;
+  a longer one ends with `…[N chars elided]`. That keeps a full queue (50
+  entries) inside one frame, so the list itself is never cut.
 
 The queue stays in memory: a host restart drops it, as it always has. The SDK
 client (`BrainUiClient`) declares the flag.

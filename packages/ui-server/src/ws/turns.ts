@@ -85,12 +85,30 @@ export interface QueuedFollowUp {
   queuedAt?: number;
 }
 
+/**
+ * UTF-8 bytes of one follow-up's text a report carries (#1002). A full queue
+ * (`MAX_SESSION_QUEUE`, 50) then stays near 400 KB, under the 512 KB frame
+ * bound, so the frame shrinker never clips the list itself: every pending
+ * follow-up is always reported, and only a very long prompt is shortened.
+ */
+export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
+
+/** Head of `text` within `bytes` UTF-8 bytes, with an elision note when cut. */
+export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
+  const encoded = Buffer.from(text, "utf8");
+  if (encoded.length <= bytes) return text;
+  const reserve = 64;
+  // A cut inside a multi-byte character decodes to U+FFFD; drop it.
+  const head = encoded.subarray(0, Math.max(0, bytes - reserve)).toString("utf8").replace(/�+$/, "");
+  return `${head}\n…[${text.length - head.length} chars elided]`;
+}
+
 /** What a client is shown of one pending follow-up (#1002): no attachment bytes. */
 export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
   return {
     id: entry.followUpId ?? "",
     ...(entry.requestId ? { requestId: entry.requestId } : {}),
-    text: entry.text,
+    text: boundFollowUpText(entry.text),
     ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
     ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
     ...(entry.source ? { source: entry.source } : {}),
