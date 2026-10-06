@@ -161,12 +161,16 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
     if (at !== -1 && at !== roving.stop) roving.onItemFocus(at);
   });
 
-  const live = createPortal(
+  // The live region is portalled once mounted: there is no document to
+  // portal into while rendering on a server.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const live = mounted ? createPortal(
     <div className="bk-sr-only" aria-live="polite" data-pending-live="">
       {p.announcement ? <span key={String(p.announcementKey ?? p.announcement)}>{p.announcement}</span> : null}
     </div>,
     document.body,
-  );
+  ) : null;
 
   if (mode === "none") return live;
 

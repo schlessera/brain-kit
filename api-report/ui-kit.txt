@@ -1475,7 +1475,7 @@ signatures (every public export and the types it is made of)
         label?: string;
     }
   PendingFollowUps (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
-    export function PendingFollowUps(p: PendingFollowUpsProps): import("react").JSX.Element;
+    export function PendingFollowUps(p: PendingFollowUpsProps): import("react").JSX.Element | null;
   PendingFollowUpsProps (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
     export interface PendingFollowUpsProps {
         followUps: readonly PendingFollowUp[];
