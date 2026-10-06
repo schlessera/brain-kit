@@ -17,6 +17,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
+import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { GraphPage } from "../../src/components/graph/graph-page.js";
+import { useUIStore } from "../../src/stores/ui-store.js";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -30,6 +34,22 @@ class FixtureSocket {
   onerror = null;
   send() {}
   close() { this.readyState = 3; }
+}
+
+/** The real pages, for tests that assert a panel is drawn: Chat, Graph and
+ * Actions each mount their own panels, so a placeholder child cannot. */
+function Pages() {
+  const view = useUIStore((s) => s.activeView);
+  return view === "activity" ? <ActivityPage /> : view === "graph" ? <GraphPage /> : <ChatPage />;
+}
+
+/** The pages' requests, answered offline with Odysseus's data. */
+async function request(url: string): Promise<Response> {
+  const path = new URL(url, "http://fixture.invalid").pathname;
+  if (path.endsWith("/sessions")) return Response.json({ sessions: [] });
+  if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
+  if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
+  return new Response("{}", { status: 404 });
 }
 
 let renderer: Root | undefined;
@@ -67,7 +87,7 @@ function pointerScene() {
   return mode;
 }
 
-async function mount(width: number, height: number, theme: "dark" | "light", connected = false) {
+async function mount(width: number, height: number, theme: "dark" | "light", connected = false, pages = false) {
   await page.viewport(width, height);
   await commands.formViewport(width, height);
   style = document.createElement("style");
@@ -75,13 +95,13 @@ async function mount(width: number, height: number, theme: "dark" | "light", con
   document.head.append(style);
   host = document.createElement("div");
   document.body.append(host);
-  ui = createBrainUiRoot({ storage: null });
+  ui = createBrainUiRoot(pages ? { storage: null, request } : { storage: null });
   ui.stores.ui.setState({ theme });
   if (connected) ui.stores.connection.setState({ wsStatus: "connected" } as never);
   renderer = createRoot(host);
   flushSync(() => renderer!.render(
     <BrainUiProvider root={ui}>
-      <AppShell><div>Odysseus’s voyage</div></AppShell>
+      <AppShell>{pages ? <Pages /> : <div>Odysseus’s voyage</div>}</AppShell>
     </BrainUiProvider>,
   ));
   await document.fonts.ready;
@@ -133,6 +153,39 @@ function reach(els: HTMLElement[], coarse: boolean) {
 }
 
 const DESTINATIONS = ["Chat", "Sessions", "Actions", "Files", "Settings"];
+
+/** The panel destinations: name, chord digit and store flag. */
+const PANELS = [
+  ["Sessions", 2, "sessionPanelOpen"],
+  ["Files", 4, "filePanelOpen"],
+  ["Settings", 5, "settingsPanelOpen"],
+] as const;
+
+/**
+ * Whether a panel titled `title` is drawn: some box named for it (a pane's
+ * `aria-label`, or a drawer's heading) lies inside the viewport and is what a
+ * press at its upper middle would hit. A store flag set behind a view that
+ * does not mount the panel draws nothing, so this is false for it (#1074).
+ */
+function shown(title: string) {
+  const named = [...host!.querySelectorAll<HTMLElement>(`section[aria-label="${title}"], [role="dialog"][aria-label="${title}"]`)];
+  const drawers = [...host!.querySelectorAll<HTMLElement>("h2")]
+    .filter((h) => h.textContent === title)
+    .map((h) => h.parentElement!.parentElement!);
+  return [...named, ...drawers].some((box) => {
+    const r = box.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0 || r.left < -0.5 || r.right > innerWidth + 0.5) return false;
+    const hit = document.elementFromPoint((r.left + r.right) / 2, r.top + Math.min(r.height / 2, 32));
+    return hit !== null && box.contains(hit);
+  });
+}
+
+/** Whether a real press at the tab's centre would land on it, rather than on
+ * a panel or backdrop drawn over the rail. */
+function reachable(tab: HTMLElement) {
+  const r = tab.getBoundingClientRect();
+  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('[role="tab"]') === tab;
+}
 
 for (const theme of ["dark", "light"] as const) {
   for (const width of [320, 390]) {
@@ -285,6 +338,49 @@ for (const theme of ["dark", "light"] as const) {
       expect(amber()).toBe(0);
       expect(state().activeView === "graph", "no chord reaches Graph").toBe(false);
     });
+
+    test(`the panel destination you are on never closes, by chord or rail (D52 N3): ${theme}, ${width}`, async () => {
+      const mode = pointerScene();
+      const { rail, ui } = await mount(width, 720, theme, false, true);
+      const state = () => ui.stores.ui.getState() as unknown as Record<string, unknown>;
+      let railPresses = 0;
+      for (const [title, n, flag] of PANELS) {
+        document.body.focus();
+        await userEvent.keyboard(`{Meta>}${n}{/Meta}`);
+        await expect.poll(() => shown(title), { message: `⌘${n} draws ${title}` }).toBe(true);
+        // The same chord again, on the panel already open.
+        await userEvent.keyboard(`{Meta>}${n}{/Meta}`);
+        expect(state()[flag], `⌘${n} again: ${title} stays open`).toBe(true);
+        await expect.poll(() => shown(title), { message: `⌘${n} again: ${title} still drawn` }).toBe(true);
+        // The rail row, where it is not under the panel. Files and Settings
+        // are panes from 900 up, beside the rail, so there it must be pressable.
+        const tab = parts(rail).tabs[n - 1]!;
+        if (width >= 900 && title !== "Sessions") expect(reachable(tab), `rail ${title} beside its pane`).toBe(true);
+        if (reachable(tab)) {
+          railPresses++;
+          await press(tab, mode);
+          expect(state()[flag], `rail ${title} again: ${title} stays open`).toBe(true);
+          await expect.poll(() => shown(title), { message: `rail ${title} again: still drawn` }).toBe(true);
+          expect(tab.getAttribute("aria-selected"), `rail ${title} stays amber`).toBe("true");
+        }
+      }
+      expect(railPresses, "rail presses exercised").toBe(width >= 900 ? 2 : 0);
+    });
+
+    for (const start of ["activity", "graph"] as const) for (const [title, n, flag] of PANELS) {
+      test(`one rail ${title} activation from ${start} draws it (D52 N1): ${theme}, ${width}`, async () => {
+        const mode = pointerScene();
+        const { rail, ui } = await mount(width, 720, theme, false, true);
+        ui.stores.ui.getState().setActiveView(start);
+        await expect.poll(() => PANELS.some(([t]) => shown(t)), { message: `${start} starts with no panel` }).toBe(false);
+        const tab = parts(rail).tabs[n - 1]!;
+        expect(reachable(tab), `rail ${title} reachable from ${start}`).toBe(true);
+        await press(tab, mode);
+        expect((ui.stores.ui.getState() as unknown as Record<string, unknown>)[flag], `${title} flag from ${start}`).toBe(true);
+        await expect.poll(() => shown(title), { message: `${title} visible from ${start}` }).toBe(true);
+        expect(parts(rail).tabs[n - 1]!.getAttribute("aria-selected"), `${title} is amber`).toBe("true");
+      });
+    }
 
     test(`acts run the palette's handlers, mid-turn too, and the briefing says why: ${theme}, ${width}`, async () => {
       const mode = pointerScene();

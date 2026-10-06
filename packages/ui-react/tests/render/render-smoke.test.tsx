@@ -33,7 +33,7 @@ import { SkillEditor, SkillsList } from "../../src/components/settings/skills-li
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { WebSearchChain } from "../../src/components/settings/web-search-chain.js";
 import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, waitFor, within } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
@@ -2438,7 +2438,7 @@ describe("DevicesAgentsTab", () => {
     expect(page.queryByText("delayed-one-time-value")).toBeNull();
   });
 
-  test("keeps a delayed mint response after the real Settings button closes the panel", async () => {
+  test("keeps a delayed mint response after a real rail press leaves Settings", async () => {
     const mint = deferred<Response>();
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") return mint.promise;
@@ -2451,10 +2451,13 @@ describe("DevicesAgentsTab", () => {
     changeControlledInput(page.getByLabelText("Label") as HTMLInputElement, "Sidebar agent");
     fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
 
-    const settingsButton = page.getByRole("tab", { name: /^Settings/ });
-    settingsButton.focus();
-    expect(document.activeElement).toBe(settingsButton);
-    fireEvent.click(settingsButton);
+    // Rail Settings is the current destination and never closes (D52 N3), so
+    // the panel is left through another destination.
+    const rail = page.container.querySelector<HTMLElement>('nav[aria-label="Primary"].tablet\\:flex')!;
+    const chatButton = within(rail).getByRole("tab", { name: /^Chat/ });
+    chatButton.focus();
+    expect(document.activeElement).toBe(chatButton);
+    fireEvent.click(chatButton);
     expect(useUIStore.getState().settingsPanelOpen).toBe(false);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -3939,13 +3942,19 @@ describe("SideRail on the kit SideRail", () => {
     fireEvent.keyDown(window, { key: "3", ctrlKey: true });
     expect(useUIStore.getState().activeView).toBe("activity");
     expect(useUIStore.getState().sessionPanelOpen).toBe(false);
+    // Actions draws no Files, so ⌘4 lands in Chat to show it (D52 N1).
     fireEvent.keyDown(window, { key: "4", metaKey: true });
     expect(useUIStore.getState().filePanelOpen).toBe(true);
-    expect(useUIStore.getState().activeView).toBe("activity");
+    expect(useUIStore.getState().activeView).toBe("chat");
+    fireEvent.keyDown(window, { key: "4", metaKey: true });
+    expect(useUIStore.getState().filePanelOpen, "⌘4 again leaves Files open (D52 N3)").toBe(true);
     fireEvent.keyDown(window, { key: "1" });
-    expect(useUIStore.getState().activeView).toBe("activity");
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
     fireEvent.keyDown(window, { key: "5", metaKey: true });
     expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+    expect(useUIStore.getState().filePanelOpen, "Settings replaces Files").toBe(false);
+    fireEvent.keyDown(window, { key: "5", metaKey: true });
+    expect(useUIStore.getState().settingsPanelOpen, "⌘5 again leaves Settings open (D52 N3)").toBe(true);
     fireEvent.keyDown(window, { key: "1", metaKey: true });
     expect(useUIStore.getState().activeView).toBe("chat");
     // Nothing is bound past the five, so Graph has no chord.
