@@ -8,6 +8,7 @@ import { formatRelativeTime } from "./tool-views.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { handoffWhy } from "../../hooks/use-handoff-entry.js";
+import { useBackendName } from "./handoff-links.js";
 import { mintHandoffId } from "../../lib/handoff.js";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
@@ -45,6 +46,8 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const runStates = useChatStore((s) => s.runStates);
   const queueNotes = useChatStore((s) => s.queueNotes);
   const providers = useProviderStore((s) => s.available);
+  const unavailable = useProviderStore((s) => s.unavailable);
+  const backendName = useBackendName();
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const tracked = useWorkingSessions();
   const now = useNow(AGE_TICK_MS);
@@ -72,7 +75,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
         ...(tracked.overflow.has(session.id) ? { unseen: true } : {}),
         ...(session.handoffFrom ? { from: session.handoffFrom.title || "an earlier chat" } : {}),
         // A stored session with a settled turn can continue elsewhere.
-        ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected) } } : {}),
+        ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected, unavailable, backendName) } } : {}),
       };
     }),
   }));

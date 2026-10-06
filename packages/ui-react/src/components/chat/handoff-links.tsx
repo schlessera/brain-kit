@@ -7,12 +7,18 @@ import { useProviderStore } from "../../stores/provider-store.js";
 import { useOpenSession } from "../../hooks/use-open-session.js";
 import { linkifyPaths } from "./brain-markdown-links.js";
 
-/** A backend's id as a reader sees it: the first profile label it serves, else the id. */
+/**
+ * A backend's id as a reader sees it: the first runnable profile label it
+ * serves, else the first configured one that cannot run (#1090), else the id.
+ */
 export function useBackendName(): (backendId: string | undefined) => string {
   const available = useProviderStore((s) => s.available);
+  const unavailable = useProviderStore((s) => s.unavailable);
   return (backendId) => {
     if (!backendId) return "another backend";
-    return available.find((profile) => profile.backendId === backendId)?.label ?? backendId;
+    return available.find((profile) => profile.backendId === backendId)?.label
+      ?? unavailable.find((profile) => profile.backendId === backendId)?.label
+      ?? backendId;
   };
 }
 
