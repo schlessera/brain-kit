@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:74-107`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:88-121`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -53,6 +53,12 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/brain/stats` | `mounted supported handler: GET /api/brain/stats` | B |
 | `GET /api/brain/stats/history` | `mounted supported handler: GET /api/brain/stats/history` | B |
 | `POST /api/brain/sync` | `mounted supported handler: POST /api/brain/sync` | B, Y |
+| `GET /api/drafts` | `mounted supported handler: GET /api/drafts` | X |
+| `GET /api/drafts/:draftId` | `mounted supported handler: GET /api/drafts/:draftId` | X |
+| `PUT /api/drafts/:draftId` | `mounted supported handler: PUT /api/drafts/:draftId` | X |
+| `DELETE /api/drafts/:draftId` | `mounted supported handler: DELETE /api/drafts/:draftId` | X |
+| `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
+| `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/health` | `mounted supported handler: GET /api/health` | H |
@@ -225,6 +231,28 @@ checks both nonempty priced and mixed-knownness fixtures
 - `list and due pages are bounded, ordered and use host-signed cursors bound to their query` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`list and due pages are bounded, ordered and use host-signed cursors bound to their query`, `packages/ui-server/tests/schedule-service.test.ts:260-288`)
 - `interrupted publication fails closed, then reconciles to one published definition on retry or restart` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`interrupted publication fails closed, then reconciles to one published definition on retry or restart`, `packages/ui-server/tests/schedule-service.test.ts:290-310`)
 - `edited, missing or symlinked definitions quarantine dispatch without rewriting the file` ([source](../packages/ui-server/tests/schedule-service.test.ts)), (`edited, missing or symlinked definitions quarantine dispatch without rewriting the file`, `packages/ui-server/tests/schedule-service.test.ts:329-356`)
+
+**X — Session drafts.**
+
+- `a saved draft survives a closed database and restores identically to a second login` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`a saved draft survives a closed database and restores identically to a second login`, `packages/ui-server/tests/drafts-http.test.ts:74-111`)
+- `a different root's host shares no drafts, and its database does not know this host's logins` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`a different root's host shares no drafts, and its database does not know this host's logins`, `packages/ui-server/tests/drafts-http.test.ts:113-128`)
+- `revocation denies reads and mutations, including one whose body was still arriving` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`revocation denies reads and mutations, including one whose body was still arriving`, `packages/ui-server/tests/drafts-http.test.ts:130-170`)
+- `two devices saving one revision get one success and one typed conflict carrying the host's version` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`two devices saving one revision get one success and one typed conflict carrying the host's version`, `packages/ui-server/tests/drafts-http.test.ts:172-190`)
+- `a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes`, `packages/ui-server/tests/drafts-http.test.ts:192-234`)
+- `invalid, oversized and over-capacity requests leave the committed draft as it was` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`invalid, oversized and over-capacity requests leave the committed draft as it was`, `packages/ui-server/tests/drafts-http.test.ts:236-289`)
+- `draft text and images never reach the request log` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`draft text and images never reach the request log`, `packages/ui-server/tests/drafts-http.test.ts:291-303`)
+- `server_hello advertises draft storage with its limits beside the boolean capabilities` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`server_hello advertises draft storage with its limits beside the boolean capabilities`, `packages/ui-server/tests/drafts-send.test.ts:84-91`)
+- `a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session`, `packages/ui-server/tests/drafts-send.test.ts:93-126`)
+- `an accepted send consumes its current revision and that draft's images, nothing else` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`an accepted send consumes its current revision and that draft's images, nothing else`, `packages/ui-server/tests/drafts-send.test.ts:128-148`)
+- `a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay`, `packages/ui-server/tests/drafts-send.test.ts:150-176`)
+- `a refused message consumes nothing` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a refused message consumes nothing`, `packages/ui-server/tests/drafts-send.test.ts:178-186`)
+- `saving, listing, deleting and binding drafts never starts a turn` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`saving, listing, deleting and binding drafts never starts a turn`, `packages/ui-server/tests/drafts-send.test.ts:188-200`)
+- `total host capacity refuses an upload or a growing save without dropping stored content` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`total host capacity refuses an upload or a growing save without dropping stored content`, `packages/ui-server/tests/drafts-store.test.ts:31-43`)
+- `per-draft byte bound counts text and images together` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`per-draft byte bound counts text and images together`, `packages/ui-server/tests/drafts-store.test.ts:45-51`)
+- `a dropped image is deleted with its revision; an unlisted upload waits an hour, then is swept` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a dropped image is deleted with its revision; an unlisted upload waits an hour, then is swept`, `packages/ui-server/tests/drafts-store.test.ts:53-66`)
+- `an upload receipt replays its id; a different image under the same key is refused` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload receipt replays its id; a different image under the same key is refused`, `packages/ui-server/tests/drafts-store.test.ts:68-74`)
+- `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:76-88`)
+- `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:90-96`)
 
 **J — Confirmed share intake.**
 

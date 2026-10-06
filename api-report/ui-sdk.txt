@@ -110,6 +110,19 @@ export "." (./src/index.ts)
   type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
+  DRAFT_PREVIEW_CHARS
+  type Draft
+  type DraftAttachment
+  type DraftAttachmentResponse
+  type DraftBindRequest
+  type DraftBindResponse
+  type DraftErrorCode
+  type DraftErrorResponse
+  type DraftListResponse
+  type DraftRef
+  type DraftSaveRequest
+  type DraftSaveResponse
+  type DraftSummary
   FILE_SIZE_CAP_BYTES
   type FileContentKind
   type FileContentResponse
@@ -181,6 +194,7 @@ export "." (./src/index.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  SESSION_DRAFT_LIMITS
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -232,6 +246,7 @@ export "." (./src/index.ts)
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
+  type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
@@ -419,6 +434,19 @@ export "./client" (./src/client/index.ts)
   type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
+  DRAFT_PREVIEW_CHARS
+  type Draft
+  type DraftAttachment
+  type DraftAttachmentResponse
+  type DraftBindRequest
+  type DraftBindResponse
+  type DraftErrorCode
+  type DraftErrorResponse
+  type DraftListResponse
+  type DraftRef
+  type DraftSaveRequest
+  type DraftSaveResponse
+  type DraftSummary
   FILE_SIZE_CAP_BYTES
   type FileContentKind
   type FileContentResponse
@@ -516,6 +544,7 @@ export "./client" (./src/client/index.ts)
   type RendererPack
   type RequestImageMaskInput
   type ResolutionEffect
+  SESSION_DRAFT_LIMITS
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -574,6 +603,7 @@ export "./client" (./src/client/index.ts)
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
+  type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
@@ -798,6 +828,19 @@ export "./protocol" (./src/protocol.ts)
   type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
+  DRAFT_PREVIEW_CHARS
+  type Draft
+  type DraftAttachment
+  type DraftAttachmentResponse
+  type DraftBindRequest
+  type DraftBindResponse
+  type DraftErrorCode
+  type DraftErrorResponse
+  type DraftListResponse
+  type DraftRef
+  type DraftSaveRequest
+  type DraftSaveResponse
+  type DraftSummary
   FILE_SIZE_CAP_BYTES
   type FileContentKind
   type FileContentResponse
@@ -864,6 +907,7 @@ export "./protocol" (./src/protocol.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  SESSION_DRAFT_LIMITS
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -915,6 +959,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
+  type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
@@ -1012,6 +1057,12 @@ export "./schemas" (./src/schemas.ts)
   conversationSampleRateSchema
   conversationWireEventSchema
   conversationWorkReceiptSchema
+  draftAttachmentSchema
+  draftListResponseSchema
+  draftRefSchema
+  draftSaveResponseSchema
+  draftSchema
+  draftSummarySchema
   handoffRequestSchema
   inboxActionItemSchema
   inboxActionStatusSchema
@@ -1072,6 +1123,7 @@ export "./schemas" (./src/schemas.ts)
   serverToolResultSchema
   serverToolUseCompleteSchema
   serverToolUseStartSchema
+  sessionDraftLimitsSchema
   sharedFileMetaSchema
   v1ResolutionEffectSchema
   validateResolutionEffect
@@ -1259,6 +1311,19 @@ export "./server" (./src/server/index.ts)
   type CreateToolPermissionRequestInput
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
+  DRAFT_PREVIEW_CHARS
+  type Draft
+  type DraftAttachment
+  type DraftAttachmentResponse
+  type DraftBindRequest
+  type DraftBindResponse
+  type DraftErrorCode
+  type DraftErrorResponse
+  type DraftListResponse
+  type DraftRef
+  type DraftSaveRequest
+  type DraftSaveResponse
+  type DraftSummary
   type EditedApprovalCheckInput
   type ExecWrapperConfig
   type ExecutionBrief
@@ -1372,6 +1437,7 @@ export "./server" (./src/server/index.ts)
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
+  SESSION_DRAFT_LIMITS
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -1428,6 +1494,7 @@ export "./server" (./src/server/index.ts)
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
+  type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRef
   type SessionScoped
@@ -4101,6 +4168,7 @@ signatures (every public export and the types it is made of)
         source?: MessageSource;
         localExchanges?: LocalExchange[];
         handoff?: HandoffRequest;
+        draftRef?: DraftRef;
     }
   ClientConversationAudio (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationAudio {
@@ -4485,6 +4553,103 @@ signatures (every public export and the types it is made of)
     const DEFAULT_SHARE_TARGET_PATH: "/share-target";
   DOWNSCALE_MAX_EDGE (packages/ui-sdk/src/protocol.ts)
     const DOWNSCALE_MAX_EDGE: 1568;
+  DRAFT_PREVIEW_CHARS (packages/ui-sdk/src/protocol.ts)
+    const DRAFT_PREVIEW_CHARS: 200;
+  Draft (packages/ui-sdk/src/protocol.ts)
+    export interface Draft {
+        draftId: string;
+        sessionId: string | null;
+        revision: number;
+        updatedAt: number;
+        text: string;
+        attachments: DraftAttachment[];
+    }
+  DraftAttachment (packages/ui-sdk/src/protocol.ts)
+    export interface DraftAttachment {
+        attachmentId: string;
+        mime: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+        bytes: string;
+        name: string | null;
+    }
+  DraftAttachmentResponse (packages/ui-sdk/src/protocol.ts)
+    export interface DraftAttachmentResponse {
+        attachmentId: string;
+    }
+  DraftBindRequest (packages/ui-sdk/src/protocol.ts)
+    export interface DraftBindRequest {
+        sessionId: string;
+        requestId: string;
+    }
+  DraftBindResponse (packages/ui-sdk/src/protocol.ts)
+    export interface DraftBindResponse {
+        revision: number;
+    }
+  DraftErrorCode (packages/ui-sdk/src/protocol.ts)
+    export type DraftErrorCode = "DRAFT_CONFLICT" | "DRAFT_DELETED" | "DRAFT_TOO_LARGE" | "DRAFT_CAPACITY" | "DRAFT_NOT_FOUND" | "DRAFT_INVALID" | "DRAFT_PRECONDITION_REQUIRED" | "DRAFT_KEY_REUSED" | "DRAFT_NOT_ACCEPTED";
+  DraftErrorResponse (packages/ui-sdk/src/protocol.ts)
+    export type DraftErrorResponse = {
+        error: "DRAFT_CONFLICT";
+        message: string;
+        current: Draft;
+    } | {
+        error: "DRAFT_DELETED";
+        message: string;
+        tombstoneRevision: number;
+    } | {
+        error: "DRAFT_TOO_LARGE";
+        message: string;
+        limit: number;
+        bound: "text" | "draft" | "image" | "images" | "imageCount";
+    } | {
+        error: "DRAFT_CAPACITY";
+        message: string;
+        limit: number;
+        bound: "drafts" | "total";
+    } | {
+        error: "DRAFT_NOT_FOUND";
+        message: string;
+    } | {
+        error: "DRAFT_INVALID";
+        message: string;
+    } | {
+        error: "DRAFT_PRECONDITION_REQUIRED";
+        message: string;
+    } | {
+        error: "DRAFT_KEY_REUSED";
+        message: string;
+    } | {
+        error: "DRAFT_NOT_ACCEPTED";
+        message: string;
+    };
+  DraftListResponse (packages/ui-sdk/src/protocol.ts)
+    export interface DraftListResponse {
+        drafts: DraftSummary[];
+    }
+  DraftRef (packages/ui-sdk/src/protocol.ts)
+    export interface DraftRef {
+        draftId: string;
+        revision: number;
+    }
+  DraftSaveRequest (packages/ui-sdk/src/protocol.ts)
+    export interface DraftSaveRequest {
+        sessionId: string | null;
+        text: string;
+        attachmentIds: string[];
+    }
+  DraftSaveResponse (packages/ui-sdk/src/protocol.ts)
+    export interface DraftSaveResponse {
+        revision: number;
+        updatedAt: number;
+    }
+  DraftSummary (packages/ui-sdk/src/protocol.ts)
+    export interface DraftSummary {
+        draftId: string;
+        sessionId: string | null;
+        revision: number;
+        updatedAt: number;
+        preview: string;
+        attachmentCount: number;
+    }
   EditedApprovalCheckInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface EditedApprovalCheckInput extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
         originalInput: unknown;
@@ -5510,6 +5675,8 @@ signatures (every public export and the types it is made of)
         request: Request;
         url: URL;
     }
+  SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
+    const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
   SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target.ts)
     const SHARE_ERROR_PARAM: "share_error";
   SHARE_MAX_CONCURRENT_INTAKE (packages/ui-sdk/src/protocol.ts)
@@ -6885,6 +7052,7 @@ signatures (every public export and the types it is made of)
         protocolRev: number;
         principalKey?: string;
         capabilities?: Record<string, boolean>;
+        sessionDraftLimits?: SessionDraftLimits;
     }
   ServerLocalExchangeResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerLocalExchangeResult extends SessionScoped {
@@ -7042,6 +7210,13 @@ signatures (every public export and the types it is made of)
         skipWaiting(): Promise<unknown>;
         addEventListener(type: "install", listener: () => void): void;
         addEventListener(type: "activate", listener: (event: ExtendableEventLike) => void): void;
+    }
+  SessionDraftLimits (packages/ui-sdk/src/protocol.ts)
+    export interface SessionDraftLimits {
+        maxTextBytes: number;
+        maxDraftBytes: number;
+        maxDrafts: number;
+        maxTotalBytes: number;
     }
   SessionHistoryMessage (packages/ui-sdk/src/protocol.ts)
     export interface SessionHistoryMessage {
@@ -7590,6 +7765,10 @@ signatures (every public export and the types it is made of)
             viewportWidth: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         draftId: z.ZodOptional<z.ZodString>;
+        draftRef: z.ZodOptional<z.ZodObject<{
+            draftId: z.ZodString;
+            revision: z.ZodNumber;
+        }, z.core.$loose>>;
         files: z.ZodOptional<z.ZodArray<z.ZodObject<{
             kind: z.ZodLiteral<"file">;
             path: z.ZodString;
@@ -7844,6 +8023,10 @@ signatures (every public export and the types it is made of)
             viewportWidth: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         draftId: z.ZodOptional<z.ZodString>;
+        draftRef: z.ZodOptional<z.ZodObject<{
+            draftId: z.ZodString;
+            revision: z.ZodNumber;
+        }, z.core.$loose>>;
         files: z.ZodOptional<z.ZodArray<z.ZodObject<{
             kind: z.ZodLiteral<"file">;
             path: z.ZodString;
@@ -8346,6 +8529,67 @@ signatures (every public export and the types it is made of)
   describeRetry (packages/ui-sdk/src/protocol.ts)
     export function describeRetry(retry: TurnRetry): string;
   detailFor (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  draftAttachmentSchema (packages/ui-sdk/src/schemas.ts)
+    const draftAttachmentSchema: z.ZodObject<{
+        attachmentId: z.ZodString;
+        bytes: z.ZodString;
+        mime: z.ZodEnum<{
+            "image/gif": "image/gif";
+            "image/jpeg": "image/jpeg";
+            "image/png": "image/png";
+            "image/webp": "image/webp";
+        }>;
+        name: z.ZodNullable<z.ZodString>;
+    }, z.core.$loose>;
+  draftListResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const draftListResponseSchema: z.ZodObject<{
+        drafts: z.ZodArray<z.ZodObject<{
+            attachmentCount: z.ZodNumber;
+            draftId: z.ZodString;
+            preview: z.ZodString;
+            revision: z.ZodNumber;
+            sessionId: z.ZodNullable<z.ZodString>;
+            updatedAt: z.ZodNumber;
+        }, z.core.$loose>>;
+    }, z.core.$loose>;
+  draftRefSchema (packages/ui-sdk/src/schemas.ts)
+    const draftRefSchema: z.ZodObject<{
+        draftId: z.ZodString;
+        revision: z.ZodNumber;
+    }, z.core.$loose>;
+  draftSaveResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const draftSaveResponseSchema: z.ZodObject<{
+        revision: z.ZodNumber;
+        updatedAt: z.ZodNumber;
+    }, z.core.$loose>;
+  draftSchema (packages/ui-sdk/src/schemas.ts)
+    const draftSchema: z.ZodObject<{
+        attachments: z.ZodArray<z.ZodObject<{
+            attachmentId: z.ZodString;
+            bytes: z.ZodString;
+            mime: z.ZodEnum<{
+                "image/gif": "image/gif";
+                "image/jpeg": "image/jpeg";
+                "image/png": "image/png";
+                "image/webp": "image/webp";
+            }>;
+            name: z.ZodNullable<z.ZodString>;
+        }, z.core.$loose>>;
+        draftId: z.ZodString;
+        revision: z.ZodNumber;
+        sessionId: z.ZodNullable<z.ZodString>;
+        text: z.ZodString;
+        updatedAt: z.ZodNumber;
+    }, z.core.$loose>;
+  draftSummarySchema (packages/ui-sdk/src/schemas.ts)
+    const draftSummarySchema: z.ZodObject<{
+        attachmentCount: z.ZodNumber;
+        draftId: z.ZodString;
+        preview: z.ZodString;
+        revision: z.ZodNumber;
+        sessionId: z.ZodNullable<z.ZodString>;
+        updatedAt: z.ZodNumber;
+    }, z.core.$loose>;
   execWrapperSpawnOptions (packages/ui-sdk/src/server/exec-wrapper.ts)
     export function execWrapperSpawnOptions(wrapper?: string): {
         detached?: true;
@@ -10521,6 +10765,12 @@ signatures (every public export and the types it is made of)
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
+        sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            maxDraftBytes: z.ZodNumber;
+            maxDrafts: z.ZodNumber;
+            maxTextBytes: z.ZodNumber;
+            maxTotalBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         type: z.ZodLiteral<"server_hello">;
     }, z.core.$loose>;
   serverLocalExchangeResultSchema (packages/ui-sdk/src/schemas.ts)
@@ -10888,6 +11138,12 @@ signatures (every public export and the types it is made of)
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
+        sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            maxDraftBytes: z.ZodNumber;
+            maxDrafts: z.ZodNumber;
+            maxTextBytes: z.ZodNumber;
+            maxTotalBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         type: z.ZodLiteral<"server_hello">;
     }, z.core.$loose>, z.ZodObject<{
         sessionId: z.ZodOptional<z.ZodString>;
@@ -13275,6 +13531,13 @@ signatures (every public export and the types it is made of)
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_use_start">;
+    }, z.core.$loose>;
+  sessionDraftLimitsSchema (packages/ui-sdk/src/schemas.ts)
+    const sessionDraftLimitsSchema: z.ZodObject<{
+        maxDraftBytes: z.ZodNumber;
+        maxDrafts: z.ZodNumber;
+        maxTextBytes: z.ZodNumber;
+        maxTotalBytes: z.ZodNumber;
     }, z.core.$loose>;
   sharedFileMetaSchema (packages/ui-sdk/src/track-schemas.ts)
     const sharedFileMetaSchema: z.ZodType<SharedFileMeta>;

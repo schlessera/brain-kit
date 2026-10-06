@@ -2828,6 +2828,73 @@ hours per device and principal, persisted in IndexedDB) is
 `@schlessera/brain-ui-react` behaviour, not wire contract. The decision
 record is [answer-delivery.md](decisions/answer-delivery.md).
 
+### Session drafts (additive, #979)
+
+A host that stores composer drafts sends `server_hello.capabilities.sessionDrafts:
+true` and, beside it, `server_hello.sessionDraftLimits: SessionDraftLimits`
+(`maxTextBytes` 65536, `maxDraftBytes` 8388608, `maxDrafts` 100,
+`maxTotalBytes` 268435456; exported as `SESSION_DRAFT_LIMITS`). D52 §6 drew
+the limits inside `capabilities`; they sit beside it because every shipped
+client validates `capabilities` as a string-to-boolean record and would drop
+the whole hello over an object value. Without the flag a client keeps drafts
+on the device and never claims host saving or cross-device restore.
+
+Drafts live in the UI's operational database, never in `brain.db` or
+canonical Markdown, so `brain index --force` cannot touch them. They are one
+namespace per host: every principal that authenticates to the host shares
+them, each operation re-resolves its principal before committing and
+records who made each change, and no role or per-login partition is added.
+A different root runs a different host with its own database.
+
+The six routes, their headers, bodies and error codes are specified in the
+[HTTP API](http-api.md#session-drafts-additive-979); the SDK publishes the
+`SessionDraftLimits`, `DraftRef`, `DraftSummary`, `Draft`, `DraftAttachment`,
+`DraftListResponse`, `DraftSaveRequest`, `DraftSaveResponse`,
+`DraftAttachmentResponse`, `DraftBindRequest`, `DraftBindResponse`,
+`DraftErrorCode` and `DraftErrorResponse` types and the matching
+`sessionDraftLimitsSchema`, `draftRefSchema`, `draftSummarySchema`,
+`draftListResponseSchema`, `draftAttachmentSchema`, `draftSchema` and
+`draftSaveResponseSchema`. The rules they rely on:
+
+- **Revisions** start at 1 and only grow. A save, delete or bind that names
+  a revision other than the current one is a 409 `DRAFT_CONFLICT` carrying
+  the host's `current` version; the host never merges. A save cannot move a
+  draft to another session.
+- **Receipts.** A successful save or upload is stored under its
+  `Idempotency-Key` (per draft and operation, the 32 most recent). The same
+  request under the same key returns the stored response; a different one
+  is 409 `DRAFT_KEY_REUSED`.
+- **Tombstones.** Deleting or sending a draft keeps its row at the next
+  revision with no text or images. Every later save, upload or bind of that
+  id is 410 `DRAFT_DELETED` with `tombstoneRevision`, so nothing stale
+  resurrects it; save the content under a new `draftId`. Tombstones are not
+  pruned.
+- **Bounds.** Text is at most `maxTextBytes` UTF-8 bytes; a draft lists at
+  most `MAX_IMAGES_PER_MESSAGE` images of the `ALLOWED_IMAGE_MEDIA_TYPES`,
+  each at most `MAX_IMAGE_BYTES`, together at most `MAX_TOTAL_IMAGE_BYTES`,
+  and text plus images at most `maxDraftBytes` (413 `DRAFT_TOO_LARGE`). At
+  most eight images are stored per draft, listed or not. A new draft beyond
+  `maxDrafts`, or growth beyond `maxTotalBytes` of live text plus stored
+  images, is 507 `DRAFT_CAPACITY`. Nothing is evicted to make room, and no
+  draft expires; an uploaded image no save has listed is removed after an
+  hour.
+- **Atomicity.** Each mutation is one immediate SQLite transaction; a 200 or
+  204 means it committed. A refused or failed request leaves the committed
+  draft and its images unchanged.
+
+`chat_message.draftRef?: DraftRef` names the saved revision a message was
+sent from. It is ignored by a host without the capability, and a message
+carrying it never joins a running turn natively: like `requestId`, it queues
+as its own turn. When the host accepts the message (the `session_info` of its
+turn, or its `status: queued`), it deletes the draft only if that revision is
+still current and the draft belongs to the message's session, or is unbound
+for a new conversation. Later edits are a later revision and survive; another
+session's draft and images are never touched. A refused message consumes
+nothing. For a new conversation with a `requestId`, the host also records
+that this draft's request started that session, which is the only proof
+`POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
+logs, push payloads or the transcript store.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

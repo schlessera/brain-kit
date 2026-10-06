@@ -208,6 +208,16 @@ export interface ClientChatMessage {
    * on a message that names a `sessionId`.
    */
   handoff?: HandoffRequest;
+  /**
+   * The saved composer draft this message was sent from (additive; #979).
+   * When the host accepts the message (`session_info` for its turn, or
+   * `status: queued`), it deletes that draft only if `revision` is still the
+   * draft's current revision and the draft belongs to this message's
+   * session (or is unbound, for a new conversation). Edits saved after
+   * submitting are a later revision and survive. Ignored by hosts that do
+   * not advertise `capabilities.sessionDrafts`.
+   */
+  draftRef?: DraftRef;
 }
 
 /** Most characters a reviewed handoff summary may carry (#61). */
@@ -401,6 +411,144 @@ export interface ChatImageAttachment {
   mediaType: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 }
 
+// ============================================================
+// Session drafts (additive; #979, design D52 §5–6)
+// ============================================================
+
+/**
+ * Host draft storage bounds, advertised as `server_hello.sessionDraftLimits`
+ * beside `capabilities.sessionDrafts: true`. Byte counts are UTF-8 text plus
+ * decoded attachment bytes. The existing per-image bounds
+ * (`ALLOWED_IMAGE_MEDIA_TYPES`, `MAX_IMAGES_PER_MESSAGE`, `MAX_IMAGE_BYTES`,
+ * `MAX_TOTAL_IMAGE_BYTES`) apply to a draft's attachments as well.
+ */
+export interface SessionDraftLimits {
+  /** Most UTF-8 bytes of draft text. */
+  maxTextBytes: number;
+  /** Most bytes in one draft, text and attachments together. */
+  maxDraftBytes: number;
+  /** Most live (not deleted) drafts one host keeps. */
+  maxDrafts: number;
+  /** Most bytes of draft text and attachments one host keeps. */
+  maxTotalBytes: number;
+}
+
+/** The limits a host ships with (the #943 R2 ruling). */
+export const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits> = Object.freeze({
+  maxTextBytes: 65_536,
+  maxDraftBytes: 8_388_608,
+  maxDrafts: 100,
+  maxTotalBytes: 268_435_456,
+});
+
+/** Names one saved revision of one draft. */
+export interface DraftRef {
+  draftId: string;
+  revision: number;
+}
+
+/** One row of `GET /api/drafts`. */
+export interface DraftSummary {
+  draftId: string;
+  /** The session the draft belongs to; null for a draft with no session yet. */
+  sessionId: string | null;
+  revision: number;
+  /** Milliseconds since epoch of the last saved change. */
+  updatedAt: number;
+  /** The first non-empty line of the text, at most `DRAFT_PREVIEW_CHARS`. */
+  preview: string;
+  attachmentCount: number;
+}
+
+/** Characters a `DraftSummary.preview` carries at most. */
+export const DRAFT_PREVIEW_CHARS = 200;
+
+/** One stored draft image. */
+export interface DraftAttachment {
+  attachmentId: string;
+  mime: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+  /** The decoded image bytes, base64-encoded without a `data:` prefix. */
+  bytes: string;
+  /** The name the uploader gave, or null. */
+  name: string | null;
+}
+
+/** `GET /api/drafts/:draftId`, and the `current` of a `DRAFT_CONFLICT`. */
+export interface Draft {
+  draftId: string;
+  sessionId: string | null;
+  revision: number;
+  updatedAt: number;
+  text: string;
+  /** In the order the saved revision lists them. */
+  attachments: DraftAttachment[];
+}
+
+export interface DraftListResponse {
+  /** Every live draft, newest change first; bounded by `maxDrafts`. */
+  drafts: DraftSummary[];
+}
+
+/** Body of `PUT /api/drafts/:draftId` (headers `If-Match`, `Idempotency-Key`). */
+export interface DraftSaveRequest {
+  sessionId: string | null;
+  text: string;
+  /** Attachments uploaded to this draft, in display order. */
+  attachmentIds: string[];
+}
+
+export interface DraftSaveResponse {
+  revision: number;
+  updatedAt: number;
+}
+
+/** `POST /api/drafts/:draftId/attachments` (raw image bytes, `Idempotency-Key`). */
+export interface DraftAttachmentResponse {
+  attachmentId: string;
+}
+
+/** Body of `POST /api/drafts/:draftId/bind`. */
+export interface DraftBindRequest {
+  sessionId: string;
+  /** The `requestId` of the accepted first message of that session. */
+  requestId: string;
+}
+
+export interface DraftBindResponse {
+  revision: number;
+}
+
+/** Machine codes in the `error` field of a draft route's failure body. */
+export type DraftErrorCode =
+  | "DRAFT_CONFLICT"
+  | "DRAFT_DELETED"
+  | "DRAFT_TOO_LARGE"
+  | "DRAFT_CAPACITY"
+  | "DRAFT_NOT_FOUND"
+  | "DRAFT_INVALID"
+  | "DRAFT_PRECONDITION_REQUIRED"
+  | "DRAFT_KEY_REUSED"
+  | "DRAFT_NOT_ACCEPTED";
+
+/** A draft route's failure body, discriminated by `error`. */
+export type DraftErrorResponse =
+  /** 409: the draft changed; `current` is the host's version. */
+  | { error: "DRAFT_CONFLICT"; message: string; current: Draft }
+  /** 410: deleted or sent; save the local content as a new draft. */
+  | { error: "DRAFT_DELETED"; message: string; tombstoneRevision: number }
+  /** 413: over `limit` (`bound` names which). Nothing was stored. */
+  | { error: "DRAFT_TOO_LARGE"; message: string; limit: number; bound: "text" | "draft" | "image" | "images" | "imageCount" }
+  /** 507: the host holds `limit` drafts or bytes already. Nothing was stored. */
+  | { error: "DRAFT_CAPACITY"; message: string; limit: number; bound: "drafts" | "total" }
+  | { error: "DRAFT_NOT_FOUND"; message: string }
+  | { error: "DRAFT_INVALID"; message: string }
+  /** 428: `If-Match` is missing. */
+  | { error: "DRAFT_PRECONDITION_REQUIRED"; message: string }
+  /** 409: this `Idempotency-Key` already named a different request. */
+  | { error: "DRAFT_KEY_REUSED"; message: string }
+  /** 409: no accepted message of that session carried this draft and request. */
+  | { error: "DRAFT_NOT_ACCEPTED"; message: string };
+
 export const ALLOWED_IMAGE_MEDIA_TYPES = [
   "image/jpeg",
   "image/png",
@@ -571,8 +719,17 @@ export interface ServerHello {
    * absent/false means unsupported. Delivery still requires `inbox_subscribe`.
    * `toolResolution: true` offers `tool_resolution` to clients that declare
    * the same flag; `liveConversation: true` means a conversation provider is
-   * registered and the `conversation_*` frames are accepted. */
+   * registered and the `conversation_*` frames are accepted.
+   * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
+   * `sessionDraftLimits` then carries their bounds. */
   capabilities?: Record<string, boolean>;
+  /**
+   * Draft storage bounds (additive; #979). Present exactly when
+   * `capabilities.sessionDrafts` is true. A separate field because
+   * `capabilities` values are booleans on every shipped client: an object
+   * there would make an older client drop the whole frame.
+   */
+  sessionDraftLimits?: SessionDraftLimits;
 }
 
 export interface ServerSessionHistory extends SessionScoped {

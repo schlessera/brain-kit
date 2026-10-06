@@ -5133,6 +5133,18 @@ cross-root access. Drafts and their attachment bytes live in the
 operational store, inside the generic backup set, and never in `brain.db`,
 canonical Markdown or the tracker record.
 
+> **2026-10-06 — Implemented by #979, with one placement change.** The
+> limits object above travels as `server_hello.sessionDraftLimits`, beside
+> `capabilities.sessionDrafts: true`, not inside `capabilities`: every
+> shipped client validates `capabilities` as a string-to-boolean record and
+> would drop the whole hello over an object value, which an additive change
+> may not cause. The routes also answer 404 `DRAFT_NOT_FOUND`, 400
+> `DRAFT_INVALID`, 428 `DRAFT_PRECONDITION_REQUIRED`, 409 `DRAFT_KEY_REUSED`
+> (one key, a different request) and 409 `DRAFT_NOT_ACCEPTED` (a bind without
+> an accepted first message), and 413/507 bodies name their `bound`. The
+> [integration contract](../integration-contract.md#session-drafts-additive-979)
+> is the reference.
+
 ### 7. What the kit gains
 
 Read from the source, not inferred from the drawings:
