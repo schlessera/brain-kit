@@ -43,7 +43,7 @@ export function createPillLabels(deps: {
     followUpQueued(sessionId, entry) {
       if (!labeller.enabled || entry.label || !entry.followUpId || !entry.text.trim()) return;
       const id = entry.followUpId;
-      void labeller.label(`follow-up:${id}`, entry.text).then((label) => {
+      void labeller.label(`follow-up:${id}`, entry.text, sessionId).then((label) => {
         // Only a follow-up still waiting gets one: a started or dropped
         // entry has left every report.
         if (!label || !coordinator.pendingFollowUps(sessionId).includes(entry)) return;
@@ -67,7 +67,7 @@ export function createPillLabels(deps: {
         return;
       }
       latest.set(sessionId, source);
-      void labeller.label(`session:${sessionId}`, text).then((label) => {
+      void labeller.label(`session:${sessionId}`, text, sessionId).then((label) => {
         if (latest.get(sessionId) !== source) return;
         latest.delete(sessionId);
         if (label) catalog.saveSessionLabel?.(sessionId, label, source);

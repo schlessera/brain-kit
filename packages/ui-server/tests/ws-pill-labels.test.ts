@@ -6,9 +6,10 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
+import { createActivityStore, rowToRunRollup } from "../src/activity/store";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
-import { createLabeller, type LabelCompletionProvider } from "../src/labels/index";
+import { LABEL_RUN_NAME, createLabeller, type LabelCompletionProvider } from "../src/labels/index";
 import { createSessionRoutes } from "../src/routes/sessions";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
@@ -83,7 +84,10 @@ function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: nu
     // an answer, so only the host's own reuse can avoid a second call.
     labeller: options.uncached
       ? { enabled: true, label: async (_item: string, text: string) => provider.complete({ prompt: text }) }
-      : createLabeller({ options: options.labeller === false ? null : { provider } }),
+      : createLabeller({
+          options: options.labeller === false ? null : { provider },
+          activity: { store: createActivityStore(db, { writer: "test" }) },
+        }),
   });
   cleanup = () => {
     for (const finish of finishers) finish();
@@ -113,8 +117,12 @@ function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: nu
     const body = (await res.json()) as { sessions: Array<Record<string, unknown>> };
     return body.sessions.find((s) => s.id === SESSION)!;
   }
+  /** The `pill label` runs recorded, as [session, outcome]. */
+  const labelRuns = () =>
+    db.query("SELECT * FROM activity_run_rollups WHERE name = ? ORDER BY started_at, run_id").all(LABEL_RUN_NAME)
+      .map(rowToRunRollup).map((run) => [run.sessionId, run.outcome]);
   return {
-    host, db, catalog, prompts, finishers, asked, connect, busy, listed,
+    host, db, catalog, labelRuns, prompts, finishers, asked, connect, busy, listed,
     hold: (on: boolean) => { hold = on; },
     releaseHeld: () => { for (const release of held.splice(0)) release(); },
   };
@@ -142,6 +150,18 @@ describe("pill labels (#1004)", () => {
     expect(parseServerMessage(JSON.stringify(report))).toMatchObject({ ok: true, message: { followUps: [{ label: "Asking Aeolus" }] } });
     expect(report.started).toBeUndefined();
     expect(report.dropped).toBeUndefined();
+  });
+
+  test("each label call is a pill label run on the session whose pill it labels (#1083)", async () => {
+    const s = setup();
+    const client = await s.connect();
+    await s.busy(client);
+    client.send({ type: "chat_message", text: "Ask Aeolus about the winds", sessionId: SESSION, requestId: "req-winds" });
+    await until(() => labels(client.frames("session_queue").at(-1))[0] === "Asking Aeolus");
+    await until(() => s.labelRuns().length === 2);
+    // The turn's request and the queued follow-up, each on the session.
+    expect(s.labelRuns()).toEqual([[SESSION, "success"], [SESSION, "success"]]);
+    expect(s.asked).toEqual(["Chart the way home", "Ask Aeolus about the winds"]);
   });
 
   test("a reload gets the labels back without asking the model again", async () => {

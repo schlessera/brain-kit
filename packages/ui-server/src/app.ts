@@ -152,8 +152,10 @@ export interface CreateAppOptions {
    * default, labels nothing and pills print the session title or the start of
    * the prompt. When set, the text of every queued follow-up and of every
    * turn's request is sent to this provider, which may be a different vendor
-   * from the session's backend. The provider reports no usage, so these calls
-   * are counted (`brain.labeller.calls`) but their cost is unknown.
+   * from the session's backend. Every call that reaches the provider is a
+   * `pill label` Activity run on the session it labels, priced only when the
+   * provider reports usage and a model (`completeWithUsage`) and `billing` is
+   * set; any other call is unpriced, never $0 (#1083).
    */
   labeller?: LabellerOptions;
   /** Per-turn timeout in ms (default 10 minutes). */
@@ -359,6 +361,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       options: options.labeller ?? null,
       log: observability.logger("labels"),
       meter: observability.meter("labels"),
+      activity: { store: activity.store, onWrite: () => activity.stream.pump() },
     }),
     scratchPrune: () => scratchPrune.tick(),
     ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),

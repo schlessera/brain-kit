@@ -136,3 +136,31 @@ remain frozen. Later valid evidence may fill still-null slots; an effective
 cost/estimate fill must agree with any frozen billing classification
 (`upsertRollup`, `packages/ui-server/src/activity/sql.ts:19-50`). Recorded
 history is never silently rewritten from the current server environment.
+
+## Pill label runs (#1083)
+
+The maintainer ruled on 2026-10-06 that every pill labeller call (#1004) that
+reaches the host's label model is its own Activity run. Counting the calls
+only would leave API-billed spend out of Activity; unpriced runs with no usage
+could never be priced; and child spans on a turn could mark a correctly priced
+turn as unknown, while a queued follow-up's label may have no turn to attach
+to.
+
+Each call is a root span named `pill label`, `origin: "session"`, on the
+session whose pill it labels. Asks that share one call share its run, which
+goes to the session of the ask that started it; a cached answer or a skipped
+ask reaches no provider and records nothing. The labeller's own
+`LabelCompletionProvider` gains an optional `completeWithUsage`, which it
+prefers to `complete()`, so core's `CompletionProvider` stays as it is and
+still satisfies the interface. The host declares the billing mode with
+`CreateAppOptions.labeller.billing`; nothing infers it.
+
+The run is written so the existing rollup prices it without a rule of its
+own (`const endRun`, `packages/ui-server/src/labels/labeller.ts:235-251`). The
+reported usage and model become the root's `gen_ai.usage.per_model`, and the
+declared billing is written as `brain.billing_mode` **only beside usage and a
+model**. The rollup prices a subscription run at $0 whatever its tokens, so a
+subscription call that reported nothing would otherwise read as free. Every
+other call, including a malformed token count, has no billing mode and counts
+as unpriced. The calls stay counted in the `brain.labeller.calls` metric, and a
+label run's cost is not added to the session's own total.

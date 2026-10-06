@@ -60,9 +60,13 @@ export {
   createLabeller,
   normaliseLabel,
   LABEL_MAX_CHARS,
+  LABEL_RUN_NAME,
   type Labeller,
   type LabellerOptions,
+  type LabelCompletion,
   type LabelCompletionProvider,
+  type LabelCompletionRequest,
+  type LabelCompletionUsage,
 } from "./labels/index.js";
 export { websocket } from "./ws/connection.js";
 export { type AuthorizationContext } from "./ws/turns.js";
