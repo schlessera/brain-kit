@@ -110,6 +110,9 @@ export function createTrackerClient(root: BrainUiServices) {
     if (active !== null) leave(active);
   };
   const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
+  // Another tab of this root stored its trackers: take them in.
+  const onStorage = () => trackers.getState().syncFromStorage();
+  if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
   if (typeof window !== "undefined") window.addEventListener("pagehide", leavePage);
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
 
@@ -128,7 +131,7 @@ export function createTrackerClient(root: BrainUiServices) {
         // Refused, unless the host had already accepted it: an accepted
         // request that fails before its turn exists ends it, and the
         // envelope then says how.
-        if (store.evidence[sessionId]?.latest?.requestId === msg.requestId) refresh(sessionId);
+        if (store.evidence[sessionId]?.latest?.requestId === msg.requestId || store.acceptedRequests.includes(msg.requestId)) refresh(sessionId);
         else store.refused(sessionId, msg.requestId);
         return;
       }
@@ -177,6 +180,7 @@ export function createTrackerClient(root: BrainUiServices) {
       unsubscribe();
       again.clear();
       if (typeof window !== "undefined") window.removeEventListener("pagehide", leavePage);
+      if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
     },
   };

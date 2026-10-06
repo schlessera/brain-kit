@@ -98,6 +98,11 @@ export interface TrackerStoreState {
   setRecoverySupported(supported: boolean): void;
   /** A hello named a principal. A different one than the set was stored under deletes the set. */
   setPrincipal(principalKey: string | null): void;
+  /**
+   * Another tab of this root changed the stored set (a `storage` event):
+   * this tab takes its trackers as they now stand.
+   */
+  syncFromStorage(): void;
   /** A revocation: the whole set goes, and tracking stops until `resume`. */
   revoke(): void;
   /** A hello arrived: the connection is authorized, so tracking resumes. */
@@ -153,23 +158,50 @@ export function createTrackerStore(env: StoreEnvironment) {
     }
   }
 
-  function write(state: Pick<TrackerStoreState, "records" | "principalKey">) {
+  /**
+   * Store the set. Another tab of the same root may have written since this
+   * one last read, so its trackers are merged in rather than overwritten:
+   * only what this tab removed goes. A deletion of the whole set (a new
+   * principal, a revocation) replaces it. Returns the merged records.
+   */
+  function write(state: Pick<TrackerStoreState, "records" | "principalKey">, removed: readonly string[], replace: boolean): Record<string, TrackerRecord> {
+    let records = state.records;
     try {
       const storage = env.storage();
-      if (!storage) return;
-      if (Object.keys(state.records).length === 0) storage.removeItem(key);
-      else storage.setItem(key, serializeTrackerSet(state));
+      if (!storage) return records;
+      if (!replace) {
+        const current = read();
+        if (current.principalKey === null || state.principalKey === null || current.principalKey === state.principalKey) {
+          const merged = { ...current.records };
+          for (const sessionId of removed) delete merged[sessionId];
+          records = { ...merged, ...state.records };
+        }
+      }
+      if (Object.keys(records).length === 0) storage.removeItem(key);
+      else storage.setItem(key, serializeTrackerSet({ principalKey: state.principalKey, records }));
     } catch {
       // Storage full, disabled or throwing: the trackers still work for this page.
     }
+    return records;
   }
 
   const stored = read();
 
   return createStore<TrackerStoreState>((set, get) => {
-    function commit(patch: Partial<TrackerStoreState>) {
+    function commit(patch: Partial<TrackerStoreState>, replace = false) {
+      const before = get().records;
       set(patch);
-      if (patch.records !== undefined || patch.principalKey !== undefined) write(get());
+      if (patch.records === undefined && patch.principalKey === undefined) return;
+      const removed = patch.records ? Object.keys(before).filter((id) => !(id in patch.records!)) : [];
+      const records = write(get(), removed, replace);
+      if (records !== get().records) adopt(records);
+    }
+
+    /** Take in trackers another tab of this root stored. */
+    function adopt(records: Record<string, TrackerRecord>) {
+      const evidence = { ...get().evidence };
+      for (const record of Object.values(records)) if (!evidence[record.sessionId]) evidence[record.sessionId] = evidenceFromRecord(record);
+      set({ records, evidence });
     }
 
     /** Keep the record's identifiers in step with the newest evidence, so a reload can detect a rollback. */
@@ -208,7 +240,7 @@ export function createTrackerStore(env: StoreEnvironment) {
     }
 
     function deleteAll() {
-      commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1 });
+      commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1 }, true);
     }
 
     return {
@@ -271,6 +303,11 @@ export function createTrackerStore(env: StoreEnvironment) {
         const held = state.reading[sessionId];
         if (held) {
           set({ reading: { ...state.reading, [sessionId]: [...held, ...events] } });
+          // Held for ordering, but what they prove about acceptance holds now.
+          const accepted = events.flatMap((e) => (e.kind === "queued" || e.kind === "running" ? [e.requestId] : []));
+          remember(accepted);
+          const unconfirmed = confirmed(get(), sessionId, accepted);
+          if (unconfirmed) set({ unconfirmed });
           return;
         }
         let evidence = state.evidence[sessionId] ?? evidenceFromRecord(state.records[sessionId]);
@@ -371,6 +408,15 @@ export function createTrackerStore(env: StoreEnvironment) {
         if (principalKey === null || principalKey === current) return;
         if (current !== null) deleteAll();
         commit({ principalKey });
+      },
+
+      syncFromStorage() {
+        const current = read();
+        const principalKey = get().principalKey;
+        // A set stored under another principal is not this tab's to take;
+        // its next hello decides.
+        if (current.principalKey !== null && principalKey !== null && current.principalKey !== principalKey) return;
+        adopt(current.records);
       },
 
       revoke() {

@@ -437,6 +437,32 @@ describe("persistence", () => {
     expect(ids(root({ storage, storagePrefix: "ithaca" }))).toEqual([A]);
   });
 
+  test("two tabs of one root keep each other's trackers, and a removal in one is a removal", () => {
+    const storage = memoryStorage();
+    const first = root({ storage, storagePrefix: "ithaca" });
+    const second = root({ storage, storagePrefix: "ithaca" });
+    hello(first, false); hello(second, false);
+    runningIn(first, A);
+    first.stores.chat.getState().setActiveSession("odysseus-aeolus");
+    runningIn(second, B);
+    second.stores.chat.getState().setActiveSession("odysseus-aeolus");
+    // The second tab started before the first stored A; writing B keeps A.
+    const stored = () => Object.keys(JSON.parse(storage.data.get(`ithaca:${TRACKER_STORAGE_KEY}`) ?? '{"trackers":[]}').trackers.reduce((m: Record<string, true>, t: { sessionId: string }) => ({ ...m, [t.sessionId]: true }), {})).sort();
+    expect(stored()).toEqual([B, A].sort());
+    // The first tab hears of B through a storage event.
+    first.stores.trackers.getState().syncFromStorage();
+    expect(ids(first).sort()).toEqual([A, B].sort());
+    // A seen and left idle in the second tab is removed from the stored set;
+    // the first tab's next write does not bring it back.
+    second.stores.trackers.getState().syncFromStorage();
+    second.stores.trackers.getState().acknowledge(A);
+    second.stores.trackers.getState().leftIdle(A);
+    expect(second.stores.trackers.getState().records[A]).toBeUndefined();
+    first.stores.trackers.getState().syncFromStorage();
+    first.stores.trackers.getState().track("odysseus-circe");
+    expect(stored()).toEqual([B, "odysseus-circe"].sort());
+  });
+
   test("restored trackers keep identifiers only, not transcripts or payloads", () => {
     const storage = memoryStorage();
     tracked(storage, "ithaca");
@@ -590,6 +616,29 @@ describe("recovery (Recovery A)", () => {
     await settle();
     expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
     expect(views(r)[0]).toMatchObject({ state: "failed", endedAt: 30 });
+  });
+
+  test("an acceptance held behind a read still proves the send, so its failure is not a refusal", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { await gate; return envelope(A, 6, { requestId: "req-mast", state: "unknown" }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Bind me to the mast", "typed", undefined, { requestId: "req-mast" });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("unconfirmed");
+    // The read is in flight; acceptance and then a routing failure arrive.
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-mast" });
+    frame(r, { type: "error", sessionId: A, code: "BACKEND_ERROR", message: "No backend.", requestId: "req-mast" });
+    expect(ids(r)).toEqual([A]);
+    release();
+    await settle();
+    expect(ids(r)).toEqual([A]);
+    expect(state(r, A)).not.toBe("unconfirmed");
   });
 
   test("an accepted request failing before its turn, or a dropped follow-up, asks the host again", async () => {
