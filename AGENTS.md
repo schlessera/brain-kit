@@ -142,6 +142,13 @@ on, links to or describes them.
 - Predicate-only unit tests are not proof for anything with a runtime: the
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
+- Run real Chromium/Playwright/Puppeteer integration tests with command-scoped
+  sandbox escalation when the agent's execution sandbox blocks Unix credential
+  sockets or localhost listeners. These tests need both: a denied Crashpad
+  `setsockopt` call can terminate Chromium with SIGTRAP before startup completes.
+  Keep the test preload and offline browser guards enabled; run the targeted
+  tests outside the restrictive execution sandbox rather than skipping them
+  or disabling sandbox restrictions globally.
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
