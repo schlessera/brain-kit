@@ -447,12 +447,13 @@ describe("brain hygiene", () => {
       JSON.stringify([{ category: "conflict", path: "me/basics/short-bio.md", evidence: "king of Ithaca", message: "Role differs from me/identity.md" }])
     );
     const { out } = await reconcileCli(root, "--extra", extra);
-    expect(out.detected).toContainEqual({
+    expect(out.detected).toContainEqual(expect.objectContaining({
       id: "conflict-basics-short-bio-e149",
       category: "conflict",
       path: "me/basics/short-bio.md",
       message: "Role differs from me/identity.md",
-    });
+      sources: [{ source: "skill", name: "conflict", severity: null }],
+    }));
     const { stdout } = await runCli(root, ["hygiene", "list", "--state", "open", "--json"]);
     const listed = JSON.parse(stdout).entries.find((e: { id: string }) => e.id === "conflict-basics-short-bio-e149");
     expect(listed).toMatchObject({ state: "open", path: "me/basics/short-bio.md", issue: "Role differs from me/identity.md" });
@@ -586,7 +587,7 @@ describe("writing the log", () => {
     expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
     expect(read(root, "resolved.md")).toContain("\n\n## Kept elsewhere\n\n- a list a person keeps\n");
     expect(read(root, "_index.md")).toEndWith(
-      "## Overview\n\nThe log.\n\n## Latest counts\n\n- Open: 0\n- Snoozed: 0\n- Resolved: 1\n\n## History\n\nStarted in June.\n"
+      "## Overview\n\nThe log.\n\n## Latest counts\n\n- Open: 0\n- Snoozed: 0\n- Dismissed: 0\n- Resolved: 1\n\n## History\n\nStarted in June.\n"
     );
     // And the result is stable.
     expect(reconcile(root, [], docs, { now: NOW }).changedFiles).toEqual([]);
@@ -836,7 +837,7 @@ describe("detection", () => {
     const failed: string[] = [];
     await auditWithModules(database, { taxonomy, root: "/nonexistent", modules: [] }, { now: new Date("2026-07-01T12:00:00Z"), onCheckFailed: (c) => failed.push(c) });
     expect(failed).toEqual(["index-stale"]);
-    expect((await detectCandidates(database, { taxonomy, root: "/nonexistent", modules: [] }, new Date("2026-07-01T12:00:00Z"))).failedChecks).toEqual(["index-stale"]);
+    expect((await detectCandidates(database, { taxonomy, root: "/nonexistent", modules: [] }, new Date("2026-07-01T12:00:00Z"))).failedChecks).toEqual(["index-stale", "validation"]);
 
     const quiet: string[] = [];
     audit(database, taxonomy, { now: new Date("2026-07-01T12:00:00Z"), onCheckFailed: (c) => quiet.push(c) });
@@ -888,10 +889,10 @@ describe("a core check that cannot read its input", () => {
     } finally {
       spy.mockRestore();
     }
-    expect(second.failedChecks).toEqual(["fact-drift"]);
+    expect(second.failedChecks).toEqual(["fact-drift", "validation"]);
     expect(second.candidates.filter((c) => c.category === "fact-drift")).toEqual([]);
     const result = reconcile(root, second.candidates, docs, { now: NOW, failedChecks: second.failedChecks });
-    expect(result).toMatchObject({ resolved: 0, failedChecks: ["fact-drift"] });
+    expect(result).toMatchObject({ resolved: 0, failedChecks: ["fact-drift", "validation"] });
     expect(read(root, "open.md")).toContain("troy_fell: found 2015, canonical 2016");
   });
 });

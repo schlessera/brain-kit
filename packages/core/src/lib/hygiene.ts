@@ -28,16 +28,34 @@ import { topLevelBlocks } from "./document-parts.js";
 import { editFrontmatter } from "./frontmatter-edit.js";
 import { generatedRegionSpan } from "./generated-regions.js";
 import { planRegistry, REGISTRY_REGION } from "./index-registry.js";
-import { createWikiLinkResolver, extractWikiLinks } from "./indexer/links.js";
+import { createWikiLinkResolver, extractWikiLinks, wikiLinkTokens } from "./indexer/links.js";
 import type { LoadedModule } from "./module-types.js";
 import { writeExclusive } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
 import type { AuditIssue } from "./types.js";
+import { validateDetailed, type DetailedValidationIssue, type ValidationDetail, type ValidationRule } from "./validate.js";
 
 export const HYGIENE_DIR = "context/hygiene";
 const TEMPLATES_DIR = resolve(import.meta.dir, "../../skills/content-hygiene/templates");
 
-export type HygieneState = "open" | "snoozed" | "resolved";
+export type HygieneState = "open" | "snoozed" | "dismissed" | "resolved";
+
+export type HygieneSeverity = "error" | "warning" | "info";
+
+/**
+ * Which check reported a finding: `audit` (a core `brain audit` category, by
+ * name), `validation` (a `brain validate` rule), `module` (a module's hygiene
+ * check, by module name), `hygiene` (this file's own passes: silent edits and
+ * index table lag) or `skill` (an `--extra` candidate).
+ */
+export type HygieneSourceKind = "audit" | "hygiene" | "module" | "skill" | "validation";
+
+export interface HygieneSource {
+  source: HygieneSourceKind;
+  name: string;
+  /** The severity the source gave it; null when the source has none. */
+  severity: HygieneSeverity | null;
+}
 
 /** A detected issue, before it is matched against the log. */
 export interface HygieneCandidate {
@@ -46,6 +64,36 @@ export interface HygieneCandidate {
   /** The smallest stable piece of evidence; it goes into the ID. */
   evidence: string;
   message: string;
+  /** Who reported it. Without one, reconcile records it as `hygiene`, named by its category. */
+  source?: HygieneSource;
+  /** Urgency the source states explicitly. Absent means unknown; nothing guesses it. */
+  urgency?: string;
+  /**
+   * The category's fingerprint inputs besides severity and urgency
+   * (`FINGERPRINT_FIELDS`): `tokens` for a broken link, `value` and `rule`
+   * for a required field, `rule` for another validation finding.
+   */
+  facts?: Record<string, string>;
+}
+
+/**
+ * One canonical finding: every candidate with the same ID, joined. Its
+ * provenance keeps each contributing source, its severity is the most severe
+ * one, and its fingerprint covers the category's evidence fields only.
+ */
+export interface HygieneFinding {
+  id: string;
+  category: string;
+  path: string;
+  evidence: string;
+  message: string;
+  severity: HygieneSeverity | null;
+  urgency: string | null;
+  /** Never empty, sorted by source then name. */
+  sources: HygieneSource[];
+  fingerprint: string;
+  /** Each fingerprint field's hash, so a change can be named. */
+  fingerprintFields: Record<string, string>;
 }
 
 /** An entry of the log: its `### id` heading and the lines under it. */
@@ -57,16 +105,42 @@ export interface HygieneEntry {
   section: string | null;
 }
 
+/** A dismissed or snoozed finding that returned because its evidence changed. */
+export interface HygieneInvalidation {
+  id: string;
+  disposition: "dismissed" | "snoozed";
+  /** The day the disposition was made. */
+  dispositionOn: string | null;
+  /** The fingerprint fields that changed. */
+  changed: string[];
+  /** When the change also changed the finding's ID: the ID the disposition was made on. */
+  previousId: string | null;
+}
+
 export interface ReconcileResult {
   opened: number;
   reopened: number;
   resolved: number;
   stillOpen: number;
   snoozed: number;
+  /** Entries left dismissed. */
+  dismissed: number;
+  /** Dispositions whose evidence changed this run, so their finding is open again. */
+  invalidated: number;
+  invalidations: HygieneInvalidation[];
   /** Hygiene files written (or, with dryRun, that would be). */
   changedFiles: string[];
   /** Every issue detected this run, with its ID, for the skill's auto-fix decisions. */
-  detected: Array<{ id: string; category: string; path: string; message: string }>;
+  detected: Array<{
+    id: string;
+    category: string;
+    path: string;
+    message: string;
+    severity: HygieneSeverity | null;
+    urgency: string | null;
+    sources: HygieneSource[];
+    fingerprint: string;
+  }>;
   /** Auto-fixes the skill reported (`--fixed`), recorded in last-run.md. */
   autoFixed: number;
   /** Checks that could not run: a module whose hygiene check threw, or a core check that could not read its input. */
@@ -98,6 +172,150 @@ export function shortPath(path: string): string {
 export function hygieneId(category: string, path: string, evidence: string): string {
   const hash = createHash("sha1").update(`${category}|${path}|${evidence}`).digest("hex").slice(0, 4);
   return `${category}-${shortPath(path)}-${hash}`;
+}
+
+// ---------------------------------------------------------------------------
+// Canonical findings and evidence fingerprints
+// ---------------------------------------------------------------------------
+
+/**
+ * How a `brain validate` rule joins hygiene: its category, and the evidence
+ * that goes into the ID. This is the whole equivalence map. A validation
+ * finding and an audit finding are one problem only where both map to the
+ * same category, path and evidence, which is the case for exactly one pair:
+ * an unresolved wiki-link (`link-unresolved`) and audit's `broken-link`, both
+ * keyed by the target as written. Every other rule is its own category, so it
+ * joins nothing but itself (two tag rules on one tag are one `tag` finding).
+ */
+export const VALIDATION_JOIN: Record<ValidationRule, (detail: ValidationDetail) => { category: string; evidence: string }> = {
+  "frontmatter-missing": () => ({ category: "frontmatter", evidence: "" }),
+  "frontmatter-invalid": () => ({ category: "frontmatter", evidence: "" }),
+  "required-missing": (d) => ({ category: "required-field", evidence: d.field ?? "" }),
+  "type-invalid": () => ({ category: "required-field", evidence: "type" }),
+  "field-invalid": (d) => ({ category: "invalid-field", evidence: d.field ?? "" }),
+  "archived-primary": () => ({ category: "field-conflict", evidence: "status/relevance" }),
+  "tag-format": (d) => ({ category: "tag", evidence: d.value ?? "" }),
+  "tag-alias": (d) => ({ category: "tag", evidence: d.value ?? "" }),
+  "tag-vocabulary": (d) => ({ category: "tag", evidence: d.value ?? "" }),
+  "link-unresolved": (d) => ({ category: "broken-link", evidence: d.target ?? "" }),
+  "supersedes-unresolved": (d) => ({ category: "broken-supersedes", evidence: d.target ?? "" }),
+  "supersedes-cycle": (d) => ({ category: "supersedes-cycle", evidence: d.target ?? "" }),
+};
+
+/** A validation issue as a candidate, through `VALIDATION_JOIN`; its message is never read. */
+export function candidateFromValidation(issue: DetailedValidationIssue): HygieneCandidate {
+  const { category, evidence } = VALIDATION_JOIN[issue.detail.rule](issue.detail);
+  const facts: Record<string, string> = { rule: issue.detail.rule };
+  if (issue.detail.value !== undefined) facts.value = issue.detail.value;
+  return {
+    category,
+    path: issue.file,
+    evidence,
+    message: issue.message,
+    source: { source: "validation", name: issue.detail.rule, severity: issue.level },
+    facts,
+  };
+}
+
+/**
+ * The fields each category's evidence fingerprint covers. The fingerprint is
+ * separate from the ID: the ID names the problem, the fingerprint says
+ * whether a dismissal or snooze still applies to it. Line numbers, the rest
+ * of the document, messages (which carry ages and counts) and age itself are
+ * never in it.
+ *
+ * - `broken-link`: the target as written, every link token naming it as
+ *   written (`[[target|label]]`, sorted), severity, urgency.
+ * - `required-field`: the field, its raw value (`absent` when missing), the
+ *   rule it breaks, severity, urgency.
+ * - any other category: its ID evidence, the validation rules that report it
+ *   (empty for other sources), severity, urgency.
+ *
+ * `severity` is the most severe source's (`unknown` when no source gives
+ * one); `urgency` is the urgency a source states, `unknown` when none does.
+ */
+export const FINGERPRINT_FIELDS: Record<string, readonly string[]> = {
+  "broken-link": ["target", "tokens", "severity", "urgency"],
+  "required-field": ["field", "value", "rule", "severity", "urgency"],
+};
+const DEFAULT_FINGERPRINT_FIELDS = ["evidence", "rule", "severity", "urgency"] as const;
+
+const SEVERITY_RANK: Record<HygieneSeverity, number> = { error: 0, warning: 1, info: 2 };
+const SOURCE_RANK: Record<HygieneSourceKind, number> = { audit: 0, hygiene: 1, module: 2, skill: 3, validation: 4 };
+const sha1 = (text: string) => createHash("sha1").update(text).digest("hex");
+
+/** A candidate's source: as given, else `hygiene` named by its category. */
+const sourceOf = (c: HygieneCandidate): HygieneSource => c.source ?? { source: "hygiene", name: c.category, severity: null };
+
+const compareSources = (a: HygieneSource, b: HygieneSource) =>
+  SOURCE_RANK[a.source] - SOURCE_RANK[b.source] || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) ||
+  (a.severity === b.severity ? 0 : a.severity === null ? 1 : b.severity === null ? -1 : SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+
+/** Every value the candidates give `key`, deduplicated and sorted, one per line. */
+function joined(values: Array<string | undefined>): string {
+  return [...new Set(values.filter((v): v is string => v !== undefined))].sort().join("\n");
+}
+
+/**
+ * The candidates, joined into one canonical finding per ID. The result does
+ * not depend on the order the candidates come in: provenance is sorted and
+ * deduplicated, fingerprint inputs are sorted, and the message is the first
+ * source's by `SOURCE_RANK`, then name, then text.
+ */
+export function canonicalFindings(candidates: HygieneCandidate[]): Map<string, HygieneFinding> {
+  const groups = new Map<string, HygieneCandidate[]>();
+  for (const c of candidates) {
+    if (c.path.startsWith(`${HYGIENE_DIR}/`)) continue;
+    const id = hygieneId(c.category, c.path, c.evidence);
+    groups.set(id, [...(groups.get(id) ?? []), c]);
+  }
+  const out = new Map<string, HygieneFinding>();
+  for (const id of [...groups.keys()].sort()) {
+    const group = [...groups.get(id)!].sort(
+      (a, b) => compareSources(sourceOf(a), sourceOf(b)) || (a.message < b.message ? -1 : a.message > b.message ? 1 : 0)
+    );
+    const { category, path, evidence, message } = group[0];
+    const sources: HygieneSource[] = [];
+    for (const s of group.map(sourceOf).sort(compareSources)) {
+      const last = sources[sources.length - 1];
+      if (!last || compareSources(last, s) !== 0) sources.push({ source: s.source, name: s.name, severity: s.severity });
+    }
+    const severity = sources.map((s) => s.severity).filter((s): s is HygieneSeverity => s !== null)
+      .sort((a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b])[0] ?? null;
+    const urgency = joined(group.map((c) => c.urgency)) || null;
+    const fact = (key: string) => joined(group.map((c) => c.facts?.[key]));
+    const values: Record<string, string> = {
+      target: evidence,
+      field: evidence,
+      evidence,
+      tokens: fact("tokens"),
+      value: fact("value"),
+      rule: fact("rule"),
+      severity: severity ?? "unknown",
+      urgency: urgency ?? "unknown",
+    };
+    // Own keys only: a module or skill category may be named `constructor`.
+    const fieldNames = Object.hasOwn(FINGERPRINT_FIELDS, category) ? FINGERPRINT_FIELDS[category] : DEFAULT_FINGERPRINT_FIELDS;
+    const fingerprintFields = Object.fromEntries(fieldNames.map((name) => [name, sha1(values[name]).slice(0, 8)]));
+    out.set(id, {
+      id,
+      category,
+      path,
+      evidence,
+      message,
+      severity,
+      urgency,
+      sources,
+      fingerprint: fingerprintOf(category, fingerprintFields),
+      fingerprintFields,
+    });
+  }
+  return out;
+}
+
+/** The fingerprint: 12 hex digits of SHA-1 over the category and each field's hash, in the category's field order. */
+function fingerprintOf(category: string, fields: Record<string, string>): string {
+  return sha1([category, ...Object.entries(fields).map(([k, v]) => `${k}=${v}`)].join("\n")).slice(0, 12);
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +587,12 @@ function outsideRegistry(index: AuditDoc, registryIndexes: ReadonlySet<string>):
   }
 }
 
-/** Every candidate the CLI detects, the log's own files left out, and the module checks that failed. */
+/**
+ * Every candidate the CLI detects, the log's own files left out, and the
+ * checks that failed. Besides audit, module checks and this file's own passes
+ * it runs `brain validate`'s corpus checks (`validation` in `failedChecks`
+ * when they cannot run) and joins them through `VALIDATION_JOIN`.
+ */
 export async function detectCandidates(
   db: Database,
   brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
@@ -383,18 +606,72 @@ export async function detectCandidates(
   const registryIndexes = new Set(
     existsSync(brain.root) ? planRegistry(brain.root, brain.taxonomy, isoDay(now.getTime())).indexes.map((i) => i.path) : []
   );
-  const table = indexTableLag(docs, registryIndexes, indexedWikiLinks(db));
+  const table = indexTableLag(docs, registryIndexes, indexedWikiLinks(db)).map((c) => withSource(c, { source: "hygiene", name: "index-table", severity: null }));
   // A row-level finding is more specific than audit's whole-file index-lag.
   const tableIndexes = new Set(table.map((c) => c.path));
   const failed = new Set<string>();
+  const moduleOf = new Map<AuditIssue, string>();
   // The log is left out of detection, so writing it cannot change the next run.
-  const audited = (await auditWithModules(db, brain, { now, exclude: inLog, onCheckFailed: (name) => failed.add(name) }))
+  const audited = (await auditWithModules(db, brain, {
+    now,
+    exclude: inLog,
+    onCheckFailed: (name) => failed.add(name),
+    onModuleIssue: (issue, module) => moduleOf.set(issue, module),
+  }))
     .filter((issue) => !(issue.category === "index-lag" && tableIndexes.has(issue.path)))
-    .map((issue) => candidateFromAudit(issue, byPath));
+    .map((issue) => {
+      const module = moduleOf.get(issue);
+      return withSource(candidateFromAudit(issue, byPath), module === undefined
+        ? { source: "audit", name: issue.category, severity: issue.severity }
+        : { source: "module", name: module, severity: issue.severity });
+    });
+  let validated: HygieneCandidate[] = [];
+  try {
+    validated = validateDetailed(brain.root, brain.taxonomy).filter((issue) => !inLog(issue.file)).map(candidateFromValidation);
+  } catch {
+    failed.add("validation");
+  }
+  const silent = silentEdits(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
   return {
-    candidates: [...audited, ...silentEdits(db).filter((c) => !inLog(c.path)), ...table],
+    candidates: withLinkTokens(brain.root, [...audited, ...silent, ...table, ...validated]),
     failedChecks: [...failed].sort(),
   };
+}
+
+function withSource(candidate: HygieneCandidate, source: HygieneSource): HygieneCandidate {
+  return { ...candidate, source };
+}
+
+/**
+ * Each broken-link candidate with its `tokens` fact: the document's link
+ * tokens naming its target, as written, read from the file on disk the way
+ * validation reads it, so every source fingerprints the same bytes.
+ */
+function withLinkTokens(root: string, candidates: HygieneCandidate[]): HygieneCandidate[] {
+  const bodies = new Map<string, string>();
+  const body = (path: string) => {
+    let text = bodies.get(path);
+    if (text === undefined) {
+      try {
+        const file = resolve(root, path);
+        // A module may name any path; only a document inside the brain is read.
+        if (!file.startsWith(`${resolve(root)}/`)) throw new Error("outside the brain");
+        const raw = readFileSync(file, "utf-8");
+        try {
+          text = parseFrontmatter(raw).content;
+        } catch {
+          text = raw;
+        }
+      } catch {
+        text = "";
+      }
+      bodies.set(path, text);
+    }
+    return text;
+  };
+  return candidates.map((c) =>
+    c.category === "broken-link" ? { ...c, facts: { ...c.facts, tokens: wikiLinkTokens(body(c.path), c.evidence).join("\n") } } : c
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +823,120 @@ function withoutFields(lines: string[], keys: string[]): string[] {
   return lines.filter((line) => !pattern.test(line));
 }
 
+/** The lines a disposition writes, and the receipt of one that was invalidated. */
+const DISPOSITION_FIELDS = ["until", "dismissed-on", "snoozed-on", "reason", "disposition-fingerprint", "invalidated"];
+
+/**
+ * When a snooze is due, in epoch milliseconds: an ISO date-time is due at that
+ * instant; a date (`until: 2026-08-01`, as people write it) at the start of
+ * that UTC day, so it is due on that day as before. Null when unreadable.
+ */
+function dueAt(until: string | null): number | null {
+  if (until === null) return null;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(until)) {
+    // A date-time written without a zone is read as UTC, the same on every machine.
+    const at = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/i.test(until) ? until : `${until}Z`);
+    return Number.isNaN(at) ? null : at;
+  }
+  const d = day(until);
+  const at = d === null ? NaN : Date.parse(`${d}T00:00:00Z`);
+  return Number.isNaN(at) ? null : at;
+}
+
+/** An ISO date (`YYYY-MM-DD`) or date-time with a zone (`2026-10-12T08:00:00+02:00`, `…Z`). */
+export const UNTIL_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
+
+/** A source as the log writes it: `kind/name (severity)`, the name escaped where it could break the line apart. */
+function renderSource(s: HygieneSource): string {
+  const name = s.name.replace(/[^A-Za-z0-9._@+-]/g, (ch) => encodeURIComponent(ch));
+  return `${s.source}/${name}${s.severity ? ` (${s.severity})` : ""}`;
+}
+
+function parseSources(value: string | null): HygieneSource[] {
+  if (!value) return [];
+  const out: HygieneSource[] = [];
+  for (const part of value.split(" · ")) {
+    const m = /^(audit|hygiene|module|skill|validation)\/(\S+?)(?: \((error|warning|info)\))?$/.exec(part.trim());
+    if (!m) continue;
+    let name = m[2];
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // A hand edit left a malformed escape: keep it as written.
+    }
+    out.push({ source: m[1] as HygieneSourceKind, name, severity: (m[3] as HygieneSeverity | undefined) ?? null });
+  }
+  return out;
+}
+
+/** A fingerprint as the log writes it: `abcdef012345 (target 1a2b3c4d, tokens …)`. */
+function renderFingerprint(fingerprint: string, fields: Record<string, string>): string {
+  return `${fingerprint} (${Object.entries(fields).map(([k, v]) => `${k} ${v}`).join(", ")})`;
+}
+
+function parseFingerprint(value: string | null): { fingerprint: string; fields: Record<string, string> } | null {
+  const m = value ? /^([0-9a-f]{12})(?: \(([^)]*)\))?$/.exec(value) : null;
+  if (!m) return null;
+  const fields: Record<string, string> = {};
+  for (const part of (m[2] ?? "").split(", ")) {
+    const f = /^([a-z-]+) ([0-9a-f]{8})$/.exec(part.trim());
+    if (f) fields[f[1]] = f[2];
+  }
+  return { fingerprint: m[1], fields };
+}
+
+/** The fingerprint fields that differ; every field of either side when one side's fields are unknown. */
+function changedFields(before: Record<string, string>, after: Record<string, string>): string[] {
+  const names = [...new Set([...Object.keys(after), ...Object.keys(before)])];
+  return names.filter((name) => before[name] !== after[name]);
+}
+
+/** An entry's line for `key`, everything after the colon as written. */
+function rawField(entry: HygieneEntry, key: string): string | null {
+  const pattern = new RegExp(`^[-*\\s]*\\**${key}\\**\\s*:\\**\\s*(.*?)\\s*$`, "i");
+  for (const line of entry.lines) {
+    const m = pattern.exec(line);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** The disposition an entry records, read back from its lines. */
+interface RecordedDisposition {
+  kind: "dismissed" | "snoozed";
+  /** When it was made, as written. */
+  on: string | null;
+  fingerprint: { fingerprint: string; fields: Record<string, string> } | null;
+}
+
+function recordedDisposition(entry: HygieneEntry): RecordedDisposition | null {
+  if (entry.state !== "dismissed" && entry.state !== "snoozed") return null;
+  return {
+    kind: entry.state,
+    on: field(entry, entry.state === "dismissed" ? "dismissed-on" : "snoozed-on"),
+    fingerprint: parseFingerprint(field(entry, "disposition-fingerprint")),
+  };
+}
+
+/** `- invalidated: 2026-10-06 · dismissed on 2026-10-02 · changed: target, tokens[ · was <id>]` */
+function invalidationLine(today: string, inv: HygieneInvalidation): string {
+  return `- invalidated: ${today} · ${inv.disposition} on ${inv.dispositionOn ?? "unknown"} · changed: ${inv.changed.join(", ") || "fingerprint"}` +
+    (inv.previousId ? ` · was ${inv.previousId}` : "");
+}
+
+function parseInvalidation(entry: HygieneEntry): { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null {
+  const value = rawField(entry, "invalidated");
+  const m = value ? /^(\d{4}-\d{2}-\d{2}) · (dismissed|snoozed) on (\S+) · changed: ([a-z, -]+?)(?: · was (\S+))?$/.exec(value) : null;
+  if (!m) return null;
+  return {
+    on: m[1],
+    disposition: m[2] as "dismissed" | "snoozed",
+    dispositionOn: day(m[3]),
+    changed: m[4].split(",").map((s) => s.trim()).filter(Boolean),
+    previousId: m[5] ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -560,6 +951,7 @@ const SECTIONS: Array<[string, string]> = [
   ["todo", "TODO markers"],
   ["verify", "VERIFY markers"],
   ["broken-link", "Broken links"],
+  ["required-field", "Required frontmatter fields"],
   ["orphan", "Orphans"],
   ["type-mismatch", "Type/directory mismatches"],
 ];
@@ -568,17 +960,19 @@ const isOpenSection = (heading: string) => SECTION_HEADINGS.has(heading) || head
 const sectionFor = (category: string) => SECTIONS.find(([c]) => c === category)?.[1] ?? `Other: ${category}`;
 
 /** The generated lines of an open entry, fresh from its detection. */
-function detectionLines(candidate: HygieneCandidate, updated: string | undefined, firstSeen: string, lastSeen: string): string[] {
+function detectionLines(finding: HygieneFinding, updated: string | undefined, firstSeen: string, lastSeen: string): string[] {
   return [
-    `- **Files**: \`${candidate.path}\`${updated ? ` (updated ${updated})` : ""}`,
-    `- **Issue**: ${candidate.message.replace(/\s+/g, " ").trim()}`,
+    `- **Files**: \`${finding.path}\`${updated ? ` (updated ${updated})` : ""}`,
+    `- **Issue**: ${finding.message.replace(/\s+/g, " ").trim()}`,
     `- **First seen**: ${firstSeen} · **Last seen**: ${lastSeen}`,
+    `- **Sources**: ${finding.sources.map(renderSource).join(" · ")}`,
+    `- **Fingerprint**: ${renderFingerprint(finding.fingerprint, finding.fingerprintFields)}`,
   ];
 }
 
 /** Replace the generated lines, keep anything a person wrote under the entry. */
 function refreshLines(lines: string[], fresh: string[]): string[] {
-  const kept = lines.filter((line) => !/^- \*\*(Files|Issue|First seen)\*\*:/.test(line));
+  const kept = lines.filter((line) => !/^- \*\*(Files|Issue|First seen|Sources|Fingerprint)\*\*:/.test(line));
   while (kept.length > 0 && kept[0].trim() === "") kept.shift();
   return [...fresh, ...kept];
 }
@@ -665,11 +1059,38 @@ export interface ReconcileOptions {
   fixed?: HygieneFix[];
   /** Checks that could not run (`detectCandidates`). */
   failedChecks?: string[];
+  /** Dismissals and snoozes to record this run (`brain hygiene dismiss` / `snooze`). */
+  dispositions?: HygieneDispositionRequest[];
   /**
    * Writes one file whose bytes on disk should still be `expected` (null:
    * absent); the default is `replaceIfUnchanged`. Tests inject failures here.
    */
   write?: (path: string, text: string, expected: string | null) => void;
+}
+
+/** Dismiss or snooze one detected finding, if its fingerprint is still `expectFingerprint`. */
+export type HygieneDispositionRequest =
+  | { kind: "dismissed"; id: string; expectFingerprint: string; reason?: string }
+  | { kind: "snoozed"; id: string; expectFingerprint: string; until: string; reason?: string };
+
+/**
+ * A disposition reconcile would not record: the finding is not detected now,
+ * or its evidence is no longer what the caller saw. Thrown before any file is
+ * written.
+ */
+export class HygieneRefusal extends Error {
+  constructor(
+    readonly reason: "not-detected" | "stale-fingerprint",
+    readonly id: string,
+    readonly expectedFingerprint: string,
+    readonly currentFingerprint: string | null
+  ) {
+    super(
+      reason === "not-detected"
+        ? `${id} is not detected now; nothing was written`
+        : `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
+    );
+  }
 }
 
 /**
@@ -708,16 +1129,33 @@ export function replaceIfUnchanged(path: string, text: string, expected: string 
  * | (none) | yes | add to open |
  * | open | yes | update last seen, keep in open |
  * | open | no | move to resolved (resolved-by: auto-disappeared) |
- * | snoozed (until > today) | either | leave snoozed |
- * | snoozed (until ≤ today) | yes | move back to open |
- * | snoozed (until ≤ today) | no | move to resolved (auto-disappeared) |
+ * | snoozed (not due) | yes, fingerprint changed | move to open (invalidated) |
+ * | snoozed (not due) | otherwise | leave snoozed |
+ * | snoozed (due) | yes | move back to open |
+ * | snoozed (due) | no | move to resolved (auto-disappeared) |
+ * | dismissed | yes, fingerprint changed | move to open (invalidated) |
+ * | dismissed | yes, unchanged | leave dismissed |
+ * | dismissed | no | move to resolved (auto-disappeared) |
  * | resolved | yes | re-open (reopened: today, was resolved-by: prev) |
  * | resolved | no | leave resolved |
  *
- * A snoozed entry with no readable `until:` stays snoozed. While any check
- * failed (`failedChecks`), no entry is resolved unless it was detected again:
- * an open entry stays open and an expired snooze stays snoozed, since "not
- * detected" means nothing when a detector did not run.
+ * Candidates with the same ID are one finding (`canonicalFindings`). A snooze
+ * is due when its `until:` arrives (`dueAt`); one with no readable `until:`
+ * stays snoozed. Only a disposition that recorded the fingerprint it applied
+ * to (`disposition-fingerprint:`) can be invalidated: one moved by hand has
+ * none and keeps its old behaviour. An invalidated finding opens with an
+ * `invalidated:` receipt naming the fields that changed and when the
+ * disposition was made. When the change also changed the ID (a broken link's
+ * target), the receipt goes on the new finding only if the pairing is
+ * unambiguous: the run detects exactly one new finding with that category and
+ * path, and exactly one disposition with them is no longer detected.
+ *
+ * `dispositions` records dismissals and snoozes on findings detected now; one
+ * whose fingerprint is not the expected one throws `HygieneRefusal` before
+ * anything is written. While any check failed (`failedChecks`), no entry is
+ * resolved unless it was detected again: an open entry stays open and an
+ * expired snooze or a dismissal stays where it is, since "not detected" means
+ * nothing when a detector did not run.
  *
  * Every log file is read and parsed before anything is written, and one that
  * cannot be parsed safely stops the run. Files are written only when their
@@ -727,7 +1165,7 @@ export function replaceIfUnchanged(path: string, text: string, expected: string 
  * move between files is written in two passes: first every file with its
  * arrivals added and nothing taken away, then the final contents. A run that
  * stops part-way leaves an entry in two files, never in none, and the next
- * run keeps one copy (snoozed, then resolved, then open).
+ * run keeps one copy (snoozed, then dismissed, then resolved, then open).
  */
 export function reconcile(
   root: string,
@@ -740,18 +1178,25 @@ export function reconcile(
   const fixed = opts.fixed ?? [];
   const failedChecks = [...(opts.failedChecks ?? [])].sort();
 
-  // Detected issues by ID; the first candidate for an ID wins.
-  const detected = new Map<string, HygieneCandidate>();
-  for (const c of [...candidates, ...(opts.extra ?? [])]) {
-    if (c.path.startsWith(`${HYGIENE_DIR}/`)) continue;
-    const id = hygieneId(c.category, c.path, c.evidence);
-    if (!detected.has(id)) detected.set(id, c);
+  // One canonical finding per ID, whatever order the sources came in.
+  const detected = canonicalFindings([...candidates, ...(opts.extra ?? [])]);
+
+  // A disposition applies to the evidence its caller saw, or not at all.
+  const requested = new Map<string, HygieneDispositionRequest>();
+  for (const request of opts.dispositions ?? []) {
+    const finding = detected.get(request.id);
+    if (!finding) throw new HygieneRefusal("not-detected", request.id, request.expectFingerprint, null);
+    if (finding.fingerprint !== request.expectFingerprint) {
+      throw new HygieneRefusal("stale-fingerprint", request.id, request.expectFingerprint, finding.fingerprint);
+    }
+    requested.set(request.id, request);
   }
 
   const rel = (name: string) => `${HYGIENE_DIR}/${name}`;
   const loaded = {
     open: load(root, "open.md", today, timestamp),
     snoozed: load(root, "snoozed.md", today, timestamp),
+    dismissed: load(root, "dismissed.md", today, timestamp),
     resolved: load(root, "resolved.md", today, timestamp),
     index: load(root, "_index.md", today, timestamp),
     lastRun: load(root, "last-run.md", today, timestamp),
@@ -759,6 +1204,7 @@ export function reconcile(
   const parsed = {
     open: parseLogFile(loaded.open.text, rel("open.md"), "open", isOpenSection),
     snoozed: parseLogFile(loaded.snoozed.text, rel("snoozed.md"), "snoozed", (h) => h === "Snoozed"),
+    dismissed: parseLogFile(loaded.dismissed.text, rel("dismissed.md"), "dismissed", (h) => h === "Dismissed"),
     resolved: parseLogFile(loaded.resolved.text, rel("resolved.md"), "resolved", (h) => h === "Resolved"),
   };
   const index = parseLogFile(loaded.index.text, rel("_index.md"), null, (h) => h === "Latest counts");
@@ -766,7 +1212,7 @@ export function reconcile(
 
   // One state per ID. A person's move wins over a copy left behind in open.
   const known = new Map<string, HygieneEntry>();
-  for (const state of ["snoozed", "resolved", "open"] as const) {
+  for (const state of ["snoozed", "dismissed", "resolved", "open"] as const) {
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
   }
 
@@ -774,36 +1220,75 @@ export function reconcile(
   // an entry that was not detected again is left as it is.
   const complete = failedChecks.length === 0;
 
-  const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], resolved: [] as HygieneEntry[] };
+  const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], dismissed: [] as HygieneEntry[], resolved: [] as HygieneEntry[] };
   const categoryOf = new Map<string, string>();
   const counts = { opened: 0, reopened: 0, resolved: 0, stillOpen: 0 };
+  const invalidations: HygieneInvalidation[] = [];
   const firstSeenOf = (entry: HygieneEntry) =>
     day(/\*\*First seen\*\*:\s*(\S+)/.exec(entry.lines.join("\n"))?.[1] ?? null);
 
-  const openFrom = (candidate: HygieneCandidate, id: string, lines: string[], firstSeen: string): HygieneEntry => {
-    categoryOf.set(id, candidate.category);
+  const openFrom = (finding: HygieneFinding, id: string, lines: string[], firstSeen: string): HygieneEntry => {
+    categoryOf.set(id, finding.category);
     return {
       id,
       state: "open",
-      lines: refreshLines(lines, detectionLines(candidate, docs.get(candidate.path)?.updated, firstSeen, today)),
+      lines: refreshLines(lines, detectionLines(finding, docs.get(finding.path)?.updated, firstSeen, today)),
       section: null,
     };
   };
   const resolve_ = (entry: HygieneEntry): HygieneEntry => ({
     id: entry.id,
     state: "resolved",
-    lines: [...withoutFields(entry.lines, ["until", "resolved-by", "resolved-on"]), "- resolved-by: auto-disappeared", `- resolved-on: ${today}`],
+    lines: [...withoutFields(entry.lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]), "- resolved-by: auto-disappeared", `- resolved-on: ${today}`],
     section: null,
   });
+  // A requested disposition, with the fingerprint it applies to.
+  const disposedFrom = (finding: HygieneFinding, id: string, lines: string[], firstSeen: string, request: HygieneDispositionRequest): HygieneEntry => {
+    categoryOf.set(id, finding.category);
+    const kept = withoutFields(lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]);
+    const record = request.kind === "dismissed" ? [`- dismissed-on: ${timestamp}`] : [`- until: ${request.until}`, `- snoozed-on: ${timestamp}`];
+    const reason = request.reason?.replace(/\s+/g, " ").trim();
+    if (reason) record.push(`- reason: ${reason}`);
+    record.push(`- disposition-fingerprint: ${renderFingerprint(finding.fingerprint, finding.fingerprintFields)}`);
+    return {
+      id,
+      state: request.kind,
+      lines: [...refreshLines(kept, detectionLines(finding, docs.get(finding.path)?.updated, firstSeen, today)), ...record],
+      section: null,
+    };
+  };
+  // A disposition whose evidence changed: the finding is open again, with a receipt.
+  const invalidate = (finding: HygieneFinding, recorded: RecordedDisposition, lines: string[], firstSeen: string, previousId: string | null) => {
+    const invalidation: HygieneInvalidation = {
+      id: finding.id,
+      disposition: recorded.kind,
+      dispositionOn: day(recorded.on),
+      changed: recorded.fingerprint ? changedFields(recorded.fingerprint.fields, finding.fingerprintFields) : [],
+      previousId,
+    };
+    invalidations.push(invalidation);
+    next.open.push(openFrom(finding, finding.id, [...withoutFields(lines, DISPOSITION_FIELDS), invalidationLine(today, invalidation)], firstSeen));
+  };
+  const changed = (recorded: RecordedDisposition | null, finding: HygieneFinding) =>
+    recorded?.fingerprint != null && recorded.fingerprint.fingerprint !== finding.fingerprint;
+  // Dispositions still in force whose finding was not detected: the ID may have changed with the evidence.
+  const vanished: Array<{ entry: HygieneEntry; recorded: RecordedDisposition; path: string | null }> = [];
+  const filesOf = (entry: HygieneEntry) => /\*\*Files\*\*:\s*`([^`]+)`/.exec(entry.lines.join("\n"))?.[1] ?? null;
 
   // Existing entries, in the order their files list them.
-  for (const state of ["open", "snoozed", "resolved"] as const) {
+  for (const state of ["open", "snoozed", "dismissed", "resolved"] as const) {
     for (const entry of parsed[state].entries) {
       if (known.get(entry.id) !== entry) continue;
-      const candidate = detected.get(entry.id);
+      const finding = detected.get(entry.id);
+      const request = requested.get(entry.id);
+      if (finding && request) {
+        next[request.kind].push(disposedFrom(finding, entry.id, entry.lines, firstSeenOf(entry) ?? today, request));
+        continue;
+      }
+      const recorded = recordedDisposition(entry);
       if (state === "open") {
-        if (candidate) {
-          next.open.push(openFrom(candidate, entry.id, entry.lines, firstSeenOf(entry) ?? today));
+        if (finding) {
+          next.open.push(openFrom(finding, entry.id, entry.lines, firstSeenOf(entry) ?? today));
           counts.stillOpen++;
         } else if (!complete) {
           next.open.push(entry);
@@ -813,11 +1298,13 @@ export function reconcile(
           counts.resolved++;
         }
       } else if (state === "snoozed") {
-        const until = day(field(entry, "until"));
-        if (until === null || until > today) {
-          next.snoozed.push(entry);
-        } else if (candidate) {
-          next.open.push(openFrom(candidate, entry.id, withoutFields(entry.lines, ["until"]), firstSeenOf(entry) ?? today));
+        const due = dueAt(field(entry, "until"));
+        if (due === null || due > opts.now.getTime()) {
+          if (finding && changed(recorded, finding)) invalidate(finding, recorded!, entry.lines, firstSeenOf(entry) ?? today, null);
+          else next.snoozed.push(entry);
+          if (!finding && recorded?.fingerprint) vanished.push({ entry, recorded, path: filesOf(entry) });
+        } else if (finding) {
+          next.open.push(openFrom(finding, entry.id, withoutFields(entry.lines, DISPOSITION_FIELDS), firstSeenOf(entry) ?? today));
           counts.reopened++;
         } else if (!complete) {
           next.snoozed.push(entry);
@@ -825,10 +1312,22 @@ export function reconcile(
           next.resolved.push(resolve_(entry));
           counts.resolved++;
         }
-      } else if (candidate) {
+      } else if (state === "dismissed") {
+        if (finding) {
+          if (changed(recorded, finding)) invalidate(finding, recorded!, entry.lines, firstSeenOf(entry) ?? today, null);
+          else next.dismissed.push(entry);
+        } else {
+          if (recorded?.fingerprint) vanished.push({ entry, recorded, path: filesOf(entry) });
+          if (!complete) next.dismissed.push(entry);
+          else {
+            next.resolved.push(resolve_(entry));
+            counts.resolved++;
+          }
+        }
+      } else if (finding) {
         const prev = field(entry, "resolved-by") ?? "unknown";
         const lines = [...withoutFields(entry.lines, ["resolved-by", "resolved-on", "reopened"]), `- reopened: ${today} (was resolved-by: ${prev})`];
-        next.open.push(openFrom(candidate, entry.id, lines, firstSeenOf(entry) ?? today));
+        next.open.push(openFrom(finding, entry.id, lines, firstSeenOf(entry) ?? today));
         counts.reopened++;
       } else {
         next.resolved.push(entry);
@@ -836,9 +1335,27 @@ export function reconcile(
     }
   }
   // New issues, in ID order.
-  for (const id of [...detected.keys()].sort()) {
-    if (known.has(id)) continue;
-    next.open.push(openFrom(detected.get(id)!, id, [], today));
+  const fresh = [...detected.keys()].filter((id) => !known.has(id)).sort();
+  const sameProblemSlot = (id: string, category: string, path: string) =>
+    id.length === `${category}-${shortPath(path)}-`.length + 4 && id.startsWith(`${category}-${shortPath(path)}-`);
+  for (const id of fresh) {
+    const finding = detected.get(id)!;
+    const request = requested.get(id);
+    if (request) {
+      next[request.kind].push(disposedFrom(finding, id, [], today, request));
+      continue;
+    }
+    // A disposition whose ID changed with its evidence: paired only when nothing else could be meant.
+    const prior = vanished.filter((v) => v.path === finding.path && sameProblemSlot(v.entry.id, finding.category, finding.path));
+    const siblings = fresh.filter((other) => {
+      const f = detected.get(other)!;
+      return f.category === finding.category && f.path === finding.path && !requested.has(other);
+    });
+    if (prior.length === 1 && siblings.length === 1) {
+      invalidate(finding, prior[0].recorded, [], today, prior[0].entry.id);
+    } else {
+      next.open.push(openFrom(finding, id, [], today));
+    }
     counts.opened++;
   }
   // The newest 200 resolved entries by resolved-on stay.
@@ -859,18 +1376,20 @@ export function reconcile(
     const prefix = SECTIONS.map(([c]) => c).filter((c) => entry.id.startsWith(`${c}-`)).sort((a, b) => b.length - a.length)[0];
     return sectionFor(prefix ?? "uncategorised");
   };
+  const listHeading = { snoozed: "Snoozed", dismissed: "Dismissed", resolved: "Resolved" } as const;
   const stateBody = (state: HygieneState, entries: HygieneEntry[]) =>
     state === "open"
       ? renderLogFile(parsed.open, openBlock(parsed.open, entries, headingOf))
-      : renderLogFile(parsed[state], listBlock(parsed[state], state === "snoozed" ? "Snoozed" : "Resolved", entries));
+      : renderLogFile(parsed[state], listBlock(parsed[state], listHeading[state], entries));
   // The first pass: arrivals added, departures still in place.
   const withDepartures = (state: HygieneState) => {
     const staying = new Set(next[state].map((e) => e.id));
     return [...next[state], ...parsed[state].entries.filter((e) => !staying.has(e.id))];
   };
 
-  const stateChanged = counts.opened + counts.reopened + counts.resolved > 0;
-  const countsText = `- Open: ${next.open.length}\n- Snoozed: ${next.snoozed.length}\n- Resolved: ${next.resolved.length}\n`;
+  const stateChanged = counts.opened + counts.reopened + counts.resolved + invalidations.length + requested.size > 0;
+  const countsText =
+    `- Open: ${next.open.length}\n- Snoozed: ${next.snoozed.length}\n- Dismissed: ${next.dismissed.length}\n- Resolved: ${next.resolved.length}\n`;
   const fixLines = fixed.length > 0 ? fixed.map((f) => `- \`${f.path}\`: ${f.fix.replace(/\s+/g, " ").trim()}`).join("\n") : "(none)";
   const lastRunBlock =
     `## Last run: ${timestamp}\n\n` +
@@ -881,6 +1400,7 @@ export function reconcile(
   const sources = {
     "open.md": { from: loaded.open, file: parsed.open },
     "snoozed.md": { from: loaded.snoozed, file: parsed.snoozed },
+    "dismissed.md": { from: loaded.dismissed, file: parsed.dismissed },
     "resolved.md": { from: loaded.resolved, file: parsed.resolved },
     "_index.md": { from: loaded.index, file: index },
     "last-run.md": { from: loaded.lastRun, file: lastRun },
@@ -894,6 +1414,7 @@ export function reconcile(
   const final = new Map<Name, string>([
     ["open.md", textFor("open.md", stateBody("open", next.open))],
     ["snoozed.md", textFor("snoozed.md", stateBody("snoozed", next.snoozed))],
+    ["dismissed.md", textFor("dismissed.md", stateBody("dismissed", next.dismissed))],
     ["resolved.md", textFor("resolved.md", stateBody("resolved", next.resolved))],
     ["_index.md", textFor("_index.md", renderLogFile(index, `## Latest counts\n\n${countsText}`))],
   ]);
@@ -902,7 +1423,7 @@ export function reconcile(
   }
   const changedFiles = [...final].filter(([name, text]) => sources[name].from.disk !== text).map(([name]) => rel(name));
   // The first pass: each state file with its arrivals added and nothing taken away.
-  const firstPass = (["open", "snoozed", "resolved"] as const).map(
+  const firstPass = (["open", "snoozed", "dismissed", "resolved"] as const).map(
     (state) => [`${state}.md`, textFor(`${state}.md`, stateBody(state, withDepartures(state)))] as const
   );
   // Nothing is written that the next run would refuse to read.
@@ -933,32 +1454,68 @@ export function reconcile(
   return {
     ...counts,
     snoozed: next.snoozed.length,
+    dismissed: next.dismissed.length,
+    invalidated: invalidations.length,
+    invalidations: invalidations.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     changedFiles: changedFiles.sort(),
-    detected: [...detected].sort(([a], [b]) => (a < b ? -1 : 1)).map(([id, c]) => ({ id, category: c.category, path: c.path, message: c.message })),
+    detected: [...detected.values()].map((f) => ({
+      id: f.id,
+      category: f.category,
+      path: f.path,
+      message: f.message,
+      severity: f.severity,
+      urgency: f.urgency,
+      sources: f.sources,
+      fingerprint: f.fingerprint,
+    })),
     autoFixed: fixed.length,
     failedChecks,
   };
 }
 
-/** The log as it stands: every entry of open.md, snoozed.md and resolved.md. */
-export function readHygieneLog(root: string): Array<{
+/** One entry of the log, as `brain hygiene list` reports it. */
+export interface HygieneLogEntry {
   id: string;
   state: HygieneState;
   path: string | null;
   issue: string | null;
   firstSeen: string | null;
   lastSeen: string | null;
+  /** A snooze's day (`YYYY-MM-DD`), as before; `dueAt` is the instant. */
   until: string | null;
+  /** When a snooze becomes due, as an ISO date-time (a date-only `until` is due at its start, UTC). */
+  dueAt: string | null;
   resolvedBy: string | null;
   resolvedOn: string | null;
-}> {
-  const out = [];
-  const owns = { open: isOpenSection, snoozed: (h: string) => h === "Snoozed", resolved: (h: string) => h === "Resolved" };
-  for (const state of ["open", "snoozed", "resolved"] as const) {
+  /** The sources the finding was last detected with; empty for an entry written before they were recorded. */
+  sources: HygieneSource[];
+  /** The most severe source's severity. */
+  severity: HygieneSeverity | null;
+  /** The evidence fingerprint the finding was last detected with. */
+  fingerprint: string | null;
+  /** A dismissal or snooze recorded by `brain hygiene dismiss`/`snooze` (or moved by hand: then without a fingerprint). */
+  disposition: { kind: "dismissed" | "snoozed"; on: string | null; reason: string | null; fingerprint: string | null } | null;
+  /** Why a dismissed or snoozed finding is open again before its time. */
+  invalidation: { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null;
+}
+
+/** The log as it stands: every entry of open.md, snoozed.md, dismissed.md and resolved.md. */
+export function readHygieneLog(root: string): HygieneLogEntry[] {
+  const out: HygieneLogEntry[] = [];
+  const owns = {
+    open: isOpenSection,
+    snoozed: (h: string) => h === "Snoozed",
+    dismissed: (h: string) => h === "Dismissed",
+    resolved: (h: string) => h === "Resolved",
+  };
+  for (const state of ["open", "snoozed", "dismissed", "resolved"] as const) {
     const path = resolve(root, HYGIENE_DIR, `${state}.md`);
     if (!existsSync(path)) continue;
     for (const entry of parseLogFile(readFileSync(path, "utf-8"), `${HYGIENE_DIR}/${state}.md`, state, owns[state]).entries) {
       const text = entry.lines.join("\n");
+      const sources = parseSources(field(entry, "sources"));
+      const due = state === "snoozed" ? dueAt(field(entry, "until")) : null;
+      const recorded = recordedDisposition(entry);
       out.push({
         id: entry.id,
         state,
@@ -967,8 +1524,20 @@ export function readHygieneLog(root: string): Array<{
         firstSeen: day(/\*\*First seen\*\*:\s*(\S+)/.exec(text)?.[1] ?? null),
         lastSeen: day(/\*\*Last seen\*\*:\s*(\S+)/.exec(text)?.[1] ?? null),
         until: day(field(entry, "until")),
+        dueAt: due === null ? null : new Date(due).toISOString().replace(/\.000Z$/, "Z"),
         resolvedBy: field(entry, "resolved-by"),
         resolvedOn: day(field(entry, "resolved-on")),
+        sources,
+        severity: sources.map((s) => s.severity).filter((s): s is HygieneSeverity => s !== null)
+          .sort((a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b])[0] ?? null,
+        fingerprint: parseFingerprint(field(entry, "fingerprint"))?.fingerprint ?? null,
+        disposition: recorded && {
+          kind: recorded.kind,
+          on: recorded.on,
+          reason: rawField(entry, "reason") || null,
+          fingerprint: recorded.fingerprint?.fingerprint ?? null,
+        },
+        invalidation: state === "open" ? parseInvalidation(entry) : null,
       });
     }
   }

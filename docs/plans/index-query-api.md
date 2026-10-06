@@ -152,7 +152,7 @@ callback, `.sql`/`.prepare`/`.execute` escape or native handle. It holds neither
 a persistent connection nor a transaction spanning callbacks. Each synchronous
 operation opens/closes its own core-owned read snapshot. Module callbacks may
 return synchronously or asynchronously; core keeps awaiting them and reporting
-failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1056-1065`).
+failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1062-1075`).
 A typed query failure must propagate into that lifecycle rather than being
 converted to an empty candidate list or successful hygiene result.
 

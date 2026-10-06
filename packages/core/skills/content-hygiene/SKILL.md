@@ -10,9 +10,10 @@ only when the truth is mechanically clear, and logs everything else into `contex
 stable IDs so re-runs never duplicate and never drift.
 
 **This skill orchestrates; the CLI detects and keeps the log.** `brain hygiene reconcile` refreshes
-the index, runs every mechanical detection (`brain audit`'s checks, silent edits, the index table
-diff), gives each issue its stable ID, applies the open/snoozed/resolved state machine and writes
-`context/hygiene/` without churn. The agent does what needs judgment: canonical conflicts, and
+the index, runs every mechanical detection (`brain audit`'s checks, `brain validate`'s corpus
+checks, silent edits, the index table diff), joins reports of one problem into one finding with its
+stable ID, applies the open/snoozed/dismissed/resolved state machine and writes `context/hygiene/`
+without churn. The agent does what needs judgment: canonical conflicts, and
 which auto-fixes to apply.
 
 ## Input
@@ -122,11 +123,20 @@ against the log by ID:
 | (none) | yes | add to open |
 | open | yes | update last seen, keep in open |
 | open | no | move to resolved (`resolved-by: auto-disappeared`) |
-| snoozed (until > today) | either | leave snoozed |
-| snoozed (until ≤ today) | yes | move back to open |
-| snoozed (until ≤ today) | no | move to resolved (`auto-disappeared`) |
+| snoozed (not due) | yes, evidence changed | move to open (`invalidated: …`) |
+| snoozed (not due) | otherwise | leave snoozed |
+| snoozed (due) | yes | move back to open |
+| snoozed (due) | no | move to resolved (`auto-disappeared`) |
+| dismissed | yes, evidence changed | move to open (`invalidated: …`) |
+| dismissed | yes, unchanged | leave dismissed |
+| dismissed | no | move to resolved (`auto-disappeared`) |
 | resolved | yes | re-open (`reopened: today (was resolved-by: <prev>)`) |
 | resolved | no | leave resolved |
+
+Only the owner dismisses or snoozes, through `brain hygiene dismiss` / `snooze`, which record
+the evidence fingerprint the decision applies to. Never dismiss or snooze on the owner's behalf in
+this skill, and never move an entry to `resolved.md` to hide it: reconcile reopens anything still
+detected.
 
 It writes a file only when its content changes, and `last-run.md` only when an issue changed
 state or `--fixed` names a fix (it lists them under "Auto-fixes applied this run"), so a run that
@@ -143,7 +153,9 @@ included) turned into one `-`; `hash4` is the first 4 hex characters of a SHA-1 
 staleness → the document's type; conflict → the canonical fact text you gave; index-lag → the
 row's first cell (the whole-file audit finding: the index path); propagation, silent-edit,
 orphan and stale-draft → the file path; todo and verify → empty (one per document and kind,
-so a marker added or resolved keeps the ID); broken-link → the link target; type-mismatch → the type
+so a marker added or resolved keeps the ID); broken-link → the link target, one finding whether
+audit, validation or both report it; required-field → the field name (validation's other
+categories are listed in `docs/decisions/hygiene-review.md`); type-mismatch → the type
 name; budget → the canonical key; past-date → the date and the line's text; fact-drift →
 `{key}={found}`, so the ID holds while the document keeps the same wrong value; repeated-text →
 the paragraph's excerpt; module-hygiene → the module's name; review-overdue and tag-noise →
@@ -180,5 +192,7 @@ If nothing changed (`changedFiles` empty and no fixes), print one line:
 
 - `brain hygiene reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run] --json` —
   refresh the index, detect, and reconcile the log.
-- `brain hygiene list [--state open|snoozed|resolved] --json` — the log as it stands.
+- `brain hygiene list [--state open|snoozed|dismissed|resolved] --json` — the log as it stands.
+- `brain hygiene dismiss|snooze <id> --expect-fingerprint <fp> …` — the owner's dispositions; not
+  called by this skill.
 - `brain config check` — read `taxonomy.canonical` and `taxonomy.propagation`.

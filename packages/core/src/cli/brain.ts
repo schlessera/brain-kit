@@ -81,12 +81,13 @@ function beforeTerminator(args: string[]): string[] {
 
 // Commands that write only under a flag, or only without one: `brain tags`
 // reports, and rewrites frontmatter only with --apply and no --dry-run;
-// `brain hygiene` writes only under `reconcile` without --dry-run;
+// `brain hygiene` writes under `reconcile` without --dry-run, and under
+// `dismiss` and `snooze`;
 // `brain registry` rewrites index tables unless --check.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
-  hygiene: (args) => args[0] === "reconcile" && !args.includes("--dry-run"),
+  hygiene: (args) => (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
   registry: (args) => !args.includes("--check"),
 };
 

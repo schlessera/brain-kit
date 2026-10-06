@@ -11,20 +11,32 @@ import { DEFAULT_DIR_ANCHORS } from "../config.js";
  * Extract [[wiki-link]] targets from markdown content.
  */
 export function extractWikiLinks(content: string): string[] {
+  return [...new Set(wikiLinkMatches(content).map((m) => m.target))];
+}
+
+/**
+ * Every `[[…]]` token in `content` whose target is `target`, as written,
+ * deduplicated and sorted: the same links `extractWikiLinks` reads.
+ */
+export function wikiLinkTokens(content: string, target: string): string[] {
+  return [...new Set(wikiLinkMatches(content).filter((m) => m.target === target).map((m) => m.token))].sort();
+}
+
+function wikiLinkMatches(content: string): Array<{ token: string; target: string }> {
   // Strip fenced and inline code first — `[['a',1]]` in a code sample is not a link
   const stripped = content
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`[^`\n]*`/g, "");
 
   const regex = /\[\[([^\]]+)\]\]/g;
-  const links: string[] = [];
+  const links: Array<{ token: string; target: string }> = [];
   let match;
   while ((match = regex.exec(stripped)) !== null) {
     // Support [[target|display text]] — the target is before the pipe
     const target = match[1].split("|")[0].trim();
-    if (target) links.push(target);
+    if (target) links.push({ token: match[0], target });
   }
-  return [...new Set(links)];
+  return links;
 }
 
 /**

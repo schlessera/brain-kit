@@ -41,6 +41,12 @@ export interface AuditOptions {
    * and `index-stale` when a given root is missing).
    */
   onCheckFailed?: (check: string) => void;
+  /**
+   * Called by `auditWithModules` for each issue a module's hygiene check
+   * reported (or the `module-hygiene` issue its failure became), with the
+   * module's name, so `brain hygiene` can record which module found it.
+   */
+  onModuleIssue?: (issue: AuditIssue, module: string) => void;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -1054,15 +1060,19 @@ export async function auditWithModules(
     for (const check of mod.manifest.hygieneChecks ?? []) {
       try {
         const found = await check({ queries, root: brain.root, config: mod.config });
-        issues.push(...(opts.exclude ? found.filter((issue) => !opts.exclude!(issue.path)) : found));
+        const kept = opts.exclude ? found.filter((issue) => !opts.exclude!(issue.path)) : found;
+        for (const issue of kept) opts.onModuleIssue?.(issue, mod.manifest.name);
+        issues.push(...kept);
       } catch (e) {
         opts.onCheckFailed?.(mod.manifest.name);
-        issues.push({
+        const failure: AuditIssue = {
           path: "(module)",
           severity: "warning",
           category: "module-hygiene",
           message: `hygiene check from module "${mod.manifest.name}" failed: ${e instanceof Error ? e.message : String(e)}`,
-        });
+        };
+        opts.onModuleIssue?.(failure, mod.manifest.name);
+        issues.push(failure);
       }
     }
   }
