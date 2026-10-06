@@ -1076,6 +1076,8 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             const toolCalls = m.toolCalls.map((t) => {
               const closure = byId.get(t.id);
               if (!closure || !t.restored || t.readOnly === closure) return t;
+              // Decided on this page: the card already says what happened.
+              if (t.status === "approved" || t.status === "denied") return t;
               if (t.readOnly && t.readOnly !== "unlisted") return t;
               touched = true;
               return { ...t, readOnly: closure };

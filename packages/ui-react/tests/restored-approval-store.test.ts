@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ClientMessage, ServerMessage, SessionRecovery, SessionRecoveryLatest, SessionRecoveryPending } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import { pendingApprovals, type ToolCall } from "../src/stores/chat-state.js";
+import { trackerViews } from "../src/stores/tracker-state.js";
 
 // A restored approval card follows the host's recovery envelope (#1072,
 // D52 §4 R3), in one real root: the chat store, the socket demux and the
@@ -171,7 +172,39 @@ describe("a restored approval card, with the host advertising recovery", () => {
   });
 });
 
+describe("a decision on this page while a read is out", () => {
+  test("is not overwritten by the read's closure", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const r = root({ [A]: async () => { await gate; return envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [])(); } });
+    hello(r);
+    restore(r, A);
+    expect(r.urls).toEqual([`/api/sessions/${A}/recovery`]);
+    r.stores.chat.getState().resolveToolApproval(A, "tool-wax", true);
+    release();
+    await settle();
+    expect(card(r, A)).toMatchObject({ status: "approved" });
+    expect(card(r, A).readOnly).toBeUndefined();
+  });
+});
+
 describe("revocation", () => {
+  test("a 401 read for one session drops what another session's tracker still lists for its revoked card", async () => {
+    const r = root({
+      [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [listed("tool-wax")]),
+      [B]: () => Response.json({ error: "Authentication required", authRequired: true }, { status: 401 }),
+    });
+    hello(r);
+    restore(r, A, "tool-wax", "turn-2");
+    await settle();
+    // Left with its card waiting: A is tracked, and needs you.
+    restore(r, B, "tool-oar", "turn-7");
+    expect(trackerViews(r.stores.trackers.getState()).find((v) => v.sessionId === A)?.state).toBe("needs_you");
+    await settle();
+    expect(card(r, A).readOnly).toBe("revoked");
+    expect(trackerViews(r.stores.trackers.getState()).find((v) => v.sessionId === A)?.state).not.toBe("needs_you");
+  });
+
   test("a 401 read makes every restored card no longer yours to answer, and drops its identities", async () => {
     const r = root({
       [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [listed("tool-wax")]),

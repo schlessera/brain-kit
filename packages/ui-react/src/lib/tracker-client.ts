@@ -101,6 +101,23 @@ export function createTrackerClient(root: BrainUiServices) {
     if (closures.length > 0) chat.getState().closeRestoredApprovals(sessionId, closures);
   }
 
+  /**
+   * An unauthorized read: no restored card is this principal's to answer.
+   * Every one is revoked, and what each session's evidence still lists for
+   * them goes too, so no tracker asks for a card that can no longer answer.
+   */
+  function revokeRestored(): void {
+    const byBuffer = Object.entries(chat.getState().buffers).map(([sessionId, buffer]) => ({
+      sessionId,
+      ids: buffer.messages.flatMap((m) => m.toolCalls.filter((t) => t.restored).map((t) => t.id)),
+    }));
+    chat.getState().revokeRestoredApprovals();
+    for (const { sessionId, ids } of byBuffer) {
+      if (ids.length === 0 || !trackers.getState().evidence[sessionId]) continue;
+      trackers.getState().live(sessionId, ids.map((requestId) => ({ kind: "settled" as const, requestId })));
+    }
+  }
+
   function refresh(sessionId: string): void {
     if (disposed || trackers.getState().recoverySupported !== true) return;
     if (root.stores.connection.getState().wsStatus !== "connected") return;
@@ -119,16 +136,20 @@ export function createTrackerClient(root: BrainUiServices) {
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
       if (trackers.getState().epoch === epoch) {
+        // A card decided on this page while the read was out is not the
+        // host's to close: its absence is this page's own answer.
+        const open = new Set(openRestoredCards(chat.getState().buffers[sessionId]).map((c) => c.toolUseId));
+        const still = cards.filter((card) => open.has(card.toolUseId));
         if (result.ok) {
-          closeRestored(sessionId, cards.flatMap((card) => {
+          closeRestored(sessionId, still.flatMap((card) => {
             const closure = closureFromEnvelope(card, result.recovery);
             return closure ? [{ toolUseId: card.toolUseId, closure }] : [];
           }));
         } else if (result.reason === "unauthorized") {
-          chat.getState().revokeRestoredApprovals();
+          revokeRestored();
         } else if (result.reason === "session_not_found") {
           // The session is gone, and the turn that raised the card with it.
-          closeRestored(sessionId, cards.map((card) => ({ toolUseId: card.toolUseId, closure: "ended" as const })));
+          closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "ended" as const })));
         }
       }
       const ambiguous = trackers.getState().endRead(sessionId, result, epoch);

@@ -369,7 +369,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:71-93`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1464-1473`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1466-1475`).
 
 - Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:62-85`).
 
