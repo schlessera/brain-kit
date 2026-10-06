@@ -37,15 +37,18 @@ export function useDesktopRoutes() {
   const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
   const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
   const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
+  const afterLeavingSettings = useUIStore((s) => s.afterLeavingSettings);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const runCommand = useChatCommands();
 
+  // Lands in Chat, then runs. Both wait for unsaved Settings to be left, so
+  // a guarded leave never opens a panel over Settings or starts a job early.
   function inChat(fn: () => void) {
-    return () => {
+    return () => afterLeavingSettings(() => {
       setActiveView("chat");
       fn();
-    };
+    });
   }
 
   const destinations: DesktopDestination[] = [

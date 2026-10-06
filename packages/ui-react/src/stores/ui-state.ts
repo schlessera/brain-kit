@@ -54,6 +54,13 @@ export interface UIState {
   /** @internal Opens or closes this root's command palette. */
   setPaletteOpen: (open: boolean) => void;
   settingsNavigationProtected: boolean;
+  /**
+   * @internal Runs `change` once Settings may be left: at once without a
+   * guard, or when the guard lets the navigation through. A route that
+   * changes the view AND then runs something (the palette's and rail's
+   * `inChat`) passes both here, so nothing runs before consent.
+   */
+  afterLeavingSettings: (change: () => void) => void;
   setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
   /** Switch the full-screen view; closes any open panel so the new view starts clean. */
   setActiveView: (view: ActiveView) => void;
@@ -115,6 +122,7 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
     paletteOpen: false,
     setPaletteOpen: (open) => set({ paletteOpen: open }),
     settingsNavigationProtected: false,
+    afterLeavingSettings: (change) => leaveSettings(change),
     setSettingsNavigationGuard: (guard) => { navigationGuard = guard; set({ settingsNavigationProtected: guard !== null }); },
     theme: isThemePreference(stored) ? stored : "dark",
     setTheme: (theme) => {

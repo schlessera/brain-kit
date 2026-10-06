@@ -243,6 +243,8 @@ afterEach(() => {
   // into `buffers`, so clearing one without the other still resolves to a
   // stale chat.
   useChatStore.setState(useChatStore.getInitialState(), true);
+  // A guard left by a failed test would hold every later navigation.
+  useUIStore.getState().setSettingsNavigationGuard(null);
   delete document.documentElement.dataset.theme;
   useConnectionStore.setState({
     wsStatus: "disconnected",
@@ -3874,6 +3876,33 @@ describe("SideRail on the kit SideRail", () => {
     expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, spends");
     fireEvent.click(actButton(/^Daily briefing/));
     expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
+    view.unmount();
+  });
+
+  test("unsaved Settings hold the acts and Sessions until the guard lets them leave, then they run", () => {
+    useConnectionStore.setState({ wsStatus: "connected" });
+    const view = render(<SideRail />);
+    act(() => useUIStore.getState().openSettings("modules"));
+    let leave: (() => void) | null = null;
+    act(() => useUIStore.getState().setSettingsNavigationGuard((go) => { leave = go; }));
+    const ui = () => useUIStore.getState();
+    for (const run of [
+      () => fireEvent.click(view.getByRole("button", { name: /^Search the brain/ })),
+      () => fireEvent.click(view.getByRole("button", { name: /^Daily briefing/ })),
+      () => fireEvent.keyDown(window, { key: "2", metaKey: true }),
+    ]) {
+      leave = null;
+      run();
+      // Nothing opens over Settings, and the briefing does not start, before consent.
+      expect(leave, "the guard was asked").not.toBeNull();
+      expect(ui().settingsPanelOpen).toBe(true);
+      expect([ui().searchPanelOpen, ui().whatsupPanelOpen, ui().sessionPanelOpen]).toEqual([false, false, false]);
+    }
+    // Consent, as the modules tab gives it: clear the guard, then leave.
+    act(() => { ui().setSettingsNavigationGuard(null); leave!(); });
+    expect(ui().settingsPanelOpen).toBe(false);
+    expect(ui().activeView).toBe("chat");
+    expect(ui().sessionPanelOpen, "the held route completes").toBe(true);
     view.unmount();
   });
 
