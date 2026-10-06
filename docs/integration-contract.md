@@ -3059,8 +3059,17 @@ client (`BrainUiClient`) declares the flag.
 PILL_LABEL_MAX_CHARS = 32
 QueuedFollowUpView.label?: string
 ChatSession.label?: string                         // GET /api/sessions
-CreateAppOptions.labeller?: { provider: LabelCompletionProvider; timeoutMs? }
-LabelCompletionProvider = { id, complete({ system?, prompt, maxTokens? }): Promise<string> }
+CreateAppOptions.labeller?: { provider: LabelCompletionProvider; timeoutMs?; billing?: "api" | "subscription" }
+LabelCompletionProvider = {
+  id,
+  complete({ system?, prompt, maxTokens? }): Promise<string>,
+  completeWithUsage?({ system?, prompt, maxTokens? }): Promise<{   // additive, #1083
+    text: string;
+    usage?: { inputTokens; outputTokens; cacheReadTokens?; cacheCreationTokens? };
+    model?: string;
+  }>
+}
+LABEL_RUN_NAME = "pill label"                       // Activity run name, #1083
 ```
 
 A label is a few plain words saying what a pill is about: at most
@@ -3086,11 +3095,29 @@ prompt).
 - **Failure** (an error, an unusable answer, no answer within `timeoutMs`,
   10 s by default) leaves the fallback in place and is logged once per item.
   The SDK drops a `label` outside its bounds and keeps the rest of the frame.
-- **Cost.** `CompletionProvider` reports no usage, so the provider calls are
-  counted by outcome in the `brain.labeller.calls` metric and their cost is
-  unknown. Asks that kept their fallback without an answer (timed out, or
-  skipped while busy) are counted apart, in `brain.labeller.fallbacks`. The
-  calls do not appear in Activity, and no amount is recorded as zero.
+- **Cost (additive, #1083).** Every call that reaches the provider is an
+  Activity run named `pill label` (`origin: "session"`) on the session whose
+  pill it labels: the queued follow-up's session, or the session whose
+  request it is. Asks that share one call share its run, which goes to the
+  session of the ask that started it. A cached answer and an ask skipped
+  while busy reach no provider and record no run. A call that fails is an
+  `error` run. The labeller calls `completeWithUsage` when the provider has
+  it and `complete()` otherwise; a core `CompletionProvider` has only
+  `complete()` and still satisfies the interface. A run is **priced** only
+  when the call reported usage (non-negative token counts) and a model, and
+  the host set `labeller.billing`: `api` prices the usage from the pricing
+  catalog by that model id, `subscription` is $0. Every other run carries no
+  billing mode and counts in `unpricedRuns`; it is never shown as $0. That
+  includes a `subscription` host whose provider reported nothing, because a
+  subscription run with no recorded usage would otherwise read as free. The
+  calls are also counted by outcome in the `brain.labeller.calls` metric, and
+  asks that kept their fallback without an answer (timed out, or skipped
+  while busy) are counted apart, in `brain.labeller.fallbacks`. A label run's
+  cost is not added to the session's own `totalCostUsd`, and a failed or
+  long-running label run raises no failure or stuck notification. `createApp` records
+  these runs itself; a `WsHost` embedder that builds its own labeller passes
+  `createLabeller({ options, activity: { store, onWrite? } })`, and without
+  `activity` it records none.
 
 ## File-layer contracts
 

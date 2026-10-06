@@ -26,7 +26,11 @@ export "." (./src/index.ts)
   type HostVersionRequirements
   type InMemoryMeterProvider
   LABEL_MAX_CHARS
+  LABEL_RUN_NAME
+  type LabelCompletion
   type LabelCompletionProvider
+  type LabelCompletionRequest
+  type LabelCompletionUsage
   type Labeller
   type LabellerOptions
   type LogQuery
@@ -531,6 +535,10 @@ signatures (every public export and the types it is made of)
         options?: LabellerOptions | null;
         log?: Logger;
         meter?: Meter;
+        activity?: {
+            store: Pick<ActivityStore, "startSpan" | "endSpan" | "rollupRun">;
+            onWrite?: () => void;
+        };
     }
   DraftAcceptOutcome (packages/ui-server/src/drafts/store.ts)
     export type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
@@ -641,24 +649,43 @@ signatures (every public export and the types it is made of)
     export type IntentKind = "failure" | "completion" | "stuck";
   LABEL_MAX_CHARS (packages/ui-server/src/labels/normalise.ts)
     const LABEL_MAX_CHARS: 32;
+  LABEL_RUN_NAME (packages/ui-server/src/labels/labeller.ts)
+    const LABEL_RUN_NAME: "pill label";
+  LabelCompletion (packages/ui-server/src/labels/labeller.ts)
+    export interface LabelCompletion {
+        text: string;
+        usage?: LabelCompletionUsage;
+        model?: string;
+    }
   LabelCompletionProvider (packages/ui-server/src/labels/labeller.ts)
     export interface LabelCompletionProvider {
         id: string;
-        complete(req: {
-            system?: string;
-            prompt: string;
-            maxTokens?: number;
-        }): Promise<string>;
+        complete(req: LabelCompletionRequest): Promise<string>;
+        completeWithUsage?(req: LabelCompletionRequest): Promise<LabelCompletion>;
+    }
+  LabelCompletionRequest (packages/ui-server/src/labels/labeller.ts)
+    export interface LabelCompletionRequest {
+        system?: string;
+        prompt: string;
+        maxTokens?: number;
+    }
+  LabelCompletionUsage (packages/ui-server/src/labels/labeller.ts)
+    export interface LabelCompletionUsage {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
     }
   Labeller (packages/ui-server/src/labels/labeller.ts)
     export interface Labeller {
         readonly enabled: boolean;
-        label(item: string, text: string): Promise<string | null>;
+        label(item: string, text: string, sessionId?: string): Promise<string | null>;
     }
   LabellerOptions (packages/ui-server/src/labels/labeller.ts)
     export interface LabellerOptions {
         provider: LabelCompletionProvider;
         timeoutMs?: number;
+        billing?: BillingMode;
     }
   LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
     export interface LocalExchangeRecord extends LocalExchange {

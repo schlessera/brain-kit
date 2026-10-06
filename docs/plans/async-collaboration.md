@@ -150,7 +150,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:177-192`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
-  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:90-126`) and
+  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`) and
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`) assigns the source in server code.

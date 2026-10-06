@@ -9,6 +9,7 @@ import { createActivityStore, type ActivityStore } from "../src/activity/store";
 import { createActivityNotifier, type ActivityNotifier } from "../src/activity/notify";
 import { createUiDb } from "../src/db/client";
 import { setSetting } from "../src/db/settings";
+import { LABEL_RUN_NAME } from "../src/labels/labeller";
 
 function setup(options?: { watched?: boolean }): {
   db: ReturnType<typeof createUiDb>;
@@ -206,6 +207,23 @@ describe("activity notifier", () => {
     store.endSpan("a:root", { outcome: "success" });
     notifier.tick();
     expect(notifier.inbox().map((i) => i.kind)).toEqual(["completion"]);
+  });
+
+  test("a pill label run never pages, and never swallows its session's next turn failure (#1083)", () => {
+    const { db, store, notifier } = setup();
+    setSetting(db, "activity.watchdog.thresholdMs", 10 * 60 * 1000);
+    const root = (runId: string, name: string, startedAt?: number) =>
+      store.startSpan({ spanId: `${runId}:root`, runId, name, kind: "turn", origin: "session", sessionId: "sess-ithaca", startedAt });
+    root("label-failed", LABEL_RUN_NAME);
+    store.endSpan("label-failed:root", { outcome: "error", reason: "vendor unavailable" });
+    root("label-stalled", LABEL_RUN_NAME, Date.now() - 20 * 60 * 1000);
+    notifier.tick();
+    expect(notifier.inbox()).toEqual([]);
+
+    root("turn-failed", "invoke_agent");
+    store.endSpan("turn-failed:root", { outcome: "error", reason: "boom" });
+    notifier.tick();
+    expect(notifier.inbox().map((i) => [i.runId, i.kind])).toEqual([["turn-failed", "failure"]]);
   });
 
   test("the watchdog flags an over-threshold live run once, without closing it", () => {
