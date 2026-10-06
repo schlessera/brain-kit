@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { warnOnce } from "../internal/dev.js";
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Meter } from "../primitives/Meter.js";
@@ -18,6 +19,25 @@ import { accent, color, font, token } from "../tokens.js";
  * the spend meter — everything whose value is a word — and keeps the icons, the
  * badge and the ⌘K key.
  *
+ * ## Acts, and All commands (D52 §1)
+ *
+ * Under the destinations, past a divider, sit the rail's **acts**: things to
+ * do rather than places to be (Search, Add a note, Daily briefing). An act is
+ * never "here", so its row is never amber and activating it moves nothing.
+ * Its effect and cost are printed at rest, in the shortcut column, and a
+ * disabled act prints its reason on a second line rather than vanishing. The
+ * collapsed rail draws only the acts that need no words: one with an effect,
+ * a cost or a reason cannot show it in a 44px column, so it is not drawn
+ * there (D52 §8, V6), and the app reaches it through All commands.
+ *
+ * `onOpenPalette` turns the passive ⌘K cap into the **All commands** button,
+ * the visible route to every command without a row of its own. It prints ⌘K
+ * at every width and on every pointer (D36 addendum). Without the callback
+ * the cap stays a picture, because a control that opens nothing is a lie.
+ *
+ * The wordmark and All commands are pinned; in a short viewport the middle,
+ * from the destinations through the acts, scrolls.
+ *
  * ## Two-pane layout, and the thing that bites
  *
  * A rail lives in a flex ROW beside a whole screen, which is the exact shape
@@ -28,18 +48,21 @@ import { accent, color, font, token } from "../tokens.js";
  * that is a property to verify rather than assume, and `SideRail.stories.tsx`
  * does it with `overflowing()` in a real two-pane story.
  *
- * ## One tab stop, not five
+ * ## Three tab stops at most, not one per row
  *
  * The destination list is a vertical `tablist` with a roving tabindex
- * ({@link useRoving}): Tab reaches the rail once and lands on the active
+ * ({@link useRoving}): Tab reaches it once and lands on the active
  * destination, ↑↓ move inside it, ⏎ / space navigate. Manual activation, for
  * the same reason as {@link TabBar} — arrowing onto Files must not navigate to
  * Files. Before this the rail cost five tab presses and the mobile bar cost
  * five more, which is the ten a screen carrying both used to spend before any
  * content (`docs/decisions/design-feedback.md` §11).
  *
- * The wordmark, the spend meter and the ⌘K cap are not controls and were never
- * tab stops, so the rail is one stop in total.
+ * The acts are a second, independent group: a vertical `toolbar` named
+ * `Acts` with its own roving stop. ↑↓ / Home / End stay inside it and never
+ * cross the divider into the tablist. All commands is the third stop. A rail
+ * given neither acts nor the callback is the one stop it always was; the
+ * wordmark and the spend meter are not controls and are never stops.
  */
 export interface RailItem {
   icon: IconName;
@@ -51,8 +74,44 @@ export interface RailItem {
   onClick?: () => void;
 }
 
+/**
+ * A thing to do from the rail, not a place to go. The rail draws acts in the
+ * order given; placing and ordering them is the app's (D52 §8, V7).
+ */
+export interface RailAct {
+  icon: IconName;
+  /** The visible label, e.g. `Search`. */
+  label: string;
+  /**
+   * The accessible name when it says more than the label, e.g. `Search the
+   * brain`. Effect, cost and reason are appended to it either way.
+   */
+  name?: string;
+  /** What running this WRITES, e.g. `sync`. Printed at rest, amber. */
+  effect?: string;
+  /** What running this SPENDS, e.g. `spends`. Printed at rest, gold. */
+  cost?: string;
+  /**
+   * Why it cannot run right now, e.g. `needs the host`. Its presence makes the
+   * act DISABLED: `aria-disabled`, reason printed on a second line, still
+   * focusable so the reason can be read, never invoked.
+   */
+  why?: string;
+  onClick?: () => void;
+}
+
 export interface SideRailProps {
   items?: RailItem[];
+  /**
+   * The acts under the destinations (D52 §1): at most four. Collapsed, only
+   * the acts with no effect, cost or reason are drawn.
+   */
+  acts?: RailAct[];
+  /**
+   * Opens the command palette. Its presence turns the passive ⌘K cap into the
+   * `All commands` button; without it the cap stays a picture.
+   */
+  onOpenPalette?: () => void;
   /** Index of the amber destination. */
   active?: number;
   /** `false` collapses to the 60px icon rail. */
@@ -71,9 +130,10 @@ export interface SideRailProps {
   /** The spend as the user reads it. */
   spendText?: string;
   /**
-   * What ⌘K opens. `null` means the app has no palette, and the ⌘K cap goes
-   * with the hint — a printed key that does nothing is a lie the design's
-   * "every shortcut is printed where it applies" rule forbids.
+   * What the passive ⌘K cap says ⌘K opens. `null` means the app has no
+   * palette, and the cap goes with the hint — a printed key that does nothing
+   * is a lie the design's "every shortcut is printed where it applies" rule
+   * forbids. Ignored by the `All commands` button, whose name is fixed.
    */
   hint?: string | null;
   /** Expanded width in px. Collapsed is always 60. */
@@ -99,6 +159,18 @@ export function SideRail(p: SideRailProps) {
   const anyInteractive = eligible.includes(true);
   const roving = useRoving(eligible, active);
 
+  if ((p.acts?.length ?? 0) > 4) {
+    warnOnce("SideRail: the act section holds at most four rows (D52 §1); move the least frequent act to the palette.");
+  }
+  // Collapsed, a row is an icon: an act whose effect, cost or reason is part
+  // of what it IS cannot be drawn there without hiding it (D52 §8, V6).
+  const acts = (p.acts ?? []).filter((it) => expanded || (!it.effect && !it.cost && !it.why));
+  const actEligible = acts.map((it) => Boolean(it.onClick));
+  // No act is ever "selected": the stop is the last act focused, else the first.
+  const actRoving = useRoving(actEligible, -1);
+  const anyAct = actEligible.includes(true);
+  const middleScrolls = anyInteractive || anyAct;
+
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -111,6 +183,17 @@ export function SideRail(p: SideRailProps) {
     event.preventDefault();
     if (edge) focusEdge(event.currentTarget, edge, '[role="tab"][tabindex]');
     else focusSibling(event.currentTarget, delta, '[role="tab"][tabindex]');
+  }
+
+  // ⏎ and space are the button's own, so each invokes exactly once. The arrows
+  // walk this toolbar only and never cross the divider into the tablist.
+  function onActKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const edge = edgeFor(event.key);
+    const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (delta === 0 && !edge) return;
+    event.preventDefault();
+    if (edge) focusEdge(event.currentTarget, edge, "[data-rail-act]");
+    else focusSibling(event.currentTarget, delta, "[data-rail-act]");
   }
 
   const rail: CSSProperties = {
@@ -180,84 +263,124 @@ export function SideRail(p: SideRailProps) {
         ) : null}
       </div>
 
+      {/* The middle scrolls in a short viewport; the wordmark above it and the
+          footer below it stay pinned. Only a middle with controls in it
+          scrolls: those controls are what reach a scrolled-off row from the
+          keyboard, and a picture of a rail has none, as before acts. A
+          picture above an operable All commands is clipped instead, so the
+          rail's one control is never pushed out of it. */}
       <div
-        style={{ display: "flex", flexDirection: "column", gap: 3 }}
-        role={anyInteractive ? "tablist" : undefined}
-        aria-orientation={anyInteractive ? "vertical" : undefined}
+        className={middleScrolls ? "bk-side-rail-middle" : undefined}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          ...(!middleScrolls && p.onOpenPalette ? { minHeight: 0, overflow: "hidden" } : null),
+        }}
       >
-        {src.map((it, i) => {
-          const on = i === active;
-          const act = Boolean(it.onClick);
-          const row: CSSProperties = {
-            display: "flex",
-            alignItems: "center",
-            gap: 11,
-            minHeight: act ? undefined : 36,
-            padding: expanded ? "8px 11px" : "8px 0",
-            justifyContent: expanded ? "flex-start" : "center",
-            borderRadius: 10,
-            cursor: act ? "pointer" : "default",
-            background: on ? token("rail-tint-active") : "transparent",
-            color: on ? accent.amber.ink : color.inkMute,
-            ...({
-              "--hv-bg": on ? token("rail-tint-active-hover") : token("hover-veil-firm"),
-              // One step up, never a change of tone: the amber row lifts to
-              // gold, the quiet rows to dim ink.
-              "--hv-fg": on ? accent.gold.ink : color.inkDim,
-            } as CSSProperties),
-          };
-          return (
+        <div
+          style={{ display: "flex", flexDirection: "column", gap: 3 }}
+          role={anyInteractive ? "tablist" : undefined}
+          aria-orientation={anyInteractive ? "vertical" : undefined}
+        >
+          {src.map((it, i) => {
+            const on = i === active;
+            const act = Boolean(it.onClick);
+            const row: CSSProperties = {
+              display: "flex",
+              alignItems: "center",
+              gap: 11,
+              minHeight: act ? undefined : 36,
+              padding: expanded ? "8px 11px" : "8px 0",
+              justifyContent: expanded ? "flex-start" : "center",
+              borderRadius: 10,
+              cursor: act ? "pointer" : "default",
+              background: on ? token("rail-tint-active") : "transparent",
+              color: on ? accent.amber.ink : color.inkMute,
+              ...({
+                "--hv-bg": on ? token("rail-tint-active-hover") : token("hover-veil-firm"),
+                // One step up, never a change of tone: the amber row lifts to
+                // gold, the quiet rows to dim ink.
+                "--hv-fg": on ? accent.gold.ink : color.inkDim,
+              } as CSSProperties),
+            };
+            return (
+              <div
+                key={`${it.label}-${i}`}
+                style={row}
+                // `.bk-row` + `.bk-row-fg`: a rail row fills its container, so the
+                // ring is drawn INSIDE at -2, and its hover moves the background
+                // and the foreground but not a border it does not have.
+                className={act ? "bk-row bk-row-fg" : undefined}
+                role={act ? "tab" : undefined}
+                aria-selected={act ? on : undefined}
+                aria-label={act && !expanded ? it.label : undefined}
+                tabIndex={act ? roving.tabIndexFor(i) : undefined}
+                onClick={it.onClick}
+                onFocus={act ? () => roving.onItemFocus(i) : undefined}
+                onKeyDown={act ? (event) => onKeyDown(event, i) : undefined}
+              >
+                <Icon icon={it.icon} size={17} />
+                {expanded ? (
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", font: `${on ? 600 : 500} 12.5px/1 ${font.body}` }}>
+                    {it.label}
+                  </span>
+                ) : null}
+                {it.badge ? (
+                  <span
+                    style={{
+                      flex: "none",
+                      minWidth: 16,
+                      height: 16,
+                      borderRadius: 999,
+                      background: accent.red.fill,
+                      color: token("chip-count-ink"),
+                      font: `600 9.5px/16px ${font.body}`,
+                      textAlign: "center",
+                      padding: "0 4px",
+                    }}
+                  >
+                    {it.badge}
+                  </span>
+                ) : null}
+                {expanded && it.shortcut ? (
+                  <span style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
+                    {it.shortcut}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        {acts.length > 0 ? (
+          <>
+            <div aria-hidden style={{ flex: "none", height: 1, background: color.line }} />
             <div
-              key={`${it.label}-${i}`}
-              style={row}
-              // `.bk-row` + `.bk-row-fg`: a rail row fills its container, so the
-              // ring is drawn INSIDE at -2, and its hover moves the background
-              // and the foreground but not a border it does not have.
-              className={act ? "bk-row bk-row-fg" : undefined}
-              role={act ? "tab" : undefined}
-              aria-selected={act ? on : undefined}
-              aria-label={act && !expanded ? it.label : undefined}
-              tabIndex={act ? roving.tabIndexFor(i) : undefined}
-              onClick={it.onClick}
-              onFocus={act ? () => roving.onItemFocus(i) : undefined}
-              onKeyDown={act ? (event) => onKeyDown(event, i) : undefined}
+              style={{ display: "flex", flexDirection: "column", gap: 3 }}
+              role={anyAct ? "toolbar" : undefined}
+              aria-orientation={anyAct ? "vertical" : undefined}
+              aria-label={anyAct ? "Acts" : undefined}
             >
-              <Icon icon={it.icon} size={17} />
-              {expanded ? (
-                <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", font: `${on ? 600 : 500} 12.5px/1 ${font.body}` }}>
-                  {it.label}
-                </span>
-              ) : null}
-              {it.badge ? (
-                <span
-                  style={{
-                    flex: "none",
-                    minWidth: 16,
-                    height: 16,
-                    borderRadius: 999,
-                    background: accent.red.fill,
-                    color: token("chip-count-ink"),
-                    font: `600 9.5px/16px ${font.body}`,
-                    textAlign: "center",
-                    padding: "0 4px",
-                  }}
-                >
-                  {it.badge}
-                </span>
-              ) : null}
-              {expanded && it.shortcut ? (
-                <span style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
-                  {it.shortcut}
-                </span>
-              ) : null}
+              {acts.map((it, i) => (
+                <ActRow
+                  key={`${it.label}-${i}`}
+                  act={it}
+                  expanded={expanded}
+                  tabIndex={actEligible[i] ? actRoving.tabIndexFor(i) : undefined}
+                  onFocus={() => actRoving.onItemFocus(i)}
+                  onKeyDown={onActKeyDown}
+                />
+              ))}
             </div>
-          );
-        })}
+          </>
+        ) : null}
       </div>
 
       <div
         style={{
           marginTop: "auto",
+          flex: "none",
           display: "flex",
           flexDirection: "column",
           gap: 11,
@@ -275,7 +398,37 @@ export function SideRail(p: SideRailProps) {
             labelWidth={38}
           />
         ) : null}
-        {showPalette ? (
+        {p.onOpenPalette ? (
+          <button
+            type="button"
+            // A rail row, so `.bk-row`'s inside ring; `bk-side-rail-palette`
+            // gives it the destination rows' 36px, and 44px under a coarse pointer.
+            className="bk-row bk-row-fg bk-side-rail-palette"
+            aria-keyshortcuts="Meta+K"
+            aria-label={expanded ? undefined : PALETTE_NAME}
+            onClick={p.onOpenPalette}
+            style={{
+              ...BUTTON_RESET,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: expanded ? "8px 11px" : "8px 0",
+              justifyContent: expanded ? "flex-start" : "center",
+              borderRadius: 10,
+              cursor: "pointer",
+              color: color.inkMute,
+              font: `500 12.5px/1 ${font.body}`,
+              ...({ "--hv-bg": token("hover-veil-firm"), "--hv-fg": color.inkDim } as CSSProperties),
+            }}
+          >
+            {/* Printed at every width and on every pointer: the one rail key
+                not gated on a fine pointer (D36 addendum). */}
+            <span aria-hidden style={CAP}>
+              ⌘K
+            </span>
+            {expanded ? <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{PALETTE_NAME}</span> : null}
+          </button>
+        ) : showPalette ? (
           <div
             style={{
               display: "flex",
@@ -286,22 +439,132 @@ export function SideRail(p: SideRailProps) {
               color: color.inkMute,
             }}
           >
-            <span
-              style={{
-                flex: "none",
-                border: `1px solid ${color.edge}`,
-                borderRadius: 5,
-                padding: "3px 5px",
-                font: `500 9.5px/1 ${font.mono}`,
-                color: color.inkDim,
-              }}
-            >
-              ⌘K
-            </span>
+            <span style={CAP}>⌘K</span>
             {expanded ? <span>{p.hint ?? "Command palette"}</span> : null}
           </div>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** D52 §2 names the button; the name is the contract, so it is not a prop. */
+const PALETTE_NAME = "All commands";
+
+const CAP: CSSProperties = {
+  flex: "none",
+  border: `1px solid ${color.edge}`,
+  borderRadius: 5,
+  padding: "3px 5px",
+  font: `500 9.5px/1 ${font.mono}`,
+  color: color.inkDim,
+};
+
+/** A `<button>` that draws as a rail row: none of the UA's chrome. */
+const BUTTON_RESET: CSSProperties = {
+  appearance: "none",
+  boxSizing: "border-box",
+  width: "100%",
+  margin: 0,
+  border: 0,
+  background: "transparent",
+  textAlign: "left",
+};
+
+const CHIP: CSSProperties = {
+  flex: "none",
+  border: `1px solid ${color.edge}`,
+  borderRadius: 5,
+  padding: "3px 6px",
+  font: `600 9px/1.3 ${font.mono}`,
+};
+
+interface ActRowProps {
+  act: RailAct;
+  expanded: boolean;
+  tabIndex: 0 | -1 | undefined;
+  onFocus: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+}
+
+/**
+ * One act. A row with a handler is a real `<button>`, so ⏎ and space are the
+ * browser's and fire once; a disabled one stays focusable, says why in text
+ * and in its name, and has no handler to fire. A row without a handler is a
+ * picture of one: no role, no stop, no hover.
+ */
+function ActRow({ act: it, expanded, tabIndex, onFocus, onKeyDown }: ActRowProps) {
+  const off = Boolean(it.why);
+  const live = Boolean(it.onClick);
+  // What the screen prints, the name says: `Daily briefing, spends`, and
+  // `…, unavailable: needs the host` when it cannot run (D52 §2).
+  const name = [it.name ?? it.label, it.effect, it.cost].filter(Boolean).join(", ") + (off ? `, unavailable: ${it.why}` : "");
+  // Disabled dims what the act IS, never what it would do or why it cannot:
+  // the chips and the reason are the text the user has to read at rest.
+  const dim: CSSProperties | undefined = off ? { opacity: 0.45 } : undefined;
+  const body = (
+    <>
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 11,
+          justifyContent: expanded ? "flex-start" : "center",
+        }}
+      >
+        <span style={{ display: "flex", flex: "none", ...dim }}>
+          <Icon icon={it.icon} size={17} />
+        </span>
+        {expanded ? (
+          <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", font: `500 12.5px/1.2 ${font.body}`, ...dim }}>
+            {it.label}
+          </span>
+        ) : null}
+        {expanded && it.cost ? <span style={{ ...CHIP, color: accent.gold.ink }}>{it.cost}</span> : null}
+        {expanded && it.effect ? <span style={{ ...CHIP, color: accent.amber.ink }}>{it.effect}</span> : null}
+      </span>
+      {expanded && it.why ? (
+        <span style={{ paddingLeft: 28, overflowWrap: "anywhere", font: `500 9.5px/1.2 ${font.mono}`, color: color.inkMute }}>
+          {it.why}
+        </span>
+      ) : null}
+    </>
+  );
+  const row: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    gap: 4,
+    padding: expanded ? "8px 11px" : "8px 0",
+    borderRadius: 10,
+    // Never amber: an act is never "here".
+    color: color.inkMute,
+  };
+  if (!live) return <div style={{ ...row, minHeight: 36 }}>{body}</div>;
+  return (
+    <button
+      type="button"
+      data-rail-act=""
+      // Disabled keeps the inside ring and drops the hover lift, so it never
+      // looks like it will do something.
+      className={off ? "bk-row bk-side-rail-act" : "bk-row bk-row-fg bk-side-rail-act"}
+      aria-label={name}
+      aria-disabled={off ? true : undefined}
+      tabIndex={tabIndex}
+      onClick={off ? undefined : it.onClick}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
+      style={{
+        ...BUTTON_RESET,
+        ...row,
+        cursor: off ? "default" : "pointer",
+        ...({
+          "--hv-bg": off ? "transparent" : token("hover-veil-firm"),
+          "--hv-fg": color.inkDim,
+        } as CSSProperties),
+      }}
+    >
+      {body}
+    </button>
   );
 }

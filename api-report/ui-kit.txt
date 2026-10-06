@@ -168,6 +168,7 @@ export "." (./src/index.ts)
   QuoteCard
   type QuoteCardProps
   type QuoteTone
+  type RailAct
   type RailItem
   RankList
   type RankListProps
@@ -1461,6 +1462,16 @@ signatures (every public export and the types it is made of)
     }
   QuoteTone (packages/ui-kit/src/types.ts)
     export type QuoteTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  RailAct (packages/ui-kit/src/desktop/SideRail.tsx)
+    export interface RailAct {
+        icon: IconName;
+        label: string;
+        name?: string;
+        effect?: string;
+        cost?: string;
+        why?: string;
+        onClick?: () => void;
+    }
   RailItem (packages/ui-kit/src/desktop/SideRail.tsx)
     export interface RailItem {
         icon: IconName;
@@ -1605,6 +1616,8 @@ signatures (every public export and the types it is made of)
   SideRailProps (packages/ui-kit/src/desktop/SideRail.tsx)
     export interface SideRailProps {
         items?: RailItem[];
+        acts?: RailAct[];
+        onOpenPalette?: () => void;
         active?: number;
         expanded?: boolean;
         status?: string;
