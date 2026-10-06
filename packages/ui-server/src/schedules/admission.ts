@@ -136,11 +136,16 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         // A settled reservation means Activity holds the turn's terminal
         // receipt: the backend finished and unwound (a yield, say) and only
         // the schedule outcome is missing. That is a known outcome.
+        // Retention may have pruned the spans; the rollup keeps the outcome.
         const root = reservation?.status === "settled"
-          ? db.query("SELECT outcome, ended_at FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1")
-            .get(attempt.run_id) as { outcome: string | null; ended_at: number | null } | null
+          ? (db.query("SELECT outcome, ended_at FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1")
+            .get(attempt.run_id) ?? db.query("SELECT outcome, ended_at FROM activity_run_rollups WHERE run_id = ?").get(attempt.run_id)) as
+            { outcome: string | null; ended_at: number | null } | null
           : null;
-        const receipt = root?.outcome ?? null;
+        // Only the backend's own terminal result is completion evidence. The
+        // orphan sweep closes a dead worker's root as `interrupted` and settles
+        // its reservation: that proves nothing about what the backend did.
+        const receipt = root?.outcome && ["success", "error", "cancelled", "timeout", "denied"].includes(root.outcome) ? root.outcome : null;
         // Without a receipt, a claim inside its lease may belong to a worker still starting up.
         if (receipt === null && item?.status === "claimed" && item.runId === attempt.run_id && (item.leaseUntil ?? 0) > at) continue;
         const occurrence = occurrenceRow(attempt.occurrence_id)!;

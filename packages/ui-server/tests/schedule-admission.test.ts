@@ -457,6 +457,44 @@ test("recovery settles a finished turn from its receipt even while its claim's l
   expect(await h.admission.admit()).toHaveLength(1);
 });
 
+/** Run one successful attempt, then rewind to "the turn settled, the dispatcher died before recording it". */
+async function settledButUnrecorded(f: ScheduleFixture, key: string) {
+  const at = f.clock.now + MINUTE;
+  const task = await create(f, key, cronDefinition("* * * * *"));
+  const h = harness(f, succeed("Finished; nothing recorded the schedule outcome."));
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  await h.runtime.tick();
+  const attempt = f.db.query("SELECT * FROM schedule_attempts").get() as { run_id: string; item_id: string; started_at: number; deadline_at: number };
+  f.db.query("DELETE FROM schedule_attempts").run();
+  f.db.query("INSERT INTO schedule_attempts (run_id, occurrence_id, item_id, started_at, deadline_at) VALUES (?, ?, ?, ?, ?)")
+    .run(attempt.run_id, id, attempt.item_id, attempt.started_at, attempt.deadline_at);
+  f.db.query("UPDATE schedule_occurrences SET state = 'running', result_state = 'unavailable', result_text = NULL WHERE id = ?").run(id);
+  return { h, id: id!, task, runId: attempt.run_id };
+}
+
+test("an orphan sweep's synthetic interrupted root is not completion evidence", async () => {
+  const f = fixture = start();
+  const { h, id, task, runId } = await settledButUnrecorded(f, "ithaca-swept");
+  // What Activity's startup sweep writes for a dead worker's open root.
+  f.db.query("UPDATE activity_spans SET outcome = 'interrupted' WHERE run_id = ? AND parent_span_id IS NULL").run(runId);
+  f.db.query("UPDATE activity_run_rollups SET outcome = 'interrupted' WHERE run_id = ?").run(runId);
+  expect(h.admission.recover()).toBe(1);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "unknown" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "unknown" });
+  expect((await h.service.list(f.owner, { id: task.id })).tasks[0]).toMatchObject({ state: "paused", blockedReason: "unknown_effect" });
+});
+
+test("a pruned run's retained rollup still proves its outcome to recovery", async () => {
+  const f = fixture = start();
+  const { h, id, runId } = await settledButUnrecorded(f, "ithaca-pruned");
+  f.db.query("DELETE FROM activity_spans WHERE run_id = ?").run(runId);
+  expect(f.db.query("SELECT outcome FROM activity_run_rollups WHERE run_id = ?").get(runId)).toEqual({ outcome: "success" });
+  expect(h.admission.recover()).toBe(1);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "success" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "completed" });
+});
+
 test("an item the Queue expired late still leaves the latest fresh instant for catch-up", async () => {
   const f = fixture = start();
   const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;
