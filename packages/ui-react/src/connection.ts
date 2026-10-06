@@ -321,6 +321,8 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
     if (msg.type === "session_queue") {
+      // Requests the host holds were accepted, a held send among them (#951).
+      drafts.queued(msg);
       adoptQueuedMessages(msg);
       const started = root.stores.followUp.getState().applyReport(msg);
       if (started) placeStartedFollowUp(started);
@@ -342,7 +344,10 @@ export function createWebSocketClient(root: BrainUiServices) {
         const turnId = (msg as { turnId?: string }).turnId;
         if (started) placeStartedFollowUp({ ...started, sessionId: msg.sessionId, ...(turnId ? { turnId } : {}) });
       }
-    } else if (msg.type === "error" && msg.requestId) {
+    } else if (msg.type === "error" && !msg.requestId) {
+      drafts.error(msg);
+    }
+    if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
       // A turn-scoped error means the request ran: it was accepted, then failed.
       if (drafts.receipt(msg.requestId, msg.turnId ? "accepted" : "refused", msg.sessionId)) state.clearChatReceipt(msg.requestId);

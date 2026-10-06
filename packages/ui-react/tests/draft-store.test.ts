@@ -144,6 +144,23 @@ describe("sends are snapshots", () => {
     expect(state().drafts[first]?.text).toBe("Which harbour?");
   });
 
+  test("a first save acknowledged unbound after the send bound its draft moves the content to that session", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const first = state().fresh;
+    state().edit(first, null, { text: "Which harbour?" });
+    state().saving(first, 1);
+    state().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: message("Which harbour?") }, "Which harbour?");
+    state().edit(first, null, { text: "And the fees" });
+    state().accepted("req-1", ITHACA);
+    // The save that was out when the message left is acknowledged now, unbound.
+    state().saved(first, { revision: 1, edit: 1, sessionId: null, attachmentIds: [], updatedAt: 1 }, new Map());
+    const now = state().drafts[state().idFor(ITHACA)]!;
+    expect(now.draftId).not.toBe(first);
+    expect(now).toMatchObject({ text: "And the fees", sessionId: ITHACA, host: null });
+    expect(state().orphans).toEqual([{ draftId: first, revision: 1 }]);
+  });
+
   test("a refused or unsent send gives its text and images back, ahead of newer edits", () => {
     const { state } = store();
     const id = state().idFor(RAFT);

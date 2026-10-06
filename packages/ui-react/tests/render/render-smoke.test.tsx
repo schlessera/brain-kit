@@ -5325,7 +5325,7 @@ describe("one-message composer effort", () => {
       // (The composer's own `send` is the host here, so the frame goes through the root.)
       const resent = held()[0]!;
       expect(resent.message.thinkingLevel).toBe("high");
-      act(() => h.root.stores.connection.getState().reportError("RATE_LIMITED", "Slow down"));
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "RATE_LIMITED", message: "Slow down" }));
       expect(held()).toHaveLength(1);
       act(() => h.root.stores.drafts.getState().editSend(resent.requestId));
       expect(h.field().value).toBe("unconfirmed");
@@ -5378,6 +5378,19 @@ describe("one-message composer effort", () => {
       act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[1].requestId }));
       expect(h.field().value).toBe("");
       expect(h.view.queryByText("· max")).toBeNull();
+    } finally { h.done(); }
+  });
+
+  test("an acknowledgement that empties the session's draft keeps an effort chosen meanwhile", async () => {
+    const h = await mounted();
+    try {
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      h.choose("high"); h.type("queued"); h.send();
+      h.choose("max");
+      // Nothing typed since: acceptance forgets the emptied draft, and the
+      // view's draft id changes, inside the same session (#951).
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[0].requestId }));
+      expect(h.view.getByText("· max")).toBeTruthy();
     } finally { h.done(); }
   });
 
@@ -6086,7 +6099,9 @@ describe("composer track intake", () => {
       expect(user!.files).toHaveLength(2); expect(user!.files![0]!.summary!.measurements.distance.value!).toBeGreaterThan(9900);
       h.type("Next draft"); h.pick(["Next track"]);
       await act(async () => h.ready(2, "Next track"));
-      act(() => h.root.stores.chat.getState().setChatReceipt(h.sent[0]!.requestId!, "accepted"));
+      // The host's acceptance, as the socket delivers it (#951: the draft
+      // client settles sends from frames, and the new chat becomes its session).
+      act(() => h.root.connection.handleServerMessage({ type: "session_info", sessionId: "track-ui", isNew: true, requestId: h.sent[0]!.requestId!, draftId: h.sent[0]!.draftId }));
       expect(h.field().value).toBe("Next draft");
       expect(h.view.queryByRole("button", { name: "Remove Ithaca loop" })).toBeNull();
       expect(h.view.getByRole("button", { name: "Remove Next track" })).toBeTruthy();

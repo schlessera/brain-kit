@@ -34,7 +34,7 @@ const SAVE_DELAY_MS = 800;
 /** Backoff for a save that got no answer or a transient refusal. */
 const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
 
-/** Errors the host sends for a frame it could not tie to a request. */
+/** Errors the host sends for a frame it could not tie to a request, when they name none. */
 const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
 
 export interface DraftClientOptions {
@@ -283,17 +283,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (state.orphans.length > 0 && state.orphans !== prev.orphans) flushOrphans();
   });
 
-  // Silence from the host about a send: the socket closed, or it refused a
-  // frame it could not tie to a request.
-  const unsubscribeConnection = root.stores.connection.subscribe((state, prev) => {
-    let reason: "disconnected" | "uncorrelated" | null = null;
-    if (prev.wsStatus === "connected" && state.wsStatus !== "connected") reason = "disconnected";
-    else if (state.lastError && state.lastError !== prev.lastError && UNCORRELATED.includes(state.lastError.code)) reason = "uncorrelated";
-    if (!reason) return;
+  /** Every send still waiting is held for review: nothing will answer for it now. */
+  function holdPending(reason: "disconnected" | "uncorrelated") {
     for (const requestId of drafts.getState().unconfirmed(reason)) {
       const send = drafts.getState().sends[requestId];
       if (send) withdraw(send);
     }
+  }
+
+  // Silence from the host about a send: the socket closed.
+  const unsubscribeConnection = root.stores.connection.subscribe((state, prev) => {
+    if (prev.wsStatus === "connected" && state.wsStatus !== "connected") holdPending("disconnected");
   });
 
   const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
@@ -316,6 +316,26 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       retryFull();
       void refresh();
       for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
+    },
+
+    /**
+     * An `error` frame. One that names no request and is a frame-level
+     * refusal may have been any send's: every waiting send is held. One that
+     * names its request settles only that one, through `receipt`.
+     */
+    error(msg: Extract<ServerMessage, { type: "error" }>): void {
+      if (!msg.requestId && UNCORRELATED.includes(msg.code)) holdPending("uncorrelated");
+    },
+
+    /** A queue report names requests the host holds: each was accepted. They stay pending pills, not rows. */
+    queued(msg: Extract<ServerMessage, { type: "session_queue" }>): void {
+      const ids = [...msg.followUps.map((f) => f.requestId), msg.started?.requestId].filter((id): id is string => Boolean(id));
+      for (const requestId of ids) {
+        const send = drafts.getState().sends[requestId];
+        if (!send || send.state === "accepted" || send.state === "refused") continue;
+        drafts.getState().accepted(requestId, msg.sessionId);
+        acceptedTracks(send, msg.sessionId);
+      }
     },
 
     /** A host frame that names a chat request: it accepted or refused exactly that one. */
@@ -378,7 +398,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         options.send({ type: "session_resume", sessionId });
         return;
       }
-      drafts.getState().setChecked(requestId, "not_accepted");
+      // Another request is the latest: this one may have been accepted
+      // before it, or never. That proves neither (D52 §6 names only the latest).
+      drafts.getState().setChecked(requestId, "cant_check", "the host's latest is another message");
     },
 
     dispose(): void {

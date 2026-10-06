@@ -94,7 +94,7 @@ export interface DraftSend {
   /** Why it is unconfirmed: the socket went, or the host refused a frame it did not name. */
   reason?: "disconnected" | "uncorrelated";
   /** What the last `Check again` found, until the next. */
-  checked?: "not_accepted" | "cant_check" | "checking";
+  checked?: "cant_check" | "checking";
   checkReason?: string;
   acceptedSessionId?: string;
   sentAt: number;
@@ -465,6 +465,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const kept = new Map([...uploads].filter(([, id]) => listed.has(id)));
         for (const [a, id] of d.uploads) if (!kept.has(a) && d.attachments.includes(a) && !listed.has(id)) kept.set(a, id);
         put({ ...d, host: copy, uploads: kept, failure: null, savingSince: null });
+        // Acknowledged unbound after this page's send bound the draft to a
+        // session: no message named this revision, so nothing can bind it.
+        // The content moves to a new id of that session; the old one goes.
+        if (d.sessionId !== null && copy.sessionId !== d.sessionId && !d.bind) {
+          rotate(get().drafts[draftId]!, d.sessionId);
+          return;
+        }
         settle(draftId);
       },
 

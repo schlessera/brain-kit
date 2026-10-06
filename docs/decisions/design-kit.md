@@ -5158,9 +5158,11 @@ question-answer rules are independent.
 > - The review block's reason reads `The connection dropped before the host
 >   confirmed it got this.`, or, for a refusal that named no request, `The
 >   host refused a message without saying which, so it may not have got
->   this.` `Check again` prints `Checked: not accepted.` or `Can't check ·
->   {reason}`; a first message has no session to read, so its reason is
->   `no session yet`. Send again sends the same snapshot under a new request
+>   this.` The envelope names only the latest request, so `Check again`
+>   finds a held send accepted only when it is that request; a different
+>   latest proves neither, and it prints `Can't check · the host's latest is
+>   another message`. Other reasons follow §6's rows; a first message has no
+>   session to read, so its reason is `no session yet`. Send again sends the same snapshot under a new request
 >   id, naming the revision only while the host still holds it.
 > - Track files are uploads staged for a message, not draft content: they
 >   stay with their session (or new chat) on this page, in the field until

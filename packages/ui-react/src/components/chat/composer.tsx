@@ -165,10 +165,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     setEffort((current) => namedDraft && current !== pendingSend.effort ? { ...current, key: sessionId } : { key: sessionId });
     setEffortNotice("");
     setHeldSend(false);
-    setAttachErrors([]);
     // Settled sends consume a choice below; this runs only when identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, draftId]);
+  }, [sessionId]);
+  // Another draft in view (a Draft entry, or a send's content moved to a new
+  // id): its errors are not this one's. Effort follows the session, not the id.
+  useEffect(() => { setAttachErrors([]); }, [draftId]);
   useEffect(() => {
     if (!pendingSend || !sendState || sendState.state === "pending") return;
     const visible = sessionId === pendingSend.key || (pendingSend.key === null && sessionId === sendState.acceptedSessionId);
@@ -437,8 +439,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (requestId) {
       if (sent === false) {
         setPendingSend(null);
-        // Nothing left: the snapshot goes back into the draft, whole.
+        // Nothing left: the snapshot goes back into the draft, whole. It holds
+        // the dictated words too, so the review is not kept beside them.
         drafts.sendFailed(requestId);
+        clearReview();
         chat.withdrawSend(sessionId, requestId);
         if (pendingFollowUp) root.stores.followUp.getState().dropLocal(requestId);
         root.stores.connection.getState().reportError("CHAT_NOT_SENT", "The message could not be sent. Your draft is kept.");

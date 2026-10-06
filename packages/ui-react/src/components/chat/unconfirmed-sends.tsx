@@ -41,9 +41,7 @@ function UnconfirmedSend({ send }: { send: DraftSend }) {
   const why = send.reason === "uncorrelated"
     ? "The host refused a message without saying which, so it may not have got this."
     : "The connection dropped before the host confirmed it got this.";
-  const checked = send.checked === "not_accepted"
-    ? "Checked: not accepted."
-    : send.checked === "cant_check"
+  const checked = send.checked === "cant_check"
       ? `Can't check · ${send.checkReason ?? "host unreachable"}`
       : send.checked === "checking" ? "Checking…" : null;
   const images = send.attachments.length;

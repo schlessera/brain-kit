@@ -27,6 +27,8 @@ function fakeHost() {
     if (down) throw new TypeError("fetch failed");
     const headers = new Headers(init.headers);
     const m = /^\/api\/drafts(?:\/([^/]+))?(\/attachments|\/bind)?$/.exec(pathname);
+    const recovery = /^\/api\/sessions\/([^/]+)\/recovery$/.exec(pathname);
+    if (recovery) return json({ sessionId: recovery[1], backendId: null, revision: 3, latest: { requestId: "req-newer", turnId: "t-3", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 }, pending: [] });
     if (!m) return json({ error: "not_found" }, 404);
     const [, id, sub] = m;
     if (!id) return json({ drafts: [...rows.values()].filter((r) => !r.deleted).map((r) => ({ draftId: r.draftId, sessionId: r.sessionId, revision: r.revision, updatedAt: r.updatedAt, preview: r.text.split("\n")[0] ?? "", attachmentCount: r.attachments.length })) });
@@ -294,6 +296,52 @@ describe("sends", () => {
     expect(after.buffers[ITHACA]?.messages.find((m) => m.role === "user")?.content, "the transcript is its session's").toBe("Which harbour is safest?");
     expect(drafts().drafts[second]?.text).toBe("Letter to Penelope");
     expect(drafts().drafts[drafts().idFor(ITHACA)]?.text, "the newer words are that session's draft").toBe("Also the fees");
+  });
+
+  test("a queue report settles a held send it names: it is the host's, and Send again has nothing to do", async () => {
+    const host = fakeHost();
+    const { ui, socket, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    drafts().beginSend({ requestId: "req-q", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-q", source: "typed" } }, "Ask Aeolus");
+    socket.close();
+    await until(() => drafts().sends["req-q"]?.state === "unconfirmed");
+    ui.connection.reconnectNow();
+    const next = FixtureSocket.last!;
+    next.open();
+    next.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, followUpQueue: true } });
+    next.deliver({ type: "session_queue", sessionId: ITHACA, followUps: [{ id: "fu-1", requestId: "req-q", text: "Ask Aeolus", queuedAt: 1 }] });
+    expect(drafts().sends["req-q"]?.state).toBe("accepted");
+    expect(ui.connection.drafts.resend("req-q")).toBe(false);
+    expect(next.frames("chat_message")).toHaveLength(0);
+  });
+
+  test("an error naming A's request refuses A and leaves B waiting", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    for (const [rid, session] of [["req-a", ITHACA], ["req-b", "odysseus-raft"]] as const) {
+      const id = drafts().idFor(session);
+      drafts().edit(id, session, { text: rid });
+      drafts().beginSend({ requestId: rid, draftId: id, sessionId: session, text: rid, attachments: [], message: { type: "chat_message", text: rid, sessionId: session, requestId: rid, source: "typed" } }, rid);
+    }
+    socket.deliver({ type: "error", code: "INTERNAL_ERROR", message: "failed", sessionId: ITHACA, requestId: "req-a" });
+    expect(drafts().sends["req-a"]?.state).toBe("refused");
+    expect(drafts().sends["req-b"]?.state).toBe("pending");
+    // One that names nothing may have been either: what still waits is held.
+    socket.deliver({ type: "error", code: "INTERNAL_ERROR", message: "failed" });
+    expect(drafts().sends["req-b"]?.state).toBe("unconfirmed");
+  });
+
+  test("Check again with another request as the host's latest proves nothing either way", async () => {
+    const host = fakeHost();
+    const { ui, socket, drafts } = boot(host, { chatRequestAck: true, sessionDrafts: true, sessionRecovery: true });
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    drafts().beginSend({ requestId: "req-old", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-old", source: "typed" } }, "Ask Aeolus");
+    socket.close();
+    await until(() => drafts().sends["req-old"]?.state === "unconfirmed");
+    await ui.connection.drafts.check("req-old");
+    expect(drafts().sends["req-old"]).toMatchObject({ state: "unconfirmed", checked: "cant_check", checkReason: "the host's latest is another message" });
   });
 
   test("a late acceptance for A settles only A's send, never another draft's words", async () => {
