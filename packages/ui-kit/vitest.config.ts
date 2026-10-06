@@ -63,11 +63,12 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
   extends: true,
   test: {
     name: `rail-${mode}`,
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx"],
+    // The app's own rail and palette (#946) run here too, for the real pointer.
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, formViewport, buttonPointer, overlayMouse },
+      commands: { rankTouch, formViewport, formConsumerStyles, buttonPointer, overlayMouse },
       provider: playwright({
         launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },

@@ -44,6 +44,15 @@ export interface UIState {
   filePanelOpen: boolean;
   settingsPanelOpen: boolean;
   settingsTab: SettingsTab;
+  /**
+   * @internal The desktop command palette, open or not. Kept in the root's
+   * store so the rail's `All commands` button opens this application's
+   * palette and never another mounted root's (D52 §1). Not a panel: it
+   * floats over whatever is open and leaves it be.
+   */
+  paletteOpen: boolean;
+  /** @internal Opens or closes this root's command palette. */
+  setPaletteOpen: (open: boolean) => void;
   settingsNavigationProtected: boolean;
   setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
   /** Switch the full-screen view; closes any open panel so the new view starts clean. */
@@ -103,6 +112,8 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
     ...CLOSED,
     activeView: "chat",
     settingsTab: "models",
+    paletteOpen: false,
+    setPaletteOpen: (open) => set({ paletteOpen: open }),
     settingsNavigationProtected: false,
     setSettingsNavigationGuard: (guard) => { navigationGuard = guard; set({ settingsNavigationProtected: guard !== null }); },
     theme: isThemePreference(stored) ? stored : "dark",

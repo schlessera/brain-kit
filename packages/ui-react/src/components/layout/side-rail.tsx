@@ -1,4 +1,4 @@
-import { SideRail as KitSideRail, type RailItem } from "@schlessera/brain-ui-kit";
+import { SideRail as KitSideRail, type RailAct, type RailItem } from "@schlessera/brain-ui-kit";
 import { useEffect } from "react";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
@@ -6,21 +6,27 @@ import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
+import { useDesktopRoutes } from "./desktop-routes.js";
 
 /**
  * The desktop navigation, on the kit's `SideRail`. The kit owns the rail —
- * the one roving tab stop, the amber destination, the badge, the collapsed
- * and expanded widths; this file owns what the destinations DO, which of
- * them is "here", and the ⌘1–⌘5 keys the design prints beside them (D36:
- * anything global takes a modifier).
+ * the roving tab stops, the amber destination, the badge, the collapsed and
+ * expanded widths; this file owns which destination is "here", the ⌘1–⌘5
+ * keys the design prints beside them (D36: anything global takes a
+ * modifier) and which acts sit under them. What each one DOES comes from
+ * `useDesktopRoutes`, which the palette shares.
  *
- * The five destinations are the design's (D37): Chat · Actions · Files ·
- * Graph · Settings, the same five and the same order as the phone bar.
- * Activity is not among them — "what needs me" and "what has been happening"
- * are two lenses on one queue, so the Actions pane carries a filter and the
- * badge counts what needs you: live approvals plus open durable decisions. The acts
- * the old rail carried (New chat, Sessions, Sync, the briefing) live in the
- * ⌘K palette and the Chat header.
+ * The five destinations are D52's: Chat · Sessions · Actions · Files ·
+ * Settings, on ⌘1–⌘5. Graph is no longer a destination: it is reached
+ * through All commands and has no key. Activity is not among them — "what
+ * needs me" and "what has been happening" are two lenses on one queue, so
+ * the Actions pane carries a filter and the badge counts what needs you:
+ * live approvals plus open durable decisions.
+ *
+ * Under them sit the acts (D52 §1): Search, Add a note and the Daily
+ * briefing, printing `spends`. Collapsed, the kit draws only the two that
+ * need no words, and the briefing is reached through All commands. The
+ * footer is the `All commands` button, which opens this root's palette.
  *
  * Widths follow D22's ladder: the phone bar to 479px, this rail collapsed
  * to 60px from 480 (`tablet:`), expanded to 208px from 900 (`laptop:`). The
@@ -29,20 +35,20 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  * landscape crosses `tablet:` with nothing to press ⌘ on, so the caps are
  * printed only while a fine pointer is present (#86). The bindings below
  * stay registered either way — a paired keyboard fires them even if the
- * query stays coarse.
+ * query stays coarse. All commands prints ⌘K at every width and on every
+ * pointer, which is the kit's (D36 addendum).
  *
  * The connection status takes the wordmark's line: teal while live, amber
  * while reconnecting, red when the socket is gone. No spend meter — the app
- * tracks no spend — and the ⌘K cap is real, because the palette is.
+ * tracks no spend.
  */
 export function SideRail() {
   const wsStatus = useConnectionStore((s) => s.wsStatus);
   const activeView = useUIStore((s) => s.activeView);
-  const setActiveView = useUIStore((s) => s.setActiveView);
   const filePanelOpen = useUIStore((s) => s.filePanelOpen);
   const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
-  const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
-  const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
+  const sessionPanelOpen = useUIStore((s) => s.sessionPanelOpen);
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   // Open, non-FYI durable decisions (#684). Run notices have their own count
   // in the Actions list and no longer badge: a notice is a fact, not a question.
   const decisionCount = useInboxStore(pendingDecisionCount);
@@ -50,24 +56,28 @@ export function SideRail() {
   const needsYou = decisionCount + approvalCount;
   const expanded = useMediaQuery("(min-width: 900px)");
   const finePointer = useFinePointer();
-  const cap = (key: string) => (finePointer ? key : undefined);
+  const routes = useDesktopRoutes();
 
-  const items: RailItem[] = [
-    { icon: "brain", label: "Chat", shortcut: cap("⌘1"), onClick: () => setActiveView("chat") },
-    {
-      icon: "resolved",
-      label: "Actions",
-      shortcut: cap("⌘2"),
-      badge: needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
-      onClick: () => setActiveView("activity"),
-    },
-    { icon: "files", label: "Files", shortcut: cap("⌘3"), onClick: toggleFilePanel },
-    { icon: "graph", label: "Graph", shortcut: cap("⌘4"), onClick: () => setActiveView("graph") },
-    { icon: "settings", label: "Settings", shortcut: cap("⌘5"), onClick: toggleSettingsPanel },
+  const items: RailItem[] = routes.destinations.map((d) => ({
+    icon: d.icon,
+    label: d.label,
+    shortcut: finePointer ? d.key : undefined,
+    badge: d.label === "Actions" && needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
+    onClick: d.go,
+  }));
+
+  // The palette's own routes, so availability and cost cannot drift: Search
+  // and Add are REST and always run; the briefing spends and says why not.
+  const acts: RailAct[] = [
+    { icon: "search", label: "Search", name: "Search the brain", onClick: routes.search },
+    { icon: "add", label: "Add a note", onClick: routes.add },
+    { icon: "sunrise", label: "Daily briefing", cost: "spends", why: routes.why, onClick: routes.briefing },
   ];
 
   // A panel over the view is "here" while it is open; otherwise the view is.
-  const active = filePanelOpen ? 2 : settingsPanelOpen ? 4 : activeView === "chat" ? 0 : activeView === "activity" ? 1 : 3;
+  // Graph is no destination, so while it shows no row is amber.
+  const active = sessionPanelOpen ? 1 : filePanelOpen ? 3 : settingsPanelOpen ? 4
+    : activeView === "chat" ? 0 : activeView === "activity" ? 2 : -1;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -86,12 +96,13 @@ export function SideRail() {
     <nav aria-label="Primary" className="hidden tablet:flex shrink-0">
       <KitSideRail
         items={items}
+        acts={acts}
         active={active}
         expanded={expanded}
         status={wsStatus === "connected" ? "live" : wsStatus === "connecting" ? "reconnecting" : "offline"}
         statusTone={wsStatus === "connected" ? "teal" : wsStatus === "connecting" ? "amber" : "red"}
         spendPct={null}
-        hint="Command palette"
+        onOpenPalette={() => setPaletteOpen(true)}
       />
     </nav>
   );
