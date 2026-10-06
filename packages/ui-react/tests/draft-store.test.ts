@@ -169,7 +169,8 @@ describe("sends are snapshots", () => {
     state().beginSend({ requestId: "req-1", draftId: id, sessionId: RAFT, text: "Lash the beams", attachments: [sail], message: message("Lash the beams") }, "Lash the beams");
     state().edit(id, RAFT, { text: "with Calypso's rope" });
     state().refused("req-1");
-    expect(state().drafts[id]).toMatchObject({ text: "Lash the beams\nwith Calypso's rope", attachments: [sail] });
+    expect(state().drafts[id]).toMatchObject({ text: "Lash the beams\nwith Calypso's rope" });
+    expect(state().drafts[id]!.attachments.map((a) => a.attachment)).toEqual([sail.attachment]);
   });
 
   test("an unconfirmed send waits for the reader; Edit puts it back, Send again re-keys it", () => {
@@ -357,6 +358,19 @@ describe("the host's versions", () => {
     state().accepted("req-1", ITHACA);
     state().release();
     expect(revoked).toEqual([kept.previewUrl]);
+  });
+
+  test("images a refused message gives back get previews of their own", () => {
+    const { state } = store();
+    const id = state().idFor(RAFT);
+    const sail = image("sail.png");
+    state().edit(id, RAFT, { text: "Lash", attachments: [sail] });
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: RAFT, text: "Lash", attachments: [sail], message: message("Lash") }, "Lash");
+    state().refused("req-1");
+    const back = state().drafts[id]!.attachments[0]!;
+    expect(back.previewUrl, "not the transcript's URL").not.toBe(sail.previewUrl);
+    expect(back.previewUrl.startsWith("data:image/png;base64,")).toBe(true);
+    expect(back.attachment).toEqual(sail.attachment);
   });
 
   test("saved is printed only for the acknowledged edit", () => {

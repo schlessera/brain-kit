@@ -17,6 +17,8 @@ function fakeHost() {
   const calls: string[] = [];
   let down = false;
   let full = false;
+  let maxText = Infinity;
+  let getHold: Promise<void> | null = null;
   let slow: Promise<void> | null = null;
   let seq = 0;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -41,7 +43,12 @@ function fakeHost() {
       images.set(attachmentId, { draftId: id, mime: headers.get("content-type")!, bytes, name: null });
       return json({ attachmentId });
     }
-    if (method === "GET") return row && !row.deleted ? json(row) : json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
+    if (method === "GET") {
+      // The answer is what the host held when the read arrived, however late it lands.
+      const now = rows.get(id);
+      if (getHold) await getHold;
+      return now && !now.deleted ? json(now) : json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
+    }
     if (method === "DELETE") {
       if (!row) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
       if (row.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
@@ -53,6 +60,7 @@ function fakeHost() {
       if (slow) await slow;
       const body = JSON.parse(String(init.body)) as { sessionId: string | null; text: string; attachmentIds: string[] };
       if (full && !row) return json({ error: "DRAFT_CAPACITY", message: "full", limit: 100, bound: "drafts" }, 507);
+      if (body.text.length > maxText) return json({ error: "DRAFT_TOO_LARGE", message: "too large", limit: maxText, bound: "text" }, 413);
       if (row?.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
       if (row && ifMatch !== row.revision) return conflict(row);
       if (!row && ifMatch !== 0) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
@@ -69,6 +77,9 @@ function fakeHost() {
     rows, calls, request,
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
+    setMaxText: (value: number) => { maxText = value; },
+    /** Hold every draft read until the returned release is called. */
+    holdGets: () => { let release!: () => void; getHold = new Promise<void>((r) => { release = r; }); return () => { getHold = null; release(); }; },
     /** Hold every save until the returned release is called. */
     hold: () => { let release!: () => void; slow = new Promise<void>((r) => { release = r; }); return () => { slow = null; release(); }; },
   };
@@ -238,6 +249,42 @@ describe("orphans", () => {
     ui.stores.drafts.setState((s) => ({ orphans: [...s.orphans, { draftId: "d-gone", revision: 3 }] }));
     await wait(300);
     expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone").length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("stale answers", () => {
+  test("a size refusal of an older edit does not block the shorter one typed since", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    host.setMaxText(10);
+    const id = drafts().idFor(ITHACA);
+    const release = host.hold();
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus for every wind in the bag" });
+    await until(() => host.calls.includes(`PUT /drafts/${id}`));
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    release();
+    await until(() => host.rows.get(id)?.text === "Ask Aeolus");
+    expect(drafts().drafts[id]?.failure).toBeNull();
+  });
+
+  test("a read begun before this page's send consumed the draft does not bring it back", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => host.rows.get(id)?.revision === 1);
+    // Another device saved a newer revision; a list starts a read of it.
+    host.rows.set(id, { ...host.rows.get(id)!, revision: 2, text: "Ask Aeolus, from the phone" });
+    const release = host.holdGets();
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => host.calls.includes(`GET /drafts/${id}`));
+    // Meanwhile the host accepts a send of it and deletes it.
+    drafts().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-1", source: "typed" } }, "Ask Aeolus");
+    socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-1" });
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true });
+    release();
+    await wait(200);
+    expect(Object.values(drafts().drafts).some((d) => d.text === "Ask Aeolus, from the phone"), "the stale read restores nothing").toBe(false);
   });
 });
 

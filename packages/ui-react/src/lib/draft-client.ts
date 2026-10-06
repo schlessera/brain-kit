@@ -88,10 +88,18 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
   function bumpHost(draftId: string) { hostSeq.set(draftId, (hostSeq.get(draftId) ?? 0) + 1); }
 
-  /** A failed call's meaning for the draft. True when it was handled and should not be retried. */
-  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>): void {
+  /**
+   * A failed call's meaning for the draft. `edit` is the generation the
+   * call carried: a size or capacity refusal of an older edit says nothing
+   * about the content now, which is tried again instead.
+   */
+  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>, edit?: number): void {
     const body = result.body;
     const store = drafts.getState();
+    if ((result.status === 413 || result.status === 507) && edit !== undefined && store.drafts[draftId]?.edit !== edit) {
+      schedule(draftId, 0);
+      return;
+    }
     if (result.status === 409 && body.error === "DRAFT_CONFLICT" && body.current) {
       store.conflictWith(draftId, body.current as Draft, true);
       return;
@@ -158,7 +166,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!k) { k = key(); keys.set(d.draftId, k); }
       const result = await api.upload(d.draftId, k, { mime: attachment.attachment.mediaType, base64: attachment.attachment.data, name: attachment.name || null });
       if (disposed) return;
-      if (!result.ok) { failed(d.draftId, result); return; }
+      if (!result.ok) { failed(d.draftId, result, d.edit); return; }
       uploads.set(attachment, result.value.attachmentId);
       drafts.getState().uploaded(d.draftId, attachment, result.value.attachmentId);
     }
@@ -193,7 +201,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       backoff(d.draftId);
       return;
     }
-    failed(d.draftId, result);
+    failed(d.draftId, result, d.edit);
   }
 
   /** Orphans whose delete got no answer, waiting for their next try. */
@@ -234,8 +242,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         if (local?.host && local.host.revision >= summary.revision) continue;
         if (local?.conflict?.sameId && local.conflict.other.revision >= summary.revision) continue;
         if (busy.has(summary.draftId)) continue;
+        const seq = hostSeq.get(summary.draftId) ?? 0;
         const full = await api.get(summary.draftId);
         if (disposed) return;
+        // Something here changed what the host holds while the read was out
+        // (a save, a delete, a send that consumed it): the read is stale.
+        if ((hostSeq.get(summary.draftId) ?? 0) !== seq || (before.get(summary.draftId) ?? 0) !== seq || busy.has(summary.draftId)) continue;
         if (full.ok) drafts.getState().restore(full.value);
       }
       // Gone from the host while nothing here is newer: deleted or sent elsewhere.
@@ -362,6 +374,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       for (const requestId of ids) {
         const send = drafts.getState().sends[requestId];
         if (!send || send.state === "accepted" || send.state === "refused") continue;
+        bumpHost(send.draftId);
         drafts.getState().accepted(requestId, msg.sessionId);
         acceptedTracks(send, msg.sessionId);
       }
@@ -372,6 +385,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const send = drafts.getState().sends[requestId];
       if (!send) return false;
       if (state === "accepted") {
+        // What the host holds for that draft changed: a read begun before this is stale.
+        bumpHost(send.draftId);
         drafts.getState().accepted(requestId, sessionId);
         acceptedTracks(send, sessionId);
         // Consuming a saved draft frees a place on the host.
@@ -431,6 +446,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         return;
       }
       if (result.recovery.latest.requestId === requestId) {
+        bumpHost(current.draftId);
         drafts.getState().accepted(requestId, sessionId);
         acceptedTracks(current, sessionId);
         root.stores.trackers.getState().accepted([requestId]);

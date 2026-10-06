@@ -6138,6 +6138,24 @@ describe("composer track intake", () => {
     } finally { h.done(); }
   });
 
+  test("a send held for its tracks never sends another draft opened meanwhile", async () => {
+    const h = await mountedTracks();
+    try {
+      h.type("Show this loop"); h.pick(["Ithaca loop"]); h.send();
+      expect(h.view.container.textContent).toContain("sends when 1 file finishes");
+      // Another new-chat draft opened from Sessions while the upload runs.
+      act(() => {
+        h.root.stores.drafts.getState().edit("d-letter", null, { text: "Letter to Penelope" });
+        h.root.stores.chat.getState().clearMessages();
+        h.root.stores.drafts.getState().openUnbound("d-letter");
+      });
+      expect(h.sent, "nothing was pressed for the letter").toHaveLength(0);
+      expect(h.field().value).toBe("Letter to Penelope");
+      await act(async () => h.ready(0, "Ithaca loop"));
+      expect(h.sent, "nothing was pressed for the letter, once the track is ready").toHaveLength(0);
+    } finally { h.done(); }
+  });
+
   test("a failed held track keeps the whole draft; retry does not send until the user asks, and removal aborts", async () => {
     const h = await mountedTracks();
     try {

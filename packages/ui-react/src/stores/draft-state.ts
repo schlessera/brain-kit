@@ -292,7 +292,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         ?? (send.sessionId ? state.drafts[state.idFor(send.sessionId)] : undefined)
         ?? blank(send.draftId, send.sessionId, now());
       const text = d.text ? (send.text ? `${send.text}\n${d.text}` : d.text) : send.text;
-      const attachments = [...send.attachments, ...d.attachments.filter((a) => !send.attachments.includes(a))];
+      // Images the transcript still shows keep their URLs there; the draft
+      // gets its own previews of the same bytes, so transcript cleanup
+      // cannot break the composer's.
+      const returned = owned ? send.attachments : send.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
+      const attachments = [...returned, ...d.attachments.filter((a) => !send.attachments.includes(a))];
       put({ ...d, text, attachments, edit: d.edit + 1, editedAt: now() });
     }
 

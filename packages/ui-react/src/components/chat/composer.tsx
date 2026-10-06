@@ -122,7 +122,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     return () => { trackEntry.listeners.delete(updateTrackView); };
   }, [trackEntry]);
   const tracks = trackUploads.files;
-  const [heldSend, setHeldSend] = useState(false);
+  // A send pressed while tracks upload is held for the draft it was pressed
+  // in, by id: another draft opened meanwhile is never sent for it (#951).
+  const [heldFor, setHeldFor] = useState<string | null>(null);
+  const heldSend = heldFor !== null && heldFor === draftId;
+  const setHeldSend = (held: boolean) => setHeldFor(held ? draftId : null);
 
   // Provider picker
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
@@ -178,6 +182,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }, [sessionId]);
   // Another draft in view (a Draft entry, or a send's content moved to a new
   // id): its errors are not this one's. Effort follows the session, not the id.
+  // A send held for its tracks belongs to the draft it was pressed in.
   useEffect(() => { setAttachErrors([]); }, [draftId]);
   useEffect(() => {
     if (!pendingSend) return;
@@ -488,6 +493,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       setHeldSend(false);
       submitHeldDraft.current();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heldSend, tracks, wsStatus]);
 
   function stopDictation() {
