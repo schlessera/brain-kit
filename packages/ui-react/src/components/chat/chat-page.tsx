@@ -26,6 +26,8 @@ import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js
 import { markerPosition } from "../../lib/handoff.js";
 import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
+import { useConnectionStore } from "../../stores/connection-store.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import {
   primeClientEnvironment,
@@ -95,6 +97,14 @@ export function ChatPage() {
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
 
   const runCommand = useChatCommands();
+  // The phone Search disc is drawn only below `tablet:` (480px), where no
+  // rail carries Search (D52 §8).
+  const phone = !useMediaQuery("(min-width: 480px)");
+  // The welcome briefing chip's printed reason, the same one the palette and
+  // More print: offline first, then a running turn.
+  const connected = useConnectionStore((s) => s.wsStatus === "connected");
+  const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
+  const briefingWhy = !connected ? "needs the host" : isStreaming ? "a turn is running" : undefined;
 
   // Handoff links (#61): the session list carries them; refresh them when
   // a stored session comes into view, so its card and markers can draw.
@@ -344,11 +354,18 @@ export function ChatPage() {
             that reaches 12px left and 6px up and down, and not right, so it
             never sits over a classic scrollbar. Ink at rest as the primary
             act; hover and keyboard focus open the pill leftward. There is no
-            confirmation: every session keeps its own draft (D52 §5). The row
-            is right-anchored, so the phone Search disc (#947) joins it on the
-            left and is pushed, never covered, when the pill opens. */}
+            confirmation: every session keeps its own draft (D52 §5).
+
+            Below 480 the phone Search disc sits left of it, muted as the
+            secondary act, so Search is one tap from occupied Chat (D52 §2).
+            It comes first in DOM and tab order. The row is right-anchored,
+            so New chat's pill pushes Search leftward and never covers it.
+            The empty chat has its Search chip instead. */}
         {hasMessages && (
           <DiscRow label="Chat actions" style={{ position: "absolute", right: 16, top: 10, zIndex: 10 }}>
+            {phone && (
+              <DiscButton name="Search the brain" icon="search" tone="mute" label="Search" onClick={() => runCommand("search")} />
+            )}
             <DiscButton name="New chat" icon="compose" tone="ink" label="New chat" onClick={clearMessages} />
           </DiscRow>
         )}
@@ -357,7 +374,7 @@ export function ChatPage() {
             <div className="px-4 pt-3 md:px-6">
               <DigestCard />
             </div>
-            <WelcomeState onAction={runCommand} />
+            <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
           </div>
         ) : (
           // The top padding keeps the resting first message's text below the

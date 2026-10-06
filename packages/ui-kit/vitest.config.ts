@@ -63,8 +63,9 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
   extends: true,
   test: {
     name: `rail-${mode}`,
-    // The app's own rail and palette (#946) run here too, for the real pointer.
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx"],
+    // The app's own rail and palette (#946) and phone navigation (#947) run
+    // here too, for the real pointer; they need the consumer stylesheet.
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,

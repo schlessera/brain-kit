@@ -3690,7 +3690,8 @@ describe("MobileTabBar on the kit TabBar", () => {
     openDecisions(3);
     const view = render(<MobileTabBar />);
     const tabs = view.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "Actions3", "Files", "Graph", "More"]);
+    // D52 §1: Sessions takes Graph's slot, and Graph moves into More.
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "Sessions", "Actions3", "Files", "More"]);
     // Chat is the active view, so Chat is the amber slot and the only selected tab.
     expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
     // The kit's roving tab stop: one slot reachable by Tab, the rest by arrows.
@@ -3700,34 +3701,141 @@ describe("MobileTabBar on the kit TabBar", () => {
     useActivityStore.setState({ inbox: [] });
   });
 
-  test("a slot switches the view, and More is the kit sheet with Settings and the acts", () => {
+  test("a slot switches the view, and More is the kit sheet with Settings, Graph and the acts", () => {
+    useUIStore.getState().setActiveView("chat");
     const view = render(<MobileTabBar />);
+    const selected = () => view.getAllByRole("tab").map((t) => t.getAttribute("aria-selected") === "true" ? t.textContent : null).filter(Boolean);
     fireEvent.click(view.getByRole("tab", { name: "Actions" }));
     expect(useUIStore.getState().activeView).toBe("activity");
     expect(view.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(view.getByRole("tab", { name: "Graph" }));
-    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(view.queryByRole("tab", { name: "Graph" }), "Graph is no longer a slot").toBeNull();
+
+    // Sessions and Files are panels that only Chat mounts in full: from
+    // Actions they land in Chat with the panel open, and are "here".
+    fireEvent.click(view.getByRole("tab", { name: "Sessions" }));
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().sessionPanelOpen).toBe(true);
+    expect(selected()).toEqual(["Sessions"]);
+    // N1: a destination replaces the open panel with no close step.
+    fireEvent.click(view.getByRole("tab", { name: "Files" }));
+    expect(useUIStore.getState().sessionPanelOpen).toBe(false);
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
+    expect(selected()).toEqual(["Files"]);
+    // N3: pressing the current destination never closes it.
+    fireEvent.click(view.getByRole("tab", { name: "Files" }));
+    expect(useUIStore.getState().filePanelOpen, "Files is not a toggle").toBe(true);
+    fireEvent.click(view.getByRole("tab", { name: "Chat" }));
+    expect(useUIStore.getState().filePanelOpen, "Chat closes the panel").toBe(false);
+    expect(selected()).toEqual(["Chat"]);
 
     expect(view.queryByRole("dialog")).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     const sheet = view.getByRole("dialog", { name: "More" });
-    // Settings, then the acts. Disconnected, so the two that need the host
-    // are rows without a handler — listed with the reason, never omitted.
-    const rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent?.split("Resume")[0]?.split("needs")[0]);
-    expect(rows).toEqual(["Settings", "Sessions", "Brain statisticsDocuments and software versions"]);
-    expect(sheet.textContent).toContain("Sync the brain");
-    expect(sheet.textContent).toContain("needs the host");
+    // Settings and Graph, then the acts, with no redundant Sessions row.
+    // Disconnected, so the two that need the host are rows without a
+    // handler, listed with the reason and their effect, never omitted.
+    expect(sheet.textContent).not.toContain("Sessions");
+    const rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent);
+    expect(rows).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain", "Brain statisticsDocuments and software versions"]);
+    expect(sheet.textContent).toContain("Sync the brainneeds the hostsync");
+    expect(sheet.textContent).toContain("Daily briefingneeds the hostspends");
     // While the sheet is open, More is the amber slot.
     expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(sheet.querySelector('[role="button"]')!);
     expect(useUIStore.getState().settingsPanelOpen).toBe(true);
     expect(view.queryByRole("dialog")).toBeNull();
+    // Settings lives in More, so More stays amber while it is open.
+    expect(selected()).toEqual(["More"]);
+
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    fireEvent.click(view.getByRole("button", { name: /^Graph/ }));
+    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(useUIStore.getState().settingsPanelOpen, "Graph replaces Settings").toBe(false);
+    expect(selected()).toEqual(["More"]);
+    // Files opens over Graph, which mounts its own panel.
+    fireEvent.click(view.getByRole("tab", { name: "Files" }));
+    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
 
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(view.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement, "Esc returns focus to the More slot").toBe(view.getByRole("tab", { name: "More" }));
     view.unmount();
+    useUIStore.getState().setActiveView("chat");
+  });
+
+  test("Escape over an open destination dismisses only More", () => {
+    useUIStore.getState().setActiveView("chat");
+    useUIStore.getState().openPanel("files");
+    // A drawer's own Escape, registered the way SlidePanel and FilePanel do.
+    const drawerEscape = mock((e: KeyboardEvent) => { if (e.key === "Escape") useUIStore.getState().setFilePanelOpen(false); });
+    document.addEventListener("keydown", drawerEscape);
+    const view = render(<MobileTabBar />);
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(view.queryByRole("dialog"), "More closes").toBeNull();
+    expect(useUIStore.getState().filePanelOpen, "the drawer under More stays open").toBe(true);
+    // With More closed, Escape reaches the drawer again.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(useUIStore.getState().filePanelOpen).toBe(false);
+    document.removeEventListener("keydown", drawerEscape);
+    view.unmount();
+    useUIStore.getState().setActiveView("chat");
+  });
+
+  test("a Settings page that refuses to be left keeps every slot and More act from running behind it", () => {
+    useUIStore.getState().setActiveView("chat");
+    useUIStore.getState().openPanel("settings");
+    let pending: (() => void) | null = null;
+    useUIStore.getState().setSettingsNavigationGuard((leave) => { pending = leave; });
+    const view = render(<MobileTabBar />);
+    fireEvent.click(view.getByRole("tab", { name: "Files" }));
+    expect(useUIStore.getState().filePanelOpen, "Files waits for the guard").toBe(false);
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    fireEvent.click(view.getByRole("button", { name: /^Add a note/ }));
+    expect(useUIStore.getState().addPanelOpen, "Add waits for the guard").toBe(false);
+    expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+    // Consent: the guard clears itself and the latest navigation runs.
+    useUIStore.getState().setSettingsNavigationGuard(null);
+    act(() => pending!());
+    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
+    expect(useUIStore.getState().addPanelOpen).toBe(true);
+    view.unmount();
+    useUIStore.getState().setActiveView("chat");
+  });
+
+  test("More prints the reason that applies: offline, or a running turn", () => {
+    useUIStore.getState().setActiveView("chat");
+    useConnectionStore.setState({ wsStatus: "connected" });
+    const view = render(<MobileTabBar />);
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    let rows = [...view.getByRole("dialog", { name: "More" }).querySelectorAll('[role="button"]')].map((r) => r.textContent);
+    // Connected and quiet: every act runs, and the effects stay printed.
+    expect(rows).toEqual([
+      "Settings", "Graph", "Add a noteWrite it down in the brain",
+      "Daily briefingWhat happened since you lookedspends",
+      "Sync the brainPull and push the repositorysync",
+      "Brain statisticsDocuments and software versions",
+    ]);
+    fireEvent.click(view.getByRole("button", { name: /^Add a note/ }));
+    expect(useUIStore.getState().addPanelOpen, "opening Add opens the form").toBe(true);
+    act(() => { useChatStore.getState().addUserMessage(null, "Raft supplies"); useChatStore.getState().startAssistantMessage(null); });
+    fireEvent.click(view.getByRole("tab", { name: "More" }));
+    const sheet = view.getByRole("dialog", { name: "More" });
+    rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent);
+    // Streaming: Add still opens (REST), the agent acts say why they cannot.
+    expect(rows).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain"]);
+    expect(sheet.textContent).toContain("Daily briefinga turn is runningspends");
+    expect(sheet.textContent).toContain("Sync the braina turn is runningsync");
+    expect(sheet.textContent).toContain("Brain statisticsa turn is running");
+    expect(sheet.textContent).not.toContain("needs the host");
+    view.unmount();
+    act(() => { useChatStore.getState().finishAssistantMessage(null); useChatStore.getState().clearMessages(); });
+    useConnectionStore.setState({ wsStatus: "disconnected" });
+    useUIStore.getState().setActiveView("chat");
   });
 
   test("a badge of ten or more reads 9+, and no inbox means no badge", () => {
@@ -5086,11 +5194,29 @@ describe("chat views", () => {
     const onAction = mock((_a: string) => {});
     const view = render(<WelcomeState onAction={onAction} />);
     expect(view.getByText("What do you need to know?")).toBeTruthy();
-    fireEvent.click(view.getByRole("button", { name: "What's new?" }));
+    // D52 §1: the briefing (printing its cost), Search, and Add a note,
+    // which replaced the statistics chip.
+    const chips = view.getAllByRole("button");
+    expect(chips.map((c) => c.textContent)).toEqual(["What's new?spends", "Search…", "Add a note…"]);
+    fireEvent.click(chips[0]!);
     expect(onAction).toHaveBeenLastCalledWith("whatsup");
-    fireEvent.click(view.getByRole("button", { name: "Brain stats" }));
-    expect(onAction).toHaveBeenLastCalledWith("stats");
+    fireEvent.click(chips[1]!);
+    expect(onAction).toHaveBeenLastCalledWith("search");
+    fireEvent.click(chips[2]!);
+    expect(onAction).toHaveBeenLastCalledWith("add");
+    expect(view.queryByText("Brain stats")).toBeNull();
     view.unmount();
+
+    // Unavailable: the chip stays, keeps its cost, prints why, and does not run.
+    onAction.mockClear();
+    const offline = render(<WelcomeState onAction={onAction} briefingWhy="needs the host" />);
+    const briefing = offline.getAllByRole("button")[0]!;
+    expect(briefing.getAttribute("aria-disabled")).toBe("true");
+    expect(briefing.textContent).toContain("spends");
+    expect(briefing.textContent).toContain("needs the host");
+    fireEvent.click(briefing);
+    expect(onAction).not.toHaveBeenCalled();
+    offline.unmount();
   });
 });
 

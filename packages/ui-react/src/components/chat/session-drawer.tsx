@@ -101,7 +101,7 @@ export function SessionDrawer({
   }));
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Sessions" wide>
+    <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination>
       <SessionList
         groups={groups}
         loading={loading}

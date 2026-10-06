@@ -478,6 +478,8 @@ signatures (every public export and the types it is made of)
     export type DecisionKind = "commit" | "later" | "dismiss";
   DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
+  DestinationPanel (packages/ui-react/src/stores/ui-state.ts)
+    export type DestinationPanel = "sessions" | "files" | "settings";
   DiscoveryColorBy (packages/ui-react/src/stores/graph-state.ts)
     export type DiscoveryColorBy = "topic" | "distance" | "folder" | "entity";
   DiscoveryParams (packages/ui-react/src/stores/graph-state.ts)
@@ -995,6 +997,7 @@ signatures (every public export and the types it is made of)
         settingsNavigationProtected: boolean;
         setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
         setActiveView: (view: ActiveView) => void;
+        openPanel: (panel: DestinationPanel) => void;
         toggleSessionPanel: () => void;
         toggleSyncPanel: () => void;
         toggleWhatsupPanel: () => void;
