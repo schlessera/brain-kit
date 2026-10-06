@@ -436,3 +436,37 @@ for (const theme of ["dark", "light"]) {
     expect(getComputedStyle(panel).backgroundColor, "the sheet's surface is the strip's theme").toBe(surfaceIn);
   });
 }
+
+for (const theme of ["dark", "light"]) {
+  test(`Shift+Tab from the composer lands on a pill when the summary gives way: ${theme}`, async () => {
+    pointerScene();
+    const { live, composer } = await mountDriven(five.slice(0, 2), theme);
+    composer.focus();
+    await expect.poll(() => host!.querySelector('[data-strip-summary="keyboard"]'), { message: "composer focus collapses the strip" }).not.toBeNull();
+    await userEvent.tab({ shift: true });
+    await expect.poll(() => host!.querySelector('[data-strip-summary="keyboard"]'), { message: "the strip redraws its pills" }).toBeNull();
+    await expect.poll(() => host!.querySelector("[data-session-strip]")!.contains(document.activeElement), { message: "focus is on a surviving pill, not <body>" }).toBe(true);
+    await userEvent.keyboard("{Enter}");
+    expect(live.filter((s) => s.onOpen.mock.calls.length === 1), "Enter opens the focused pill").toHaveLength(1);
+  });
+
+  test(`the last session leaving closes the sheet and returns to the composer: ${theme}`, async () => {
+    const mode = pointerScene();
+    const { draw, composer } = await mountDriven(five, theme);
+    composer.focus();
+    composer.setSelectionRange(3, 3);
+    await expect.poll(() => host!.querySelector('[data-strip-summary="keyboard"]')).not.toBeNull();
+    const summary = host!.querySelector<HTMLElement>('[data-strip-summary="keyboard"]')!;
+    if (mode === "fine") await userEvent.click(summary);
+    else {
+      const r = rect(summary);
+      await commands.rankTouch("touchStart", [{ x: r.left + r.width / 2, y: r.top + r.height / 2 }]);
+      await commands.rankTouch("touchEnd", []);
+    }
+    await expect.poll(() => sheet()).not.toBeNull();
+    draw([]);
+    await expect.poll(() => sheet(), { message: "an empty list closes the sheet" }).toBeNull();
+    await expect.poll(() => document.activeElement, { message: "focus returns to the composer" }).toBe(composer);
+    expect([composer.selectionStart, composer.selectionEnd], "with the caret restored").toEqual([3, 3]);
+  });
+}

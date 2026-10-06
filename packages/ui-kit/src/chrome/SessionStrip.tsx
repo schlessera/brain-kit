@@ -281,10 +281,39 @@ export function SessionStrip(p: SessionStripProps) {
   const roving = useRoving(Array.from({ length: itemCount }, () => true), 0);
 
   // The last session left while the sheet was open: nothing is left to list.
+  // It closes as a dismissal does, so focus still goes back where it came from.
   const empty = sorted.length === 0;
   useEffect(() => {
-    if (empty && sheet) setSheet(null);
+    if (!empty || !sheet) return;
+    restore.current = sheet;
+    setSheet(null);
   }, [empty, sheet]);
+
+  // Shift+Tab from the composer is meant to land on the keyboard summary. A
+  // caller that derives `keyboardOpen` from the composer's focus redraws the
+  // strip as the composer blurs, before focus arrives, so the summary is gone
+  // and focus falls to <body>. A Tab pressed while the summary is drawn, then
+  // a redraw that leaves focus on <body>, hands focus to the group's stop.
+  const tabbed = useRef(false);
+  const keyboard = mode === "keyboard";
+  useEffect(() => {
+    if (!keyboard) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      tabbed.current = true;
+      setTimeout(() => {
+        tabbed.current = false;
+      }, 100);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [keyboard]);
+  useEffect(() => {
+    if (keyboard || sheet || !tabbed.current) return;
+    tabbed.current = false;
+    if (document.activeElement !== document.body) return;
+    group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
+  }, [keyboard, sheet]);
 
   if (mode === "none") return null;
 
@@ -420,7 +449,14 @@ export function SessionStrip(p: SessionStripProps) {
 
   return (
     <>
-      <div ref={group} role="group" aria-label="Working sessions" className="bk-pill-group" data-session-strip="" onKeyDown={item}>
+      <div
+        ref={group}
+        role="group"
+        aria-label="Working sessions"
+        className="bk-pill-group"
+        data-session-strip=""
+        onKeyDown={item}
+      >
         {items}
       </div>
       {/* Portalled: each half is a size container, and its layout containment
