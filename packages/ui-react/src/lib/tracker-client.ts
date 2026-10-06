@@ -1,0 +1,144 @@
+import { SESSION_RECOVERY_CAPABILITY, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { BrainUiServices } from "../root.js";
+import { isSettledExchange, pendingApprovals, type ChatState } from "../stores/chat-state.js";
+import { isWork, trackerEventsForFrame } from "./trackers.js";
+
+/**
+ * Keeps one root's trackers (D52 §4, #948) in step with its chat state and
+ * its socket. It reads; it never sends a frame, selects a session, replies
+ * to an interaction or starts a turn. The recovery read it makes is the
+ * authenticated, read-only `GET /api/sessions/:id/recovery`, and only when
+ * the host advertises it.
+ */
+export function createTrackerClient(root: BrainUiServices) {
+  const trackers = root.stores.trackers;
+  const chat = root.stores.chat;
+  let disposed = false;
+  /** Reads asked for while one was in flight: run once more when it lands. */
+  const again = new Set<string>();
+
+  /** The newest send in a session that the host has neither accepted nor refused. */
+  function unconfirmedRequest(state: ChatState, sessionId: string): string | null {
+    if (!root.stores.connection.getState().chatRequestAck) return null;
+    const lastUser = state.buffers[sessionId]?.messages.findLast((m) => m.role === "user");
+    const requestId = lastUser?.requestId;
+    if (!requestId) return null;
+    return state.chatReceipts[requestId] ? null : requestId;
+  }
+
+  /** Something in the session is still in flight, or waits on the reader (D52 §4). */
+  function qualifies(state: ChatState, sessionId: string): boolean {
+    const run = state.runStates[sessionId];
+    if (run === "streaming" || run === "queued") return true;
+    const buffer = state.buffers[sessionId];
+    if (buffer) {
+      if (buffer.isStreaming) return true;
+      if (pendingApprovals({ buffers: { [sessionId]: buffer }, draft: null }).length > 0) return true;
+      if (buffer.askUser && !isSettledExchange(buffer.askUser)) return true;
+    }
+    const evidence = trackers.getState().evidence[sessionId];
+    if (evidence && (evidence.pending.length > 0 || evidence.latest?.state === "running" || evidence.latest?.state === "queued")) return true;
+    return unconfirmedRequest(state, sessionId) !== null;
+  }
+
+  /** The reader left `sessionId`: by New chat, by selecting another session, or by leaving the page. */
+  function leave(sessionId: string): void {
+    const state = chat.getState();
+    if (qualifies(state, sessionId)) {
+      trackers.getState().track(sessionId, { unconfirmedRequestId: unconfirmedRequest(state, sessionId) });
+      refresh(sessionId);
+    } else {
+      trackers.getState().leftIdle(sessionId);
+    }
+  }
+
+  function refresh(sessionId: string): void {
+    if (disposed || trackers.getState().recoverySupported !== true) return;
+    if (root.stores.connection.getState().wsStatus !== "connected") return;
+    const store = trackers.getState();
+    if (!store.records[sessionId]) return;
+    if (!store.beginRead(sessionId)) { again.add(sessionId); return; }
+    const epoch = store.epoch;
+    void root.api.sessionRecovery(sessionId).then((result) => {
+      if (disposed) return;
+      trackers.getState().endRead(sessionId, result, epoch);
+      if (again.delete(sessionId)) refresh(sessionId);
+    });
+  }
+
+  function refreshAll(): void {
+    for (const sessionId of Object.keys(trackers.getState().records)) refresh(sessionId);
+  }
+
+  // Leaving by selection or New chat moves the view off the session. A
+  // draft becoming a session (`bindDraftSession`) moves it ONTO one, which
+  // leaves nothing.
+  let previous = chat.getState().activeSessionId;
+  const unsubscribe = chat.subscribe((state) => {
+    const left = previous;
+    previous = state.activeSessionId;
+    if (left !== null && left !== state.activeSessionId) leave(left);
+  });
+
+  // Leaving the page, or the tab going to the background, leaves the session
+  // in view too: a reload must find its tracker, and an unwatched tab sees
+  // nothing (D52 §4: seen needs a visible document).
+  const leavePage = () => {
+    const active = chat.getState().activeSessionId;
+    if (active !== null) leave(active);
+  };
+  const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
+  if (typeof window !== "undefined") window.addEventListener("pagehide", leavePage);
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+
+  return {
+    /**
+     * One frame, after the chat demux has applied it. A frame for a session
+     * that is not in view and has no tracker starts one only when it is
+     * work: a late result or a replay for a session never left does not.
+     */
+    frame(msg: ServerMessage): void {
+      if (disposed) return;
+      const sessionId = (msg as { sessionId?: string }).sessionId;
+      if (!sessionId) return;
+      const store = trackers.getState();
+      if (msg.type === "error" && msg.requestId && !(msg as { turnId?: string }).turnId) {
+        store.refused(sessionId, msg.requestId);
+        return;
+      }
+      const events = trackerEventsForFrame(msg);
+      const tracked = store.records[sessionId] !== undefined;
+      const watched = chat.getState().activeSessionId === sessionId;
+      if (!tracked && !watched) {
+        if (!isWork(events)) return;
+        store.track(sessionId);
+      }
+      store.live(sessionId, events);
+      // The end of a turn is when the host has times and an outcome to give.
+      const ended = events.some((e) => e.kind === "terminal") || (msg.type === "status" && msg.status === "idle");
+      if (!tracked && !watched) refresh(sessionId);
+      else if (ended) refresh(sessionId);
+    },
+
+    hello(msg: Extract<ServerMessage, { type: "server_hello" }>): void {
+      if (disposed) return;
+      const store = trackers.getState();
+      store.setPrincipal(msg.principalKey ?? null);
+      store.setRecoverySupported(msg.capabilities?.[SESSION_RECOVERY_CAPABILITY] === true);
+      refreshAll();
+    },
+
+    /** The host closed the socket for revocation or expiry: the set is deleted (D52 §4). */
+    revoked(): void {
+      if (!disposed) trackers.getState().revoke();
+    },
+
+    dispose(): void {
+      disposed = true;
+      unsubscribe();
+      again.clear();
+      if (typeof window !== "undefined") window.removeEventListener("pagehide", leavePage);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+    },
+  };
+}

@@ -7,6 +7,7 @@ import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
+import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
 import { MessageBubble } from "./message-bubble.js";
 import { WelcomeState } from "./welcome-state.js";
@@ -180,6 +181,10 @@ export function ChatPage() {
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
   }, [hasMessages]);
+
+  // A tracker for this session clears only once its latest turn is
+  // actually on screen (D52 §4); selecting the session is not enough.
+  useTrackerSeen(scrollRef, showScrollButton);
 
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {

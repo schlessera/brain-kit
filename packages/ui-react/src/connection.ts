@@ -7,6 +7,7 @@ import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
 import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
+import { createTrackerClient } from "./lib/tracker-client.js";
 
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
@@ -37,6 +38,9 @@ export function createWebSocketClient(root: BrainUiServices) {
         .reportError("ANSWER_QUEUE_CORRUPT", "A saved answer on this device could not be read and was discarded."),
   });
   void answers.start();
+
+  /** Work left running, tracked until seen (D52 §4, #948). Reads only. */
+  const trackers = createTrackerClient(root);
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -288,10 +292,16 @@ export function createWebSocketClient(root: BrainUiServices) {
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
     handleFrame(msg);
+    // After the demux, so a draft that just became this session is already
+    // the session in view and is not mistaken for unwatched work.
+    if (msg.type === "server_hello") trackers.hello(msg);
+    else trackers.frame(msg);
     // The first frame of a connection settles what its host supports: a hello,
     // or anything else from a host too old to send one. Only then can queued
     // answers be revalidated and replayed.
     if (!answersReady && wsClient && wsClient.hello !== "pending") {
+      // A host too old to send a hello has no recovery to offer.
+      if (wsClient.hello === "absent") root.stores.trackers.getState().setRecoverySupported(false);
       answersReady = true;
       answers.connected();
     }
@@ -524,6 +534,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   function handleSocketClose(close: WebSocketClose): void {
     const connection = root.stores.connection.getState();
     connection.recordWsClose(close.opened, close.code);
+    // 1008 is the host closing a revoked or expired principal's sockets.
+    if (close.opened && close.code === 1008) trackers.revoked();
     if (
       !close.opened &&
       root.stores.connection.getState().handshakeFailures >= REFUSAL_ATTEMPTS
@@ -737,6 +749,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       retryTimers.clear();
       disconnect();
       answers.dispose();
+      trackers.dispose();
       resyncSessionId = null;
       coldResumedSessionId = null;
     },

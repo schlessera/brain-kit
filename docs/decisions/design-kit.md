@@ -4967,6 +4967,28 @@ card, with no invented text. **R3:** a `restored` chip marks a restored
 `no longer yours to answer`. Rehydration never sends a reply. The four ask
 kinds keep #910's rules and state footer, with no second indicator.
 
+> **2026-10-06 — Implemented by #948 (client state; the strip and pane are
+> #950).** The model is `packages/ui-react/src/lib/trackers.ts`, the root's
+> store is `stores/tracker-state.ts`, the socket and chat wiring is
+> `lib/tracker-client.ts` and the observer is `hooks/use-tracker-seen.ts`.
+> Four readings of the text above:
+>
+> - *Leaving the foreground* is selecting another session, New chat, the
+>   page's `pagehide`, or the document turning hidden. Switching to Actions
+>   or Graph does not leave the session in view, since the seen rule already
+>   requires Chat in the foreground.
+> - *Work in a session that is not being watched* is a live frame for a
+>   session other than the one in view that starts or continues work: a
+>   queued status, a turn's `session_info` or progress, an approval or a
+>   question. A late `result`, a replay, or a resume's `session_info` that
+>   names no turn and no request does not start a tracker.
+> - Before any read or frame has answered for a restored tracker it reads
+>   `can't check · host unreachable` (or `host too old` without the
+>   capability), and its view says it is not yet settled, so #950 can hold
+>   announcements until it is.
+> - `Mark as seen` with no latest turn identity to store deletes the record,
+>   since there is nothing to acknowledge against.
+
 ### 5. Per-session drafts, stored on the host (storage C)
 
 **Identity.** Every composer belongs to
