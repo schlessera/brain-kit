@@ -184,6 +184,9 @@ export function createTrackerStore(env: StoreEnvironment) {
    * of the whole set (a new principal, a revocation) replaces it. Returns
    * the records as stored.
    */
+  /** The stored owner a write found while this tab had none: set by `write`. */
+  let owner: string | null = null;
+
   function write(
     state: Pick<TrackerStoreState, "records" | "principalKey">,
     before: Record<string, TrackerRecord>,
@@ -192,6 +195,7 @@ export function createTrackerStore(env: StoreEnvironment) {
     replace: boolean,
   ): Record<string, TrackerRecord> {
     let records = state.records;
+    owner = null;
     try {
       const storage = env.storage();
       if (!storage) return records;
@@ -225,7 +229,9 @@ export function createTrackerStore(env: StoreEnvironment) {
       // An empty set keeps its principal, so a tab still on the previous
       // one cannot claim the key back.
       if (Object.keys(records).length === 0 && state.principalKey === null) storage.removeItem(key);
-      else storage.setItem(key, serializeTrackerSet({ principalKey: state.principalKey, records }));
+      // A tab that has not had its hello yet keeps the stored owner.
+      else storage.setItem(key, serializeTrackerSet({ principalKey: state.principalKey ?? current?.principalKey ?? null, records }));
+      if (state.principalKey === null && current?.principalKey) owner = current.principalKey;
     } catch {
       // Storage full, disabled or throwing: the trackers still work for this page.
     }
@@ -243,6 +249,7 @@ export function createTrackerStore(env: StoreEnvironment) {
       const removed = Object.keys(before).filter((id) => !(id in after));
       const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
       const records = write(get(), before, changed, removed, replace);
+      if (owner !== null) set({ principalKey: owner });
       if (records !== after) {
         const moved = adopt(records);
         if (moved.length > 0) set({ pendingReads: [...new Set([...get().pendingReads, ...moved])] });
@@ -531,6 +538,9 @@ export function createTrackerStore(env: StoreEnvironment) {
         // A set stored under another principal is not this tab's to take;
         // its next hello decides.
         if (current.principalKey !== null && principalKey !== null && current.principalKey !== principalKey) return [];
+        // Taking another tab's set before this tab's hello takes its owner
+        // too, so that hello can tell whether the set is its principal's.
+        if (principalKey === null && current.principalKey !== null) set({ principalKey: current.principalKey });
         return adopt(current.records);
       },
 

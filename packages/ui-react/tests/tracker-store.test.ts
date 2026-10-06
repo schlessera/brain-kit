@@ -687,6 +687,19 @@ describe("persistence", () => {
     expect(JSON.parse(storage.data.get(k)!).trackers.map((t: { sessionId: string }) => t.sessionId)).toEqual(["odysseus-loom"]);
   });
 
+  test("a set taken in before this tab's hello keeps its owner, so a different principal's hello clears it", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const here = root({ storage, storagePrefix: "ithaca" });
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ sessionId: A, requestId: null, turnId: null, revision: null, leftAt: 1, seen: null }] }));
+    here.stores.trackers.getState().syncFromStorage(k);
+    expect(ids(here)).toEqual([A]);
+    hello(here, false, "pk-penelope");
+    expect(ids(here)).toEqual([]);
+    here.stores.trackers.getState().track("odysseus-loom");
+    expect(JSON.parse(storage.data.get(k)!)).toMatchObject({ principalKey: "pk-penelope", trackers: [{ sessionId: "odysseus-loom" }] });
+  });
+
   test("a stale tab never overwrites a set another tab stored for a different principal", () => {
     const storage = memoryStorage();
     const k = `ithaca:${TRACKER_STORAGE_KEY}`;
