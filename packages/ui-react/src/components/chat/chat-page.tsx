@@ -32,7 +32,7 @@ import { useConnectionStore } from "../../stores/connection-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
-import { FIRST_CONTROL, focusFirst } from "../../lib/destination-start.js";
+import { FIRST_CONTROL, focusFirst, openModal } from "../../lib/destination-start.js";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -301,7 +301,7 @@ export function ChatPage() {
       waiting?.querySelector<HTMLElement>(FIRST_CONTROL),
       failed?.querySelector<HTMLElement>(".bk-turn-error-actions [data-bk-button]"),
     ], keyboard)) return;
-    if (phone) return;
+    if (phone || openModal()) return;
     if (composerRef.current?.focusEnd()) return;
     if (!hasMessages) focusFirst([welcomeRef.current?.querySelector<HTMLElement>('[role="heading"]')], keyboard);
   });

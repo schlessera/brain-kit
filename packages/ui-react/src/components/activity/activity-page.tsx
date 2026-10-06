@@ -535,6 +535,10 @@ export function ActivityPage() {
         // Open decisions and snoozed ones in Later alike.
         ...(detailActionId ? all(`${list} [data-decision-id="${CSS.escape(detailActionId)}"]`) : []),
         ...(queueReceiptId ? all(`${list} [data-queue-row="${CSS.escape(queueReceiptId)}"] [role="button"]`) : []),
+        // A Queue item with a run opens that run, so its row is found by it.
+        ...(detailRunId ? Object.values(inboxItems)
+          .filter((item) => item.queue === "queue" && item.runId === detailRunId)
+          .flatMap((item) => all(`${list} [data-queue-row="${CSS.escape(item.id)}"] [role="button"]`)) : []),
         heading,
       ], keyboard);
     } else {

@@ -19,6 +19,15 @@ export function scrollToStart(root: Element | null | undefined): void {
   }
 }
 
+/**
+ * The modal open over the page, if any. Focus never leaves one: a chord
+ * still reaches a destination behind it, but the press must not move focus
+ * out from under the dialog.
+ */
+export function openModal(): HTMLElement | null {
+  return [...document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog:modal')].find(laidOut) ?? null;
+}
+
 /** Whether `el` is laid out: in the document and not `display: none` itself or under it. */
 function laidOut(el: HTMLElement): boolean {
   return el.isConnected && el.getClientRects().length > 0;
@@ -29,13 +38,15 @@ function laidOut(el: HTMLElement): boolean {
  * reveals it with `nearest` inside its own scroll containers: a target
  * already at the start moves nothing, and one far down a list ends at the
  * bottom edge rather than out of view. Returns the element focused, or null
- * when none could be. `visible` asks for the focus ring even when the
+ * when none could be, including every candidate outside an open modal.
+ * `visible` asks for the focus ring even when the
  * browser's heuristic would not draw it: a modifier chord is not keyboard
  * input to it, but it is a keyboard press.
  */
 export function focusFirst(candidates: ReadonlyArray<HTMLElement | null | undefined>, visible = false): HTMLElement | null {
+  const modal = openModal();
   for (const el of candidates) {
-    if (!el || !laidOut(el)) continue;
+    if (!el || !laidOut(el) || (modal && !modal.contains(el))) continue;
     // `focusVisible` only forces the ring on; left unset, the browser's own
     // heuristic decides, so a tap shows none and a plain key does.
     el.focus({ preventScroll: true, ...(visible ? { focusVisible: true } : {}) });

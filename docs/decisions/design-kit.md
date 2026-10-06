@@ -5453,7 +5453,9 @@ chord as keyboard input for `:focus-visible`; a tap shows none.
 | | 900 up | reading pane (an HTML preview as below 900), tree and evidence rail → top | the open file's tree row · the "Files" heading |
 | Settings | every width | drawer body, or the pane's section scroller → top | the selected section tab |
 
-Headings are script-only stops (`tabIndex=-1`) that Tab never reaches; they
+A chord still reaches a destination behind an open modal, such as the
+one-time credential dialog, but the press never moves focus out of the
+modal. Headings are script-only stops (`tabIndex=-1`) that Tab never reaches; they
 draw the kit's 2px ink ring at −2 on `:focus-visible`. The press changes no
 view, panel, Settings section, session, run selection, file, tree visibility
 or draft, so the Settings leave guard has nothing to ask. A Chat press can
@@ -5467,6 +5469,6 @@ shown, with no DOM (`pressDestination`,
 `packages/ui-react/src/stores/ui-state.ts:233-241`). The mounted destination
 answers it (`useDestinationPress`,
 `packages/ui-react/src/hooks/use-destination-press.ts:18-33`) with the shared
-reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:36-47`).
+reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:46-58`).
 The cells are `packages/ui-react/tests/browser/destination-press.pointer.tsx`,
 run in the kit's `rail-fine`, `rail-coarse` and `rail-mixed` projects.

@@ -494,3 +494,25 @@ for (const width of [320, 900] as const) {
     expect(panel(s, "Files")?.querySelector('iframe[title="HTML preview"]'), "the same frame, not a remount").toBe(frame);
   });
 }
+
+// A chord still reaches a destination behind a modal, but focus stays in the
+// modal: the one-time credential dialog over Settings, and over Chat, where
+// the composer would otherwise take it.
+for (const width of [480, 900, 1440] as const) for (const start of ["settings", "chat"] as const) {
+  test(`D52 N3 at ${width}: ${start} pressed by chord under a modal keeps focus in it`, async (ctx) => {
+    pointer();
+    const s = await mount(ctx, start, width, HEIGHT, "dark");
+    await expect.poll(() => SPECS[start].ready(s), { message: `${start} has its content` }).toBe(true);
+    s.ui.stores.principal.setState({ oneTimeCredential: { id: "agent-eumaeus", label: "Eumaeus's swineherd hut", expiresAt: T0 + 30 * 86_400_000, cookie: "fixture-cookie" } });
+    let modal: HTMLElement | null = null;
+    await expect.poll(() => (modal = document.querySelector<HTMLElement>('[aria-modal="true"]')) !== null, { message: "the modal is open" }).toBe(true);
+    await expect.poll(() => moving(), { interval: 16, message: "entrances have settled" }).toBe(false);
+    const inside = modal!.querySelector<HTMLElement>("button, [role='button'], [tabindex='0']")!;
+    inside.focus();
+    expect(document.activeElement, "focus starts in the modal").toBe(inside);
+    s.signal.throwIfAborted();
+    await userEvent.keyboard(`{Meta>}${SPECS[start].index + 1}{/Meta}`);
+    await settle(s);
+    expect(modal!.contains(document.activeElement), `${start}: focus stays in the modal`).toBe(true);
+  });
+}
