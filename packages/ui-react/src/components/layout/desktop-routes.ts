@@ -27,6 +27,12 @@ export interface DesktopDestination {
  * has no chord and is reached through the palette's Jump to. Sessions opens
  * the existing drawer in Chat until the ≥1280 pane is installed.
  *
+ * Sessions, Files and Settings are panels, so they go through `openPanel`
+ * (D52 §2, N1 and N3), as the phone bar does: each replaces any other open
+ * panel, lands in Chat when the current view does not draw it (Actions has
+ * no Files), and pressing the one already open leaves it open. Settings'
+ * leave guard is asked only when Settings is actually being left.
+ *
  * The acts land in Chat first, as the palette always has, and keep their
  * dispatch in `useChatCommands`. Search and Add talk to the CLI over REST, so
  * they have no reason to be unavailable; the briefing needs a live socket and
@@ -34,9 +40,7 @@ export interface DesktopDestination {
  */
 export function useDesktopRoutes() {
   const setActiveView = useUIStore((s) => s.setActiveView);
-  const toggleFilePanel = useUIStore((s) => s.toggleFilePanel);
-  const toggleSettingsPanel = useUIStore((s) => s.toggleSettingsPanel);
-  const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
+  const openPanel = useUIStore((s) => s.openPanel);
   const afterLeavingSettings = useUIStore((s) => s.afterLeavingSettings);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
@@ -53,10 +57,10 @@ export function useDesktopRoutes() {
 
   const destinations: DesktopDestination[] = [
     { icon: "brain", label: "Chat", tone: "amber", key: "⌘1", go: () => setActiveView("chat") },
-    { icon: "history", label: "Sessions", tone: "blue", key: "⌘2", go: inChat(() => setSessionPanelOpen(true)) },
+    { icon: "history", label: "Sessions", tone: "blue", key: "⌘2", go: () => openPanel("sessions") },
     { icon: "resolved", label: "Actions", tone: "amber", key: "⌘3", go: () => setActiveView("activity") },
-    { icon: "files", label: "Files", tone: "teal", key: "⌘4", go: toggleFilePanel },
-    { icon: "settings", label: "Settings", tone: "neutral", key: "⌘5", go: toggleSettingsPanel },
+    { icon: "files", label: "Files", tone: "teal", key: "⌘4", go: () => openPanel("files") },
+    { icon: "settings", label: "Settings", tone: "neutral", key: "⌘5", go: () => openPanel("settings") },
   ];
 
   // The reason a socket-bound command cannot run right now, printed beside it
