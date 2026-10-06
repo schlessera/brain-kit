@@ -309,12 +309,14 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         !over(occurrence, current, at) && admitted <= occurrence.max_operations;
       if (!startable) {
         if (["queued", "retrying"].includes(occurrence.state)) {
-          const final = over(occurrence, current, at) ? "expired" : current.state === "cancelled" ? "cancelled"
-            : admitted > occurrence.max_operations ? "failed" : null;
-          if (final) { setOccurrence(occurrence.id, final, at); settleTask(current, final, at); }
+          // A refusal (authority, policy, drift, restore) is an explicit
+          // failed occurrence, never a stranded one: its only item goes, so
+          // a later due instant can be admitted once the cause is fixed.
+          const final = over(occurrence, current, at) ? "expired" : current.state === "cancelled" ? "cancelled" : "failed";
+          setOccurrence(occurrence.id, final, at);
+          settleTask(current, final, at);
         }
-        // Refused for now (authority, drift, restore): the claim is dropped,
-        // the occurrence stays as it is and the reservation is released.
+        // The claim is dropped and its never-acquired reservation released.
         dropClaim(item.id);
         return null;
       }

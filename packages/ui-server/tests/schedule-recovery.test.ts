@@ -110,6 +110,9 @@ test("only verified operator reconciliation reopens restored tasks, against the 
   try {
     const s = createScheduleService(restored, { brainRoot: brain, executionPolicy: () => POLICY, gitIgnored: () => false });
     await s.ready;
+    // A service still pointed at the original directory, started before reconciliation.
+    const stale = createScheduleService(restored, { brainRoot: f.root, executionPolicy: () => POLICY, gitIgnored: () => false });
+    await stale.ready;
     const state = async (id: string) => (await s.list(f.owner, { id })).tasks[0]!;
     const code = (promise: Promise<unknown>) => promise.then(() => "ok", (error: { code?: string }) => error.code ?? String(error));
     // A delegated creator sees its task but cannot state the uncertainty was investigated.
@@ -146,5 +149,10 @@ test("only verified operator reconciliation reopens restored tasks, against the 
     // The restore named this brain directory, so the ledger now serves it.
     const { status } = await s.propose(f.owner, { key: "after-reopen", definition: cronDefinition() });
     expect(status).toBe(201);
+    // ...and no longer the old one, even for a service that cached the old answer.
+    expect(await code(stale.propose(f.owner, { key: "stale-root", definition: cronDefinition() }))).toBe("unsupported_capability");
+    // A no-op reconciliation records its receipt even when the host has no policy.
+    const unpoliced = createScheduleService(restored, { brainRoot: brain, executionPolicy: () => null, gitIgnored: () => false });
+    expect(await unpoliced.reopen(f.owner, cron.id, { key: "no-policy", decision: "reopen" })).toMatchObject({ changed: false });
   } finally { restored.close(); }
 });

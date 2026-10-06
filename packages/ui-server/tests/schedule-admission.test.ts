@@ -397,7 +397,7 @@ test("revoked creator authority refuses admission and start instead of reporting
   const [id] = await h.admission.admit();
   expect((await h.runtime.tick()).claimed).toBe(1);
   expect(h.calls).toHaveLength(0);
-  expect(occurrences(f)).toEqual([expect.objectContaining({ id, state: "queued", operations_used: 0 })]);
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id, state: "failed", operations_used: 0 })]);
   expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "dropped" });
   expect(reservations(f)).toEqual([expect.objectContaining({ status: "released" })]);
   const view = (await h.service.list(f.owner, { id: task.id }).catch((error) => error)) as { code?: string };
@@ -417,9 +417,16 @@ test("a changed host execution policy refuses admission and start under the appr
   expect((await h.runtime.tick()).claimed).toBe(1);
   expect(h.calls).toHaveLength(0);
   expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "dropped" });
+  // The refused occurrence is explicitly failed, not stranded as queued work.
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id, state: "failed", operations_used: 0 })]);
   f.clock.now += 2 * MINUTE;
   expect(await h.admission.admit()).toEqual([]);
   expect((await h.service.list(f.owner, { id: task.id })).tasks[0]).toMatchObject({ executionAvailable: false, blockedReason: "backend_unavailable" });
+  // Back on the approved policy, the next due instant runs.
+  policy = POLICY;
+  expect(await h.admission.admit()).toHaveLength(1);
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(h.calls).toHaveLength(1);
 });
 
 test("revoking the approving operator stops a delegated creator's schedule", async () => {

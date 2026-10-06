@@ -191,12 +191,11 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
 
   function restorePending(): boolean {
     const info = rootInfo();
-    if (!info.matches) {
-      // Another process's reconciliation may have bound the ledger to this root.
-      const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
-      if (bound?.root_path !== info.path) return true;
-      info.matches = true;
-    }
+    // Never trust a cached answer: another process's reconciliation may have
+    // bound the ledger to a different directory since this one started.
+    const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
+    info.matches = bound?.root_path === info.path;
+    if (!info.matches) return true;
     return Boolean(db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get());
   }
   function assertWritable(): void {
@@ -759,8 +758,9 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
    */
   function adoptRestoredRoot(): void {
     const info = rootInfo();
-    if (info.matches) return;
     db.transaction(() => {
+      const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
+      if (bound?.root_path === info.path) return;
       const restored = db.query("SELECT status, brain_root FROM inbox_recovery_state WHERE id = 1").get() as
         { status: string; brain_root: string } | null;
       if (restored?.status !== "ready" || restored.brain_root !== info.path)
@@ -810,7 +810,8 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     adoptRestoredRoot();
     // Journals frozen by the restore can finish now; this never dispatches.
     await reconcile();
-    const policy = await currentPolicy();
+    // Only a reopening needs the host policy; a no-op still records its receipt.
+    const policy = await currentPolicy().catch((error: unknown) => error as Error);
     const before = taskRow(row.id)!;
     const drifted = await fileDrifted(before);
     const changed = db.transaction(() => {
@@ -826,6 +827,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         if (current.root_identity !== rootInfo().identity)
           throw new ScheduleError("definition_conflict", "The task belongs to another brain root.");
         if (!authorized(current)) throw new ScheduleError("unauthorized", "The schedule's creator or approving operator is no longer usable.");
+        if (policy instanceof Error) throw policy;
         if (canonicalJson(policy) !== current.execution_policy_json)
           throw new ScheduleError("definition_conflict", "The host execution policy changed since approval; cancel and create a new schedule.");
         if (db.query(`SELECT 1 FROM schedule_occurrences WHERE task_id = ? AND state IN

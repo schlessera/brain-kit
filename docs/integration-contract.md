@@ -4160,7 +4160,9 @@ arriving while work is outstanding are skipped as busy. Admission and every
 start require the creator and the approving operator to still be usable
 (otherwise `blockedReason: "authority_unusable"`) and the host's current
 execution policy to equal the approved one (otherwise `"backend_unavailable"`,
-which `list` and `due` also report). At or after an approved `endAt`, queued
+which `list` and `due` also report). A start refused for one of these reasons
+makes no model call and ends that occurrence `failed`, so a later due instant
+can run once the cause is fixed. At or after an approved `endAt`, queued
 or retrying work expires instead of starting. The Queue claim reserves
 budget as for any autonomous work, and the start transaction is the
 cancel-versus-start boundary. Each attempt gets the approved
