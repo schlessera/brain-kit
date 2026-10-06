@@ -482,6 +482,43 @@ describe("persistence", () => {
     expect(views(here)[0]).toMatchObject({ revision: 2 });
   });
 
+  test("a stored turn that moved at the same revision starts over here, and this tab's writes never restore an older record", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const here = root({ storage, storagePrefix: "ithaca" });
+    hello(here, false);
+    runningIn(here, A, "turn-1");
+    here.stores.chat.getState().setActiveSession(B);
+    frame(here, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    // Another tab saw turn 2 start live, at the same (unknown) revision.
+    const theirs = { sessionId: A, requestId: "req-2", turnId: "turn-2", revision: null, leftAt: 9, seen: null };
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [theirs] }));
+    expect(here.stores.trackers.getState().syncFromStorage(k)).toEqual([A]);
+    expect(here.stores.trackers.getState().observeSeen({ sessionId: A, turnId: "turn-1", revision: 0 })).toBe(false);
+    // Another tab stores A at revision 5; this tab then tracks something else.
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ ...theirs, revision: 5 }] }));
+    here.stores.trackers.getState().track("odysseus-circe");
+    const stored = JSON.parse(storage.data.get(k)!).trackers.find((t: { sessionId: string }) => t.sessionId === A);
+    expect(stored).toMatchObject({ revision: 5, turnId: "turn-2" });
+  });
+
+  test("a storage event for another key, or a root that keeps nothing, changes nothing", () => {
+    const memory = root({ storage: null });
+    hello(memory, false);
+    runningIn(memory, A);
+    memory.stores.chat.getState().setActiveSession(B);
+    expect(memory.stores.trackers.getState().syncFromStorage(null)).toEqual([]);
+    expect(ids(memory)).toEqual([A]);
+    const storage = memoryStorage();
+    const kept = root({ storage, storagePrefix: "ithaca" });
+    hello(kept, false);
+    runningIn(kept, A);
+    kept.stores.chat.getState().setActiveSession(B);
+    storage.removeItem(`ithaca:${TRACKER_STORAGE_KEY}`);
+    expect(kept.stores.trackers.getState().syncFromStorage("ithaca:brain-theme")).toEqual([]);
+    expect(ids(kept)).toEqual([A]);
+  });
+
   test("a storage event from another tab reads the trackers it brought", async () => {
     const page = new EventTarget();
     (globalThis as { window?: unknown }).window = page;

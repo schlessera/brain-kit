@@ -17,6 +17,7 @@ import {
   type TrackerEvidence,
   type TrackerLiveEvent,
   type TrackerRecord,
+  type TrackerSet,
   type TrackerView,
 } from "../lib/trackers.js";
 
@@ -102,7 +103,7 @@ export interface TrackerStoreState {
    * Another tab of this root changed the stored set (a `storage` event):
    * this tab takes its trackers as they now stand.
    */
-  syncFromStorage(): string[];
+  syncFromStorage(changedKey?: string | null): string[];
   /** A revocation: the whole set goes, and tracking stops until `resume`. */
   revoke(): void;
   /** A hello arrived: the connection is authorized, so tracking resumes. */
@@ -150,32 +151,49 @@ const REFUSALS_KEPT = 256;
 export function createTrackerStore(env: StoreEnvironment) {
   const key = env.storageKey(TRACKER_STORAGE_KEY);
 
-  function read() {
+  /** The stored set, or null when there is no storage or it cannot be read. */
+  function readStored(): TrackerSet | null {
     try {
-      return parseTrackerSet(env.storage()?.getItem(key) ?? null);
+      const storage = env.storage();
+      return storage ? parseTrackerSet(storage.getItem(key)) : null;
     } catch {
-      return parseTrackerSet(null);
+      return null;
     }
   }
 
+  const sameIdentity = (a: TrackerRecord, b: TrackerRecord) =>
+    a.requestId === b.requestId && a.turnId === b.turnId && a.revision === b.revision;
+  const ahead = (a: TrackerRecord, b: TrackerRecord) => (a.revision ?? -1) > (b.revision ?? -1);
+
   /**
    * Store the set. Another tab of the same root may have written since this
-   * one last read, so its trackers are merged in rather than overwritten:
-   * only what this tab removed goes. A deletion of the whole set (a new
-   * principal, a revocation) replaces it. Returns the merged records.
+   * one last read, so the stored set is the base: only the records this
+   * tab changed or removed are applied to it, and a stored record at a
+   * newer revision than this tab's change keeps its identity. A deletion
+   * of the whole set (a new principal, a revocation) replaces it. Returns
+   * the records as stored.
    */
-  function write(state: Pick<TrackerStoreState, "records" | "principalKey">, removed: readonly string[], replace: boolean): Record<string, TrackerRecord> {
+  function write(
+    state: Pick<TrackerStoreState, "records" | "principalKey">,
+    changed: readonly string[],
+    removed: readonly string[],
+    replace: boolean,
+  ): Record<string, TrackerRecord> {
     let records = state.records;
     try {
       const storage = env.storage();
       if (!storage) return records;
-      if (!replace) {
-        const current = read();
-        if (current.principalKey === null || state.principalKey === null || current.principalKey === state.principalKey) {
-          const merged = { ...current.records };
-          for (const sessionId of removed) delete merged[sessionId];
-          records = { ...merged, ...state.records };
+      const current = replace ? null : readStored();
+      if (current && (current.principalKey === null || state.principalKey === null || current.principalKey === state.principalKey)) {
+        const merged = { ...current.records };
+        for (const sessionId of removed) delete merged[sessionId];
+        for (const sessionId of changed) {
+          const mine = state.records[sessionId];
+          if (!mine) continue;
+          const theirs = merged[sessionId];
+          merged[sessionId] = theirs && ahead(theirs, mine) ? { ...theirs, leftAt: Math.max(theirs.leftAt, mine.leftAt) } : mine;
         }
+        records = merged;
       }
       if (Object.keys(records).length === 0) storage.removeItem(key);
       else storage.setItem(key, serializeTrackerSet({ principalKey: state.principalKey, records }));
@@ -185,38 +203,42 @@ export function createTrackerStore(env: StoreEnvironment) {
     return records;
   }
 
-  const stored = read();
+  const stored = readStored() ?? parseTrackerSet(null);
 
   return createStore<TrackerStoreState>((set, get) => {
     function commit(patch: Partial<TrackerStoreState>, replace = false) {
       const before = get().records;
       set(patch);
       if (patch.records === undefined && patch.principalKey === undefined) return;
-      const removed = patch.records ? Object.keys(before).filter((id) => !(id in patch.records!)) : [];
-      const records = write(get(), removed, replace);
-      if (records !== get().records) adopt(records);
+      const after = get().records;
+      const removed = Object.keys(before).filter((id) => !(id in after));
+      const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
+      const records = write(get(), changed, removed, replace);
+      if (records !== after) adopt(records);
     }
 
     /**
-     * Take in trackers another tab of this root stored. Returns the sessions
-     * whose tracker is new here, or whose stored revision is ahead of what
-     * this tab knows: their evidence starts over from the record, so an
-     * older turn cannot be shown or seen, and they need a fresh read.
+     * Take in the trackers another tab of this root stored. A record this
+     * tab knows at a newer revision is kept. Every other record that is new
+     * here, or whose request, turn or revision moved, starts its evidence
+     * over from the record, so an older turn can be neither shown nor seen,
+     * and is returned for a fresh read.
      */
-    function adopt(records: Record<string, TrackerRecord>): string[] {
+    function adopt(incoming: Record<string, TrackerRecord>): string[] {
       const state = get();
       const evidence = { ...state.evidence };
-      const changed: string[] = [];
-      for (const record of Object.values(records)) {
-        const known = evidence[record.sessionId];
+      const records: Record<string, TrackerRecord> = {};
+      const moved: string[] = [];
+      for (const record of Object.values(incoming)) {
         const mine = state.records[record.sessionId];
-        if (!mine || !known || (record.revision ?? -1) > (known.revision ?? -1)) {
-          if (!mine || (record.revision ?? -1) > (known?.revision ?? -1)) evidence[record.sessionId] = evidenceFromRecord(record);
-          changed.push(record.sessionId);
-        }
+        if (mine && ahead(mine, record)) { records[record.sessionId] = mine; continue; }
+        records[record.sessionId] = record;
+        if (mine && sameIdentity(mine, record) && evidence[record.sessionId]) continue;
+        evidence[record.sessionId] = evidenceFromRecord(record);
+        moved.push(record.sessionId);
       }
       set({ records, evidence });
-      return changed;
+      return moved;
     }
 
     /** Keep the record's identifiers in step with the newest evidence, so a reload can detect a rollback. */
@@ -425,8 +447,11 @@ export function createTrackerStore(env: StoreEnvironment) {
         commit({ principalKey });
       },
 
-      syncFromStorage() {
-        const current = read();
+      syncFromStorage(changedKey) {
+        // Another key changed, or this root keeps nothing: nothing to take.
+        if (changedKey !== undefined && changedKey !== null && changedKey !== key) return [];
+        const current = readStored();
+        if (!current) return [];
         const principalKey = get().principalKey;
         // A set stored under another principal is not this tab's to take;
         // its next hello decides.
