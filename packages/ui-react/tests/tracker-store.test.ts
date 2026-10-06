@@ -289,6 +289,34 @@ describe("creating a tracker", () => {
     expect(ids(r)).toEqual([A]);
   });
 
+  test("leaving a session whose resume is still replaying is not leaving work", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.chat.getState().setActiveSession(A);
+    // A resume of an idle session: its announcement and its replay.
+    frame(r, { type: "session_info", sessionId: A, isNew: false });
+    frame(r, { type: "session_history", sessionId: A, messages: [{ role: "user", content: "Row past the Sirens", toolCalls: [] }] });
+    expect(r.stores.chat.getState().runStates[A]).toBe("streaming");
+    r.stores.chat.getState().setActiveSession(B);
+    expect(ids(r)).toEqual([]);
+  });
+
+  test("a card decided while a read held its approval is settled once the read lands", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { await gate; return envelope(A, 1, { requestId: "req-1", turnId: "turn-1", state: "running", startedAt: 1 }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    runningIn(r, A);
+    // Left while running: the read starts and holds A's frames.
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-1", toolUseId: "tool-wax", toolName: "Bash", input: {} });
+    r.stores.chat.getState().resolveToolApproval(A, "tool-wax", true);
+    release();
+    await settle(); await settle();
+    expect(state(r, A)).toBe("running");
+  });
+
   test("a refused answer leaves the question waiting", () => {
     const r = root();
     hello(r, false);
@@ -620,6 +648,22 @@ describe("persistence", () => {
     await settle();
     expect(host.urls).toContain("/api/sessions/odysseus-circe/recovery");
     expect(views(here).find((v) => v.sessionId === "odysseus-circe")).toMatchObject({ state: "running", settled: true });
+  });
+
+  test("a principal change keeps its ownership of the emptied set, so a tab on the old one cannot claim it", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const old = root({ storage, storagePrefix: "ithaca" });
+    hello(old, false, "pk-ithaca");
+    runningIn(old, A);
+    old.stores.chat.getState().setActiveSession(B);
+    const fresh = root({ storage, storagePrefix: "ithaca" });
+    hello(fresh, false, "pk-penelope");
+    expect(JSON.parse(storage.data.get(k)!)).toMatchObject({ principalKey: "pk-penelope", trackers: [] });
+    old.stores.trackers.getState().track("odysseus-circe");
+    expect(JSON.parse(storage.data.get(k)!)).toMatchObject({ principalKey: "pk-penelope", trackers: [] });
+    fresh.stores.trackers.getState().track("odysseus-loom");
+    expect(JSON.parse(storage.data.get(k)!).trackers.map((t: { sessionId: string }) => t.sessionId)).toEqual(["odysseus-loom"]);
   });
 
   test("a stale tab never overwrites a set another tab stored for a different principal", () => {
@@ -999,7 +1043,7 @@ describe("recovery (Recovery A)", () => {
     r.stores.chat.getState().setActiveSession(B);
     frame(r, { type: "status", sessionId: "odysseus-aeolus", status: "queued", requestId: "req-1" });
     expect(ids(r)).toEqual([]);
-    expect(storage.data.has(`ithaca:${TRACKER_STORAGE_KEY}`)).toBe(false);
+    expect(JSON.parse(storage.data.get(`ithaca:${TRACKER_STORAGE_KEY}`) ?? "{\"trackers\":[]}").trackers).toEqual([]);
     hello(r, false);
     frame(r, { type: "status", sessionId: "odysseus-aeolus", status: "queued", requestId: "req-2" });
     expect(ids(r)).toEqual(["odysseus-aeolus"]);
@@ -1013,7 +1057,7 @@ describe("recovery (Recovery A)", () => {
     r.stores.chat.getState().setActiveSession(B);
     r.stores.trackers.getState().revoke();
     expect(ids(r)).toEqual([]);
-    expect(storage.data.has(`ithaca:${TRACKER_STORAGE_KEY}`)).toBe(false);
+    expect(JSON.parse(storage.data.get(`ithaca:${TRACKER_STORAGE_KEY}`) ?? "{\"trackers\":[]}").trackers).toEqual([]);
   });
 
   test("activity after leaving is a new turn running, never done by its time", () => {

@@ -222,7 +222,9 @@ export function createTrackerStore(env: StoreEnvironment) {
         }
         records = merged;
       }
-      if (Object.keys(records).length === 0) storage.removeItem(key);
+      // An empty set keeps its principal, so a tab still on the previous
+      // one cannot claim the key back.
+      if (Object.keys(records).length === 0 && state.principalKey === null) storage.removeItem(key);
       else storage.setItem(key, serializeTrackerSet({ principalKey: state.principalKey, records }));
     } catch {
       // Storage full, disabled or throwing: the trackers still work for this page.
@@ -509,8 +511,10 @@ export function createTrackerStore(env: StoreEnvironment) {
       setPrincipal(principalKey) {
         const current = get().principalKey;
         if (principalKey === null || principalKey === current) return;
-        if (current !== null) deleteAll();
-        commit({ principalKey });
+        // A new principal replaces the set in one write, under its own key,
+        // which is the explicit ownership change a stale tab cannot make.
+        if (current !== null) commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1, principalKey }, true);
+        else commit({ principalKey });
       },
 
       syncFromStorage(changedKey) {

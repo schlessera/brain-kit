@@ -45,8 +45,8 @@ export function createTrackerClient(root: BrainUiServices) {
 
   /** Accepted work in flight, or an interaction waiting on the reader. */
   function working(state: ChatState, sessionId: string): boolean {
-    const run = state.runStates[sessionId];
-    if (run === "streaming" || run === "queued") return true;
+    // Not the session list's run badge: a resume's replay sets it to
+    // streaming with no work at all. Host-named turns and evidence only.
     const buffer = state.buffers[sessionId];
     if (buffer) {
       // The composer opens the answer's bubble before the host has accepted
@@ -106,6 +106,8 @@ export function createTrackerClient(root: BrainUiServices) {
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
       const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
+      // A card decided while the read held its approval's frame.
+      settleDecidedApprovals(chat.getState());
       if (again.delete(sessionId) || ambiguous) refresh(sessionId);
     });
   }
