@@ -174,7 +174,7 @@ function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: 
     case "tracker":
       // The list derives every repository, number, type and host from each
       // event's `url`, and draws a refused one as withheld (#1001).
-      return <TrackerPillList events={block.events} />;
+      return <TrackerPillList events={block.events} isStatic={isStatic} />;
     case "suggestions":
       // Never drawn in the answer: the closing row takes the turn's last
       // valid call (D50), and a share or a print leaves them out.

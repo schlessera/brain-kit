@@ -69,6 +69,13 @@ export interface TrackerPillListProps {
    */
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /**
+   * A render nothing will update: a shared image or PDF. Every event is drawn
+   * with no `Show all` control, and a pill grows rather than truncating,
+   * because an export appends each link's destination inside its anchor and
+   * that suffix must not be pushed past the page edge.
+   */
+  isStatic?: boolean;
 }
 
 /** What the kit read from an accepted address. */
@@ -230,7 +237,29 @@ const titleStyle: CSSProperties = {
   font: `500 12.5px/1.35 ${font.body}`,
 };
 
-function Pill({ row, item }: { row: TrackerRow; item: TrackerItem }) {
+/**
+ * A static render (a shared image or PDF) cannot be tapped to reveal a cut
+ * title, and an export appends each link's destination inside its anchor, so
+ * the pill grows instead of truncating: the title wraps and the destination
+ * drops to a line of its own rather than past the page edge.
+ */
+const staticPill: CSSProperties = { height: "auto", minHeight: 36, flexWrap: "wrap", padding: "7px 10px" };
+const staticTitle: CSSProperties = { whiteSpace: "normal", overflowWrap: "anywhere", textOverflow: "clip" };
+
+/** `.bk-sr-only`, inline: a shared document carries the print tokens and not
+ * the kit stylesheet, and this text must not print there. */
+const srOnly: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
+function Pill({ row, item, isStatic }: { row: TrackerRow; item: TrackerItem; isStatic: boolean }) {
   const { event } = row;
   const tone = trackerTone(event.action, event.qualifier);
   const tint = token(`chip-tint-${tone}`);
@@ -252,6 +281,7 @@ function Pill({ row, item }: { row: TrackerRow; item: TrackerItem }) {
         aria-describedby={descId}
         style={{
           ...pillBox,
+          ...(isStatic ? staticPill : null),
           border: `1px solid ${border}`,
           background: tint,
           ...({
@@ -280,7 +310,7 @@ function Pill({ row, item }: { row: TrackerRow; item: TrackerItem }) {
             {item.github.type === "pull" ? `PR ${item.github.number}` : `#${item.github.number}`}
           </span>
         ) : null}
-        <span data-tracker-title="" style={titleStyle}>
+        <span data-tracker-title="" style={isStatic ? { ...titleStyle, ...staticTitle } : titleStyle}>
           {event.title}
         </span>
         <span aria-hidden="true" data-tracker-open="" style={{ flex: "none", font: `500 12px/1 ${font.body}`, color: color.inkMute }}>
@@ -294,13 +324,14 @@ function Pill({ row, item }: { row: TrackerRow; item: TrackerItem }) {
   );
 }
 
-function WithheldPill({ row }: { row: TrackerRow }) {
+function WithheldPill({ row, isStatic }: { row: TrackerRow; isStatic: boolean }) {
   return (
-    <li data-tracker-withheld="" style={{ listStyle: "none", padding: "4px 0", margin: 0, minWidth: 0 }}>
+    <li data-tracker-withheld="" style={{ position: "relative", listStyle: "none", padding: "4px 0", margin: 0, minWidth: 0 }}>
       <div
         aria-hidden="true"
         style={{
           ...pillBox,
+          ...(isStatic ? staticPill : null),
           border: `1px dashed ${token("chip-border-neutral")}`,
           background: token("chip-tint-neutral"),
           color: color.inkDim,
@@ -309,20 +340,24 @@ function WithheldPill({ row }: { row: TrackerRow }) {
         <span data-tracker-action="" style={{ ...mono11, color: accent.neutral.ink }}>
           ⊘ withheld
         </span>
-        <span data-tracker-title="" style={titleStyle}>
+        <span data-tracker-title="" style={isStatic ? { ...titleStyle, ...staticTitle } : titleStyle}>
           {row.event.title}
         </span>
       </div>
-      <span className="bk-sr-only">{`Withheld link, address refused. Title by the brain: ${row.event.title}`}</span>
+      <span data-tracker-sr="" style={srOnly}>{`Withheld link, address refused. Title by the brain: ${row.event.title}`}</span>
     </li>
   );
 }
 
-function RunList({ rows, labelledBy }: { rows: TrackerRow[]; labelledBy?: string }) {
+function RunList({ rows, labelledBy, isStatic }: { rows: TrackerRow[]; labelledBy?: string; isStatic: boolean }) {
   return (
     <ul aria-labelledby={labelledBy} style={{ margin: 0, padding: 0, display: "flex", flexDirection: "column", minWidth: 0 }}>
       {rows.map((row) =>
-        row.item.ok ? <Pill key={row.index} row={row} item={row.item} /> : <WithheldPill key={row.index} row={row} />
+        row.item.ok ? (
+          <Pill key={row.index} row={row} item={row.item} isStatic={isStatic} />
+        ) : (
+          <WithheldPill key={row.index} row={row} isStatic={isStatic} />
+        )
       )}
     </ul>
   );
@@ -365,7 +400,9 @@ export function TrackerPillList(p: TrackerPillListProps) {
 
   const events = p.events;
   const total = events.length;
-  const collapsible = total > TRACKER_COLLAPSE_AFTER;
+  const isStatic = p.isStatic === true;
+  // Nothing can expand a static render, so it draws every event.
+  const collapsible = !isStatic && total > TRACKER_COLLAPSE_AFTER;
   const runs = trackerRuns(events);
 
   function toggle() {
@@ -390,7 +427,7 @@ export function TrackerPillList(p: TrackerPillListProps) {
       above.push(
         <div key={n} style={{ minWidth: 0 }}>
           {header}
-          <RunList rows={head} labelledBy={labelledBy} />
+          <RunList rows={head} labelledBy={labelledBy} isStatic={isStatic} />
         </div>
       );
     }
@@ -398,7 +435,7 @@ export function TrackerPillList(p: TrackerPillListProps) {
       below.push(
         <div key={n} style={{ minWidth: 0 }}>
           {head.length > 0 ? null : header}
-          <RunList rows={tail} labelledBy={labelledBy} />
+          <RunList rows={tail} labelledBy={labelledBy} isStatic={isStatic} />
         </div>
       );
     }

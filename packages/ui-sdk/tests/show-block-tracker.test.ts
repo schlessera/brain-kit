@@ -93,7 +93,7 @@ describe("show_block: tracker", () => {
       ["javascript:alert(1)", "scheme"],
       ["/ithaca/hall/issues/12", "relative"],
       ["https://odysseus:nobody@github.com/ithaca/hall/issues/12", "credentials"],
-      ["https://github.com/ithaca/hall/issues/12‮", "hidden-characters"],
+      ["https://github.com/ithaca/hall/issues/12\u202E", "hidden-characters"],
     ];
     for (const [url, reason] of cases) {
       const input = tracker([event(), event({ url })]);

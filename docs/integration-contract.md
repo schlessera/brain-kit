@@ -1409,7 +1409,8 @@ refused address that reaches a client anyway draws a withheld line with no
 anchor. Every other line is an anchor to the parsed `href` (new tab, no
 opener, no referrer); consecutive events with the same host and repository
 share one header naming them; more than six events show five and a `Show
-all N changes` control; and the list always ends with `Changes as reported
+all N changes` control in the chat, while a shared image or PDF draws every
+event with its title in full; and the list always ends with `Changes as reported
 by the brain · tracker not checked`. Nothing is fetched to draw it. The
 `qualifier` is the close reason, the label name or the review verdict, and
 with the action it picks the line's tone (`merged`, `closed completed` and
