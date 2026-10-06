@@ -417,8 +417,8 @@ test("480 and 900: no phone Search disc and no bar", async () => {
   pointer();
   for (const width of [480, 900]) {
     await mount("occupied", { width, height: 700 });
-    expect(find("Search the brain"), `no Search disc at ${width}`).toBeNull();
-    expect(find("New chat"), `New chat disc stays at ${width}`).not.toBeNull();
+    expect(host!.querySelector('[aria-label="Chat actions"] [aria-label="Search the brain"]'), `no Search disc at ${width}`).toBeNull();
+    expect(host!.querySelector('[aria-label="Chat actions"] [aria-label="New chat"]'), `New chat disc stays at ${width}`).not.toBeNull();
     const nav = host!.querySelector<HTMLElement>(PHONE_BAR)!;
     expect(rect(nav).height, `no phone bar at ${width}`).toBe(0);
     flushSync(() => renderer!.unmount());
