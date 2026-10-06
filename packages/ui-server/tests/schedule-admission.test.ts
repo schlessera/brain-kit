@@ -391,6 +391,29 @@ test("recovery reads a settled turn's Activity receipt instead of declaring a fi
   expect(occurrences(f)[0]).toMatchObject({ state: "completed", operations_used: 2 });
 });
 
+test("recovery keeps a fired deadline's timeout even when the turn's receipt reports success", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-late-success", atDefinition(isoInstant(at)));
+  const h = harness(f, succeed("Success, but after the deadline."));
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  await h.runtime.tick();
+  // Rewind to: the deadline fired (unwinding persisted), the backend then
+  // reported success and settled, and the dispatcher died before recording.
+  const attempt = f.db.query("SELECT * FROM schedule_attempts").get() as { run_id: string; item_id: string; started_at: number; deadline_at: number };
+  f.db.query("DELETE FROM schedule_attempts").run();
+  f.db.query("INSERT INTO schedule_attempts (run_id, occurrence_id, item_id, started_at, deadline_at) VALUES (?, ?, ?, ?, ?)")
+    .run(attempt.run_id, id, attempt.item_id, attempt.started_at, attempt.deadline_at);
+  f.db.query("UPDATE schedule_occurrences SET state = 'unwinding', result_state = 'unavailable', result_text = NULL WHERE id = ?").run(id);
+  f.db.query("UPDATE schedule_tasks SET state = 'active' WHERE state = 'completed'").run();
+  const item = createInboxStore(f.db).getItem(`${id}-1`)!;
+  f.db.query("UPDATE inbox_items SET status = 'ready', data_json = json_set(data_json, '$.status', 'ready') WHERE id = ?").run(item.id);
+  expect(h.admission.recover()).toBe(1);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "timeout" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "retrying" });
+});
+
 test("an item the Queue expired late still leaves the latest fresh instant for catch-up", async () => {
   const f = fixture = start();
   const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;

@@ -145,7 +145,10 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
             .get(attempt.run_id) as { outcome: string | null } | null)?.outcome ?? null
           : null;
         const effectPossible = receipt === null && reservation?.runtime_acquired_at != null;
-        const outcome = receipt === "success" ? "success" : receipt !== null ? (receipt === "cancelled" ? "cancelled" : "error")
+        // A deadline that fired persisted `unwinding`: that attempt timed out,
+        // whatever its receipt says, exactly as uninterrupted dispatch records it.
+        const outcome = receipt !== null && occurrence.state === "unwinding" ? "timeout"
+          : receipt === "success" ? "success" : receipt !== null ? (receipt === "cancelled" ? "cancelled" : "error")
           : effectPossible ? "unknown" : "interrupted";
         db.query("UPDATE schedule_attempts SET outcome = ?, ended_at = ? WHERE run_id = ? AND outcome IS NULL")
           .run(outcome, at, attempt.run_id);

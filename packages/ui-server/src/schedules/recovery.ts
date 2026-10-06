@@ -47,6 +47,13 @@ export function validateScheduleRelations(db: Database): void {
  * reconciliation and every outstanding occurrence becomes an unknown outcome.
  */
 export function pauseRestoredSchedules(db: Database, at: number): void {
+  // Instants that arrived while those occurrences were outstanding were busy,
+  // up to their expiry at the latest; reconciliation must not replay them.
+  db.query(`UPDATE schedule_tasks SET evaluated_through = MAX(evaluated_through, (
+      SELECT MAX(MIN(?, o.expires_at - 1)) FROM schedule_occurrences o WHERE o.task_id = schedule_tasks.id
+        AND o.state IN ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')))
+    WHERE EXISTS (SELECT 1 FROM schedule_occurrences o WHERE o.task_id = schedule_tasks.id
+      AND o.state IN ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying'))`).run(at);
   db.query(`UPDATE schedule_occurrences SET state = 'unknown', updated_at = ?
     WHERE state IN ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')`).run(at);
   // Attempts whose worker was lost with the old installation end unknown too.

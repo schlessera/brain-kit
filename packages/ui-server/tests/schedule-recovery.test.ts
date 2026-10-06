@@ -99,6 +99,9 @@ test("only verified operator reconciliation reopens restored tasks, against the 
   f.db.query(`INSERT INTO schedule_occurrences (id, task_id, due_at, expires_at, state, operations_used, max_operations, created_at, updated_at)
     VALUES ('occ_lost_once', ?, ?, ?, 'running', 1, 3, ?, ?)`).run(once.id, due, due + 86_400_000, due, due);
   const at = Date.now();
+  // The recurring task was busy with an occurrence when the image was taken.
+  f.db.query(`INSERT INTO schedule_occurrences (id, task_id, due_at, expires_at, state, operations_used, max_operations, created_at, updated_at)
+    VALUES ('occ_busy_cron', ?, ?, ?, 'running', 1, 3, ?, ?)`).run(cron.id, at - 7_200_000, at - 7_200_000 + 86_400_000, at, at);
   const snapshot = await exportInboxSnapshot(f.db, f.root, at);
   const target = mkdtempSync(join(tmpdir(), "brain-schedule-reopen-"));
   temporary.push(target);
@@ -115,6 +118,9 @@ test("only verified operator reconciliation reopens restored tasks, against the 
     await stale.ready;
     const state = async (id: string) => (await s.list(f.owner, { id })).tasks[0]!;
     const code = (promise: Promise<unknown>) => promise.then(() => "ok", (error: { code?: string }) => error.code ?? String(error));
+    // Instants that arrived while that occurrence was outstanding stay consumed
+    // through the restore, so reopening cannot replay one.
+    expect(restored.query("SELECT evaluated_through FROM schedule_tasks WHERE id = ?").get(cron.id)).toEqual({ evaluated_through: at });
     // A delegated creator sees its task but cannot state the uncertainty was investigated.
     expect(await code(s.reopen(f.agent, delegated.id, { key: "agent", decision: "reopen" }))).toBe("unauthorized");
     expect(await code(s.reopen(f.owner, cron.id, { key: "bad", decision: "approve" }))).toBe("invalid_request");
