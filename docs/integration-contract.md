@@ -3008,6 +3008,47 @@ never throws. The host stores only identifiers, revisions and times in its
 operational database (`session_work`, `turn_boundaries`), never prompt
 text, payloads or credentials, and never in `brain.db`.
 
+### Pending follow-ups (additive, #1002)
+
+```
+server_hello.capabilities.followUpQueue: true
+client_hello.capabilities.followUpQueue?: boolean
+server → { type: "session_queue", sessionId,
+           followUps: QueuedFollowUpView[],               // whole, in send order
+           started?: QueuedFollowUpView & { turnId },
+           dropped?: Array<{ id, requestId?, reason }> }
+QueuedFollowUpView = { id, requestId?, text, attachmentCount?, fileCount?,
+                       source?, queuedAt }
+```
+
+A message sent to a busy session waits in the host's in-memory queue and
+enters the transcript only when its own turn starts, so history alone cannot
+show it. A host that advertises `followUpQueue` sends `session_queue` only to
+connections whose `client_hello` declared the same flag; a client that does
+not declare it receives exactly the frames it received before.
+
+- **When.** After that `client_hello`, one frame for every session with a
+  non-empty queue. After every `session_resume`, one frame for that session,
+  even an empty one, after its history. And to every declaring connection on
+  each change: a follow-up queued, started or dropped.
+- **`followUps`** is the whole pending list, replacing what the client held.
+  "Pending" means not yet handed to the agent: an entry taken off the queue
+  stays in it while its turn is still being routed and billed, and leaves the
+  moment the turn reaches the backend.
+- **`started`** is the entry that just became the session's turn, with that
+  turn's `turnId`. It is sent before any frame of that turn, so a client can
+  place the message in the transcript where it entered the conversation.
+- **`dropped`** names entries that left without running, with the host's
+  reason: the turn was cancelled (`Cancelled by user`), the sender was signed
+  out, or the session stopped first. A refused message (`SESSION_QUEUE_FULL`)
+  was never queued and is not listed; its `error` frame answers it, as before.
+- `id` is host-minted and stable while the entry waits; `requestId` is the
+  sender's `chat_message` correlation id. Attachment bytes are never repeated,
+  only counted. A message's text is bounded like any other frame.
+
+The queue stays in memory: a host restart drops it, as it always has. The SDK
+client (`BrainUiClient`) declares the flag.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

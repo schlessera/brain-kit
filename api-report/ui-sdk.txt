@@ -124,6 +124,7 @@ export "." (./src/index.ts)
   type DraftSaveResponse
   type DraftSummary
   FILE_SIZE_CAP_BYTES
+  FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -190,6 +191,7 @@ export "." (./src/index.ts)
   type QueueAddRequest
   type QueueAddResult
   type QueueStagingManifest
+  type QueuedFollowUpView
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -240,6 +242,7 @@ export "." (./src/index.ts)
   type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
+  type ServerSessionQueue
   type ServerStatus
   type ServerTextDelta
   type ServerThinkingDelta
@@ -458,6 +461,7 @@ export "./client" (./src/client/index.ts)
   type DraftSaveResponse
   type DraftSummary
   FILE_SIZE_CAP_BYTES
+  FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -544,6 +548,7 @@ export "./client" (./src/client/index.ts)
   type QueueAddRequest
   type QueueAddResult
   type QueueStagingManifest
+  type QueuedFollowUpView
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -607,6 +612,7 @@ export "./client" (./src/client/index.ts)
   type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
+  type ServerSessionQueue
   type ServerStatus
   type ServerTextDelta
   type ServerThinkingDelta
@@ -862,6 +868,7 @@ export "./protocol" (./src/protocol.ts)
   type DraftSaveResponse
   type DraftSummary
   FILE_SIZE_CAP_BYTES
+  FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -923,6 +930,7 @@ export "./protocol" (./src/protocol.ts)
   type QueueAddRequest
   type QueueAddResult
   type QueueStagingManifest
+  type QueuedFollowUpView
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -973,6 +981,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
+  type ServerSessionQueue
   type ServerStatus
   type ServerTextDelta
   type ServerThinkingDelta
@@ -1117,6 +1126,7 @@ export "./schemas" (./src/schemas.ts)
   parseServerMessage
   queueAddRequestSchema
   queueAddResultSchema
+  queuedFollowUpViewSchema
   resolutionEffectSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
@@ -1145,6 +1155,7 @@ export "./schemas" (./src/schemas.ts)
   serverRetryReceiptSchema
   serverSessionHistorySchema
   serverSessionInfoSchema
+  serverSessionQueueSchema
   serverStatusSchema
   serverTextDeltaSchema
   serverThinkingDeltaSchema
@@ -1360,6 +1371,7 @@ export "./server" (./src/server/index.ts)
   type ExecWrapperConfig
   type ExecutionBrief
   FILE_SIZE_CAP_BYTES
+  FOLLOW_UP_QUEUE_CAPABILITY
   type FetchLike
   type FileContentKind
   type FileContentResponse
@@ -1456,6 +1468,7 @@ export "./server" (./src/server/index.ts)
   type QueueAddRequest
   type QueueAddResult
   type QueueStagingManifest
+  type QueuedFollowUpView
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -1520,6 +1533,7 @@ export "./server" (./src/server/index.ts)
   type ServerRetryReceipt
   type ServerSessionHistory
   type ServerSessionInfo
+  type ServerSessionQueue
   type ServerStatus
   type ServerTextDelta
   type ServerThinkingDelta
@@ -4719,6 +4733,8 @@ signatures (every public export and the types it is made of)
     }
   FILE_SIZE_CAP_BYTES (packages/ui-sdk/src/protocol.ts)
     const FILE_SIZE_CAP_BYTES: 10485760;
+  FOLLOW_UP_QUEUE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const FOLLOW_UP_QUEUE_CAPABILITY: "followUpQueue";
   FetchLike (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   FileContentKind (packages/ui-sdk/src/protocol.ts)
     export type FileContentKind = "markdown" | "html" | "text" | "binary";
@@ -5592,6 +5608,16 @@ signatures (every public export and the types it is made of)
   QueueStagingManifest (packages/ui-sdk/src/protocol.ts)
     export interface QueueStagingManifest extends ShareIntakeResult {
         source: "cli";
+    }
+  QueuedFollowUpView (packages/ui-sdk/src/protocol.ts)
+    export interface QueuedFollowUpView {
+        id: string;
+        requestId?: string;
+        text: string;
+        attachmentCount?: number;
+        fileCount?: number;
+        source?: MessageSource;
+        queuedAt: number;
     }
   REQUEST_IMAGE_MASK_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_CONTRACT: import("./contract.js").ToolComponentContract<"request_image_mask", z.ZodObject<{
@@ -7124,7 +7150,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -7180,6 +7206,20 @@ signatures (every public export and the types it is made of)
         requestId?: string;
         thinkingLevel?: ThinkingLevel;
         effectiveThinkingLevel?: ThinkingLevel;
+    }
+  ServerSessionQueue (packages/ui-sdk/src/protocol.ts)
+    export interface ServerSessionQueue {
+        type: "session_queue";
+        sessionId: string;
+        followUps: QueuedFollowUpView[];
+        started?: QueuedFollowUpView & {
+            turnId: string;
+        };
+        dropped?: Array<{
+            id: string;
+            requestId?: string;
+            reason: string;
+        }>;
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
@@ -10163,6 +10203,21 @@ signatures (every public export and the types it is made of)
         stagingId: z.ZodString;
         threadId: z.ZodString;
     }, z.core.$loose>;
+  queuedFollowUpViewSchema (packages/ui-sdk/src/schemas.ts)
+    const queuedFollowUpViewSchema: z.ZodObject<{
+        attachmentCount: z.ZodOptional<z.ZodNumber>;
+        fileCount: z.ZodOptional<z.ZodNumber>;
+        id: z.ZodString;
+        queuedAt: z.ZodNumber;
+        requestId: z.ZodOptional<z.ZodString>;
+        source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-conversation": "voice-conversation";
+            "voice-dictate": "voice-dictate";
+            handoff: "handoff";
+            typed: "typed";
+        }>>>;
+        text: z.ZodString;
+    }, z.core.$loose>;
   readShareLaunchParams (packages/ui-sdk/src/client/share-target.ts)
     export function readShareLaunchParams(url: string): {
         shareId?: string;
@@ -12875,6 +12930,43 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_resolution">;
     }, z.core.$loose>, z.ZodObject<{
+        dropped: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            reason: z.ZodString;
+            requestId: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+        followUps: z.ZodArray<z.ZodObject<{
+            attachmentCount: z.ZodOptional<z.ZodNumber>;
+            fileCount: z.ZodOptional<z.ZodNumber>;
+            id: z.ZodString;
+            queuedAt: z.ZodNumber;
+            requestId: z.ZodOptional<z.ZodString>;
+            source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-conversation": "voice-conversation";
+                "voice-dictate": "voice-dictate";
+                handoff: "handoff";
+                typed: "typed";
+            }>>>;
+            text: z.ZodString;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        started: z.ZodOptional<z.ZodObject<{
+            attachmentCount: z.ZodOptional<z.ZodNumber>;
+            fileCount: z.ZodOptional<z.ZodNumber>;
+            id: z.ZodString;
+            queuedAt: z.ZodNumber;
+            requestId: z.ZodOptional<z.ZodString>;
+            source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-conversation": "voice-conversation";
+                "voice-dictate": "voice-dictate";
+                handoff: "handoff";
+                typed: "typed";
+            }>>>;
+            text: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
+        type: z.ZodLiteral<"session_queue">;
+    }, z.core.$loose>, z.ZodObject<{
         capabilities: z.ZodObject<{
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
@@ -13513,6 +13605,45 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         thinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
         type: z.ZodLiteral<"session_info">;
+    }, z.core.$loose>;
+  serverSessionQueueSchema (packages/ui-sdk/src/schemas.ts)
+    const serverSessionQueueSchema: z.ZodObject<{
+        dropped: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            reason: z.ZodString;
+            requestId: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+        followUps: z.ZodArray<z.ZodObject<{
+            attachmentCount: z.ZodOptional<z.ZodNumber>;
+            fileCount: z.ZodOptional<z.ZodNumber>;
+            id: z.ZodString;
+            queuedAt: z.ZodNumber;
+            requestId: z.ZodOptional<z.ZodString>;
+            source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-conversation": "voice-conversation";
+                "voice-dictate": "voice-dictate";
+                handoff: "handoff";
+                typed: "typed";
+            }>>>;
+            text: z.ZodString;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        started: z.ZodOptional<z.ZodObject<{
+            attachmentCount: z.ZodOptional<z.ZodNumber>;
+            fileCount: z.ZodOptional<z.ZodNumber>;
+            id: z.ZodString;
+            queuedAt: z.ZodNumber;
+            requestId: z.ZodOptional<z.ZodString>;
+            source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-conversation": "voice-conversation";
+                "voice-dictate": "voice-dictate";
+                handoff: "handoff";
+                typed: "typed";
+            }>>>;
+            text: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
+        type: z.ZodLiteral<"session_queue">;
     }, z.core.$loose>;
   serverStatusSchema (packages/ui-sdk/src/schemas.ts)
     const serverStatusSchema: z.ZodObject<{

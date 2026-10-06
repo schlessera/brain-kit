@@ -1,10 +1,10 @@
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
 import { ClientSet, sendTo, type WSContext } from "./clients.js";
-import { TurnCoordinator } from "./turns.js";
+import { followUpView, TurnCoordinator, type FollowUpQueueChange } from "./turns.js";
 import type { SessionCatalog } from "./session-catalog.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import { createSilentObservability, type Observability } from "../observability/index.js";
@@ -287,6 +287,11 @@ export class WsHost {
         ...(record.reason ? { reason: record.reason } : {}),
       });
     };
+    // Every change to a session's pending follow-ups reaches the connections
+    // that asked for the queue (#1002).
+    this.coordinator.onQueueChanged = (sessionId, change) => {
+      this.sendToCapable(FOLLOW_UP_QUEUE_CAPABILITY, this.followUpQueueFrame(sessionId, change));
+    };
     this.authorizationExpiryTimer = setInterval(
       () => this.expireAuthorizationContexts(),
       AUTHORIZATION_EXPIRY_SWEEP_MS
@@ -425,6 +430,24 @@ export class WsHost {
         direction: "outbound",
       });
     });
+  }
+
+  /** A session's pending follow-ups, whole, with what just changed (#1002). */
+  followUpQueueFrame(sessionId: string, change: FollowUpQueueChange = {}): ServerSessionQueue {
+    const dropped = change.dropped?.entries.map((entry) => ({
+      id: entry.followUpId ?? "",
+      ...(entry.requestId ? { requestId: entry.requestId } : {}),
+      reason: change.dropped!.reason,
+    })).filter((entry) => entry.id);
+    return {
+      type: "session_queue",
+      sessionId,
+      followUps: this.coordinator.pendingFollowUps(sessionId).map(followUpView).filter((view) => view.id),
+      ...(change.started?.entry.followUpId
+        ? { started: { ...followUpView(change.started.entry), turnId: change.started.turnId } }
+        : {}),
+      ...(dropped?.length ? { dropped } : {}),
+    };
   }
 
   /** Fan a negotiated frame out to the clients that declared `capability`. */

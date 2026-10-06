@@ -19,7 +19,10 @@ import { withLocalContext } from "./local-exchanges.js";
 import { acceptDraft } from "./drafts.js";
 import { acceptRequest } from "./recovery.js";
 import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn } from "./turns.js";
-import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
+import { queuedBytes, queuedFollowUpBytes, REVOKED_REASON } from "./turns.js";
+
+/** Why a follow-up leaves when its session's slot ends without running it (#1002). */
+const SLOT_ENDED_REASON = "The session stopped before it ran.";
 import {
   MAX_SESSION_QUEUE,
   QUEUE_MAX_BYTES,
@@ -181,10 +184,9 @@ async function runRetainedSession(
     initial.work?.settle("error", { reason: message });
     // Messages queued behind this start have no runner now: settle their
     // work and release their leases instead of stranding them.
-    for (const entry of starting.queue.splice(0)) {
-      entry.work?.settle("error", { reason: message });
-      entry.releaseAuthorization();
-    }
+    for (const entry of starting.queue) entry.work?.settle("error", { reason: message });
+    if (initial.sessionId) coordinator.dropStartingQueue(initial.sessionId, starting, message);
+    else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     host.sendToClients({
       type: "error",
       code: "BACKEND_ERROR",
@@ -202,7 +204,8 @@ async function runRetainedSession(
 
   if (starting.cancelled) return;
   if (!initial.authorization.valid) {
-    for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+    if (initial.sessionId) coordinator.dropStartingQueue(initial.sessionId, starting, REVOKED_REASON);
+    else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     return;
   }
 
@@ -263,28 +266,45 @@ async function runRetainedSession(
     },
   };
   let releaseActiveAuthorization: (() => void) | undefined;
+  // Take the next queued follow-up. It stays pending, as `handingOver`, until
+  // its turn reaches the backend (#1002).
+  const dequeue = (): QueuedFollowUp | null => {
+    const entry = turn.queue.shift() ?? null;
+    turn.handingOver = entry ?? undefined;
+    if (entry) {
+      // A queued follow-up is its own turn — give it a fresh identity, and
+      // its own terminal disposition.
+      turn.turnId = crypto.randomUUID();
+      turn.lastResult = null;
+    }
+    return entry;
+  };
+  // A handed-over entry that will not run leaves the pending list with why.
+  const dropHandedOver = (entry: QueuedFollowUp, reason: string): void => {
+    if (turn.handingOver !== entry) return;
+    turn.handingOver = undefined;
+    coordinator.queueChanged(turn.sessionId, { dropped: { entries: [entry], reason } });
+  };
 
   try {
     while (next && !turn.cancelled) {
-      releaseActiveAuthorization = next.releaseAuthorization;
+      const current: QueuedFollowUp = next;
+      releaseActiveAuthorization = current.releaseAuthorization;
       // The slot now holds this request; recovery reads it as queued until
       // its turn is handed to the backend (#964).
-      turn.revision = next.revision;
+      turn.revision = current.revision;
       turn.startedAt = undefined;
-      turn.principalId = next.principalId;
-      turn.authorization = next.authorization;
+      turn.principalId = current.principalId;
+      turn.authorization = current.authorization;
       if (!turn.authorization.valid) {
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
         turn.revision = undefined;
-        next = turn.queue.shift() ?? null;
-        if (next) {
-          turn.turnId = crypto.randomUUID();
-          turn.lastResult = null;
-        }
+        dropHandedOver(current, REVOKED_REASON);
+        next = dequeue();
         continue;
       }
-      const { text, attachments, files, client, source, thinkingLevel, requestId, draftRef, work } = next;
+      const { text, attachments, files, client, source, thinkingLevel, requestId, draftRef, work } = current;
       turn.requestId = requestId;
       turn.draftRef = draftRef;
       turn.work = work;
@@ -340,11 +360,8 @@ async function runRetainedSession(
         // was revoked a moment later would erase the actor, not the turn. Drain
         // the buffer before leaving.
         recordPendingCancellations(host, turn, billing);
-        if (turn.queue.length > 0) {
-          next = turn.queue.shift()!;
-          turn.turnId = crypto.randomUUID();
-          turn.lastResult = null;
-        }
+        dropHandedOver(current, REVOKED_REASON);
+        next = dequeue();
         continue;
       }
       const recorder: TurnRecorder | undefined = host.activity
@@ -422,6 +439,14 @@ async function runRetainedSession(
       turn.startedAt = startedAt;
       if (turn.revision !== undefined && resumeId) {
         host.catalog.dispatchWork?.(resumeId, turn.revision, turn.turnId, backend.id, startedAt);
+      }
+      // The follow-up is the agent's now: it leaves the pending list ahead of
+      // every frame of its own turn, so a client can place it in the
+      // transcript where it entered the conversation (#1002). A cancel that
+      // landed while billing resolved has already reported it dropped.
+      if (turn.handingOver === current) {
+        turn.handingOver = undefined;
+        coordinator.queueChanged(turn.sessionId, { started: { entry: current, turnId: turn.turnId } });
       }
       host.reportTurnStarted(turn);
       work?.started(turn.turnId);
@@ -507,18 +532,20 @@ async function runRetainedSession(
       resumeId = turn.sessionId ?? resumeId;
       profileId = turn.providerId ?? profileId;
 
-      if (!turn.cancelled && turn.queue.length > 0) {
-        next = turn.queue.shift()!;
-        // A queued follow-up is its own turn — give it a fresh identity, and
-        // its own terminal disposition.
-        turn.turnId = crypto.randomUUID();
-        turn.lastResult = null;
-      }
+      if (!turn.cancelled) next = dequeue();
     }
   } finally {
     releaseActiveAuthorization?.();
     next?.releaseAuthorization();
-    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
+    // Whatever is still pending will never run in this slot. A handed-over
+    // entry's lease is `next`'s or the active one, both released above.
+    const unstarted = turn.handingOver;
+    turn.handingOver = undefined;
+    const queued = turn.queue.splice(0);
+    for (const entry of queued) entry.releaseAuthorization();
+    coordinator.queueChanged(turn.sessionId, {
+      dropped: { entries: unstarted ? [unstarted, ...queued] : queued, reason: SLOT_ENDED_REASON },
+    });
     if (turn.sessionId && coordinator.bySession.get(turn.sessionId) === turn) {
       coordinator.bySession.delete(turn.sessionId);
     }
@@ -606,6 +633,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   // Accepted: it takes the session's next revision before it joins the queue.
   const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
   if (revision !== undefined) entry.revision = revision;
+  entry.followUpId = crypto.randomUUID();
+  entry.queuedAt = Date.now();
   slot.queue.push(entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
@@ -628,6 +657,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   host.sendToClients(
     withSessionId({ type: "status", status: "queued", ...(entry.requestId ? { requestId: entry.requestId } : {}), ...(detail ? { detail } : {}) }, sessionId)
   );
+  host.coordinator.queueChanged(sessionId);
   // Queued is accepted: the sent revision of its draft is consumed now.
   acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
 }

@@ -51,6 +51,8 @@ import type {
   ServerConversationPermission,
   ServerConversationWork,
   ServerToolResolution,
+  ServerSessionQueue,
+  QueuedFollowUpView,
   ClientHello,
   QueueAddRequest, QueueAddResult,
   ClientInboxResolve, ClientInboxSnooze, ClientInboxSubscribe, ClientInboxUnsubscribe,
@@ -1662,6 +1664,31 @@ export const serverToolResolutionSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResolution>;
 
+/** One pending follow-up as the host reports it (#1002). */
+export const queuedFollowUpViewSchema = z.looseObject({
+  id,
+  requestId: id.optional(),
+  text: z.string().max(MAX_PROMPT_CHARS),
+  attachmentCount: z.number().int().min(0).optional(),
+  fileCount: z.number().int().min(0).optional(),
+  source: optionalMessageSource,
+  queuedAt: z.number(),
+}) satisfies z.ZodType<QueuedFollowUpView>;
+
+/** Bounds a frame, not a policy: the host's own queue holds at most 50. */
+const MAX_QUEUE_VIEW_ENTRIES = 256;
+
+export const serverSessionQueueSchema = z.looseObject({
+  type: z.literal("session_queue"),
+  sessionId: id,
+  followUps: z.array(queuedFollowUpViewSchema).max(MAX_QUEUE_VIEW_ENTRIES),
+  started: queuedFollowUpViewSchema.extend({ turnId: id }).optional(),
+  dropped: z
+    .array(z.looseObject({ id, requestId: id.optional(), reason: z.string().max(500) }))
+    .max(MAX_QUEUE_VIEW_ENTRIES)
+    .optional(),
+}) satisfies z.ZodType<ServerSessionQueue>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverRetryReceiptSchema,
   serverHelloSchema,
@@ -1693,6 +1720,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverHandoffReceiptSchema,
   inboxSnapshotSchema, inboxDeltaSchema,
   serverToolResolutionSchema,
+  serverSessionQueueSchema,
   serverConversationOpenedSchema,
   serverConversationClosedSchema,
   serverConversationEventSchema,

@@ -122,6 +122,13 @@ const SAMPLES: ServerMessage[] = [
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
   { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
   {
+    type: "session_queue",
+    sessionId: "s1",
+    followUps: [{ id: "fu-2", requestId: "r2", text: "Keep the bag of winds shut", attachmentCount: 1, queuedAt: 1783854000000 }],
+    started: { id: "fu-1", requestId: "r1", text: "Ask Aeolus about the winds", source: "voice-dictate", queuedAt: 1783853990000, turnId: "turn-2" },
+    dropped: [{ id: "fu-0", requestId: "r0", reason: "Cancelled by user" }],
+  },
+  {
     type: "conversation_opened", conversationId: "c1", epoch: 1, sessionId: "s1", providerId: "fake-live",
     capabilities: {
       nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unsupported",
