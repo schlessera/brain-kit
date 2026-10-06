@@ -30,7 +30,6 @@ if (!process.env[CHILD_MARKER]) {
   GlobalRegistrator.register();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-  const { createElement } = await import("react");
   const { renderHook } = await import("@testing-library/react");
   const { defaultRoot } = await import("../src/default-root.js");
   const { BrainUiProvider } = await import("../src/root-context.js");
@@ -43,7 +42,7 @@ if (!process.env[CHILD_MARKER]) {
       root.stores.ui.getState().setActiveView("activity");
       defaultRoot.stores.ui.getState().setActiveView("chat");
       const { result, unmount } = renderHook(() => useUIStore((state) => state.activeView), {
-        wrapper: ({ children }) => createElement(BrainUiProvider, { root, children }),
+        wrapper: ({ children }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
       });
       expect(result.current).toBe("activity");
       unmount();
