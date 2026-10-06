@@ -398,7 +398,7 @@ inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
 `details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
 `:46`), and Claude uses MCP `content` arrays via a different path
-(`const output =`, `stream-adapter.ts:166`). So "JSON payload in the output
+(`const output =`, `stream-adapter.ts:167`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
 `protocol.ts:45` states additions do not bump the rev, only semantics changes
@@ -2545,8 +2545,8 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:261-272`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:274-277`);
+`packages/ui-backend-pi/src/bridge-tools.ts:264-275`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:277-280`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
@@ -3268,7 +3268,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:261` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:264` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -4863,7 +4863,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:69-75`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:71-77`).
 There is no global key.
 
 ```ts
@@ -4907,7 +4907,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1498-1528`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1455-1485`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**

@@ -136,11 +136,69 @@ What that left, by package:
   (`./links` carries them); `printThemeCss`, `mapViewBounds`, `documentTitle`
   and `isFullDocument` moved to `./internal`.
 
-Some public names are there because a public declaration reaches them rather
-than because they are useful on their own: `WsHost` reaches the server's
-connection and turn types, and ui-react's store hooks reach their state
-shapes. Narrowing those declarations would be an API redesign, not an export
-cleanup, and is not decided here.
+Some public names were there because a public declaration reached them rather
+than because they were useful on their own: `WsHost` reached the server's
+connection and turn types, and ui-react's store hooks reached their state
+shapes. Narrowing those declarations was an API redesign rather than an export
+cleanup, so #534 left them, and the names it could only classify as uncertain,
+for a ruling of their own.
+
+## Narrowing what a public declaration reached
+
+**Decided 2026-10-06 by the maintainer**
+([#1053](https://github.com/schlessera/brain-kit/issues/1053)), item by item:
+(a) keep public and document the consumer role, (b) keep the entry point but
+narrow the declaration that reaches internal shapes, or (c) move the name to
+the owning package's `/internal` entry.
+
+- **`WsHost` (b).** The class stays public as the type of `BrainUiApp.wsHost`.
+  Its supported members are the resolved configuration, the backend
+  `registry` (a shell awaits `registry.getBackends()` at boot) and `close()`.
+  Every member that reached the connection, client-set, catalog, turn,
+  activity, inbox, draft, label or classification types is tagged `@internal`,
+  and so are the `WsHostOptions` fields `createApp` fills with them. The
+  catalog was the one required option among them, so `SessionCatalog` and
+  `createSessionCatalog` moved to ui-server's `./internal`: a custom session
+  catalog stops being supported, and `createApp` is how a host is built. The
+  `askUserFormLimits` option the conditional-forms guide named remains, and
+  that guide now points at the same field on `ServerConfig`.
+- **ui-react's store hooks (b).** `useChatStore`, `useFileStore`,
+  `useShareStore`, `useUIStore` and `useVoiceStore` are `ShellStoreHook`s over
+  published views (`ChatShellState`, `FileShellState`, `ShareShellState`,
+  `UIShellState`, `VoiceShellState`). Each view holds what a deployment shell
+  reads and calls: the service-worker reload guard (chat streaming, voice
+  capture and review, share intake), the active view and the file deep link.
+  The hooks keep their selector form and their default-root `getState` and
+  `subscribe` statics; `setState` is no longer typed. `activeChat`,
+  `anyStreaming` and `hasPendingShare` take the views. The full state shapes
+  stay with the package's own hooks in its `*-store.ts` modules, and
+  `BrainUiServices.stores`, which carried all of them, is tagged `@internal`.
+  An imperative read against an explicit root therefore has no supported path
+  for now. One can be added in a minor once a shell needs it; the reverse
+  would take a major.
+- **Kept (a).** Core's `repoRelativePathSchema` (a module config schema's path
+  setting, stated in the integration contract), Claude's `MEASURED_RUNTIME`
+  (the measured runtime pair, stated in the backend guide) and jobs'
+  `runScrape` (the direct scrape fallback, stated in the jobs README).
+- **Moved (c).** Core's `collectStats`, whose signature takes a native
+  `bun:sqlite` handle (the stats contract describes `brain stats`, not the
+  export; `BrainStats` and `StatsThresholds` stay as the result shape). The
+  SDK's bridge-tool handlers, `wrapCommand`, `execWrapperSpawnOptions`,
+  `describeRetry`, `canonicalModelId`, `resolveThinkingLevel`,
+  `createToolRendererRegistry`, `pruneStoredShares`, `ShareTargetError`,
+  `isShareTargetRequest` and `handleShareTargetRequest`. The kit's `TOKENS`,
+  `LIGHT_TOKENS` and `canvas`, with `TokenName`, whose definition is
+  `keyof typeof TOKENS` and would otherwise keep the table recorded.
+  Render-template's `applyExportLinkPolicy` and
+  `protectExportLinkDestinations`. Geo's `MAX_ROUTE_BYTES`, for which geo
+  gained an `./internal` entry. None had a documented consumer.
+
+Where a moved name was declared in an entry module, or in a module an entry
+re-exports whole (`share-target.ts`, `protocol.ts`, geo's `track.ts`), its
+declaration moved to a module of its own (`share-target-handler.ts`,
+`protocol-helpers.ts`, `limits.ts`), so the public entry no longer re-exports
+it. What still reaches a server connection type is `ActivityStream`, through
+its subscription handlers; the ruling did not cover it.
 
 ## How it is enforced
 
@@ -193,6 +251,8 @@ Removed from ordinary entry points:
 - `@schlessera/brain-ui-sdk/client`: `ASK_USER_FORM_ANSWER_SCHEMA`, `ASK_USER_FORM_DEFAULT_LIMITS`, `ASK_USER_LIST_LIMITS`, `BARS_BLOCK_SCHEMA`, `BLOCK_CONTACT_KINDS`, `BLOCK_CONTACT_TONES`, `BLOCK_DELTA_TONES`, `BLOCK_KINDS`, `BLOCK_QUOTE_TONES`, `BLOCK_STEP_STATES`, `BLOCK_STEP_VARIANTS`, `BLOCK_TONES`, `BLOCK_VALUE_TONES`, `BRIDGE_TOOL_POSTURE`, `BridgeToolAdapter`, `COMPARISON_BLOCK_SCHEMA`, `CONTACT_BLOCK_SCHEMA`, `FRAME_WIDTHS`, `LINK_BLOCK_SCHEMA`, `MAP_BLOCK_SCHEMA`, `MAP_PLACE_SCHEMA`, `MAX_FRAME_DEGREES`, `MIN_SPAN_KM`, `MapPlace`, `ON_MAP_LABEL_MAX`, `QUOTE_BLOCK_SCHEMA`, `RECEIPT_BLOCK_SCHEMA`, `SCHEDULE_BLOCK_SCHEMA`, `SHIPPED_SHOW_BLOCK_SCHEMA_FORM`, `STATS_BLOCK_SCHEMA`, `STEPS_BLOCK_SCHEMA`, `SUGGESTIONS_BLOCK_SCHEMA`, `SUGGESTIONS_MAX_ITEMS`, `SUGGESTION_MAX_LENGTH`, `SUGGESTION_MIN_LENGTH`, `ShowBlockSchemaForm`, `TABLE_BLOCK_SCHEMA`, `TIMELINE_BLOCK_SCHEMA`, `TRACK_BLOCK_SCHEMA`, `TREND_BLOCK_SCHEMA`, `askUserFormNodeComplete`, `askUserFormPayload`, `askUserFormSpec`, `askUserFormVisibleNodes`, `createBrainUiClient`, `defaultAsrClientRegistry`, `defaultToolRendererRegistry`, `drawnBounds`, `formatDistance`, `frameEnvelope`, `haversineKm`, `numberRuns`, `resetAsrClients`, `resetToolRenderers`, `resolveAskUserFormLimits`, `resolveToolRenderer`, `showBlockInputSchema`, `speechUiHints`.
 - `@schlessera/brain-ui-sdk/server`: `ASK_USER_FORM_ANSWER_SCHEMA`, `ASK_USER_FORM_DEFAULT_LIMITS`, `ASK_USER_LIST_LIMITS`, `AskedQuestion`, `BARS_BLOCK_SCHEMA`, `BLOCK_CONTACT_KINDS`, `BLOCK_CONTACT_TONES`, `BLOCK_DELTA_TONES`, `BLOCK_KINDS`, `BLOCK_QUOTE_TONES`, `BLOCK_STEP_STATES`, `BLOCK_STEP_VARIANTS`, `BLOCK_TONES`, `BLOCK_VALUE_TONES`, `BRAIN_LOCK_KEY`, `BRIDGE_TOOL_POSTURE`, `BlockquoteCandidate`, `BridgeToolAdapter`, `CANDIDATE_KINDS`, `CATALOGUE_BLOCK_KINDS`, `CLASSIFIER_MODEL`, `COMPARISON_BLOCK_SCHEMA`, `CONFIDENCE`, `CONTACT_BLOCK_SCHEMA`, `Candidate`, `CandidateKind`, `CandidateSpan`, `ChoiceAnswer`, `ChoiceQuestion`, `ClassificationAnswer`, `ClassificationAnswers`, `ClassificationPlan`, `ClassificationQuestion`, `ClassificationQuestions`, `ClassificationRequest`, `Classified`, `EXEC_KILLER_ENV`, `EXEC_WRAPPER_ENV`, `GIT_LOCK_KEY`, `KeyValueRunCandidate`, `LINK_BLOCK_SCHEMA`, `MAP_BLOCK_SCHEMA`, `MAP_PLACE_SCHEMA`, `MapPlace`, `NoulAnswer`, `NoulQuestion`, `OrderedListCandidate`, `PlannedCandidate`, `QUOTE_BLOCK_SCHEMA`, `QuestionObservation`, `RECEIPT_BLOCK_SCHEMA`, `SCHEDULE_BLOCK_SCHEMA`, `SHIPPED_SHOW_BLOCK_SCHEMA_FORM`, `STATS_BLOCK_SCHEMA`, `STEPS_BLOCK_SCHEMA`, `SUGGESTIONS_BLOCK_SCHEMA`, `SUGGESTIONS_MAX_ITEMS`, `SUGGESTION_MAX_LENGTH`, `SUGGESTION_MIN_LENGTH`, `ShowBlockSchemaForm`, `TABLE_BLOCK_SCHEMA`, `TIMELINE_BLOCK_SCHEMA`, `TRACK_BLOCK_SCHEMA`, `TREND_BLOCK_SCHEMA`, `TableCandidate`, `TimedListCandidate`, `VERSION_PROBE_TIMEOUT_MS`, `WEB_SEARCH_FALLBACK_ON`, `WEB_SEARCH_PROVIDERS`, `WEB_SEARCH_PROVIDER_KEYS`, `WebSearchProviderSpec`, `applyClassification`, `askUserFormNodeComplete`, `askUserFormPayload`, `askUserFormSpec`, `askUserFormVisibleNodes`, `askUserListPayload`, `askUserListSpec`, `askUserRankPayload`, `askUserRankSpec`, `bashLockKey`, `claudeMaskFilename`, `claudeReportedMaskPath`, `detectCandidates`, `hasWebSearchCredential`, `observeClassification`, `parseMarkdown`, `piMaskFilename`, `piReportedMaskPath`, `planClassification`, `questionsFor`, `readWebSearchOverride`, `readWebSearchRouting`, `resetRtkProbe`, `resolveAskUserFormLimits`, `resolveInRepo`, `resolveWebSearchConfigPath`, `rtkAvailable`, `rtkRewriteCommand`, `showBlockInputSchema`, `thresholdOf`, `transformCandidate`, `validateExecWrapper`, `webSearchBrief`, `webSearchProvider`, `wrapUntrustedData`.
 - `@schlessera/brain-ui-sdk/tool-contracts`: `ASK_USER_FORM_ANSWER_SCHEMA`, `ASK_USER_FORM_DEFAULT_LIMITS`, `ASK_USER_LIST_LIMITS`, `BARS_BLOCK_SCHEMA`, `BLOCK_CONTACT_KINDS`, `BLOCK_CONTACT_TONES`, `BLOCK_DELTA_TONES`, `BLOCK_KINDS`, `BLOCK_QUOTE_TONES`, `BLOCK_STEP_STATES`, `BLOCK_STEP_VARIANTS`, `BLOCK_TONES`, `BLOCK_VALUE_TONES`, `BRIDGE_TOOL_POSTURE`, `BridgeToolAdapter`, `COMPARISON_BLOCK_SCHEMA`, `CONTACT_BLOCK_SCHEMA`, `LINK_BLOCK_SCHEMA`, `MAP_BLOCK_SCHEMA`, `MAP_PLACE_SCHEMA`, `MapPlace`, `QUOTE_BLOCK_SCHEMA`, `RECEIPT_BLOCK_SCHEMA`, `SCHEDULE_BLOCK_SCHEMA`, `SHIPPED_SHOW_BLOCK_SCHEMA_FORM`, `STATS_BLOCK_SCHEMA`, `STEPS_BLOCK_SCHEMA`, `SUGGESTIONS_BLOCK_SCHEMA`, `SUGGESTIONS_MAX_ITEMS`, `SUGGESTION_MAX_LENGTH`, `SUGGESTION_MIN_LENGTH`, `ShowBlockSchemaForm`, `TABLE_BLOCK_SCHEMA`, `TIMELINE_BLOCK_SCHEMA`, `TRACK_BLOCK_SCHEMA`, `TREND_BLOCK_SCHEMA`, `askUserFormNodeComplete`, `askUserFormPayload`, `askUserFormSpec`, `askUserFormVisibleNodes`, `resolveAskUserFormLimits`, `showBlockInputSchema`.
+- `@schlessera/brain-ui-react` (#1053): `ShareIntakeState`; the hooks keep
+  their names but are typed against the shell views.
 - `@schlessera/brain-ui-server`: `ActivityDigest`, `AppEnv`, `AuthRuntime`, `BackendLogFn`, `CONFIDENCE_BUCKETS`, `CONFIDENCE_BUCKET_WIDTH`, `CONFIDENCE_RETENTION_MS`, `ConfidenceBucket`, `ConfidenceReadOptions`, `ConnectionState`, `CronRunRecord`, `DIGEST_JOB_NAME`, `KeytermSettings`, `ModelDiscoveryState`, `RollupPricing`, `SPAN_OUTCOMES`, `authGuard`, `buildKeyterms`, `confidenceDistribution`, `createActivityStore`, `createActivityStream`, `createBackendRegistry`, `createUiDb`, `createWsHandlers`, `createWsUpgrade`, `generateActivityDigest`, `handleClientMessage`, `ingestSpanSink`, `isWsAuthorized`, `latestActivityDigest`, `parseSyncResult`, `pruneShareStaging`, `recordCronRun`, `resolveAuthMode`, `resolveCookiePrincipal`, `resolveTurnTarget`, `revokeAllSessions`, `seriesKey`, `severityRank`, `shareStagingRoot`, `syncActivityAttrs`, `syncMessage`, `turnIdMatches`, `writeCache`.
 
 Moved to an internal entry (no compatibility promise):
@@ -204,4 +264,14 @@ Moved to an internal entry (no compatibility promise):
 - `@schlessera/brain-ui-kit/internal`: `mapViewBounds`, `printThemeCss`.
 - `@schlessera/brain-ui-sdk/internal`: `BRAIN_LOCK_KEY`, `BRIDGE_TOOL_POSTURE`, `ClassificationAnswers`, `ClassificationPlan`, `ClassificationRequest`, `EXEC_KILLER_ENV`, `EXEC_WRAPPER_ENV`, `GIT_LOCK_KEY`, `QuestionObservation`, `VERSION_PROBE_TIMEOUT_MS`, `WEB_SEARCH_FALLBACK_ON`, `WEB_SEARCH_PROVIDERS`, `WEB_SEARCH_PROVIDER_KEYS`, `applyClassification`, `bashLockKey`, `claudeMaskFilename`, `claudeReportedMaskPath`, `hasWebSearchCredential`, `observeClassification`, `piMaskFilename`, `piReportedMaskPath`, `planClassification`, `readWebSearchOverride`, `readWebSearchRouting`, `resolveWebSearchConfigPath`, `rtkRewriteCommand`, `validateExecWrapper`, `webSearchBrief`, `webSearchProvider`.
 - `@schlessera/brain-ui-sdk/internal/client`: `askUserFormPayload`, `askUserFormSpec`, `defaultAsrClientRegistry`, `defaultToolRendererRegistry`, `resolveAskUserFormLimits`, `speechUiHints`.
-- `@schlessera/brain-ui-server/internal`: `buildKeyterms`, `createUiDb`.
+- `@schlessera/brain-ui-server/internal`: `buildKeyterms`, `createUiDb`; and,
+  from #1053, `SessionCatalog`, `createSessionCatalog`.
+
+Moved to an internal entry by #1053:
+
+- `@schlessera/brain/internal`: `CollectStatsOptions`, `collectStats`.
+- `@schlessera/brain-geo/internal`: `MAX_ROUTE_BYTES`.
+- `@schlessera/brain-render-template/internal`: `applyExportLinkPolicy`, `protectExportLinkDestinations`.
+- `@schlessera/brain-ui-kit/internal`: `LIGHT_TOKENS`, `TOKENS`, `TokenName`, `canvas`.
+- `@schlessera/brain-ui-sdk/internal`: `ImageMaskHandlerOptions`, `LocationHandlerOptions`, `canonicalModelId`, `describeRetry`, `execWrapperSpawnOptions`, `handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, `resolveThinkingLevel`, `wrapCommand` (from `/server`, and the three helpers from `.`, `/client` and `/protocol` too).
+- `@schlessera/brain-ui-sdk/internal/client`: `ShareTargetError`, `canonicalModelId`, `createToolRendererRegistry`, `describeRetry`, `handleShareTargetRequest`, `isShareTargetRequest`, `pruneStoredShares`, `resolveThinkingLevel`.

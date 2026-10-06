@@ -1,6 +1,7 @@
 import { basename, dirname, extname, join, relative } from "node:path";
 import { realpathSync } from "node:fs";
-import { nearestTrackPoint, parseTrackGpx, routePoint, summarizeTrack, trackCoverage, MAX_ROUTE_BYTES,
+import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
+import { nearestTrackPoint, parseTrackGpx, routePoint, summarizeTrack, trackCoverage,
   type NearestTrackPoint, type ParsedTrack, type TrackCoverage, type TrackSummary, type RoutingMode } from "@schlessera/brain-geo";
 import { GeoClient, type GeoResult, type GeocodeCandidate, type PoiResult, type RoutingResult,
   type StaticMapInput, type StaticMapPin, type StaticMapResult } from "@schlessera/brain-geo/server";

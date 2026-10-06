@@ -251,6 +251,14 @@ Scraping goes through the shared client, so every board obeys `robots.txt`,
 honours `Crawl-delay`, and identifies itself honestly. See
 [@schlessera/brain-scrape](../scrape/README.md).
 
+`runScrape()`, exported from the package root, is the direct library fallback
+for a host that runs a scrape in its own process rather than through
+`brain jobs scrape` or the MCP tools. It takes the jobs database path and the
+same choices the CLI resolves (`sources`, `queries`, `scoringConfig`,
+`incremental`, `dryRun`, rates and enrichment bounds) and resolves to the
+`ScrapeReport` described below. Omitting `sources` selects every board
+enabled by default.
+
 ## What a scrape reports
 
 A board that parsed nothing used to look exactly like a board that had nothing

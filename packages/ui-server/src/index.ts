@@ -52,7 +52,8 @@ export {
   MIN_BRAIN_SCHEMA_VERSION,
 } from "./db/brain-db.js";
 
-// WebSocket host for embedders.
+// WebSocket host for embedders: the type of `BrainUiApp.wsHost`. Its
+// connection, catalog and turn wiring is `@internal` (#1053).
 export { WsHost, type WsHostOptions } from "./ws/host.js";
 // Pill labels (#1004): the createApp option's shape and the labeller a
 // WsHost embedder passes.
@@ -70,10 +71,6 @@ export {
 } from "./labels/index.js";
 export { websocket } from "./ws/connection.js";
 export { type AuthorizationContext } from "./ws/turns.js";
-export {
-  createSessionCatalog,
-  type SessionCatalog,
-} from "./ws/session-catalog.js";
 
 // Brain repo access (spawned CLI wrapper) — useful for embedders that add
 // their own routes on top.

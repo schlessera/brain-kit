@@ -7,7 +7,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal";
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec } from "./profiles.js";
 

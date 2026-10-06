@@ -55,7 +55,8 @@ React consumer's compiled stylesheet is checked in an isolated browser frame.
 A depth-four fixture and a real host/socket test exercise raised limits.
 
 Set `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH`, `BRAIN_UI_ASK_USER_FORM_MAX_NODES` and
-`BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS`, or pass `askUserFormLimits` to `WsHost`.
+`BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS`, or set `askUserFormLimits` on the
+`ServerConfig` passed to `createApp`.
 Invalid configured values refuse startup. Raising limits permits longer
 forms; scale/rank keep their native 30/15-item caps and scale's eight-option
 cap. No additional total-items setting exists.

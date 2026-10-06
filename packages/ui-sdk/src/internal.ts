@@ -12,3 +12,16 @@ export { rtkRewriteCommand } from "./server/rtk.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
 export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, hasWebSearchCredential, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
 export { BRIDGE_TOOL_POSTURE } from "./tool-contracts/bridge.js";
+export { canonicalModelId, describeRetry, resolveThinkingLevel } from "./protocol-helpers.js";
+export { execWrapperSpawnOptions, wrapCommand } from "./server/exec-wrapper.js";
+export {
+  handleAskUser,
+  handleAskUserForm,
+  handleAskUserList,
+  handleAskUserRank,
+  handleGetCurrentLocation,
+  handleQueryActivity,
+  handleRequestImageMask,
+  handleShowBlock,
+} from "./server/bridge-tools/index.js";
+export type { ImageMaskHandlerOptions, LocationHandlerOptions } from "./server/bridge-tools/index.js";

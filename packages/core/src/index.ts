@@ -78,9 +78,9 @@ export {
   candidateKey,
 } from "./lib/reranker.js";
 
-// Corpus statistics
-export { collectStats } from "./lib/stats.js";
-export type { BrainStats, CollectStatsOptions, StatsThresholds } from "./lib/stats.js";
+// Corpus statistics: the result shape. The measurement itself takes a native
+// bun:sqlite handle, so it is first-party only (`./internal`, #1053).
+export type { BrainStats, StatsThresholds } from "./lib/stats.js";
 
 // Providers + enrichment
 export { createEnrichment } from "./lib/enrichment.js";

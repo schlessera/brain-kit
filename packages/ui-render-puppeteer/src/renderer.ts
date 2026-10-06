@@ -22,7 +22,8 @@
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 import { existsSync } from "node:fs";
 
-import { applyExportLinkPolicy, protectExportLinkDestinations, type ExportLinkPolicy } from "@schlessera/brain-render-template";
+import type { ExportLinkPolicy } from "@schlessera/brain-render-template";
+import { applyExportLinkPolicy, protectExportLinkDestinations } from "@schlessera/brain-render-template/internal";
 
 import { resolveEnv } from "./config/env.js";
 import { Semaphore } from "./semaphore.js";

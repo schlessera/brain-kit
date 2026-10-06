@@ -25,9 +25,22 @@ export { BrainMarkdown } from "./components/chat/brain-markdown.js";
 // Mermaid: standalone diagram block (streaming-safe) + the fence-to-SVG
 // inliner the share pipeline uses before handing markdown to the no-JS renderer.
 
-// Stores + selectors the shell reads (service-worker busy check, deep links).
+// Store hooks + selectors the shell reads (service-worker busy check, deep
+// links), typed against minimal shell views of each store (#1053).
 export {
   useChatStore,
+  useFileStore,
+  useShareStore,
+  useUIStore,
+  useVoiceStore,
+  type ShellStoreHook,
+  type ChatShellState,
+  type FileShellState,
+  type ShareShellState,
+  type UIShellState,
+  type VoiceShellState,
+} from "./stores/shell-stores.js";
+export {
   activeChat,
   anyStreaming,
   type ChatKey,
@@ -36,12 +49,10 @@ export {
   type ToolCall,
   type AskUserExchange,
   type MessageAttachment,
-} from "./stores/chat-store.js";
-export { useFileStore } from "./stores/file-store.js";
-export { type MaskRequest } from "./stores/mask-store.js";
-export { useUIStore, type ActiveView } from "./stores/ui-store.js";
-export { type GraphMode } from "./stores/graph-store.js";
-export { useVoiceStore } from "./voice/voice-store.js";
+} from "./stores/chat-state.js";
+export { type MaskRequest } from "./stores/mask-state.js";
+export { type ActiveView } from "./stores/ui-state.js";
+export { type GraphMode } from "./stores/graph-state.js";
 
 // A stand-in for the system share sheet, so the share-target path can be
 // exercised without reinstalling the PWA. Meant for a dev route — it lists and
@@ -62,11 +73,7 @@ export {
 
 // Share intake. The shell needs `hasPendingShare` for its service-worker
 // reload guard: reloading mid-intake would file a share twice or lose it.
-export {
-  useShareStore,
-  hasPendingShare,
-  type ShareIntakeState,
-} from "./stores/share-store.js";
+export { hasPendingShare } from "./stores/share-state.js";
 
 // API surface (typed REST client + backend URL helpers).
 export { createBrainApi, type BrainApi } from "./lib/api-client.js";

@@ -12,7 +12,6 @@ export "." (./src/index.ts)
   type BrainConfig
   type BrainStats
   type ChunkMatch
-  type CollectStatsOptions
   type CommandContext
   type CommandModule
   type CompletionProvider
@@ -55,7 +54,6 @@ export "." (./src/index.ts)
   assertPermutation
   buildPathMatcher
   candidateKey
-  collectStats
   createEnrichment
   defineAgentRunner
   defineCompletionProvider
@@ -74,6 +72,7 @@ export "." (./src/index.ts)
 export "./internal" (./src/internal.ts)
   type ArchiveResult
   type BrainContext
+  type CollectStatsOptions
   type FrontmatterValue
   type IngestInput
   type IngestOutcome
@@ -87,6 +86,7 @@ export "./internal" (./src/internal.ts)
   assembleContext
   assertScratchWritable
   buildTaxonomy
+  collectStats
   estimateTokens
   getMarkdownFiles
   hybridSearch
@@ -259,19 +259,6 @@ signatures (every public export and the types it is made of)
     interface ClassifierRule {
         type: string;
         regex: RegExp;
-    }
-  CollectStatsOptions (packages/core/src/lib/stats.ts)
-    export interface CollectStatsOptions {
-        root: string;
-        dbPath: string;
-        taxonomy: Taxonomy;
-        config: BrainConfig | null;
-        now?: Date;
-        embeddingsConfigured?: boolean;
-        statfs?: (path: string) => {
-            bavail: number | bigint;
-            bsize: number | bigint;
-        };
     }
   CommandContext (packages/core/src/lib/module-types.ts)
     export interface CommandContext<C = unknown> {
@@ -1131,8 +1118,6 @@ signatures (every public export and the types it is made of)
     export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
   candidateKey (packages/core/src/lib/reranker.ts)
     export function candidateKey(c: RerankCandidate): string;
-  collectStats (packages/core/src/lib/stats.ts)
-    export function collectStats(db: Database, opts: CollectStatsOptions): Promise<BrainStats>;
   createEnrichment (packages/core/src/lib/enrichment.ts)
     export function createEnrichment(provider: CompletionProvider): Enrichment;
   defineAgentRunner (packages/core/src/lib/seams.ts)

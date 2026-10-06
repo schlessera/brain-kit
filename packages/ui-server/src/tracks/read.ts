@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
-import { parseImportedTrack, summarizeTrack, MAX_ROUTE_BYTES } from "@schlessera/brain-geo";
+import { parseImportedTrack, summarizeTrack } from "@schlessera/brain-geo";
+import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 import { SHARE_STAGING_DIR, type SharedFileMeta, type TrackFileView } from "@schlessera/brain-ui-sdk/protocol";
 import { safeResolve } from "../files/walker.js";
 

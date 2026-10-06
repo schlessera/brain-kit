@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit";
+import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit/internal";
 
 import { readToken, resolveLightDark } from "../src/lib/light-dark.js";
 

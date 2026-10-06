@@ -25,7 +25,7 @@
  * The share pipeline renders in `light`, whatever the screen shows: a share
  * lands in a mail client or a printer, which assume paper.
  */
-import type { TokenName } from "@schlessera/brain-ui-kit";
+import type { TokenName } from "@schlessera/brain-ui-kit/internal";
 
 import { readToken, type ColorScheme } from "./light-dark.js";
 

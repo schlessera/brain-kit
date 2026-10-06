@@ -50,7 +50,6 @@ export "." (./src/index.ts)
   type RecordingObservability
   SEVERITIES
   type ServerConfig
-  type SessionCatalog
   type Severity
   type SpanEventRow
   type SpanOutcome
@@ -69,7 +68,6 @@ export "." (./src/index.ts)
   createObservability
   createRecordingLoggerProvider
   createRecordingObservability
-  createSessionCatalog
   createSilentLoggerProvider
   createSilentObservability
   createStaticBackendRegistry
@@ -80,62 +78,14 @@ export "." (./src/index.ts)
   withBrainDb
 
 export "./internal" (./src/internal.ts)
+  type SessionCatalog
   buildKeyterms
+  createSessionCatalog
   createUiDb
 
 export "./package.json" (./package.json) [asset]
 
 signatures (every public export and the types it is made of)
-  AcceptDraftInput (packages/ui-server/src/drafts/store.ts)
-    export interface AcceptDraftInput {
-        draftRef: DraftRef;
-        sessionId: string;
-        resumed: boolean;
-        requestId?: string;
-        principalId: string;
-    }
-  AcceptedWork (packages/ui-server/src/ws/session-work.ts)
-    export interface AcceptedWork {
-        revision: number;
-        requestId: string | null;
-        turnId: string | null;
-        backendId: string | null;
-        acceptedAt: number;
-        startedAt: number | null;
-    }
-  ActionAttempt (packages/ui-server/src/inbox/notify.ts)
-    export interface ActionAttempt {
-        attemptId: number;
-        count: number;
-        payload: ActionNoticePayload;
-    }
-  ActionAttemptOutcome (packages/ui-server/src/inbox/notify.ts)
-    export type ActionAttemptOutcome = "success" | "failed" | "ambiguous" | "gone";
-  ActionNoticePayload (packages/ui-server/src/inbox/notify.ts)
-    export interface ActionNoticePayload {
-        title: string;
-        body: string;
-        tag: string;
-        url: string;
-    }
-  ActionNotifier (packages/ui-server/src/inbox/notify.ts)
-    export interface ActionNotifier {
-        enroll(now?: number): number;
-        beginAttempt(destination: {
-            endpoint: string;
-            principalId: string;
-        }, now?: number): ActionAttempt | null;
-        finishAttempt(attemptId: number, outcome: ActionAttemptOutcome, now?: number): void;
-        reportZone(client: NoticeClient, timeZone: unknown, endpoint?: string, now?: number): {
-            timeZone: string | null;
-        };
-        reportDeviceZone(principalId: string, endpoint: string, timeZone: unknown, now?: number): {
-            timeZone: string | null;
-        };
-        digest(client: NoticeClient, now?: number): ActionDigestState;
-        dismiss(client: NoticeClient, through?: number, now?: number): void;
-        generateDue(now?: number): number;
-    }
   ActivityChange (packages/ui-server/src/activity/store.ts)
     export type ActivityChange = {
         changeId: number;
@@ -150,24 +100,6 @@ signatures (every public export and the types it is made of)
         kind: "event";
         event: SpanEventRow;
     };
-  ActivityNotifier (packages/ui-server/src/activity/notify.ts)
-    export interface ActivityNotifier {
-        tick(now?: number): void;
-        inbox(limit?: number): NotificationIntent[];
-        pending(limit?: number): NotificationIntent[];
-        markDelivered(id: number, status: "sent" | "send_failed"): void;
-        acknowledge(id: number): boolean;
-        acknowledgeAll(): number;
-        pruneAcknowledged(olderThanMs: number): number;
-    }
-  ActivityRuntime (packages/ui-server/src/ws/host.ts)
-    export interface ActivityRuntime {
-        store: ActivityStore;
-        stream: ActivityStream;
-        pushSender?: Pick<PushSender, "unbindPrincipal">;
-        query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
-        runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven">>;
-    }
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
         readonly writer: string;
@@ -251,10 +183,6 @@ signatures (every public export and the types it is made of)
         dangerouslyDisableAuth: boolean;
         allowPassword: boolean;
     }
-  AuthFailure (packages/ui-server/src/activity/runtime-status.ts)
-    type AuthFailure = Extract<BackendActivityEvent, {
-        kind: "auth_failure";
-    }>;
   AuthMode (packages/ui-server/src/middleware/auth.ts)
     export type AuthMode = "password" | "tailscale" | "proxy" | "none";
   AuthModeName (packages/ui-server/src/config/env.ts)
@@ -454,26 +382,6 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
-  ClientSet (packages/ui-server/src/ws/clients.ts)
-    export class ClientSet {
-        constructor(readonly maxConnections?: number, private readonly invalidateAuthorizations?: (principalIds: ReadonlySet<string>) => void);
-        add(ws: WSContext, principalId: string, options?: {
-            onRemove?: () => void;
-        }): boolean;
-        remove(ws: WSContext): void;
-        setCapabilities(ws: WSContext, capabilities: Readonly<Record<string, boolean>> | undefined): void;
-        declares(ws: WSContext, capability: string): boolean;
-        count(): number;
-        hasCapacity(): boolean;
-        hasClients(): boolean;
-        closeFor(principalId: string, code: number, reason: string): void;
-        closeAll(code: number, reason: string): void;
-        broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void, requiredCapability?: string): void;
-    }
-  Clock (packages/ui-server/src/ws/rate-limit.ts)
-    export interface Clock {
-        now(): number;
-    }
   CoastlineConfig (packages/ui-server/src/config/env.ts)
     export interface CoastlineConfig {
         enabled: boolean;
@@ -482,39 +390,10 @@ signatures (every public export and the types it is made of)
         cacheDir: string;
         geo?: GeoConfigInput;
     }
-  ConnectionState (packages/ui-server/src/ws/dispatch.ts)
-    export interface ConnectionState {
-        closed?: boolean;
-        principal: import("../db/principals.js").Principal;
-        authorization: AuthorizationContext;
-        protocolRev?: number;
-        capabilities?: Readonly<Record<string, boolean>>;
-    }
   ConsoleLoggerProviderOptions (packages/ui-server/src/observability/loggers.ts)
     export interface ConsoleLoggerProviderOptions {
         minSeverity?: Severity;
         write?: LogWriter;
-    }
-  ConversationHost (packages/ui-server/src/ws/conversation.ts)
-    export class ConversationHost {
-        constructor(private readonly host: WsHost, readonly provider: LiveConversationProvider);
-        start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void>;
-        audio(ws: WSContext, connection: ConnectionState, msg: ClientConversationAudio): void;
-        endpoint(ws: WSContext, connection: ConnectionState, msg: ClientConversationEndpoint): void;
-        commit(ws: WSContext, connection: ConnectionState, msg: ClientConversationCommit): void;
-        playback(ws: WSContext, connection: ConnectionState, msg: ClientConversationPlayback): void;
-        stop(ws: WSContext, connection: ConnectionState, msg: ClientConversationStop): void;
-        dropConnection(connection: ConnectionState): void;
-        approvalRaised(request: {
-            sessionId: string;
-            turnId: string;
-            toolUseId: string;
-            toolName: string;
-        }): void;
-        frameDropped(connection: ConnectionState): void;
-        sessionCancelled(sessionId: string): void;
-        closeAll(): void;
-        get size(): number;
     }
   CreateAppOptions (packages/ui-server/src/app.ts)
     export interface CreateAppOptions {
@@ -541,24 +420,6 @@ signatures (every public export and the types it is made of)
             onWrite?: () => void;
         };
     }
-  DraftAcceptOutcome (packages/ui-server/src/drafts/store.ts)
-    export type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
-  DraftImageType (packages/ui-server/src/drafts/store.ts)
-    export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
-  DraftStore (packages/ui-server/src/drafts/store.ts)
-    export interface DraftStore {
-        readonly limits: Readonly<SessionDraftLimits>;
-        list(principalId: string): DraftListResponse;
-        get(principalId: string, draftId: string): Draft;
-        save(principalId: string, draftId: string, input: SaveDraftInput): DraftSaveResponse;
-        upload(principalId: string, draftId: string, input: UploadDraftAttachmentInput): DraftAttachmentResponse;
-        remove(principalId: string, draftId: string, ifMatch: number): void;
-        bind(principalId: string, draftId: string, input: {
-            sessionId: string;
-            requestId: string;
-        }): DraftBindResponse;
-        accept(input: AcceptDraftInput): DraftAcceptOutcome;
-    }
   ENV_VARS (packages/ui-server/src/config/env.ts)
     const ENV_VARS: readonly EnvVarDescriptor[];
   EndSpanInput (packages/ui-server/src/activity/store.ts)
@@ -578,51 +439,13 @@ signatures (every public export and the types it is made of)
         default: string | null;
         required: false | string;
     }
-  FailureReplay (packages/ui-server/src/ws/turn-failures.ts)
-    export class FailureReplay {
-        constructor(private readonly catalog: SessionCatalog, private readonly log: Logger);
-        wait(sessionId: string): Promise<void>;
-        begin(backend: AgentBackend, sessionId: string | undefined, turnId: string, signal: AbortSignal): Promise<{
-            observe: (sessionId: string, failure: TurnFailure) => void;
-            finish: (sessionId?: string | null) => Promise<void>;
-        }>;
-    }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
     export type FlatAttributes = Record<string, string | number | boolean>;
-  FollowUpQueueChange (packages/ui-server/src/ws/turns.ts)
-    export interface FollowUpQueueChange {
-        started?: {
-            entry: QueuedFollowUp;
-            turnId: string;
-        };
-        dropped?: {
-            entries: readonly QueuedFollowUp[];
-            reason: string;
-        };
-    }
-  FrameRateLimiter (packages/ui-server/src/ws/rate-limit.ts)
-    export class FrameRateLimiter {
-        constructor(options: RateLimitOptions);
-        take(): RateLimitDecision;
-        get rejectedCount(): number;
-    }
   HostVersionRequirements (packages/ui-server/src/app.ts)
     export interface HostVersionRequirements {
         brainCli?: string;
         backends?: Readonly<Record<string, BackendVersionRequirements>>;
     }
-  HostWork (packages/ui-server/src/ws/turns.ts)
-    export interface HostWork {
-        posture: "voice";
-        started(turnId: string): void;
-        observe(frame: import("@schlessera/brain-ui-sdk/protocol").ServerMessage): void;
-        settle(outcome: HostWorkOutcome, detail?: {
-            sessionId?: string | null;
-            reason?: string;
-        }): void;
-    }
-  HostWorkOutcome (packages/ui-server/src/ws/turns.ts)
-    export type HostWorkOutcome = "completed" | "cancelled" | "error" | "refused";
   InMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export interface InMemoryMeterProvider extends MeterProvider, MetricsReader {
     }
@@ -635,19 +458,6 @@ signatures (every public export and the types it is made of)
         timeZone: string;
         unpricedUsdPerToken: number;
     }
-  InboxStream (packages/ui-server/src/inbox/stream.ts)
-    export interface InboxStream {
-        handleSubscribe(ws: WSContext, msg: ClientInboxSubscribe, authorization: AuthorizationContext): void;
-        handleUnsubscribe(ws: WSContext, msg: ClientInboxUnsubscribe): void;
-        handleDecision?(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): void;
-        dropConnection(ws: WSContext): void;
-        dropFor(principalId: string): void;
-        pump(): void;
-        subscriptionCount(): number;
-        close(): void;
-    }
-  IntentKind (packages/ui-server/src/activity/notify.ts)
-    export type IntentKind = "failure" | "completion" | "stuck";
   LABEL_MAX_CHARS (packages/ui-server/src/labels/normalise.ts)
     const LABEL_MAX_CHARS: 32;
   LABEL_RUN_NAME (packages/ui-server/src/labels/labeller.ts)
@@ -687,11 +497,6 @@ signatures (every public export and the types it is made of)
         provider: LabelCompletionProvider;
         timeoutMs?: number;
         billing?: BillingMode;
-    }
-  LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
-    export interface LocalExchangeRecord extends LocalExchange {
-        seq: number;
-        delivered: boolean;
     }
   LogQuery (packages/ui-server/src/observability/types.ts)
     export interface LogQuery {
@@ -736,24 +541,6 @@ signatures (every public export and the types it is made of)
     }
   ModelDiscoverySource (packages/ui-server/src/agent/backend.ts)
     export type ModelDiscoverySource = BackendModelSource;
-  NoticeClient (packages/ui-server/src/inbox/notify.ts)
-    export interface NoticeClient {
-        principalId: string;
-        clientId: string;
-    }
-  NotificationIntent (packages/ui-server/src/activity/notify.ts)
-    export interface NotificationIntent {
-        id: number;
-        runId: string;
-        spanId: string | null;
-        kind: IntentKind;
-        tag: string;
-        title: string;
-        body: string;
-        status: "pending" | "sent" | "send_failed" | "suppressed";
-        acknowledged: boolean;
-        createdAt: number;
-    }
   Observability (packages/ui-server/src/observability/index.ts)
     export interface Observability {
         logger(scope: string): Logger;
@@ -771,11 +558,6 @@ signatures (every public export and the types it is made of)
   OpenBrainDbOptions (packages/ui-server/src/db/brain-db.ts)
     export interface OpenBrainDbOptions {
         minSchemaVersion?: number;
-    }
-  PillLabels (packages/ui-server/src/labels/pill-labels.ts)
-    export interface PillLabels {
-        followUpQueued(sessionId: string, entry: QueuedFollowUp): void;
-        turnStarted(sessionId: string, text: string, known?: string): void;
     }
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
@@ -802,77 +584,6 @@ signatures (every public export and the types it is made of)
         now?: number;
         batch?: number;
     }
-  PushSender (packages/ui-server/src/activity/push-sender.ts)
-    export interface PushSender {
-        publicKey(): string;
-        subscribe(sub: {
-            endpoint: string;
-            keys: {
-                p256dh: string;
-                auth: string;
-            };
-        }, principalId: string, label?: string): boolean;
-        unsubscribe(endpoint: string, principalId: string): boolean;
-        subscriptions(principalId?: string): PushSubscriptionRow[];
-        unbindPrincipal(principalId: string): number;
-        deliverPending(notifier: ActivityNotifier): Promise<number>;
-        deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
-    }
-  PushSubscriptionRow (packages/ui-server/src/activity/push-sender.ts)
-    export interface PushSubscriptionRow {
-        endpoint: string;
-        p256dh: string;
-        auth: string;
-        label: string | null;
-        createdAt: number;
-        lastUsedAt: number | null;
-        principalId: string | null;
-        timeZone: string | null;
-    }
-  QueuedFollowUp (packages/ui-server/src/ws/turns.ts)
-    export interface QueuedFollowUp {
-        work?: HostWork;
-        principalId: string;
-        authorization: AuthorizationContext;
-        text: string;
-        attachments: ChatImageAttachment[];
-        files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
-        client?: ClientEnvironment;
-        source?: MessageSource;
-        thinkingLevel?: ThinkingLevel;
-        requestId?: string;
-        draftRef?: DraftRef;
-        revision?: number;
-        releaseAuthorization: () => void;
-        followUpId?: string;
-        queuedAt?: number;
-        label?: string;
-    }
-  RateLimitDecision (packages/ui-server/src/ws/rate-limit.ts)
-    export interface RateLimitDecision {
-        allowed: boolean;
-        remaining: number;
-    }
-  RateLimitOptions (packages/ui-server/src/ws/rate-limit.ts)
-    export interface RateLimitOptions {
-        ratePerSecond: number;
-        burst: number;
-        clock?: Clock;
-    }
-  RecordedAuthFailure (packages/ui-server/src/activity/runtime-status.ts)
-    export type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
-        runId: string;
-        at: string;
-        action?: SubscriptionAuthAction;
-        policy?: BillingMode;
-    };
-  RecordedTurnFailure (packages/ui-server/src/ws/turn-failures.ts)
-    export interface RecordedTurnFailure {
-        turnId: string;
-        assistantOrdinal: number;
-        prefixDigest: string;
-        failure: TurnFailure;
-    }
   RecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export interface RecordingLoggerProvider extends LoggerProvider, LogReader {
     }
@@ -885,14 +596,6 @@ signatures (every public export and the types it is made of)
         metrics: InMemoryMeterProvider;
         logs: RecordingLoggerProvider;
         reset(): void;
-    }
-  RetainedRetry (packages/ui-server/src/ws/retry-requests.ts)
-    export interface RetainedRetry {
-        turnId: string;
-        principalId: string;
-        request: ClientChatMessage;
-        failureMessage: string;
-        prompt: string;
     }
   RunRollupRow (packages/ui-server/src/activity/store.ts)
     export interface RunRollupRow {
@@ -928,48 +631,10 @@ signatures (every public export and the types it is made of)
         highWaterSeq: number;
         changeCursor: number;
     }
-  RuntimeObserved (packages/ui-server/src/activity/runtime-status.ts)
-    type RuntimeObserved = Extract<BackendActivityEvent, {
-        kind: "runtime_observed";
-    }>;
-  RuntimeStatus (packages/ui-server/src/activity/runtime-status.ts)
-    export interface RuntimeStatus {
-        setBoot(probes: Array<{
-            backendId: string;
-            report: BackendRuntimeReport;
-        }>): void;
-        observe(event: RuntimeObserved, runId: string): void;
-        authFailure(event: AuthFailure, runId: string, policy?: BillingMode): void;
-        subscriptionAuthFailure(): (RecordedAuthFailure & {
-            action: SubscriptionAuthAction;
-        }) | undefined;
-        subscriptionProven(at: number): void;
-        snapshot(): RuntimeStatusSnapshot;
-    }
-  RuntimeStatusSnapshot (packages/ui-server/src/activity/runtime-status.ts)
-    export interface RuntimeStatusSnapshot {
-        boot: Array<{
-            backendId: string;
-        } & BackendRuntimeReport>;
-        lastObserved?: Omit<RuntimeObserved, "kind"> & {
-            runId: string;
-            at: string;
-        };
-        lastAuthFailure?: RecordedAuthFailure;
-        sync?: SyncRuntimeStatus;
-    }
   SEVERITIES (packages/ui-server/src/observability/types.ts)
     const SEVERITIES: readonly ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
   SPAN_OUTCOMES (packages/ui-server/src/activity/store.ts)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
-  SaveDraftInput (packages/ui-server/src/drafts/store.ts)
-    export interface SaveDraftInput {
-        ifMatch: number;
-        idempotencyKey: string;
-        sessionId: string | null;
-        text: string;
-        attachmentIds: string[];
-    }
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
         askUserFormLimits?: AskUserFormLimits;
@@ -1008,50 +673,6 @@ signatures (every public export and the types it is made of)
             ttlMs: number;
         };
         subscription: SubscriptionConfig;
-    }
-  SessionCatalog (packages/ui-server/src/ws/session-catalog.ts)
-    export interface SessionCatalog {
-        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
-        attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        acceptWork?(sessionId: string, requestId: string | null, backendId: string | null): number | null;
-        dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
-        latestWork?(sessionId: string): work.AcceptedWork | null;
-        hasSession?(sessionId: string): boolean;
-        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
-        attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        getStoredProviderId(sessionId: string): string | null;
-        saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
-        clearRetryRequest?(sessionId: string): void;
-        peekRetry?(sessionId: string): retries.RetainedRetry | null;
-        reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): {
-            receipt: ServerRetryReceipt;
-            request?: ClientChatMessage;
-            prompt?: string;
-        };
-        refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt;
-        retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
-        attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
-        persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
-        recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
-            thinkingLevel?: ThinkingLevel;
-            turnId: string;
-            files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
-        }): void;
-        recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
-        attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): boolean;
-        takePendingLocalExchanges?(sessionId: string): LocalExchange[];
-        loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
-        recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
-        findHandoff?(handoffId: string): string | null;
-        addSessionCost?(sessionId: string, costUsd: number): void;
-        sessionLabel?(sessionId: string): {
-            label: string;
-            source: string;
-        } | null;
-        saveSessionLabel?(sessionId: string, label: string, source: string): void;
     }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
@@ -1119,64 +740,6 @@ signatures (every public export and the types it is made of)
         tokenSet: boolean;
         mintedAt: string | null;
     }
-  SyncAgentState (packages/ui-server/src/activity/sync-runtime.ts)
-    export type SyncAgentState = "pending" | "not-invoked" | "invoked" | "unknown";
-  SyncRunRuntime (packages/ui-server/src/activity/sync-runtime.ts)
-    export interface SyncRunRuntime {
-        runId: string;
-        startedAt: string;
-        endedAt: string | null;
-        outcome: SpanOutcome | null;
-        agent: SyncAgentState;
-        runtime: {
-            name: string;
-            version: string | null;
-        } | null;
-    }
-  SyncRuntimeStatus (packages/ui-server/src/activity/sync-runtime.ts)
-    export interface SyncRuntimeStatus {
-        latest: SyncRunRuntime | null;
-        lastObserved: {
-            runId: string;
-            startedAt: string;
-            endedAt: string | null;
-            runtime: {
-                name: string;
-                version: string;
-            };
-            latestRun: boolean;
-        } | null;
-    }
-  ToolPermissions (packages/ui-server/src/ws/host.ts)
-    export interface ToolPermissions {
-        isAutoAllowed(toolName: string): boolean;
-        add(toolName: string): void;
-    }
-  TurnBoundary (packages/ui-server/src/ws/session-work.ts)
-    export interface TurnBoundary {
-        turnId: string;
-        assistantOrdinal: number;
-        prefixDigest: string;
-    }
-  TurnClassifier (packages/ui-server/src/classification/classify-turn.ts)
-    export interface TurnClassifier {
-        readonly enabled: boolean;
-        run(sessionId: string, textParts: readonly string[]): Promise<MessageBlock[]>;
-        attach(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-    }
-  TurnLogContext (packages/ui-server/src/ws/host.ts)
-    export interface TurnLogContext {
-        sessionId?: string | null;
-        turnId?: string | null;
-        providerId?: string | null;
-    }
-  UploadDraftAttachmentInput (packages/ui-server/src/drafts/store.ts)
-    export interface UploadDraftAttachmentInput {
-        idempotencyKey: string;
-        mime: DraftImageType;
-        name: string | null;
-        bytes: Uint8Array;
-    }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
@@ -1202,54 +765,20 @@ signatures (every public export and the types it is made of)
   WsHost (packages/ui-server/src/ws/host.ts)
     export class WsHost {
         readonly brainPath?: string;
-        readonly failureReplay: FailureReplay;
         readonly askUserFormLimits: AskUserFormLimits;
-        readonly clients: ClientSet;
         readonly registry: BackendRegistry;
-        catalog: SessionCatalog;
         appName: string;
         turnTimeoutMs: number;
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
-        readonly wsRate: {
-            ratePerSecond: number;
-            burst: number;
-        } | null;
-        readonly isPrincipalValid: (principal: Principal) => boolean;
-        readonly activity: ActivityRuntime | null;
-        readonly inbox: InboxStream | null;
-        readonly drafts: DraftStore | null;
-        readonly toolPermissions: ToolPermissions | null;
-        readonly conversations: ConversationHost | null;
-        readonly classifier: TurnClassifier | null;
-        readonly labels: PillLabels | null;
-        readonly scratchPrune?: () => Promise<void>;
-        readonly log: ReturnType<Observability["logger"]>;
         constructor(options: WsHostOptions);
-        newRateLimiter(): FrameRateLimiter | null;
-        reportDroppedFrame(reason: string, detail?: string): void;
-        reportRefusedConnection(): void;
-        reportTurnStarted(turn: TurnLogContext): void;
-        attachMessageBlocks(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
-        reportTurnCompleted(turn: TurnLogContext, durationMs: number): void;
-        reportTurnFailed(code: string, turn: TurnLogContext, error?: string): void;
-        reportAbnormalClose(code: number): void;
-        sendToClients(msg: ServerMessage): void;
-        followUpQueueFrame(sessionId: string, change?: FollowUpQueueChange): ServerSessionQueue;
-        sendToCapable(capability: string, msg: ServerMessage): void;
-        revokePrincipals(principalIds: readonly string[], code: number, reason: string): void;
-        expireAuthorizationContexts(now?: number): void;
         close(): void;
-        sendMessage(ws: WSContext, msg: ServerMessage): void;
     }
   WsHostOptions (packages/ui-server/src/ws/host.ts)
     export interface WsHostOptions {
         brainPath?: string;
         askUserFormLimits?: Partial<AskUserFormLimits>;
         registry: BackendRegistry;
-        catalog: SessionCatalog;
-        classifier?: TurnClassifier | null;
         labeller?: Labeller | null;
         scratchPrune?: () => Promise<void>;
         appName?: string;
@@ -1262,11 +791,7 @@ signatures (every public export and the types it is made of)
         };
         wsMaxConnections?: number;
         isPrincipalValid?: (principal: Principal) => boolean;
-        activity?: ActivityRuntime;
-        inbox?: InboxStream;
-        toolPermissions?: ToolPermissions;
         conversationProvider?: LiveConversationProvider;
-        drafts?: DraftStore;
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
@@ -1291,8 +816,6 @@ signatures (every public export and the types it is made of)
     export function createRecordingLoggerProvider(options?: RecordingLoggerProviderOptions): RecordingLoggerProvider;
   createRecordingObservability (packages/ui-server/src/observability/index.ts)
     export function createRecordingObservability(): RecordingObservability;
-  createSessionCatalog (packages/ui-server/src/ws/session-catalog.ts)
-    export function createSessionCatalog(db: () => Database, log?: Logger): SessionCatalog;
   createSilentLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export function createSilentLoggerProvider(): LoggerProvider;
   createSilentObservability (packages/ui-server/src/observability/index.ts)

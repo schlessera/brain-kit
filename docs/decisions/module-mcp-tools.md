@@ -413,7 +413,7 @@ failed.
 
 - **The pi backend.** It does not use `brain mcp`. It builds its brain tools
   in-process with its own names (`export const TOOL_RISK`,
-  `packages/ui-backend-pi/src/tools.ts:212`), and it keeps `bash`, so
+  `packages/ui-backend-pi/src/tools.ts:210`), and it keeps `bash`, so
   `brain jobs review` is reachable there already. Serving module tools on pi
   would need collision rules against pi's flat namespace (`read_file`,
   `ask_user` and `web_search` all parse as `<module>_<local>`). It needs its

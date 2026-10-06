@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { TokenName } from "@schlessera/brain-ui-kit";
+import type { TokenName } from "@schlessera/brain-ui-kit/internal";
 
 import { useColorScheme } from "../../hooks/use-color-scheme.js";
 import { readToken, type ColorScheme } from "../../lib/light-dark.js";

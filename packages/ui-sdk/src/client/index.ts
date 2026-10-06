@@ -5,10 +5,7 @@ export type {
   RendererPack,
   ToolRendererRegistry,
 } from "./renderers.js";
-export {
-  createToolRendererRegistry,
-  registerToolRenderers,
-} from "./renderers.js";
+export { registerToolRenderers } from "./renderers.js";
 
 export type { AsrClient, AsrClientFactory, AsrClientOptions, AsrClientRegistry } from "./asr.js";
 export {

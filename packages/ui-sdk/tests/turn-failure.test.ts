@@ -3,9 +3,9 @@
 // A bad value in one never costs the frame — the frame is a turn's terminal.
 import { describe, expect, test } from "bun:test";
 
+import { describeRetry } from "../src/protocol-helpers.js";
 import {
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  describeRetry,
   subscriptionAuthAction,
   type ServerMessage,
 } from "../src/protocol.js";

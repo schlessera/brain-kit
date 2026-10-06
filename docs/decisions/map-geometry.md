@@ -504,7 +504,7 @@ separates a drawable line from the background service's 5-degree limit.
 `show_block` names only a staged file path. The server validates the original,
 recomputes its summary and fingerprints its bytes; incoming names/MIME and stored
 summary fields cannot author geometry or metrics
-(`readStagedTrack`, `packages/ui-server/src/tracks/read.ts:9-53`).
+(`readStagedTrack`, `packages/ui-server/src/tracks/read.ts:10-54`).
 
 The React planner fits the full retained envelope, refuses unsupported Mercator,
 longitude and padded extents without clamping, and requests geography only when

@@ -3,5 +3,4 @@
  * API: no compatibility guarantee, and consumers must use the same lockstep
  * version. See docs/decisions/public-export-boundary.md.
  */
-export { mapViewBounds } from "./blocks/MapView.js";
-export { LIGHT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";
+export { MAX_ROUTE_BYTES } from "./limits.js";

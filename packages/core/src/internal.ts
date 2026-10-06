@@ -29,6 +29,8 @@ export { WriteRefusedError, resolveWritable, safeResolve, writeFileSafely } from
 export { SCRATCH_DIR, assertScratchWritable, isInScratch, isWriteRefusal, pruneScratch, scratchName, writeScratchFile } from "./lib/scratch.js";
 export { isIsoDate } from "./lib/search-engine.js";
 export type { SearchResponse } from "./lib/search-engine.js";
+export { collectStats } from "./lib/stats.js";
+export type { CollectStatsOptions } from "./lib/stats.js";
 export { buildTaxonomy } from "./lib/taxonomy.js";
 export { SEARCH_SORTS } from "./lib/types.js";
 export type { IngestInput, SearchOptions } from "./lib/types.js";

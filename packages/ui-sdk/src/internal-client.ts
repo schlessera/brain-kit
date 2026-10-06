@@ -5,5 +5,8 @@
  * See docs/decisions/public-export-boundary.md.
  */
 export { defaultAsrClientRegistry, speechUiHints } from "./client/asr.js";
-export { defaultToolRendererRegistry } from "./client/renderers.js";
+export { createToolRendererRegistry, defaultToolRendererRegistry } from "./client/renderers.js";
+export { canonicalModelId, describeRetry, resolveThinkingLevel } from "./protocol-helpers.js";
+export { pruneStoredShares } from "./client/share-store.js";
+export { handleShareTargetRequest, isShareTargetRequest, type ShareTargetError } from "./client/share-target-handler.js";
 export { askUserFormPayload, askUserFormSpec, resolveAskUserFormLimits } from "./tool-contracts/form.js";

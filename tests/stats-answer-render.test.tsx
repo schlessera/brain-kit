@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TOKENS } from "@schlessera/brain-ui-kit";
+import { TOKENS } from "@schlessera/brain-ui-kit/internal";
 
 import { composeStatsAnswer, type StatsInput } from "../packages/ui-react/src/components/chat/stats/compose-stats.ts";
 import { StatsAnswer } from "../packages/ui-react/src/components/chat/stats/stats-answer.tsx";

@@ -32,10 +32,57 @@ private member is.
 Entry points named `/internal` (`@schlessera/brain/internal`,
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
-`@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`
-and the two backends' `/internal`)
+`@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,
+`@schlessera/brain-geo/internal` and the two backends' `/internal`)
 are first-party implementation sharing with no compatibility guarantee. Use
 them only with the same lockstep version, if at all.
+
+**Breaking pre-1.0 narrowing (#1053).** The surfaces #534 left public because
+a public declaration reached them, or because their classification was
+uncertain, follow a maintainer ruling per item:
+
+- **`WsHost`** (`@schlessera/brain-ui-server`) stays public as the type of
+  `BrainUiApp.wsHost`, which `createApp` constructs. Its supported members are
+  the resolved configuration (`brainPath`, `askUserFormLimits`, `appName`,
+  `turnTimeoutMs`, `maxConcurrentSessions`, `observability`), the backend
+  `registry` and `close()`. Its connection, client-set, catalog, turn,
+  activity, inbox, draft, label and classification members are `@internal`,
+  as are `WsHostOptions.catalog`, `classifier`, `activity`, `inbox`,
+  `toolPermissions` and `drafts`. `SessionCatalog` and `createSessionCatalog`
+  move to `@schlessera/brain-ui-server/internal`: a custom session catalog is
+  no longer supported.
+- **ui-react's store hooks** (`useChatStore`, `useFileStore`, `useShareStore`,
+  `useUIStore`, `useVoiceStore`) stay public for deployment shells, typed as
+  `ShellStoreHook<View>`: a selector, plus `getState()` and `subscribe()` on
+  the default root, over `ChatShellState`, `FileShellState`, `ShareShellState`,
+  `UIShellState` and `VoiceShellState` (the
+  [ui-react README](../packages/ui-react/README.md#store-hooks) lists their
+  fields). `setState` is no longer typed. `activeChat` and `anyStreaming` take
+  `ChatShellState`; `hasPendingShare` takes `ShareShellState`, and
+  `ShareIntakeState` is no longer exported. The zustand state shapes
+  (`ChatState`, `UIState` …) leave the surface, and so does
+  `BrainUiServices.stores` (now `@internal`), which carried them.
+- **Kept as documented API:** core's `repoRelativePathSchema`, for module
+  config schemas ([canonical consumer configuration](#canonical-consumer-configuration));
+  Claude's `MEASURED_RUNTIME`, the measured Claude Code and agent SDK pair
+  ([backend guide](extending/agent-backends.md)); jobs' `runScrape`, the
+  direct scrape fallback ([jobs README](../packages/module-jobs/README.md#what-a-scrape-reports)).
+- **Moved to the owning package's `/internal` entry:** core `collectStats` and
+  its `CollectStatsOptions` (`BrainStats` and `StatsThresholds` stay public as
+  the result shape); the SDK's bridge-tool handlers (`handleAskUser`,
+  `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`,
+  `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`,
+  `handleShowBlock`, with `ImageMaskHandlerOptions` and
+  `LocationHandlerOptions`), `wrapCommand` and `execWrapperSpawnOptions` from
+  `/server`; `describeRetry`, `canonicalModelId` and `resolveThinkingLevel`
+  from every SDK entry (to `/internal`, and browser-safe to
+  `/internal/client`); `createToolRendererRegistry` from `/client`,
+  `pruneStoredShares`, `ShareTargetError`, `isShareTargetRequest` and
+  `handleShareTargetRequest` from `/share-target` (to `/internal/client`;
+  `registerShareTarget` and `readShareLaunchParams` stay); the kit's `TOKENS`,
+  `LIGHT_TOKENS`, `canvas` and their `TokenName` key type; render-template's
+  `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
+  `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
@@ -936,8 +983,9 @@ index rebuild does not rewrite them. See the
 
 `brain stats --json` and `--history --json` include `trends`, and the `stats`
 entry of `brain maintain --json` carries the same object. Briefing retains
-plain text and includes only warning explanations. Ordinary library
-`collectStats` remains a current measurement; the CLI enriches it with history.
+plain text and includes only warning explanations. The measurement itself
+is current; the CLI enriches it with history. The library function behind it
+is first-party only (#1053).
 
 `trends` is `{ evaluatedAt: <ISO timestamp>, verdicts: [...] }`, with exactly
 one verdict for each `metric`: `embeddingCoverage`, `brokenLinks`, `orphans`.
@@ -4121,7 +4169,12 @@ new nested defaults do not require callers to write every optional field.
 `defineConfig` remains a typed identity function; load-time schema validation
 still validates the whole configuration. Core's optional geo response-cache
 directory uses `repoRelativePathSchema` and resolves inside the brain through
-`safeResolve`, including symlink containment.
+`safeResolve`, including symlink containment. `repoRelativePathSchema` is
+exported from `@schlessera/brain` for a module author's `configSchema`: a
+setting that names a directory inside the brain (finance's `clientsDir`,
+images' `imagesDir`) validates with it, which refuses absolute, `~`,
+backslash and `..` paths before the module resolves the value under the brain
+root.
 
 SDK server additively exports `GeoConfig`, `GeoConfigInput` and `geoConfigSchema`
 from the concrete geo library. UI server `CoastlineConfig.geo` is optional for
@@ -4275,9 +4328,9 @@ Unavailable, expired or unsupported originals return `422 {error:
 "track_unavailable",message}`; a missing/overlong path returns 400. Reads enforce
 containment, regular-file/no-symlink checks and actual byte limits.
 
-A custom `SessionCatalog` must implement `peekRetry` to advertise Retry for
-file-backed requests: the server checks original bytes before consuming eligibility.
-Older catalogs retain their existing text/image-only Retry behavior.
+Retry for a file-backed request is advertised only after the server checks
+the original bytes, before consuming eligibility. The session catalog is
+internal to the server (#1053).
 
 `show_block` adds `{kind:"track",source:{path:string},title?:string}`. The source
 is a staged reference only: no model-authored geometry, viewport, metric or

@@ -4,9 +4,9 @@ import {
   SHARE_STASH_TTL_MS,
   type ShareIntakeResult,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { pruneStoredShares } from "@schlessera/brain-ui-sdk/internal/client";
 import {
   getShareStore,
-  pruneStoredShares,
   readShareLaunchParams,
   type StoredShare,
 } from "@schlessera/brain-ui-sdk/share-target";

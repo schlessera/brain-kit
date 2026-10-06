@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { execConfig, subprocessEnv } from "../config/env.js";
-import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/server";
+import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import {
   buildKeyterms,
   writeCache,

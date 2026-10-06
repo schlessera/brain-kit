@@ -15,7 +15,6 @@ export "." (./src/index.ts)
   type GeoConfigInput
   type ImportedTrack
   type LandOptions
-  MAX_ROUTE_BYTES
   type MapDetail
   type NearestTrackPoint
   type NormalizedTrackPoint
@@ -59,6 +58,9 @@ export "." (./src/index.ts)
   trackCoverage
   trimRoute
   writeGpx
+
+export "./internal" (./src/internal.ts)
+  MAX_ROUTE_BYTES
 
 export "./package.json" (./package.json) [asset]
 
@@ -290,8 +292,6 @@ signatures (every public export and the types it is made of)
     export interface LandOptions {
         onLand?: Coord[][];
     }
-  MAX_ROUTE_BYTES (packages/geo/src/track.ts)
-    const MAX_ROUTE_BYTES: number;
   MapDetail (packages/geo/src/coastline.ts)
     export type MapDetail = "coast" | "roads" | "streets";
   NearestTrackPoint (packages/geo/src/spatial.ts)

@@ -271,7 +271,10 @@ A backend enforcing it must:
   PreToolUse hook for every off-list tool, which overrides all three. These
   are measured against the runtime `MEASURED_RUNTIME` names
   (`@schlessera/brain-backend-claude`), and `scripts/measure-claude-runtime.ts`
-  re-measures them, keyless, against a scripted model. Whatever the equivalent
+  re-measures them, keyless, against a scripted model. The constant is public
+  so that a host or backend author can compare the Claude Code release and
+  agent SDK it installs (`claudeCode`, `agentSdk`, `measuredOn`) with the pair
+  these claims were measured against, before relying on them. Whatever the equivalent
   is in your runtime, find it before claiming the field is honoured — and probe
   with more than one tool and one command shape.
 - not let its own input-rewrite hooks grant a tool the allowlist leaves out.

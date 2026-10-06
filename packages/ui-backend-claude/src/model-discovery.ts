@@ -26,7 +26,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { canonicalModelId, THINKING_LEVELS } from "@schlessera/brain-ui-sdk/protocol";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
+import { THINKING_LEVELS } from "@schlessera/brain-ui-sdk/protocol";
 import type { ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { SUBSCRIPTION_AUTH_INSTRUCTIONS } from "@schlessera/brain-ui-sdk/server";
 import { resolveEnv } from "./config/env.js";

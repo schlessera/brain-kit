@@ -1,6 +1,6 @@
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
-import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk/server";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit";
+import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit/internal";
 import { graphTheme } from "../src/components/graph/use-graph-theme.js";
 import {
   SLOT_COUNT,

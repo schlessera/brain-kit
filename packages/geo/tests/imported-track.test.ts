@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { parseImportedTrack, summarizeTrack, MAX_ROUTE_BYTES } from "../src/index.js";
+import { parseImportedTrack, summarizeTrack } from "../src/index.js";
+import { MAX_ROUTE_BYTES } from "../src/internal.js";
 
 const gpx = '<gpx version="1.1"><wpt lat="2" lon="3"><name>Harbour gate</name></wpt><trk><trkseg><trkpt lat="2" lon="3"/><trkpt lat="2" lon="3.001"/></trkseg></trk></gpx>';
 test("GPX adapters keep the common line measurements and named waypoint evidence", () => {
