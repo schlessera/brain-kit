@@ -3080,14 +3080,17 @@ prompt).
   `dropped`; every later report carries it.
 - **A session** is labelled from its latest request when a turn starts. The
   label is stored with the session and listed by `GET /api/sessions`, and it
-  stays until the next request is labelled. A request already labelled, for
-  instance a follow-up that became the session's turn, is not sent again.
+  stays until the next request is labelled. A request already labelled is not
+  sent again: a follow-up that becomes the session's turn hands its pill's
+  label to the session.
 - **Failure** (an error, an unusable answer, no answer within `timeoutMs`,
   10 s by default) leaves the fallback in place and is logged once per item.
   The SDK drops a `label` outside its bounds and keeps the rest of the frame.
-- **Cost.** `CompletionProvider` reports no usage, so these calls are counted
-  by outcome in the `brain.labeller.calls` metric and their cost is unknown.
-  They do not appear in Activity, and no amount is recorded as zero.
+- **Cost.** `CompletionProvider` reports no usage, so the provider calls are
+  counted by outcome in the `brain.labeller.calls` metric and their cost is
+  unknown. Asks that kept their fallback without an answer (timed out, or
+  skipped while busy) are counted apart, in `brain.labeller.fallbacks`. The
+  calls do not appear in Activity, and no amount is recorded as zero.
 
 ## File-layer contracts
 

@@ -32,7 +32,9 @@ export function makeBridge(
    * that must be written for this turn's prompt waits for it here.
    */
   onSessionNamed?: (sessionId: string) => void,
-  onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void
+  onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void,
+  /** The pill label the request already has, read when the session is named (#1004). */
+  promptLabel?: () => string | undefined
 ): BackendBridge {
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -91,7 +93,7 @@ export function makeBridge(
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {
           labelAsked = true;
-          host.labels?.turnStarted(msg.sessionId, promptText);
+          host.labels?.turnStarted(msg.sessionId, promptText, promptLabel?.());
         }
         if (draftRef && !draftSettled) {
           draftSettled = true;

@@ -89,7 +89,10 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
   const { provider } = options;
   const timeoutMs = options.timeoutMs ?? LABEL_TIMEOUT_MS;
   const calls: Counter | undefined = deps.meter?.createCounter("brain.labeller.calls", {
-    description: "Pill label calls to the host's label model, by outcome. The provider reports no usage, so their cost is not known.",
+    description: "Calls made to the host's label model, by outcome. The provider reports no usage, so their cost is not known.",
+  });
+  const fallbacks: Counter | undefined = deps.meter?.createCounter("brain.labeller.fallbacks", {
+    description: "Label asks that kept their fallback without an answer: timed out, or skipped while the labeller was busy.",
   });
   // Answers by text hash, oldest first; a re-read moves an entry to the end.
   const cache = new Map<string, string | null>();
@@ -193,7 +196,7 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
       let flight = inFlight.get(hash);
       if (!flight) {
         if (waiting.length >= LABEL_MAX_WAITING) {
-          calls?.add(1, { outcome: "skipped_busy", provider: provider.id });
+          fallbacks?.add(1, { outcome: "skipped_busy", provider: provider.id });
           reportOnce(item, "skipped_busy");
           return null;
         }
@@ -211,7 +214,7 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
       ]);
       clearTimeout(timer);
       flight.askers--;
-      if (result.outcome === "timeout") calls?.add(1, { outcome: "timeout", provider: provider.id });
+      if (result.outcome === "timeout") fallbacks?.add(1, { outcome: "timeout", provider: provider.id });
       if (!result.label) reportOnce(item, result.outcome, result.err);
       return result.label;
     },

@@ -198,7 +198,38 @@ test("asking again for a text whose call outlived its deadline joins that call",
   expect(calls).toHaveLength(1);
 });
 
+test("the call count is the provider's calls; asks that gave up are counted apart", async () => {
+  const observability = createRecordingObservability();
+  const settle: Array<(label: string) => void> = [];
+  const { provider } = scripted(() => new Promise<string>((resolve) => settle.push(resolve)));
+  const labeller = createLabeller({ options: { provider, timeoutMs: 10 }, meter: observability.meter("labels") });
+  // Two asks share one slow call and both give up.
+  expect(await Promise.all([
+    labeller.label("follow-up:a", "Ask Aeolus about the winds"),
+    labeller.label("session:s", "Ask Aeolus about the winds"),
+  ])).toEqual([null, null]);
+  settle.shift()!("Asking Aeolus");
+  await new Promise((r) => setTimeout(r, 1));
+  expect(observability.metrics.total("brain.labeller.calls")).toBe(1);
+  expect(observability.metrics.value("brain.labeller.calls", { outcome: "labelled", provider: "fixture-small" })).toBe(1);
+  expect(observability.metrics.value("brain.labeller.fallbacks", { outcome: "timeout", provider: "fixture-small" })).toBe(2);
+});
+
 describe("createPillLabels", () => {
+  test("a started follow-up's label becomes its session's without asking again", () => {
+    const asked: string[] = [];
+    const labeller = { enabled: true, label: async (_item: string, text: string) => { asked.push(text); return "Asked"; } };
+    const stored = new Map<string, { label: string; source: string }>();
+    const catalog = {
+      sessionLabel: (id: string) => stored.get(id) ?? null,
+      saveSessionLabel: (id: string, label: string, source: string) => { stored.set(id, { label, source }); },
+    } as unknown as SessionCatalog;
+    const labels = createPillLabels({ labeller, catalog, coordinator: new TurnCoordinator() });
+    labels.turnStarted("s", "Ask Aeolus about the winds", "Asking Aeolus");
+    expect(stored.get("s")?.label).toBe("Asking Aeolus");
+    expect(asked).toEqual([]);
+  });
+
   test("an older request's slow label never replaces the label of the request that followed it", async () => {
     const pending = new Map<string, (label: string) => void>();
     const labeller = {

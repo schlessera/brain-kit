@@ -43,7 +43,7 @@ afterEach(() => {
  * Every turn names the session and waits until the test finishes it. The
  * label model answers from {@link LABELS}, or holds while `hold` is set.
  */
-function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: number } = {}) {
+function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: number; uncached?: boolean } = {}) {
   const db = createUiDb(":memory:");
   const finishers: Array<() => void> = [];
   const prompts: string[] = [];
@@ -79,7 +79,11 @@ function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: nu
   const host = new WsHost({
     registry,
     catalog,
-    labeller: createLabeller({ options: options.labeller === false ? null : { provider } }),
+    // `uncached` asks the provider on every call, as after the cache evicted
+    // an answer, so only the host's own reuse can avoid a second call.
+    labeller: options.uncached
+      ? { enabled: true, label: async (_item: string, text: string) => provider.complete({ prompt: text }) }
+      : createLabeller({ options: options.labeller === false ? null : { provider } }),
   });
   cleanup = () => {
     for (const finish of finishers) finish();
@@ -174,6 +178,19 @@ describe("pill labels (#1004)", () => {
     expect((await s.listed()).label).toBe("Asking Aeolus");
     // The turn's request was labelled when it was queued: no second call.
     expect(s.asked).toEqual(["Chart the way home", "Ask Aeolus about the winds"]);
+  });
+
+  test("a started follow-up hands its label to its session, even when the answer is no longer cached", async () => {
+    const s = setup({ uncached: true });
+    const client = await s.connect();
+    await s.busy(client);
+    client.send({ type: "chat_message", text: "Keep the bag of winds shut", sessionId: SESSION, requestId: "req-bag" });
+    await until(() => labels(client.frames("session_queue").at(-1))[0] === "Bag of winds");
+    s.finishers.at(-1)!();
+    await until(() => s.prompts.length === 2);
+    await settle();
+    expect((await s.listed()).label).toBe("Bag of winds");
+    expect(s.asked.filter((text) => text === "Keep the bag of winds shut")).toHaveLength(1);
   });
 
   test("a failing label model leaves every pill on its fallback and logs nothing per render", async () => {

@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:166-260`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:168-262`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -256,14 +256,14 @@ Stated before the requirements because five of them derive from it.
   (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:802-813`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:804-815`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:201-259`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:203-261`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
   path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:323-329`). Aborting does **not** undo completed tool side

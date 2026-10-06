@@ -747,7 +747,7 @@ signatures (every public export and the types it is made of)
   PillLabels (packages/ui-server/src/labels/pill-labels.ts)
     export interface PillLabels {
         followUpQueued(sessionId: string, entry: QueuedFollowUp): void;
-        turnStarted(sessionId: string, text: string): void;
+        turnStarted(sessionId: string, text: string, known?: string): void;
     }
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {

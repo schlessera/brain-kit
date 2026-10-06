@@ -21,8 +21,12 @@ import type { QueuedFollowUp, TurnCoordinator } from "../ws/turns.js";
 export interface PillLabels {
   /** A follow-up just joined `sessionId`'s queue. */
   followUpQueued(sessionId: string, entry: QueuedFollowUp): void;
-  /** A turn carrying `text` was just handed to the agent for `sessionId`. */
-  turnStarted(sessionId: string, text: string): void;
+  /**
+   * A turn carrying `text` was just handed to the agent for `sessionId`.
+   * `known` is the label the request already has, as a started follow-up
+   * does: it is stored without asking the model again.
+   */
+  turnStarted(sessionId: string, text: string, known?: string): void;
 }
 
 export function createPillLabels(deps: {
@@ -48,13 +52,18 @@ export function createPillLabels(deps: {
       });
     },
 
-    turnStarted(sessionId, text) {
+    turnStarted(sessionId, text, known) {
       if (!labeller.enabled || !catalog.saveSessionLabel || !text.trim()) return;
       const source = labelSourceHash(text);
       // Already labelled for this request: an older request still being
       // labelled must not replace it when its answer arrives.
       if (catalog.sessionLabel?.(sessionId)?.source === source) {
         latest.delete(sessionId);
+        return;
+      }
+      if (known) {
+        latest.delete(sessionId);
+        catalog.saveSessionLabel(sessionId, known, source);
         return;
       }
       latest.set(sessionId, source);
