@@ -2,7 +2,9 @@ import type {
   SessionRecovery,
   SessionRecoveryLatest,
   SessionRecoveryPending,
+  SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
+import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { Principal } from "../db/principals.js";
 import type { WsHost } from "./host.js";
 import type { AcceptedWork } from "./session-work.js";
@@ -156,6 +158,27 @@ const NO_HISTORY = Symbol("no history");
 /** How long one backend may take to say whether it holds a session, as `/api/sessions` allows. */
 export const RECOVERY_PROBE_MS = 3_000;
 
+/**
+ * Unfinished existence probes, per host, by backend and session. A backend
+ * read has no cancellation, so a timed-out probe keeps running; a retry
+ * reuses it instead of starting another, as `/api/sessions` does.
+ */
+const probes = new WeakMap<WsHost, Map<string, Promise<SessionHistoryMessage[]>>>();
+
+function probe(host: WsHost, backend: AgentBackend, sessionId: string): Promise<SessionHistoryMessage[]> {
+  let inFlight = probes.get(host);
+  if (!inFlight) probes.set(host, inFlight = new Map());
+  const key = `${backend.id}\u0000${sessionId}`;
+  let read = inFlight.get(key);
+  if (!read) {
+    read = Promise.resolve().then(() => backend.getHistory(sessionId));
+    inFlight.set(key, read);
+    const clear = () => { if (inFlight!.get(key) === read) inFlight!.delete(key); };
+    void read.then(clear, clear);
+  }
+  return read;
+}
+
 function boundedHistory<T>(read: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
@@ -187,7 +210,7 @@ export async function readSessionRecovery(host: WsHost, sessionId: string, princ
     let found = false;
     let failure: unknown;
     try {
-      await Promise.any(backends.map((backend) => boundedHistory(backend.getHistory(sessionId)).then((history) => {
+      await Promise.any(backends.map((backend) => boundedHistory(probe(host, backend, sessionId)).then((history) => {
         if (history.length === 0) throw NO_HISTORY;
       })));
       found = true;

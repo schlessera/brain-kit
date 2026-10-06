@@ -453,7 +453,8 @@ describe("a stalled backend", () => {
   test("cannot hold a recovery read open: another backend's history settles it, and silence everywhere is a failure", async () => {
     const db = createUiDb(":memory:");
     cleanups.push(() => db.close());
-    const stalled = makeFakeBackend({ id: "stalled", getHistory: () => new Promise(() => {}) });
+    let stalledReads = 0;
+    const stalled = makeFakeBackend({ id: "stalled", getHistory: () => { stalledReads++; return new Promise(() => {}); } });
     const holding = makeFakeBackend({ id: "holding", histories: { "odyssey-imported": [{ role: "user", content: "From the CLI", toolCalls: [] }] } });
     const host = new WsHost({ registry: createStaticBackendRegistry([stalled, holding], "stalled"), catalog: createSessionCatalog(() => db) });
     cleanups.push(() => host.close());
@@ -466,7 +467,10 @@ describe("a stalled backend", () => {
       (err: Error) => err.message,
     );
     expect(await Promise.race([silent, Bun.sleep(6_000).then(() => "still waiting")])).toBe("Session lookup timed out");
-  }, 10_000);
+    // Retries reuse the stalled backend's unfinished read instead of piling up more.
+    for (let i = 0; i < 3; i++) expect((await readSessionRecovery(host, "odyssey-imported", testPrincipal())).kind).toBe("ok");
+    expect(stalledReads).toBe(2);
+  }, 15_000);
 });
 
 describe("approval recovery after a partial history", () => {
