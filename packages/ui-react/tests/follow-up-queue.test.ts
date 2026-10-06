@@ -147,6 +147,16 @@ test("a follow-up that ran at once because the session had just gone idle enters
   expect(users(root)).toEqual(["Chart the way home", bag.text]);
 });
 
+test("a follow-up whose turn fails before naming itself still enters the chat above the failure", () => {
+  const { root, socket } = busy();
+  root.stores.followUp.getState().addLocal(S, { requestId: "req-bag", text: bag.text, source: "typed", queuedAt: 3 });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  // The session had gone idle, so it ran at once, and failed at start-up.
+  socket.deliver({ type: "error", sessionId: S, turnId: "turn-2", requestId: "req-bag", code: "BACKEND_ERROR", message: "The runtime did not start." });
+  expect(pending(root)).toEqual([]);
+  expect(users(root)).toEqual(["Chart the way home", bag.text]);
+});
+
 test("a dropped follow-up leaves with its reason", () => {
   const { root, socket } = busy();
   socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, bag] });

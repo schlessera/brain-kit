@@ -329,7 +329,12 @@ export function createWebSocketClient(root: BrainUiServices) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
       // A refused follow-up was never pending; the composer keeps its draft.
-      root.stores.followUp.getState().dropLocal(msg.requestId);
+      // A turn-scoped error is not a refusal: the follow-up's turn started
+      // and failed before it named itself, so the message is the agent's and
+      // belongs above that failure.
+      const ran = msg.turnId && msg.sessionId ? root.stores.followUp.getState().takeLocal(msg.requestId) : null;
+      if (ran) placeStartedFollowUp({ ...ran, sessionId: msg.sessionId!, turnId: msg.turnId! });
+      else root.stores.followUp.getState().dropLocal(msg.requestId);
     }
 
     // Activity stream frames feed their own store and never touch chat state.
