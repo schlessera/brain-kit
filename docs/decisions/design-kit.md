@@ -4935,7 +4935,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:174-178`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:175-179`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -4966,6 +4966,28 @@ card, with no invented text. **R3:** a `restored` chip marks a restored
 `answered on another device`, `ended with the turn` or
 `no longer yours to answer`. Rehydration never sends a reply. The four ask
 kinds keep #910's rules and state footer, with no second indicator.
+
+> **2026-10-06 — Implemented by #948 (client state; the strip and pane are
+> #950).** The model is `packages/ui-react/src/lib/trackers.ts`, the root's
+> store is `stores/tracker-state.ts`, the socket and chat wiring is
+> `lib/tracker-client.ts` and the observer is `hooks/use-tracker-seen.ts`.
+> Four readings of the text above:
+>
+> - *Leaving the foreground* is selecting another session, New chat, the
+>   page's `pagehide`, or the document turning hidden. Switching to Actions
+>   or Graph does not leave the session in view, since the seen rule already
+>   requires Chat in the foreground.
+> - *Work in a session that is not being watched* is a live frame for a
+>   session other than the one in view that starts or continues work: a
+>   queued status, a turn's `session_info` or progress, an approval or a
+>   question. A late `result`, a replay, or a resume's `session_info` that
+>   names no turn and no request does not start a tracker.
+> - Before any read or frame has answered for a restored tracker it reads
+>   `can't check · host unreachable` (or `host too old` without the
+>   capability), and its view says it is not yet settled, so #950 can hold
+>   announcements until it is.
+> - `Mark as seen` with no latest turn identity to store deletes the record,
+>   since there is nothing to acknowledge against.
 
 ### 5. Per-session drafts, stored on the host (storage C)
 
@@ -5169,12 +5191,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:453-461`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:458-466`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:385-392`)
+  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:390-397`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
