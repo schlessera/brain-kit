@@ -19,7 +19,7 @@ import { WhatsupPanel } from "../quick-actions/whatsup-modal.js";
 import { SearchPanel } from "../quick-actions/search-modal.js";
 import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
-import { Composer } from "./composer.js";
+import { Composer, type ComposerHandle } from "./composer.js";
 import { ChatComposerRow } from "./composer-row.js";
 import { sendReask } from "./reask-send.js";
 import { HandoffSheet } from "./handoff-sheet.js";
@@ -31,6 +31,8 @@ import { useChatCommands } from "./use-chat-commands.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
+import { useDestinationPress } from "../../hooks/use-destination-press.js";
+import { FIRST_CONTROL, focusFirst } from "../../lib/destination-start.js";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -275,6 +277,35 @@ export function ChatPage() {
     }
   }, []);
 
+  /**
+   * Pressing Chat while it is shown (D52 N3, as its addendum amends it for
+   * Chat). Its start is the latest turn, so an occupied transcript does what
+   * `Scroll to latest` does, with the same window; the empty chat's welcome
+   * goes to its top. Focus goes to a waiting approval or question's first
+   * control, then the latest turn's failure's primary action, then the
+   * composer with the caret at the end. On a phone the composer is skipped
+   * and focus stays on the Chat tab, so the soft keyboard does not open.
+   */
+  const areaRef = useRef<HTMLDivElement>(null);
+  const welcomeRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<ComposerHandle>(null);
+  useDestinationPress("chat", ({ keyboard }) => {
+    if (scrollRef.current) scrollToBottom();
+    else welcomeRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    const area = areaRef.current;
+    const waiting = area?.querySelector<HTMLElement>("[data-approval-card], [data-ask-waiting]");
+    const failed = messages.at(-1)?.failure
+      ? [...(area?.querySelectorAll<HTMLElement>("[data-turn-failure]") ?? [])].at(-1)
+      : undefined;
+    if (focusFirst([
+      waiting?.querySelector<HTMLElement>(FIRST_CONTROL),
+      failed?.querySelector<HTMLElement>(".bk-turn-error-actions [data-bk-button]"),
+    ], keyboard)) return;
+    if (phone) return;
+    if (composerRef.current?.focusEnd()) return;
+    if (!hasMessages) focusFirst([welcomeRef.current?.querySelector<HTMLElement>('[role="heading"]')], keyboard);
+  });
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Mask editor: modal, mounted here because it answers over the socket
@@ -332,7 +363,7 @@ export function ChatPage() {
 
       {/* Message area. A size container, so the transcript can tell whether
           its reading column clears the New chat disc (below). */}
-      <div className="@container relative flex-1 overflow-hidden">
+      <div ref={areaRef} className="@container relative flex-1 overflow-hidden">
         {/* New chat is the Chat header's primary action (D37): a tab is a
             place and starting a chat is an act, so it is neither a rail row
             nor a bar slot. It only appears once there is a conversation to
@@ -360,7 +391,7 @@ export function ChatPage() {
           </DiscRow>
         )}
         {messages.length === 0 ? (
-          <div className="h-full overflow-y-auto">
+          <div ref={welcomeRef} className="h-full overflow-y-auto" data-welcome="">
             <div className="px-4 pt-3 md:px-6">
               <DigestCard />
             </div>
@@ -432,7 +463,7 @@ export function ChatPage() {
 
       <HandoffSheet />
       <ChatComposerRow />
-      <Composer send={send} />
+      <Composer send={send} handle={composerRef} />
     </div>
   );
 }

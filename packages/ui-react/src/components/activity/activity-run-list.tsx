@@ -17,9 +17,11 @@ import { ReportButton, reportButtonName } from "./activity-report.js";
  */
 export function LiveRow({
   span,
+  selected,
   onOpen,
 }: {
   span: ActivitySpan;
+  selected?: boolean;
   onOpen: (row: { runId: string; origin: string; sessionId?: string | null }) => void;
 }) {
   const children = useActivityStore(
@@ -35,6 +37,7 @@ export function LiveRow({
       current={current ? spanToolLabel(current) : null}
       elapsed={formatDuration(now - span.startedAt)}
       tools={children.map((c) => ({ label: spanToolLabel(c), state: toolState(c.outcome) }))}
+      selected={selected}
       onOpen={() => onOpen({ runId: span.runId, origin: span.origin, sessionId: span.sessionId })}
     />
   );
@@ -42,10 +45,13 @@ export function LiveRow({
 
 export function RunRow({
   run,
+  selected,
   onOpen,
   onReport,
 }: {
   run: ActivityRunSummary;
+  /** The run the detail shows (D52 N3). */
+  selected?: boolean;
   onOpen: (row: ActivityRunSummary) => void;
   /** Send bug report, offered only for a failed run (#598). */
   onReport?: (row: ActivityRunSummary) => void;
@@ -65,6 +71,7 @@ export function RunRow({
       cron={run.origin === "cron"}
       outcome={run.outcome}
       meta={meta}
+      selected={selected}
       onOpen={() => onOpen(run)}
     />
   );

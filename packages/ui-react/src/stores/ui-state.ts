@@ -30,6 +30,33 @@ export type ActiveView = "chat" | "graph" | "activity";
 export type DestinationPanel = "sessions" | "files" | "settings";
 
 /**
+ * D52's five destinations, by the view or panel each one is: Chat, Sessions,
+ * Actions (the `activity` view), Files and Settings.
+ */
+export type Destination = "chat" | "activity" | DestinationPanel;
+
+/**
+ * @internal A press of the destination already shown (D52 N3): which one,
+ * and a count that grows by one with every such press, so the mounted
+ * destination can tell a new press from the last one it answered.
+ */
+export interface DestinationPress {
+  destination: Destination;
+  n: number;
+  /**
+   * Pressed by its chord. A modifier chord does not count as keyboard input
+   * for the browser's focus-visible heuristic, so the destination asks for a
+   * visible ring itself: a keyboard press shows it, a tap does not.
+   */
+  keyboard: boolean;
+}
+
+/** @internal How a destination was pressed; see `DestinationPress.keyboard`. */
+export interface DestinationPressHow {
+  keyboard?: boolean;
+}
+
+/**
  * Which views mount each destination panel. Chat mounts all three; Graph
  * mounts its own Files and Settings; Actions mounts only Settings. A panel
  * opened from a view that does not mount it lands in Chat, so the panel is
@@ -92,6 +119,17 @@ export interface UIState {
    * destination that is already open leaves it open.
    */
   openPanel: (panel: DestinationPanel) => void;
+  /**
+   * @internal Press a destination, as the rail, ⌘1–⌘5, the palette's Jump to
+   * and the phone bar do (D52 §2). A destination that is not shown is gone
+   * to: `setActiveView` for Chat and Actions, `openPanel` for the panels.
+   * Pressing the one already shown changes no view, panel, selection, draft
+   * or tracker; it records a `destinationPress` that the mounted destination
+   * answers by scrolling to its start and moving focus (N3).
+   */
+  pressDestination: (destination: Destination, how?: DestinationPressHow) => void;
+  /** @internal The last press of the destination already shown; see `pressDestination`. */
+  destinationPress: DestinationPress | null;
   toggleSessionPanel: () => void;
   toggleSyncPanel: () => void;
   toggleWhatsupPanel: () => void;
@@ -136,6 +174,18 @@ const CLOSED = {
   settingsPanelOpen: false,
 };
 
+/**
+ * Whether `destination` is what the screen shows: a panel that is open over a
+ * view that draws it, or a view with no panel over it. The same reading as
+ * the amber rail row and phone slot.
+ */
+function isShown(s: UIState, destination: Destination): boolean {
+  if (destination === "chat" || destination === "activity") {
+    return s.activeView === destination && (Object.keys(CLOSED) as Array<keyof typeof CLOSED>).every((k) => !s[k]);
+  }
+  return s[PANEL_FLAG[destination]] && PANEL_VIEWS[destination].includes(s.activeView);
+}
+
 export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageKey">) {
   const themeKey = env?.storageKey(THEME_KEY) ?? THEME_KEY;
   const stored = env?.storage()?.getItem(themeKey);
@@ -178,6 +228,16 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
       // nothing is being left.
       if (panel === "settings" && get().settingsPanelOpen) return;
       leaveSettings(change);
+    },
+    destinationPress: null,
+    pressDestination: (destination, how) => {
+      const s = get();
+      if (isShown(s, destination)) {
+        set({ destinationPress: { destination, n: (s.destinationPress?.n ?? 0) + 1, keyboard: how?.keyboard === true } });
+        return;
+      }
+      if (destination === "chat" || destination === "activity") s.setActiveView(destination);
+      else s.openPanel(destination);
     },
     toggleSessionPanel: () =>
       leaveSettings(() => set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen }))),

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef, type RefObject } from "react";
 import { Button, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
@@ -12,6 +12,8 @@ import { cn } from "../../lib/utils.js";
 import { ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP, BESIDE_RAIL_DRAWER } from "../layout/slide-panel.js";
 import { formatSize } from "./file-viewer-frame.js";
 import { DisabledToggleRow } from "../graph/graph-form.js";
+import { useDestinationPress } from "../../hooks/use-destination-press.js";
+import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
 
 /** Matches the `duration-300` slide-out below. */
@@ -74,8 +76,26 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
   const showTree = showContent && (!currentPath || treeExpanded);
 
+  // Pressing Files while it is open (D52 N3): the viewer goes to the top of
+  // the file and the tree box to its top, and focus goes to the open file's
+  // tree row. With the tree hidden it goes to the reading pane's title, and
+  // with no file open to the Files heading; the panes have no title stop.
+  // The tree's own reveal (a smooth, centred scroll) is not asked for.
+  const panelRef = useRef<HTMLElement>(null);
+  useDestinationPress("files", ({ keyboard }) => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    scrollToStart(panel);
+    const el = (sel: string) => panel.querySelector<HTMLElement>(sel);
+    focusFirst([
+      el('[role="treeitem"][aria-selected="true"]'),
+      panes ? null : el("[data-file-title]"),
+      el("[data-files-heading]"),
+    ], keyboard);
+  });
+
   if (panes) {
-    return open ? <FilePanes onClose={onClose} /> : null;
+    return open ? <FilePanes onClose={onClose} panelRef={panelRef} /> : null;
   }
 
   return (
@@ -90,6 +110,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
       {/* Files is a bar and rail destination: on a phone it stops above the
           bar, and from 480 it stops beside the rail. */}
       <div
+        ref={panelRef as RefObject<HTMLDivElement | null>}
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)] md:w-[560px]",
           "max-tablet:h-auto",
@@ -102,7 +123,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-[family-name:var(--font-display)] text-lg text-foreground">
+          <h2 className="font-[family-name:var(--font-display)] text-lg text-foreground" tabIndex={-1} data-destination-heading="" data-files-heading="">
             Files
           </h2>
           <button
@@ -187,7 +208,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
  * rail." So the rail mounts with the panes, empty until a file is open, and
  * a file with no frontmatter shows only the blocks it has.
  */
-function FilePanes({ onClose }: { onClose: () => void }) {
+function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefObject<HTMLElement | null> }) {
   const currentPath = useFileStore((s) => s.currentPath);
   const content = useFileStore((s) => s.currentContent);
   const singleKeyShortcuts = useUIStore((s) => s.singleKeyShortcuts);
@@ -209,6 +230,7 @@ function FilePanes({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      ref={panelRef as RefObject<HTMLDivElement | null>}
       role="dialog"
       aria-label="Files"
       className="fixed bottom-0 right-0 top-0 z-40 flex bg-surface tablet:left-[60px] laptop:left-[208px]"
@@ -216,7 +238,7 @@ function FilePanes({ onClose }: { onClose: () => void }) {
       {/* Tree */}
       <aside className="flex w-[300px] shrink-0 flex-col border-r border-border">
         <div className="shrink-0 px-4 pb-2 pt-4">
-          <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground">Files</h2>
+          <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground" tabIndex={-1} data-destination-heading="" data-files-heading="">Files</h2>
         </div>
         {/* Untrusted only (sixth pass §3b): needs the provenance record —
             origin, who, when — which no file carries yet. Drawn, disabled,

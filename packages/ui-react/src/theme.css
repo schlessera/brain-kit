@@ -673,3 +673,21 @@ a.bk-plink:focus-visible {
   from { transform: translateY(100%); }
   to { transform: none; }
 }
+
+/* D52 N3: the headings a press of the current destination may focus. They
+ * are script-only stops (`tabIndex=-1`), so they draw the kit's 2px ink ring
+ * only when the browser judges focus visible, inset like a full-width row,
+ * in both themes. Unlayered, so it outranks the `outline-none` utility. */
+[data-destination-heading]:focus {
+  outline: none;
+}
+[data-destination-heading]:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
+}
+/* The welcome's kit heading sets `outline: none` inline, so the ring for
+ * its N3 fallback needs the override. */
+[data-welcome] [role="heading"]:focus-visible {
+  outline: 2px solid var(--bk-focus-ring) !important;
+  outline-offset: -2px;
+}

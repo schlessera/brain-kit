@@ -63,7 +63,7 @@ export function SideRail() {
     label: d.label,
     shortcut: finePointer ? d.key : undefined,
     badge: d.label === "Actions" && needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
-    onClick: d.go,
+    onClick: () => d.go(),
   }));
 
   // The palette's own routes, so availability and cost cannot drift: Search
@@ -86,7 +86,7 @@ export function SideRail() {
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > items.length) return;
       e.preventDefault();
-      items[n - 1]!.onClick?.();
+      routes.destinations[n - 1]!.go({ keyboard: true });
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

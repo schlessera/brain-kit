@@ -87,7 +87,7 @@ export function QueueView({
         <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md px-1.5 text-muted-foreground hover:text-foreground" aria-label="Back to Actions">
           ‹
         </button>
-        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-queue-heading="">Queue</h1>
+        <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-queue-heading="" data-destination-heading="">Queue</h1>
         <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">{total} items</span>
       </div>
       <div className="flex flex-col gap-4 p-4">
@@ -131,7 +131,7 @@ export function QueueItemReceipt({ item, onBack }: { item: InboxQueueItem; onBac
         <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md px-1.5 text-muted-foreground hover:text-foreground laptop:hidden" aria-label="Back to Queue">
           ‹
         </button>
-        <h1 className="min-w-0 flex-1 break-words text-sm font-medium">{queueSubject(item)}</h1>
+        <h1 className="min-w-0 flex-1 break-words text-sm font-medium" tabIndex={-1} data-destination-heading="">{queueSubject(item)}</h1>
       </div>
       <div className="p-4">
         <Receipt

@@ -25,6 +25,8 @@ export interface LiveRunCardProps {
   current: string | null;
   elapsed: string;
   tools: AgentRunTool[];
+  /** The run the detail shows: announced as the current one (D52 N3). */
+  selected?: boolean;
   onOpen: () => void;
 }
 
@@ -39,6 +41,7 @@ export function LiveRunCard(p: LiveRunCardProps) {
       type="button"
       onClick={p.onOpen}
       aria-label={`Open run ${p.name}`}
+      aria-current={p.selected ? true : undefined}
       className="block w-full rounded-[13px] text-left transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]"
     >
       <AgentRunCard
@@ -60,6 +63,8 @@ export interface HistoryRowProps {
   outcome: ActivitySpanOutcome | null;
   /** Cost, duration and when — already formatted, joined with a middle dot. */
   meta: string;
+  /** The run the detail shows: announced as the current one (D52 N3). */
+  selected?: boolean;
   onOpen: () => void;
 }
 
@@ -75,6 +80,7 @@ export function HistoryRow(p: HistoryRowProps) {
       subMono
       value={p.meta}
       valueTone={failed ? "red" : "neutral"}
+      selected={p.selected}
       onClick={p.onOpen}
     />
   );

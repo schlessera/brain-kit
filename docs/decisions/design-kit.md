@@ -4731,6 +4731,11 @@ transcript. There is no disc and no tracker pill row.
 - **N3 · Pressing the current destination** scrolls it to its start and
   moves focus: in Sessions to the first Working row, otherwise to the
   selected row. It never clears a selection, a draft or a tracker.
+
+  > **2026-10-06 — Amended for Chat ([N3 addendum](#d52-addendum--what-n3-means-for-each-destination-maintainer-2026-10-06)).**
+  > Chat's start is its latest turn, and on a phone focus stays on the Chat
+  > tab unless a card is waiting. The addendum also says what "start" and
+  > "the selected row" are for every destination and width.
 - **N4 · The adopted exceptions stand** (above).
 - **N5 · No New chat rail row at ≥1280:** an act takes no destination slot,
   and the pane has its one primary action.
@@ -4930,7 +4935,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:172-176`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:174-178`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5164,12 +5169,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:422-430`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:453-461`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:354-361`)
+  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:385-392`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
@@ -5407,3 +5412,61 @@ clicks and taps and no forced clicks:
    short viewports and reduced motion covered.
 
 A restored mutation of each guard must fail on the assertion named for it.
+
+### D52 addendum — what N3 means for each destination (maintainer, 2026-10-06)
+
+**Sources.** The [design brief](https://github.com/schlessera/brain-kit/issues/1078#issuecomment-6015609270)
+on #1078, with two maintainer rulings made during that design pass:
+**Chat's start is its latest turn**, and **on a phone, focus stays on the
+Chat tab** unless an approval, a question or an error card is waiting, so the
+soft keyboard does not open (as §4's tracker rule sends phone focus nowhere).
+
+**N3 as amended.** Pressing the current destination scrolls it to its start
+and moves focus: in Sessions to the first Working row, otherwise to the
+selected row, or to the destination's heading when nothing is selected. In
+Chat, the start is the latest turn: the press does what `Scroll to latest`
+does. Focus goes to a waiting card's first control, then a failed turn's
+primary action, then the composer; on a phone, focus stays on the Chat tab.
+Every scroll is instant. At ≥1280 Sessions is a pane, not the current
+destination, and keeps the 1280 row. It never clears a selection, a draft, a
+tracker, an open detail or an open file.
+
+**One algorithm.** *Reset*: every scroll container the destination owns goes
+to its start, the top except Chat's transcript, and nothing closes. *Resolve*:
+the first target in the table below that is drawn. *Reveal*:
+`focus({ preventScroll: true })`, then `scrollIntoView({ block: "nearest" })`,
+so a target already at the start moves nothing. A press by chord asks for a
+visible ring (`focusVisible`), because Chromium does not count a modifier
+chord as keyboard input for `:focus-visible`; a tap shows none.
+
+| Destination | Width | Reset | Focus, first match |
+| --- | --- | --- | --- |
+| Chat, occupied | phone | transcript → latest turn, same window | waiting approval or question → its first control · the latest turn's failure → its primary action · else stays on the Chat tab |
+| | 480 up | same | same, then the composer, caret at the end |
+| Chat, empty | phone | welcome → top | a waiting card · else stays on the tab |
+| | 480 up | welcome → top | the composer, caret at the end · the welcome heading if it cannot take focus |
+| Sessions | every width until #950 | drawer body and list → top | the reattachable running session (the Working row until #950's group exists) · the session in view (`aria-current`) · the first row · the "Sessions" heading |
+| Actions, list | below 900 | list → top | the "Actions" heading |
+| Actions, detail open | below 900 | detail → top; it stays open | the detail's heading · the "Actions" heading |
+| Actions | 900 up | list, detail and evidence rail → top | the selected row (run rows carry `aria-current`) · the "Actions" heading |
+| Files | below 900 | viewer and tree box → top | the open file's tree row, when the tree is shown · the reading pane's title · the "Files" heading |
+| | 900 up | reading pane, tree and evidence rail → top | the open file's tree row · the "Files" heading |
+| Settings | every width | drawer body, or the pane's section scroller → top | the selected section tab |
+
+Headings are script-only stops (`tabIndex=-1`) that Tab never reaches; they
+draw the kit's 2px ink ring at −2 on `:focus-visible`. The press changes no
+view, panel, Settings section, session, run selection, file, tree visibility
+or draft, so the Settings leave guard has nothing to ask. A Chat press can
+bring the latest turn into view and let §4's seen observer clear that
+session's tracker: proof the turn was seen, not a clear performed by the
+press. D36 is unchanged: no key is added, and focusing a list row or a card
+makes its own keys live as a Tab to it would.
+
+**Where it lives.** The store records a press of the destination already
+shown, with no DOM (`pressDestination`,
+`packages/ui-react/src/stores/ui-state.ts:233-241`). The mounted destination
+answers it (`useDestinationPress`,
+`packages/ui-react/src/hooks/use-destination-press.ts:15-25`) with the shared
+reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:36-47`).
+The cells are `packages/ui-react/tests/browser/destination-press.pointer.tsx`,
+run in the kit's `rail-fine`, `rail-coarse` and `rail-mixed` projects.

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type ReactNode, type Ref } from "react";
 import { X } from "lucide-react";
 import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { cn } from "../../lib/utils.js";
@@ -55,6 +55,7 @@ export function SlidePanel({
   mode = "drawer",
   closedBy = "any",
   destination = false,
+  panelRef,
   children,
 }: {
   open: boolean;
@@ -69,6 +70,12 @@ export function SlidePanel({
    * Sync) keeps covering them.
    */
   destination?: boolean;
+  /**
+   * The panel itself (the drawer, or the pane's section), for a destination
+   * that answers a press of itself (D52 N3): its scroll containers reset,
+   * and a drawer's heading is the last focus stop.
+   */
+  panelRef?: Ref<HTMLElement>;
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -92,6 +99,7 @@ export function SlidePanel({
     if (!open) return null;
     return (
       <section
+        ref={panelRef}
         aria-label={title}
         className="fixed top-0 bottom-0 right-0 tablet:left-[60px] laptop:left-[208px] z-40 flex flex-col overflow-hidden bg-surface"
       >
@@ -112,6 +120,7 @@ export function SlidePanel({
 
       {/* Panel */}
       <div
+        ref={panelRef as Ref<HTMLDivElement> | undefined}
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)]",
           destination && ["max-tablet:h-auto", ABOVE_PHONE_BAR, BESIDE_RAIL_DRAWER],
@@ -125,7 +134,12 @@ export function SlidePanel({
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-[family-name:var(--font-display)] text-lg text-foreground">
+          {/* A destination's heading is its last focus stop for a press of
+              itself (D52 N3): script focuses it, Tab never lands on it. */}
+          <h2
+            className="font-[family-name:var(--font-display)] text-lg text-foreground"
+            {...(destination ? { tabIndex: -1, "data-destination-heading": "" } : {})}
+          >
             {title}
           </h2>
           <button

@@ -43,7 +43,9 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
         <FolderOpen className="h-3.5 w-3.5" />
       </button>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground" title={p.fullPath}>
+        {/* The reading pane's title: where a press of Files puts focus while
+            the drawer's tree is hidden (D52 N3). A script-only stop. */}
+        <div className="truncate text-sm font-medium text-foreground" title={p.fullPath} tabIndex={-1} data-destination-heading="" data-file-title="">
           {p.fileName}
         </div>
         <div className="truncate text-[10px] text-muted-foreground" title={p.fullPath}>

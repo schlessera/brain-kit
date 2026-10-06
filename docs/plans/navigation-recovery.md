@@ -353,7 +353,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Palette opening: [`function onKey(e: KeyboardEvent) {`](https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L52-L59), before #946 moved the open state into the root's UI store.
 
-- Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:98-171`).
+- Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:101-174`).
 
 - Command availability/effects: (`export function useChatCommands(): (command: string) => void {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:18-56`).
 
@@ -361,9 +361,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:260-273`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:262-275`).
 
-- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:354-361`).
+- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:385-392`).
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:619-635`).
 
@@ -371,9 +371,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1371-1380`).
 
-- Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:53-66`).
+- Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:62-85`).
 
-- Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:142-157`).
+- Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:161-176`).
 
 - Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:55-66`).
 
@@ -381,7 +381,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:403-413`).
 
-- Single background drawer row: (`const backgroundSessionId =`, `packages/ui-react/src/components/chat/session-drawer.tsx:57-59`).
+- Single background drawer row: (`const backgroundSessionId =`, `packages/ui-react/src/components/chat/session-drawer.tsx:59-61`).
 
 - Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:125-191`).
 
