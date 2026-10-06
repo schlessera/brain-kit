@@ -239,7 +239,7 @@ export {
   type PaletteGroup,
   type PaletteItem,
 } from "./desktop/CommandPalette.js";
-export { SideRail, type RailItem, type SideRailProps } from "./desktop/SideRail.js";
+export { SideRail, type RailAct, type RailItem, type SideRailProps } from "./desktop/SideRail.js";
 export { AskUserRankCard } from "./decisions/AskUserRankCard.js";
 export type { AskUserRankCardProps, AskUserRankSubmission } from "./decisions/AskUserRankCard.js";
 

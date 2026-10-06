@@ -1370,12 +1370,14 @@
  * Gated on a handler, like every other rule in this file: a row with no
  * `onClick` carries no class, so it gets no hover, no ring and no tab stop. */
 
-/* Rail destinations scroll within short viewports. Hiding the scrollbar keeps
- * the collapsed column's full hit width; native panning and roving focus still
- * scroll the list. Ordinary mouse geometry stays at its 36px default. */
+/* The rail's middle — destinations, divider, acts — scrolls within short
+ * viewports while the wordmark and the All commands footer stay pinned (D52
+ * §8). Hiding the scrollbar keeps the collapsed column's full hit width;
+ * native panning and roving focus still scroll the middle. Ordinary mouse
+ * geometry stays at its 36px default for destinations, acts and the button. */
 .bk-side-rail[data-expanded="false"] { padding-inline: 8px; }
-.bk-side-rail [role="tab"] { min-height: 36px; }
-.bk-side-rail > [role="tablist"] {
+.bk-side-rail [role="tab"], .bk-side-rail-act, .bk-side-rail-palette { min-height: 36px; }
+.bk-side-rail > .bk-side-rail-middle {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
@@ -1384,14 +1386,18 @@
   padding-bottom: 1px;
 }
 @media (any-pointer: coarse) {
-  .bk-side-rail [role="tab"] { min-height: 44px; }
+  .bk-side-rail [role="tab"], .bk-side-rail-act, .bk-side-rail-palette { min-height: 44px; }
   /* 60px includes a 1px border: 7.5px insets leave a real 44px row. */
   .bk-side-rail[data-expanded="false"] { padding-inline: 7.5px; }
-  .bk-side-rail [role="tab"] { position: relative; }
+  .bk-side-rail [role="tab"], .bk-side-rail-act, .bk-side-rail-palette { position: relative; }
   /* The round paint otherwise cuts the inset-corner hit tests out of the box.
    * Transparent rectangular reach stays inside the row, with the 3px gap
-   * untouched, so adjacent destinations cannot steal each other's targets. */
-  .bk-side-rail [role="tab"]::before { content: ""; position: absolute; inset: 0; }
+   * untouched, so adjacent rows cannot steal each other's targets. */
+  .bk-side-rail [role="tab"]::before, .bk-side-rail-act::before, .bk-side-rail-palette::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
 }
 
 .bk-row:hover {

@@ -188,7 +188,9 @@ small controls and separate inset hover hairline.
 **Roving groups take the arrows, `Home` and `End`.** `FilterRow`, `TabBar`,
 `SideRail`, `CommandPalette`, a `ChoiceOption` radiogroup and a stack of
 `FileRow`s are one tab stop each; the arrows move inside, `Home` / `End` reach
-the edges. Single-letter shortcuts (`a` / `d` / `s`, `j` / `k`) are the app's
+the edges. A `SideRail` given `acts` adds a second group, a vertical `Acts`
+toolbar with its own stop, and `onOpenPalette` adds the `All commands` button
+as a third; the arrows never cross from one group into another. Single-letter shortcuts (`a` / `d` / `s`, `j` / `k`) are the app's
 and are focus-scoped there; the kit only prints them on the controls.
 
 **Hit targets are not visual size.** Small controls stay small and extend their
@@ -209,11 +211,12 @@ below the text, clearing **44px**. Their `HitTargets` and `UndoHitTarget` storie
 assert the reach and zero border widths, preserving the correction alongside
 the history in `docs/decisions/design-feedback.md`.
 
-`SideRail` destinations keep their 36px mouse density. When any available
-pointer is coarse, their rectangular targets are at least 44×44, including
-the corners of the rounded paint. The collapsed 60px rail accounts for its
-1px border in its insets. The destination list scrolls within short rails;
-targets retain the 3px separation and one manual-activation tab stop. Dedicated
+`SideRail` destinations, acts and the `All commands` button keep their 36px
+mouse density. When any available pointer is coarse, their rectangular targets
+are at least 44×44, including the corners of the rounded paint. The collapsed
+60px rail accounts for its 1px border in its insets. The rail's middle (the
+destinations through the acts) scrolls within short rails while the wordmark
+and `All commands` stay pinned; targets retain the 3px separation. Dedicated
 Chromium cases cover fine-only, coarse-only and mixed pointers in both themes.
 
 `TabBar` uses the design's other sanctioned method — padding cancelled by an

@@ -103,6 +103,7 @@ import * as rankedQuestion from "../../stories/decisions/AskUserRankCard.stories
 import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
+import * as sideRail from "../../stories/desktop/SideRail.stories.js";
 import * as meter from "../../stories/primitives/Meter.stories.js";
 import * as actionsTriage from "../../stories/screens/ActionsTriage.stories.js";
 import * as chatAnswer from "../../stories/screens/ChatAnswer.stories.js";
@@ -382,6 +383,24 @@ test("dense: agent run card", async () => {
 test("dense: approval card", async () => {
   await looksRight(approvalCard.Default, "dense-approval-card");
 });
+
+/* ── The rail with its acts (#944) ─────────────────────────────────────────── */
+// D52 §1: the divider, the acts' geometry, a `spends` chip and a reason line
+// printed at rest, and All commands in place of the passive cap — expanded
+// and collapsed, on both grounds.
+
+for (const light of [false, true]) {
+  test(`dense: side rail acts, expanded${light ? ", on paper" : ""}`, async () => {
+    await inViewport(900, 600, () => light
+      ? looksRightOnPaper(sideRail.ActsAtRest, "dense-side-rail-acts")
+      : looksRight(sideRail.ActsAtRest, "dense-side-rail-acts"));
+  });
+  test(`dense: side rail acts, collapsed${light ? ", on paper" : ""}`, async () => {
+    await inViewport(480, 600, () => light
+      ? looksRightOnPaper(sideRail.CollapsedActsAtRest, "dense-side-rail-acts-collapsed")
+      : looksRight(sideRail.CollapsedActsAtRest, "dense-side-rail-acts-collapsed"));
+  });
+}
 
 /* ── The list question ────────────────────────────────────────────────────── */
 // #583's acceptance criterion is a baseline: thirty items at 320px, with the

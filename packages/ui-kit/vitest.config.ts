@@ -63,7 +63,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, formViewport },
+      commands: { rankTouch, formViewport, buttonPointer },
       provider: playwright({
         launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },

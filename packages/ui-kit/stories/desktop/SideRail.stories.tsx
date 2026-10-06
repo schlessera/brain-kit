@@ -6,7 +6,7 @@ import { queueItems } from "../../fixtures/actions.js";
 import { QueueItemRow } from "../../src/rows/QueueItemRow.js";
 import { ScreenBody } from "../../src/chrome/ScreenBody.js";
 import { ScreenHeader } from "../../src/chrome/ScreenHeader.js";
-import { SideRail, type RailItem } from "../../src/desktop/SideRail.js";
+import { SideRail, type RailAct, type RailItem } from "../../src/desktop/SideRail.js";
 import { overflowing, stage } from "../_stage.js";
 
 const ITEMS: RailItem[] = [
@@ -251,4 +251,255 @@ export const NoSpendNoPalette = Expanded.extend({
     await expect(canvasElement.textContent).not.toContain("⌘K");
     await expect(canvasElement.textContent).toContain("offline");
   },
+});
+
+/* ── Acts and All commands (D52 §1, #944) ─────────────────────────────────── */
+
+const ACTS: RailAct[] = [
+  { icon: "search", label: "Search", name: "Search the brain" },
+  { icon: "add", label: "Add a note" },
+  { icon: "digest", label: "Daily briefing", cost: "spends" },
+];
+
+const wiredActs = (why?: string): RailAct[] =>
+  ACTS.map((it) => ({ ...it, onClick: fn(), ...(it.cost && why ? { why } : {}) }));
+
+const NAMES = ["Search the brain", "Add a note", "Daily briefing, spends"];
+
+/**
+ * Under the destinations, past a divider: Search, Add a note and the briefing,
+ * in that order. The briefing prints `spends` at rest, in the shortcut column,
+ * because spending money is an effect even when nothing is written (D38 §5).
+ * The ⌘K cap is now the `All commands` button.
+ */
+export const WithActs = Expanded.extend({
+  args: { acts: wiredActs(), onOpenPalette: fn() },
+  play: async ({ canvas, args, userEvent }) => {
+    const toolbar = await canvas.findByRole("toolbar", { name: "Acts" });
+    await expect(toolbar).toHaveAttribute("aria-orientation", "vertical");
+    const acts = [...toolbar.querySelectorAll("button")];
+    await expect(acts.map((b) => b.getAttribute("aria-label"))).toEqual(NAMES);
+    await expect(acts[2]).toHaveTextContent("spends");
+    // An act is never "here": nothing in the toolbar claims selection.
+    for (const act of acts) await expect(act).not.toHaveAttribute("aria-selected");
+
+    const all = await canvas.findByRole("button", { name: "All commands" });
+    await expect(all).toHaveAttribute("aria-keyshortcuts", "Meta+K");
+    await expect(all).toHaveTextContent("⌘K");
+    await userEvent.click(all);
+    await expect(args.onOpenPalette).toHaveBeenCalledTimes(1);
+    await userEvent.click(acts[1]!);
+    await expect(args.acts?.[1]?.onClick).toHaveBeenCalledTimes(1);
+    await expect(args.items?.[1]?.onClick).not.toHaveBeenCalled();
+  },
+});
+
+/**
+ * 60px. Search and Add are icons with their names and no tooltip; the
+ * briefing is not drawn, because a 44px column cannot print `spends` (V6).
+ * All commands reaches it in two activations (D52 §2).
+ */
+export const CollapsedWithActs = WithActs.extend({
+  args: { expanded: false },
+  play: async ({ canvas, canvasElement }) => {
+    const toolbar = await canvas.findByRole("toolbar", { name: "Acts" });
+    const acts = [...toolbar.querySelectorAll("button")];
+    await expect(acts.map((b) => b.getAttribute("aria-label"))).toEqual(NAMES.slice(0, 2));
+    await expect(canvasElement.textContent).not.toContain("spends");
+    await expect(canvasElement.querySelector("[title]")).toBeNull();
+    const all = await canvas.findByRole("button", { name: "All commands" });
+    await expect(all).toHaveTextContent("⌘K");
+  },
+});
+
+/**
+ * THREE STOPS, NOT NINE. The destinations are one roving stop, the acts are a
+ * second, independent one, and All commands is the third. Tab leaves after.
+ */
+export const ThreeTabStops = WithActs.extend({
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const tabs = await canvas.findAllByRole("tab");
+    const acts = [...(await canvas.findByRole("toolbar", { name: "Acts" })).querySelectorAll("button")];
+    const all = await canvas.findByRole("button", { name: "All commands" });
+    await expect(canvasElement.querySelectorAll('[tabindex="0"]')).toHaveLength(2);
+
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(tabs[1]);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(acts[0]);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(all);
+    await userEvent.tab();
+    await expect(canvasElement.contains(document.activeElement)).toBe(false);
+  },
+});
+
+/**
+ * ↑↓ / Home / End walk the acts and wrap inside the toolbar; they never cross
+ * the divider into the destinations. Arrows move and do not invoke; ⏎ and
+ * space each invoke exactly once.
+ */
+export const ActArrowsStayInTheToolbar = WithActs.extend({
+  play: async ({ canvas, args, userEvent }) => {
+    const acts = [...(await canvas.findByRole("toolbar", { name: "Acts" })).querySelectorAll("button")];
+    acts[0]!.focus();
+    await userEvent.keyboard("{ArrowUp}");
+    await expect(document.activeElement).toBe(acts[2]);
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(document.activeElement).toBe(acts[0]);
+    await userEvent.keyboard("{End}");
+    await expect(document.activeElement).toBe(acts[2]);
+    await userEvent.keyboard("{Home}");
+    await expect(document.activeElement).toBe(acts[0]);
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(acts[1]).toHaveAttribute("tabindex", "0");
+    for (const it of args.acts ?? []) await expect(it.onClick).not.toHaveBeenCalled();
+    for (const it of args.items ?? []) await expect(it.onClick).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Enter}");
+    await expect(args.acts?.[1]?.onClick).toHaveBeenCalledTimes(1);
+    await userEvent.keyboard(" ");
+    await expect(args.acts?.[1]?.onClick).toHaveBeenCalledTimes(2);
+  },
+});
+
+/**
+ * The host is gone. The briefing stays, its name dimmed, with `spends` and the
+ * reason printed at rest on a second line, never only on hover. It is still a
+ * stop in the toolbar, so the reason can be read, and nothing invokes it.
+ */
+export const OfflineBriefing = WithActs.extend({
+  args: { acts: wiredActs("needs the host"), status: "offline", statusTone: "red" },
+  play: async ({ canvas, args, userEvent }) => {
+    const briefing = await canvas.findByRole("button", { name: "Daily briefing, spends, unavailable: needs the host" });
+    await expect(briefing).toHaveAttribute("aria-disabled", "true");
+    await expect(briefing).toHaveTextContent("spends");
+    await expect(briefing).toHaveTextContent("needs the host");
+    await userEvent.click(briefing);
+    briefing.focus();
+    await userEvent.keyboard("{Enter} ");
+    await expect(args.acts?.[2]?.onClick).not.toHaveBeenCalled();
+    await expect(document.activeElement).toBe(briefing);
+  },
+});
+
+/** A turn is running, so the briefing waits, and says so. */
+export const StreamingBriefing = WithActs.extend({
+  args: { acts: wiredActs("a turn is running") },
+  play: async ({ canvas }) => {
+    const briefing = await canvas.findByRole("button", { name: "Daily briefing, spends, unavailable: a turn is running" });
+    await expect(briefing).toHaveTextContent("a turn is running");
+  },
+});
+
+/** Collapsed, an act that would have to carry a reason is not drawn at all. */
+export const CollapsedOffline = OfflineBriefing.extend({
+  args: { expanded: false },
+  play: async ({ canvas, canvasElement }) => {
+    const acts = [...(await canvas.findByRole("toolbar", { name: "Acts" })).querySelectorAll("button")];
+    await expect(acts).toHaveLength(2);
+    await expect(canvasElement.textContent).not.toContain("needs the host");
+  },
+});
+
+/**
+ * A phone-sized tablet in landscape is about 360px tall. The middle — the
+ * destinations through the acts — scrolls; the wordmark and All commands stay
+ * pinned inside the rail.
+ */
+export const ShortViewport = WithActs.extend({
+  render: (args) => (
+    <div style={{ display: "flex", height: 360, width: "100%" }}>
+      <SideRail {...args} />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    const rail = canvasElement.querySelector<HTMLElement>(".bk-side-rail")!;
+    const middle = rail.querySelector<HTMLElement>(".bk-side-rail-middle")!;
+    const all = await canvas.findByRole("button", { name: "All commands" });
+    const box = rail.getBoundingClientRect();
+    await expect(box.height).toBe(360);
+    await expect(middle.scrollHeight).toBeGreaterThan(middle.clientHeight);
+    await expect(all.getBoundingClientRect().bottom).toBeLessThanOrEqual(box.bottom);
+    await expect(canvas.getByText("Brain").getBoundingClientRect().top).toBeGreaterThanOrEqual(box.top);
+  },
+});
+
+/** The ring is the kit's inside -2 ring, on an act and on All commands. */
+export const FocusShown = WithActs.extend({
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.tab();
+    await userEvent.tab();
+    const act = document.activeElement as HTMLElement;
+    await expect(act).toHaveAccessibleName("Search the brain");
+    await expect(getComputedStyle(act).outlineOffset).toBe("-2px");
+    await userEvent.tab();
+    const all = await canvas.findByRole("button", { name: "All commands" });
+    await expect(document.activeElement).toBe(all);
+    await expect(getComputedStyle(all).outlineOffset).toBe("-2px");
+  },
+});
+
+/** Long labels wrap inside the 208px column; nothing leaves the rail. */
+export const LongActLabels = WithActs.extend({
+  args: {
+    acts: [
+      { icon: "search", label: "Search everything Penelope wove and unwove", name: "Search the brain", onClick: fn() },
+      { icon: "add", label: "Add a note for the crew of the black ship", onClick: fn() },
+      { icon: "digest", label: "Daily briefing from the harbour at Ithaca", cost: "spends", why: "needs the host", onClick: fn() },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const rail = canvasElement.querySelector<HTMLElement>(".bk-side-rail")!;
+    await expect(rail.getBoundingClientRect().width).toBe(208);
+    await expect(overflowing(rail)).toEqual([]);
+  },
+});
+
+/**
+ * THE CONTRACT, for acts too. Without handlers there is no toolbar and no
+ * stop; without `onOpenPalette` the ⌘K cap is the old picture, not a button.
+ */
+export const StaticActs = meta.story({
+  args: { items: ITEMS, acts: ACTS },
+  // A picture does not scroll (nothing in it could reach a scrolled-off row),
+  // so it is given the height it needs.
+  render: (args) => (
+    <div style={{ display: "flex", height: 540, width: "100%" }}>
+      <SideRail {...args} />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvasElement.querySelector(".bk-side-rail-middle")).toBeNull();
+    await expect(canvas.queryByRole("toolbar")).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
+    await expect(canvasElement.querySelector(".bk-row")).toBeNull();
+    await expect(canvasElement.textContent).toContain("Search");
+    await expect(canvasElement.textContent).toContain("⌘K");
+  },
+});
+
+/**
+ * The pictures the visual baselines read (`tests/visual/subjects.visual.tsx`):
+ * tall enough that nothing scrolls, and no play function, so no hover or
+ * focus is left on screen. Expanded carries the offline briefing, the one
+ * row with a chip and a reason line.
+ */
+const tall = (args: Parameters<typeof SideRail>[0]) => (
+  <div style={{ display: "flex", height: 560, width: "100%" }}>
+    <SideRail {...args} />
+  </div>
+);
+
+export const ActsAtRest = meta.story({
+  args: { items: wired(), acts: wiredActs("needs the host"), onOpenPalette: fn() },
+  render: tall,
+});
+
+export const CollapsedActsAtRest = ActsAtRest.extend({ args: { expanded: false } });
+
+/** Two panes at 900: the rail with acts takes its 208, and the screen the rest. */
+export const TwoPaneWithActs = TwoPaneDoesNotOverflow.extend({
+  args: { acts: wiredActs(), onOpenPalette: fn() },
 });
