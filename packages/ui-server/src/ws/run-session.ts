@@ -598,8 +598,12 @@ function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Apply the same queue budgets during routing and during a running turn. */
-function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp): void {
+/**
+ * Apply the same queue budgets during routing and during a running turn.
+ * `front` puts the entry ahead of everything queued: a refused live
+ * follow-up was sent before any of it (#1063).
+ */
+function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp, position: "back" | "front" = "back"): void {
   const parked = queuedBytes(slot);
   const incoming = queuedFollowUpBytes(entry);
   // A single message can never exceed the budget on its own: the frame cap
@@ -641,7 +645,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   if (revision !== undefined) entry.revision = revision;
   entry.followUpId = crypto.randomUUID();
   entry.queuedAt = Date.now();
-  slot.queue.push(entry);
+  if (position === "front") slot.queue.unshift(entry);
+  else slot.queue.push(entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
   // the wall — every queued byte is held in this process until its turn runs.
@@ -808,8 +813,10 @@ export async function handleChatMessage(
           const slot = err instanceof BackendRequestError
             ? (coordinator.startingBySession.get(sessionId) ?? coordinator.bySession.get(sessionId))
             : undefined;
+          // The slot's queue was empty when this was handed over, so anything
+          // in it now was sent later: this one goes ahead of it.
           if (slot && !slot.cancelled) {
-            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
+            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } }, "front");
             return;
           }
           const message = err instanceof Error ? err.message : String(err);

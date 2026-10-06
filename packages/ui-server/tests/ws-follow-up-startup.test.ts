@@ -27,7 +27,9 @@ import {
  * does: a follow-up for a session with no live turn rejects with the
  * contract's `BackendRequestError`.
  */
-function runnerLikeBackend(options: { refuseEveryFollowUp?: boolean } = {}) {
+function runnerLikeBackend(options: { refuseEveryFollowUp?: boolean; settleLater?: boolean } = {}) {
+  /** With `settleLater`, each follow-up's answer waits for the test. */
+  const pendingRefusals: Array<() => void> = [];
   const live = new Map<string, { finish: () => void }>();
   const prompts: Array<{ sessionId: string | undefined; prompt: string }> = [];
   const followUps: FollowUpRequest[] = [];
@@ -62,6 +64,7 @@ function runnerLikeBackend(options: { refuseEveryFollowUp?: boolean } = {}) {
     },
     async followUp(req) {
       attempts.push(req);
+      if (options.settleLater) await new Promise<void>((resolve) => pendingRefusals.push(resolve));
       if (options.refuseEveryFollowUp || !live.has(req.sessionId)) {
         throw new BackendRequestError(`No running turn for session ${req.sessionId} to deliver a follow-up to.`);
       }
@@ -70,7 +73,7 @@ function runnerLikeBackend(options: { refuseEveryFollowUp?: boolean } = {}) {
     async listSessions() { return []; },
     async getHistory() { return []; },
   };
-  return { backend, live, prompts, followUps, attempts };
+  return { backend, live, prompts, followUps, attempts, pendingRefusals };
 }
 
 /** Hold every `failureReplay.begin` until released: the last await before startTurn. */
@@ -246,6 +249,31 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
       .query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id = ?")
       .get("s-ithaca") as { n: number };
     expect(sources.n).toBe(2);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
+  test("a refused follow-up still runs ahead of messages queued after it", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws, sent } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail for Scylla", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Hug the cliff", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 1);
+    // Sent while the first follow-up is still being delivered; it queues.
+    await handleClientMessage(ws, { type: "chat_message", text: "Then row hard", sessionId: "s-ithaca", thinkingLevel: "low" });
+    expect(queued(sent, "s-ithaca")).toHaveLength(1);
+    fake.pendingRefusals.shift()!();
+    await waitFor(() => queued(sent, "s-ithaca").length === 2);
+    expect(errors(sent)).toEqual([]);
+
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 2);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 3);
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail for Scylla", "Hug the cliff", "Then row hard"]);
     fake.live.get("s-ithaca")!.finish();
     await waitFor(() => !isTurnActive());
   });
