@@ -65,6 +65,8 @@ export interface StartedFollowUp {
   files?: SharedFileMeta[];
   /** Shared files the host counted; their metadata comes from the sender or history. */
   fileCount?: number;
+  /** `text` is the host's shortened report of a longer message; history has it whole. */
+  textTruncated?: boolean;
   thinkingLevel?: ThinkingLevel;
 }
 
@@ -201,6 +203,7 @@ export function createFollowUpStore() {
           ...(mine?.attachments?.length ? { attachments: mine.attachments } : {}),
           ...(started.attachmentCount ? { attachmentCount: started.attachmentCount } : {}),
           ...(started.fileCount ? { fileCount: started.fileCount } : {}),
+          ...(!mine && started.textTruncated ? { textTruncated: true } : {}),
           ...(mine?.files?.length ? { files: mine.files } : {}),
           ...(mine?.thinkingLevel !== undefined ? { thinkingLevel: mine.thinkingLevel } : {}),
         };

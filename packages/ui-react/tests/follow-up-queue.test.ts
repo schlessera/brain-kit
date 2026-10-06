@@ -204,3 +204,18 @@ test("another client's follow-up with files is read again from history once its 
   expect(resumes()).toEqual([{ type: "session_resume", sessionId: S }]);
   expect(root.stores.followUp.getState().pending[S]).toBeUndefined();
 });
+
+test("each session whose started follow-up arrived incomplete reads its own history again", () => {
+  const { root, socket } = busy();
+  const S2 = "sess-scheria";
+  socket.deliver({ type: "session_history", sessionId: S2, messages: [{ role: "user", content: "Plan the feast at Scheria", toolCalls: [] }] });
+  const resumes = () => socket.sent.map((raw) => JSON.parse(raw)).filter((f) => f.type === "session_resume").map((f) => f.sessionId);
+  const files = { id: "fu-log", requestId: "req-log", text: "", fileCount: 1, queuedAt: 3 };
+  const long = { id: "fu-song", requestId: "req-song", text: "Sing of the raft\n…[190000 chars elided]", textTruncated: true, queuedAt: 4 };
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], started: { ...files, turnId: "turn-2" } });
+  socket.deliver({ type: "session_queue", sessionId: S2, followUps: [], started: { ...long, turnId: "turn-9" } });
+  expect(root.stores.chat.getState().buffers[S2]!.messages.at(-2)!.content).toBe(long.text);
+  socket.deliver({ type: "result", sessionId: S2, turnId: "turn-9", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  expect(resumes()).toEqual([S2, S]);
+});

@@ -943,6 +943,7 @@ signatures (every public export and the types it is made of)
         attachmentCount?: number;
         files?: SharedFileMeta[];
         fileCount?: number;
+        textTruncated?: boolean;
         thinkingLevel?: ThinkingLevel;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)

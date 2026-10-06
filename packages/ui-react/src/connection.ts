@@ -243,8 +243,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
     chat.startAssistantMessage(started.sessionId, started.turnId, started.requestId);
     // Another client's message: the report counts its files but cannot carry
-    // what they are. History can, so it is read again once this turn ends.
-    if (started.fileCount && !started.files?.length && resyncSessionId === null) resyncSessionId = started.sessionId;
+    // what they are, and may carry only the head of a long text. History has
+    // both, so this session's is read again once this turn ends.
+    if ((started.fileCount && !started.files?.length) || started.textTruncated) followUpRefresh.add(started.sessionId);
   }
 
   /**
@@ -509,6 +510,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   // reconnect), so a background session settling first cannot consume it.
   let wasDisconnected = false;
   let resyncSessionId: string | null = null;
+  /** Sessions whose started follow-up needs history to be whole (#1002). */
+  const followUpRefresh = new Set<string>();
 
   function handleSocketClose(close: WebSocketClose): void {
     const connection = root.stores.connection.getState();
@@ -522,6 +525,11 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   function resyncIfNeeded(sessionId: string | null) {
+    if (sessionId && followUpRefresh.delete(sessionId)) {
+      if (resyncSessionId === sessionId) resyncSessionId = null;
+      wsClient?.send({ type: "session_resume", sessionId });
+      return;
+    }
     if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
     resyncSessionId = null;
     wsClient?.send({ type: "session_resume", sessionId });
