@@ -17,6 +17,7 @@ function fakeHost() {
   const calls: string[] = [];
   let down = false;
   let full = false;
+  let losePut = false;
   let maxText = Infinity;
   let getHold: Promise<void> | null = null;
   let slow: Promise<void> | null = null;
@@ -65,10 +66,14 @@ function fakeHost() {
       if (row && ifMatch !== row.revision) return conflict(row);
       if (!row && ifMatch !== 0) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
       const revision = (row?.revision ?? 0) + 1;
+      const lose = losePut;
+      losePut = false;
       rows.set(id, {
         draftId: id, sessionId: body.sessionId, revision, updatedAt: 9_000 + revision, text: body.text,
         attachments: body.attachmentIds.map((a) => ({ attachmentId: a, mime: images.get(a)!.mime as "image/png", bytes: images.get(a)!.bytes, name: null })),
       });
+      // Stored, and the answer lost on the way back.
+      if (lose) throw new TypeError("fetch failed");
       return json({ revision, updatedAt: 9_000 + revision });
     }
     return json({ error: "DRAFT_INVALID", message: "" }, 400);
@@ -77,6 +82,7 @@ function fakeHost() {
     rows, calls, request,
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
+    loseNextPut: () => { losePut = true; },
     setMaxText: (value: number) => { maxText = value; },
     /** Hold every draft read until the returned release is called. */
     holdGets: () => { let release!: () => void; getHold = new Promise<void>((r) => { release = r; }); return () => { getHold = null; release(); }; },
@@ -301,6 +307,44 @@ describe("restoring, continued", () => {
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
     await until(() => drafts().drafts["d-b"] !== undefined);
     expect(drafts().drafts[drafts().idFor(ITHACA)]).toMatchObject({ draftId: "d-b", text: "Ask Hermes", conflict: null });
+  });
+});
+
+describe("uncertain answers", () => {
+  test("a draft emptied after a save whose answer was lost is deleted on the host, not brought back", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    host.loseNextPut();
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => drafts().drafts[id]?.uncertain === true);
+    expect(host.rows.get(id)?.revision, "the host stored it").toBe(1);
+    drafts().edit(id, ITHACA, { text: "" });
+    await until(() => host.rows.get(id)?.deleted === true);
+    expect(drafts().drafts[id]).toBeUndefined();
+  });
+
+  test("a list that got no answer is asked again", async () => {
+    const host = fakeHost();
+    host.rows.set("d-letter", { draftId: "d-letter", sessionId: null, revision: 1, updatedAt: 2, text: "Letter to Penelope", attachments: [] });
+    host.setDown(true);
+    const { drafts } = boot(host);
+    await wait(100);
+    expect(drafts().drafts["d-letter"]).toBeUndefined();
+    host.setDown(false);
+    await until(() => drafts().drafts["d-letter"]?.text === "Letter to Penelope", 5_000);
+  });
+
+  test("a host too old to send a hello keeps no drafts, and the line says so", async () => {
+    globalThis.WebSocket = FixtureSocket as unknown as typeof WebSocket;
+    const host = fakeHost();
+    const ui = createBrainUiRoot({ storage: null, request: host.request, config: { backendUrl: "https://ithaca-harbour.example" } });
+    roots.push(ui);
+    ui.connection.connect();
+    const socket = FixtureSocket.last!;
+    socket.open();
+    socket.deliver({ type: "status", status: "idle" });
+    expect(ui.stores.drafts.getState().supported).toBe(false);
   });
 });
 

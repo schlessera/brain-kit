@@ -78,7 +78,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (d.conflict) return false;
     if (d.failure && d.failure.kind !== "unsaved") return false;
     if (d.bind) return true;
-    if (!hasContent(d)) return d.host !== null && !held(d.draftId);
+    if (!hasContent(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
   }
 
@@ -118,7 +118,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       store.saveFailed(draftId, { kind: "full", limit: Number(body.limit) || store.limits.maxDrafts, bound: String(body.bound ?? "drafts") });
       return;
     }
-    store.saveFailed(draftId, { kind: "unsaved" });
+    // No answer at all: the host may have stored it. That is settled before
+    // an emptied draft is forgotten (`step`).
+    store.saveFailed(draftId, { kind: "unsaved" }, result.status === 0);
     backoff(draftId);
   }
 
@@ -145,6 +147,18 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (result.ok) { bumpHost(d.draftId); drafts.getState().bound(d.draftId, result.value.revision); return; }
       if (result.status === 409 && result.body.error === "DRAFT_NOT_ACCEPTED") { drafts.getState().bindFailed(d.draftId); return; }
       failed(d.draftId, result);
+      return;
+    }
+    if (!hasContent(d) && !d.host && d.uncertain) {
+      // Emptied after a save that got no answer: ask what the host holds,
+      // and delete what it stored, rather than let a refresh bring it back.
+      const read = await api.get(d.draftId);
+      if (read.ok) {
+        const result = await api.remove(d.draftId, read.value.revision);
+        if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result); return; }
+      } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read); return; }
+      bumpHost(d.draftId);
+      drafts.getState().removed(d.draftId);
       return;
     }
     if (!hasContent(d)) {
@@ -227,6 +241,16 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
   }
 
+  let refreshRetry: { timer: ReturnType<typeof setTimeout>; tries: number } | null = null;
+  /** A list or a read that got no answer, or a transient refusal: ask again, backing off. */
+  function retryRefresh() {
+    if (disposed) return;
+    const tries = refreshRetry?.tries ?? 0;
+    if (refreshRetry) clearTimeout(refreshRetry.timer);
+    refreshRetry = { tries: tries + 1, timer: setTimeout(() => { void refresh(); }, RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]) };
+  }
+  const transient = (status: number) => status === 0 || status >= 500 || status === 401 || status === 403;
+
   /** The host's drafts, applied: newer versions restored or raised as conflicts. */
   async function refresh(): Promise<void> {
     if (!live() || listing) return;
@@ -234,7 +258,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const before = new Map(hostSeq);
     try {
       const result = await api.list();
-      if (!result.ok || disposed) return;
+      if (disposed) return;
+      if (!result.ok) { if (transient(result.status)) retryRefresh(); return; }
+      let readFailed = false;
       const listed = new Map(result.value.drafts.map((s) => [s.draftId, s]));
       let freed = false;
       // Gone from the host while nothing here is newer: deleted or sent
@@ -258,9 +284,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // (a save, a delete, a send that consumed it): the read is stale.
         if ((hostSeq.get(summary.draftId) ?? 0) !== seq || (before.get(summary.draftId) ?? 0) !== seq || busy.has(summary.draftId)) continue;
         if (full.ok) drafts.getState().restore(full.value);
+        else if (transient(full.status)) readFailed = true;
       }
       // A draft deleted or sent elsewhere freed a place on the host.
       if (freed) retryFull();
+      if (readFailed) retryRefresh();
+      else if (refreshRetry) { clearTimeout(refreshRetry.timer); refreshRetry = null; }
     } finally {
       listing = false;
     }
@@ -469,6 +498,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
       for (const retry of orphanRetries.values()) clearTimeout(retry.timer);
+      if (refreshRetry) clearTimeout(refreshRetry.timer);
       orphanRetries.clear();
       unsubscribeDrafts();
       unsubscribeConnection();

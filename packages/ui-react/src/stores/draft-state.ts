@@ -68,6 +68,8 @@ export interface ComposerDraft {
    * either side until the reader chooses.
    */
   conflict: { other: Draft; sameId: boolean } | null;
+  /** A save of this id got no answer before the host acknowledged any: it may have been stored. */
+  uncertain: boolean;
   /** The accepted request that started this draft's session, to bind it on the host. */
   bind: { sessionId: string; requestId: string } | null;
 }
@@ -158,7 +160,7 @@ export interface DraftStoreState {
   setSupport(supported: boolean, limits?: SessionDraftLimits): void;
   saving(draftId: string, since: number | null): void;
   saved(draftId: string, copy: DraftHostCopy, uploads: ReadonlyMap<PendingAttachment, string>): void;
-  saveFailed(draftId: string, failure: DraftSaveFailure): void;
+  saveFailed(draftId: string, failure: DraftSaveFailure, uncertain?: boolean): void;
   uploaded(draftId: string, attachment: PendingAttachment, attachmentId: string): void;
   /** The host's uploads for this draft are gone; upload again on the next save. */
   forgetUploads(draftId: string): void;
@@ -194,7 +196,7 @@ export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): 
     if ((d.text.length > 0 || d.attachments.length > 0) && !(d.host !== null && d.host.edit === d.edit)) return true;
     // Emptied, with the host still holding it: the delete has not landed.
     // Or a save is out: its answer is still owed.
-    if (d.conflict || d.savingSince !== null || (d.host !== null && d.text.length === 0 && d.attachments.length === 0)) return true;
+    if (d.conflict || d.savingSince !== null || d.uncertain || (d.host !== null && d.text.length === 0 && d.attachments.length === 0)) return true;
   }
   return Object.values(state.sends).some((s) => s.state === "pending" || s.state === "unconfirmed");
 }
@@ -208,7 +210,7 @@ export const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.
 function blank(draftId: string, sessionId: string | null, now: number): ComposerDraft {
   return {
     draftId, sessionId, text: "", attachments: [], editedAt: now, edit: 0, host: null,
-    uploads: new Map(), failure: null, savingSince: null, conflict: null, bind: null,
+    uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
   };
 }
 
@@ -282,7 +284,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function settle(draftId: string) {
       const d = get().drafts[draftId];
       // A save still out may yet be acknowledged: then the host has a revision to delete.
-      if (d && !hasContent(d) && d.host === null && d.conflict === null && d.savingSince === null && !held(draftId)) drop(draftId);
+      if (d && !hasContent(d) && d.host === null && d.conflict === null && d.savingSince === null && !d.uncertain && !held(draftId)) drop(draftId);
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
@@ -317,7 +319,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
      * since. `owned`: no transcript row shows its images any more, so the
      * draft owns their previews again and removing one may revoke it.
      */
-    function giveBack(send: DraftSend, owned: boolean) {
+    function giveBack(send: DraftSend, owned: boolean, settleSend: (sends: Record<string, DraftSend>) => Record<string, DraftSend>) {
       if (owned) for (const a of send.attachments) transferred.delete(a.previewUrl);
       const state = get();
       const d = state.drafts[send.draftId]
@@ -329,8 +331,16 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       // cannot break the composer's.
       const returned = owned ? send.attachments : send.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
       const attachments = [...returned, ...d.attachments.filter((a) => !send.attachments.includes(a))];
-      put({ ...d, text, attachments, edit: d.edit + 1, editedAt: now() });
+      const back = { ...d, text, attachments, edit: d.edit + 1, editedAt: now() };
+      // One change: the content is back in the draft in the same state that
+      // settles the send, so nothing observing the store ever sees neither.
+      set((s) => ({ drafts: { ...s.drafts, [back.draftId]: back }, sends: settleSend(s.sends) }));
     }
+    const without = (requestId: string) => (sends: Record<string, DraftSend>) => {
+      const next = { ...sends };
+      delete next[requestId];
+      return next;
+    };
 
     return {
       drafts: {},
@@ -411,12 +421,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       sendFailed(requestId) {
         const send = get().sends[requestId];
         if (!send) return;
-        set((s) => {
-          const sends = { ...s.sends };
-          delete sends[requestId];
-          return { sends };
-        });
-        giveBack(send, true);
+        giveBack(send, true, without(requestId));
       },
 
       accepted(requestId, sessionId) {
@@ -463,9 +468,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       refused(requestId) {
         const send = get().sends[requestId];
         if (!send || send.state === "accepted" || send.state === "refused") return;
-        set((s) => ({ sends: { ...s.sends, [requestId]: { ...send, state: "refused" } } }));
         // The refused message stays in the transcript, its images with it.
-        giveBack(send, false);
+        giveBack(send, false, (sends) => ({ ...sends, [requestId]: { ...send, state: "refused" } }));
       },
 
       unconfirmed(reason) {
@@ -482,12 +486,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!send || send.state !== "unconfirmed") return;
         // A new chat's first message goes back to its own draft, which the new-chat view then shows.
         if (send.sessionId === null) set({ fresh: send.draftId });
-        set((s) => {
-          const sends = { ...s.sends };
-          delete sends[requestId];
-          return { sends };
-        });
-        giveBack(send, true);
+        giveBack(send, true, without(requestId));
       },
 
       resend(requestId, nextRequestId) {
@@ -546,7 +545,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // A revision acknowledged after this page's send was accepted is the
         // host's newer one: that send did not consume it.
         if (copy.revision > (d.host?.revision ?? 0)) consumed.delete(draftId);
-        put({ ...d, host: copy, uploads: kept, failure: null, savingSince: null });
+        put({ ...d, host: copy, uploads: kept, failure: null, savingSince: null, uncertain: false });
         // Acknowledged unbound after this page's send bound the draft to a
         // session: no message named this revision, so nothing can bind it.
         // The content moves to a new id of that session; the old one goes.
@@ -557,9 +556,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         settle(draftId);
       },
 
-      saveFailed(draftId, failure) {
+      saveFailed(draftId, failure, uncertain) {
         const d = get().drafts[draftId];
-        if (d) put({ ...d, failure, savingSince: null });
+        if (d) put({ ...d, failure, savingSince: null, ...(uncertain && d.host === null ? { uncertain: true } : {}) });
       },
 
       uploaded(draftId, attachment, attachmentId) {

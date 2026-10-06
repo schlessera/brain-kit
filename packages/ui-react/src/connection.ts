@@ -305,7 +305,11 @@ export function createWebSocketClient(root: BrainUiServices) {
     // answers be revalidated and replayed.
     if (!answersReady && wsClient && wsClient.hello !== "pending") {
       // A host too old to send a hello has no recovery to offer.
-      if (wsClient.hello === "absent") root.stores.trackers.getState().setRecoverySupported(false);
+      if (wsClient.hello === "absent") {
+        root.stores.trackers.getState().setRecoverySupported(false);
+        // Nor any drafts: the line says so rather than `not saved yet` forever.
+        root.stores.drafts.getState().setSupport(false);
+      }
       answersReady = true;
       answers.connected();
     }

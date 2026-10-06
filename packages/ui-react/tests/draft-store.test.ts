@@ -433,6 +433,24 @@ describe("the host's versions", () => {
     expect(holdsUnsaved(state())).toBe(false);
   });
 
+  test("Edit, refusal and a failed send never pass through a state with nothing held", () => {
+    for (const settle of ["edit", "refused", "failed"] as const) {
+      const { s, state } = store();
+      const id = state().idFor(RAFT);
+      state().edit(id, RAFT, { text: "Lash" });
+      state().beginSend({ requestId: "req-1", draftId: id, sessionId: RAFT, text: "Lash", attachments: [], message: message("Lash") }, "Lash");
+      if (settle === "edit") state().unconfirmed("disconnected");
+      const seen: boolean[] = [];
+      const off = s.subscribe((now) => seen.push(holdsUnsaved(now)));
+      if (settle === "edit") state().editSend("req-1");
+      else if (settle === "refused") state().refused("req-1");
+      else state().sendFailed("req-1");
+      off();
+      expect(seen.length, settle).toBeGreaterThan(0);
+      expect(seen.every(Boolean), `${settle}: the words are held at every step`).toBe(true);
+    }
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);
