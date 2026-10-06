@@ -449,6 +449,8 @@ export function createBrainApi(
           numTurns: number;
           backendId?: string;
           handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
+          /** The host's few-word pill label (#1004); trackers fall back to `title`. */
+          label?: string;
         }>;
       }>("/sessions"),
 

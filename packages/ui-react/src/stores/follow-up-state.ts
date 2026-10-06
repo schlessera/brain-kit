@@ -30,6 +30,8 @@ export interface PendingFollowUp {
   fileCount?: number;
   source?: MessageSource;
   queuedAt: number;
+  /** The host's few-word label (#1004), once its label model wrote one. */
+  label?: string;
   /** The host has reported it: it is persisted for as long as the host runs. */
   confirmed: boolean;
 }

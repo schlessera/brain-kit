@@ -15,11 +15,16 @@ function carried(f: StoredFollowUp): string {
 }
 
 /**
- * The kit's view of one stored follow-up. Until #1004 supplies a few-word
- * label, the kit prints the start of the text.
+ * The kit's view of one stored follow-up. The host's few-word label (#1004)
+ * is passed through when it has one; without it the kit prints the start of
+ * the text.
  */
 export function pendingView(f: StoredFollowUp): PendingFollowUp {
-  return { id: f.id, text: f.text.trim() ? f.text : carried(f) || f.text };
+  return {
+    id: f.id,
+    text: f.text.trim() ? f.text : carried(f) || f.text,
+    ...(f.label?.trim() ? { label: f.label } : {}),
+  };
 }
 
 /**

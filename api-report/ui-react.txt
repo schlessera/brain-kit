@@ -794,6 +794,7 @@ signatures (every public export and the types it is made of)
         fileCount?: number;
         source?: MessageSource;
         queuedAt: number;
+        label?: string;
         confirmed: boolean;
     }
   PendingTurnRetry (packages/ui-react/src/stores/chat-state.ts)
@@ -1337,6 +1338,7 @@ signatures (every public export and the types it is made of)
                     title: null | string;
                 };
                 id: string;
+                label?: string;
                 lastActiveAt: number;
                 numTurns: number;
                 title: null | string;
@@ -1706,6 +1708,7 @@ signatures (every public export and the types it is made of)
                     title: null | string;
                 };
                 id: string;
+                label?: string;
                 lastActiveAt: number;
                 numTurns: number;
                 title: null | string;
